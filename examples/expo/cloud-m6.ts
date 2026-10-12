@@ -54,18 +54,26 @@ const checked = (args: unknown) => {
   if (typeof a?.input !== 'string' || a.input.length > 512 || Object.keys(a).some(k => k !== 'input')) throw new Error('The machine tool arguments were invalid.');
 };
 /** One agent turn: the model calls the one machine-state tool, the paired cloud host answers it, and the model replies. */
+// Names the turn step that failed (the error keeps its safe message, status and reason).
+const step = <T>(call: string, run: () => Promise<T>) => run().catch((e: unknown) => { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { call }); });
+/** The lab's diagnostic line: which call, HTTP status, kind and reason, never a message body or credential. */
+export const diagnostic = (e: unknown) => {
+  const x = (e ?? {}) as { call?: unknown; status?: unknown; kind?: unknown; reason?: unknown; name?: unknown };
+  const safe = (v: unknown) => typeof v === 'number' || (typeof v === 'string' && /^[A-Za-z0-9 _.-]{1,64}$/.test(v)) ? v : undefined;
+  return 'M6 diagnostic ' + JSON.stringify({ call: safe(x.call), status: safe(x.status), kind: safe(x.kind), reason: safe(x.reason) ?? safe(x.name) });
+};
 export async function pairedTurn(accounts: Accounts<any, number>, link: Pick<DeviceLink, 'request'>, plan: 'claude' | 'chatgpt' = 'claude') {
   if (plan === 'claude') {
     const ask = { provider: 'claude' as const, model: provider('claude').models.strong, max_tokens: 1024 };
     const tools = [{ name: 'get_machine', description: 'Read the paired cloud computer state.', input_schema: schema }];
-    const first = await accounts.respond(1, { ...ask, system: 'Call only the approved machine-state tool.', messages: [{ role: 'user', content: prompt }], tools, tool_choice: { type: 'tool', name: 'get_machine' } });
+    const first = await step('tool call', () => accounts.respond(1, { ...ask, system: 'Call only the approved machine-state tool.', messages: [{ role: 'user', content: prompt }], tools, tool_choice: { type: 'tool', name: 'get_machine' } }));
     const calls = first.raw.content.filter((c): c is AnthropicToolUse => c.type === 'tool_use');
     if (calls.length !== 1 || calls[0].name !== 'get_machine') throw new Error('The model did not return the single approved machine-state tool call.');
     checked(calls[0].input);
-    const state = await link.request('get.state');
+    const state = await step('machine state', () => link.request('get.state'));
     // Anthropic refuses tool_use/tool_result history without the tools defined; 'none' keeps the answer to text.
-    const { text } = await accounts.respond(1, { ...ask, system: 'Use the tool result, not a guess. Answer in one short sentence.', tools, tool_choice: { type: 'none' }, messages: [{ role: 'user', content: prompt },
-      { role: 'assistant', content: first.raw.content }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: calls[0].id, content: JSON.stringify(state) }] }] });
+    const { text } = await step('answer', () => accounts.respond(1, { ...ask, system: 'Use the tool result, not a guess. Answer in one short sentence.', tools, tool_choice: { type: 'none' }, messages: [{ role: 'user', content: prompt },
+      { role: 'assistant', content: first.raw.content }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: calls[0].id, content: JSON.stringify(state) }] }] }));
     if (!text.trim()) throw new Error('The agent returned no final answer.');
     return { text, state };
   }

@@ -1,0 +1,1 @@
+- Claude plan answer failures keep their generic message but now carry the HTTP `status` and a safe `reason` on `ResponseError`: Anthropic's error type, or the local error's name. Neither is a message body, so apps can log why a call failed without risking a credential echo.

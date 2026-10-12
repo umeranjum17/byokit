@@ -19,6 +19,8 @@ export class ResponseError extends Error {
   /** HTTP metadata, when the failure came from an HTTP response. Only the retry header is added. */
   status?: number;
   retryAfter?: string;
+  /** Safe-to-log cause: the provider's error type or the local error's name, never a message body. */
+  reason?: string;
   constructor(message: string, kind: Kind | null, until = 0, http?: { status: number; retryAfter?: string }) {
     super(message); this.kind = kind; this.until = until;
     if (http) { this.status = http.status; this.retryAfter = http.retryAfter; }

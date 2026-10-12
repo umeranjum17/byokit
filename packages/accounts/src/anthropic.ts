@@ -88,7 +88,9 @@ const error = (status: number, value: unknown): ResponseError => {
   const kind = status === 429 || e.type === 'rate_limit_error' ? 'rate_limit'
     : status === 401 || status === 403 || e.type === 'authentication_error' ? 'signed_out'
       : status >= 500 || e.type === 'overloaded_error' ? 'overloaded' : null;
-  return new ResponseError(typeof e.message === 'string' ? e.message : 'Anthropic could not answer. Try again.', kind);
+  const out = new ResponseError(typeof e.message === 'string' ? e.message : 'Anthropic could not answer. Try again.', kind, 0, { status });
+  if (typeof e.type === 'string' && /^[a-z_]{1,64}$/.test(e.type)) out.reason = e.type;
+  return out;
 };
 
 /** Recorded Messages SSE, split at arbitrary UTF-8/chunk boundaries. Completion requires message_stop. */
@@ -227,7 +229,12 @@ export function anthropicMessages(opts: Pick<AnthropicOptions, 'fetch' | 'base' 
   async function respond(o: AnthropicAsk): Promise<string | AnthropicResult> {
     try { return await run(o); } catch (e) {
       if (!opts.safeErrors || e instanceof AnthropicIncompleteError) throw e;
-      throw new ResponseError('Claude could not answer. Try again or sign in again.', e instanceof ResponseError ? e.kind : 'network');
+      // The message stays generic (a provider message can echo a credential); status and reason say why, safely.
+      const safe = new ResponseError('Claude could not answer. Try again or sign in again.', e instanceof ResponseError ? e.kind : 'network', 0,
+        e instanceof ResponseError && e.status !== undefined ? { status: e.status, retryAfter: e.retryAfter } : undefined);
+      const reason = e instanceof ResponseError ? e.reason : (e as Error | undefined)?.name;
+      if (reason && /^[A-Za-z_]{1,64}$/.test(reason)) safe.reason = reason;
+      throw safe;
     }
   }
   async function run(o: AnthropicAsk): Promise<string | AnthropicResult> {

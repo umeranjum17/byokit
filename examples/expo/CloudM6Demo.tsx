@@ -5,7 +5,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { boat, machine, type MachineRecord } from '@byokit/cloud';
 import { DeviceLink, pairWithOffer, secureDeviceStore } from '@byokit/pair';
 import type { Accounts } from '@byokit/accounts';
-import { cloudRecipe, M6_API, M6_KEY, pairedTurn, trialBudget } from './cloud-m6.ts';
+import { cloudRecipe, diagnostic, M6_API, M6_KEY, pairedTurn, trialBudget } from './cloud-m6.ts';
 // One create and one turn per approved run: the build names the run, so an approved retry starts clean (pm clear is blocked on some phones).
 const run = process.env.EXPO_PUBLIC_M6_RUN ? '.' + process.env.EXPO_PUBLIC_M6_RUN : '';
 const recordKey = 'byokit.m6.machine' + run, identityKey = 'byokit.m6.identity' + run, turnKey = 'byokit.m6.turn' + run;
@@ -62,7 +62,7 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
   };
   const act = async (run: () => Promise<void>) => {
     if (locked.current) return; locked.current = true; setBusy(true); cause.current = '';
-    try { await run(); } catch (e) { const key = await SecureStore.getItemAsync(M6_KEY); say(cause.current || (key ? String((e as Error).message).split(key).join('[private]') : `Lab step failed (${(e as Error & { code?: string }).code ?? (e as Error).name}); key already removed.`)); }
+    try { await run(); } catch (e) { console.warn(diagnostic(e)); const key = await SecureStore.getItemAsync(M6_KEY); say(cause.current || (key ? String((e as Error).message).split(key).join('[private]') : `Lab step failed (${(e as Error & { code?: string }).code ?? (e as Error).name}); key already removed.`)); }
     finally { locked.current = false; setBusy(false); }
   };
   // The one approved Claude plan sign-in: Main opens the link and pastes the code here; nothing leaves this phone.

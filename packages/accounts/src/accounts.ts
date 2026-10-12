@@ -904,8 +904,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
           // carries its until. With no select the rethrow only fires when the acted kind differs, so the primary
           // path stays byte-identical.
           const acted = await this.failed(member, account, e, picked !== undefined);
-          if (acted && (picked !== undefined || acted.kind !== e.kind)) throw new ResponseError(e.message, acted.kind, acted.until,
-            e.status !== undefined ? { status: e.status, retryAfter: e.retryAfter } : undefined);
+          if (acted && (picked !== undefined || acted.kind !== e.kind)) throw Object.assign(new ResponseError(e.message, acted.kind, acted.until,
+            e.status !== undefined ? { status: e.status, retryAfter: e.retryAfter } : undefined), e.reason ? { reason: e.reason } : {});
         }
         throw e;
       }

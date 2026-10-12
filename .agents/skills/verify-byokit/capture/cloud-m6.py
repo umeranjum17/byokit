@@ -69,6 +69,9 @@ finally:
         if video:
             try: adb('pull', '/sdcard/byokit-m6-recording.mp4', str(out / 'journey.mp4')); sp.run(['ffprobe', '-v', 'error', str(out / 'journey.mp4')], check=True)
             except sp.CalledProcessError: record['recording'] = 'none: screenrecord produced no file on this phone'
+        if not record['qualified']:  # the lab's safe diagnostic line (call, HTTP status, kind, reason), never a message body
+            try: record['diagnostic'] = [l.split('M6 diagnostic ', 1)[1] for l in adb('logcat', '-d', '-v', 'brief', 'ReactNativeJS:W', '*:S').decode(errors='replace').splitlines() if 'M6 diagnostic ' in l][-5:]
+            except sp.SubprocessError: record['diagnostic'] = 'logcat unavailable'
         if opened: adb('shell', 'am', 'force-stop', app); adb('shell', 'rm', '-f', '/sdcard/byokit-m6-ui.xml')
         record['skips'] = ['before: new lab-only route absent on base', 'desktop/web: native-only lab', 'dark: fixed light lab screen']
         record['setup_seconds'] = record.get('setup_end', time.time()) - record['setup_start']
