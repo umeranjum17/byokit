@@ -32,6 +32,7 @@ def tap(name):
                 if y2 > y1 > 0: adb('shell', 'input', 'tap', str((x1+x2)//2), str((y1+y2)//2)); return
         adb('shell', 'input', 'swipe', '500', '1500', '500', '650', '300')
     raise RuntimeError('Lab button unavailable: ' + name)
+def mark(step): record.setdefault('steps', {})[step] = round(time.time() - record['setup_start'], 1)  # seconds since setup start
 def shot(name): (out / (name + '.png')).write_bytes(adb('exec-out', 'screencap', '-p'))
 signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # a lock timeout still runs the cleanup below
 record = {'device': serial, 'setup_start': time.time(), 'human_steps': ['Main unlock (PIN not observed)'], 'qualified': False}
@@ -43,19 +44,20 @@ try:
     record['signins'] = next(n.get('text') for n in ui() if n.get('resource-id') == 'm6-signins')
     if not any('Existing Claude sign-in available.' in n.get('text', '') for n in ui()):
         raise RuntimeError('Existing phone-local Claude sign-in unavailable; ask Main, do not sign in')
+    mark('signin_checked')
     secret = Path(keyfile).read_bytes().strip()
     record['key_imported'] = True; (out / 'manifest.tmp').write_text(json.dumps(record)); (out / 'manifest.tmp').replace(out / 'manifest.json')
     adb('shell', 'content', 'write', '--uri', 'content://' + app + '.m6/key', data=secret)
-    wait('Lab key ready.'); shot('ready')
-    tap('m6-create'); nodes = wait('Cloud computer created.', 360)
+    wait('Lab key ready.'); mark('key_ready'); shot('ready')
+    mark('create_tapped'); tap('m6-create'); nodes = wait('Cloud computer created.', 360); mark('created')
     record['machine'] = next(n.get('text')[9:] for n in nodes if n.get('resource-id') == 'm6-resource'); (out / 'manifest.tmp').write_text(json.dumps(record)); (out / 'manifest.tmp').replace(out / 'manifest.json'); shot('created')
-    tap('m6-install'); wait('Host installed and running.', 900); shot('installed')
+    tap('m6-install'); wait('Host installed and running.', 900); mark('ready_installed'); shot('installed')
     remote = '/sdcard/byokit-m6-recording.mp4'
     video = sp.Popen(['adb', '-s', serial, 'shell', f'screenrecord --time-limit 180 {remote} >/dev/null 2>&1 & echo $!; wait $!'], stdout=sp.PIPE, stderr=sp.DEVNULL)
     video_pid = int(video.stdout.readline().strip())
-    tap('m6-pair'); wait("Paired with Umer's cloud computer."); record['setup_end'] = time.time(); shot('paired')
-    tap('m6-turn'); wait('One paired agent turn completed.', 120); shot('turn')
-    tap('m6-stop'); wait('Cloud computer stopped and removed. Lab key removed.', 360); shot('stopped')
+    tap('m6-pair'); wait("Paired with Umer's cloud computer."); mark('paired'); record['setup_end'] = time.time(); shot('paired')
+    mark('turn_tapped'); tap('m6-turn'); wait('One paired agent turn completed.', 120); mark('first_turn'); shot('turn')
+    mark('stop_tapped'); tap('m6-stop'); wait('Cloud computer stopped and removed. Lab key removed.', 360); mark('stopped'); shot('stopped')
     record['qualified'] = True; record['key_removed'] = True
 finally:
     try:
