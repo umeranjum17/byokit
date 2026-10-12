@@ -1,15 +1,16 @@
 // The per-member account index (5.15, O14 step S5): `<root>/accounts/<member>.json` (0600, whole-file temp
 // plus rename) is the only kit state: `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?,
-// who? } }, defaults }`. No credential, token, email or engine line. Listing, rename, defaults, models, room and
-// adding (O14 step S6) live here; remove, pick and move arrive in later steps.
+// who? } }, defaults }`. No credential, token, email or engine line. Listing, rename, defaults, models, room,
+// adding (O14 step S6) and the start-of-run pick (S10) live here; remove and move arrive in later steps.
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { createLocks } from './locks.ts';
+import { resolveSelection } from './pick.ts';
 import { KEY_PREFIX, MEMBER_ID, NEW_MEMBER_ID, untilListed } from './members.ts';
 import { routes, routeFor } from './routes.ts';
 import { words } from './words.ts';
-import type { Account, AccountId, Defaults, GatewayTransport, Member, ModelInfo, Room, RoomSpan, SignInOptions, SignInState, SignInView } from './types.ts';
+import type { Account, AccountId, AccountPick, Defaults, GatewayTransport, Member, ModelInfo, Room, RoomSpan, RunSelection, SignInOptions, SignInState, SignInView } from './types.ts';
 
 type IndexEntry = { agent: string; name: string; route: string; addedAt: number; until?: number; model?: string; who?: string };
 type IndexFile = { v: 1; accounts: Record<string, IndexEntry>; defaults: Defaults };
@@ -52,10 +53,14 @@ export function createAccounts(ctx: {
   setDefaults(member: Member, d: Defaults): Promise<void>;
   models(member: Member, id: AccountId): Promise<ModelInfo[]>;
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;
+  pick(member: Member, sel: RunSelection): Promise<{ pick: AccountPick; agent?: string }>;
+  rest(member: Member, id: AccountId, until: number): Promise<void>;
 } {
   const path = (member: Member): string => join(ctx.root, 'accounts', `${member}.json`);
   // Accounts whose sign-in is running, as `<member>\n<id>`, counted per add: listed `signing` until the last one ends.
   const signing = new Map<string, number>();
+  // The index file's own lock, apart from any agent's: a run's shared hold on the member agent never blocks an edit.
+  const indexLock = (member: Member): string => `${member}#index`;
   const check = (member: Member): void => {
     if (!MEMBER_ID.test(member) || member.startsWith(KEY_PREFIX)) throw new Error(`invalid member id: ${member}`);
   };
@@ -243,11 +248,11 @@ export function createAccounts(ctx: {
   async function list(member: Member): Promise<Account[]> {
     check(member);
     const { agentId } = await ctx.ensure(member);
-    const first = await ctx.locks.shared(agentId, () => buildRows(member, agentId));
+    const first = await ctx.locks.shared(indexLock(member), () => buildRows(member, agentId));
     if (!first.dirty) return first.rows;
     // A write is needed (synthesized entry, `who` backfill or dropped default): redo it under the
     // exclusive lock so two first-lists cannot interleave their read-modify-write.
-    return ctx.locks.exclusive([agentId], async () => {
+    return ctx.locks.exclusive([indexLock(member)], async () => {
       const { rows, dirty, file } = await buildRows(member, agentId);
       if (dirty) write(member, file);
       return rows;
@@ -257,9 +262,8 @@ export function createAccounts(ctx: {
   async function rename(member: Member, id: AccountId, name: string): Promise<Account> {
     check(member);
     const trimmed = named(name, 'renameAccount');
-    const { agentId } = await ctx.ensure(member);
     if (!(await list(member)).some((r) => r.id === id)) throw new Error(`unknown account: ${id}`);
-    await ctx.locks.exclusive([agentId], async () => {
+    await ctx.locks.exclusive([indexLock(member)], async () => {
       const file = read(member);
       const entry = file.accounts[id];
       if (!entry) throw new Error(`unknown account: ${id}`);
@@ -282,8 +286,8 @@ export function createAccounts(ctx: {
     if (d.account !== undefined && typeof d.account !== 'string') throw new Error('setDefaults: defaults are invalid');
     if (d.model !== undefined && typeof d.model !== 'string') throw new Error('setDefaults: defaults are invalid');
     if (d.auto !== undefined && typeof d.auto !== 'boolean') throw new Error('setDefaults: defaults are invalid');
-    const { agentId } = await ctx.ensure(member);
-    return ctx.locks.exclusive([agentId], async () => {
+    await ctx.ensure(member);
+    return ctx.locks.exclusive([indexLock(member)], async () => {
       const file = read(member);
       const next: Defaults = {};
       if (d.account !== undefined) next.account = d.account;
@@ -297,21 +301,23 @@ export function createAccounts(ctx: {
     check(member);
     await ctx.ensure(member);
     const { row, entry } = await entryOf(member, id);
-    // The shared hold covers the read, so no kit read of the agent is in flight while it is removed.
-    return ctx.locks.shared(entry.agent, async () => {
-      const answer = await ctx.request('models.list', { agentId: entry.agent, view: 'default' });
-      return modelsOf(row.provider, answer);
-    });
+    return readModels(row, entry);
   }
+  // The shared hold covers the read, so no kit read of the agent is in flight while it is removed.
+  const readModels = (row: Account, entry: IndexEntry): Promise<ModelInfo[]> => ctx.locks.shared(entry.agent, async () =>
+    modelsOf(row.provider, await ctx.request('models.list', { agentId: entry.agent, view: 'default' })));
 
   async function room(member: Member, id: AccountId, demand?: string[]): Promise<Room> {
     check(member);
     await ctx.ensure(member);
     const { row, entry } = await entryOf(member, id);
-    // An API-key account is used only when chosen, never by Auto: its room is always unknown, with no read.
-    if (row.billing === 'api') return { left: 'unknown' };
-    // `demand` is accepted but never narrows the windows: see `roomOf`.
-    return ctx.locks.shared(entry.agent, async () => {
+    return readRoom(row, entry);
+  }
+  // An API-key account is used only when chosen, never by Auto: its room is always unknown, with no read. A demand
+  // never narrows the windows (see `roomOf`), so the read takes none.
+  const readRoom = (row: Account, entry: IndexEntry): Promise<Room> => row.billing === 'api'
+    ? Promise.resolve({ left: 'unknown' })
+    : ctx.locks.shared(entry.agent, async () => {
       let answer: unknown;
       try {
         answer = await ctx.request('models.authStatus', { agentId: entry.agent }, { timeoutMs: 20_000 });
@@ -320,11 +326,30 @@ export function createAccounts(ctx: {
       }
       return roomOf(row.provider, answer);
     });
+
+  // Choosing (5.15) for an unbound key: every listed account's room and models are read live once, then the pure
+  // `resolveSelection` decides. `agent` is the picked account's engine agent. A model unavailable only because the
+  // account is signed out or resting is still in its plan: the account's state and the run's ready check judge that.
+  async function pick(member: Member, sel: RunSelection): Promise<{ pick: AccountPick; agent?: string }> {
+    const rows = await list(member);
+    const file = read(member);
+    const reads = new Map(await Promise.all(rows.map(async (row) => {
+      const entry = file.accounts[row.id]!;
+      const models = (await readModels(row, entry)).map((m) => (m.why ? { ...m, available: true } : m));
+      return [row.id, { room: await readRoom(row, entry), models }] as const;
+    })));
+    const chosen = resolveSelection(rows, file.defaults, sel, (a) => reads.get(a.id)!.room, Date.now(),
+      (a) => reads.get(a.id)!.models);
+    return { pick: chosen, ...(chosen.ok ? { agent: file.accounts[chosen.account.id]!.agent } : {}) };
   }
 
-  // Index edits take the member agent's exclusive lock, as listing's own write does.
-  const edit = (member: Member, agentId: string, fn: (file: IndexFile) => void): Promise<void> =>
-    ctx.locks.exclusive([agentId], async () => { const file = read(member); fn(file); write(member, file); });
+  // A run on the account ended resting: Auto skips it until `until` (its state reads `resting` until then).
+  const rest = (member: Member, id: AccountId, until: number): Promise<void> =>
+    edit(member, (file) => { const entry = file.accounts[id]; if (entry) entry.until = until; });
+
+  // Index edits take the index lock, as listing's own write does.
+  const edit = (member: Member, fn: (file: IndexFile) => void): Promise<void> =>
+    ctx.locks.exclusive([indexLock(member)], async () => { const file = read(member); fn(file); write(member, file); });
   const identityOf = async (agentId: string): Promise<string | undefined> => {
     const { file } = await ctx.request('agents.files.get', { agentId, name: IDENTITY }) as { file: { missing?: boolean; content?: string } };
     return file.missing ? undefined : file.content;
@@ -338,13 +363,13 @@ export function createAccounts(ctx: {
       .then((r) => r.agents.some((a) => a.id === agent)));
   // A new agent whose sign-in did not finish goes with its entry (5.15); the shared workspace stays. The entry is
   // dropped only once the agent's directory is gone, so a later removal can finish what this one could not.
-  const discard = (member: Member, memberAgent: string, id: AccountId, agent: string, created: boolean): Promise<void> => (async () => {
+  const discard = (member: Member, id: AccountId, agent: string, created: boolean): Promise<void> => (async () => {
     if (created) {
       await ctx.request('byokit.accounts', { action: 'clear', agentId: agent });
       await ctx.request('agents.delete', { agentId: agent, deleteFiles: false });
     }
     rmSync(join(ctx.root, 'state', 'agents', agent), { recursive: true, force: true });
-    await edit(member, memberAgent, (file) => { delete file.accounts[id]; });
+    await edit(member, (file) => { delete file.accounts[id]; });
   })().catch((error: unknown) => ctx.log?.(`addAccount: ${agent} is not removed yet: ${error instanceof Error ? error.message : String(error)}`));
 
   async function add(member: Member, o: AddOptions, on: (v: SignInView) => void): Promise<AccountSignIn> {
@@ -368,11 +393,11 @@ export function createAccounts(ctx: {
     let agent = memberAgent;
     let added = false;
     if (!fresh) {
-      await edit(member, memberAgent, (file) => { if (!file.accounts[id]) { file.accounts[id] = entryOf(file, agent); added = true; } });
+      await edit(member, (file) => { if (!file.accounts[id]) { file.accounts[id] = entryOf(file, agent); added = true; } });
     } else {
       // `<member>--<hex6>`, drawn again while that agent exists; its entry is written before the agent.
       const roster = new Set((await ctx.request('agents.list') as { agents: { id: string }[] }).agents.map((a) => a.id));
-      await edit(member, memberAgent, (file) => {
+      await edit(member, (file) => {
         const taken = new Set([...roster, ...Object.values(file.accounts).map((e) => e.agent)]);
         do { const hex = randomBytes(3).toString('hex'); id = `${provider}.${hex}`; agent = `${member}--${hex}`; }
         while (taken.has(agent) || file.accounts[id]);
@@ -397,7 +422,7 @@ export function createAccounts(ctx: {
             ctx.log?.(`addAccount: ${agent} is not removed yet: ${listError instanceof Error ? listError.message : String(listError)}`);
             return undefined;
           });
-          if (exists !== undefined) await discard(member, memberAgent, id, agent, exists);
+          if (exists !== undefined) await discard(member, id, agent, exists);
           throw error;
         }
       });
@@ -410,7 +435,7 @@ export function createAccounts(ctx: {
     // Sealed before the person sees done: the agent keeps only this sign-in, and its `who` goes to the index.
     const settle = async (view: SignInView): Promise<SignInView> => {
       if (view.state === 'done') {
-        const sealed = await ctx.locks.exclusive([memberAgent, agent], async (): Promise<true | string> => {
+        const sealed = await ctx.locks.exclusive([memberAgent, agent, indexLock(member)], async (): Promise<true | string> => {
           const answer = await ctx.request('byokit.accounts', { action: 'seal', agentId: agent, provider }) as { ok?: boolean; who?: string };
           if (!answer.ok) return 'Sign-in could not be saved. Try again.';
           const file = read(member);
@@ -421,8 +446,8 @@ export function createAccounts(ctx: {
         if (sealed === true) return view;
         view = { state: 'failed', via: view.via, why: 'failed', error: sealed };
       }
-      if (agent !== memberAgent) await discard(member, memberAgent, id, agent, true);
-      else if (added) await edit(member, memberAgent, (file) => { delete file.accounts[id]; })
+      if (agent !== memberAgent) await discard(member, id, agent, true);
+      else if (added) await edit(member, (file) => { delete file.accounts[id]; })
         .catch((error: unknown) => ctx.log?.(`addAccount: ${id} entry is kept: ${error instanceof Error ? error.message : String(error)}`));
       return view;
     };
@@ -437,5 +462,5 @@ export function createAccounts(ctx: {
     return { id, paste: handle.paste, cancel: handle.cancel, done };
   }
 
-  return { list, add, rename, defaults, setDefaults, models, room };
+  return { list, add, rename, defaults, setDefaults, models, room, pick, rest };
 }

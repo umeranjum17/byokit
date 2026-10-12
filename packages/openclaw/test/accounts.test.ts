@@ -3,6 +3,9 @@
 // account on its own sealed agent. Pass: expected rows, index mode 0600, clean canary scan.
 // The S9 Auto input (O14i): models and room over the same journey, with the fake's cold usage cache (no usage
 // on the first read). Pass: expected models and room.
+// The S10 run (O14j): run({ account, model, needs }) on unbound keys. Pass: the account event comes first, Auto picks
+// by room on the account's own agent and key, a resting end rests the account, a failed ready check and an empty pick
+// end signed-out with no agent request, and a run with neither account nor needs is exactly the run it was.
 import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -13,7 +16,7 @@ import { scratchDir } from '../../test-support.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { createLocks } from '../src/locks.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
-import type { SignInView } from '../src/types.ts';
+import type { RunEvent, SignInView } from '../src/types.ts';
 
 const indexOf = (stateDir: string, member: string): string => join(stateDir, 'openclaw', 'accounts', `${member}.json`);
 
@@ -305,6 +308,100 @@ test('models and room: provider/model mapping, cold usage cache, skips, unknown 
 
     await assert.rejects(kit.models('m1', 'nope'), /unknown account: nope/);
     await assert.rejects(kit.room('m1', 'nope'), /unknown account: nope/);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('run on an account: account event first, Auto by room, resting skip, ready failure, none', async () => {
+  const stateDir = scratchDir('o14j-run');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done, { state: 'done', via: 'browser' });
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    // The member account has 20% left, the account agent 90%; one read each warms the fake's usage cache.
+    fake.setUsage('m1', 'openai', [{ label: 'session', usedPercent: 80 }]);
+    fake.setUsage(agent, 'openai', [{ label: 'session', usedPercent: 10 }]);
+    for (const id of ['openai', second.id]) await kit.room('m1', id);
+    const agentCalls = () => fake.calls.filter((c) => c.method === 'agent');
+    const run = async (spec: { sessionKey: string; account?: string; needs?: string[] }) => {
+      const events: RunEvent[] = [];
+      let agentRequestsAtAccount = -1;
+      const before = agentCalls().length;
+      const end = await kit.run({ member: 'm1', message: 'hello', ...spec }, (e) => {
+        if (e.type === 'account') agentRequestsAtAccount = agentCalls().length - before;
+        events.push(e);
+      });
+      return { end, events, requests: agentCalls().slice(before), agentRequestsAtAccount };
+    };
+
+    // Neither account nor needs: the member agent's run, request for request, with no account event and no pick.
+    const plainFrom = fake.calls.length;
+    const plain = await kit.run({ member: 'm1', sessionKey: 'agent:m1:plain', message: 'hello', idempotencyKey: 'k-plain' });
+    assert.deepEqual(plain, { ok: true, text: 'fake: hello', usage: { input: 5, output: 11, total: 16 },
+      planWindow: { provider: 'openai', windows: [{ label: 'session', usedPercent: 80 }] } });
+    assert.deepEqual(fake.calls.slice(plainFrom).find((c) => c.method === 'agent')?.params,
+      { agentId: 'm1', sessionKey: 'agent:m1:plain', message: 'hello', idempotencyKey: 'k-plain' });
+    assert.ok(!fake.calls.slice(plainFrom).some((c) => c.method === 'byokit.accounts' || c.method === 'models.list'), 'no pick');
+
+    // Auto: the account with the most room, on its own agent under the app key's tail; the account event comes first.
+    const auto = await run({ sessionKey: 'agent:m1:chat:1', account: 'auto' });
+    const event = auto.events[0];
+    assert.ok(event?.type === 'account', JSON.stringify(auto.events));
+    assert.deepEqual({ ...event, considered: undefined }, { type: 'account', account: second.id, model: 'openai/default',
+      sessionKey: `agent:${agent}:chat:1`, how: 'auto', why: 'most_room', considered: undefined });
+    assert.deepEqual(event.considered.map((r) => [r.id, r.left, r.tier, r.reason]),
+      [['openai', 20, 'room', 'most_room'], [second.id, 90, 'room', 'most_room']]);
+    assert.equal(auto.agentRequestsAtAccount, 0, 'the account event comes before the agent request');
+    assert.equal(auto.requests.length, 1);
+    assert.deepEqual([auto.requests[0]!.params].map((p) => { const { agentId, sessionKey, provider, model } = p as Record<string, unknown>;
+      return { agentId, sessionKey, provider, model }; }), [{ agentId: agent, sessionKey: `agent:${agent}:chat:1`, provider: 'openai', model: 'default' }]);
+    assert.ok(auto.end.ok && auto.end.account === second.id && auto.end.model === 'openai/default', JSON.stringify(auto.end));
+
+    // A resting end writes `until` to the index; the account reads resting and the next Auto skips it. `needs` alone
+    // resolves as 'default', which with no saved default is Auto.
+    fake.failNext('agent', 'You have hit your ChatGPT usage limit (plus plan). Try again in ~30 min.');
+    const rested = await run({ sessionKey: 'agent:m1:chat:2', account: 'auto' });
+    assert.ok(!rested.end.ok && 'kind' in rested.end && rested.end.kind === 'resting' && rested.end.until, JSON.stringify(rested.end));
+    const until = rested.end.until;
+    assert.ok(Math.abs(until - (Date.now() + 30 * 60_000)) < 60_000);
+    assert.equal(JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts[second.id].until, until);
+    assert.equal((await kit.accounts('m1')).find((a) => a.id === second.id)?.state, 'resting');
+    const skipped = await run({ sessionKey: 'agent:m1:chat:3', needs: ['openai/default'] });
+    const skip = skipped.events[0];
+    assert.ok(skip?.type === 'account' && skip.account === 'openai' && skip.how === 'auto', JSON.stringify(skipped.events));
+    assert.deepEqual(skip.considered.find((r) => r.id === second.id), { id: second.id, left: 90, age: 'unknown',
+      confidence: 'unknown', reason: 'resting', span: 'session', out: 'resting', until });
+    assert.equal((skipped.requests[0]!.params as { agentId: string }).agentId, 'm1');
+    assert.equal((skipped.requests[0]!.params as { sessionKey: string }).sessionKey, 'agent:m1:chat:3');
+    assert.ok(skipped.end.ok && skipped.end.account === 'openai');
+
+    // A chosen account whose own sign-in fails its ready check ends signed-out before any agent request. Its models
+    // read unavailable for the missing sign-in, as the engine reports them, and still count as its plan.
+    await kit.callDynamic('byokit.accounts', { action: 'clear', agentId: agent });
+    fake.handle('models.list', (p) => ({ models: [{ id: 'default', name: 'Default', provider: 'openai',
+      ...(p.agentId === agent ? { available: false, unavailableReason: 'missing-auth' } : { available: true }) }] }));
+    const signedOut = await run({ sessionKey: 'agent:m1:chat:4', account: second.id });
+    const name = (await kit.accounts('m1')).find((a) => a.id === second.id)!.name;
+    assert.deepEqual(signedOut.end, { ok: false, kind: 'signed-out', message: `${name} is not signed in` });
+    assert.deepEqual([signedOut.events, signedOut.requests], [[], []]);
+
+    // The member account rests too: Auto has no candidate, so the run ends signed-out with no agent request.
+    fake.failNext('agent', 'usage limit reached');
+    const memberRested = await run({ sessionKey: 'agent:m1:chat:5', account: 'auto' });
+    assert.ok(!memberRested.end.ok && 'kind' in memberRested.end && memberRested.end.kind === 'resting');
+    assert.ok(Math.abs(memberRested.end.until! - (Date.now() + 5 * 60_000)) < 60_000, 'no time named: five minutes');
+    const none = await run({ sessionKey: 'agent:m1:chat:6', account: 'auto' });
+    assert.deepEqual(none.end, { ok: false, kind: 'signed-out', message: 'No signed-in openai account.' });
+    assert.deepEqual([none.events, none.requests], [[], []]);
+
+    await assert.rejects(kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:7', message: 'hi', account: 'openai.ffffff' }),
+      /unknown account: openai\.ffffff/);
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });

@@ -2,11 +2,13 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Bridge } from './bridge.ts';
+import type { createAccounts } from './accounts.ts';
+import type { createLocks } from './locks.ts';
 import { authStatus } from './auth-status.ts';
 import { outputSchema, type OutputSchema, type SchemaOutput } from './output.ts';
 import { words } from './words.ts';
 import { classify } from './classify.ts';
-import type { GatewayTransport, Member, PlanWindow, RunEnd, RunEvent, RunSpec, RunUsage } from './types.ts';
+import type { AccountPick, GatewayTransport, Member, PlanWindow, RunEnd, RunEvent, RunSpec, RunUsage } from './types.ts';
 
 // The gateway gives up on a silent run after an hour; we wait ten minutes longer for the reply frame itself.
 const WAIT_MS = 3_600_000;
@@ -14,6 +16,8 @@ const WAIT_CLIENT_MS = 3_610_000;
 // The `agent` request's final frame lands with the run's end; a run already over waits no longer than this for it.
 const FINAL_GRACE_MS = 5_000;
 const STATUS_MS = 5_000;
+// A resting end whose message names no time rests the account this long (5.15 Runs step 7).
+const REST_MS = 300_000;
 
 // The slice of the gateway's `agent` event payload a run streams (5.8); the rest passes to onEvent-less callers.
 type AgentPayload = { runId: string; stream: string; data?: {
@@ -89,6 +93,8 @@ export function createRuns(ctx: {
   ensure(member: Member): Promise<{ agentId: string }>;
   bridge: Pick<Bridge, 'register'>;
   tools: ReadonlySet<string>; // KitOptions.tools names, the only names a run's subset may carry
+  accounts?: Pick<ReturnType<typeof createAccounts>, 'pick' | 'rest'>; // 5.15: account runs
+  locks?: ReturnType<typeof createLocks>;
 }): {
   run<const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void, keyAgent?: string, preparedOutput?: ReturnType<typeof outputSchema>): Promise<RunEnd<SchemaOutput<S>>>;
   steer(k: string, t: string): Promise<void>;
@@ -121,10 +127,39 @@ export function createRuns(ctx: {
     const output = preparedOutput ?? (spec.schema === undefined ? undefined : outputSchema(spec.schema));
     const system = [spec.system, output?.prompt].filter(Boolean).join('\n\n');
     const picked = spec.model === undefined ? undefined : account(spec.model);
+    for (const need of spec.needs ?? []) account(need);
     for (const tool of spec.tools ?? [])
       if (!ctx.tools.has(tool)) throw new Error(`refused: "${tool}" is not one of this kit's tools`);
-    const agentId = keyAgent ?? (await ctx.ensure(spec.member)).agentId;
-    const sessionKey = keyAgent ? `agent:${keyAgent}:${spec.sessionKey.slice(`agent:${spec.member}:`.length)}` : spec.sessionKey;
+    const tail = spec.sessionKey.slice(`agent:${spec.member}:`.length);
+    // Runs step 3 (5.15): with `account` and `needs` both absent, exactly the run on the member agent it always was.
+    if (spec.account === undefined && spec.needs === undefined) {
+      const agentId = keyAgent ?? (await ctx.ensure(spec.member)).agentId;
+      return start(spec, on, { agentId, sessionKey: keyAgent ? `agent:${keyAgent}:${tail}` : spec.sessionKey, idempotencyKey, system, picked, output });
+    }
+    if (keyAgent) throw new Error('refused: an API-key run uses its own account');
+    if (!ctx.accounts || !ctx.locks) throw new Error('gateway not ready');
+    // Step 4: the selection is resolved once, before any request; `needs` alone resolves as 'default'.
+    const { pick, agent } = await ctx.accounts.pick(spec.member, { account: spec.account ?? 'default',
+      ...(spec.model !== undefined ? { model: spec.model } : {}), ...(spec.needs ? { needs: spec.needs } : {}) });
+    if (!pick.ok) {
+      if (pick.code === 'unknown_account') throw new Error(`unknown account: ${spec.account}`); // a caller bug
+      return { ok: false, kind: pick.code === 'none' ? 'signed-out' : pick.code === 'not_included' ? 'plan' : 'other', message: pick.reason };
+    }
+    // An unbound key runs on the picked account's agent, under the app key's tail. The run holds the agent's shared
+    // lock from its ready check to its end.
+    const end = await ctx.locks.shared(agent!, () => start(spec, on, { agentId: agent!, sessionKey: `agent:${agent}:${tail}`,
+      idempotencyKey, system, picked: account(pick.model), output, chosen: pick }));
+    // Step 7: a resting end rests the account, so the next Auto skips it until then.
+    if (end.ok || !('kind' in end) || end.kind !== 'resting') return end;
+    const until = end.until ?? Date.now() + REST_MS;
+    await ctx.accounts.rest(spec.member, pick.account.id, until);
+    return { ...end, until };
+  };
+  const start = async <const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on: ((e: RunEvent) => void) | undefined, t: {
+    agentId: string; sessionKey: string; idempotencyKey: string; system: string; picked?: { provider: string; model: string };
+    output?: ReturnType<typeof outputSchema>; chosen?: Extract<AccountPick, { ok: true }>;
+  }): Promise<RunEnd<SchemaOutput<S>>> => {
+    const { agentId, sessionKey, idempotencyKey, system, picked, output, chosen } = t;
     const release = spec.register !== false ? ctx.bridge.register({ sessionKey, member: spec.member }, spec.tools, idempotencyKey) : undefined;
     let last: string | undefined;
     let runId = ''; // gateway events for other runs carry a real runId and never match the empty one
@@ -157,7 +192,13 @@ export function createRuns(ctx: {
       }
     });
     try {
-      if (picked) {
+      if (chosen) {
+        // Runs step 5: the account's own sealed sign-in on its agent replaces the member-wide status check below.
+        const ready = await ctx.request('byokit.accounts', { action: 'ready', agentId, provider: chosen.account.provider }) as { ok?: boolean };
+        if (!ready.ok) return { ok: false, kind: 'signed-out', message: `${chosen.account.name} is not signed in` };
+        on?.({ type: 'account', account: chosen.account.id, model: chosen.model, sessionKey, how: chosen.how, why: chosen.why,
+          considered: chosen.considered });
+      } else if (picked) {
         // The picked account must be the one called: check it is signed in for this member before the run, since
         // the engine would otherwise fail the run only after admitting it. An explicit provider/model is strict on
         // the pinned engine (never another provider or model), so this check plus the override is the guarantee.
@@ -224,7 +265,8 @@ export function createRuns(ctx: {
         const usage = usageOf(agentMeta);
         const planWindow = typeof agentMeta.provider === 'string'
           ? await planWindowOf(agentId, agentMeta.provider.toLowerCase()) : undefined;
-        return { ok: true, text, ...(parsed ? { data: parsed.data as SchemaOutput<S> } : {}), ...(usage ? { usage } : {}), ...(planWindow ? { planWindow } : {}) };
+        return { ok: true, text, ...(parsed ? { data: parsed.data as SchemaOutput<S> } : {}), ...(usage ? { usage } : {}), ...(planWindow ? { planWindow } : {}),
+          ...(chosen ? { account: chosen.account.id, model: chosen.model } : {}) };
       }
       if (result.stopReason === 'aborted' || (abortedByEngine && result.status !== 'ok')) return { ok: false, aborted: true };
       const message = typeof result.error === 'string' ? result.error

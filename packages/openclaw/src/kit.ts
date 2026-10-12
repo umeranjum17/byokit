@@ -923,8 +923,8 @@ export class OpenClawKit {
     return engineSignOut(this.signInCtx(), member, provider);
   }
 
-  // accounts (5.15, O14 steps S5, S6 and S9): the per-member index with listing, adding, defaults, rename, models and
-  // room. Removing, pick and move arrive in later steps.
+  // accounts (5.15, O14 steps S5, S6, S9 and S10): the per-member index with listing, adding, defaults, rename, models
+  // and room; `run({ account })` picks among them. Removing, `pick` and move arrive in later steps.
   accounts(member: Member): Promise<Account[]> {
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.accountsCtl.list(member);
@@ -993,6 +993,8 @@ export class OpenClawKit {
       ensure: (member) => this.ensureMember(member),
       bridge: { register: (run, tools, runId) => this.bridge.register(run, tools && this.o.browser ? [...tools, 'request_sign_in'] : tools, runId) },
       tools: new Set(this.toolNames()),
+      ...(this.accountsCtl ? { accounts: this.accountsCtl } : {}),
+      locks: this.locks,
     });
   }
 
