@@ -1311,8 +1311,9 @@ O14 a member runs only on its own sign-ins, and one that never signed in reads `
 - `<root>/accounts/<member>.json` (0600, written whole through a temp file and rename) is the only kit state:
   `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?, who? } }, defaults: Defaults }` (`model`
   only for an API key: the model saved with it; `who` the sign-in identity from `seal`, Sealing, kept after a sign-out
-  so a later sign-in can be matched). It holds no credential, token, email or engine line. An entry is written
-  before its agent is created, so an agent is one of the member's accounts **only** when the member's index names it
+  so a later sign-in can be matched; `list` also records a live profile's `who` on a row that lacks one, and a member
+  row follows its live profile's `who` when they differ). It holds no credential, token, email or engine line. An
+  entry is written before its agent is created, so an agent is one of the member's accounts **only** when the member's index names it
   and its id is exactly `<member>--[0-9a-f]{6}`; an unindexed agent of that shape is never listed, and an entry whose
   agent and `<root>/state/agents/<agent>` directory are both gone is dropped on the next write (an entry whose
   directory remains is finished by `removeAccount`). A member-agent account with no entry (signed in before O14) gets one on
@@ -1486,13 +1487,18 @@ it never decides which account a sign-in belongs to, and a changed email changes
   provider, who }`, remove the new agent (or `clear` the member agent's profile of that provider when it was the
   target), and `done` names X: signing in again as the same account refreshes it instead of adding a row, whatever
   email it now reports, and an account `again` named but did not sign in to is untouched. Several accounts already
-  sharing that `who` (only from before O14): X is the earliest `addedAt`. An `adopt` answering `{ ok: false }` leaves
-  the sign-in a new account, as below.
+  sharing that `who` (only from before O14) merge into X, the earliest `addedAt`, first: each duplicate's profile moves
+  into X and its account agent is removed; when the sign-in itself is X, an account duplicate is discarded and a
+  member-agent duplicate is kept (logged). An `adopt` answering `{ ok: false }` leaves the sign-in a new account, as
+  below; a lost reply counts as moved only when the source no longer lists that `who`.
 - `again` = X and a `who` no account has: the sign-in stays a new account and `done` names it; X's sign-in is
   untouched (signing in to the wrong account never replaces X).
 - No `who` on either side (a provider or profile without an account id, or an account signed in before its `who`
   was recorded that holds no profile now): no merge, even with `again` or the same email; the sign-in stays a new
   account, `done` names it, and the person removes the old row.
+- The roster or the member's profiles unreadable when the sign-in is sealed: no merge; the sign-in stays its own row
+  (logged, not failed).
+- A signed-out member row (the member agent holds no credential of that `who`; it keeps its index `who`) is not a holder: it is never adopted into, collapsed or removed; the person removes it. Account rows are holders while their agent is on the roster.
 - A new agent whose sign-in fails, expires or is cancelled is removed with its index entry.
 
 `addAccount` resolves once the target is known: `Promise<{ id; paste; cancel; done: Promise<{ view: SignInView; id:

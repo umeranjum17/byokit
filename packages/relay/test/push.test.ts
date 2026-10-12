@@ -83,6 +83,16 @@ test('a host notifies its devices by Web Push and Expo; gone subscriptions are p
   await assert.rejects(p.client.notify({ id: 'bad id!', title: 't', body: 'b' }), /bad notification/);
 });
 
+// A kit's ids are base64url, which may start with `-` or `_`; each is a notification id, so the relay must send it.
+test('a base64url notification id is accepted, even when it starts with - or _', async () => {
+  const world = pushWorld();
+  const r = await startRelay({ push: { fetch: world.fetch } });
+  const p = await paired(r);
+  await p.client.subscribe('phone', { expo: 'ExponentPushToken[phone]' });
+  assert.deepEqual(await p.client.notify({ id: '-Qm_9xYz0aBcDeFgHiJk', title: 'Agent update', to: ['phone'] }), { sent: 1 });
+  assert.deepEqual(await p.client.notify({ id: '_Qm_9xYz0aBcDeFgHiJk', title: 'Agent update', to: ['phone'] }), { sent: 1 });
+});
+
 test('notifications omit body and data by default and forward them only by explicit opt-in', async () => {
   const world = pushWorld();
   const r = await startRelay({ push: { fetch: world.fetch } });

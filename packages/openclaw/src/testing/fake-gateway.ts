@@ -143,6 +143,9 @@ export type FakeGateway = {
   handle(method: string, fn: FakeHandler): void;
   /** Usage windows a later `models.authStatus` read reports for the agent's provider (O14: the Auto input). */
   setUsage(agentId: string, provider: string, windows: { label: string; usedPercent?: number; resetAt?: number }[]): void;
+  /** Profile fields every later wizard sign-in stores (O14 identity): `accountId: undefined` signs in with no account
+   * id, so no `who`. With no call, or `signInAs()`, the account id is `fake-<agentId>`. */
+  signInAs(fields?: { accountId?: string; email?: string; expires?: number }): void;
 } & { transport: GatewayTransport };
 export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number }): FakeGateway {
   const calls: { method: string; params: unknown }[] = [];
@@ -157,6 +160,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
   const orders = new Map<string, Record<string, string[]>>();
   const models = new Map<string, string>();
   const wizards = new Map<string, WizardSession>();
+  let signInFields: Partial<FakeProfile> | undefined;
   // Each workspace's files by name, as `agents.files.get/set` and the create-time IDENTITY.md rewrite see them.
   const workspaces = new Map<string, Map<string, string>>();
   const filesOf = (agentId: string): { workspace: string; files: Map<string, string> } => {
@@ -532,7 +536,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       if (!session.answered) return { done: false, step: session.authChoice === 'openai' ? BROWSER_STEP : DEVICE_STEP };
       if (session.pulls++ === 0) return { done: false, step: PROGRESS_STEP };
       wizards.delete(String(p.sessionId));
-      signInAgent(session.agentId, 'openai');
+      signInAgent(session.agentId, 'openai', signInFields);
       return { done: true, status: 'done', modelActivation: { modelRef: 'openai/gpt-5.1' } };
     },
     'wizard.cancel': (p) => {
@@ -701,6 +705,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       if (!perAgent) { perAgent = new Map(); usage.set(agentId, perAgent); }
       perAgent.set(provider, windows);
     },
+    signInAs: (fields) => { signInFields = fields && { ...fields }; },
     transport: factory({ port: 0, token: 'test', identityPath: '', bridgeSock: '' }),
   };
 }
