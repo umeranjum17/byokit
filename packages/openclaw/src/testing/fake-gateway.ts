@@ -178,6 +178,8 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       ...(content === undefined ? {} : { size: Buffer.byteLength(content), content }) } };
   };
   const runs = new Map<string, Run>();
+  // Every session a run has used, as `<agentId>\n<key>`: what `sessions.resolve` finds.
+  const sessions = new Set<string>();
   // The engine's own cached read of each provider's usage endpoint (O14): cold until a `models.authStatus`
   // answer has carried the provider once (no `usage` on that first answer), then whatever `setUsage` stored.
   // A pre-sign-in read names no provider, so it warms nothing: the journey's first room read stays cold.
@@ -296,6 +298,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     const run: Run = { runId: randomUUID(), sessionKey: String(params.sessionKey ?? ''), seq: 0,
       provider: String(params.provider ?? 'openai'), model: String(params.model ?? 'gpt-5.1'), waiters: [] };
     runs.set(run.runId, run);
+    sessions.add(`${String(params.agentId ?? 'main')}\n${run.sessionKey}`);
     const message = String(params.message ?? '');
     const text = `fake: ${message}`;
     setTimeout(() => {
@@ -552,6 +555,13 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
         else run.waiters.push(resolve);
       }),
     'sessions.steer': () => ({}),
+    // The pin: a key the agent holds answers its canonical key; a missing one errors unless `allowMissing`, which answers `{ ok: false }`.
+    'sessions.resolve': (p) => {
+      const key = String(p.key ?? ''), agentId = String(p.agentId ?? 'main');
+      if (sessions.has(`${agentId}\n${key}`)) return { ok: true, key, agentId };
+      if (p.allowMissing === true) return { ok: false };
+      throw new Error(`No session found: ${key}`);
+    },
     'chat.abort': (p) => {
       for (const run of runs.values()) {
         if (run.result || run.sessionKey !== String(p.sessionKey ?? '')) continue;
