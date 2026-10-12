@@ -578,3 +578,32 @@ test('explicit Anthropic key entry is API billed and never echoed in views or er
   assert.equal(views[0]?.prompt, 'API key (billed per use)');
   assert.ok(!JSON.stringify(views).includes(secret));
 });
+
+test('a key activation is done only once the restart it causes has finished, however late the restart begins', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const secret = 'test-secret-not-a-real-key';
+  const fake = scripted({ 'openclaw.setup.activate': () => ({ ok: true }) });
+  // The restart begins 12 s after activation answers and the kit is ready again a second later.
+  const restarted = () => new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 13_000));
+  const drive = signIn(ctx(fake, { restarted }), 'm1', { authChoice: 'apiKey' }, () => {});
+  drive.paste(secret);
+  let settled: SignInView | undefined;
+  void drive.done.then((view) => { settled = view; });
+  await turn();
+  t.mock.timers.tick(12_000);
+  await turn();
+  assert.equal(settled, undefined, 'done is not decided by a fixed window');
+  t.mock.timers.tick(1_000);
+  assert.deepEqual(await drive.done, { state: 'done', via: 'browser' });
+});
+
+test('a key activation whose restart does not finish fails retryably and keeps its words off the key', async () => {
+  const secret = 'test-secret-not-a-real-key';
+  const fake = scripted({ 'openclaw.setup.activate': () => ({ ok: true }) });
+  const drive = signIn(ctx(fake, { restarted: async () => false }), 'm1', { authChoice: 'apiKey' }, () => {});
+  drive.paste(secret);
+  const view = await drive.done;
+  assert.deepEqual(view, { state: 'failed', via: 'browser', why: 'failed',
+    error: 'Sign-in could not be confirmed after the gateway restarted. Try again.' });
+  assert.ok(!JSON.stringify(view).includes(secret));
+});

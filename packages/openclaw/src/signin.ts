@@ -14,8 +14,9 @@ export type SignInCtx = {
   ensure(member: Member): Promise<{ agentId: string }>;
   callbackPort: number;
   onDisconnect?(fn: () => void): () => void;
-  // Absent when the kit never restarts its engine (no spawned engine): nothing to wait out.
-  restarting?(): boolean;
+  // Resolves true once the gateway restart an activation caused has begun and the kit is ready again; false if it
+  // failed or ran past its bound. Absent in tests that have no engine to restart.
+  restarted?(signal: AbortSignal): Promise<boolean>;
   // A further account of a provider the member already holds (5.15): its sign-in must not reuse the browser's session.
   fresh?: boolean;
 };
@@ -47,14 +48,6 @@ const noteCode = (step: Step): DeviceCode | undefined => {
     : Number.isFinite(at) ? { expires_in: Math.max(0, Math.floor((at - Date.now()) / 1_000)) } : {}) };
 };
 type Pull = { done?: boolean; status?: string; error?: string; step?: Step };
-
-// ponytail: polls the kit's phase; a restart that starts later than RESTART_SEEN_MS is not waited for.
-const RESTART_SEEN_MS = 10_000;
-const restarted = async (restarting: () => boolean, signal: AbortSignal): Promise<void> => {
-  const tick = () => new Promise((resolve) => setTimeout(resolve, 100));
-  for (const end = Date.now() + RESTART_SEEN_MS; !restarting() && Date.now() < end && !signal.aborted;) await tick();
-  for (const end = Date.now() + RECONFIRM_MS; restarting() && Date.now() < end && !signal.aborted;) await tick();
-};
 
 const cut = (value: unknown): string => (value instanceof Error ? value.message : String(value)).slice(0, 200);
 const pullOptions = (signal: AbortSignal) => ({ timeoutMs: PULL_MS, signal });
@@ -258,8 +251,9 @@ export function signIn(
         ...(apiKey === undefined ? {} : { authChoice: o.authChoice, apiKey }),
       }, { timeoutMs: PULL_MS, signal }) as { ok?: boolean; error?: string };
       // The pin restarts the gateway for the `auth` change activation wrote, once in-flight requests drain; a
-      // run started before that runs on the old config (signed out of the old model). Done waits it out, bounded.
-      if (result.ok && ctx.restarting) await restarted(ctx.restarting, signal);
+      // run started before that runs on the old config (signed out of the old model). Done waits for that restart.
+      if (result.ok && ctx.restarted && !await ctx.restarted(signal))
+        return { state: 'failed', via, why: 'failed', error: 'Sign-in could not be confirmed after the gateway restarted. Try again.' };
       return result.ok ? { state: 'done', via } : { state: 'failed', via, why: 'failed',
         error: clean(result.error ?? (apiKey === undefined ? 'Claude Code activation failed' : 'Key activation failed')) };
     }

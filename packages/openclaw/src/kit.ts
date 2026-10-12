@@ -94,6 +94,7 @@ export type RetainedLogin = { path: string } | { record: Record<string, unknown>
 
 /** The engine's learning-mode config key (5.6 "Engine learning state"). */
 const LEARNING_KEY = 'skills.workshop.autonomous.mode';
+const RESTART_MS = 60_000;
 
 const operatorMethods = new Set<string>([
   'agent',
@@ -513,6 +514,7 @@ export class OpenClawKit {
   private listeners = new Set<(e: { event: string; payload?: unknown }) => void>();
   private off: (() => void)[] = [];
   private signInDisconnects = new Set<() => void>();
+  private readonly phaseListeners = new Set<() => void>();
   private starting?: Promise<void>;
   private stopping = false;
   private failures = 0;
@@ -687,7 +689,7 @@ export class OpenClawKit {
       onState: (s) => this.setState(s), onExit: () => this.closed('engine exited') });
     this.admission = createAuthStatus(this.engine.root, (method, params, options) => this.request()(method, params, options));
     this.keys = createKeys({ root: this.engine.root,
-      restarting: () => this.current.phase === 'restarting' || this.current.phase === 'starting',
+      restarting: () => this.engineRestarting(),
       request: (method, params, options) => this.request()(method, params, options),
       ensure: (member) => this.ensureMember(member) });
     const slot: { bridge?: Pick<Bridge, 'resolveAsk'> } = {};
@@ -726,6 +728,7 @@ export class OpenClawKit {
     if (s.phase !== 'ready') this.admission?.invalidate();
     this.current = { ...s, ...(this.engine.patchSet !== undefined ? { patchSet: this.engine.patchSet } : {}) };
     this.o.onState?.(this.current);
+    for (const fn of this.phaseListeners) fn();
   }
   get state(): KitState { return this.current; }
   async prepare(): Promise<void> {
@@ -762,10 +765,9 @@ export class OpenClawKit {
       this.greeting = hello;
       for (const name of operatorMethods) if (!hello.methods.includes(name)) this.o.log?.(`gateway missing generated method: ${name}`);
       for (const name of hello.methods) if (!operatorMethods.has(name) && !nodeMethods.has(name)) this.o.log?.(`gateway has unknown method: ${name}`);
-      const live = transport;
       this.members = createMembers({ request: transport.request.bind(transport), root: this.engine.root });
-      // An add outlives a restart (activation restarts the gateway before it settles): requests use the live transport.
-      this.accountsCtl = createAccounts({ request: (method, params, o) => (this.transport ?? live).request(method, params, o), root: this.engine.root,
+      // An add outlives a restart (activation restarts the gateway before it settles): requests use the kit's current transport.
+      this.accountsCtl = createAccounts({ request: (method, params, o) => this.request()(method, params, o), root: this.engine.root,
         ensure: (member) => this.ensureMember(member), locks: this.locks,
         signIn: (agentId, o, on, fresh) => startSignIn({ ...this.signInCtx(), ensure: async () => ({ agentId }), fresh }, agentId, o, on),
         log: this.o.log });
@@ -811,6 +813,32 @@ export class OpenClawKit {
     this.browserPolicySessions.clear();
     this.bridge.stop();
     await transport?.stop();
+  }
+
+  private engineRestarting(): boolean {
+    return this.o.spawnEngine !== false && (this.current.phase === 'restarting' || this.current.phase === 'starting');
+  }
+
+  // Resolves true once a restart has begun and the kit is ready again; false if it fails or runs past RESTART_MS.
+  private restarted(signal: AbortSignal): Promise<boolean> {
+    if (this.o.spawnEngine === false) return Promise.resolve(true);
+    return new Promise((resolve) => {
+      let began = this.engineRestarting();
+      const end = (ok: boolean) => {
+        clearTimeout(timer);
+        this.phaseListeners.delete(check);
+        signal.removeEventListener('abort', abort);
+        resolve(ok);
+      };
+      const abort = () => end(false);
+      const check = () => {
+        if (this.engineRestarting()) began = true;
+        else if (began) end(this.current.phase === 'ready');
+      };
+      const timer = setTimeout(() => end(false), RESTART_MS);
+      this.phaseListeners.add(check);
+      signal.addEventListener('abort', abort, { once: true });
+    });
   }
 
   private closed(_why: string): void {
@@ -895,7 +923,7 @@ export class OpenClawKit {
       authStatus: (agentId, refresh, native) => this.admission.read(agentId, refresh, native, false),
       ensure: (member) => this.ensureMember(member), callbackPort: this.o.callbackPort ?? 1455,
       onDisconnect: (fn) => { this.signInDisconnects.add(fn); return () => { this.signInDisconnects.delete(fn); }; },
-      ...(this.o.spawnEngine === false ? {} : { restarting: () => this.current.phase === 'restarting' || this.current.phase === 'starting' }) };
+      restarted: (signal) => this.restarted(signal) };
   }
 
   routes(): RouteView[] {
