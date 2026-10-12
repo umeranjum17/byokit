@@ -334,6 +334,20 @@ export function createAccounts(ctx: {
     if (before !== undefined && await identityOf(memberAgent) !== before)
       await ctx.request('agents.files.set', { agentId: memberAgent, name: IDENTITY, content: before });
   };
+  const readModel = async (agentId: string): Promise<unknown> => {
+    const got = await ctx.request('config.get') as { config?: { agents?: { entries?: Record<string, { model?: unknown }> } } };
+    return got.config?.agents?.entries?.[agentId]?.model;
+  };
+  // ponytail: a merge patch cannot delete a key, so a member with no model entry before its sign-in keeps the pinned one.
+  const restoreModel = async (memberAgent: string, model: unknown): Promise<void> => {
+    if (model === undefined) { ctx.log?.(`addAccount: ${memberAgent} had no model entry to restore`); return; }
+    try {
+      const { hash } = await ctx.request('config.get') as { hash: string };
+      await ctx.request('config.patch', { raw: JSON.stringify({ agents: { ownership: 'explicit', entries: { [memberAgent]: { model } } } }), baseHash: hash });
+    } catch (error) {
+      ctx.log?.(`addAccount: ${memberAgent} model is not restored: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
   const onGateway = (agent: string): Promise<boolean> => untilListed(ctx.request, agent)
     .then(() => true, () => (ctx.request('agents.list') as Promise<{ agents: { id: string }[] }>)
       .then((r) => r.agents.some((a) => a.id === agent)));
@@ -363,6 +377,8 @@ export function createAccounts(ctx: {
     const own = await ctx.request('byokit.accounts', { action: 'list', agentId: memberAgent }) as { ok?: boolean; profiles?: LiveProfile[] };
     if (!own.ok || !Array.isArray(own.profiles)) throw new Error('addAccount: the member\'s sign-ins could not be read');
     const fresh = o.again !== undefined || own.profiles.some((p) => p.provider === provider);
+    // The member agent's primary model before its sign-in: restored when the sign-in is adopted away from it.
+    const priorModel = fresh ? undefined : { model: await readModel(memberAgent) };
     const entryOf = (file: IndexFile, agent: string): IndexEntry => ({ agent, route: route.choice, addedAt: Date.now(),
       name: name ?? `${route.label} ${Object.values(file.accounts).filter((e) => e.route === route.choice).length + 1}` });
     let id: AccountId = provider;
@@ -419,7 +435,7 @@ export function createAccounts(ctx: {
             .catch(() => undefined);
           return { ok: held?.ok === true && Array.isArray(held.profiles) && !held.profiles.some((p) => p.provider === provider && p.who === who) };
         });
-      if (answer.ok) return true;
+      if (answer.ok) { if (priorModel) await restoreModel(memberAgent, priorModel.model); return true; }
       const file = read(member);
       const own = file.accounts[id];
       if (own) { own.who = who; write(member, file); }
@@ -430,8 +446,8 @@ export function createAccounts(ctx: {
         .catch((error: unknown) => ctx.log?.(`addAccount: ${id} entry is kept: ${error instanceof Error ? error.message : String(error)}`))
         : Promise.resolve();
     // Sealed before the person sees done: the agent keeps only this sign-in. Identity is its `who`, compared only
-    // within this member and provider: the target's own `who` signs it in again; another account's `who` (the
-    // earliest `addedAt` when several share it, only from before O14) takes the sign-in by `adopt`, whatever
+    // within this member and provider: the earliest `addedAt` among the accounts holding that `who` (the target's
+    // own included; several only from before O14) takes the sign-in, by `adopt` when it is another account, whatever
     // `again` names; no `who` never merges. The email never decides.
     const settle = async (view: SignInView): Promise<{ view: SignInView; id: AccountId }> => {
       if (view.state === 'done') {
@@ -440,9 +456,10 @@ export function createAccounts(ctx: {
           if (!answer.ok) return 'Sign-in could not be saved. Try again.';
           const file = read(member);
           const own = file.accounts[id];
-          const into = answer.who && own?.who !== answer.who ? Object.entries(file.accounts)
-            .filter(([other, e]) => other !== id && other.split('.')[0] === provider && e.who === answer.who)
+          const earliest = answer.who ? Object.entries(file.accounts)
+            .filter(([other, e]) => other.split('.')[0] === provider && e.who === answer.who)
             .sort(([, a], [, b]) => a.addedAt - b.addedAt)[0] : undefined;
+          const into = earliest && earliest[0] !== id ? earliest : undefined;
           if (!into && own) { if (answer.who) own.who = answer.who; else delete own.who; write(member, file); }
           return { ...(answer.who ? { who: answer.who } : {}), ...(into ? { into } : {}) };
         }).catch((error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 200));

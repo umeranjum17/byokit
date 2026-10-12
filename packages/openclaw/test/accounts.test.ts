@@ -421,6 +421,24 @@ test('identity: same who refreshes, again with another who adds, no who never me
     assert.equal((await ready(b.id)).who, whoOf('canary-acct-b'));
     assert.equal((await rows()).length, 5);
 
+    // The member row and an earlier pre-O14 account share a who: the member's sign-in adopts into the earlier one
+    // and the member's primary model goes back to what it was before that sign-in.
+    await kit.signOut('m1', 'openai');
+    const configOf = async () => await kit.call('config.get', {}) as { hash: string; config: { agents: { entries: Record<string, { model?: unknown }> } } };
+    await kit.call('config.patch', { raw: JSON.stringify({ agents: { ownership: 'explicit', entries: { m1: { model: 'openai/before-sign-in' } } } }), baseHash: (await configOf()).hash });
+    const before = (await configOf()).config.agents.entries.m1!.model;
+    const shared = index();
+    shared.accounts.openai!.who = whoOf('canary-acct-a');
+    shared.accounts[b.id]!.who = whoOf('canary-acct-a');
+    shared.accounts[b.id]!.addedAt = 1;
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(shared, null, 2) + '\n');
+    fake.signInAs({ accountId: 'canary-acct-a', expires: later + 3 });
+    assert.deepEqual(await add(), { added: 'openai', id: b.id }, 'the earlier account takes the sign-in');
+    assert.equal((await ready(b.id)).expiresAt, later + 3);
+    assert.equal((await ready('openai')).ok, false, 'the member is signed out');
+    assert.equal((await configOf()).config.agents.entries.m1!.model, before, 'the member primary model is restored');
+    assert.equal((await rows()).length, 5);
+
     // No who or account id reaches the app: rows, views, done results, errors, kit state or log lines.
     await assert.rejects(kit.addAccount('m1', { authChoice: 'openai', again: 'openai.000000' }, () => {}), (error: Error) => { seen.push(error.message); return true; });
     const out = JSON.stringify([seen, lines, kit.state]);
