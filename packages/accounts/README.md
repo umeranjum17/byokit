@@ -469,6 +469,15 @@ available to eligible open-source/local apps; paid/remote apps require approval.
 OAuth flow and does not convert the existing Codex `Accounts.login()` credential into a token-sharing session.
 It reads no environment or files, and remains portable to browsers and React Native.
 
+## OpenCode Go plan handle
+
+After the member's Go plan key is saved through its key route
+(`accounts.add(member, 'opencode:plan_key:opencode-go', { key })`),
+`accounts.opencodeGo(member)` returns a member-bound subscription handle for `opencodeGo({ account: handle, model })`
+in `@byokit/decide`. It reads the member's own saved plan key on every request, so the key stays in the app's
+own store and the handle exposes none. Billing is `subscription`, with no API-key fallback; a member with no
+saved Go plan key reads as signed out. Use the handle only where the sign-in lives.
+
 
 ## Desktop credential storage security
 

@@ -17,6 +17,7 @@ import { claims, PORTABLE, portableEngine, signable, withDevice } from './engine
 import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
 import type { ChatGPTRespondAccount } from './chatgpt-plan.ts';
+import type { OpenCodeGoAccount } from './opencode-go.ts';
 import { emptyIndex, viewStore, memoryStore, RefreshRequiredError, refreshCredential, type AccountMetadata, type EndingStore, type RefreshStore } from './stores.ts';
 import { resolveSelection, type Account, type AccountPick, type AgentCapabilities, type Defaults, type ModelInfo, type Room, type RunSelection, type Via } from './multi.ts';
 import type { Credential } from '@earendil-works/pi-ai';
@@ -1027,6 +1028,13 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   chatgpt(member: M): ChatGPTRespondAccount {
     this.offer('chatgpt');
     return { billing: 'subscription', respond: (ask) => this.respond(member, ask) };
+  }
+
+  /** Bind this member's saved OpenCode Go plan key for consumers such as decide. Each request reads
+   * the current plan key from the member's own store; the handle exposes no credentials and never
+   * falls back to API billing. */
+  opencodeGo(member: M): OpenCodeGoAccount {
+    return { billing: 'subscription', access: async () => this.key(member, 'opencode:plan_key:opencode-go') };
   }
 
   /** An account's error, acted on. A limit or overload rests it (until when it said, or a default). A plan without this

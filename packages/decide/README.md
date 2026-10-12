@@ -24,7 +24,8 @@ run on plain `fetch` and install no further packages. Import them from `@byokit/
 (`import { decide, rules, answerer, jev } from '@byokit/decide/slim'`) and bundlers resolve zero peers.
 
 The remaining backends are optional peers npm skips unless the app installs them: `@byokit/accounts`
-for ChatGPT plan billing (`openai({ auth: 'account', ... })`, subscription), and `@byokit/pair` for the
+for ChatGPT plan billing (`openai({ auth: 'account', ... })`, subscription) and OpenCode Go plan billing
+(`opencodeGo({ account, ... })`, subscription), and `@byokit/pair` for the
 paired Jev route (the host app keeps its API key (billed per use) in its own store). Account billing
 without the accounts peer throws `UnsupportedAccountError` naming `@byokit/accounts`. API-key OpenAI
 needs no peer at runtime. The main entry keeps every export and works either way.
@@ -98,6 +99,7 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
 | `answerer({ name, leaves, supportsImages?, ask, text?, maxRetries?, retryBaseMs?, retryMaxMs? })` | A host-owned model: `(prompt, signal, images, request) => text` or `{ text, usage?, rationale?, raw? }`; typed text options and bounded 429 retries |
 | `jev({ key, via?, fetch?, maxRetries?, retryBaseMs?, retryMaxMs? })` | Jev as a backend, over TypeSafe's API (default) or OpenRouter (`via: 'openrouter'`). API-billed; retries 429s with backoff |
 | `openai({ model, key, request?, ... })` / `openai({ model, auth: 'account', account, request?, ... })` | OpenAI general models used for decisions; explicit API key or consented ChatGPT plan session |
+| `opencodeGo({ model, account, request?, ... })` | OpenCode Go plan models used for decisions; the member's Go plan account only, never an API key |
 | `parseConfig(objectOrJSON)`, `createDecider(config, options)` | Validate portable config and set it once, with optional per-call overrides |
 | `ConfigError`, `UnsupportedAccountError`, `UnsupportedImagesError`, `InvalidImageError`, `OPENAI_ROUTES` | Typed config/account errors and billing labels (API key is never offered by default) |
 | `RateLimitError` | An answerer callback exhausted its 429 retries (`status: 429`, `retries`); `decide()` abstains on this failure |
@@ -149,6 +151,7 @@ may be negative, and are never invented from list positions. Explicit orders may
 |---|---|---|
 | `rules` | Return a `string[]`, or `{ answer: string[], scores?, personReason? }`; confidence is 1 | Return `{ answer, personReason }` for any question kind |
 | `openai` | Structured output with ranking, self-reported confidence, and scores or null | Requested in the schema only for opted-in questions |
+| `opencodeGo` | Structured output with ranking, self-reported confidence, and scores or null | Requested in the schema only for opted-in questions |
 | `answerer` | JSON `{ ranking: string[], confidence: number, scores?: {...}, personReason?: string }` per rank question | Opted-in non-rank questions use `{ probabilities: {...}, personReason?: string }`; legacy probability maps still work |
 | `jev` | Fallback: send a Choice, order its probabilities descending, retain them as scores and use provider confidence; ties keep candidate declaration order | Not supported by the documented API; field remains absent |
 | Node subscription adapter | Structured schema with ranking, self-reported confidence and optional scores | Requested in the schema only for opted-in questions |
@@ -349,6 +352,29 @@ may be unsupported for accounts.
 unavailable chosen models or unsupported account requests, including from `decide`. There is no API-key fallback.
 Ordinary transport/429 failures follow decide's existing failed-backend abstention behavior.
 `OPENAI_ROUTES.apiKey` labels billing `'api'` with `offer: false`; the account route labels `'subscription'` with consent required.
+
+### The person's OpenCode Go plan
+
+For an app already using Accounts, bind the same person's OpenCode Go plan directly:
+
+```ts
+import { Accounts, memoryStore } from '@byokit/accounts';
+import { opencodeGo } from '@byokit/decide';
+
+const accounts = new Accounts({ store: () => memoryStore() }); // use protected storage in your app
+// Save the member's Go plan key once through its key route:
+// await accounts.add('Umer', 'opencode:plan_key:opencode-go', { key: goPlanKey });
+const backend = opencodeGo({ account: accounts.opencodeGo('Umer'), model: 'muse-spark-1.3-contributor' });
+```
+
+The handle reads the member's own saved plan key on every request; keys stay in the app's own store
+and the handle exposes none. Requests go to `https://opencode.ai/zen/go/v1/responses` with the plan key
+as Bearer and one `x-opencode-session` id per decide call: the Go endpoint routes on that header, and the
+pinned upstream (`@earendil-works/pi-ai`, provider `opencode-go`) maps its `sessionId` option to it. The
+wire format is the same Responses JSON schema as `openai()`: self-reported probabilities with the same
+floors, plus reported usage and the raw response on answered and abstained answers alike.
+`OPENCODE_GO_ROUTES.account` labels billing `'subscription'` with consent required. A plan that cannot
+serve the request (http 400/401/403/404) throws `UnsupportedAccountError`; there is no API-key fallback.
 
 ## Set configuration once
 
