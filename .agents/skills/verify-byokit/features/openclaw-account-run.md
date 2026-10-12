@@ -7,7 +7,7 @@ Verification recipe for [a run on an account](../../../../docs/runtime-kits.md#5
 - The first event is `{ type: 'account', account, model, sessionKey, how, why, considered }`, before the `agent` request; an ok end carries `account` and `model`.
 - Auto picks the account with the most room; an unbound key that picks an account agent runs as `agent:<account agent>:<tail>`.
 - A resting end writes `until` (now + 5 min when the message names none) to the index; the account reads `resting` and the next Auto skips it.
-- A chosen account that fails its own `byokit.accounts ready` ends `signed-out` with no agent request; an empty pick (`none`, no account signed in) ends `signed-out`; when every account rests the end is `resting` with the Auto winner's `until`; an id the member does not have throws `unknown account`.
+- A chosen account that fails its own `byokit.accounts ready` gets its account event, then ends `signed-out` with no agent request; Auto skips such an account for the next one; an empty pick (`none`, no account signed in) ends `signed-out`; when every account rests the end is `resting` with the Auto winner's `until`; an id the member does not have throws `unknown account`.
 - `needs` alone resolves as `account: 'default'`; with `account` and `needs` both absent the run is the member agent's run it always was, with no account event and no pick.
 
 ## How to get to it (user POV)

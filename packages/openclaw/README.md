@@ -124,11 +124,17 @@ engine text that could echo the token. It is sent only as this member's wizard a
 results or kit logs. Ordinary browser paste and typed `kit.call('wizard.next', …)` pass-through are unchanged.
 API key (billed per use) entry still requires explicit selection; there is no subscription-to-key fallback.
 
-To choose which of a member's accounts a run uses, pass `model: 'provider/model'` in the run spec (for example
+To choose the model for a run, pass `model: 'provider/model'` in the run spec (for example
 `'openai/gpt-5.1'`, where `provider` is an id `kit.providers(member)` lists). That provider is the one called and billed for this run only, with no fallback to another
 provider or model. If the member isn't signed in to it, the run ends `{ ok: false, kind: 'signed-out' }` and the
 engine is never called. Leave `model` out to keep the engine's own choice. A specific sign-in (`@profile`) can't be
 picked per run: the pinned engine may still switch to another sign-in for the same provider.
+
+To let the kit choose among a member's accounts, pass `account: 'auto'` (the account with the most room left, decided
+once at run start), `'default'` (the saved default) or an id from `kit.accounts(member)`, with `needs: ['provider/model', …]`
+for other models the run may call. The first event is `{ type: 'account', account, model, sessionKey, how, why, considered }`,
+and an ok end carries `account` and `model`. A chosen account that isn't signed in ends `signed-out` with no agent request;
+when every account is resting, the end is `resting` with `until`, and Auto skips a resting account until then.
 
 
 For an owner who explicitly offers keys, `kit.addKey('ana', { authChoice: 'openai-api-key', apiKey })` returns
