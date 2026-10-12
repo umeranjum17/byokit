@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.10.1 (2026-10-12)
+
+- Dependency update: pins @byokit/relay 0.6.1.
+- Dependency update: pins @byokit/discover 0.8.0.
+- Dependency update: pins @byokit/pair 0.9.1.
+- FIX: (from @byokit/pair 0.9.1) every wait in the link end-to-end suite is bounded: each test carries a one-minute deadline, so a request stalled past its reconnect window (twice it parked the whole full-suite run at 0% CPU until killed) fails by its test name instead of hanging every lane and release behind the shared test lock. The file still passes in about 10 s alone; nothing about the protocol changed.
+
+- FEAT: `byokit.accounts` seals an agent's own sign-ins (list/seal/ready/adopt/clear), loaded as the `plugin/accounts.js` gateway method; a failed `adopt` rolls the model and both profile stores back so no partial move or dangling pin survives, a self-adopt is refused, and the fake gateway mirrors every branch.
+
 ## 0.10.0 (2026-10-11)
 
 - Dependency update: pins @byokit/discover 0.7.0.

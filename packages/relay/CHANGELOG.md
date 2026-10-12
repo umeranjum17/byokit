@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.6.1 (2026-10-12)
+
+- Dependency update: pins @byokit/pair 0.9.1.
+- FIX: (from @byokit/pair 0.9.1) every wait in the link end-to-end suite is bounded: each test carries a one-minute deadline, so a request stalled past its reconnect window (twice it parked the whole full-suite run at 0% CPU until killed) fails by its test name instead of hanging every lane and release behind the shared test lock. The file still passes in about 10 s alone; nothing about the protocol changed.
+
+- Dependency update: depend on `@byokit/pair` 0.9.0 instead of its deprecated `@byokit/link` shim.
+- Dependency update: ws 8.22.0.
+
 ## 0.6.0 (2026-10-09)
 
 - Dependency update: pins @byokit/link 0.8.0.

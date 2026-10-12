@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.8.1 (2026-10-12)
+
+- Dependency update: pins @byokit/pair 0.9.1.
+- FIX: (from @byokit/pair 0.9.1) every wait in the link end-to-end suite is bounded: each test carries a one-minute deadline, so a request stalled past its reconnect window (twice it parked the whole full-suite run at 0% CPU until killed) fails by its test name instead of hanging every lane and release behind the shared test lock. The file still passes in about 10 s alone; nothing about the protocol changed.
+
+- The README's deprecated-rename note now says the breaking `parseOffer` type carries from `@byokit/pair` 0.9.0. Docs only; no typed surface changed.
+
 ## 0.8.0 (2026-10-09)
 
 - Dependency update: pins @byokit/pair 0.9.0.

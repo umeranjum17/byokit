@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.9.1 (2026-10-12)
+
+- DOCS: the "Checking reachability before pairing" section now shows both sides: setup self-checks its own advertised URLs with `check()` before printing the tick, and the phone re-checks the scanned offer before consent. The probe still spends nothing, so a checked offer pairs afterwards.
+- ADD: `ndjson(stream)` sends and receives whole JSON messages over a pair stream, one per `\n`-terminated line, through the existing credit window. Chunks split at any byte boundary reassemble before decoding, a line past `NDJSON_MAX_LINE` (1 MiB, configurable per stream) ends the stream with `line-too-long` on both ends, and a non-JSON line ends it with `failed`.
+- FIX: every wait in the link end-to-end suite is bounded: each test carries a one-minute deadline, so a request stalled past its reconnect window (twice it parked the whole full-suite run at 0% CPU until killed) fails by its test name instead of hanging every lane and release behind the shared test lock. The file still passes in about 10 s alone; nothing about the protocol changed.
+
 ## 0.9.0 (2026-10-09)
 
 - FIX: a phone killed while the person at the computer decides now resumes against the pinned computer, for compact and version 1 QRs alike. `pairWithOffer` takes `onPending(grant)`, which hands over the pending grant to keep before the computer can approve this device, and `pendingGrant` accepts a compact QR given the authenticated `host` key, and `parseOffer` reads a compact QR for inspection (expiry, addresses, name, role) without one. Before, `pendingGrant` refused compact QRs, and even a version 1 pending grant never came online after a real kill. A socket that drops once the computer has taken the code now ends pairing with `unreachable` instead of trying the next address, where the spent code or ticket could only be refused as `wrong-code` or `expired`. A socket that closes while `onPending` is still saving ends pairing at once with that close; a version 1 `onPending` that never settles times out. The compact QR is unchanged: 109 characters for one relay address and the name Umer.

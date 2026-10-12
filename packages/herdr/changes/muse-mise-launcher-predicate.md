@@ -1,1 +1,0 @@
-- FIX: Muse readiness routes its mise check through the shared shell-launcher predicate, so a non-shell binary whose interpreter path contains `mise` reads installed instead of launcher-only; genuine mise shell shims still read launcher-only.

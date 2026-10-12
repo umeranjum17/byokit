@@ -1,2 +1,0 @@
-- FIX: `runTurn` accepts an agent that is already `done` when the turn starts, treating it like `idle` at turn start; previously the call was refused with `turn-not-idle`/`turn-busy`.
-- FIX: `runTurn` accepts `files: false` to skip the file scan entirely (`changedFiles` is then always empty), so a turn rooted in a folder with more than 10000 entries no longer fails with `turn: file limit`.
