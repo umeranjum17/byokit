@@ -1,0 +1,1 @@
+- Held back from later releases: this is the final published rename shim for @byokit/discover and stays private from here on.
