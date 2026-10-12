@@ -134,6 +134,8 @@ export type FakeGateway = {
   failNext(method: string, message: string): void;
   drop(why: string): void;
   handle(method: string, fn: FakeHandler): void;
+  /** Usage windows a later `models.authStatus` read reports for the agent's provider (O14: the Auto input). */
+  setUsage(agentId: string, provider: string, windows: { label: string; usedPercent?: number; resetAt?: number }[]): void;
 } & { transport: GatewayTransport };
 export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number }): FakeGateway {
   const calls: { method: string; params: unknown }[] = [];
@@ -149,6 +151,11 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
   const models = new Map<string, string>();
   const wizards = new Map<string, WizardSession>();
   const runs = new Map<string, Run>();
+  // The engine's own cached read of each provider's usage endpoint (O14): cold until a `models.authStatus`
+  // answer has carried the provider once (no `usage` on that first answer), then whatever `setUsage` stored.
+  // A pre-sign-in read names no provider, so it warms nothing: the journey's first room read stays cold.
+  const usage = new Map<string, Map<string, { label: string; usedPercent?: number; resetAt?: number }[]>>();
+  const warmed = new Set<string>();
   const configBox = { hash: 'hash-1', config: {} as Record<string, unknown> };
   let hashSeq = 1;
 
@@ -331,6 +338,8 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       return { id };
     },
     // One profile per signed-in provider, `<provider>:default`, as the pin lists an agent's own profiles.
+    // Plus its cached usage once warm: cold on the first answer carrying the provider (no `usage`), then the
+    // stored windows.
     'models.authStatus': (p) => {
       const id = String(p?.agentId ?? 'main');
       const store = storeOf(id);
@@ -339,10 +348,24 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
         providers: (agents.get(id)?.providers ?? []).map((provider) => {
           const profileId = `${provider}:default`;
           const credential = store[profileId];
+          const key = `${id}\n${provider}`;
+          const cold = !warmed.has(key);
+          warmed.add(key);
+          const windows = cold ? undefined : usage.get(id)?.get(provider);
           return { provider,
             profiles: [{ profileId, type: credential?.type ?? 'oauth',
-              status: credential ? statusOf(credential, now) : 'ok' }] };
+              status: credential ? statusOf(credential, now) : 'ok' }],
+            ...(windows !== undefined ? { usage: { windows } } : {}) };
         }),
+      };
+    },
+    // The runtime-allowed catalog for the agent's signed-in providers (O14): one available row each. A test
+    // scripting exact availability scripts this method with `handle`.
+    'models.list': (p) => {
+      const id = String(p?.agentId ?? 'main');
+      return {
+        models: (agents.get(id)?.providers ?? []).map((provider) => ({ id: `${provider}/default`,
+          name: 'Default', provider, available: true })),
       };
     },
     'models.authLogout': (p) => {
@@ -629,6 +652,11 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     failNext,
     drop,
     handle: (method, fn) => { handlers.set(method, fn); },
+    setUsage: (agentId, provider, windows) => {
+      let perAgent = usage.get(agentId);
+      if (!perAgent) { perAgent = new Map(); usage.set(agentId, perAgent); }
+      perAgent.set(provider, windows);
+    },
     transport: factory({ port: 0, token: 'test', identityPath: '', bridgeSock: '' }),
   };
 }
