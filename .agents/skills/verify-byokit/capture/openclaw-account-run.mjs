@@ -50,9 +50,9 @@ try {
   const out = await run('signed-out account', { sessionKey: 'agent:m1:chat:4', account: second.id });
   assert.deepEqual([out.end.kind, out.requests], ['signed-out', 0]);
   fake.failNext('agent', 'usage limit reached');
-  await run('member account rests', { sessionKey: 'agent:m1:chat:5', account: 'auto' });
-  const none = await run('none', { sessionKey: 'agent:m1:chat:6', account: 'auto' });
-  assert.deepEqual([none.end.kind, none.requests], ['signed-out', 0]);
+  const memberRested = await run('member account rests', { sessionKey: 'agent:m1:chat:5', account: 'auto' });
+  const none = await run('all resting', { sessionKey: 'agent:m1:chat:6', account: 'auto' });
+  assert.deepEqual([none.end.kind, none.end.until, none.requests], ['resting', memberRested.end.until, 0]);
   await assert.rejects(kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:7', message: 'hi', account: 'openai.ffffff' }), (error) => {
     console.log('refused:', `${error.constructor.name}: ${error.message}`);
     return /unknown account: openai\.ffffff/.test(error.message);

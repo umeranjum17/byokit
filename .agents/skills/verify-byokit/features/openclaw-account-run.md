@@ -7,7 +7,7 @@ Verification recipe for [a run on an account](../../../../docs/runtime-kits.md#5
 - The first event is `{ type: 'account', account, model, sessionKey, how, why, considered }`, before the `agent` request; an ok end carries `account` and `model`.
 - Auto picks the account with the most room; an unbound key that picks an account agent runs as `agent:<account agent>:<tail>`.
 - A resting end writes `until` (now + 5 min when the message names none) to the index; the account reads `resting` and the next Auto skips it.
-- A chosen account that fails its own `byokit.accounts ready` ends `signed-out` with no agent request; an empty pick (`none`) ends `signed-out`; an id the member does not have throws `unknown account`.
+- A chosen account that fails its own `byokit.accounts ready` ends `signed-out` with no agent request; an empty pick (`none`, no account signed in) ends `signed-out`; when every account rests the end is `resting` with the Auto winner's `until`; an id the member does not have throws `unknown account`.
 - `needs` alone resolves as `account: 'default'`; with `account` and `needs` both absent the run is the member agent's run it always was, with no account event and no pick.
 
 ## How to get to it (user POV)
@@ -24,7 +24,7 @@ entry=.agents/skills/verify-byokit/capture/openclaw-account-run.mjs
 drive=(node "$entry")
 ```
 
-Use SKILL.md's Evidence capture block. The consumer imports only the built `@byokit/openclaw` and `@byokit/openclaw/testing` entries, signs two ChatGPT accounts in through `fakeGateway()`, and prints each run's account event, end and agent request count: no account, Auto, a resting end and the next Auto, then the signed-out, `none` and unknown-id refusals.
+Use SKILL.md's Evidence capture block. The consumer imports only the built `@byokit/openclaw` and `@byokit/openclaw/testing` entries, signs two ChatGPT accounts in through `fakeGateway()`, and prints each run's account event, end and agent request count: no account, Auto, a resting end and the next Auto, then the signed-out account, the all-resting end and unknown-id refusals.
 
 ## Gotchas
 
