@@ -1446,8 +1446,8 @@ cache.
    own accounts (`bound` = those), and an id on another agent is refused with `account.bound`.
    An `auth: 'apiKey'` run on a conversation bound to a subscription account or to the member agent is refused the same
    way (`code: 'bound'`, words `account.bound`); on an API-billed binding it continues on the key. An API-key run first
-   reads the key (`byokit.keys ready`), then the binding (step 1); the refusals here read the index alone, so no other
-   request follows the binding read.
+   reads the key (`byokit.keys ready`), then the binding (step 1); the refusals here read the index, and the account
+   listing once when it is cold; no room, model or agent request precedes them.
 3. Bound to the member agent, or unbound, with `spec.account` absent and `spec.needs` absent or empty: exactly today's 5.8
    behavior on the member agent (existing requests stay byte-identical). A non-empty `spec.needs` with `spec.account`
    absent resolves as `account: 'default'`.

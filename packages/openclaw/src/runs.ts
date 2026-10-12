@@ -137,7 +137,7 @@ export function createRuns(ctx: {
     const binding = ctx.accounts ? await ctx.accounts.bind(spec.member, spec.sessionKey) : undefined;
     // Step 2 on the API-key lane: only an API-billed conversation continues on its key; any other binding is refused.
     if (keyAgent && ctx.accounts && binding) {
-      const message = ctx.accounts.keyRefusal(spec.member, binding);
+      const message = await ctx.accounts.keyRefusal(spec.member, binding);
       if (message !== undefined) return { ok: false, kind: 'other', message };
     }
     // Step 3: with `account` and `needs` both absent, on a key no account agent holds (or an API-key run, whose
@@ -160,7 +160,7 @@ export function createRuns(ctx: {
     const skipped: string[] = [];
     for (;;) {
       // Steps 2 and 4: the selection is resolved once per attempt, before any request, narrowed by the binding; `needs`
-      // alone resolves as 'default'. A refusal (`bound`, `paid`) ends the run with its words before any request.
+      // alone resolves as 'default'. A refusal (`bound`, `paid`) ends the run with its words before any room, model or agent request.
       const { pick, agent } = await accounts.pick(spec.member, { account: spec.account ?? 'default',
         ...(spec.model !== undefined ? { model: spec.model } : {}), ...(spec.needs ? { needs: spec.needs } : {}) }, skipped, binding);
       if (!pick.ok) {
