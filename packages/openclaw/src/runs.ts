@@ -148,7 +148,7 @@ export function createRuns(ctx: {
     // An unbound key runs on the picked account's agent, under the app key's tail. The run holds the agent's shared
     // lock from its ready check to its end.
     const end = await ctx.locks.shared(agent!, () => start(spec, on, { agentId: agent!, sessionKey: `agent:${agent}:${tail}`,
-      idempotencyKey, system, picked: account(pick.model), output, chosen: pick }));
+      idempotencyKey, system, picked: pick.model ? account(pick.model) : undefined, output, chosen: pick })); // '' = no override
     // Step 7: a resting end rests the account, so the next Auto skips it until then.
     if (end.ok || !('kind' in end) || end.kind !== 'resting') return end;
     const until = end.until ?? Date.now() + REST_MS;

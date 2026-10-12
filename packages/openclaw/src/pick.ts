@@ -101,7 +101,8 @@ function nameOf(accounts: readonly Account[], defaults: Defaults, sel: RunSelect
 }
 
 /** Resolve once before starting. Without `models`, membership is host-validated and a missing model is ''. A row whose
- * models are unknown (`undefined`) host-validates membership by provider and runs its `provider/default` model. */
+ * models are unknown (`undefined`) host-validates membership by provider; with no model asked for it runs the saved
+ * default, else model '' (no override: the engine's own default). */
 export function resolveSelection(accounts: readonly Account[], defaults: Defaults, sel: RunSelection, room: RoomOf,
   nowMs: number, models?: (a: Account) => readonly ModelInfo[] | undefined, bound?: readonly AccountId[]): AccountPick {
   const demand = [...new Set([...(sel.model ? [sel.model] : []), ...(sel.needs ?? [])])];
@@ -126,9 +127,8 @@ export function resolveSelection(accounts: readonly Account[], defaults: Default
   function finish(account: Account, row: Considered, how: 'chosen' | 'default' | 'auto', why: PickWhy): AccountPick {
     const listed = models?.(account);
     const usable = listed?.filter((m) => m.available && m.why !== 'resting');
-    const unknown = models !== undefined && listed === undefined;
     const model = sel.model ?? (defaults.model && (!usable || usable.some((m) => m.id === defaults.model)) ? defaults.model
-      : usable?.[0]?.id ?? (unknown ? `${account.provider}/default` : undefined)) ?? '';
+      : usable?.[0]?.id) ?? '';
     if (listed && !model) return { ok: false, code: 'not_included', reason: words('pick.out.model', { model: sel.model ?? '' }), considered };
     row.reason = why;
     const slots = { name: account.name, provider: account.provider };
