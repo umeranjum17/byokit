@@ -102,8 +102,8 @@ async function handle(params) {
       const profileId = Array.isArray(order) && order.length === 1 ? order[0] : undefined;
       const credential = profileId ? s.profiles?.[profileId] : undefined;
       if (!credential || credential.provider !== provider) return;
-      const state = credential.type === 'api_key' ? 'valid' : expiryState(credential.expires, now);
-      if (state === 'expired' || state === 'invalid') return;
+      const status = statusOf(credential, now);
+      if (status === 'missing' || status === 'expired') return;
       answer = { type: credential.type };
       if (typeof credential.expires === 'number') answer.expiresAt = credential.expires;
       const who = whoOf(credential);
@@ -138,7 +138,7 @@ async function handle(params) {
 
   if (params.action === 'clear') {
     const cleared = await updateAuthProfileStoreWithLock({ agentDir, saveOptions: LOCAL, updater(s) {
-      s.profiles = {}; s.order = {}; return true;
+      s.profiles = {}; s.order = {}; delete s.lastGood; return true;
     } });
     return cleared ? { ok: true } : { ok: false };
   }
@@ -198,6 +198,7 @@ async function adopt(params, config, resolveAgentDir, updateAuthProfileStoreWith
       return true;
     } });
     if (!sealed) { await pin(target); return { ok: false }; }
+    let clearedOk = false;
     const cleared = await updateAuthProfileStoreWithLock({ agentDir: fromDir, saveOptions: LOCAL, updater(s) {
       // A refresh between the read and this clear must not be deleted with the stale snapshot: refuse when the
       // live record no longer equals the moved one (a who check alone would miss it; the account id never
@@ -208,9 +209,10 @@ async function adopt(params, config, resolveAgentDir, updateAuthProfileStoreWith
         s.order[provider] = s.order[provider].filter((id) => id !== fromId);
         if (!s.order[provider].length) delete s.order[provider];
       }
+      clearedOk = true;
       return true;
     } });
-    if (cleared) return { ok: true };
+    if (cleared && clearedOk) return { ok: true };
     await restoreTo();
     await pin(target);
     return { ok: false };

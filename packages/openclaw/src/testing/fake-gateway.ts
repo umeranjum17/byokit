@@ -204,6 +204,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     if (!agent.providers.includes(provider)) agent.providers.push(provider);
     // The pin names the first profile of a provider `<provider>:default` and points the agent's model at it.
     storeOf(id)[`${provider}:default`] = { provider, type: 'oauth', status: 'ok', ...extra };
+    orderOf(id)[provider] = [`${provider}:default`];
     models.set(id, `${provider}/default@${provider}:default`);
   };
 
@@ -340,7 +341,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     'byokit.accounts': (p) => {
       const action = String(p.action ?? '');
       const entries = (configBox.config.agents as { entries?: Record<string, unknown> } | undefined)?.entries;
-      const known = (id: string) => Boolean(id) && AGENT_ID.test(id) && Boolean(entries) && id in entries!;
+      const known = (id: string) => Boolean(id) && AGENT_ID.test(id) && ((Boolean(entries) && id in entries!) || agents.has(id));
       if (action === 'adopt') {
         const from = String(p.from), to = String(p.to), provider = String(p.provider);
         if (from === to || !known(from) || !known(to)) return { ok: false };
@@ -374,8 +375,8 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
         const named = order[provider] ?? [];
         const credential = named.length === 1 ? store[named[0]] : undefined;
         if (!provider || !credential || credential.provider !== provider) return { ok: false };
-        const state = credential.type === 'api_key' ? 'valid' : expiryState(credential.expires, Date.now());
-        if (state === 'expired' || state === 'invalid') return { ok: false };
+        const status = statusOf(credential, Date.now());
+        if (status === 'missing' || status === 'expired') return { ok: false };
         return { ok: true, type: credential.type, ...(typeof credential.expires === 'number' ? { expiresAt: credential.expires } : {}),
           ...(whoOf(credential) ? { who: whoOf(credential) } : {}) };
       }
