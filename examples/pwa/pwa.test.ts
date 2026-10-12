@@ -187,6 +187,7 @@ test('Add sheet rows start their own card: a signed-in plan row adds another sig
     const [provider] = await Promise.all([context.waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
     await provider.fill('#code', code);
     await provider.click('#continue');
+    assert.match((await provider.locator('#words').textContent())!, /Signed in/); // let the form's page land first: closing mid-navigation wedges page.close(), which has no timeout of its own
     await provider.close();
     await page.locator('#chatgpt [data-email]').filter({ hasText: 'umer@example.com' }).waitFor();
 
@@ -225,6 +226,7 @@ test('an added sign-in that runs out: the card is not stuck, its expiry words su
     const [provider] = await Promise.all([context.waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
     await provider.fill('#code', code);
     await provider.click('#continue');
+    assert.match((await provider.locator('#words').textContent())!, /Signed in/); // let the form's page land first: closing mid-navigation wedges page.close(), which has no timeout of its own
     await provider.close();
     await page.locator('#chatgpt [data-email]').filter({ hasText: 'umer@example.com' }).waitFor();
 
