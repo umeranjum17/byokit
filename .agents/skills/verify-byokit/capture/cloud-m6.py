@@ -17,11 +17,13 @@ def ui():
     return list(root.iter('node'))
 def wait(words, seconds=90):
     end = time.monotonic() + seconds
+    seen = 'nothing'
     while time.monotonic() < end:
-        nodes = ui()
+        try: nodes = ui()
+        except AssertionError as e: seen = str(e); time.sleep(1); continue  # app still coming to the front
         if any(words in n.get('text', '') for n in nodes): return nodes
-        time.sleep(1)
-    raise RuntimeError('Expected lab state not reached: ' + words)
+        seen = 'lab screen without it'; time.sleep(1)
+    raise RuntimeError(f'Expected lab state not reached: {words} (last: {seen})')
 def tap(name):
     for _ in range(4):
         for n in ui():
@@ -36,7 +38,7 @@ record = {'device': serial, 'setup_start': time.time(), 'human_steps': ['Main un
 video = None; video_pid = None; secret = None; opened = False
 try:
     adb('install', '-r', apk)
-    adb('shell', 'am', 'start', '-n', app + '/.MainActivity'); opened = True
+    adb('shell', 'am', 'start', '-W', '-n', app + '/.MainActivity'); opened = True
     wait('No lab key.'); shot('missing-key')
     if not any('Existing ChatGPT sign-in available.' in n.get('text', '') for n in ui()):
         raise RuntimeError('Existing phone-local ChatGPT sign-in unavailable; ask Main, do not sign in')
