@@ -386,8 +386,9 @@ export function createAccounts(ctx: {
     const roster = new Set((await ctx.request('agents.list') as { agents: { id: string }[] }).agents.map((a) => a.id));
     for (const [agent, id] of [[agentId, undefined] as const, ...agents]) {
       if (agent !== agentId && !roster.has(agent)) continue;
-      const found = await ctx.request('sessions.resolve', { key: `agent:${agent}:${tail}`, agentId: agent, allowMissing: true }) as { missing?: boolean };
-      if (!found.missing) return id === undefined ? { agentId: agent } : { agentId: agent, id };
+      // The pin answers a found session with its canonical `key` and a missing one with `{ ok: false }`.
+      const found = await ctx.request('sessions.resolve', { key: `agent:${agent}:${tail}`, agentId: agent, allowMissing: true }) as { key?: string };
+      if (found.key !== undefined) return id === undefined ? { agentId: agent } : { agentId: agent, id };
     }
     return undefined;
   }

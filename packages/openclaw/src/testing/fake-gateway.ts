@@ -555,11 +555,11 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
         else run.waiters.push(resolve);
       }),
     'sessions.steer': () => ({}),
-    // The pin: a key the agent holds answers its canonical key; a missing one errors unless `allowMissing`.
+    // The pin: a key the agent holds answers its canonical key; a missing one errors unless `allowMissing`, which answers `{ ok: false }`.
     'sessions.resolve': (p) => {
       const key = String(p.key ?? ''), agentId = String(p.agentId ?? 'main');
       if (sessions.has(`${agentId}\n${key}`)) return { ok: true, key, agentId };
-      if (p.allowMissing === true) return { ok: true, missing: true };
+      if (p.allowMissing === true) return { ok: false };
       throw new Error(`No session found: ${key}`);
     },
     'chat.abort': (p) => {
