@@ -18,7 +18,8 @@ export type Activation = { ok: boolean; late?: boolean; status?: string; error?:
 export async function activate(ctx: ActivationCtx, params: GatewayParams<'openclaw.setup.activate'>,
   o: { timeoutMs: number; signal?: AbortSignal }): Promise<Activation> {
   const authBefore = ctx.authConfig();
-  const result = await ctx.request('openclaw.setup.activate', params, { timeoutMs: o.timeoutMs, signal: o.signal }) as
+  // The request is never aborted by a cancel: its answer decides whether the engine kept the key, so cleanup waits for it.
+  const result = await ctx.request('openclaw.setup.activate', params, { timeoutMs: o.timeoutMs }) as
     { ok?: boolean; status?: string; error?: string };
   if (!result.ok) return { ok: false, status: result.status, error: result.error };
   return await ctx.restarted(authBefore, o.signal) ? { ok: true } : { ok: false, late: true };

@@ -83,6 +83,7 @@ export function signIn(
   let settleStart!: () => void;
   const startingSettled = new Promise<void>((resolve) => { settleStart = resolve; });
   let over = false;
+  let activating = false;
   let recovering = false;
   let offDisconnect: (() => void) | undefined;
   let agentId: string | undefined;
@@ -172,10 +173,11 @@ export function signIn(
   };
   const cancel = (): void => {
     // Stop the drive now; the start itself is never aborted, and release waits for it to settle before cancelling,
-    // so the gateway's one setup admission is freed by a cancel that the engine can actually find.
+    // so the gateway's one setup admission is freed by a cancel that the engine can actually find. An activation in
+    // flight is not finished here: the drive returns once the engine answers, so cleanup follows the engine's answer.
     if (signal.aborted) return;
     owner.abort();
-    void (async () => { await release(); await finish(cancelled()); })();
+    void (async () => { await release(); if (!activating) await finish(cancelled()); })();
   };
 
   o.signal?.addEventListener('abort', cancel, { once: true });
@@ -248,10 +250,11 @@ export function signIn(
       if (signal.aborted) return { state: 'failed', via, why: 'declined' };
       // Done waits for the gateway restart an `auth` change causes (activation.ts); a run started before it runs on the
       // old config. A restart that runs late or is cancelled ends failed, and the account is cleaned up by the caller.
+      activating = true;
       const result = await activate(ctx, {
         agentId, kind: apiKey === undefined ? 'claude-cli' : 'api-key',
         ...(apiKey === undefined ? {} : { authChoice: o.authChoice, apiKey }),
-      }, { timeoutMs: PULL_MS, signal });
+      }, { timeoutMs: PULL_MS, signal }).finally(() => { activating = false; });
       if (result.late) return signal.aborted ? cancelled() : { state: 'failed', via, why: 'failed', error: LATE_RESTART };
       if (!result.ok) return { state: 'failed', via, why: 'failed',
         error: clean(result.error ?? (apiKey === undefined ? 'Claude Code activation failed' : 'Key activation failed')) };

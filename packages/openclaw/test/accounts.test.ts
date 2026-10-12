@@ -688,3 +688,69 @@ test('a key add whose gateway never restarts returns retry and clears the key it
     rmSync(stateDir, { recursive: true, force: true });
   }
 });
+
+test('a key add that finds the gateway restarting before the engine saw the key returns retry and activates nothing', async (t) => {
+  spawnedEngine(t);
+  const stateDir = scratchDir('key-pre-accept');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
+  try {
+    await kit.start();
+    fake.drop('gateway restart');
+    assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-PRE-ACCEPT' }), 'retry');
+    assert.ok(!fake.calls.some((c) => c.method === 'openclaw.setup.activate'));
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a plan key add cancelled while its activation is in flight is cleaned up only after the engine answers', async (t) => {
+  spawnedEngine(t);
+  const stateDir = scratchDir('go-cancel-in-flight');
+  const fake = fakeGateway();
+  let answer!: (value: object) => void;
+  fake.handle('openclaw.setup.activate', () => new Promise((resolve) => { answer = resolve; }));
+  const kit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
+  try {
+    await kit.start();
+    const added = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
+    await flush();
+    added.paste('CANARY-GO-IN-FLIGHT');
+    await flush();
+    added.cancel();
+    await flush();
+    assert.deepEqual(clears(fake, 'm1'), []);
+    answer({ ok: true });
+    const { view } = await added.done;
+    assert.equal(view.why, 'declined');
+    assert.deepEqual(clears(fake, 'm1'), ['opencode-go']);
+    assert.ok(!(await kit.accounts('m1')).some((row) => row.id === 'opencode-go'));
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('overlapping plan key adds for one member take turns: a cancelled second add leaves the first sealed sign-in', async () => {
+  const stateDir = scratchDir('go-overlap');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    const first = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
+    const second = kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
+    first.paste('CANARY-GO-FIRST');
+    assert.deepEqual((await first.done).view, { state: 'done', via: 'browser' });
+    const later = await second;
+    later.paste('CANARY-GO-SECOND');
+    later.cancel();
+    assert.equal((await later.done).view.why, 'declined');
+    assert.deepEqual((await kit.accounts('m1')).map((row) => row.id), ['opencode-go']);
+    const left = await fake.transport.request('byokit.accounts', { action: 'list', agentId: 'm1' }) as { profiles: { provider: string }[] };
+    assert.deepEqual(left.profiles.map((p) => p.provider), ['opencode-go']);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});

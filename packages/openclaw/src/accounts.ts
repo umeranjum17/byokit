@@ -375,6 +375,12 @@ export function createAccounts(ctx: {
     await edit(member, (file) => { delete file.accounts[id]; });
   })().catch((error: unknown) => ctx.log?.(`addAccount: ${agent} is not removed yet: ${error instanceof Error ? error.message : String(error)}`));
 
+  // Member-agent adds of one provider take turns from the sign-in's start to its settle, so a cleanup clears only the
+  // profile its own add activated, and the next add's read sees what the earlier one left.
+  const holdAdd = (member: Member, provider: string): Promise<() => void> => new Promise((held) => {
+    void ctx.locks.exclusive([`add:${member}:${provider}`], () => new Promise<void>((release) => held(release)));
+  });
+
   async function add(member: Member, o: AddOptions, on: (v: SignInView) => void): Promise<AccountSignIn> {
     check(member);
     if (!NEW_MEMBER_ID.test(member)) throw new Error(words('account.legacyMember'));
@@ -386,91 +392,108 @@ export function createAccounts(ctx: {
     const { agentId: memberAgent, workspace } = await ctx.ensure(member);
     if (o.again !== undefined && (!read(member).accounts[o.again] || o.again.split('.')[0] !== provider))
       throw new Error(`unknown account: ${o.again}`);
-    // The member agent is the target only while it holds no local profile of the provider (5.15).
-    const own = await ctx.request('byokit.accounts', { action: 'list', agentId: memberAgent }) as { ok?: boolean; profiles?: LiveProfile[] };
-    if (!own.ok || !Array.isArray(own.profiles)) throw new Error('addAccount: the member\'s sign-ins could not be read');
-    const fresh = o.again !== undefined || own.profiles.some((p) => p.provider === provider);
-    const entryOf = (file: IndexFile, agent: string): IndexEntry => ({ agent, route: route.choice, addedAt: Date.now(),
-      name: name ?? `${route.label} ${Object.values(file.accounts).filter((e) => e.route === route.choice).length + 1}` });
-    let id: AccountId = provider;
-    let agent = memberAgent;
-    let added = false;
-    if (!fresh) {
-      await edit(member, (file) => { if (!file.accounts[id]) { file.accounts[id] = entryOf(file, agent); added = true; } });
-    } else {
-      // `<member>--<hex6>`, drawn again while that agent exists; its entry is written before the agent.
-      const roster = new Set((await ctx.request('agents.list') as { agents: { id: string }[] }).agents.map((a) => a.id));
-      await edit(member, (file) => {
-        const taken = new Set([...roster, ...Object.values(file.accounts).map((e) => e.agent)]);
-        do { const hex = randomBytes(3).toString('hex'); id = `${provider}.${hex}`; agent = `${member}--${hex}`; }
-        while (taken.has(agent) || file.accounts[id]);
-        file.accounts[id] = entryOf(file, agent);
-      });
-      added = true;
-      let created = false;
-      // The pin rewrites the shared workspace's IDENTITY.md Name line on create, so the create window is one lock per member.
-      await ctx.locks.exclusive([`${member}#identity`], async () => {
-        let before: string | undefined;
-        try {
-          before = await identityOf(memberAgent);
-          const made = await ctx.request('agents.create', { name: agent, workspace }) as { agentId?: string };
-          created = true;
-          if (made.agentId !== agent) throw new Error(`addAccount: agents.create answered ${String(made.agentId)}, not ${agent}`);
-          await untilListed(ctx.request, agent);
-          await restoreIdentity(memberAgent, before);
-        } catch (error) {
-          await restoreIdentity(memberAgent, before)
-            .catch((restoreError: unknown) => ctx.log?.(`addAccount: IDENTITY.md is not restored: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`));
-          const exists = created || await onGateway(agent).catch((listError: unknown) => {
-            ctx.log?.(`addAccount: ${agent} is not removed yet: ${listError instanceof Error ? listError.message : String(listError)}`);
-            return undefined;
-          });
-          if (exists !== undefined) await discard(member, id, agent, exists);
-          throw error;
-        }
-      });
-    }
+    let releaseAdd = (): void => {};
+    try {
+      // The member agent is the target only while it holds no local profile of the provider (5.15).
+      const holdsProvider = async (): Promise<boolean> => {
+        const own = await ctx.request('byokit.accounts', { action: 'list', agentId: memberAgent }) as { ok?: boolean; profiles?: LiveProfile[] };
+        if (!own.ok || !Array.isArray(own.profiles)) throw new Error('addAccount: the member\'s sign-ins could not be read');
+        return own.profiles.some((p) => p.provider === provider);
+      };
+      let fresh = o.again !== undefined || await holdsProvider();
+      // Only the member-agent path clears a profile it did not create, so only it takes the provider's add lock, held to
+      // settle. The read repeats under the lock: the add that held it may have sealed its sign-in on the member agent.
+      if (!fresh) {
+        releaseAdd = await holdAdd(member, provider);
+        fresh = await holdsProvider();
+        if (fresh) releaseAdd();
+      }
+      const entryOf = (file: IndexFile, agent: string): IndexEntry => ({ agent, route: route.choice, addedAt: Date.now(),
+        name: name ?? `${route.label} ${Object.values(file.accounts).filter((e) => e.route === route.choice).length + 1}` });
+      let id: AccountId = provider;
+      let agent = memberAgent;
+      let added = false;
+      if (!fresh) {
+        await edit(member, (file) => { if (!file.accounts[id]) { file.accounts[id] = entryOf(file, agent); added = true; } });
+      } else {
+        // `<member>--<hex6>`, drawn again while that agent exists; its entry is written before the agent.
+        const roster = new Set((await ctx.request('agents.list') as { agents: { id: string }[] }).agents.map((a) => a.id));
+        await edit(member, (file) => {
+          const taken = new Set([...roster, ...Object.values(file.accounts).map((e) => e.agent)]);
+          do { const hex = randomBytes(3).toString('hex'); id = `${provider}.${hex}`; agent = `${member}--${hex}`; }
+          while (taken.has(agent) || file.accounts[id]);
+          file.accounts[id] = entryOf(file, agent);
+        });
+        added = true;
+        let created = false;
+        // The pin rewrites the shared workspace's IDENTITY.md Name line on create, so the create window is one lock per member.
+        await ctx.locks.exclusive([`${member}#identity`], async () => {
+          let before: string | undefined;
+          try {
+            before = await identityOf(memberAgent);
+            const made = await ctx.request('agents.create', { name: agent, workspace }) as { agentId?: string };
+            created = true;
+            if (made.agentId !== agent) throw new Error(`addAccount: agents.create answered ${String(made.agentId)}, not ${agent}`);
+            await untilListed(ctx.request, agent);
+            await restoreIdentity(memberAgent, before);
+          } catch (error) {
+            await restoreIdentity(memberAgent, before)
+              .catch((restoreError: unknown) => ctx.log?.(`addAccount: IDENTITY.md is not restored: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`));
+            const exists = created || await onGateway(agent).catch((listError: unknown) => {
+              ctx.log?.(`addAccount: ${agent} is not removed yet: ${listError instanceof Error ? listError.message : String(listError)}`);
+              return undefined;
+            });
+            if (exists !== undefined) await discard(member, id, agent, exists);
+            throw error;
+          }
+        });
+      }
 
-    const key = `${member}\n${id}`;
-    signing.set(key, (signing.get(key) ?? 0) + 1);
-    const handle = ctx.signIn(agent, { authChoice: route.choice, ...(o.via ? { via: o.via } : {}) },
-      (v) => { if (v.state === 'waiting') on(v); }, fresh);
-    // Sealed before the person sees done: the agent keeps only this sign-in, and its `who` goes to the index.
-    // Done only when sealed; anything else leaves nothing behind. A member agent held no profile of this provider before
-    // (a non-fresh add), so clearing the provider removes only what this add activated.
-    const settle = async (view: SignInView): Promise<SignInView> => {
-      let result = view;
-      if (view.state === 'done') {
-        const sealed = await ctx.locks.exclusive([memberAgent, agent, indexLock(member)], async (): Promise<true | string> => {
-          const answer = await ctx.request('byokit.accounts', { action: 'seal', agentId: agent, provider,
-            ...(route.keyEntry ? { planKey: true } : {}) }) as { ok?: boolean; who?: string };
-          if (!answer.ok) return 'Sign-in could not be saved. Try again.';
-          const file = read(member);
-          const entry = file.accounts[id];
-          if (entry && answer.who) { entry.who = answer.who; write(member, file); }
-          return true;
-        }).catch((error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 200));
-        if (sealed === true) return view;
-        result = { state: 'failed', via: view.via, why: 'failed', error: sealed };
-      }
-      if (agent !== memberAgent) await discard(member, id, agent, true);
-      else {
-        await ctx.request('byokit.accounts', { action: 'clear', agentId: memberAgent, provider })
-          .catch((error: unknown) => ctx.log?.(`addAccount: ${provider} is not cleared yet: ${error instanceof Error ? error.message : String(error)}`));
-        if (added) await edit(member, (file) => { delete file.accounts[id]; })
-          .catch((error: unknown) => ctx.log?.(`addAccount: ${id} entry is kept: ${error instanceof Error ? error.message : String(error)}`));
-      }
-      return result;
-    };
-    const done = handle.done.then(settle).finally(() => {
-      const left = signing.get(key)! - 1;
-      if (left) signing.set(key, left);
-      else signing.delete(key);
-    }).then((view) => {
-      on(view);
-      return { view, id };
-    });
-    return { id, paste: handle.paste, cancel: handle.cancel, done };
+      const key = `${member}\n${id}`;
+      signing.set(key, (signing.get(key) ?? 0) + 1);
+      const handle = ctx.signIn(agent, { authChoice: route.choice, ...(o.via ? { via: o.via } : {}) },
+        (v) => { if (v.state === 'waiting') on(v); }, fresh);
+      // Sealed before the person sees done: the agent keeps only this sign-in, and its `who` goes to the index.
+      // Done only when sealed; anything else leaves nothing behind. A member agent held no profile of this provider before
+      // (a non-fresh add), so clearing the provider removes only what this add activated.
+      const settle = async (view: SignInView): Promise<SignInView> => {
+        let result = view;
+        if (view.state === 'done') {
+          const sealed = await ctx.locks.exclusive([memberAgent, agent, indexLock(member)], async (): Promise<true | string> => {
+            const answer = await ctx.request('byokit.accounts', { action: 'seal', agentId: agent, provider,
+              ...(route.keyEntry ? { planKey: true } : {}) }) as { ok?: boolean; who?: string };
+            if (!answer.ok) return 'Sign-in could not be saved. Try again.';
+            const file = read(member);
+            const entry = file.accounts[id];
+            if (entry && answer.who) { entry.who = answer.who; write(member, file); }
+            return true;
+          }).catch((error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 200));
+          if (sealed === true) return view;
+          result = { state: 'failed', via: view.via, why: 'failed', error: sealed };
+        }
+        if (agent !== memberAgent) await discard(member, id, agent, true);
+        else {
+          await ctx.request('byokit.accounts', { action: 'clear', agentId: memberAgent, provider })
+            .catch((error: unknown) => ctx.log?.(`addAccount: ${provider} is not cleared yet: ${error instanceof Error ? error.message : String(error)}`));
+          if (added) await edit(member, (file) => { delete file.accounts[id]; })
+            .catch((error: unknown) => ctx.log?.(`addAccount: ${id} entry is kept: ${error instanceof Error ? error.message : String(error)}`));
+        }
+        return result;
+      };
+      const done = handle.done.then(settle).finally(() => {
+        releaseAdd();
+        const left = signing.get(key)! - 1;
+        if (left) signing.set(key, left);
+        else signing.delete(key);
+      }).then((view) => {
+        on(view);
+        return { view, id };
+      });
+      return { id, paste: handle.paste, cancel: handle.cancel, done };
+    } catch (error) {
+      releaseAdd();
+      throw error;
+    }
   }
 
   return { list, add, rename, defaults, setDefaults, models, room, pick, rest };

@@ -738,7 +738,7 @@ the agent's model. The key is cut from any error the view carries. Activation (t
 `auth` and a spawned engine restarts for it, `done` waits for that restart to begin and the kit to be ready again,
 within 60 s (event-driven, not polled). Past that, or when cancelled during the wait, the sign-in ends `why: 'failed'` with
 the words that the engine took too long and to try again, and the add is cleaned up: a new agent is discarded, a member agent
-clears only this provider's profile and its index entry. The same wait and cleanup apply to `addKey` (below). Done means sealed.
+clears only this provider's profile and its index entry. The same wait and cleanup apply to `addKey` (below). A cancel during the activation request waits for the engine's answer before the cleanup, and ends `why: 'declined'`. Adds of one provider for one member take turns until each settles. Done means sealed.
 A run started on done uses the new sign-in.
 A run prepares its models from configured facts and the static catalog only (the pin's run path; live discovery
 feeds `models.list view: 'all'`, never a run): a live-only OpenCode Go model (Muse) resolves once the app lists it in
@@ -925,7 +925,7 @@ the engine. External retained sources are touched only when explicitly passed to
 - API keys are opt-in, labelled **API key (billed per use)**, and every API route retains `offer: false`.
   `addKey(member, { authChoice, apiKey })` uses typed `openclaw.setup.activate` with `kind: 'api-key'` only.
   It returns `ok | invalid | not_included | retry`, never engine lines, errors or credentials. `retry`: the engine took the key
-  but the gateway restart ran late or the seal failed; the key agent is cleared, so nothing unsealed is kept. Only routes whose pinned
+  but the gateway restart ran late or the seal failed; the key agent is cleared, so nothing unsealed is kept. A restart or not-ready gateway before the engine saw the key is also `retry` (nothing was sent). Only routes whose pinned
   manifests allow manual secrets for text inference expose `keyEntry`; every route carries `revision` and `checked`.
 - The engine has no strict per-run auth-profile pin. Key isolation is by agent: a member's normal agent never
   receives a key from `addKey`. A reserved `byokit-key-<member>` agent has its own workspace and credential store;

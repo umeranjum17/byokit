@@ -829,6 +829,7 @@ export class OpenClawKit {
   // restart has begun and the kit is ready again, false if it fails, is aborted or runs past RESTART_MS. No change: true.
   private restarted(authBefore: string | undefined, signal?: AbortSignal): Promise<boolean> {
     if (this.o.spawnEngine === false || this.authSnapshot() === authBefore) return Promise.resolve(true);
+    if (signal?.aborted) return Promise.resolve(false);
     return new Promise((resolve) => {
       let began = this.engineRestarting();
       const end = (ok: boolean) => {

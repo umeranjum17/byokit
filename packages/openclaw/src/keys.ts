@@ -22,6 +22,11 @@ export function createKeys(ctx: ActivationCtx & {
     finally { if (tails.get(member) === next) tails.delete(member); }
   };
   const check = (member: Member) => MEMBER_ID.test(member) && !member.startsWith(KEY_PREFIX);
+  // Config writes may drain/restart the gateway: a restart, or a retryable refusal, means the call may simply run again.
+  const transient = (error: unknown): boolean => {
+    const refusal = error as { code?: string; retryable?: boolean } | null;
+    return Boolean(ctx.restarting?.() || (refusal?.code === 'UNAVAILABLE' && refusal.retryable === true));
+  };
   const control = (member: Member, action: 'prepare' | 'seal' | 'ready' | 'clear', provider?: string) =>
     ctx.request('byokit.keys', { member, action, ...(provider ? { provider } : {}) }) as Promise<{ ok: boolean; model?: string }>;
   return {
@@ -52,8 +57,9 @@ export function createKeys(ctx: ActivationCtx & {
           accepted = true;
           if (!result.late && (await control(member, 'seal')).ok) return 'ok';
           return abandon();
-        } catch {
-          return accepted ? abandon() : 'invalid';
+        } catch (error) {
+          if (accepted) return abandon();
+          return transient(error) ? 'retry' : 'invalid';
         }
       });
     },
@@ -65,11 +71,8 @@ export function createKeys(ctx: ActivationCtx & {
           const ready = await control(member, 'ready');
           return ready.ok && ready.model ? { agentId: keyAgentId(member), model: ready.model } : undefined;
         } catch (error) {
-          // Config writes may drain/restart the gateway after activation. This read is safe to retry;
-          // an absent profile or a terminal refusal still fails closed immediately.
-          const refusal = error as { code?: string; retryable?: boolean } | null;
-          const transient = ctx.restarting?.() || (refusal?.code === 'UNAVAILABLE' && refusal.retryable === true);
-          if (!transient || Date.now() >= deadline) return undefined;
+          // This read is safe to retry; an absent profile or a terminal refusal still fails closed immediately.
+          if (!transient(error) || Date.now() >= deadline) return undefined;
           await new Promise((resolve) => setTimeout(resolve, 250));
         }
       }
