@@ -8,6 +8,7 @@
 //   EXPO_PUBLIC_DEVICE_BASE / EXPO_PUBLIC_CLAUDE_BASE override the device-flow and Claude plan endpoints; unset uses the real providers.
 import { useEffect, useRef, useState } from 'react';
 import { UsageDemo } from './UsageDemo.tsx';
+import { CloudM6Demo } from './CloudM6Demo.tsx';
 import { ScreenDemo } from './ScreenDemo.tsx';
 import { ShareDemo } from './ShareDemo.tsx';
 import { InferDemo } from './InferDemo.tsx';
@@ -331,6 +332,7 @@ function Chip() {
 }
 
 export default function App() {
+  if (process.env.EXPO_PUBLIC_CLOUD_M6 === '1') return <CloudM6Demo accounts={accounts} />;
   if (process.env.EXPO_PUBLIC_USAGE_DEMO === '1') return <UsageDemo />;
   if (process.env.EXPO_PUBLIC_SHARE_DEMO === '1') return <ShareDemo />;
   if (process.env.EXPO_PUBLIC_INFER_DEMO === '1') return <InferDemo />;

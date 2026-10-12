@@ -70,6 +70,10 @@ It drives the real example app in a real browser (Playwright's Chromium, else th
 
 `before` is the screen as the `--base` ref has it (the example app of that ref, served from its own copy); a screen that ships its own before route (`usage.html?before`) uses that instead, so the pair compares on one ledger. A theme, form factor or screen the app does not have is written down in `manifest.json` with its reason — that is the only way to skip one. The script closes the browser, both servers and the stand-in, and removes its own scratch; the evidence folder survives. Wrap the run in the Evidence capture block below (it is a heavy job: hold the machine's heavy-job lock). Recipe and what the app really has: `features/pwa-review-evidence.md`.
 
+### Physical native lab surfaces
+
+An explicitly native-only lab journey uses its feature-indexed maintained device capture, not a browser stand-in or a hand-captured fallback. [Cloud M6 phone](features/cloud-m6-phone.md) owns `capture/cloud-m6.py`: physical a4b93ea2, whole-journey device/heavy locks and memory gate, approved USB stdin → SecureStore import, independent surviving trial watchdog, real subscription tool turn, own-machine cleanup and verified key removal. Its manifest records absent before/web/desktop/dark surfaces and exact timing boundaries; failed prerequisites stay unqualified. Review actual shots and decoded recording frames. The browser review matrix above remains unchanged for every web surface.
+
 ## Evidence
 
 Every proof writes to an exclusive run directory under `.verify-artifacts/<feature>/` in the worktree root. The feature recipe sets `feature`, `entry` and the Bash `drive` array; then run this capture block in the same shell:
