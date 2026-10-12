@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.8.1 (2026-10-12)
+
+- FIX: `browse()` and `scan()` accept resolved services whose `fullName` carries the service type without a trailing dot (`host._type._tcp`, as Android's react-native-zeroconf delivers) or with a trailing `.local` domain suffix, case-insensitive, instead of only the `host.local._type._tcp.` shape. Android phones now discover computers over mDNS instead of always scanning empty.
+
 ## 0.8.0 (2026-10-12)
 
 - Dependency update: pins @byokit/ui 0.7.0.

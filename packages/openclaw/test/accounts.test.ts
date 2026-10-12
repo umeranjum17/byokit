@@ -482,6 +482,302 @@ test('run on an account: abort with the member key reaches the account run; an A
   }
 });
 
+// S7 (O14g): identity merge. The fake stores an account id per sign-in (`signInAs`), so `who` is that sign-in's.
+// Pass: the rows match the runtime-kits O14 identity bullets and no `who` or account id reaches the app.
+test('identity: same who refreshes, again with another who adds, no who never merges, old duplicates adopt into the earliest', async () => {
+  const stateDir = scratchDir('o14g-identity');
+  const fake = fakeGateway();
+  let refuseAdopt = false;
+  let loseAdoptReply = false;
+  let loseAdoptBeforeMove = false;
+  let armMemberRead = false;
+  let failMemberRead = false;
+  let armRosterRead = false;
+  let failRosterRead = false;
+  const adopts: { from: string; to: string }[] = [];
+  const refusing: typeof fake.factory = (ctx) => {
+    const transport = fake.factory(ctx);
+    return { ...transport, request: async (method, params, o) => {
+      if (method === 'agents.list' && failRosterRead) { failRosterRead = false; throw new Error('roster read failed'); }
+      if (method !== 'byokit.accounts') return transport.request(method, params, o);
+      const { action, agentId } = params as { action?: string; agentId?: string };
+      if (action === 'seal' && armMemberRead) { armMemberRead = false; failMemberRead = true; }
+      if (action === 'seal' && armRosterRead) { armRosterRead = false; failRosterRead = true; }
+      if (action === 'list' && failMemberRead && agentId === 'm1') { failMemberRead = false; return { ok: false }; }
+      if (action !== 'adopt') return transport.request(method, params, o);
+      adopts.push(params as { from: string; to: string });
+      if (refuseAdopt) { refuseAdopt = false; return { ok: false }; }
+      if (loseAdoptBeforeMove) {
+        loseAdoptBeforeMove = false;
+        await transport.request('byokit.accounts', { action: 'clear', agentId: (params as { from: string }).from }, o);
+        throw new Error('gateway reply lost');
+      }
+      const answer = await transport.request(method, params, o);
+      if (loseAdoptReply) { loseAdoptReply = false; throw new Error('gateway reply lost'); }
+      return answer;
+    } };
+  };
+  const lines: string[] = [];
+  const kit = new OpenClawKit({ stateDir, transport: refusing, spawnEngine: false, callbackPort: 0, log: (line) => lines.push(line) });
+  const seen: unknown[] = [];
+  const whoOf = (accountId: string) => crypto.createHash('sha256').update(`openai\n${accountId}`).digest('hex').slice(0, 16);
+  const index = () => JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')) as { accounts: Record<string, { agent: string; name: string; route: string; addedAt: number; until?: number; model?: string; who?: string }> };
+  const rows = async () => { const listed = await kit.accounts('m1'); seen.push(listed); return listed.map((a) => [a.id, a.state]); };
+  const ready = (id: string) => kit.callDynamic('byokit.accounts', { action: 'ready', agentId: index().accounts[id]!.agent, provider: 'openai' }) as
+    Promise<{ ok: boolean; who?: string; expiresAt?: number }>;
+  const add = async (again?: string) => {
+    const handle = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser', ...(again ? { again } : {}) }, (v) => seen.push(v));
+    const done = await handle.done;
+    seen.push(done);
+    assert.equal(done.view.state, 'done');
+    return { added: handle.id, id: done.id };
+  };
+  const roster = async () => (await kit.call('agents.list', {})).agents.map((a) => a.id);
+  try {
+    await kit.start();
+    const later = Date.now() + 40 * 86_400_000;
+
+    // The first ChatGPT sign-in lands on the member agent, its who indexed.
+    fake.signInAs({ accountId: 'canary-acct-a', email: 'umer@example.com' });
+    assert.deepEqual(await add(), { added: 'openai', id: 'openai' });
+    assert.equal(index().accounts.openai!.who, whoOf('canary-acct-a'));
+
+    // Duplicate identity: the same account id with a changed email refreshes the existing row; the new agent goes.
+    fake.signInAs({ accountId: 'canary-acct-a', email: 'umer+new@example.com', expires: later });
+    const refreshed = await add();
+    assert.match(refreshed.added, /^openai\.[0-9a-f]{6}$/);
+    assert.equal(refreshed.id, 'openai', 'done names the existing account');
+    assert.deepEqual(await rows(), [['openai', 'ready']], 'one row');
+    assert.ok(!(await roster()).includes(`m1--${refreshed.added.slice(7)}`), 'the new agent is removed');
+    assert.deepEqual(Object.keys(index().accounts), ['openai'], 'and its entry');
+    assert.deepEqual(await ready('openai'), { ok: true, type: 'oauth', expiresAt: later, who: whoOf('canary-acct-a') }, 'the member now holds the new sign-in');
+
+    // Wrong-account re-auth: again = X signing in to another identity adds a row, and X keeps billing X.
+    fake.signInAs({ accountId: 'canary-acct-b', email: 'umer@example.com' });
+    const b = await add('openai');
+    assert.equal(b.id, b.added);
+    assert.deepEqual(await rows(), [['openai', 'ready'], [b.id, 'ready']]);
+    assert.deepEqual(await ready('openai'), { ok: true, type: 'oauth', expiresAt: later, who: whoOf('canary-acct-a') }, 'X is untouched');
+    assert.equal((await ready(b.id)).who, whoOf('canary-acct-b'));
+
+    // again = Y signing in to X's identity adopts into X and leaves Y untouched.
+    fake.signInAs({ accountId: 'canary-acct-a', expires: later + 1 });
+    assert.equal((await add(b.id)).id, 'openai');
+    assert.equal((await ready('openai')).expiresAt, later + 1);
+    assert.equal((await ready(b.id)).who, whoOf('canary-acct-b'));
+    assert.equal((await rows()).length, 2);
+
+    // Missing identity: a sign-in without an account id never merges, even with again and the same email.
+    fake.signInAs({ accountId: undefined, email: 'umer@example.com' });
+    const c = await add();
+    const d = await add(c.id);
+    assert.deepEqual([c.id === c.added, d.id === d.added, c.id !== d.id], [true, true, true]);
+    assert.ok(!('who' in index().accounts[c.id]!) && !('who' in index().accounts[d.id]!));
+    assert.equal((await rows()).length, 4);
+
+    // An adopt the engine refuses leaves the sign-in a new account, its who kept for later matches.
+    fake.signInAs({ accountId: 'canary-acct-b' });
+    refuseAdopt = true;
+    const kept = await add();
+    assert.equal(kept.id, kept.added);
+    assert.equal(index().accounts[kept.id]!.who, whoOf('canary-acct-b'));
+    assert.equal((await rows()).length, 5);
+
+    // The engine moved the sign-in but its adopt reply was lost: the kit sees it moved, so no stray row is left.
+    fake.signInAs({ accountId: 'canary-acct-b', expires: later + 2 });
+    loseAdoptReply = true;
+    assert.equal((await add()).id, b.id, 'the earlier of the two rows holding that who');
+    assert.equal((await ready(b.id)).expiresAt, later + 2);
+    assert.equal((await rows()).length, 4, 'the refused row kept by the earlier sign-in merges away');
+
+    // Two pre-O14 accounts sharing a who: a sign-in with it moves the later one's credential into the earlier addedAt
+    // (d, not n), removes n, then adopts into d. c holds no credential, so it is left alone.
+    fake.signInAs({ accountId: 'canary-acct-e' });
+    const n = await add(c.id);
+    const dupAgent = index().accounts[n.id]!.agent;
+    const file = index() as { accounts: Record<string, { addedAt: number; who?: string }> };
+    file.accounts[d.id]!.who = whoOf('canary-acct-e');
+    file.accounts[d.id]!.addedAt = 1;
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(file, null, 2) + '\n');
+    const dAgent = index().accounts[d.id]!.agent;
+    fake.signInAs({ accountId: 'canary-acct-e' });
+    const adoptsBeforeDup = adopts.length;
+    assert.equal((await add()).id, d.id);
+    assert.deepEqual(adopts.slice(adoptsBeforeDup).map((a) => [a.from, a.to]).slice(0, 1), [[dupAgent, dAgent]], 'the later duplicate moves into the earliest first');
+    assert.equal(adopts.length - adoptsBeforeDup, 2, 'then the sign-in');
+    assert.equal(index().accounts[n.id], undefined, 'n merges into d');
+    assert.equal((await ready(d.id)).who, whoOf('canary-acct-e'));
+    assert.equal((await rows()).length, 4);
+
+    // The member agent signing in again to its signed-out account's who: that account, nothing adopted or cleared.
+    await kit.signOut('m1', 'openai');
+    assert.equal((await kit.accounts('m1'))[0]?.state, 'signed_out');
+    fake.signInAs({ accountId: 'canary-acct-a' });
+    assert.deepEqual(await add(), { added: 'openai', id: 'openai' });
+    assert.equal((await ready('openai')).who, whoOf('canary-acct-a'));
+    assert.equal((await ready(b.id)).who, whoOf('canary-acct-b'));
+    assert.equal((await rows()).length, 4);
+
+    // The member row and an earlier pre-O14 account share a who: the member's sign-in adopts into the earlier one
+    // and the member's primary model goes back to what it was before that sign-in.
+    await kit.signOut('m1', 'openai');
+    const configOf = async () => await kit.call('config.get', {}) as { hash: string; config: { agents: { entries: Record<string, { model?: unknown }> } } };
+    await kit.call('config.patch', { raw: JSON.stringify({ agents: { ownership: 'explicit', entries: { m1: { model: 'openai/before-sign-in' } } } }), baseHash: (await configOf()).hash });
+    const before = (await configOf()).config.agents.entries.m1!.model;
+    const shared = index();
+    shared.accounts.openai!.who = whoOf('canary-acct-a');
+    shared.accounts[b.id]!.who = whoOf('canary-acct-a');
+    shared.accounts[b.id]!.addedAt = 1;
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(shared, null, 2) + '\n');
+    fake.signInAs({ accountId: 'canary-acct-a', expires: later + 3 });
+    assert.deepEqual(await add(), { added: 'openai', id: b.id }, 'the earlier account takes the sign-in');
+    assert.equal((await ready(b.id)).expiresAt, later + 3);
+    assert.equal(index().accounts.openai, undefined, 'the member row merges away');
+    assert.equal((await configOf()).config.agents.entries.m1!.model, before, 'the member primary model is restored');
+    assert.equal((await rows()).length, 3);
+
+    // The member row holds the sign-in and an earlier openai row shares its who: the member row merges into the earlier one.
+    fake.signInAs({ accountId: 'canary-acct-z' });
+    assert.deepEqual(await add(), { added: 'openai', id: 'openai' }, 'the member holds the new sign-in');
+    const earlier = index();
+    earlier.accounts[b.id]!.who = whoOf('canary-acct-z');
+    earlier.accounts[b.id]!.addedAt = 1;
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(earlier, null, 2) + '\n');
+    const memberBefore = (await configOf()).config.agents.entries.m1!.model;
+    fake.signInAs({ accountId: 'canary-acct-z', expires: later + 4 });
+    const merged = await add();
+    assert.match(merged.added, /^openai\.[0-9a-f]{6}$/);
+    assert.equal(merged.id, b.id, 'the earlier account takes the sign-in');
+    assert.equal(index().accounts.openai, undefined, 'the member row merged away');
+    assert.equal((await configOf()).config.agents.entries.m1!.model, memberBefore, 'the member primary model is unchanged by the merge');
+    assert.equal((await ready(b.id)).expiresAt, later + 4);
+    assert.equal((await rows()).length, 3);
+
+    // A removal that stopped partway left an entry whose agent is gone, still carrying the who: it is skipped.
+    const dead = index();
+    dead.accounts['openai.dead00'] = { agent: 'm1--dead00', name: 'Gone', route: 'openai', addedAt: 0, who: whoOf('canary-acct-z') };
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(dead, null, 2) + '\n');
+    fake.signInAs({ accountId: 'canary-acct-z', expires: later + 5 });
+    assert.equal((await add()).id, b.id, 'the sign-in merges into the live row');
+    assert.equal((await ready(b.id)).expiresAt, later + 5);
+    assert.equal((await rows()).length, 3);
+
+    // A signed-out member row keeps its who but holds nothing: it is no holder, so the earlier live row takes the sign-in and the row stays.
+    fake.signInAs({ accountId: 'canary-acct-y' });
+    assert.deepEqual(await add(), { added: 'openai', id: 'openai' }, 'the member holds a sign-in');
+    await kit.signOut('m1', 'openai');
+    assert.equal((await kit.accounts('m1')).find((r) => r.id === 'openai')?.state, 'signed_out');
+    const stale = index();
+    stale.accounts[b.id]!.who = whoOf('canary-acct-y');
+    stale.accounts[b.id]!.addedAt = 1;
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(stale, null, 2) + '\n');
+    const adoptsBefore = adopts.length;
+    const logBefore = lines.length;
+    fake.signInAs({ accountId: 'canary-acct-y', expires: later + 6 });
+    assert.equal((await add(b.id)).id, b.id, 'the earliest live row takes the sign-in');
+    assert.deepEqual(adopts.slice(adoptsBefore).filter((a) => a.from === 'm1' || a.to === 'm1'), [], 'the signed-out member is never adopted from or into');
+    assert.ok(!lines.slice(logBefore).some((line) => line.includes('is kept')), 'no duplicate is kept');
+    assert.equal((await ready(b.id)).expiresAt, later + 6);
+    assert.equal(index().accounts.openai?.who, whoOf('canary-acct-y'), 'the signed-out member row stays');
+    assert.equal((await kit.accounts('m1')).find((r) => r.id === 'openai')?.state, 'signed_out');
+    assert.equal((await rows()).length, 4);
+
+    // The member's profiles cannot be read after the seal: the sign-in is kept as its own row, nothing adopted or merged.
+    fake.signInAs({ accountId: 'canary-acct-q' });
+    assert.deepEqual(await add(), { added: 'openai', id: 'openai' }, 'the signed-out member takes the sign-in');
+    const withQ = index();
+    withQ.accounts[b.id]!.who = whoOf('canary-acct-q');
+    withQ.accounts[b.id]!.addedAt = 1;
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(withQ, null, 2) + '\n');
+    fake.signInAs({ accountId: 'canary-acct-q', expires: later + 7 });
+    armMemberRead = true;
+    const adoptsBeforeRead = adopts.length;
+    const logBeforeRead = lines.length;
+    const unmerged = await add();
+    assert.equal(unmerged.id, unmerged.added, 'the sign-in keeps its own row');
+    assert.notEqual(unmerged.id, b.id, 'the earlier row holding that who is not taken');
+    assert.deepEqual(adopts.slice(adoptsBeforeRead), [], 'no adopt');
+    assert.equal(index().accounts[unmerged.id]!.who, whoOf('canary-acct-q'));
+    assert.ok(lines.slice(logBeforeRead).some((line) => line.includes('unreadable')), 'the kit logs the unreadable member');
+    assert.equal((await rows()).length, 5);
+
+    // An account row whose index who was lost while its agent still holds the profile: the same identity refreshes it,
+    // with no list() before the sign-in.
+    fake.signInAs({ accountId: 'canary-acct-f' });
+    const f = await add();
+    const lost = index();
+    delete lost.accounts[f.id]!.who;
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(lost, null, 2) + '\n');
+    fake.signInAs({ accountId: 'canary-acct-f', expires: later + 8 });
+    const refreshedF = await add();
+    assert.equal(refreshedF.id, f.id, 'the existing row takes the sign-in');
+    assert.equal(index().accounts[f.id]!.who, whoOf('canary-acct-f'), 'and its who is recorded again');
+    assert.equal((await ready(f.id)).expiresAt, later + 8);
+    assert.equal((await rows()).length, 6);
+
+    // The member row is the earliest holder of W; an account duplicate of W is discarded, and the newest sign-in's
+    // credential is the one that survives on the member row.
+    await kit.signOut('m1', 'openai');
+    fake.signInAs({ accountId: 'canary-acct-w', expires: later + 9 });
+    assert.equal((await add()).id, 'openai', 'the signed-out member takes W');
+    await kit.signOut('m1', 'openai');
+    fake.signInAs({ accountId: 'canary-acct-w', expires: later + 10 });
+    const dupW = await add('openai');
+    assert.equal(dupW.id, dupW.added, 'again on a signed-out member row adds an account row for W');
+    assert.equal(index().accounts[dupW.id]!.who, whoOf('canary-acct-w'));
+    assert.equal((await rows()).length, 7);
+    fake.signInAs({ accountId: 'canary-acct-w', expires: later + 11 });
+    assert.equal((await add()).id, 'openai', 'the newest sign-in stays on the member row');
+    assert.equal(index().accounts[dupW.id], undefined, 'the account duplicate of W is discarded');
+    assert.equal((await ready('openai')).expiresAt, later + 11, 'with the newest credential');
+    assert.equal((await ready('openai')).who, whoOf('canary-acct-w'));
+    assert.equal((await rows()).length, 6);
+
+    // The member agent signs in again as another identity outside addAccount: its row follows the live profile, so the
+    // next sign-in as that identity refreshes the member row instead of adding one.
+    fake.signInAs({ accountId: 'canary-acct-h', expires: later + 12 });
+    await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done;
+    assert.equal((await add()).id, 'openai', 'the sign-in refreshes the member row');
+    assert.equal(index().accounts.openai!.who, whoOf('canary-acct-h'), 'the member row follows its live profile');
+    assert.equal((await ready('openai')).expiresAt, later + 12);
+    assert.equal((await rows()).length, 6);
+
+    // The roster cannot be read after the seal: the completed sign-in is kept as its own row, not discarded.
+    armRosterRead = true;
+    fake.signInAs({ accountId: 'canary-acct-r', expires: later + 13 });
+    const logBeforeRoster = lines.length;
+    const rosterKept = await add();
+    assert.equal(rosterKept.id, rosterKept.added, 'the sign-in keeps its own row');
+    assert.ok(lines.slice(logBeforeRoster).some((line) => line.includes('unreadable')), 'the kit logs it');
+    assert.equal((await ready(rosterKept.id)).who, whoOf('canary-acct-r'));
+    assert.equal((await ready(rosterKept.id)).expiresAt, later + 13);
+    assert.equal((await rows()).length, 7);
+
+    // The adopt reply is lost before the engine moves anything, and the sign-in's profile is gone from its agent by
+    // another path: b did not receive it, so the sign-in keeps its own row and done does not name b.
+    const bBefore = await ready(b.id);
+    fake.signInAs({ accountId: 'canary-acct-b', expires: later + 14 });
+    loseAdoptBeforeMove = true;
+    const unmoved = await add();
+    assert.equal(unmoved.id, unmoved.added, 'the sign-in keeps its own row');
+    assert.equal(index().accounts[unmoved.added]!.who, whoOf('canary-acct-b'));
+    assert.deepEqual(await ready(b.id), bBefore, 'b keeps its own credential');
+    assert.equal((await rows()).length, 8);
+
+    // No who or account id reaches the app: rows, views, done results, errors, kit state or log lines.
+    await assert.rejects(kit.addAccount('m1', { authChoice: 'openai', again: 'openai.000000' }, () => {}), (error: Error) => { seen.push(error.message); return true; });
+    const out = JSON.stringify([seen, lines, kit.state]);
+    for (const id of ['a', 'b', 'e', 'f', 'h', 'q', 'r', 'w', 'y', 'z']) {
+      assert.ok(!out.includes(whoOf(`canary-acct-${id}`)), `who of ${id} leaks`);
+      assert.ok(!out.includes(`canary-acct-${id}`), `account id ${id} leaks`);
+    }
+    assert.ok(!readFileSync(indexOf(stateDir, 'm1'), 'utf8').includes('example.com'), 'the index holds no email');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('a plan key: addAccount pastes the OpenCode Go key into typed activation and a run answers on it', async () => {
   const stateDir = scratchDir('go-plan-key');
   const fake = fakeGateway();
@@ -749,6 +1045,22 @@ test('overlapping plan key adds for one member take turns: a cancelled second ad
     assert.deepEqual((await kit.accounts('m1')).map((row) => row.id), ['opencode-go']);
     const left = await fake.transport.request('byokit.accounts', { action: 'list', agentId: 'm1' }) as { profiles: { provider: string }[] };
     assert.deepEqual(left.profiles.map((p) => p.provider), ['opencode-go']);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a key add whose activation throws clears the key it may have stored and reports retry', async () => {
+  const stateDir = scratchDir('key-activate-throws');
+  const fake = fakeGateway();
+  fake.failNext('openclaw.setup.activate', 'activation timed out');
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-THROWS' }), 'retry');
+    assert.ok(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'clear'));
+    assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false });
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });

@@ -238,6 +238,62 @@ const SCREENS: Screen[] = [
     },
   },
   {
+    id: 'add-sheet-go', path: '',
+    what: 'Add an account: the OpenCode Go plan row, tappable in Plans with its paste-key form',
+    themes: [...themes],
+    formFactors: ['narrow', 'phone', 'desktop'],
+    interaction: 'add-sheet-go',
+    before: { via: 'ref' }, // the base sheet has no Go card: the row waits, disabled, in Coming soon
+    beforeDrive: true, // the same drive opens Coming soon there, so both frames show the Go row
+    async drive(page) {
+      await part(page, 'chatgpt', 'status').filter({ hasText: /isn't signed in/ }).waitFor();
+      if (!await page.locator('#add-open').count()) return;
+      await page.locator('#add-open').click();
+      const row = page.locator('[data-route="opencode:plan_key:opencode-go"]');
+      await row.waitFor({ state: 'attached' });
+      if (!await row.isVisible()) {
+        await page.locator('[data-coming-toggle]').click();
+        await row.waitFor({ state: 'visible' });
+      }
+      await row.evaluate((e) => e.scrollIntoView({ block: 'center' }));
+    },
+  },
+  {
+    id: 'go-key', path: '',
+    what: 'OpenCode Go card: the paste-key form the Add sheet row opens',
+    themes: [...themes],
+    formFactors: ['narrow', 'phone', 'desktop'],
+    interaction: 'go-key',
+    before: { via: 'ref' }, // the base page has no Go card: its before frame is the signed-out list it showed instead
+    async drive(page) {
+      await part(page, 'chatgpt', 'status').filter({ hasText: /isn't signed in/ }).waitFor();
+      if (!await page.locator('#opencode').count()) return;
+      await page.locator('#add-open').click();
+      await page.locator('[data-route="opencode:plan_key:opencode-go"]').click();
+      await part(page, 'opencode', 'paste').waitFor({ state: 'visible' });
+      await page.locator('#opencode').evaluate((e) => e.scrollIntoView({ block: 'start' }));
+    },
+  },
+  {
+    id: 'go-connected', path: '',
+    what: 'OpenCode Go card: a pasted plan key connects, and the account lists ready with its room',
+    themes: [...themes],
+    formFactors: ['narrow', 'phone', 'desktop'],
+    interaction: 'go-connected',
+    before: { via: 'ref' }, // the base page has no Go card: its before frame is the signed-out list it showed instead
+    async drive(page) {
+      await part(page, 'chatgpt', 'status').filter({ hasText: /isn't signed in/ }).waitFor();
+      if (!await page.locator('#opencode').count()) return;
+      await page.locator('#add-open').click();
+      await page.locator('[data-route="opencode:plan_key:opencode-go"]').click();
+      await part(page, 'opencode', 'pasted').fill('plan-key');
+      await part(page, 'opencode', 'connect').click();
+      await part(page, 'opencode', 'status').filter({ hasText: /is connected/ }).waitFor();
+      await page.locator('#opencode [data-room]').filter({ hasText: 'Room left unknown' }).waitFor();
+      await page.locator('#opencode').evaluate((e) => e.scrollIntoView({ block: 'start' }));
+    },
+  },
+  {
     id: 'signin',
     path: '',
     what: 'Sign in with ChatGPT by device code',

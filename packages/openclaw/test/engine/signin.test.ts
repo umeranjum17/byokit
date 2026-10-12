@@ -82,7 +82,9 @@ mock.method(globalThis, 'fetch', (input, options) => {
   const spawn = childProcess.spawn;
   mock.method(childProcess, 'spawn', (...args: Parameters<typeof spawn>) => {
     const [file, argv, options] = args;
-    if (file === process.execPath && Array.isArray(argv) && argv.includes(engine.doctorContext().entry)) {
+    // The gateway is spawned as [entry, 'gateway', ...]. Install-time node children (the lifecycle script) run before the
+    // engine has a set, so the entry is matched by its path, not by doctorContext(), which throws until the set exists.
+    if (file === process.execPath && Array.isArray(argv) && argv[0]?.endsWith(join('node_modules', 'openclaw', 'openclaw.mjs'))) {
       return spawn(file, ['--import', pathToFileURL(preload).href, ...argv], options);
     }
     return spawn(...args);

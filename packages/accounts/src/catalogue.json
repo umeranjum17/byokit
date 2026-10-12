@@ -278,5 +278,22 @@
       "why": "Antigravity's terms name third-party OAuth use as grounds for suspension; the Antigravity CLI's own sign-in stays the supported path.",
       "source": "https://antigravity.google/terms"
     }
+  },
+  "opencode": {
+    "pi": "opencode-go",
+    "name": "OpenCode Go",
+    "company": "OpenCode",
+    "models": {
+      "strong": "muse-spark-1.3-contributor"
+    },
+    "billing": "subscription",
+    "auth": "api-key",
+    "routes": ["opencode:plan_key:opencode-go"],
+    "source": "https://opencode.ai",
+    "multiAccount": {
+      "terms": "grey",
+      "why": "Each member supplies their own plan key.",
+      "source": "https://opencode.ai"
+    }
   }
 }
