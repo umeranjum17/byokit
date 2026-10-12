@@ -1272,7 +1272,8 @@ export type AccountPick =
   | { ok: true; account: Account; model: string; how: 'chosen' | 'default' | 'auto'; why: PickWhy; reason: string;
       considered: Considered[] }
   | { ok: false; code: 'none' | 'not_included' | 'unknown_account' | 'bound' | 'paid'; reason: string;
-      considered: Considered[] };        // bound/paid: Runs step 2's refusals, reason its `account.*` words
+      considered: Considered[] }         // bound/paid: Runs step 2's refusals, reason its `account.*` words
+  | { ok: false; code: 'resting'; account: AccountId; until?: number; reason: string; considered: Considered[] };
 export type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // shared with @byokit/herdr
 ```
@@ -1385,14 +1386,18 @@ has no bindings) is the accounts a conversation may use (Runs steps 1-2); absent
 3. Tier B (`tier: 'unknown'`): unknown room, including a reading whose `at` is older than 24 h, in list order; above
    exhausted accounts. A known reading without `at` keeps its tier; only its `age` is `'unknown'`.
 4. Tier C (`tier: 'exhausted'`): every account exhausted: the earliest `resetsAt`, started anyway.
-5. Nothing: `{ ok: false, code: 'none' }`.
+5. Nothing eligible: when some candidate is resting (`out: 'resting'`), `{ ok: false, code: 'resting', account, until }`
+   for the earliest `until`; otherwise `{ ok: false, code: 'none' }`.
 
 `'default'` is the default account when `ready` and in `bound`, else Auto unless `defaults.auto === false`, else
 the first `ready` subscription candidate (a default outside `bound` is treated as not ready; its row has `out:
 'bound'`). `auth: 'apiKey'` is the id of the member's newest API-key account (API keys). A chosen id that
 is not the member's → `unknown_account`; a chosen (or `ready` default) account lacking a demanded model →
-`not_included`. `AccountPick.model` is `sel.model`, else (API key) its saved model, else `defaults.model` when that
-account lists it, else its first available model. `reason` is a words sentence (`auto.*` below).
+`not_included`. `AccountPick.model` is `sel.model`, else (API key) its saved model, else `defaults.model` when that account lists it,
+else its first model that is available and neither resting nor signed out (a signed-out-only list is used only when no
+model is fully available); a listed account with no such model is `not_included`. With no model list (the engine
+could not answer), `defaults.model` is used only when it is a well-formed `provider/model` of the account's provider,
+else `''`. `reason` is a words sentence (`auto.*` below).
 
 `considered` always has every account's row. An account the selection names (a chosen id, the `ready` default) is
 judged only on `bound` and the demand, so an API-key or resting account it names carries no `billing`/`resting` `out`;
@@ -1439,22 +1444,27 @@ cache.
    `account.paid`).
    Bound to the member agent with `spec.account` set: `'auto'` and `'default'` choose only among the member agent's
    own accounts (`bound` = those), and an id on another agent is refused with `account.bound`.
-3. Bound to the member agent, or unbound, with `spec.account` and `spec.needs` absent: exactly today's 5.8 behavior on
-   the member agent (existing requests stay byte-identical). `spec.needs` with `spec.account` absent resolves as
-   `account: 'default'`.
+3. Bound to the member agent, or unbound, with `spec.account` absent and `spec.needs` absent or empty: exactly today's 5.8
+   behavior on the member agent (existing requests stay byte-identical). A non-empty `spec.needs` with `spec.account`
+   absent resolves as `account: 'default'`.
 4. Otherwise the selection `{ account: spec.account, model: spec.model, needs: spec.needs }` is resolved (Choosing,
    with step 2's `bound`). A failed pick ends the run before any request: `none` →
-   `{ ok: false, kind: 'signed-out', message: reason }`, `not_included` → `kind: 'plan'`, step 2's `bound` and `paid`
+   `{ ok: false, kind: 'signed-out', message: reason }`, `resting` → `kind: 'resting'` with the pick's `until` (step 7
+   writes it), `not_included` → `kind: 'plan'`, step 2's `bound` and `paid`
    → `kind: 'other'` with `message: reason` (its `account.*` words); `unknown_account` throws (a
    caller bug, like a malformed model). An unbound key picking an account agent runs as
    `agent:<account agent>:<tail>` (`<tail>` = the app key after `agent:<member>:`).
-5. `byokit.accounts ready` for the account's agent and provider replaces 5.8's `models.authStatus` check; not ready →
-   `signed-out`, no engine request.
+5. `byokit.accounts ready` for the account's agent and provider replaces 5.8's `models.authStatus` check. It runs once per
+   attempt, under the account agent's shared lock, and a rejected request ends the run classified (`failure`), never
+   by rejecting `run`. An automatic pick (Auto, or `'default'` resolved by Auto) that is not ready is skipped with no
+   event and no request: the pick is re-resolved with that account excluded. A chosen account that is not ready
+   continues to step 6 and ends `signed-out`.
 6. The first event is `{ type: 'account', account, model, sessionKey, how, why, considered }` (the pick's) with the
-   engine key, before the `agent` request, which is 5.8's request on the account's `agentId` and engine key with the pick's `provider`/`model`
-   (strict; `@profile` still refused). The bridge registers the engine key under `spec.member`.
-7. An end classified `resting` writes `until` (now + 5 min when the message names none) to the index; Auto skips the
-   account until then. The ok end carries `account` and `model`.
+   engine key, emitted after the ready check and before the `agent` request, which is 5.8's request on the account's `agentId` and engine key with the pick's `provider`/`model`
+   (strict; `@profile` still refused). A chosen account that is not ready ends `signed-out` right after that event, with
+   no engine request. The bridge registers the engine key under `spec.member`.
+7. An end classified `resting`, or a pick that is `resting` (step 4), writes `until` (now + 5 min when the message names
+   none) to the index; Auto skips the account until then. The ok end carries `account` and `model`.
 8. `steer`/`abort` take the app key of a live run (the kit keeps the app key → engine key map while it runs) or the
    engine key, and keep the optional `{ auth: 'apiKey' }` of the key lane.
 
@@ -1535,7 +1545,8 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
   expectedSessionUpdatedAt }`; failure or mismatch → `close_failed` with `live` = the new key (both exist).
 - Locks (`src/locks.ts`): per agent id; runs take a shared hold from `ready` to their end (runs on one account may
   overlap), and `room` and `models` hold it for their read, so no kit read of an agent is in flight while it is
-  removed; `removeAccount`, `move` (source and target) and sealing are exclusive.
+  removed; `removeAccount`, `move` (source and target) and sealing are exclusive. Index writes take their own per-member
+  lock, so a live run never blocks a rename or a listing.
 - Attribution: every member lookup (approvals' `agentId` and session key, bridge, link `oc.events`/`oc.sessions`
   filters) maps an indexed `<member>--<hex6>` agent, and `byokit-key-<member>` when present, to `<member>`.
 

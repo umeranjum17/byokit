@@ -332,6 +332,9 @@ export function browserDevice(link: DeviceLink): BrowserDevice {
   };
 }
 
+// `oc.run` carries no account selection yet (O14m adds the account frame), so the link never streams an `account` event.
+type DeviceRunEvent = Exclude<RunEvent, { type: 'account' }>;
+
 /** `openclawDevice`'s device surface: every `oc.*` op the computer answers, typed. */
 export type OpenClawDevice = {
   browser: BrowserDevice;
@@ -346,7 +349,7 @@ export type OpenClawDevice = {
   signOut(p: string): Promise<void>;
   sessions(): Promise<SessionRow[]>;
   run<const S extends OutputSchema | undefined = undefined>(message: string, o?: DeviceRunOptions<S>):
-    AsyncIterable<RunEvent | DeviceEndFrame<SchemaOutput<S>>>;
+    AsyncIterable<DeviceRunEvent | DeviceEndFrame<SchemaOutput<S>>>;
   steer(k: string, t: string, o?: { auth?: 'apiKey' }): Promise<void>;
   abort(k: string, o?: { auth?: 'apiKey' }): Promise<void>;
   approvals(): Promise<Approval[]>;
@@ -394,7 +397,7 @@ export function openclawDevice(link: DeviceLink): OpenClawDevice {
         [Symbol.asyncIterator]() {
           const it = inner[Symbol.asyncIterator]();
           return {
-            next: async (): Promise<IteratorResult<RunEvent | DeviceEndFrame<SchemaOutput<S>>>> => {
+            next: async (): Promise<IteratorResult<DeviceRunEvent | DeviceEndFrame<SchemaOutput<S>>>> => {
               if (finished) return { value: undefined, done: true };
               const frame = await it.next();
               if (frame.done) return { value: undefined, done: true };
@@ -403,9 +406,9 @@ export function openclawDevice(link: DeviceLink): OpenClawDevice {
                 await it.return?.();
                 return { value: frame.value as DeviceEndFrame<SchemaOutput<S>>, done: false };
               }
-              return { value: frame.value as RunEvent, done: false };
+              return { value: frame.value as DeviceRunEvent, done: false };
             },
-            return: async (): Promise<IteratorResult<RunEvent | DeviceEndFrame<SchemaOutput<S>>>> => {
+            return: async (): Promise<IteratorResult<DeviceRunEvent | DeviceEndFrame<SchemaOutput<S>>>> => {
               finished = true;
               await it.return?.();
               return { value: undefined, done: true };

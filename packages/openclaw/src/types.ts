@@ -48,6 +48,11 @@ export interface RunSpec<S extends OutputSchema | undefined = OutputSchema | und
   // this run only. `provider` is the id `providers(member)` reports; one not signed in ends `signed-out` before any
   // call. Absent: the engine's own selection.
   model?: string;
+  // 5.15: the account this run uses ('auto' ranks by room, 'default' is the saved default); with it, `model` is a
+  // model of that account. `needs`: every other 'provider/model' the run may call; alone it resolves as 'default'.
+  // Both absent: exactly the member agent's run it was before.
+  account?: AccountRef | 'default' | 'auto';
+  needs?: string[];
   /** Explicit paid key choice. Uses a separate member-owned agent and separate session history. */
   auth?: 'apiKey';
   // The app tools (KitOptions.tools names) this run may call; any other app tool is refused at the gate before
@@ -60,6 +65,8 @@ export interface RunSpec<S extends OutputSchema | undefined = OutputSchema | und
 export type RunEvent =
   | { type: 'started' } // the Gateway accepted the run, not answer completion
   | { type: 'thinking'; tokens: number } // actual engine progressTokens, not text or estimated usage
+  | { type: 'account'; account: AccountId; model: string; sessionKey: string; // 5.15: first event of a run on an
+    how: 'chosen' | 'default' | 'auto'; why: PickWhy; considered: Considered[] } // account, before the `agent` request
   | { type: 'text'; text: string } // cumulative assistant text
   | {
     type: 'tool';
@@ -90,7 +97,8 @@ export type PlanWindow = {
 };
 
 export type RunEnd<T = unknown> =
-  | { ok: true; text: string; data?: T; usage?: RunUsage; planWindow?: PlanWindow } // data: validated schema; usage/window: engine reports
+  | { ok: true; text: string; data?: T; usage?: RunUsage; planWindow?: PlanWindow; // data: validated schema; usage/window: engine reports
+    account?: AccountId; model?: string } // both exactly when the run used an account (5.15); model '' only when neither the pick nor the engine names one
   | { ok: false; aborted: true }
   | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other' | 'output'; until?: number; message: string };
 
@@ -229,6 +237,7 @@ export type AccountPick =
   | { ok: true; account: Account; model: string; how: 'chosen' | 'default' | 'auto'; why: PickWhy; reason: string;
       considered: Considered[] }
   | { ok: false; code: 'none' | 'not_included' | 'unknown_account' | 'bound' | 'paid'; reason: string;
-      considered: Considered[] };        // bound/paid: Runs step 2's refusals, reason its `account.*` words
+      considered: Considered[] }         // bound/paid: Runs step 2's refusals, reason its `account.*` words
+  | { ok: false; code: 'resting'; account: AccountId; until?: number; reason: string; considered: Considered[] };
 export type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // shared with @byokit/herdr
