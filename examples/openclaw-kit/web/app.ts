@@ -28,12 +28,12 @@ const store: KeptDevice = globalThis.isSecureContext ? browserDeviceStore('openc
   save: (g) => localStorage.setItem('openclaw-kit', JSON.stringify(g)),
   clear: () => localStorage.removeItem('openclaw-kit'),
 };
-// The kit's ways in, grouped by connectView once the engine is ready, and the row the person signs in with: the one
-// they picked, else (after a reload) the last one picked here or the first one whose provider they are signed in to.
-// Both are per pairing; the last pick is kept in this browser (a route id, nothing secret).
+// The kit's ways in, grouped by connectView while the engine is ready, and the account the person signs in with: the
+// row they tapped (named by its kit label), or after a reload the provider they are signed in to (named by provider).
 let groups: ConnectGroup[] | undefined;
-let account: ConnectRow | undefined;
-const PICKED = 'openclaw-kit-account';
+let labels = new Map<string | undefined, string>();
+let account: { provider: string; name: string } | undefined;
+const labelOf = (r: ConnectRow) => labels.get(r.id) ?? r.name;
 // This phone's conversation. The computer runs everything for its one member, `me` (host.ts), and a device may only
 // use that member's sessions, so the key starts `agent:me:`.
 const SESSION = 'agent:me:phone';
@@ -119,13 +119,15 @@ async function refresh() {
   try {
     const { state, words: now, signedIn = [] } = await oc.state();
     $('engine').textContent = now;
-    if (state.phase === 'ready') {
+    if (state.phase !== 'ready') groups = undefined;
+    else {
       if (!groups) {
-        const routes = await oc.routes(), labels = new Map(routes.map((r) => [r.id, r.label] as const));
-        drawRoutes(groups = connectView(routes).groups.map((g) => ({ ...g, rows: g.rows.map((r) => ({ ...r, name: labels.get(r.id) ?? r.name })) })));
+        const routes = await oc.routes();
+        labels = new Map(routes.map((r) => [r.id, r.label] as const));
+        drawRoutes(groups = connectView(routes).groups);
       }
-      const last = localStorage.getItem(PICKED), rows = groups.flatMap((g) => g.rows);
-      account ??= rows.find((r) => r.id === last && signedIn.includes(r.provider)) ?? rows.find((r) => signedIn.includes(r.provider));
+      const signed = groups.flatMap((g) => g.rows).find((r) => signedIn.includes(r.provider));
+      account ??= signed && { provider: signed.provider, name: signed.name };
       poll = drawAccount(account && await oc.signIn.view(account.provider));
     }
   } catch { /* the link line says why */ }
@@ -143,14 +145,13 @@ function drawRoutes(list: ConnectGroup[]) {
   for (const r of list.flatMap((g) => g.rows)) if (r.offered && r.via === 'code' && !first.has(r.provider)) first.set(r.provider, r.key);
   const canStart = (r: ConnectRow) => first.get(r.provider) === r.key;
   $('routes').replaceChildren(...list.map((g) => {
-    const rows = [...g.rows].sort((a, b) => Number(canStart(b)) - Number(canStart(a)));
     const box = el('details', { className: 'group', open: g.id === 'plans' }, el('summary', { textContent: g.title }),
-      el('p', { className: 'status', textContent: g.note }), ...rows.map((r) => {
+      el('p', { className: 'status', textContent: g.note }), ...g.rows.map((r) => {
         const row = el('button', { type: 'button', className: 'route', onclick: () => { if (canStart(r)) void pick(r); } },
-          el('span', { className: 'route-name', textContent: `${r.name} — ${r.method[0].toLowerCase()}${r.method.slice(1)}` }),
+          el('span', { className: 'route-name', textContent: `${labelOf(r)} — ${r.method[0].toLowerCase()}${r.method.slice(1)}` }),
           el('span', { textContent: r.billingWords }),
           el('span', { className: 'status', textContent: !r.ready || canStart(r) ? r.status
-            : r.via === 'code' ? 'Ready. This computer starts one code sign-in per provider, so start this one after the other ends.'
+            : r.via === 'code' ? 'Ready. This computer starts only the first sign-in for this provider.'
             : 'Ready, but this page has no form for it yet.' }));
         row.dataset.route = r.id;
         // aria-disabled, not disabled: the row stays focusable, so its reason is still read out.
@@ -163,8 +164,7 @@ function drawRoutes(list: ConnectGroup[]) {
 }
 
 async function pick(row: ConnectRow) {
-  account = row;
-  localStorage.setItem(PICKED, row.id);
+  account = { provider: row.provider, name: labelOf(row) };
   $<HTMLFieldSetElement>('routes').disabled = true;
   try { await oc.signIn.start(row.provider, 'code'); } catch (err) { $('signin-title').textContent = said(err); }
   $<HTMLFieldSetElement>('routes').disabled = false;

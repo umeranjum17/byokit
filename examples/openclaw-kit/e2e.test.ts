@@ -141,7 +141,7 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   assert.deepEqual(await chatgpt.locator('span').allTextContents(), ['ChatGPT Device Pairing — sign in with a code', 'Uses your OpenAI plan', 'Ready']);
   assert.equal(await chatgpt.getAttribute('aria-disabled'), null);
   for (const [id, why] of [['openai:browser:openai', 'Ready, but this page has no form for it yet.'],
-    ['github-copilot:code:github-copilot-enterprise', 'Ready. This computer starts one code sign-in per provider, so start this one after the other ends.'],
+    ['github-copilot:code:github-copilot-enterprise', 'Ready. This computer starts only the first sign-in for this provider.'],
     ['anthropic:cli:anthropic-cli', 'Install its app on this computer first.']]) {
     assert.equal(await row(id).getAttribute('aria-disabled'), 'true', id);
     assert.equal(await row(id).locator('.status').textContent(), why, id);
@@ -209,12 +209,12 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   assert.equal(await page.locator('#signins-box').isHidden(), true);
   await shot(page, 'fixture-8-signed-in-chip');
 
-  // A reload finds the account it is signed in to, and signing out brings the ways in back with the kit's sentence.
+  // A reload names the provider it is signed in to, and signing out brings the ways in back with that provider's sentence.
   await page.reload();
   await page.locator('#talk').waitFor();
-  await text(page, '#signout', 'Sign out of ChatGPT Device Pairing');
+  await text(page, '#signout', 'Sign out of OpenAI');
   await page.click('#signout');
-  await text(page, '#signin-title', fill('member.signedOut', { name: 'ChatGPT Device Pairing' }));
+  await text(page, '#signin-title', fill('member.signedOut', { name: 'OpenAI' }));
   await chatgpt.waitFor();
 
   assert.deepEqual(errors, []);
