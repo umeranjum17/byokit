@@ -3,7 +3,7 @@
 // who? } }, defaults }`. No credential, token, email or engine line. Listing, rename, defaults, models, room,
 // adding with its identity merge (O14 steps S6, S7), the start-of-run pick (S10) and removal with its orphan
 // sweep (O14 step S8) live here.
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { createLocks } from './locks.ts';
@@ -109,6 +109,10 @@ export function createAccounts(ctx: {
     if (typeof raw.model === 'string') defaults.model = raw.model;
     if (typeof raw.auto === 'boolean') defaults.auto = raw.auto;
     return { v: 1, accounts, defaults };
+  };
+  const dropEntry = (file: IndexFile, id: AccountId): void => {
+    delete file.accounts[id];
+    if (file.defaults.account === id) delete file.defaults.account;
   };
   const write = (member: Member, file: IndexFile): void => {
     mkdirSync(join(ctx.root, 'accounts'), { recursive: true, mode: 0o700 });
@@ -410,8 +414,7 @@ export function createAccounts(ctx: {
         const profileIds = listed.profiles.filter((p) => p.provider === provider && typeof p.profileId === 'string' && p.profileId).map((p) => p.profileId!);
         if (profileIds.length) await ctx.request('models.authLogout', { provider, agentId: agent, profileIds });
         const file = read(member);
-        delete file.accounts[id];
-        if (file.defaults.account === id) delete file.defaults.account;
+        dropEntry(file, id);
         write(member, file);
       });
       await sweep();
@@ -420,31 +423,16 @@ export function createAccounts(ctx: {
     await ctx.locks.exclusive([agent, indexLock(member)], async () => {
       const roster = await agentRoster();
       if (roster.has(agent)) {
-        const emptyList = async (): Promise<boolean> => {
-          const listed = await ctx.request('byokit.accounts', { action: 'list', agentId: agent }) as { ok?: boolean; profiles?: unknown[] };
-          return listed.ok === true && Array.isArray(listed.profiles) && listed.profiles.length === 0;
-        };
         await ctx.request('byokit.accounts', { action: 'clear', agentId: agent });
-        if (!await emptyList()) {
-          // A profile the engine refreshed during `clear` lands whole before or after it, under the same store
-          // lock: clear once more; still listed means the refresh is still racing, so stop with nothing deleted.
-          await ctx.request('byokit.accounts', { action: 'clear', agentId: agent });
-          if (!await emptyList()) throw new Error('removeAccount: the account is still signing in');
-        }
+        const listed = await ctx.request('byokit.accounts', { action: 'list', agentId: agent }) as { ok?: boolean; profiles?: unknown[] };
+        if (listed.ok !== true || !Array.isArray(listed.profiles)) throw new Error('removeAccount: the sign-ins could not be read');
+        if (listed.profiles.length) throw new Error('removeAccount: the account is still signing in');
         await ctx.request('agents.delete', { agentId: agent, deleteFiles: false });
       }
-      const dir = agentDir(agent);
-      rmSync(dir, { recursive: true, force: true });
-      if (existsSync(dir)) {
-        // A late write recreated it: remove once more; still there means the engine is still writing, so keep
-        // the entry for the next sweep.
-        rmSync(dir, { recursive: true, force: true });
-        if (existsSync(dir)) throw new Error('removeAccount: the account is still signing in');
-      }
+      rmSync(agentDir(agent), { recursive: true, force: true });
       // Already holding the index lock: write directly instead of `edit`, which would wait on itself.
       const file = read(member);
-      delete file.accounts[id];
-      if (file.defaults.account === id) delete file.defaults.account;
+      dropEntry(file, id);
       write(member, file);
     });
     await sweep();
@@ -485,7 +473,7 @@ export function createAccounts(ctx: {
       await ctx.request('byokit.accounts', { action: 'clear', agentId: agent });
       await ctx.request('agents.delete', { agentId: agent, deleteFiles: false });
     }
-    rmSync(join(ctx.root, 'state', 'agents', agent), { recursive: true, force: true });
+    rmSync(agentDir(agent), { recursive: true, force: true });
     await edit(member, (file) => { delete file.accounts[id]; });
   })().catch((error: unknown) => ctx.log?.(`addAccount: ${agent} is not removed yet: ${error instanceof Error ? error.message : String(error)}`));
 

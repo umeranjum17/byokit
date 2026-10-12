@@ -806,8 +806,8 @@ test('removeAccount and the orphan sweep', async () => {
     assert.equal((await kit.accounts('m1')).find((a) => a.id === 'openai')?.state, 'ready', 'the member stays ready');
     assert.ok((await pending).ok, 'the live run finishes');
 
-    // A refresh racing clear: after the first clear the engine lands one expired profile with no order; the kit
-    // clears again and the removal still drops the entry with no file left.
+    // A refresh racing clear: after the first clear the engine lands one expired profile with no order; the removal
+    // refuses with nothing deleted, and a retry clears it and drops the entry with no file left.
     let clears = 0;
     const racing: typeof fake.factory = (ctx) => {
       const transport = fake.factory(ctx);
@@ -825,6 +825,9 @@ test('removeAccount and the orphan sweep', async () => {
       await kit2.start();
       const deleteCalls = () => fake.calls.filter((c) => c.method === 'agents.delete');
       const deletesBefore = deleteCalls().length;
+      await assert.rejects(kit2.removeAccount('m1', second.id), /still signing in/, 'a refresh that lands after clear refuses removal');
+      assert.ok(second.id in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts, 'and keeps the entry');
+      assert.equal(deleteCalls().length, deletesBefore, 'and deletes nothing');
       await kit2.removeAccount('m1', second.id);
       assert.ok(clears >= 1, 'clear raced a refresh');
       const deletes = deleteCalls().slice(deletesBefore);
