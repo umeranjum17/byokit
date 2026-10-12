@@ -126,9 +126,11 @@ export function resolveSelection(accounts: readonly Account[], defaults: Default
 
   function finish(account: Account, row: Considered, how: 'chosen' | 'default' | 'auto', why: PickWhy): AccountPick {
     const listed = models?.(account);
-    const usable = listed?.filter((m) => m.available && m.why !== 'resting');
-    const model = sel.model ?? (defaults.model && (!usable || usable.some((m) => m.id === defaults.model)) ? defaults.model
-      : usable?.[0]?.id) ?? '';
+    const ready = listed?.filter((m) => m.available && !m.why);
+    const usable = ready?.length ? ready : listed?.filter((m) => m.available && m.why === 'signed_out');
+    const saved = defaults.model && (usable ? usable.some((m) => m.id === defaults.model)
+      : defaults.model.split('/')[0]!.toLowerCase() === account.provider.toLowerCase()) ? defaults.model : undefined;
+    const model = sel.model ?? saved ?? usable?.[0]?.id ?? '';
     if (listed && !model) return { ok: false, code: 'not_included', reason: words('pick.out.model', { model: sel.model ?? '' }), considered };
     row.reason = why;
     const slots = { name: account.name, provider: account.provider };

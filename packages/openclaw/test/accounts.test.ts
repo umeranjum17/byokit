@@ -348,6 +348,12 @@ test('run on an account: account event first, Auto by room, resting skip, ready 
     assert.deepEqual(fake.calls.slice(plainFrom).find((c) => c.method === 'agent')?.params,
       { agentId: 'm1', sessionKey: 'agent:m1:plain', message: 'hello', idempotencyKey: 'k-plain' });
     assert.ok(!fake.calls.slice(plainFrom).some((c) => c.method === 'byokit.accounts' || c.method === 'models.list'), 'no pick');
+    const emptyFrom = fake.calls.length;
+    const empty = await kit.run({ member: 'm1', sessionKey: 'agent:m1:plain', message: 'hello', idempotencyKey: 'k-empty', needs: [] });
+    assert.deepEqual(empty, plain);
+    assert.deepEqual(fake.calls.slice(emptyFrom).find((c) => c.method === 'agent')?.params,
+      { agentId: 'm1', sessionKey: 'agent:m1:plain', message: 'hello', idempotencyKey: 'k-empty' });
+    assert.ok(!fake.calls.slice(emptyFrom).some((c) => c.method === 'byokit.accounts' || c.method === 'models.list'), 'empty needs is no needs');
 
     // Auto: the account with the most room, on its own agent under the app key's tail; the account event comes first.
     const auto = await run({ sessionKey: 'agent:m1:chat:1', account: 'auto' });

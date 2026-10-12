@@ -132,7 +132,7 @@ export function createRuns(ctx: {
       if (!ctx.tools.has(tool)) throw new Error(`refused: "${tool}" is not one of this kit's tools`);
     const tail = spec.sessionKey.slice(`agent:${spec.member}:`.length);
     // Runs step 3 (5.15): with `account` and `needs` both absent, exactly the run on the member agent it always was.
-    if (spec.account === undefined && spec.needs === undefined) {
+    if (spec.account === undefined && !spec.needs?.length) {
       const agentId = keyAgent ?? (await ctx.ensure(spec.member)).agentId;
       return start(spec, on, { agentId, sessionKey: keyAgent ? `agent:${keyAgent}:${tail}` : spec.sessionKey, idempotencyKey, system, picked, output });
     }
