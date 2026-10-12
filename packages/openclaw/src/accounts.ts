@@ -54,6 +54,19 @@ export function indexedAgents(root: string): Set<string> {
   return named;
 }
 
+// Removes each `<root>/state/agents/<member>--<hex6>` directory that no index names and no roster agent owns. The
+// directories are listed before the index is read: each listed one was created after its entry was written.
+export function sweepOrphans(root: string, roster: ReadonlySet<string> = new Set()): void {
+  let dirs: string[];
+  try { dirs = readdirSync(join(root, 'state', 'agents')); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+  const named = indexedAgents(root);
+  for (const dir of dirs) {
+    if (!ACCOUNT_AGENT.test(dir) || named.has(dir) || roster.has(dir)) continue;
+    rmSync(join(root, 'state', 'agents', dir), { recursive: true, force: true });
+  }
+}
+
 export function createAccounts(ctx: {
   request: GatewayTransport['request'];
   root: string;
@@ -114,9 +127,9 @@ export function createAccounts(ctx: {
     routeFor(provider, 'browser')?.choice
     ?? routes().find((r) => r.provider === provider && r.billing === 'subscription')?.choice
     ?? provider;
-  const rosterOf = (): Promise<Set<string>> =>
-    (ctx.request('agents.list') as Promise<{ agents: { id: string }[] }>)
-      .then((r) => new Set(r.agents.map((a) => a.id)), () => new Set<string>());
+  const agentRoster = (): Promise<Set<string>> =>
+    (ctx.request('agents.list') as Promise<{ agents: { id: string }[] }>).then((r) => new Set(r.agents.map((a) => a.id)));
+  const rosterOf = (): Promise<Set<string>> => agentRoster().catch(() => new Set<string>());
   const profilesOf = (agentId: string): Promise<LiveProfile[]> =>
     (ctx.request('byokit.accounts', { action: 'list', agentId }) as Promise<{ profiles?: LiveProfile[] }>)
       .then((r) => Array.isArray(r.profiles) ? r.profiles : [], () => []);
@@ -373,21 +386,9 @@ export function createAccounts(ctx: {
 
   const agentDir = (agent: string): string => join(ctx.root, 'state', 'agents', agent);
   // A late engine write cannot be ruled out by a bounded check, so after every removal (and on prepare, in
-  // engine.ts without a roster) the kit removes each `<root>/state/agents/<member>--<hex6>` directory that no
-  // index names and no engine agent owns. An entry is written before its agent is created, so an account being
-  // added is never swept. The directories are listed first: each one listed was created after its entry was
-  // written, so the index read after the listing names it.
-  const sweep = async (): Promise<void> => {
-    let dirs: string[];
-    try { dirs = readdirSync(join(ctx.root, 'state', 'agents')); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
-    const roster = await rosterOf();
-    const named = indexedAgents(ctx.root);
-    for (const dir of dirs) {
-      if (!ACCOUNT_AGENT.test(dir) || named.has(dir) || roster.has(dir)) continue;
-      rmSync(join(ctx.root, 'state', 'agents', dir), { recursive: true, force: true });
-    }
-  };
+  // engine.ts without a roster) the kit removes the orphan account directories. The roster is strict: a failed read
+  // must not look like an empty roster and let an engine-owned agent's directory go.
+  const sweep = async (): Promise<void> => sweepOrphans(ctx.root, await agentRoster());
   // Removing (5.15): a member-agent account goes through `models.authLogout` with its sealed profileIds, then its
   // entry is dropped. An account agent goes through `clear`, an empty `list`, `agents.delete` with
   // `deleteFiles: false`, removal of its state dir, then the entry is dropped. Refused `busy` while a run holds
@@ -414,7 +415,7 @@ export function createAccounts(ctx: {
       return;
     }
     await ctx.locks.exclusive([agent, indexLock(member)], async () => {
-      const roster = await rosterOf();
+      const roster = await agentRoster();
       if (roster.has(agent)) {
         const emptyList = async (): Promise<boolean> => {
           const listed = await ctx.request('byokit.accounts', { action: 'list', agentId: agent }) as { ok?: boolean; profiles?: unknown[] };

@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { randomBytes, generateKeyPairSync, randomUUID } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, writeFileSync, copyFileSync, rmSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, copyFileSync, rmSync, realpathSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { basename, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,7 +12,7 @@ import { ENGINE_VERSION } from './constants.ts';
 import { appendUsageBoot } from './usage-boots.ts';
 import { reconcileConfig, appRecoveryPrefixes } from './config.ts';
 import { writePlugin, resolveBridge } from './bridge.ts';
-import { ACCOUNT_AGENT, indexedAgents } from './accounts.ts';
+import { sweepOrphans } from './accounts.ts';
 import type { KitOptions } from './kit.ts';
 import type { KitState, ToolSpec } from './types.ts';
 
@@ -310,14 +310,8 @@ export class Engine {
   // the gateway is down, and no add is in flight while preparing (an entry is written before its agent is created,
   // so an account being added is named). The roster-aware sweep after every removal lives in accounts.ts.
   private sweepAccountOrphans(): void {
-    try {
-      const dirs = readdirSync(join(this.root, 'state', 'agents'));
-      const named = indexedAgents(this.root);
-      for (const dir of dirs) {
-        if (!ACCOUNT_AGENT.test(dir) || named.has(dir)) continue;
-        rmSync(join(this.root, 'state', 'agents', dir), { recursive: true, force: true });
-      }
-    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') this.o.log?.(`prepare: orphans are not swept: ${String((error as Error).message).slice(0, 200)}`); }
+    try { sweepOrphans(this.root); }
+    catch (error) { this.o.log?.(`prepare: orphans are not swept: ${String((error as Error).message).slice(0, 200)}`); }
   }
   start(): Promise<{ port: number; token: string; identityPath: string } | undefined> {
     if (this.starting) return this.starting;

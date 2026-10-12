@@ -800,7 +800,8 @@ test('removeAccount and the orphan sweep', async () => {
     fake.setUsage(agent, 'openai', [{ label: 'session', usedPercent: 10 }]);
     for (const id of ['openai', second.id]) await kit.room('m1', id);
     const pending = kit.run({ member: 'm1', sessionKey: 'agent:m1:remove-busy', message: 'hello', account: second.id });
-    await new Promise((resolve) => setTimeout(resolve, 5));
+    while (!fake.calls.some((c) => c.method === 'agent'))
+      await new Promise((resolve) => setImmediate(resolve));
     await assert.rejects(kit.removeAccount('m1', second.id), /busy/);
     assert.equal((await kit.accounts('m1')).find((a) => a.id === 'openai')?.state, 'ready', 'the member stays ready');
     assert.ok((await pending).ok, 'the live run finishes');
