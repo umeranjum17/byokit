@@ -20,7 +20,10 @@ const usable = (status: string | undefined): boolean => status === 'ok' || statu
 const empty = (): IndexFile => ({ v: 1, accounts: {}, defaults: {} });
 const validEntry = (v: unknown): v is IndexEntry => !!v && typeof v === 'object'
   && typeof (v as IndexEntry).agent === 'string' && typeof (v as IndexEntry).name === 'string'
-  && typeof (v as IndexEntry).route === 'string' && typeof (v as IndexEntry).addedAt === 'number';
+  && typeof (v as IndexEntry).route === 'string' && Number.isFinite((v as IndexEntry).addedAt)
+  && ((v as IndexEntry).until === undefined || Number.isFinite((v as IndexEntry).until))
+  && ((v as IndexEntry).model === undefined || typeof (v as IndexEntry).model === 'string')
+  && ((v as IndexEntry).who === undefined || typeof (v as IndexEntry).who === 'string');
 
 export function createAccounts(ctx: {
   request: GatewayTransport['request'];
@@ -45,7 +48,12 @@ export function createAccounts(ctx: {
     if (!file || typeof file !== 'object' || file.v !== 1) return empty();
     const accounts: Record<string, IndexEntry> = {};
     for (const [id, entry] of Object.entries(file.accounts ?? {})) if (validEntry(entry)) accounts[id] = entry;
-    return { v: 1, accounts, defaults: file.defaults && typeof file.defaults === 'object' ? { ...file.defaults } : {} };
+    const raw = file.defaults && typeof file.defaults === 'object' ? file.defaults as Defaults : {};
+    const defaults: Defaults = {};
+    if (typeof raw.account === 'string') defaults.account = raw.account;
+    if (typeof raw.model === 'string') defaults.model = raw.model;
+    if (typeof raw.auto === 'boolean') defaults.auto = raw.auto;
+    return { v: 1, accounts, defaults };
   };
   const write = (member: Member, file: IndexFile): void => {
     mkdirSync(join(ctx.root, 'accounts'), { recursive: true, mode: 0o700 });
@@ -87,6 +95,7 @@ export function createAccounts(ctx: {
       byProvider.set(p.provider, [...(byProvider.get(p.provider) ?? []), p]);
     }
     const memberRows: Account[] = [];
+    const seen = new Set<string>();
     for (const [provider, profiles] of [...byProvider.entries()].sort(([a], [b]) => a < b ? -1 : 1)) {
       let entry = file.accounts[provider];
       if (!entry || entry.agent !== agentId) {
@@ -100,6 +109,14 @@ export function createAccounts(ctx: {
       const meta = metaOf(entry.route);
       memberRows.push({ id: provider, provider, route: entry.route, name: entry.name, label: meta.label,
         billing: meta.billing, state: stateOf(entry.route, profiles[0]?.status, entry.until),
+        ...(entry.until !== undefined ? { until: entry.until } : {}), addedAt: entry.addedAt });
+      seen.add(provider);
+    }
+    for (const [id, entry] of Object.entries(file.accounts)) {
+      if (entry.agent !== agentId || id.includes('.') || seen.has(id)) continue;
+      const stale = metaOf(entry.route);
+      memberRows.push({ id, provider: id, route: entry.route, name: entry.name, label: stale.label,
+        billing: stale.billing, state: stateOf(entry.route, undefined, entry.until),
         ...(entry.until !== undefined ? { until: entry.until } : {}), addedAt: entry.addedAt });
     }
     // Account agents: only what the index names, with exactly `<member>--<hex6>` shape. An unindexed
@@ -148,17 +165,21 @@ export function createAccounts(ctx: {
 
   async function rename(member: Member, id: AccountId, name: string): Promise<Account> {
     check(member);
-    if (!name.trim()) throw new Error('renameAccount: name is empty');
+    if (typeof name !== 'string') throw new Error('renameAccount: name is empty');
+    const trimmed = name.trim();
+    if (!trimmed || trimmed.length > 100 || /[\u0000-\u001f\u007f]/.test(trimmed)) throw new Error('renameAccount: name is empty');
     const { agentId } = await ctx.ensure(member);
     if (!(await list(member)).some((r) => r.id === id)) throw new Error(`unknown account: ${id}`);
     await ctx.locks.exclusive([agentId], async () => {
       const file = read(member);
       const entry = file.accounts[id];
       if (!entry) throw new Error(`unknown account: ${id}`);
-      entry.name = name;
+      entry.name = trimmed;
       write(member, file);
     });
-    return (await list(member)).find((r) => r.id === id)!;
+    const done = (await list(member)).find((r) => r.id === id);
+    if (!done) throw new Error(`unknown account: ${id}`);
+    return done;
   }
 
   async function defaults(member: Member): Promise<Defaults> {
@@ -168,6 +189,10 @@ export function createAccounts(ctx: {
 
   async function setDefaults(member: Member, d: Defaults): Promise<void> {
     check(member);
+    if (!d || typeof d !== 'object') throw new Error('setDefaults: defaults are invalid');
+    if (d.account !== undefined && typeof d.account !== 'string') throw new Error('setDefaults: defaults are invalid');
+    if (d.model !== undefined && typeof d.model !== 'string') throw new Error('setDefaults: defaults are invalid');
+    if (d.auto !== undefined && typeof d.auto !== 'boolean') throw new Error('setDefaults: defaults are invalid');
     const { agentId } = await ctx.ensure(member);
     return ctx.locks.exclusive([agentId], async () => {
       const file = read(member);
