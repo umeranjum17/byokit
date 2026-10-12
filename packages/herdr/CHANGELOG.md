@@ -2,31 +2,6 @@
 
 ## Unreleased
 
-## 0.7.4 (2026-10-12)
-
-- Dependency update: pins @byokit/relay 0.6.1.
-
-- FIX: A Node script (or any non-shell interpreter) whose path contains `mise` is now a real installed binary, so `agentStatus` runs its sign-in check instead of skipping it as an auto-install shim; only a shell launcher that mentions mise still reads `installs-on-first-start`.
-- `startAgent` accepts a workspace label as `place.workspace`: the agent lands in the one workspace with that label (new tab, `created: false`) or in a workspace created with that label (`created: true`). Two workspaces with the label refuse with `workspace-ambiguous` and create nothing, and a failed start rolls back only what the kit made (the fresh pane, or the fresh workspace), never a reused workspace. `AgentRef` carries the new `created` flag.
-- New control link ops `hd.rename { pane | tab | workspace, label }`, `hd.focus { pane | tab | workspace }` and
-  `hd.layout { root, focus?, tabId?, tabLabel?, workspaceId? }`, with device `rename()`, `focus()` and
-  `layout()`. Each copies `hd.close`'s scope rule: the one pane, tab (through its owning workspace) or
-  workspace it names must be in `scopeOf(grant)`, or the device hears the `link.notAllowed` sentence and no
-  Herdr call is made; a `view` grant is refused. They map only to the typed `pane.rename`/`tab.rename`/
-  `workspace.rename`, `pane.focus`/`tab.focus`/`workspace.focus` and `layout.apply` calls, never through
-  `hd.call`. The fake Herdr now answers `layout.apply` and emits `layout.updated`.
-- `sealNotice`/`openNotice` (and the portable `./device` re-export) now delegate to `@byokit/seal`'s generic
-  `sealNotice`/`openNotice` instead of sealing and opening the box here: the device seed becomes the box secret
-  through `boxKeyPairFromSeed`, and the opened value is still shape-checked as a `BlockedAgent`. The wire format is
-  unchanged, so a notice sealed by an earlier kit still opens, and `seal.openNotice` opens a herdr notice. The
-  hand-rolled base64url helpers stay only for the box-key registration text (`boxPublicKeyB64`, link.ts's
-  `decodeB64Url`), because seal exports no base64url.
-- FIX: A refused widening close now tells the app which scope it would widen to: `closePane`/`closeTab`/`closeWorkspace` still throw `pane-close-would-widen`/`tab-close-would-widen`/`workspace-close-would-widen`, but each also carries the wider target as `{ scope: 'tab' | 'workspace', id, label }` (a pane's tab, a tab's workspace, a worktree group named by its root), so the UI can offer the bigger close instead. `hd.close` over a link maps all three codes to a `PublicLinkError` with the `close.wouldWiden` words, so a device hears plain words instead of a bare failure.
-- FIX: `moveToAccount` refuses signed-out managed targets before waiting or creating a pane, preserving the source; generic `move` remains caller-gated and unknown readiness still proceeds.
-- FIX: Muse readiness routes its mise check through the shared shell-launcher predicate, so a non-shell binary whose interpreter path contains `mise` reads installed instead of launcher-only; genuine mise shell shims still read launcher-only.
-- FIX: `runTurn` accepts an agent that is already `done` when the turn starts, treating it like `idle` at turn start; previously the call was refused with `turn-not-idle`/`turn-busy`.
-- FIX: `runTurn` accepts `files: false` to skip the file scan entirely (`changedFiles` is then always empty), so a turn rooted in a folder with more than 10000 entries no longer fails with `turn: file limit`.
-
 ## 0.7.3 (2026-10-11)
 
 - Dependency update: pins @byokit/discover 0.7.0.

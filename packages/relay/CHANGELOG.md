@@ -2,11 +2,6 @@
 
 ## Unreleased
 
-## 0.6.1 (2026-10-12)
-
-- Dependency update: depend on `@byokit/pair` 0.9.0 instead of its deprecated `@byokit/link` shim.
-- Dependency update: ws 8.22.0.
-
 ## 0.6.0 (2026-10-09)
 
 - Dependency update: pins @byokit/link 0.8.0.
