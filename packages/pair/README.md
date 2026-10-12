@@ -430,14 +430,30 @@ share one key across machines. Muxr parity beyond this migration is tracked sepa
 ```ts
 import { check, parseOffer } from '@byokit/pair';
 
-// Before asking the person to approve, the phone probes the offer's URLs (the host probes its own advertised
-// URLs the same way, as a self-check only). Results come back in input order.
+// Phone: before asking the person to approve, probe the scanned offer's URLs.
+// Results come back in input order.
 export async function precheck(scanned: string): Promise<void> {
   const { urls } = parseOffer(scanned);
   const results = await check(urls, { timeoutMs: 5000 });
   for (const r of results) {
     if (!r.ok) console.log(`${r.url}: ${r.message}`);  // r.code is a LinkProblem: unreachable, timeout, wrong-host
   }
+}
+```
+
+Setup runs the same probe on its own advertised URLs before printing the tick, so a dead
+address never becomes a QR. The phone runs it again after scanning, before consent:
+
+```ts
+import { check } from '@byokit/pair';
+
+// Setup: self-check the offer's URLs first; only print the tick when one answers.
+export async function selfcheck(urls: string[]): Promise<boolean> {
+  const results = await check(urls, { timeoutMs: 5000 });
+  for (const r of results) {
+    if (!r.ok) console.log(`${r.url}: ${r.message}`);
+  }
+  return results.some((r) => r.ok);
 }
 ```
 

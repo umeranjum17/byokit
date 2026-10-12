@@ -4,6 +4,8 @@ import { routeChoices } from '@byokit/ui/route';
 import { FUNNEL_ERROR, inspectServe, serve, tailscaleState, tailscaleStatus, unserve, type ServeIngress, type ServeRoot, type TailscaleOptions, type TailscaleState } from './tailscale.ts';
 
 export * from './tailscale.ts';
+export { firewall } from './firewall.ts';
+export type { FirewallBlocked, FirewallOptions, FirewallRun, FirewallVerdict } from './firewall.ts';
 export { phoneNetwork } from './phone-network.ts';
 export type { PhoneNetwork, PhoneNetworkModule, PhoneNetworkOptions } from './phone-network.ts';
 export { routeOf, probe } from './observe.ts';
