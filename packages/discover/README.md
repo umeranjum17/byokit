@@ -100,6 +100,7 @@ console.log(await reach({ port: 8792, via: 'lan', interfaces }));
 | `recommend({ port?, interfaces?, tailscale?, state?, serve?, lan?, private?, current? })` | Every route in everyday words, recommended first: `{ via, recommended, sentence, needs, disabledReason? }` per route |
 | `advertise({ type, port, name?, txt?, addresses? })` | Publishes `_<type>._tcp` over mDNS (Node), using only selected addresses; returns `{ stop }` |
 | `tailscaleState({ bin?, timeoutMs? })` | Non-throwing installation, backend, sign-in, key expiry, peer and address diagnostics |
+| `firewall({ port, platform?, run?, timeoutMs? })` | Whether the local firewall blocks inbound on a port: `{ blocked, how, nextStep }`, read without administrator access |
 | `needsSignin(status)`, `isPeer(status, ip)` | Pure helpers for raw `tailscale status --json`: explicit login state and peer IP membership |
 | `tailscaleStatus`, `tailscaleName`, `magicDnsName` | Read the local Tailscale state and this machine's MagicDNS name |
 | `inspectServe`, `serveRootProxy` | Check who holds the Serve root: `free`, `ours`, `occupied`, `funnel`, `disabled` or `inconclusive` |
@@ -267,6 +268,34 @@ possible DNS/TLS failures) mean `unknown`. `timeout` bounds the operation even w
 The default bound is 4000 ms. A probe is an active request only to the URL the caller passes (or the candidate
 `observe` selects); it never runs the Tailscale CLI, signs in or changes Serve. Inject `fetch` for offline tests.
 Apps decide their own offline wording and still authenticate with link.
+
+## Reachability and firewall
+
+Two checks run before setup prints its tick, in this order:
+
+1. **Can the phone reach these addresses?** That is `@byokit/pair`'s
+   [`check(urls)`](../pair/README.md#checking-reachability-before-pairing): it probes the offer's URLs with
+   `LINK_PROBE` without spending the one-time ticket, so a checked offer still pairs afterwards. Setup
+   self-checks its own advertised URLs; the phone re-checks the scanned offer before consent. This package
+   does not re-export it — import it from `@byokit/pair`, where the host side that answers the probe lives.
+2. **Is this computer's firewall blocking the port?** That is this package's `firewall({ port })`
+   (Node only). It reads only what a normal user may read — `ufw status`, then `nft list ruleset`, then
+   `iptables -S` on Linux; the application firewall state on macOS; `netsh advfirewall` on Windows — and
+   never asks for administrator access. Anything unreadable is `'unknown'`, which is an honest answer:
+   treat it as "check another way", never as blocked or clear.
+
+```ts
+import { firewall } from '@byokit/discover';
+
+const verdict = await firewall({ port: 8792 });
+console.log(verdict.blocked, verdict.how);  // true | false | 'unknown', plus the firewall that said so
+if (verdict.blocked !== false) console.log(verdict.nextStep);  // plain words, never a sudo command
+```
+
+`blocked: true` names the refusing rule; `false` means the firewall is off or lets the port through.
+`'unknown'` covers an active firewall with no rule naming the port (including macOS, which decides per
+app rather than per port), a state that needs administrator access to read, and platforms this helper
+does not check. Pass `platform` and `run` only in tests, to replay stubbed command output.
 
 ## Tailscale rules
 

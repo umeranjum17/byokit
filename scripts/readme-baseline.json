@@ -91,7 +91,7 @@
   },
   {
     "readme": "packages/discover/README.md",
-    "block": 8,
+    "block": 9,
     "snapshot": "58efd7b4c2c060e441d546dc6caa7fcbe3cc4e6ea6215e6decd5f3a2cb33be7a",
     "reason": "Native browse fragment needs the React Native exports and native dependency context."
   },
