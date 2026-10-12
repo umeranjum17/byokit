@@ -58,7 +58,7 @@ export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
     let scratch: string;
     try { scratch = await mkdtemp(join(tmpdir(), 'byokit-claude-code-')); } catch { throw new ClaudeCodeError('process'); }
     try {
-      const args = ['-p', '--output-format', 'json', '--json-schema', validator.json, '--input-format', 'stream-json',
+      const args = ['-p', '--output-format', 'stream-json', '--verbose', '--json-schema', validator.json, '--input-format', 'stream-json',
         '--tools', '', '--disallowedTools', 'mcp__*', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
         '--setting-sources', '', '--safe-mode', '--settings', '{"forceLoginMethod":"claudeai","disableAllHooks":true}',
         '--no-session-persistence', ...(o.model ? ['--model', o.model] : []),
@@ -115,8 +115,16 @@ export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
       if (Date.now() >= deadline) throw new ClaudeCodeError('timeout');
       const stdout = await execute(args, JSON.stringify({ type: 'user', session_id: '', parent_tool_use_id: null,
         message: { role: 'user', content } }) + '\n');
-      let raw: unknown;
-      try { raw = JSON.parse(stdout); } catch { throw new ClaudeCodeError('invalid_json'); }
+      let raw: unknown = undefined;
+      // Stream-json output is one event per line; the final result event carries the answer.
+      let seen = false;
+      for (const line of stdout.split('\n')) {
+        if (!line.trim()) continue;
+        let event: unknown;
+        try { event = JSON.parse(line); } catch { throw new ClaudeCodeError('invalid_json'); }
+        if (record(event) && event.type === 'result') { raw = event; seen = true; }
+      }
+      if (!seen) throw new ClaudeCodeError('invalid_json');
       if (!record(raw)) throw new ClaudeCodeError('invalid_json');
       if (raw.is_error || raw.subtype !== 'success' || raw.type !== 'result') {
         if (raw.subtype === 'error_max_turns' || raw.subtype === 'error_max_structured_output_retries' || raw.stop_reason === 'max_tokens') {

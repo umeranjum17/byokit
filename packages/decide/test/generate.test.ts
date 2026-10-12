@@ -1,8 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, delimiter } from 'node:path';
 import { generate, generationCacheKey, MemoryGenerationCache, decide, rules, InvalidSchemaError, type GenerationBackend } from '../src/index.ts';
 import { claudeCode, ClaudeCodeError } from '../src/claude-code.ts';
 
@@ -79,8 +81,9 @@ test('Claude binary seam: isolated subscription, structured generation, scalar d
     const log = JSON.parse(await readFile(join(configDir, 'invocation.json'), 'utf8'));
     const arg = (flag: string) => log.args[log.args.indexOf(flag) + 1];
     assert.equal(log.args[0], '-p');
-    assert.equal(arg('--output-format'), 'json');
+    assert.equal(arg('--output-format'), 'stream-json');
     assert.equal(arg('--input-format'), 'stream-json');
+    assert.ok(log.args.includes('--verbose'));
     assert.equal(arg('--tools'), '');
     assert.equal(arg('--disallowedTools'), 'mcp__*');
     assert.equal(arg('--mcp-config'), '{"mcpServers":{}}');
@@ -167,6 +170,62 @@ test('Claude binary seam: isolated subscription, structured generation, scalar d
     if (previousConfig === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = previousConfig;
     await rm(join(homeClaude, 'byokit-test-canary'), { force: true });
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+const realClaudeBin = (() => {
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (!dir) continue;
+    try { const candidate = join(dir, 'claude'); if (existsSync(candidate)) return candidate; } catch {}
+  }
+  return undefined;
+})();
+
+test('real Claude CLI accepts the exact flag list the adapter builds', { skip: !realClaudeBin && 'no claude binary on PATH' }, async () => {
+  assert.ok(realClaudeBin);
+  const root = await mkdtemp(join(tmpdir(), 'byokit-decide-claude-flags-'));
+  try {
+    // Capture the exact args (and stdin envelope) through the fake binary's log.
+    const captureDir = join(root, 'capture-sign-in');
+    const bin = join(root, 'fake-claude');
+    await mkdir(captureDir);
+    await writeFile(bin, fakeSource, { mode: 0o700 });
+    const capture = claudeCode({ bin, configDir: captureDir, timeoutMs: 5000 });
+    await capture.generate({ prompt: 'normal', schema });
+    const logged = JSON.parse(await readFile(join(captureDir, 'invocation.json'), 'utf8'));
+    const args = logged.args as string[];
+    const stdin = `${JSON.stringify(logged.request)}\n`;
+    // Replay them against the real CLI with an empty scratch config dir.
+    const emptyConfig = join(root, 'empty-sign-in');
+    const scratch = join(root, 'scratch-home');
+    await mkdir(emptyConfig);
+    await mkdir(scratch);
+    const output = await new Promise<{ stdout: string; stderr: string }>((resolveOutput, reject) => {
+      const child = spawn(realClaudeBin, args, { cwd: scratch, env: {
+        HOME: scratch, USERPROFILE: scratch, TMPDIR: scratch, TMP: scratch, TEMP: scratch,
+        XDG_CONFIG_HOME: scratch, XDG_CACHE_HOME: scratch, XDG_DATA_HOME: scratch,
+        PATH: '/usr/bin:/bin', CLAUDE_CONFIG_DIR: emptyConfig,
+      }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk: string) => { stdout += chunk; });
+      child.stderr.on('data', (chunk: string) => { stderr += chunk; });
+      const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('real claude run timed out')); }, 60_000);
+      child.on('error', reject);
+      child.on('close', () => { clearTimeout(timer); resolveOutput({ stdout, stderr }); });
+      child.stdin.end(stdin);
+    });
+    const combined = `${output.stdout}\n${output.stderr}`;
+    assert.ok(!combined.includes('requires output-format'),
+      `real CLI refused the flag combination: ${combined.slice(0, 500)}`);
+    // A not-signed-in result is fine; the CLI must still speak stream-json events.
+    const events = output.stdout.split('\n').filter((line) => line.trim()).map((line) => JSON.parse(line));
+    assert.ok(events.length > 0 && events.every((event) => typeof event.type === 'string'),
+      `real CLI emitted no stream-json events: ${combined.slice(0, 500)}`);
+  } finally {
     await rm(root, { recursive: true, force: true });
   }
 });
