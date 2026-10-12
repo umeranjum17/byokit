@@ -1,6 +1,8 @@
 // Sealed blocked-approval notices: the relay reads only a generic title, the phone opens the sealed body with its
-// own key (docs/runtime-kits.md 7.3). Portable: no Node import anywhere in it — `./device` re-exports `openNotice`.
-import { boxKeyPairFromSeed, openBoxFromSeed, sealBox } from '@byokit/seal';
+// own key (docs/runtime-kits.md 7.3). The envelope comes from `@byokit/seal`'s generic notice API, so one opener
+// serves every kit; this file keeps the blocked-agent shape check and the box-key text. Portable: no Node import
+// anywhere in it — `./device` re-exports `openNotice`.
+import { boxKeyPairFromSeed, openNotice as sealOpenNotice, sealNotice as sealSealNotice } from '@byokit/seal';
 import type { BlockedAgent } from './types.ts';
 
 const ABC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
@@ -58,24 +60,19 @@ export function sealNotice(b: BlockedAgent, boxPublicKey: Uint8Array): { v: 1; s
     throw new Error('herdr: box public key must be 32 bytes');
   }
   if (!isBlockedAgent(b)) throw new Error('herdr: cannot seal that notice');
-  return { v: 1, sealed: encodeB64Url(sealBox(new TextEncoder().encode(JSON.stringify(b)), boxPublicKey)) };
+  return sealSealNotice(b, boxPublicKey);
 }
 
 /** Open a notice envelope with the device's 32-byte seed; null when it is not ours or not a notice. */
 export function openNotice(data: Record<string, unknown>, seed: Uint8Array): BlockedAgent | null {
-  if (typeof data !== 'object' || data === null || data.v !== 1 || typeof data.sealed !== 'string') return null;
   if (!(seed instanceof Uint8Array) || seed.length !== 32) return null;
-  const bundle = decodeB64Url(data.sealed);
-  if (bundle === null) return null;
-  const bytes = openBoxFromSeed(bundle, seed);
-  if (bytes === null) return null;
-  let parsed: unknown;
+  const { secretKey } = boxKeyPairFromSeed(seed);
   try {
-    parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
-  } catch {
-    return null;
+    const parsed = sealOpenNotice(data, secretKey);
+    return isBlockedAgent(parsed) ? parsed : null;
+  } finally {
+    secretKey.fill(0);
   }
-  return isBlockedAgent(parsed) ? parsed : null;
 }
 
 /** The box public key a device registers for a seed (the host seals to this). */
