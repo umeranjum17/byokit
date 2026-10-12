@@ -88,6 +88,7 @@ reply: { pong: 'ping' }
 | `Relay` | The relay server: `Relay.open(options)`, `attach(server)` (or `upgrade` / `request`), `admit`, `enrolment`, `hosts`, `revoke`, `count`, `close` |
 | `RelayClient` | The host's side: one outbound socket that proves the host's key and reconnects; `code`, `subscribe`, `unsubscribe`, `notify`, `revoke`, `pending`, `self`, `leave`, `stop` |
 | `ownerClient` | The owner's HTTP API: `hosts`, `enrolment`, `revoke`; accepts an injected `fetch` |
+| `claimProvision` | A new computer's app: grants the phone key a provisioning token bound, through link's own durable grants |
 | `RelayOwnerError` | HTTP refusal with a numeric `status` and a `code`: `forbidden` (403), `not-found` (404), or `request-failed` |
 | `findHost` | The device's side: a short code → the link address to dial (also from `@byokit/relay/device`) |
 | `linkUrl` | A relay URL and known host id → the link address to dial (also from `@byokit/relay/device`) |
@@ -97,7 +98,7 @@ reply: { pong: 'ping' }
 | `CLOSE` | WebSocket close codes the relay uses (replaced, not enrolled, bad proof, enrolment, revoked, too many) |
 | `isAllowedEndpoint`, `isExpoToken` | Checks for Web Push endpoints and Expo push tokens |
 | `MAX_ACTION_REPLY` | The most UTF-8 bytes a notification action's sealed `reply` may carry (8192) |
-| Types | `RelayOptions`, `RelayStore`, `RelayState`, `HostRecord`, `Enrolment`, `RelayClientOptions`, `RelayStatus`, `PushAction`, `Notification`, `PushRecord`, `Subscription`, `WebSubscription` |
+| Types | `RelayOptions`, `RelayStore`, `RelayState`, `HostRecord`, `Enrolment`, `ProvisionBinding`, `RelayClientOptions`, `RelayStatus`, `PushAction`, `Notification`, `PushRecord`, `Subscription`, `WebSubscription` |
 
 ## Relay
 
@@ -123,7 +124,7 @@ Routes:
 | `WS /relay/v1/host` | a host | proves its key, then carries its devices' frames as `{c, f}` / `{c, end}` |
 | `GET /relay/v1/codes/<code>` | a device | a short code → `{ host }` |
 | `POST /relay/v1/push/action` | a device | `{ token, action, reply? }`: a notification's button, with an optional bounded sealed reply, answered by the host |
-| `POST /relay/v1/enrolments`, `GET /relay/v1/hosts`, `DELETE /relay/v1/hosts/<id>` | the owner (`Authorization: Bearer <ownerToken>`) | make an enrolment, list and revoke hosts |
+| `POST /relay/v1/enrolments`, `DELETE /relay/v1/enrolments/<id>`, `GET /relay/v1/hosts[?account=]`, `DELETE /relay/v1/hosts/<id>` | the owner (`Authorization: Bearer <ownerToken>`) | make and withdraw an enrolment, list (optionally by provisioning account) and revoke hosts |
 
 Use the typed owner client instead of assembling these requests:
 
@@ -466,3 +467,66 @@ recovery, durable execution, cancellation of the underlying runtime, provider ch
 input validation and transactional output/cursor storage belong to the embedding app or runtime kit. This channel
 does not add a database, hosted queue, or execute a second run when a transport reconnects. The relay remains blind
 to job ids, frames, images and usage; no job credential or content is logged by the channel.
+
+## Provisioning a new computer
+
+A QR needs a person at both ends. A new computer (or a cloud machine with no screen) enrolls with a provisioning
+token instead: the signed-in phone mints a single-use token bound to its account and its link key, and the computer
+presents it when it first dials out. The relay binds the new host to that account and key; the computer's app grants
+exactly that key through link's own durable grants; the phone finds its computer under its account and connects
+through the relay. The relay routes sealed Noise frames throughout and learns no secrets: only a hash of the claim
+is ever stored, and the bound key is public material.
+
+```ts
+import { DeviceLink, Host, b64url, keyPair } from '@byokit/pair';
+import { RelayClient, claimProvision, linkUrl, ownerClient } from '@byokit/relay';
+
+const ownerToken = process.env.RELAY_OWNER_TOKEN ?? '';
+// The signed-in phone mints the token and shows it once for the new computer. Five minutes, one use.
+const owner = ownerClient('https://relay.example', ownerToken);
+const phoneKeys = keyPair();  // the phone keeps these in secure storage
+const { token } = await owner.enrolment({ name: 'Cloud machine',
+  provision: { account: 'umer', deviceKey: b64url(phoneKeys.publicKey) } });
+
+// The computer dials out to the hosted relay and presents the token: no QR, no approval tap.
+const computer = await Host.open({ keys: keyPair(), name: 'Cloud machine',
+  confirm: () => false, handle: (req) => ({ pong: req.op }) });
+const dialled = new RelayClient(computer, { url: 'wss://relay.example/relay/v1/host', enrol: token });
+await new Promise<void>((resolve) => {
+  const t = setInterval(() => { if (dialled.status === 'online') { clearInterval(t); resolve(); } }, 50);
+});
+const granted = await claimProvision(computer, dialled.provision);
+
+// The phone finds its computer under its account and connects through the relay.
+const mine = (await owner.hosts({ account: 'umer' })).find((h) => h.id === computer.id);
+const phone = new DeviceLink({ v: 1, secretKey: b64url(phoneKeys.secretKey), host: b64url(computer.keys.publicKey),
+  hostName: 'Cloud machine', urls: [linkUrl('https://relay.example', mine!.id)],
+  device: { id: granted!.id, name: granted!.name, role: granted!.role } });
+```
+
+An expired, reused or withdrawn token is refused at dial-out (`refused`); a key that is not the bound one hears
+`not-paired` on the link, and the host stays invisible to any other account. Withdraw a token before it is used
+with `owner.revokeEnrolment(id)` (the part before the `.`), and revoke the host afterwards with `owner.revoke(id)`
+as usual. A token travels over a channel its owner trusts, is never logged, and grants nothing beyond this one
+computer and this one phone key.
+
+## Hosted relay
+
+`packages/relay/hosted/` runs one relay computers dial out to: a container (`Dockerfile`), a small server
+(`server.mjs`) and a config file (`config.example.json`). One replica, behind TLS it does not terminate itself
+(Tailscale Serve, Caddy, …), with the state file on a mounted volume:
+
+```sh
+cp packages/relay/hosted/config.example.json /srv/relay/config.json
+printf '%s' "$RELAY_OWNER_TOKEN" > /srv/relay/secrets/owner-token
+chmod 600 /srv/relay/secrets/owner-token /srv/relay/config.json
+docker build -t hosted-relay packages/relay/hosted
+docker run -d --name relay --restart unless-stopped -p 127.0.0.1:7300:7300 -v /srv/relay:/srv/relay hosted-relay
+curl http://127.0.0.1:7300/health   # {"ok":true,"hosts":0,"devices":0}
+```
+
+Health is `GET /health`: `200 { ok, hosts, devices }`, with no secrets in it, for the container's own
+`HEALTHCHECK` and the load balancer. Limits are the relay's per-address per-minute buckets (`LIMITS`: connections,
+code lookups, actions, enrolment claims, failed proofs), plus enrolment-only signup and a 0600 state file; set
+`trustProxy: true` only behind a proxy you run, so `X-Forwarded-For` addresses are yours. BYOKit operates no
+hosting: run this on infrastructure you already have.

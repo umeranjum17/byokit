@@ -15,9 +15,14 @@ import { CLOSE, challenge } from './proof.ts';
 import { deliver, isActionReply, MAX_ACTION_REPLY, parseNotification, parseSubscription, pushHosts, vapidKeys, type Notification, type PushRecord, type Vapid } from './push.ts';
 
 /** A host allowed to register. `id` is link's `hostId(key)`, the address devices dial. */
-export type HostRecord = { id: string; key: string; name: string; added: number; meta?: unknown };
+export type HostRecord = { id: string; key: string; name: string; added: number; meta?: unknown; provision?: ProvisionBinding };
 /** An owner-created enrolment: the claim is kept only as a hash. */
-export type Enrolment = { id: string; hash: string; name?: string; expires: number; meta?: unknown };
+export type Enrolment = { id: string; hash: string; name?: string; expires: number; meta?: unknown; provision?: ProvisionBinding };
+/** Who a provisioning enrolment binds: the account that minted it and the new phone's link public key
+ *  (base64url, 32 bytes). The relay stores it blindly, moves it onto the host record at claim time, and echoes it
+ *  to the key-proven host so its app can grant exactly that key (`claimProvision`); it never touches link crypto,
+ *  and the key is public material, safe to store and show to the owner. */
+export type ProvisionBinding = { account: string; deviceKey: string; deviceName?: string; role?: 'control' | 'view' };
 /** Everything the relay keeps. Save it where only the relay can read it; never restore an old copy automatically, as it
  *  could bring back a revoked host. */
 export type RelayState = { hosts: HostRecord[]; enrolments: Enrolment[]; push: PushRecord[]; vapid?: Vapid };
@@ -76,6 +81,30 @@ function enrolmentMeta(value: unknown): unknown {
   const json = JSON.stringify(value);
   if (json === undefined || Buffer.byteLength(json) > MAX_ENROLMENT_META_BYTES) throw new Error('bad enrolment metadata');
   return JSON.parse(json);
+}
+
+const MAX_ACCOUNT_BYTES = 128;
+const CONTROL = /[\u0000-\u001f\u007f]/;
+
+/** A provisioning binding the relay may store, or throw a plain `bad provision binding`. `account` is the app's own
+ *  opaque id for who minted the token (kept verbatim for the owner's filter); `deviceKey` is the new phone's link
+ *  public key, checked to 32 bytes but never treated as a secret. */
+export function parseProvisionBinding(value: unknown): ProvisionBinding {
+  const b = value as ProvisionBinding;
+  if (typeof b !== 'object' || b === null) throw new Error('bad provision binding');
+  if (typeof b.account !== 'string' || b.account.length < 1
+    || Buffer.byteLength(b.account) > MAX_ACCOUNT_BYTES || CONTROL.test(b.account)) throw new Error('bad provision binding');
+  try { if (unb64url(b.deviceKey).length !== 32) throw new Error(); } catch { throw new Error('bad provision binding'); }
+  if (b.role !== undefined && b.role !== 'control' && b.role !== 'view') throw new Error('bad provision binding');
+  return { account: b.account, deviceKey: b.deviceKey,
+    ...(b.role === undefined ? {} : { role: b.role }),
+    ...(b.deviceName === undefined ? {} : { deviceName: cleanName(b.deviceName, 'Phone') }) };
+}
+
+function enrolmentTtl(value: unknown): number {
+  if (value === undefined) return ENROL_MS;
+  if (!Number.isSafeInteger(value) || (value as number) <= 0) throw new Error('bad enrolment lifetime');
+  return Math.min(value as number, ENROL_MS);
 }
 
 const ENROL_MS = 5 * 60_000;
@@ -215,14 +244,19 @@ export class Relay {
         return json(res, r.status, r.body);
       }
       const owner = this.opts.ownerToken;
-      if (path === '/relay/v1/enrolments' || path.startsWith('/relay/v1/hosts')) {
+      if (path === '/relay/v1/enrolments' || path.startsWith('/relay/v1/enrolments/') || path.startsWith('/relay/v1/hosts')) {
         const presented = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1];
         if (!owner || !presented || !same(presented, owner)) return json(res, 403, { error: 'owner only' });
         if (path === '/relay/v1/enrolments' && req.method === 'POST') {
           const body: any = await readJson(req);
-          return json(res, 201, await this.enrolment({ name: body?.name, meta: body?.meta }));
+          return json(res, 201, await this.enrolment({ name: body?.name, ttlMs: body?.ttlMs, meta: body?.meta, provision: body?.provision }));
         }
-        if (path === '/relay/v1/hosts' && req.method === 'GET') return json(res, 200, { hosts: this.hosts() });
+        const drop = /^\/relay\/v1\/enrolments\/([A-Za-z0-9_-]{1,64})$/.exec(path);
+        if (drop && req.method === 'DELETE') return json(res, 200, { ok: true, removed: await this.revokeEnrolment(drop[1]!) });
+        if (path === '/relay/v1/hosts' && req.method === 'GET') {
+          const account = url.searchParams.get('account');
+          return json(res, 200, { hosts: this.hosts(account ?? undefined) });
+        }
         const one = /^\/relay\/v1\/hosts\/([A-Za-z0-9_-]{22})$/.exec(path);
         if (one && req.method === 'DELETE') return json(res, 200, { ok: true, removed: await this.revoke(one[1]!) });
       }
@@ -243,21 +277,34 @@ export class Relay {
   }
 
   /** A one-use enrolment a host claims within five minutes, by registering with it (`RelayClient({ enrol })`). Give
-   *  the token to the machine's owner over a channel you trust; only its hash is kept. */
-  async enrolment(o: { name?: string; ttlMs?: number; meta?: unknown } = {}): Promise<{ token: string; expires: number }> {
+   *  the token to the machine's owner over a channel you trust; only its hash is kept. With `provision`, the claim
+   *  also binds the new host to an account and a phone key: the host's app grants that key (`claimProvision`) and
+   *  the phone pairs over the relay with no QR. The relay holds no secrets either way. */
+  async enrolment(o: { name?: string; ttlMs?: number; meta?: unknown; provision?: ProvisionBinding } = {}): Promise<{ token: string; expires: number }> {
     const meta = enrolmentMeta(o.meta);
+    const provision = o.provision === undefined ? undefined : parseProvisionBinding(o.provision);
     const id = b64url(randomBytes(9));
     const claim = b64url(randomBytes(32));
     const now = this.now();
-    const expires = now + Math.min(o.ttlMs ?? ENROL_MS, ENROL_MS);
+    const expires = now + enrolmentTtl(o.ttlMs);
     await this.change((s) => {
-      s.enrolments = [...s.enrolments.filter((e) => e.expires > now), { id, hash: sha(claim), expires, ...(meta !== undefined ? { meta } : {}), ...(o.name ? { name: cleanName(o.name, 'Computer') } : {}) }];
+      s.enrolments = [...s.enrolments.filter((e) => e.expires > now), { id, hash: sha(claim), expires, ...(meta !== undefined ? { meta } : {}), ...(provision !== undefined ? { provision } : {}), ...(o.name ? { name: cleanName(o.name, 'Computer') } : {}) }];
     });
     return { token: `${id}.${claim}`, expires };
   }
 
-  hosts(): (HostRecord & { online: boolean; devices: number })[] {
-    return this.state.hosts.map((h) => ({ ...h, online: this.live.has(h.id), devices: this.count(h.id) }));
+  /** Withdraws an enrolment before it is claimed: a later claim with its token is refused. True if one was waiting. */
+  async revokeEnrolment(id: string): Promise<boolean> {
+    return this.change((s) => {
+      const present = s.enrolments.some((e) => e.id === id);
+      s.enrolments = s.enrolments.filter((e) => e.id !== id);
+      return present;
+    });
+  }
+
+  hosts(account?: string): (HostRecord & { online: boolean; devices: number })[] {
+    const all = this.state.hosts.map((h) => ({ ...h, online: this.live.has(h.id), devices: this.count(h.id) }));
+    return account === undefined ? all : all.filter((h) => h.provision?.account === account);
   }
 
   /** Removes a host: its registration, push subscriptions and codes go, and its socket and its devices' close. */
@@ -383,7 +430,7 @@ export class Relay {
         if (!e || !same(sha(claim), e.hash)) return false;
         s.enrolments = s.enrolments.filter((x) => x !== e);
         if (e.expires < this.now()) return false;
-        s.hosts = [...s.hosts, { id, key: b64url(key), name: cleanName(e.name ?? m.name, 'Computer'), added: this.now(), ...(e.meta !== undefined ? { meta: e.meta } : {}) }];
+        s.hosts = [...s.hosts, { id, key: b64url(key), name: cleanName(e.name ?? m.name, 'Computer'), added: this.now(), ...(e.meta !== undefined ? { meta: e.meta } : {}), ...(e.provision !== undefined ? { provision: e.provision } : {}) }];
         return true;
       });
       if (!enrolled) return fail(CLOSE.enrolment, 'enrolment expired or used');
@@ -395,7 +442,7 @@ export class Relay {
     const l: Live = { id, ws, devices: new Map(), next: 0 };
     this.live.set(id, l);
     const record = this.state.hosts.find((h) => h.id === id)!;
-    ws.send(JSON.stringify({ t: 'ready', id, vapid: this.state.vapid!.publicKey, ...(record.meta !== undefined ? { meta: record.meta } : {}) }));
+    ws.send(JSON.stringify({ t: 'ready', id, vapid: this.state.vapid!.publicKey, ...(record.meta !== undefined ? { meta: record.meta } : {}), ...(record.provision !== undefined ? { provision: record.provision } : {}) }));
     return l;
   }
 

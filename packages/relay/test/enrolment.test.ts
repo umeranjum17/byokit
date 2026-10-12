@@ -3,9 +3,9 @@
 // machine without touching another.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hostId, keyPair, pairWithOffer, DeviceLink } from '@byokit/pair';
-import { CLOSE, MAX_ENROLMENT_META_BYTES, ownerClient, RelayOwnerError } from '../src/index.ts';
-import { closed, grantStore, hostClient, paired, startHost, startRelay, until } from './helpers.ts';
+import { b64url, hostId, keyPair, pairWithOffer, DeviceLink, type DeviceGrant } from '@byokit/pair';
+import { CLOSE, MAX_ENROLMENT_META_BYTES, claimProvision, linkUrl, ownerClient, RelayOwnerError } from '../src/index.ts';
+import { closed, device, grantStore, hostClient, paired, startHost, startRelay, until } from './helpers.ts';
 
 const owner = 'owner-secret-for-tests';
 const bearer = (t: string) => ({ authorization: `Bearer ${t}` });
@@ -304,4 +304,103 @@ test('open signup still claims explicit owner enrolment metadata and consumes it
   assert.deepEqual(h.client.meta, meta);
   assert.equal((await h.client.self()).host.name, 'Owner name');
   assert.deepEqual(r.saved()!.enrolments, []);
+});
+
+test('provisioning token: a new computer dials out, claims its binding, and its phone reaches it with no QR', async () => {
+  const r = await startRelay({ ownerToken: owner });
+  const client = ownerClient(r.http, owner);
+  const phoneKeys = keyPair();
+  const binding = { account: 'umer', deviceKey: b64url(phoneKeys.publicKey), deviceName: 'Pixel 9', role: 'control' as const };
+  const { token, expires } = await client.enrolment({ name: 'Cloud machine', provision: binding });
+  assert.ok(expires > Date.now() && expires <= Date.now() + 5 * 60_000, 'a bounded five-minute life');
+  assert.doesNotMatch(JSON.stringify(r.saved()), new RegExp(token.split('.')[1]!), 'only a hash of the claim is kept');
+
+  // The computer dials out to the hosted relay and presents the token: no QR, no approval tap on its side.
+  const computer = await startHost();
+  const dialled = hostClient(computer, r.ws, { enrol: token, name: 'Ignored name' });
+  await until(() => dialled.client.status === 'online');
+  assert.deepEqual(dialled.client.provision, binding);
+  assert.equal((await dialled.client.self()).host.name, 'Cloud machine');
+  assert.deepEqual(dialled.client.meta, undefined);
+
+  // Its app grants exactly the bound phone key through link's own durable grants.
+  assert.equal(await claimProvision(computer, undefined), null);
+  const granted = await claimProvision(computer, dialled.client.provision);
+  assert.ok(granted);
+  assert.equal(granted.key, binding.deviceKey);
+  assert.deepEqual(computer.devices().map((g) => g.key), [binding.deviceKey]);
+
+  // The phone sees its new computer under its account, dials the relay address, and is answered: still sealed Noise.
+  assert.deepEqual((await client.hosts({ account: 'umer' })).map((h) => h.id), [computer.id]);
+  assert.deepEqual(await client.hosts({ account: 'someone-else' }), []);
+  const phoneGrant: DeviceGrant = { v: 1, secretKey: b64url(phoneKeys.secretKey), host: b64url(computer.keys.publicKey),
+    hostName: 'Cloud machine', urls: [linkUrl(r.http, computer.id)], device: { id: granted.id, name: granted.name, role: granted.role } };
+  const phone = device(phoneGrant);
+  await until(() => phone.link.status === 'online');
+  assert.deepEqual(await phone.link.request('hello'), { op: 'hello', by: granted.id });
+});
+
+test('provisioning token misuse: expired, reused, revoked, and a wrong account are all refused', async () => {
+  let now = Date.now();
+  const r = await startRelay({ ownerToken: owner, now: () => now });
+  const client = ownerClient(r.http, owner);
+  const mint = (account = 'umer', deviceKey = b64url(keyPair().publicKey)) =>
+    client.enrolment({ provision: { account, deviceKey } });
+
+  // Expired: the claim is spent trying, and nothing registers.
+  const late = await mint();
+  now += 5 * 60_000 + 1;
+  const tooLate = hostClient(await startHost(), r.ws, { enrol: late.token });
+  await until(() => tooLate.client.status === 'refused');
+  assert.equal(r.relay.hosts().length, 0);
+  assert.equal(r.saved()!.enrolments.some((e) => e.id === late.token.split('.')[0]), false);
+
+  // Reused: the first computer gets the binding; the second is refused and grants nothing.
+  now = Date.now();
+  const { token } = await mint();
+  const first = await startHost();
+  const one = hostClient(first, r.ws, { enrol: token });
+  await until(() => one.client.status === 'online');
+  await claimProvision(first, one.client.provision);
+  const two = hostClient(await startHost(), r.ws, { enrol: token });
+  await until(() => two.client.status === 'refused');
+  assert.equal(r.relay.hosts().length, 1);
+  assert.equal(first.devices().length, 1);
+
+  // Revoked before use: withdrawing the token refuses the claim.
+  const { token: revoked } = await mint();
+  const id = revoked.split('.')[0]!;
+  assert.equal(await client.revokeEnrolment(id), true);
+  assert.equal(await client.revokeEnrolment(id), false);
+  const withdrawn = hostClient(await startHost(), r.ws, { enrol: revoked });
+  await until(() => withdrawn.client.status === 'refused');
+  assert.equal(r.relay.hosts().length, 1);
+
+  // Wrong account: another key at the same relay address is not paired, and the host stays invisible to it.
+  const strangerKeys = keyPair();
+  const stranger = device({ v: 1, secretKey: b64url(strangerKeys.secretKey), host: b64url(first.keys.publicKey),
+    hostName: 'Cloud machine', urls: [`${r.ws}/link/v1/${first.id}`], device: { id: '', name: 'Stranger', role: 'control' } });
+  await until(() => stranger.link.status === 'removed');
+  assert.equal(first.devices().length, 1);
+  assert.deepEqual(await client.hosts({ account: 'someone-else' }), []);
+});
+
+test('provisioning bindings are validated, and junk never becomes authority', async () => {
+  const r = await startRelay({ ownerToken: owner });
+  const client = ownerClient(r.http, owner);
+  const key = b64url(keyPair().publicKey);
+  for (const provision of [
+    { account: '', deviceKey: key }, { account: 'umer', deviceKey: 'too-short' },
+    { account: 'umer', deviceKey: key, role: 'admin' }, { account: 'umer', deviceKey: key },
+  ]) {
+    await assert.rejects(client.enrolment({ provision: provision as never }),
+      (e: unknown) => e instanceof RelayOwnerError && e.status === 400);
+  }
+  await assert.rejects(r.relay.enrolment({ ttlMs: -1 }), /bad enrolment lifetime/);
+  await assert.rejects(r.relay.enrolment({ ttlMs: Number.NaN }), /bad enrolment lifetime/);
+  assert.deepEqual(r.saved()!.enrolments, [], 'rejected enrolments store nothing');
+  assert.deepEqual(r.saved()!.hosts, []);
+  const host = await startHost();
+  await assert.rejects(claimProvision(host, { account: 'umer', deviceKey: 'too-short' }), /bad provision binding/);
+  assert.equal(host.devices().length, 0);
 });
