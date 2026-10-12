@@ -222,7 +222,7 @@ function CloudSetup() {
   };
   const remove = async () => {
     await SecureStore.deleteItemAsync(CLOUD_RECORD).catch(() => {});
-    if (await SecureStore.getItemAsync(CLOUD_RECORD)) { setMessage(`Couldn't remove the key.`); return; }
+    if (await SecureStore.getItemAsync(CLOUD_RECORD).catch(() => true)) { setMessage(`Couldn't remove the key.`); return; }
     setStored(false); setMessage('Cloud key removed. Make a key on the Boat site, then paste it here.');
   };
   return (
