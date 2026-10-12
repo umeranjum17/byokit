@@ -1071,3 +1071,38 @@ export async function askWithKey(keyStore: (member: number) => Keystore,
   }, options: { temperature: 0.2 } });
 }
 ```
+
+## Remote agent-CLI sign-in from a phone
+
+A phone signs an agent CLI in on a paired computer over `@byokit/pair`: the host starts the CLI's own
+login there (Codex's device code, Claude's link-and-paste-code), sends only the verification URL, the
+user code and the expiry to the phone, the phone shows them, and the host reports success or one plain
+failure. The credential is written only by the CLI on the computer; it never reaches the phone and is
+never logged. Read-only state names each CLI's subscription sign-in without secrets. Pi has no headless
+login, so it reports "not supported here" while its state still reads. Each CLI's own terms apply.
+
+```ts
+import { remoteCliDevice } from '@byokit/accounts';
+import { cliAccounts, remoteCliHost } from '@byokit/accounts/cli';
+
+declare const stateDir: string;
+declare const bins: { claude: string; codex: string; pi: string };
+declare const env: { PATH: string; HOME: string };
+declare const link: { status: string; request(op: string, args?: unknown): Promise<unknown> };
+declare function showCode(signIn: { verificationUri: string; userCode?: string }): void;
+
+// On the computer: reuse the app's managed-CLI kit and answer the phone's calls.
+// Compose `remote.handle` into the pair Host's `handle` (behind its `allow`).
+const cli = cliAccounts({ stateDir, bins, env });
+const remote = remoteCliHost({ cli, bins });
+
+// On the phone, over the paired link:
+const phone = remoteCliDevice(link);
+const rows = await phone.state(); // per CLI: installed, signedIn, label, plan
+const started = await phone.start('codex');
+if (started.ok) {
+  showCode(started.signIn); // open verificationUri, type userCode
+  await phone.wait(started.signIn.id);
+}
+console.log(rows.length);
+```
