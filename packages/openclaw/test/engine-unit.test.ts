@@ -1394,3 +1394,63 @@ test('restore of many objects keeps every byte and recovers byte-identically aft
     assert.equal(holdsPlaintext(root, canary), false, 'no plaintext survives the recovery stop');
   } finally { t.mock.restoreAll(); syncBuiltinESMExports(); removeScratch(dir); }
 });
+
+// Restore must not rewrite a live file whose bytes and mode already match the sealed payload: the write, its
+// file fsync, rename and directory fsync are skipped (proven by an old mtime surviving a second start over
+// live files). A changed file (even at the same size, proving the byte compare), a missing file and a
+// different-mode file are all written exactly as before; a read error never skips.
+test('restore skips an unchanged object but rewrites changed, missing and different-mode files', { timeout: 120_000 }, async () => {
+  const dir = scratchDir('seal-restore-skip');
+  const root = join(dir, 'openclaw');
+  const seal = hostKeySeal({ key: new Uint8Array(32).fill(13) });
+  const open = () => new AuthStore({ root, stateDir: dir, engineDir: join(dir, 'engine'), seal });
+  const stores: [string, Buffer][] = [
+    ['state/transcripts/run/transcript.jsonl', Buffer.from('transcript row one\n')],
+    ['state/media/attachments/clip.bin', Buffer.from('media-bytes-0123456789')],
+    ['state/state/openclaw.sqlite', Buffer.from('SQLite format 3\0data-row')],
+  ];
+  const digests = new Map(stores.map(([name, bytes]) => [name, createHash('sha256').update(bytes).digest('hex')]));
+  const old = new Date(Date.now() - 3_600_000);
+  try {
+    for (const [name, bytes] of stores) { mkdirSync(dirname(join(root, name)), { recursive: true }); writeFileSync(join(root, name), bytes); }
+    mkdirSync(join(root, 'state'), { recursive: true });
+    writeFileSync(join(root, 'state', 'auth.json'), 'saved-login');
+    const first = open();
+    await first.prepare();
+    await first.start();
+    for (const [name, digest] of digests) assert.equal(digestOf(join(root, name)), digest, `restored byte-identical: ${name}`);
+
+    // Live tree now matches the sealed store. Tamper beside the skip candidate: same-size different bytes
+    // (proves the byte compare, not just the size check), a deletion, and a mode change with identical bytes.
+    const [sameName, changedName, modeName] = stores.map(([name]) => name);
+    const samePath = join(root, sameName);
+    const changedPath = join(root, changedName);
+    const modePath = join(root, modeName);
+    const authPath = join(root, 'state', 'auth.json');
+    const tampered = Buffer.from('media-bytes-9876543210');
+    assert.equal(tampered.length, digests.size > 0 ? readFileSync(changedPath).length : tampered.length, 'the changed file keeps its size so the skip needs the byte compare');
+    writeFileSync(changedPath, tampered);
+    rmSync(authPath, { force: true });
+    fs.chmodSync(modePath, 0o644);
+    for (const path of [samePath, changedPath, modePath]) fs.utimesSync(path, old, old);
+    const sameMtime = fs.statSync(samePath).mtimeMs;
+    assert.ok(Math.abs(sameMtime - old.getTime()) < 5, 'the test setup pinned the skip candidate to the old mtime');
+
+    // A second start over the live tree: drop the first store's lock so a fresh store can acquire it.
+    // The abandoned first store is never stopped; the second store owns the restore and the cleanup stop.
+    rmSync(join(root, 'auth-store.lock'), { recursive: true, force: true });
+    const second = open();
+    await second.start();
+
+    assert.equal(fs.statSync(samePath).mtimeMs, sameMtime, 'an unchanged file is not rewritten by restore');
+    assert.equal(digestOf(samePath), digests.get(sameName), 'the skipped file still holds the sealed bytes');
+    assert.equal(readFileSync(changedPath).equals(tampered), false, 'a same-size changed file is rewritten');
+    assert.equal(digestOf(changedPath), digests.get(changedName), 'the changed file restores the sealed bytes');
+    assert.ok(Math.abs(fs.statSync(changedPath).mtimeMs - old.getTime()) > 1000, 'the changed file was rewritten');
+    assert.equal(readFileSync(authPath, 'utf8'), 'saved-login', 'a missing file is rewritten');
+    assert.equal(digestOf(modePath), digests.get(modeName), 'a different-mode file keeps the sealed bytes');
+    assert.equal(fs.statSync(modePath).mode & 0o777, 0o600, 'a different-mode file is rewritten at the restore mode');
+    await second.stop();
+    assert.equal(holdsPlaintext(root, Buffer.from('transcript row one')), false, 'no plaintext survives the cleanup stop');
+  } finally { removeScratch(dir); }
+});
