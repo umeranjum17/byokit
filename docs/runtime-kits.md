@@ -1346,7 +1346,7 @@ using the plugin SDK's `resolveAgentDir` and local-only `updateAuthProfileStoreW
   before O14 (no local order) is sealed on its first use as an account when it has exactly one local profile of that
   provider; with several and none named by the model, its `state` is `needs_again`.
 - `ready { agentId, provider }`: `{ ok: true, type: 'oauth' | 'token' | 'api_key', expiresAt?, who? }` only when the agent's
-  own store holds that profile, its order lists exactly it, and it is not expired.
+  own store holds that profile, its order lists exactly it, and it is usable (neither `missing` nor `expired`).
 - `adopt { from, to, provider, who }`: under both agents' exclusive locks, rewrites `agents.entries[to].model`'s primary
   `@` suffix to `from`'s sealed profile id, moves that profile record unchanged (every field the pin stored) into
   `to`'s store, seals `to` to it (dropping `to`'s
