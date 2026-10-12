@@ -184,7 +184,8 @@ function card(key: string) {
       head.append(email);
       row.append(head);
       const room = rooms.get(a.id) ?? { left: 'unknown' as const };
-      if (typeof room.left === 'number') {
+      // No bar for a room whose window reset since the reading: its old number no longer holds.
+      if (typeof room.left === 'number' && !(typeof room.resetsAt === 'number' && room.resetsAt <= now)) {
         const bar = document.createElement('div');
         bar.className = 'meter';
         const fill = document.createElement('i');
@@ -205,7 +206,7 @@ function card(key: string) {
         p.textContent = words;
         row.append(p);
       };
-      for (const w of v.windows ?? []) line(`${w.text} · ${w.resetText}`, 'window');
+      for (const w of v.windows ?? []) line(w.resetText ? `${w.text} · ${w.resetText}` : w.text, 'window');
       if (v.asOf) line(v.asOf.text, 'age');
       if (v.asOf?.stale) row.dataset.stale = '';
       // No per-row Sign out: the card's own Sign out is the single way out, so it never shows twice.

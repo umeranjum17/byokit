@@ -224,7 +224,8 @@ so a credential on an account never reaches a row. A row that is not ready shows
 
 Pass `windows`, the account's `windowsView(reading, now)` from `@byokit/usage/view`, as a fourth argument and a ready
 row also carries `windows` (each usage window, tightest first: `Week: 72% left` with `resets in 4d`) and `asOf`
-(`Read 2 minutes ago`, or `Read 2 days ago (stale)` past a day). A stale row is never `low`; a reading without its own
+(`Read 2 minutes ago`, or `Read 2 days ago (stale)` past a day). A window whose reset is already past reads
+`Session: reset since this reading`, with no percent or countdown, and the room line `Reset since this reading`. A stale row is never `low`; a reading without its own
 time, such as an openclaw room, shows its resets and no `asOf`, never a made-up age.
 
 `AccountsSource` is the shape an app fills from its own back end — `accounts()`, `room(account)` and optionally

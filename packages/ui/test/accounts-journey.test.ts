@@ -76,7 +76,7 @@ test('a person with two ChatGPT accounts sees one plain row each, the room left,
         { provider: 'codex', kind: 'session', usedPercent: 85, resetsAt: now - 40 * H },
         { provider: 'codex', kind: 'weekly', usedPercent: 70, resetsAt: now + 24 * H }] },
     };
-    const rooms: Record<string, Room> = { [work]: { left: 72, span: 'week' }, [personal]: { left: 15, span: 'session' } };
+    const rooms: Record<string, Room> = { [work]: { left: 72, span: 'week' }, [personal]: { left: 15, span: 'session', resetsAt: now - 40 * H } };
     const source = { accounts: () => accounts.list(1), room: (a: Account) => rooms[a.id] ?? { left: 'unknown' },
       windows: (a: Account) => readings[a.id] && windowsView(readings[a.id], now) };
     const rows = await rowsOf(source, now);
@@ -88,9 +88,11 @@ test('a person with two ChatGPT accounts sees one plain row each, the room left,
         { kind: 'session', text: 'Session: 90% left', resetText: 'resets in 3h', resetsAt: now + 3 * H, usedPercent: 10 }],
       asOf: { at: now - 120_000, ageMs: 120_000, text: 'Read 2 minutes ago', stale: false } });
     assert.equal(byId[personal].title, 'ChatGPT', 'the account that keeps the provider name is not repeated');
-    assert.equal(byId[personal].detail, 'Plus · 15% left this session');
-    // Two days old: still its numbers, marked stale, and never low however little it showed left.
-    assert.deepEqual(byId[personal].windows!.map((w) => `${w.text} · ${w.resetText}`), ['Session: 15% left · resets in 0m', 'Week: 30% left · resets in 1d']);
+    assert.equal(byId[personal].detail, 'Plus · Reset since this reading');
+    // Two days old: marked stale and never low; its session reset since the reading, so that window and the room line
+    // say so instead of an old percent and a countdown, while the week keeps its numbers.
+    assert.deepEqual(byId[personal].windows!.map((w) => [w.text, w.resetText, w.usedPercent]),
+      [['Session: reset since this reading', '', undefined], ['Week: 30% left', 'resets in 1d', 70]]);
     assert.deepEqual([byId[personal].asOf!.text, byId[personal].asOf!.stale, byId[personal].low], ['Read 2 days ago (stale)', true, false]);
     assert.equal(JSON.stringify(rows).includes('@'), false, 'an email never reaches a row');
 
@@ -103,7 +105,7 @@ test('a person with two ChatGPT accounts sees one plain row each, the room left,
     // A room source that fails for one account leaves only that row unknown, without breaking the list.
     const partial = await rowsOf({ accounts: () => accounts.list(1), room: (a: Account) => { if (a.id === work) throw new Error('readings are down'); return rooms[a.id]; } }, Date.now());
     assert.equal(partial.find((r) => r.id === work)!.detail, 'Room left unknown');
-    assert.equal(partial.find((r) => r.id === personal)!.detail, 'Plus · 15% left this session');
+    assert.equal(partial.find((r) => r.id === personal)!.detail, 'Plus · Reset since this reading');
   } finally {
     accounts.stop();
     await openai.close();

@@ -40,7 +40,8 @@ export type AccountRow = {
   id: string; title: string; detail: string; state: SignInState; billing: Billing;
   /** Room left is at or below 20%: true at exactly 20, false above it, when the room is unknown or the windows are stale. */
   low: boolean;
-  /** A ready account's usage windows, tightest first, each with its reset; present when the app passed them. */
+  /** A ready account's usage windows, tightest first, each with its reset; one that reset since the reading reads
+   *  `Session: reset since this reading`, with an empty `resetText` and no `usedPercent`. Present when the app passed them. */
   windows?: UsageWindow[];
   /** The windows' age; absent when the reading carries no time of its own (never a made-up one) or a future one. */
   asOf?: AsOf;
@@ -68,11 +69,15 @@ function titleOf(a: Account): string {
 /** A resting account whose refill time has passed reads as ready again, exactly as the Auto chooser treats it. */
 const refilled = (a: Account, now: number): boolean => a.state === 'resting' && typeof a.until === 'number' && a.until <= now;
 
-/** Only the named fields, so nothing else on the app's view (a scope, a provider) reaches a row. */
-const windowOf = (x: UsageWindow): UsageWindow => ({
-  kind: x.kind, text: x.text, resetText: x.resetText, ...(typeof x.resetsAt === 'number' ? { resetsAt: x.resetsAt } : {}),
-  ...(typeof x.usedPercent === 'number' ? { usedPercent: x.usedPercent } : {}), ...(x.limited ? { limited: true } : {}),
-});
+/** A reset at or before now happened after the reading, so its numbers no longer hold. */
+const resetSince = (resetsAt: number | undefined, now: number): boolean => typeof resetsAt === 'number' && resetsAt <= now;
+
+/** Only the named fields, so nothing else on the app's view (a scope, a provider) reaches a row. A window that reset
+ *  since the reading says so, with no percent and no countdown. */
+const windowOf = (x: UsageWindow, now: number): UsageWindow => resetSince(x.resetsAt, now)
+  ? { kind: x.kind, text: WORDS['account.window.resetSince'].replace('{label}', WORDS[`account.window.${x.kind}`]), resetText: '', resetsAt: x.resetsAt! }
+  : { kind: x.kind, text: x.text, resetText: x.resetText, ...(typeof x.resetsAt === 'number' ? { resetsAt: x.resetsAt } : {}),
+    ...(typeof x.usedPercent === 'number' ? { usedPercent: x.usedPercent } : {}), ...(x.limited ? { limited: true } : {}) };
 
 function asOfOf(w: UsageWindows): AsOf | undefined {
   if (typeof w.at !== 'number' || typeof w.ageMs !== 'number' || !w.ageText) return undefined;
@@ -83,11 +88,13 @@ function rowOf(a: Account, room: Room, now: number, w?: UsageWindows): AccountRo
   const state: SignInState = refilled(a, now) ? 'ready' : a.state;
   const title = titleOf(a);
   if (state === 'ready') {
-    const words = roomWords(room);
+    // A room whose window reset since the reading no longer holds its number: say so, and it is not low.
+    const reset = room.left !== 'unknown' && resetSince(room.resetsAt, now);
+    const words = reset ? WORDS['account.room.resetSince'] : roomWords(room);
     const asOf = w && asOfOf(w);
     return { id: a.id, title, detail: a.plan && room.left !== 'unknown' ? `${planLabel(a.plan)} · ${words}` : words, state, billing: a.billing,
-      low: room.left !== 'unknown' && room.left <= LOW_AT && !w?.stale,
-      ...(w ? { windows: w.windows.map(windowOf) } : {}), ...(asOf ? { asOf } : {}) };
+      low: room.left !== 'unknown' && room.left <= LOW_AT && !w?.stale && !reset,
+      ...(w ? { windows: w.windows.map((x) => windowOf(x, now)) } : {}), ...(asOf ? { asOf } : {}) };
   }
   if (state === 'resting') {
     return { id: a.id, title, detail: WORDS['account.resting'], state, billing: a.billing, low: false, action: 'wait',
