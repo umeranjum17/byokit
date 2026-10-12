@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { readFileSync } from 'node:fs';
-import { Accounts, memoryStore, type Api, type Context, type Model } from '@byokit/accounts';
+import { Accounts, GOOGLE_CLIENTS, memoryStore, provider, type Api, type Context, type GoogleClient, type Model } from '@byokit/accounts';
 import { mockGoogle, type MockGoogleClient } from '@byokit/accounts/testing';
 
 const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/google-oauth-typescript.json', import.meta.url), 'utf8')) as {
@@ -212,6 +212,51 @@ test('an app-set callbackPort moves the listener and the redirect address togeth
     await google.close();
   }
 });
+
+// The loopback port has one source of truth, the runtime client config: the catalogue derives it, and every
+// Google-backed client exposes the same port its real callback flow uses. A divergent catalogue row or a broken
+// derivation fails here, not in a sign-in; an app-set port still moves the listener and redirect together.
+for (const client of Object.keys(GOOGLE_CLIENTS) as GoogleClient[]) {
+  test(`${client}: the catalogue port is the runtime client port, and the real sign-in uses it`, async () => {
+    const runtime = GOOGLE_CLIENTS[client];
+    const raw = JSON.parse(readFileSync(new URL('../src/catalogue.json', import.meta.url), 'utf8'));
+    assert.equal(raw[client]?.callbackPort, undefined, 'the port lives in the runtime client config, not the catalogue file');
+    assert.equal(provider(client).callbackPort, runtime.callback.port, 'the catalogue derives the runtime client port');
+    const google = await mockGoogle({ client: client as MockGoogleClient });
+    try {
+      const store = memoryStore();
+      const accounts = new Accounts({ store: () => store, googleBase: google.base, app: 'byokit journey' });
+      try {
+        const { id, signIn } = await accounts.add(OWNER, `${client}:browser`);
+        assert.equal(new URL(signIn!.url!).searchParams.get('redirect_uri'),
+          `http://${runtime.callback.hostname}:${runtime.callback.port}${runtime.callback.path}`, 'the redirect address carries the derived port');
+        const address = await callbackAddress(signIn!.url!);
+        assert.equal(new URL(address).port, String(provider(client).callbackPort), 'the browser return lands on the catalogue port');
+        assert.equal((await fetch(address)).status, 200, 'the app’s listener on the derived port answers');
+        await accounts.finished(OWNER, id);
+        assert.equal((await accounts.list(OWNER))[0]?.state, 'ready');
+      } finally {
+        accounts.stop();
+      }
+      // An app-set port still wins for the listener and the redirect, leaving the derived catalogue port alone.
+      const moved = 19086 + Object.keys(GOOGLE_CLIENTS).indexOf(client);
+      const custom = new Accounts({ store: () => memoryStore(), googleBase: google.base, app: 'byokit journey', callbackPort: moved });
+      try {
+        const { id, signIn } = await custom.add(OWNER, `${client}:browser`);
+        assert.equal(new URL(signIn!.url!).searchParams.get('redirect_uri'),
+          `http://${runtime.callback.hostname}:${moved}${runtime.callback.path}`, 'the app port moves the redirect address');
+        assert.equal((await fetch(await callbackAddress(signIn!.url!))).status, 200, 'the listener on the app port answers');
+        await custom.finished(OWNER, id);
+        assert.equal((await custom.list(OWNER))[0]?.state, 'ready');
+        assert.equal(provider(client).callbackPort, runtime.callback.port, 'the app setting never rewrites the catalogue');
+      } finally {
+        custom.stop();
+      }
+    } finally {
+      await google.close();
+    }
+  });
+}
 
 test('a failed email lookup still signs in; the account is ready without an email', async () => {
   const google = await mockGoogle();
