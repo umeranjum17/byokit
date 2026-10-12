@@ -279,11 +279,14 @@ function card(key: string) {
     const self = { id: status.id, email: plan?.email };
     paintRows(rows, new Map(), self);
     await paintPick(rows, new Map(), self);
+    const adding = !!pendingAdd;
     const landed = pendingAdd ? accounts.view(ME, pendingAdd) : undefined;
     if (landed?.state === 'done' && pendingAdd) pendingAdd = undefined;
     // An account being added walks its own sheet, even while another one is already connected.
-    const shown = pendingAdd ? accounts.view(ME, pendingAdd) : accounts.view(ME, key);
+    const shown = pendingAdd ? landed : accounts.view(ME, key);
     const phase = phaseOf({ ready: !pendingAdd && status.state === 'ready', signIn: shown });
+    // A failed or expired add ends here, so its card goes back to Sign in or Add another under the banner it shows.
+    if (landed?.state === 'failed') pendingAdd = undefined;
     const waiting = shown?.state === 'waiting';
     if (mine !== drawing) return; // a later draw (a sign-out, say) already said how things are
     readReadings(rows).then((readings) => {
@@ -326,7 +329,7 @@ function card(key: string) {
       banner('', '');
       q('words').textContent = say('signIn.opening', { name });
       show('codewell', false); show('open', false); show('paste', false);
-    } else if (!ready || pendingAdd) {
+    } else if (!ready || adding) {
       // The sheet is gone; the sign-in button is the single primary again, under a banner saying what happened.
       if (phase === 'expired') banner('expired', signInError(name, shown?.error ?? 'expired'));
       else if (phase === 'cancelled') banner('info', say('signIn.cancelled'));
