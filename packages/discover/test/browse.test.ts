@@ -126,6 +126,26 @@ test('scan collects services for its window, updates in first-seen order, then s
   assert.equal(zc.calls.at(-1), 'stop');
 });
 
+test('resolves match with or without a trailing dot and a .local suffix, on any letter case', async () => {
+  const zc = new FakeZeroconf();
+  const pending = scan({ type: 'crewhouse', ms: 60, zeroconf: zc });
+  await wait(10);
+  // Android (react-native-zeroconf): `host._type._protocol`, no trailing dot.
+  zc.emit('resolved', service({ name: 'extreme', fullName: 'extreme._crewhouse._tcp', host: 'extreme', port: 39773 }));
+  // iOS/Bonjour: trailing dot.
+  zc.emit('resolved', service({ name: 'lab', fullName: 'lab.local._crewhouse._tcp.', host: 'lab.local.', port: 39774 }));
+  // Trailing `.local` domain suffix, either case.
+  zc.emit('resolved', service({ name: 'desk', fullName: 'desk._crewhouse._tcp.local.', port: 39775 }));
+  zc.emit('resolved', service({ name: 'caps', fullName: 'CAPS._CREWHOUSE._TCP.', port: 39776 }));
+  // Another type still drops, even with a trailing dot.
+  zc.emit('resolved', service({ name: 'printer', fullName: 'printer._printer._tcp.' }));
+  zc.emit('resolved', service({ name: 'untyped', fullName: undefined }));
+  const services = await pending;
+  assert.deepEqual(services.map((s) => [s.name, s.port]), [
+    ['extreme', 39773], ['lab', 39774], ['desk', 39775], ['caps', 39776],
+  ]);
+});
+
 test('scan rejects and stops when the scan errors', async () => {
   const zc = new FakeZeroconf();
   const pending = scan({ type: 'ssh', ms: 30_000, zeroconf: zc });
