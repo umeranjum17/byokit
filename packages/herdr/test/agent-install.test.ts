@@ -61,6 +61,8 @@ test('a Node interpreter under mise is installed, not a shim; a shell launcher s
   assert.equal(isAutoInstallShim('pi', () => node), false);
   assert.equal(isAutoInstallShim('pi', () => SHIM), true);
   assert.equal(isAutoInstallShim('pi', () => '#!/bin/sh\nexec "/home/u/.local/bin/mise" x -- pi "$@"\n'), true);
+  assert.equal(isAutoInstallShim('pi', () => '#!/bin/zsh\nmise x -- pi "$@"\n'), true);
+  assert.equal(isAutoInstallShim('pi', () => '#!/usr/bin/env node\nmise x -- pi\n'), false);
 });
 
 async function withKit(

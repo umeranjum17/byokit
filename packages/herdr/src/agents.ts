@@ -357,14 +357,14 @@ function readHead(file: string): string | undefined {
   finally { if (fd !== undefined) try { closeSync(fd); } catch { /* already gone */ } }
 }
 
-// A mise-style auto-install launcher reads as a shell script that execs through mise — the
-// found "binary" runs, but the first run installs the agent instead. Only a shell shebang
-// that execs a mise path counts: a Node interpreter under mise, or a script mentioning mise,
-// is a real command.
+// A mise-style auto-install launcher is a shell script that goes through mise — the found
+// "binary" runs, but the first run installs the agent instead. A shell shebang (path or env
+// form) plus a mise mention marks it; a Node interpreter under mise or a non-shell script
+// that mentions mise is a real command.
 function isMiseLauncher(head: string): boolean {
   const shebang = head.split('\n', 1)[0] ?? '';
-  return /^#!\s*(?:\S*\/)?(?:env\s+)?(?:sh|bash)(?:\s|$)/.test(shebang)
-    && /^\s*exec\s+["']?(?:[^\s"']*\/)?mise["']?(?:\s|$)/m.test(head);
+  return /^#!\s*(?:\S*\/)?(?:env\s+)?(?:sh|bash|zsh|dash|ksh|ash)(?:\s|$)/.test(shebang)
+    && head.includes('mise');
 }
 
 export function isAutoInstallShim(file: string,
