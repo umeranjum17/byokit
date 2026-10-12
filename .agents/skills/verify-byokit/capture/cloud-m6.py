@@ -22,7 +22,7 @@ def wait(words, seconds=90):
         try: nodes = ui()
         except AssertionError as e: seen = str(e); time.sleep(1); continue  # app still coming to the front
         if any(words in n.get('text', '') for n in nodes): return nodes
-        seen = 'lab screen without it'; time.sleep(1)
+        seen = ' | '.join(n.get('text') for n in nodes if n.get('text'))[-600:]; time.sleep(1)  # the lab screen's own words, never a key (the app redacts it)
     raise RuntimeError(f'Expected lab state not reached: {words} (last: {seen})')
 def tap(name):
     for _ in range(4):
@@ -67,8 +67,8 @@ finally:
         if video and video.poll() is None:
             adb('shell', 'kill', '-INT', str(video_pid)); video.wait(timeout=20)
         if video:
-            adb('pull', '/sdcard/byokit-m6-recording.mp4', str(out / 'journey.mp4'))
-            sp.run(['ffprobe', '-v', 'error', str(out / 'journey.mp4')], check=True)
+            try: adb('pull', '/sdcard/byokit-m6-recording.mp4', str(out / 'journey.mp4')); sp.run(['ffprobe', '-v', 'error', str(out / 'journey.mp4')], check=True)
+            except sp.CalledProcessError: record['recording'] = 'none: screenrecord produced no file on this phone'
         if opened: adb('shell', 'am', 'force-stop', app); adb('shell', 'rm', '-f', '/sdcard/byokit-m6-ui.xml')
         record['skips'] = ['before: new lab-only route absent on base', 'desktop/web: native-only lab', 'dark: fixed light lab screen']
         record['setup_seconds'] = record.get('setup_end', time.time()) - record['setup_start']

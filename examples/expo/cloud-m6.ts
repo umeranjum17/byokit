@@ -63,7 +63,8 @@ export async function pairedTurn(accounts: Accounts<any, number>, link: Pick<Dev
     if (calls.length !== 1 || calls[0].name !== 'get_machine') throw new Error('The model did not return the single approved machine-state tool call.');
     checked(calls[0].input);
     const state = await link.request('get.state');
-    const text = await accounts.respond(1, { ...ask, system: 'Use the tool result, not a guess. Answer in one short sentence.', messages: [{ role: 'user', content: prompt },
+    // Anthropic refuses tool_use/tool_result history without the tools defined; 'none' keeps the answer to text.
+    const { text } = await accounts.respond(1, { ...ask, system: 'Use the tool result, not a guess. Answer in one short sentence.', tools, tool_choice: { type: 'none' }, messages: [{ role: 'user', content: prompt },
       { role: 'assistant', content: first.raw.content }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: calls[0].id, content: JSON.stringify(state) }] }] });
     if (!text.trim()) throw new Error('The agent returned no final answer.');
     return { text, state };
