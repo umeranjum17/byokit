@@ -465,6 +465,22 @@ test('identity: same who refreshes, again with another who adds, no who never me
     assert.equal((await ready(b.id)).expiresAt, later + 5);
     assert.equal((await rows()).length, 2);
 
+    // A signed-out member row keeps its who but holds nothing: it is no holder, so the earlier live row takes the sign-in and the row stays.
+    fake.signInAs({ accountId: 'canary-acct-y' });
+    assert.deepEqual(await add(), { added: 'openai', id: 'openai' }, 'the member holds a sign-in');
+    await kit.signOut('m1', 'openai');
+    assert.equal((await kit.accounts('m1')).find((r) => r.id === 'openai')?.state, 'signed_out');
+    const stale = index();
+    stale.accounts[b.id]!.who = whoOf('canary-acct-y');
+    stale.accounts[b.id]!.addedAt = 1;
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(stale, null, 2) + '\n');
+    fake.signInAs({ accountId: 'canary-acct-y', expires: later + 6 });
+    assert.equal((await add(b.id)).id, b.id, 'the earliest live row takes the sign-in');
+    assert.equal((await ready(b.id)).expiresAt, later + 6);
+    assert.equal(index().accounts.openai?.who, whoOf('canary-acct-y'), 'the signed-out member row stays');
+    assert.equal((await kit.accounts('m1')).find((r) => r.id === 'openai')?.state, 'signed_out');
+    assert.equal((await rows()).length, 3);
+
     // No who or account id reaches the app: rows, views, done results, errors, kit state or log lines.
     await assert.rejects(kit.addAccount('m1', { authChoice: 'openai', again: 'openai.000000' }, () => {}), (error: Error) => { seen.push(error.message); return true; });
     const out = JSON.stringify([seen, lines, kit.state]);
