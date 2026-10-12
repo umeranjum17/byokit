@@ -30,7 +30,7 @@ const store: KeptDevice = globalThis.isSecureContext ? browserDeviceStore('openc
 };
 // The kit's ways in, grouped by connectView once the engine is ready, and the row the person signs in with: the one
 // they picked, else (after a reload) the last one picked here or the first one whose provider they are signed in to.
-// Both are per pairing; the last pick is kept in this browser (a provider id, nothing secret).
+// Both are per pairing; the last pick is kept in this browser (a route id, nothing secret).
 let groups: ConnectGroup[] | undefined;
 let account: ConnectRow | undefined;
 const PICKED = 'openclaw-kit-account';
@@ -120,9 +120,12 @@ async function refresh() {
     const { state, words: now, signedIn = [] } = await oc.state();
     $('engine').textContent = now;
     if (state.phase === 'ready') {
-      if (!groups) drawRoutes(groups = connectView(await oc.routes()).groups);
+      if (!groups) {
+        const routes = await oc.routes(), labels = new Map(routes.map((r) => [r.id, r.label] as const));
+        drawRoutes(groups = connectView(routes).groups.map((g) => ({ ...g, rows: g.rows.map((r) => ({ ...r, name: labels.get(r.id) ?? r.name })) })));
+      }
       const last = localStorage.getItem(PICKED), rows = groups.flatMap((g) => g.rows);
-      account ??= rows.find((r) => r.provider === last && signedIn.includes(last)) ?? rows.find((r) => signedIn.includes(r.provider));
+      account ??= rows.find((r) => r.id === last && signedIn.includes(r.provider)) ?? rows.find((r) => signedIn.includes(r.provider));
       poll = drawAccount(account && await oc.signIn.view(account.provider));
     }
   } catch { /* the link line says why */ }
@@ -146,7 +149,9 @@ function drawRoutes(list: ConnectGroup[]) {
         const row = el('button', { type: 'button', className: 'route', onclick: () => { if (canStart(r)) void pick(r); } },
           el('span', { className: 'route-name', textContent: `${r.name} — ${r.method[0].toLowerCase()}${r.method.slice(1)}` }),
           el('span', { textContent: r.billingWords }),
-          el('span', { className: 'status', textContent: r.ready && !canStart(r) ? 'Ready, but this page has no form for it yet.' : r.status }));
+          el('span', { className: 'status', textContent: !r.ready || canStart(r) ? r.status
+            : r.via === 'code' ? 'Ready. This computer starts one code sign-in per provider, so start this one after the other ends.'
+            : 'Ready, but this page has no form for it yet.' }));
         row.dataset.route = r.id;
         // aria-disabled, not disabled: the row stays focusable, so its reason is still read out.
         if (!canStart(r)) row.setAttribute('aria-disabled', 'true');
@@ -159,7 +164,7 @@ function drawRoutes(list: ConnectGroup[]) {
 
 async function pick(row: ConnectRow) {
   account = row;
-  localStorage.setItem(PICKED, row.provider);
+  localStorage.setItem(PICKED, row.id);
   $<HTMLFieldSetElement>('routes').disabled = true;
   try { await oc.signIn.start(row.provider, 'code'); } catch (err) { $('signin-title').textContent = said(err); }
   $<HTMLFieldSetElement>('routes').disabled = false;

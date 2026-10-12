@@ -138,10 +138,10 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   assert.ok(groups.length > 2 && groups.slice(1).every(([, open]) => !open), JSON.stringify(groups));
   const row = (id: string) => page.locator(`#routes [data-route="${id}"]`);
   const chatgpt = row('openai:code:openai-device-code');
-  assert.deepEqual(await chatgpt.locator('span').allTextContents(), ['OpenAI — sign in with a code', 'Uses your OpenAI plan', 'Ready']);
+  assert.deepEqual(await chatgpt.locator('span').allTextContents(), ['ChatGPT Device Pairing — sign in with a code', 'Uses your OpenAI plan', 'Ready']);
   assert.equal(await chatgpt.getAttribute('aria-disabled'), null);
   for (const [id, why] of [['openai:browser:openai', 'Ready, but this page has no form for it yet.'],
-    ['github-copilot:code:github-copilot-enterprise', 'Ready, but this page has no form for it yet.'], // started by provider: the first row only
+    ['github-copilot:code:github-copilot-enterprise', 'Ready. This computer starts one code sign-in per provider, so start this one after the other ends.'],
     ['anthropic:cli:anthropic-cli', 'Install its app on this computer first.']]) {
     assert.equal(await row(id).getAttribute('aria-disabled'), 'true', id);
     assert.equal(await row(id).locator('.status').textContent(), why, id);
@@ -158,7 +158,7 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   // seconds later.
   await chatgpt.click();
   await text(page, '#signin-code', 'CREW-2026');
-  await text(page, '#signin-title', 'On the OpenAI page, type this code:');
+  await text(page, '#signin-title', 'On the ChatGPT Device Pairing page, type this code:');
   assert.equal(await page.locator('#routes').isHidden(), true);
   assert.equal(await page.getAttribute('#signin-url', 'href'), 'https://auth.openai.com/codex/device');
   await shot(page, '3-code');
@@ -212,9 +212,9 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   // A reload finds the account it is signed in to, and signing out brings the ways in back with the kit's sentence.
   await page.reload();
   await page.locator('#talk').waitFor();
-  await text(page, '#signout', 'Sign out of OpenAI');
+  await text(page, '#signout', 'Sign out of ChatGPT Device Pairing');
   await page.click('#signout');
-  await text(page, '#signin-title', fill('member.signedOut', { name: 'OpenAI' }));
+  await text(page, '#signin-title', fill('member.signedOut', { name: 'ChatGPT Device Pairing' }));
   await chatgpt.waitFor();
 
   assert.deepEqual(errors, []);

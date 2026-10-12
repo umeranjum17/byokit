@@ -14,7 +14,7 @@ into this folder's `.state`, a ChatGPT sign-in kept in the lab's retained test h
    the pinned engine (`openclaw@2026.8.1`): see `Getting things ready on this computer…`, then `Ready.` Record the
    address printed and the engine version in `.state/openclaw/engine/node_modules/openclaw/package.json`.
 3. On a phone on the lab tailnet: scan the QR code; check the two words match; answer `y` in the terminal.
-4. Under **Plans**, tap **OpenAI — sign in with a code**; the phone shows a code and the OpenAI page. Sign in with the
+4. Under **Plans**, tap **ChatGPT Device Pairing — sign in with a code**; the phone shows a code and the ChatGPT page. Sign in with the
    lab's test ChatGPT account and type the code; the phone moves to **Talk to it** by itself. (Already signed in from an earlier run:
    sign out from the phone first, so the sign-in itself is proven.)
 5. Send `Say hello in five words.`: the reply streams in and ends; no error line under it.

@@ -1,17 +1,17 @@
 # OpenClaw kit example ways in (WP10-S8)
 
-Once the engine is ready, the openclaw-kit phone page (`examples/openclaw-kit/web`) lists every route the computer's kit returns from `oc.routes()`, grouped by `@byokit/ui/connect`'s `connectView`: **Plans** first and open, every other group (Pay per use, On this computer, …) folded. Each row reads `<name> — <way in>`, how it is paid for and whether it works here. A row is a button only when this page can start it: the first ready plan of its provider that signs in with a code (`openai:code:openai-device-code`, `OpenAI — sign in with a code`); the computer starts a code sign-in by provider alone, so a second such row (`github-copilot:code:github-copilot-enterprise`) is listed but not startable. Every other row stays listed with `aria-disabled` and says why: its readiness words (`Install its app on this computer first.`), or `Ready, but this page has no form for it yet.` for a ready page sign-in or key. The sign-in card, sign-out button and run-end sentences name the picked row's provider (`OpenAI`), not a fixed one.
+Once the engine is ready, the openclaw-kit phone page (`examples/openclaw-kit/web`) lists every route the computer's kit returns from `oc.routes()`, grouped by `@byokit/ui/connect`'s `connectView`: **Plans** first and open, every other group (Pay per use, On this computer, …) folded. Each row reads `<kit label> — <way in>`, how it is paid for and whether it works here. A row is a button only when this page can start it: the first ready plan of its provider that signs in with a code (`openai:code:openai-device-code`, `ChatGPT Device Pairing — sign in with a code`); the computer starts a code sign-in by provider alone, so a second such row (`github-copilot:code:github-copilot-enterprise`) is listed but not startable and reads `Ready. This computer starts one code sign-in per provider, so start this one after the other ends.`. Every other row stays listed with `aria-disabled` and says why: its readiness words (`Install its app on this computer first.`), or `Ready, but this page has no form for it yet.` for a ready page sign-in or key. The sign-in card, sign-out button and run-end sentences name the picked row by its kit label (`ChatGPT Device Pairing`), not a fixed one.
 
 ## Sub-features
 
 - Group order and folding: `plans` first and open, every other group closed; `openai:key:openai-api-key` sits in `perUse`.
 - The ChatGPT plan row starts the device code (`CREW-2026` from the fake Gateway), hides the list while it waits, and lands on **Talk to it**.
-- `openai:browser:openai` and `github-copilot:code:github-copilot-enterprise` read `Ready, but this page has no form for it yet.`, `anthropic:cli:anthropic-cli` reads `Install its app on this computer first.`; a force-clicked unavailable row starts nothing.
-- A reload while signed in finds the account from `oc.state().signedIn` (`Sign out of OpenAI`); signing out shows `Sign in with OpenAI to start.` and the list again.
+- `openai:browser:openai` reads `Ready, but this page has no form for it yet.`, `github-copilot:code:github-copilot-enterprise` reads the one-code-per-provider sentence, `anthropic:cli:anthropic-cli` reads `Install its app on this computer first.`; a force-clicked unavailable row starts nothing.
+- A reload while signed in finds the account from `oc.state().signedIn` (`Sign out of ChatGPT Device Pairing`); signing out shows `Sign in with ChatGPT Device Pairing to start.` and the list again.
 
 ## How to get to it (user POV)
 
-Start the example host, pair the phone page with the code and the two words, wait for `Ready.`. Under **Connect an AI account** → **Plans**, tap **OpenAI — sign in with a code**, type the code on the OpenAI page; the page moves to **Talk to it** by itself.
+Start the example host, pair the phone page with the code and the two words, wait for `Ready.`. Under **Connect an AI account** → **Plans**, tap **ChatGPT Device Pairing — sign in with a code**, type the code on the ChatGPT page; the page moves to **Talk to it** by itself.
 
 ## Driving it with node scratch consumers
 
@@ -30,4 +30,4 @@ Use SKILL.md Evidence's capture block through the heavy-job lock and memory gate
 
 ## Gotchas
 
-`capture/review-evidence.ts` drives only `examples/pwa`; this page needs a paired host, so its frames come from the e2e's `BYOKIT_EXAMPLE_SHOTS` (phone width, light and dark; the page is a phone page, so no desktop frame). Readiness is the kit's on the computer with no install facts: every route needing a plugin or binary reads as not ready. The openclaw route table names the OpenAI plan rows `OpenAI` (the accounts catalogue says `ChatGPT`), so the page says `OpenAI`.
+`capture/review-evidence.ts` drives only `examples/pwa`; this page needs a paired host, so its frames come from the e2e's `BYOKIT_EXAMPLE_SHOTS` (phone width, light and dark; the page is a phone page, so no desktop frame). Readiness is the kit's on the computer with no install facts: every route needing a plugin or binary reads as not ready. The page names each row by its openclaw route `label` (`ChatGPT Device Pairing`, from `oc.routes()`, found by the row's id); the row's billing words keep the route's `name` (`OpenAI`).
