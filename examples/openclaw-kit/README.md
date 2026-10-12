@@ -21,8 +21,9 @@ npm start
 2. On the phone, scan the QR code with the camera (it opens this app's page), or open the address printed under it
    and type the code. Both last five minutes; press Enter in the terminal for new ones.
 3. The phone and the terminal show the same two words. If they match, answer `y` in the terminal.
-4. On the phone, tap **Sign in with ChatGPT**. It shows a code: open the ChatGPT page it links to, sign in there and
-   type the code. The phone moves on by itself once ChatGPT says yes.
+4. On the phone, under **Plans**, tap **OpenAI — sign in with a code** (the ChatGPT plan; the list is every way in the
+   kit has, and the ones this page can't start say why). It shows a code: open the OpenAI page it links to, sign in
+   there with ChatGPT and type the code. The phone moves on by itself once ChatGPT says yes.
 5. Type a message and tap **Send**. The reply streams in under it.
 6. Ask it to save a note (for example "save a note that says buy milk"). Before it does, the phone shows **Your
    helper wants to save a note. Allow it?** Tap **Allow** and the note lands in `.state/notes.txt`, or **Deny** and
@@ -109,12 +110,12 @@ only. This web page takes no push notices itself; a phone app does.
 | This computer couldn't start the helper. Restart the app to try again. | See `.state/logs/openclaw.log` for why, then restart `npm start`. The first install needs the network. |
 | Something stopped. Starting it again by itself. | The engine stopped and the kit is starting it again; wait for `Ready.` |
 | This app needs an update to keep working. | The engine in `.state` isn't the one this kit pins even after installing it; restart `npm start`, and `npm i` a newer `@byokit/openclaw` if it keeps saying this. |
-| Sign in with ChatGPT to start. | Tap **Sign in with ChatGPT** and type the code on ChatGPT's page. |
+| Sign in with OpenAI to start. | Tap **OpenAI — sign in with a code** again and type the code on OpenAI's page. |
 | Another sign-in is already in progress. Finish or cancel it, then try again. | Another device is signing in on this computer; finish it there, or wait for it to run out. |
-| The sign-in took too long. Start it again. | The code ran out; tap **Sign in with ChatGPT** for a new one. |
-| ChatGPT needs a break until {time}. | Your plan's limit is reached; it comes back by itself at that time. |
-| Your ChatGPT plan doesn't include this. | The plan can't use what was asked; try a smaller request, or another plan. |
-| Can't reach ChatGPT right now. This keeps trying by itself. | Check this computer's internet connection. |
+| The sign-in took too long. Start it again. | The code ran out; tap **OpenAI — sign in with a code** for a new one. |
+| OpenAI needs a break until {time}. | Your plan's limit is reached; it comes back by itself at that time. |
+| Your OpenAI plan doesn't include this. | The plan can't use what was asked; try a smaller request, or another plan. |
+| Can't reach OpenAI right now. This keeps trying by itself. | Check this computer's internet connection. |
 | Nobody answered in time, so this wasn't allowed. (in the helper's reply) | A request waited too long for a yes; send the message again and answer it. |
 | This device can't do that. Ask the person at the computer. | This phone was paired to watch only; pair it again from this app's codes. |
 | Can't reach your computer. Check it's on and connected. (while pairing) | Phone and computer need the same network or tailnet; check the address printed in the terminal opens on the phone. |
