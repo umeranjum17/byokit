@@ -22,7 +22,7 @@ export type Dial = { WebSocket?: new (url: string) => WebSocketLike; timeoutMs?:
 
 /** Every way the link can fail, in words a person can act on. */
 export const LINK_WORDS = {
-  unreachable: "Can't reach your computer. Check it's on and connected.",
+  unreachable: "Can't reach your computer. Check the phone and computer are on the same network, and that no firewall is blocking the connection.",
   'wrong-host': "Something other than your computer answered, so this device didn't connect.",
   'wrong-code': "That code didn't match. Check it, or show a new one on your computer.",
   expired: 'That pairing code has run out. Show a new one on your computer.',
@@ -32,6 +32,7 @@ export const LINK_WORDS = {
   removed: 'This device was removed on your computer.',
   'view-only': 'This device can watch but not make changes.',
   timeout: "Your computer didn't answer in time.",
+  slow: 'Your computer is slow to answer. Wait a moment and try again.',
   failed: "Your computer couldn't do that.",
   busy: 'Your computer is still catching up. Try again in a moment.',
   stopped: 'This link is stopped. Try connecting again.',
@@ -92,12 +93,13 @@ async function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Ui
       settled = true;
       try { ws.close(); } catch {}
     };
-    let timer = later(o.timeoutMs ?? 8000, () => fail(new LinkError('timeout')));
+    let opened = false;
+    let timer = later(o.timeoutMs ?? 8000, () => fail(new LinkError(opened ? 'slow' : 'unreachable')));
     try { ws = new WS(target); ws.binaryType = 'arraybuffer'; } catch { return fail(new LinkError('unreachable')); }
     let binary = false; // the host said this socket reaches it directly, so stream bytes may go as binary messages
     const send = (m: unknown) => { for (const f of ch!.seal(m)) ws.send(f); };
     const data = (s: number, d: Uint8Array) => { for (const f of ch!.sealData(s, d)) ws.send(binary ? f : b64(f)); };
-    ws.onopen = () => ws.send(hs.write(mode === 'ik' ? { v: 1 } : {}));
+    ws.onopen = () => { opened = true; try { ws.send(hs.write(mode === 'ik' ? { v: 1 } : {})); } catch { fail(new LinkError('unreachable')); } };
     ws.onerror = () => fail(new LinkError('unreachable'));
     // Before the handshake finishes nothing is authenticated, so these only choose what to say, never what to forget.
     ws.onclose = (e: any) => fail(new LinkError(ch ? 'unreachable' : e?.code === 4401 && mode === 'code' ? 'wrong-code' : e?.code === 4403 ? 'wrong-host' : 'unreachable'));
@@ -114,7 +116,7 @@ async function dial(url: string, me: KeyPair, host: { key?: Uint8Array; psk?: Ui
             if (pairing) { // now a person at the host decides; give them time
               o.onWords?.(hs.words);
               clearTimeout(timer);
-              timer = later(6 * 60_000, () => fail(new LinkError('timeout')));
+              timer = later(6 * 60_000, () => fail(new LinkError('slow')));
             }
           };
           if (!host.pin) return go();
@@ -198,7 +200,7 @@ export async function pairWithOffer(scanned: string, o: OfferOptions): Promise<D
       } catch (e: unknown) {
         if (!(e instanceof LinkError)) throw e; // the app's own onPending failure, as it said it
         last = e;
-        if (taken || (last.code !== 'unreachable' && last.code !== 'timeout' && last.code !== 'wrong-host')) break;
+        if (taken || (last.code !== 'unreachable' && last.code !== 'slow' && last.code !== 'timeout' && last.code !== 'wrong-host')) break;
       }
     }
     throw last;
@@ -214,7 +216,7 @@ export async function pairWithOffer(scanned: string, o: OfferOptions): Promise<D
       return granted(me, offer.host, url, offer.urls, l.ready);
     } catch (e: any) {
       last = e instanceof LinkError ? e : new LinkError('unreachable');
-      if (taken || (last.code !== 'unreachable' && last.code !== 'timeout' && last.code !== 'wrong-host')) break;
+      if (taken || (last.code !== 'unreachable' && last.code !== 'slow' && last.code !== 'timeout' && last.code !== 'wrong-host')) break;
     }
   }
   throw last;

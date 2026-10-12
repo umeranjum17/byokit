@@ -4,7 +4,7 @@
 // device's unsubscribe is kept apart, in `store`: it is resent on every socket until the relay confirms it.
 import type { Host, Socket } from '@byokit/pair';
 import { CLOSE, prove, type Challenge } from './proof.ts';
-import type { RelaySelf } from './relay.ts';
+import type { ProvisionBinding, RelaySelf } from './relay.ts';
 import type { Notification, Subscription } from './push.ts';
 
 /** `replaced`: another copy of this host registered, so this one stopped. `refused`: the relay does not allow this
@@ -58,6 +58,8 @@ export class RelayClient {
   id?: string;
   /** Owner-set enrolment metadata, including app-defined URLs; never forwarded to devices. */
   meta?: unknown;
+  /** The provisioning binding this host claimed with its enrolment, if any; the app grants exactly this phone key. */
+  provision?: ProvisionBinding;
   private host: Linked;
   private opts: RelayClientOptions;
   private ws?: Socket & { readyState: number };
@@ -284,6 +286,7 @@ export class RelayClient {
         this.id = m.id;
         this.vapidKey = m.vapid;
         this.meta = m.meta;
+        this.provision = m.provision;
         this.tries = 0;
         this.host.relay(ws);
         this.set('online');
