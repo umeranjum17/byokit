@@ -2659,8 +2659,14 @@ member (`providers()` from the offered routes; `add` with a `key` is host-only);
   requires a control grant, as `oc.decide` does. The app authenticates the action transport and makes
   `memberOf` refuse revoked grants; see [OpenClaw SECURITY.md](../packages/openclaw/SECURITY.md). Devices
   without a box key get the generic title only (`includeContent: false`).
-- **seal**: `src/notices.ts` holds `sealNotice(approval, boxPublicKey)` and (portable, re-exported by `./device`)
-  `openNotice(data, seed)` → `openBox` → JSON → shape-checked `Approval` or `null`.
+- **seal**: each kit's `src/notices.ts` holds `sealNotice(value, boxPublicKey)` and (portable, re-exported by
+  `./device`) `openNotice(data, seed)` → `openBox` → JSON → shape-checked `Approval` (OpenClaw) or `BlockedAgent`
+  (Herdr), `null` for anything else. The envelope is the same in both: unpadded base64url of `sealBox` of the
+  UTF-8 JSON. Herdr's pair delegates to `@byokit/seal`'s generic `sealNotice`/`openNotice`, turning the device
+  seed into the box secret through `boxKeyPairFromSeed`, so one seal opener serves every kit; an envelope sealed by
+  an earlier kit still opens, and `seal.openNotice` opens a herdr notice. Each file keeps its base64url helpers
+  for box-key registration text (7.1's `hd.notices.register`/`oc.notices.register`), because seal exports no
+  base64url.
 - **ui**: 5.14 `toAccountView`; `stateWords`; ui itself unchanged.
 
 ## 8. Example apps
