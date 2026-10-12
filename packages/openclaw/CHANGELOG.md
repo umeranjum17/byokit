@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.10.1 (2026-10-12)
+
+- Dependency update: pins @byokit/relay 0.6.1.
+
 ## 0.10.0 (2026-10-11)
 
 - Dependency update: pins @byokit/discover 0.7.0.

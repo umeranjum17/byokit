@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.7.0 (2026-10-12)
+
+- **Deprecated:** `@byokit/ui-core` is renamed to `@byokit/ui`. This package is now a shim that re-exports `@byokit/ui` (every entry alike), so existing imports keep working unchanged through 0.7.x; it is removed in 0.8.0. Install `@byokit/ui` and change the import specifier; the API and every entry (`/phase`, `/route`, `/link`, `/kits`, `/steps`, `/connect`) are the same.
+
 - Run views accept structured-output failures and display the kit’s plain validation message.
 
 ## 0.6.0 (2026-10-01)

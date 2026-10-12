@@ -1,1 +1,0 @@
-- Dependency update: depend on `@byokit/pair` 0.9.0 instead of its deprecated `@byokit/link` shim.
