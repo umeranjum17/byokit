@@ -436,7 +436,10 @@ export function createAccounts(ctx: {
     const handle = ctx.signIn(agent, { authChoice: route.choice, ...(o.via ? { via: o.via } : {}) },
       (v) => { if (v.state === 'waiting') on(v); }, fresh);
     // Sealed before the person sees done: the agent keeps only this sign-in, and its `who` goes to the index.
+    // Done only when sealed; anything else leaves nothing behind. A member agent held no profile of this provider before
+    // (a non-fresh add), so clearing the provider removes only what this add activated.
     const settle = async (view: SignInView): Promise<SignInView> => {
+      let result = view;
       if (view.state === 'done') {
         const sealed = await ctx.locks.exclusive([memberAgent, agent, indexLock(member)], async (): Promise<true | string> => {
           const answer = await ctx.request('byokit.accounts', { action: 'seal', agentId: agent, provider,
@@ -448,13 +451,16 @@ export function createAccounts(ctx: {
           return true;
         }).catch((error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 200));
         if (sealed === true) return view;
-        return { state: 'failed', via: view.via, why: 'retry', error: sealed };
+        result = { state: 'failed', via: view.via, why: 'failed', error: sealed };
       }
-      if (view.why === 'retry') return view;
       if (agent !== memberAgent) await discard(member, id, agent, true);
-      else if (added) await edit(member, (file) => { delete file.accounts[id]; })
-        .catch((error: unknown) => ctx.log?.(`addAccount: ${id} entry is kept: ${error instanceof Error ? error.message : String(error)}`));
-      return view;
+      else {
+        await ctx.request('byokit.accounts', { action: 'clear', agentId: memberAgent, provider })
+          .catch((error: unknown) => ctx.log?.(`addAccount: ${provider} is not cleared yet: ${error instanceof Error ? error.message : String(error)}`));
+        if (added) await edit(member, (file) => { delete file.accounts[id]; })
+          .catch((error: unknown) => ctx.log?.(`addAccount: ${id} entry is kept: ${error instanceof Error ? error.message : String(error)}`));
+      }
+      return result;
     };
     const done = handle.done.then(settle).finally(() => {
       const left = signing.get(key)! - 1;

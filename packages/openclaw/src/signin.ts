@@ -2,6 +2,7 @@
 // sign-in; OAuth credentials stay in the engine/CLI. Explicit API keys go only to engine activation (D11).
 import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
+import { activate, LATE_RESTART } from './activation.ts';
 import { authStatus } from './auth-status.ts';
 import { routes } from './routes.ts';
 import { signedInProviders } from './runs.ts';
@@ -14,11 +15,8 @@ export type SignInCtx = {
   ensure(member: Member): Promise<{ agentId: string }>;
   callbackPort: number;
   onDisconnect?(fn: () => void): () => void;
-  // The engine's config `auth` as text, read before an activation; a changed one is the restart the kit waits out.
-  authConfig?(): string;
-  // Resolves true once the restart that an activation's `auth` change causes has begun and the kit is ready again;
-  // false if it fails or runs past its bound. Absent in tests that have no engine to restart.
-  restarted?(authBefore: string | undefined, signal: AbortSignal): Promise<boolean>;
+  authConfig(): string;
+  restarted(authBefore: string | undefined, signal?: AbortSignal): Promise<boolean>;
   // A further account of a provider the member already holds (5.15): its sign-in must not reuse the browser's session.
   fresh?: boolean;
 };
@@ -248,17 +246,16 @@ export function signIn(
         secret = apiKey.trim() || undefined;
       }
       if (signal.aborted) return { state: 'failed', via, why: 'declined' };
-      const authBefore = ctx.authConfig?.();
-      const result = await ctx.request('openclaw.setup.activate', {
+      // Done waits for the gateway restart an `auth` change causes (activation.ts); a run started before it runs on the
+      // old config. A restart that runs late or is cancelled ends failed, and the account is cleaned up by the caller.
+      const result = await activate(ctx, {
         agentId, kind: apiKey === undefined ? 'claude-cli' : 'api-key',
         ...(apiKey === undefined ? {} : { authChoice: o.authChoice, apiKey }),
-      }, { timeoutMs: PULL_MS, signal }) as { ok?: boolean; error?: string };
-      // An activation that changes config `auth` restarts the gateway once in-flight requests drain; a run started
-      // before that runs on the old config. Done waits for that restart. A failed wait keeps the activated key (retry).
-      if (result.ok && ctx.restarted && !await ctx.restarted(authBefore, signal))
-        return { state: 'failed', via, why: 'retry', error: 'Sign-in could not be confirmed after the gateway restarted. Try again.' };
-      return result.ok ? { state: 'done', via } : { state: 'failed', via, why: 'failed',
+      }, { timeoutMs: PULL_MS, signal });
+      if (result.late) return signal.aborted ? cancelled() : { state: 'failed', via, why: 'failed', error: LATE_RESTART };
+      if (!result.ok) return { state: 'failed', via, why: 'failed',
         error: clean(result.error ?? (apiKey === undefined ? 'Claude Code activation failed' : 'Key activation failed')) };
+      return signal.aborted ? cancelled() : { state: 'done', via };
     }
     // The client chooses the wizard id; cancellation waits for the engine to register it.
     sessionId = `byokit-${randomUUID()}`;

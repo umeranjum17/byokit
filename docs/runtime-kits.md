@@ -470,7 +470,7 @@ export declare class OpenClawKit {
   addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId },
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
     done: Promise<{ view: SignInView; id: AccountId }> }>;
-  addKey(member: Member, o: { authChoice: string; apiKey: string; name?: string }): Promise<'ok' | 'invalid' | 'not_included'>;
+  addKey(member: Member, o: { authChoice: string; apiKey: string; name?: string }): Promise<'ok' | 'invalid' | 'not_included' | 'retry'>;
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account>;
   removeAccount(member: Member, id: AccountId): Promise<void>;
   models(member: Member, id: AccountId): Promise<ModelInfo[]>;
@@ -736,8 +736,10 @@ A `keyEntry` choice (a plan key such as `opencode-go`) never starts the wizard, 
 the agent's model. The key is cut from any error the view carries. Activation (this one and `anthropic-cli`'s) writes
 `auth`, which the pin applies by restarting the gateway once its requests drain; when the activation changed config
 `auth` and a spawned engine restarts for it, `done` waits for that restart to begin and the kit to be ready again,
-within 60 s (event-driven, not polled); past that the sign-in ends `why: 'retry'` and keeps the account and its
-activated key (no discard; a later seal or retry, not a new paste, finishes it), so a run started on done uses the new sign-in.
+within 60 s (event-driven, not polled). Past that, or when cancelled during the wait, the sign-in ends `why: 'failed'` with
+the words that the engine took too long and to try again, and the add is cleaned up: a new agent is discarded, a member agent
+clears only this provider's profile and its index entry. The same wait and cleanup apply to `addKey` (below). Done means sealed.
+A run started on done uses the new sign-in.
 A run prepares its models from configured facts and the static catalog only (the pin's run path; live discovery
 feeds `models.list view: 'all'`, never a run): a live-only OpenCode Go model (Muse) resolves once the app lists it in
 `KitOptions.config.models.providers['opencode-go'].models` with its upstream API (`openai-responses` for Muse). The pin's
@@ -922,7 +924,8 @@ the engine. External retained sources are touched only when explicitly passed to
   Absent, the request is unchanged and the engine uses its own selection.
 - API keys are opt-in, labelled **API key (billed per use)**, and every API route retains `offer: false`.
   `addKey(member, { authChoice, apiKey })` uses typed `openclaw.setup.activate` with `kind: 'api-key'` only.
-  It returns `ok | invalid | not_included`, never engine lines, errors or credentials. Only routes whose pinned
+  It returns `ok | invalid | not_included | retry`, never engine lines, errors or credentials. `retry`: the engine took the key
+  but the gateway restart ran late or the seal failed; the key agent is cleared, so nothing unsealed is kept. Only routes whose pinned
   manifests allow manual secrets for text inference expose `keyEntry`; every route carries `revision` and `checked`.
 - The engine has no strict per-run auth-profile pin. Key isolation is by agent: a member's normal agent never
   receives a key from `addKey`. A reserved `byokit-key-<member>` agent has its own workspace and credential store;
@@ -1102,7 +1105,7 @@ declare function outputSchema(value: unknown): { prompt: string; parse(text: str
 type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
 interface OpenClawKit {   // 5.3 signatures; the built kit has addKey and addAccount, the rest lands with O14
-  addKey(member: Member, o: { authChoice: string; apiKey: string; name?: string }): Promise<'ok' | 'invalid' | 'not_included'>;
+  addKey(member: Member, o: { authChoice: string; apiKey: string; name?: string }): Promise<'ok' | 'invalid' | 'not_included' | 'retry'>;
   addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId },
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
     done: Promise<{ view: SignInView; id: AccountId }> }>;
@@ -1519,7 +1522,8 @@ local part is only a suggestion the app offers (`@byokit/ui` `nameSuggestions`),
 **API keys.** `addKey(member, { authChoice, apiKey, name? })` accepts only routes with `keyEntry` (else
 `not_included`), writes the index entry, creates a new account agent, calls typed `openclaw.setup.activate { kind:
 'api-key', agentId, authChoice, apiKey }` (180 s), seals it, records its saved model, and returns `'ok' | 'invalid' |
-'not_included'`; any result but `ok` removes the new agent and entry. Every key is a new account (keys add, never
+'not_included' | 'retry'`; any result but `ok` leaves nothing behind. A key the engine accepted that cannot be sealed (a late
+restart or a failed seal) is cleared and returns `retry`, never `invalid`. Every key is a new account (keys add, never
 replace; a key is replaced by `removeAccount` then `addKey`). The key never reaches kit storage, the index, logs,
 errors or a return value, and is never sent over a link (`oc.account.add` refuses `key`). `RunSpec.auth: 'apiKey'`
 means `account: <the member's newest api account>` and runs its saved model; another model ends `kind: 'plan'`.

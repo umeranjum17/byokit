@@ -6,7 +6,7 @@
 // The S10 run (O14j): run({ account, model, needs }) on unbound keys. Pass: the account event comes first, Auto picks
 // by room on the account's own agent and key, a resting end rests the account, a failed ready check and an empty pick
 // end signed-out with no agent request, and a run with neither account nor needs is exactly the run it was.
-import { mock, test } from 'node:test';
+import { mock, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, rmSync, writeFileSync } from 'node:fs';
@@ -581,7 +581,7 @@ test('a plan key add whose gateway restarts 11 s after activation is done, and i
   }
 });
 
-test('a plan key add whose gateway never restarts ends retry and keeps the activated key', async (t) => {
+function spawnedEngine(t: TestContext): void {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   t.mock.method(Engine.prototype, 'start', async function (this: unknown) {
     const root = (this as { root: string }).root;
@@ -590,6 +590,14 @@ test('a plan key add whose gateway never restarts ends retry and keeps the activ
     return { port: 0, token: 'test', identityPath: '' };
   });
   t.mock.method(Engine.prototype, 'stop', async () => {});
+}
+
+const clears = (fake: ReturnType<typeof fakeGateway>, agentId: string) => fake.calls.filter((c) =>
+  c.method === 'byokit.accounts' && (c.params as { action?: string; agentId?: string }).action === 'clear'
+  && (c.params as { agentId?: string }).agentId === agentId).map((c) => (c.params as { provider?: string }).provider);
+
+test('a plan key add whose gateway never restarts fails, is cleaned up, and keeps no row', async (t) => {
+  spawnedEngine(t);
   const stateDir = scratchDir('go-no-restart');
   const fake = fakeGateway();
   const kit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
@@ -602,10 +610,79 @@ test('a plan key add whose gateway never restarts ends retry and keeps the activ
     t.mock.timers.tick(60_000);
     await flush();
     const { view } = await added.done;
+    assert.deepEqual(view, { state: 'failed', via: 'browser', why: 'failed',
+      error: 'The engine took too long to restart after this sign-in. Nothing was kept; try again.' });
+    assert.deepEqual(clears(fake, 'm1'), ['opencode-go']);
+    assert.ok(!(await kit.accounts('m1')).some((row) => row.id === 'opencode-go'));
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a plan key add cancelled after its activation is cancelled, cleaned up, and keeps the member\'s other sign-in', async (t) => {
+  spawnedEngine(t);
+  const stateDir = scratchDir('go-cancel-after-ok');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
+  try {
+    await kit.start();
+    fake.seedProfile('m1', 'anthropic:default', { provider: 'anthropic', type: 'api_key' });
+    const added = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
+    await flush();
+    added.paste('CANARY-GO-CANCEL');
+    await flush();
+    t.mock.timers.tick(1_000);
+    await flush();
+    added.cancel();
+    const { view } = await added.done;
     assert.equal(view.state, 'failed');
-    assert.equal(view.why, 'retry');
-    assert.ok(!fake.calls.some((c) => c.method === 'byokit.accounts' && (c.params as { action?: string }).action === 'clear'));
-    assert.ok((await kit.accounts('m1')).some((row) => row.id === 'opencode-go'));
+    assert.equal(view.why, 'declined');
+    assert.deepEqual(clears(fake, 'm1'), ['opencode-go']);
+    assert.ok(!(await kit.accounts('m1')).some((row) => row.id === 'opencode-go'));
+    const left = await fake.transport.request('byokit.accounts', { action: 'list', agentId: 'm1' }) as { profiles: { provider: string }[] };
+    assert.deepEqual(left.profiles.map((p) => p.provider), ['anthropic']);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a key add whose gateway restarts 10 s after activation is ok, and its key is sealed', async (t) => {
+  spawnedEngine(t);
+  const stateDir = scratchDir('key-late-restart');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root, 10_000), spawnEngine: true, callbackPort: 0 });
+  try {
+    await kit.start();
+    const pending = kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-LATE-RESTART' });
+    await flush();
+    t.mock.timers.tick(10_000);
+    await flush();
+    t.mock.timers.tick(1_000);
+    await flush();
+    assert.equal(await pending, 'ok');
+    assert.ok(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'));
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a key add whose gateway never restarts returns retry and clears the key it activated', async (t) => {
+  spawnedEngine(t);
+  const stateDir = scratchDir('key-no-restart');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
+  try {
+    await kit.start();
+    const pending = kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-NO-RESTART' });
+    await flush();
+    t.mock.timers.tick(60_000);
+    await flush();
+    assert.equal(await pending, 'retry');
+    assert.ok(!fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'));
+    assert.ok(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'clear'));
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });

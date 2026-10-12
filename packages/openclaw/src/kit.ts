@@ -691,7 +691,9 @@ export class OpenClawKit {
     this.keys = createKeys({ root: this.engine.root,
       restarting: () => this.engineRestarting(),
       request: (method, params, options) => this.request()(method, params, options),
-      ensure: (member) => this.ensureMember(member) });
+      ensure: (member) => this.ensureMember(member),
+      authConfig: () => this.authSnapshot(),
+      restarted: (authBefore, signal) => this.restarted(authBefore, signal) });
     const slot: { bridge?: Pick<Bridge, 'resolveAsk'> } = {};
     this.approvalsCtl = new Approvals({
       request: (method, params, co) => this.request()(method, params, co),
@@ -824,15 +826,15 @@ export class OpenClawKit {
   }
 
   // An activation that changed config `auth` makes the pin restart the gateway; then this resolves true once that
-  // restart has begun and the kit is ready again, false if it fails or runs past RESTART_MS. No change: true at once.
-  private restarted(authBefore: string | undefined, signal: AbortSignal): Promise<boolean> {
+  // restart has begun and the kit is ready again, false if it fails, is aborted or runs past RESTART_MS. No change: true.
+  private restarted(authBefore: string | undefined, signal?: AbortSignal): Promise<boolean> {
     if (this.o.spawnEngine === false || this.authSnapshot() === authBefore) return Promise.resolve(true);
     return new Promise((resolve) => {
       let began = this.engineRestarting();
       const end = (ok: boolean) => {
         clearTimeout(timer);
         this.phaseListeners.delete(check);
-        signal.removeEventListener('abort', abort);
+        signal?.removeEventListener('abort', abort);
         resolve(ok);
       };
       const abort = () => end(false);
@@ -842,7 +844,7 @@ export class OpenClawKit {
       };
       const timer = setTimeout(() => end(false), RESTART_MS);
       this.phaseListeners.add(check);
-      signal.addEventListener('abort', abort, { once: true });
+      signal?.addEventListener('abort', abort, { once: true });
     });
   }
 

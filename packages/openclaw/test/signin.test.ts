@@ -31,6 +31,8 @@ const ctx = (fake: ReturnType<typeof scripted>, over: Partial<SignInCtx> = {}): 
   request: fake.request,
   ensure: async (member) => ({ agentId: member }),
   callbackPort: 0,
+  authConfig: () => '',
+  restarted: async () => true,
   ...over,
 });
 
@@ -603,7 +605,7 @@ test('a key activation whose restart does not finish fails retryably and keeps i
   const drive = signIn(ctx(fake, { restarted: async () => false }), 'm1', { authChoice: 'apiKey' }, () => {});
   drive.paste(secret);
   const view = await drive.done;
-  assert.deepEqual(view, { state: 'failed', via: 'browser', why: 'retry',
-    error: 'Sign-in could not be confirmed after the gateway restarted. Try again.' });
+  assert.deepEqual(view, { state: 'failed', via: 'browser', why: 'failed',
+    error: 'The engine took too long to restart after this sign-in. Nothing was kept; try again.' });
   assert.ok(!JSON.stringify(view).includes(secret));
 });

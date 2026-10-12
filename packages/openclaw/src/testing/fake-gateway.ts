@@ -143,6 +143,8 @@ export type FakeGateway = {
   handle(method: string, fn: FakeHandler): void;
   /** Usage windows a later `models.authStatus` read reports for the agent's provider (O14: the Auto input). */
   setUsage(agentId: string, provider: string, windows: { label: string; usedPercent?: number; resetAt?: number }[]): void;
+  /** A sealed profile already in an agent's store, as a sign-in of another provider leaves it. */
+  seedProfile(agentId: string, profileId: string, profile: { provider: string; type: string } & Record<string, unknown>): void;
 } & { transport: GatewayTransport };
 export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number }): FakeGateway {
   const calls: { method: string; params: unknown }[] = [];
@@ -428,7 +430,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     },
     'byokit.keys': (p) => {
       const id = `byokit-key-${p.member}`;
-      if (p.action === 'prepare') { keys.delete(id); ensureAgent(id).providers = []; return { ok: true }; }
+      if (p.action === 'prepare' || p.action === 'clear') { keys.delete(id); ensureAgent(id).providers = []; return { ok: true }; }
       const key = keys.get(id);
       if (!key) return { ok: false };
       if (p.action === 'seal') { key.sealed = true; return { ok: true }; }
@@ -469,9 +471,16 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       if (action === 'list')
         return { ok: true, profiles: Object.entries(store).map(([profileId, credential]) => ({ provider: credential.provider,
           profileId, type: credential.type, status: statusOf(credential, Date.now()), ...(whoOf(credential) ? { who: whoOf(credential) } : {}) })) };
-      if (action === 'clear') { profiles.set(id, {}); orders.set(id, {});
+      if (action === 'clear') {
+        // Mirrors the plugin: a provider scope drops only that provider's profiles, order and lastGood.
+        const scope = typeof p.provider === 'string' && p.provider ? String(p.provider) : undefined;
+        if (!scope) { profiles.set(id, {}); orders.set(id, {}); }
+        else {
+          for (const [profileId, credential] of Object.entries(store)) if (credential.provider === scope) delete store[profileId];
+          delete order[scope];
+        }
         const cleared = agents.get(id);
-        if (cleared) cleared.providers = [];
+        if (cleared) cleared.providers = scope ? cleared.providers.filter((x) => x !== scope) : [];
         return { ok: true }; }
       if (action === 'ready') {
         const provider = String(p.provider ?? '');
@@ -709,6 +718,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       if (!perAgent) { perAgent = new Map(); usage.set(agentId, perAgent); }
       perAgent.set(provider, windows);
     },
+    seedProfile: (agentId, profileId, profile) => { ensureAgent(agentId); storeOf(agentId)[profileId] = profile; },
     transport: factory({ port: 0, token: 'test', identityPath: '', bridgeSock: '' }),
   };
 }
