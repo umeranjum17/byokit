@@ -1,8 +1,10 @@
 // "Sign in with ChatGPT" and "Sign in with Claude" in a web page: @byokit/accounts' browser side (ChatGPT by device
 // code; Claude by its own page, whose code the person pastes back), kept in this browser's IndexedDB, with
-// @byokit/ui's phases. Every connected plan and key lists first, each with its billing and room; the Add rows
-// come after. Ask runs on one account chosen at the start: Auto takes the most room and says which one and why.
-import { Accounts, billingWords, browserStore, clock, planLabel, resolveSelection, roomOf, roomWords, say, signInError, PROVIDERS, type Account, type Room } from '@byokit/accounts';
+// @byokit/ui's phases. Every connected plan and key lists first through the shared account rows, each with its
+// billing and room; the Add rows come after. Ask runs on one account chosen at the start through the shared run
+// picker: Auto takes the most room and says which one and why, and suggests the roomier account when yours is low.
+import { Accounts, billingWords, browserStore, planLabel, resolveSelection, roomOf, say, signInError, PROVIDERS, type Account, type ModelInfo, type Room } from '@byokit/accounts';
+import { accountRows, bestMoveTarget, modelPicker, moveWords } from '@byokit/ui/accounts';
 import { phaseOf } from '@byokit/ui/phase';
 
 declare const __BYOKIT_AUTH_BASE__: string | undefined;
@@ -117,11 +119,26 @@ function card(key: string) {
     tick = window.setInterval(paint, 1000);
   };
 
-  /** One compact row per connected account: who, billing, the usage bar and its room. */
-  function drawRows(rows: Account[], rooms: Map<string, Room>, self: { id: string; email?: string }) {
+  /** The row's own address; the live profile's only for the default row it belongs to. */
+  const addrOf = (a: Account, self: { id: string; email?: string }) =>
+    a.email ?? (a.id === self.id ? self.email ?? a.name : a.name);
+
+  /** One model list per account, read live; a failure leaves that account's models empty, never breaks the picker. */
+  async function modelsFor(rows: Account[]): Promise<Record<string, ModelInfo[]>> {
+    const models: Record<string, ModelInfo[]> = {};
+    await Promise.all(rows.map(async (a) => {
+      try { models[a.id] = await accounts.models(ME, a.id); } catch { models[a.id] = []; }
+    }));
+    return models;
+  }
+
+  /** Every connected account from the shared rows: the kit's own title and room (or why it cannot run), the
+   *  account's own address beside the title, and the usage bar while the room is known. */
+  function paintRows(rows: Account[], rooms: Map<string, Room>, self: { id: string; email?: string }) {
     const box = q('accounts');
     box.replaceChildren();
-    for (const a of rows) {
+    for (const v of accountRows(rows, (a) => rooms.get(a.id) ?? { left: 'unknown' }, Date.now())) {
+      const a = rows.find((r) => r.id === v.id)!;
       const row = document.createElement('div');
       row.className = 'acc';
       row.dataset.account = a.id;
@@ -129,16 +146,14 @@ function card(key: string) {
       head.className = 'acc-row';
       const dot = document.createElement('span');
       dot.className = 'dot';
-      dot.dataset.state = a.state;
+      dot.dataset.state = v.state;
       head.append(dot);
       const email = document.createElement('span');
       email.className = 'acc-email';
       email.dataset.email = '';
-      // The row's own address; the live profile's only for the default row it belongs to.
-      email.textContent = a.email ?? (a.id === self.id ? self.email ?? a.name : a.name);
+      const addr = addrOf(a, self);
+      email.textContent = addr === v.title ? v.title : `${v.title} · ${addr}`;
       head.append(email);
-      // No plan pill on the row: the card already names the provider and its billing, so 'Your <name> plan'
-      // would repeat on every account.
       row.append(head);
       const room = rooms.get(a.id) ?? { left: 'unknown' as const };
       if (typeof room.left === 'number') {
@@ -153,8 +168,7 @@ function card(key: string) {
       const text = document.createElement('p');
       text.className = 'acc-room';
       text.dataset.room = '';
-      text.textContent = typeof room.left !== 'number' ? roomWords(room)
-        : room.resetsAt ? `${Math.round(room.left)}% left - refills ${clock(room.resetsAt)}` : `${Math.round(room.left)}% left`;
+      text.textContent = v.detail;
       row.append(text);
       if (a.state !== 'ready') {
         const out = document.createElement('button');
@@ -167,20 +181,46 @@ function card(key: string) {
     }
   }
 
-  function drawPick(rows: Account[], keep: string) {
+  /** The run picker from the shared picker: the Auto row carrying Auto's own reason, then one row per account, and
+   *  a Move suggestion when the chosen account is low and a roomier one is signed in. */
+  async function paintPick(rows: Account[], rooms: Map<string, Room>, self: { id: string; email?: string }) {
     const pick = q<HTMLSelectElement>('pick');
+    const now = Date.now();
+    const roomOf = (a: { id: string }): Room => rooms.get(a.id) ?? { left: 'unknown' };
+    const models = await modelsFor(rows);
+    const auto = resolveSelection(rows, await accounts.defaults(ME), { account: 'auto', provider: key },
+      roomOf, now, (a) => models[a.id] ?? []);
+    const view = modelPicker(rows, models, { account: pick.value || 'auto' }, auto, now);
+    // The selection is read here, after every await, so a repaint that started before the person chose keeps
+    // their choice instead of restoring the one it started with.
+    const keep = pick.value || 'auto';
     pick.replaceChildren();
-    const auto = document.createElement('option');
-    auto.value = 'auto';
-    auto.textContent = 'Auto (most room)';
-    pick.append(auto);
-    for (const a of rows) {
+    for (const r of view.rows) {
       const option = document.createElement('option');
-      option.value = a.id;
-      option.textContent = a.email ? `${a.name} · ${a.email}` : a.name;
+      option.value = r.key;
+      if (r.kind === 'auto') option.textContent = r.title;
+      else {
+        const a = rows.find((x) => x.id === r.key)!;
+        const addr = addrOf(a, self);
+        option.textContent = addr === r.title ? r.title : `${r.title} · ${addr}`;
+      }
       pick.append(option);
     }
-    pick.value = rows.some((a) => a.id === keep) ? keep : 'auto';
+    pick.value = Array.from(pick.options).some((o) => o.value === keep) ? keep : 'auto';
+    const move = q<HTMLButtonElement>('move');
+    const current = pick.value === 'auto' ? (auto.ok ? auto.account.id : undefined) : pick.value;
+    const views = accountRows(rows, roomOf, now);
+    const target = current !== undefined && (views.find((v) => v.id === current)?.low ?? false)
+      ? bestMoveTarget(rows, Object.fromEntries(rooms), current, now)
+      : undefined;
+    if (target) {
+      const t = rows.find((a) => a.id === target)!;
+      const title = views.find((v) => v.id === target)?.title ?? t.name;
+      const addr = addrOf(t, self);
+      move.textContent = moveWords(addr === title ? title : `${title} · ${addr}`);
+      move.hidden = false;
+      move.onclick = () => { pick.value = target; void draw(); };
+    } else move.hidden = true;
   }
 
   let drawing = 0;
@@ -193,8 +233,9 @@ function card(key: string) {
     const ready = status.state === 'ready' || status.state === 'resting' || status.state === 'not_included';
     const plan = ready ? await accounts.plan(ME, key) : null;
     const rows = (await accounts.list(ME)).filter((a) => a.provider === key);
-    drawRows(rows, new Map(), { id: status.id, email: plan?.email });
-    drawPick(rows, q<HTMLSelectElement>('pick').value);
+    const self = { id: status.id, email: plan?.email };
+    paintRows(rows, new Map(), self);
+    await paintPick(rows, new Map(), self);
     const landed = pendingAdd ? accounts.view(ME, pendingAdd) : undefined;
     if (landed?.state === 'done' && pendingAdd) pendingAdd = undefined;
     // An account being added walks its own sheet, even while another one is already connected.
@@ -202,7 +243,11 @@ function card(key: string) {
     const phase = phaseOf({ ready: !pendingAdd && status.state === 'ready', signIn: shown });
     const waiting = shown?.state === 'waiting';
     if (mine !== drawing) return; // a later draw (a sign-out, say) already said how things are
-    readRooms(rows).then((rooms) => { if (mine === drawing) drawRows(rows, rooms, { id: status.id, email: plan?.email }); });
+    readRooms(rows).then((rooms) => {
+      if (mine !== drawing) return;
+      paintRows(rows, rooms, self);
+      void paintPick(rows, rooms, self);
+    });
     el.dataset.state = waiting ? 'signing' : status.state;
     q('status').textContent = status.words;
     q('badge').textContent = plan ? planLabel(name, plan.plan) : '';
@@ -304,27 +349,33 @@ function card(key: string) {
       const rooms = new Map<string, Room>();
       for (const a of rows) rooms.set(a.id, roomCache.get(a.id)?.room ?? { left: 'unknown' });
       void readRooms(rows); // the next run's rooms, never this one's delay
-      const want = q<HTMLSelectElement>('pick').value;
-      const pick = resolveSelection(rows, await accounts.defaults(ME), { account: want, provider: key }, (a) => rooms.get(a.id) ?? { left: 'unknown' }, Date.now());
+      const now = Date.now();
+      const models = await modelsFor(rows);
       if (mine !== asking) return;
-      // A default that cannot answer is refused by respond itself, so its reason is shown there, not a label for another account.
-      const answerable = pick.ok && (want !== 'default' || pick.how === 'default');
-      if (!pick.ok && want !== 'default') { out.textContent = pick.reason; settle(mine); draw(); return; }
+      const roomOf = (a: { id: string }): Room => rooms.get(a.id) ?? { left: 'unknown' };
+      const auto = resolveSelection(rows, await accounts.defaults(ME), { account: 'auto', provider: key },
+        roomOf, now, (a) => models[a.id] ?? []);
+      if (mine !== asking) return;
+      // The run's account comes from the shared picker: a signed-out choice shows its sign-in reason here and runs nothing.
+      const want = q<HTMLSelectElement>('pick').value;
+      const view = modelPicker(rows, models, { account: want }, auto, now);
+      if (!view.ok) {
+        out.textContent = want === 'auto' ? auto.reason : view.rows.find((r) => r.key === want)?.detail || auto.reason;
+        settle(mine); draw(); return;
+      }
       if (mine !== asking) return;
       const picked = q('picked');
-      if (answerable) {
-        const who = pick.account.email ?? pick.account.name;
-        const room = rooms.get(pick.account.id);
-        picked.textContent = want === 'auto' && typeof room?.left === 'number'
-          ? `Auto picks ${who}: ${Math.round(room.left)}% left.`
-          : `Using ${who}: ` + say(`pick.why.${pick.why}`, { name: pick.account.name, provider: pick.account.provider });
+      if (want === 'auto') picked.textContent = auto.reason;
+      else {
+        const chosen = rows.find((a) => a.id === view.account)!;
+        picked.textContent = say('pick.why.chosen', { name: chosen.email ?? chosen.name });
       }
-      show('picked', answerable);
+      show('picked', true);
       draw();
       const signal = mine.signal;
       const onText = (d: string) => { if (mine === asking) out.textContent += d; };
       try {
-        const select = { account: want === 'default' || !pick.ok ? want : pick.account.id };
+        const select = { account: view.account! };
         const text = key === 'claude'
           ? await accounts.respond(ME, { provider: 'claude', model: PROVIDERS.claude.models.strong, max_tokens: 1024, system: 'Answer in a few short sentences.', messages: [{ role: 'user', content: input }], onText, signal, select })
           : await accounts.respond(ME, { instructions: 'Answer in a few short sentences.', input, onText, signal, select });

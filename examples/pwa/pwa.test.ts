@@ -49,7 +49,7 @@ test('sign in with ChatGPT in a browser: device code, the plan named, kept acros
 
   await page.locator('#chatgpt [data-email]').filter({ hasText: 'umer@example.com' }).waitFor();
   await part(page, 'chatgpt', 'badge').filter({ hasText: 'ChatGPT Plus' }).waitFor();
-  assert.equal(await page.locator('#chatgpt [data-email]').filter({ hasText: 'umer@example.com' }).textContent(), 'umer@example.com');
+  assert.match((await page.locator('#chatgpt [data-email]').filter({ hasText: 'umer@example.com' }).textContent())!, /umer@example\.com/);
   assert.equal(await page.locator('#chatgpt [data-chip]').count(), 0, 'no plan pill repeats on any account row');
 
   await page.reload();
@@ -151,7 +151,7 @@ test('sign in with Claude in a browser: its page, the code pasted back, the plan
 
   await page.locator('#claude [data-email]').filter({ hasText: 'umer@example.com' }).waitFor();
   await part(page, 'claude', 'badge').filter({ hasText: 'Claude Max' }).waitFor();
-  assert.equal(await page.locator('#claude [data-email]').textContent(), 'umer@example.com');
+  assert.match((await page.locator('#claude [data-email]').textContent())!, /umer@example\.com/);
   assert.equal(await page.locator('#claude [data-chip]').count(), 0, 'no plan pill repeats on any account row');
   assert.equal(asked[0].body.code, 'recorded-code');
 
@@ -170,21 +170,28 @@ test('sign in with Claude in a browser: its page, the code pasted back, the plan
   await context.close();
 });
 
-test('two ChatGPT plans: every plan listed with billing and room, Auto asks the roomiest, switching sticks', { timeout: 120_000 }, async () => {
+test('two ChatGPT plans: every plan listed with billing and room, Auto asks the roomiest, switching sticks, Move when low, a signed-out pick runs nothing', { timeout: 120_000 }, async () => {
   const context = await browser.newContext({ serviceWorkers: 'block' });
   const page = await context.newPage();
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  // Each test plan's live quota, as its provider reports it: acct-1 nearly spent, acct-2 nearly full.
+  // Each test plan's live quota, as its provider reports it: acct-1 nearly spent and low, acct-2 nearly full.
   const quota = (used: number) => ({ rate_limit: {
     primary_window: { used_percent: used, limit_window_seconds: 18000, reset_after_seconds: 3600 },
     secondary_window: { used_percent: used, limit_window_seconds: 604800, reset_after_seconds: 72000 } } });
   await page.route('**/fwd/chatgpt/backend-api/wham/usage', (route) => route.fulfill({
-    json: route.request().headers()['chatgpt-account-id'] === 'acct-2' ? quota(10) : quota(75) }));
+    json: route.request().headers()['chatgpt-account-id'] === 'acct-2' ? quota(10) : quota(85) }));
   const askedIds: string[] = [];
+  // The next answer fails once as a plan exclusion, then answers normally.
+  let failPlan = false;
   const answer = (text: string) => `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: text })}\n\n` +
     `data: ${JSON.stringify({ type: 'response.completed', response: { status: 'completed', output: [] } })}\n\n`;
   await page.route('**/fwd/chatgpt/backend-api/codex/responses', (route) => {
+    if (failPlan) {
+      failPlan = false;
+      return route.fulfill({ status: 403,
+        json: { error: { code: 'usage_not_included', message: "Your plan doesn't include Codex for this request." } } });
+    }
     const body = route.request().postDataJSON() as any;
     const text = body?.input?.[0]?.content?.[0]?.text ?? 'hello';
     askedIds.push(route.request().headers()['chatgpt-account-id']);
@@ -212,8 +219,8 @@ test('two ChatGPT plans: every plan listed with billing and room, Auto asks the 
   await assert.doesNotReject(rows.filter({ hasText: 'b@example.com' }).waitFor());
   assert.equal(await rows.count(), 2, 'every connected plan lists before the Add rows');
   assert.equal(await page.locator('#chatgpt [data-chip]').count(), 0, 'no plan pill repeats on any account row');
-  await page.locator('#chatgpt [data-room]').filter({ hasText: '90% left - refills' }).waitFor();
-  await page.locator('#chatgpt [data-room]').filter({ hasText: /refills/ }).first().waitFor();
+  await page.locator('#chatgpt [data-room]').filter({ hasText: 'Plus · 90% left this session' }).waitFor();
+  await page.locator('#chatgpt [data-room]').filter({ hasText: 'Plus · 15% left this session' }).waitFor();
 
   const ask = async (question: string) => {
     await part(page, 'chatgpt', 'question').fill(question);
@@ -222,12 +229,35 @@ test('two ChatGPT plans: every plan listed with billing and room, Auto asks the 
   };
   await ask('first');
   assert.equal(askedIds.at(-1), 'acct-2', 'Auto lands on the account with the most room');
-  assert.match((await part(page, 'chatgpt', 'picked').textContent())!, /Auto picks b@example\.com: 90% left\./);
+  assert.match((await part(page, 'chatgpt', 'picked').textContent())!, /Right now that's ChatGPT: 90% left this session/);
 
   await page.locator('#chatgpt [data-pick]').selectOption('chatgpt');
   await ask('second');
   assert.equal(askedIds.at(-1), 'acct-1', 'manual switching asks the chosen account');
   assert.equal(askedIds.filter((id) => id === 'acct-1').length, 1, 'the run never switches account mid-stream');
+  assert.match((await part(page, 'chatgpt', 'picked').textContent())!, /You chose umer@example\.com\./);
+
+  // The chosen account is low, so the card suggests the roomier one; taking it asks there.
+  await part(page, 'chatgpt', 'move').filter({ hasText: 'Move to' }).waitFor();
+  assert.match((await part(page, 'chatgpt', 'move').textContent())!, /Move to .*b@example\.com/);
+  await part(page, 'chatgpt', 'move').click();
+  await ask('third');
+  assert.equal(askedIds.at(-1), 'acct-2', 'the Move target answers after the switch');
+
+  // The plan stops including the run: the account stays listed but cannot run, and picking it runs nothing.
+  await page.locator('#chatgpt [data-pick]').selectOption('chatgpt');
+  failPlan = true;
+  await part(page, 'chatgpt', 'question').fill('excluded');
+  await part(page, 'chatgpt', 'ask').click();
+  await part(page, 'chatgpt', 'answer').filter({ hasText: /usage limit/ }).waitFor();
+  await page.locator('#chatgpt [data-room]').filter({ hasText: 'Not in your plan' }).first().waitFor();
+  const runs = askedIds.length;
+  await part(page, 'chatgpt', 'question').fill('signed-out pick');
+  await part(page, 'chatgpt', 'ask').click();
+  await part(page, 'chatgpt', 'answer').filter({ hasText: 'Sign in first' }).waitFor();
+  assert.equal(askedIds.length, runs, 'a signed-out pick runs nothing');
+  assert.equal(await part(page, 'chatgpt', 'ask').isDisabled(), false, 'the controls come back');
+  assert.equal(await part(page, 'chatgpt', 'stop').isVisible(), false);
   assert.deepEqual(errors, []);
   openai.state.accountId = 'acct-1';
   openai.state.email = 'umer@example.com';
