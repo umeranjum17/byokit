@@ -332,10 +332,10 @@ export function browserDevice(link: DeviceLink): BrowserDevice {
   };
 }
 
-/** `openclawDevice`'s device surface: every `oc.*` op the computer answers, typed. */
 // `oc.run` carries no account selection yet (O14m adds the account frame), so the link never streams an `account` event.
 type DeviceRunEvent = Exclude<RunEvent, { type: 'account' }>;
 
+/** `openclawDevice`'s device surface: every `oc.*` op the computer answers, typed. */
 export type OpenClawDevice = {
   browser: BrowserDevice;
   state(): Promise<DeviceState>;

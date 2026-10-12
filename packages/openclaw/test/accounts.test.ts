@@ -363,6 +363,14 @@ test('run on an account: account event first, Auto by room, resting skip, ready 
       return { agentId, sessionKey, provider, model }; }), [{ agentId: agent, sessionKey: `agent:${agent}:chat:1`, provider: 'openai', model: 'default' }]);
     assert.ok(auto.end.ok && auto.end.account === second.id && auto.end.model === 'openai/default', JSON.stringify(auto.end));
 
+    // A fresh account whose models.list is refused has no known catalog: Auto still runs it on its default model.
+    fake.handle('models.list', (p) => {
+      if (p.agentId === agent) throw new Error('models.list refused');
+      return { models: [{ id: 'default', name: 'Default', provider: 'openai', available: true }] };
+    });
+    const refused = await run({ sessionKey: 'agent:m1:chat:refused', account: 'auto' });
+    assert.ok(refused.end.ok && refused.end.account === second.id && refused.end.model === 'openai/default', JSON.stringify(refused.end));
+
     // A resting end writes `until` to the index; the account reads resting and the next Auto skips it. `needs` alone
     // resolves as 'default', which with no saved default is Auto.
     fake.failNext('agent', 'You have hit your ChatGPT usage limit (plus plan). Try again in ~30 min.');

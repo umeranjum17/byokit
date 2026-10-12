@@ -21,7 +21,7 @@ const clock = (t: number) => (new Date(t).toDateString() === new Date().toDateSt
 // the selection names it, and its row carries `out: 'bound'`. An account the selection names is judged only on
 // `bound` and the demand, so an API-key or resting account it names carries no `billing`/`resting` `out`.
 function considerRows(accounts: readonly Account[], room: (a: Account) => Room, nowMs: number,
-  demand: readonly string[] = [], models?: (a: Account) => readonly ModelInfo[], provider?: string,
+  demand: readonly string[] = [], models?: (a: Account) => readonly ModelInfo[] | undefined, provider?: string,
   named?: AccountId, bound?: readonly AccountId[]): Candidate[] {
   return accounts.map((account) => {
     const r = room(account);
@@ -38,7 +38,8 @@ function considerRows(accounts: readonly Account[], room: (a: Account) => Room, 
       else if (account.billing !== 'subscription') row.out = 'billing';
     }
     if (!row.out && demand.length && models) {
-      const available = models(account);
+      const available = models(account) ?? demand.filter((id) => id.split('/')[0]!.toLowerCase() === account.provider.toLowerCase())
+        .map((id) => ({ id, name: id, available: true }));
       const missing = demand.find((id) => !available.some((m) => m.id === id && m.available));
       if (missing !== undefined) { row.out = 'model'; row.missing = missing; }
     }
@@ -51,7 +52,7 @@ function considerRows(accounts: readonly Account[], room: (a: Account) => Room, 
 
 /** Every account's `Considered` row, in list order, with the kit-only `bound` applied. */
 export function consider(accounts: readonly Account[], defaults: Defaults, sel: RunSelection, room: RoomOf,
-  nowMs: number, models?: (a: Account) => readonly ModelInfo[], bound?: readonly AccountId[]): Considered[] {
+  nowMs: number, models?: (a: Account) => readonly ModelInfo[] | undefined, bound?: readonly AccountId[]): Considered[] {
   const demand = [...new Set([...(sel.model ? [sel.model] : []), ...(sel.needs ?? [])])];
   const defaultAccount = accounts.find((a) => a.id === defaults.account);
   const named = nameOf(accounts, defaults, sel, bound);
@@ -99,9 +100,10 @@ function nameOf(accounts: readonly Account[], defaults: Defaults, sel: RunSelect
   return sel.account === 'default' ? (usable ? defaultAccount!.id : undefined) : sel.account === 'auto' ? undefined : sel.account;
 }
 
-/** Resolve once before starting. Without `models`, membership is host-validated and a missing model is ''. */
+/** Resolve once before starting. Without `models`, membership is host-validated and a missing model is ''. A row whose
+ * models are unknown (`undefined`) host-validates membership by provider and runs its `provider/default` model. */
 export function resolveSelection(accounts: readonly Account[], defaults: Defaults, sel: RunSelection, room: RoomOf,
-  nowMs: number, models?: (a: Account) => readonly ModelInfo[], bound?: readonly AccountId[]): AccountPick {
+  nowMs: number, models?: (a: Account) => readonly ModelInfo[] | undefined, bound?: readonly AccountId[]): AccountPick {
   const demand = [...new Set([...(sel.model ? [sel.model] : []), ...(sel.needs ?? [])])];
   const defaultAccount = accounts.find((a) => a.id === defaults.account);
   const named = nameOf(accounts, defaults, sel, bound);
@@ -122,9 +124,12 @@ export function resolveSelection(accounts: readonly Account[], defaults: Default
   return { ok: false, code: 'none', reason: words('auto.none', { provider: provider ?? '' }), considered };
 
   function finish(account: Account, row: Considered, how: 'chosen' | 'default' | 'auto', why: PickWhy): AccountPick {
-    const available = models?.(account).filter((m) => m.available);
-    const model = sel.model ?? (defaults.model && (!available || available.some((m) => m.id === defaults.model)) ? defaults.model : available?.[0]?.id) ?? '';
-    if (models && !model) return { ok: false, code: 'not_included', reason: words('pick.out.model', { model: sel.model ?? '' }), considered };
+    const listed = models?.(account);
+    const usable = listed?.filter((m) => m.available && m.why !== 'resting');
+    const unknown = models !== undefined && listed === undefined;
+    const model = sel.model ?? (defaults.model && (!usable || usable.some((m) => m.id === defaults.model)) ? defaults.model
+      : usable?.[0]?.id ?? (unknown ? `${account.provider}/default` : undefined)) ?? '';
+    if (listed && !model) return { ok: false, code: 'not_included', reason: words('pick.out.model', { model: sel.model ?? '' }), considered };
     row.reason = why;
     const slots = { name: account.name, provider: account.provider };
     const reason = how !== 'auto' ? words(`pick.why.${why}` as WordKey, slots) : row.tier === 'unknown' ? words('auto.unknown', slots) : row.tier === 'exhausted' ?
