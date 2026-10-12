@@ -106,7 +106,10 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
     say("Paired with Umer's cloud computer.");
   };
   // No machine, no Boat key: one Claude call shows whether the phone's plan answers, and why not.
-  const check = async () => { say('Checking Claude…'); await claudeToolCall(accounts); say('Claude answered the tool call.'); };
+  const check = async () => {
+    say('Checking Claude…'); const r = await claudeToolCall(accounts);
+    say(r.raw.content.some(c => c.type === 'tool_use' && c.name === 'get_machine') ? 'Claude answered with the approved tool call.' : 'Claude answered without the tool call.');
+  };
   const turn = async () => {
     if (!link.current) throw new Error('Pair the lab phone first.');
     if (await SecureStore.getItemAsync(turnKey)) throw new Error('The single agent turn was already attempted.');

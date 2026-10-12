@@ -11,6 +11,7 @@ function claudeServer(fail?: { call: number; status: number; type: string }) {
     assert.equal(String(url), 'https://api.anthropic.com/v1/messages');
     const json = (status: number, value: unknown) => new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } });
     if (fail?.call === bodies.length) return json(fail.status, { type: 'error', error: { type: fail.type, message: 'echoes recorded-access' } });
+    if (['tool', 'any'].includes(body.tool_choice?.type)) return json(400, { type: 'error', error: { type: 'invalid_request_error', message: 'tool_choice: type "tool" and "any" are not supported for this model.' } });
     const history = body.messages.some((m: any) => Array.isArray(m.content) && m.content.some((c: any) => c.type === 'tool_use' || c.type === 'tool_result'));
     if (history && !body.tools?.length) return json(400, { type: 'error', error: { type: 'invalid_request_error', message: 'Requests which include `tool_use` or `tool_result` blocks must define tools.' } });
     const message = (content: unknown[]) => json(200, { id: 'msg_' + bodies.length, type: 'message', role: 'assistant', model: body.model, content,
@@ -33,7 +34,7 @@ test('M6 Claude plan turn: forced tool call, then a text answer whose history de
   const answer = await pairedTurn(await signedIn(server.fetch), link);
   assert.equal(answer.text, 'Hello Umer, it runs linux.');
   assert.equal(server.bodies.length, 2);
-  assert.deepEqual(server.bodies[0].tool_choice, { type: 'tool', name: 'get_machine' });
+  assert.deepEqual(server.bodies[0].tool_choice, { type: 'auto' });
   assert.deepEqual(server.bodies[1].tool_choice, { type: 'none' });
   assert.equal(server.bodies[1].tools[0].name, 'get_machine');
   assert.equal(server.bodies[1].messages[2].content[0].tool_use_id, 'tu_1');
@@ -49,3 +50,14 @@ for (const [call, name] of [[1, 'tool call'], [2, 'answer']] as const) {
     assert.ok(!line.includes('recorded-access'));
   });
 }
+
+test('M6 turn refuses an answer that skips the approved tool call', async () => {
+  const server = claudeServer();
+  const accounts = await signedIn((async (_url: string, init: RequestInit) => {
+    const body = JSON.parse(String(init.body)); server.bodies.push(body);
+    return new Response(JSON.stringify({ id: 'msg', type: 'message', role: 'assistant', model: body.model, content: [{ type: 'text', text: 'It runs linux.' }],
+      stop_reason: 'end_turn', stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } }), { headers: { 'content-type': 'application/json' } });
+  }) as unknown as typeof fetch);
+  await assert.rejects(pairedTurn(accounts, link), /did not return the single approved machine-state tool call/);
+  assert.equal(server.bodies.length, 1);
+});

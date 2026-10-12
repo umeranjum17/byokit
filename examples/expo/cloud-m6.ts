@@ -67,7 +67,7 @@ const ask = { provider: 'claude' as const, model: provider('claude').models.stro
 const tools = [{ name: 'get_machine', description: 'Read the paired cloud computer state.', input_schema: schema }];
 /** The turn's first Claude call on its own: the no-machine check that the phone's Claude plan answers. */
 export const claudeToolCall = (accounts: Accounts<any, number>) => step('tool call', () => accounts.respond(1, { ...ask, system: 'Call only the approved machine-state tool.',
-  messages: [{ role: 'user', content: prompt }], tools, tool_choice: { type: 'tool', name: 'get_machine' } }));
+  messages: [{ role: 'user', content: prompt }], tools, tool_choice: { type: 'auto' } })); // the plan's strong model refuses a forced tool ('tool'/'any')
 export async function pairedTurn(accounts: Accounts<any, number>, link: Pick<DeviceLink, 'request'>, plan: 'claude' | 'chatgpt' = 'claude') {
   if (plan === 'claude') {
     const first = await claudeToolCall(accounts);
