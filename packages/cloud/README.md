@@ -37,10 +37,11 @@ The library reads no environment variable. Every spawned process gets an env bui
 
 ## Boat adapter
 
-`boat({ baseUrl, label, prices, key, fetch? })` returns the Boat `Provider`. The app
+`boat({ baseUrl, label, prices, key, fetch?, signal? })` returns the Boat `Provider`. The app
 supplies the full API root (including its version path), display label, dated price
 rows and a key callback from its own store; the kit has no default provider or URL.
-`fetch` is optional. Setup runs from Node, Electron or React Native; Boat's CORS rules
+`fetch` is optional. `signal` cancels the provider for good: once aborted, every later call
+fails `unreachable`, so build a new `boat()` for the next operation. Setup runs from Node, Electron or React Native; Boat's CORS rules
 prevent setup from a web page. Tests use `boat.test` mapped to a loopback fake.
 
 ```ts

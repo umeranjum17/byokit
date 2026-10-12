@@ -369,6 +369,17 @@ test('an app cleans up on Boat and every failure stays honest: no key leak, no l
     assert.ok(abort.signal.aborted, 'the caller still distinguishes cancel from a dead provider');
     const cancelElapsed = Date.now() - cancelStarted;
     assert.ok(cancelElapsed < 500, `cancel returned in ${cancelElapsed} ms, not after the 1 s backoff`);
+
+    const alreadyCancelled = new AbortController();
+    alreadyCancelled.abort();
+    const preCancelled = boat({
+      baseUrl: failing.url, label: 'Test', prices: prices(), key: async () => 'test-key', signal: alreadyCancelled.signal,
+    });
+    failing.failNext([{ status: 500 }]);
+    const preStarted = Date.now();
+    assert.equal((await preCancelled.account().then(() => null, (e) => e as MachineError))?.code, 'unreachable');
+    const preElapsed = Date.now() - preStarted;
+    assert.ok(preElapsed < 500, `an already-cancelled call returned in ${preElapsed} ms, not after the 1 s backoff`);
   } finally {
     await failing.close();
   }

@@ -98,6 +98,7 @@ type WireBody = { body?: unknown; headers?: Record<string, string> };
 
 export function boat(o: {
   baseUrl: string; label: string; prices: readonly Price[]; key: () => Promise<string>; fetch?: typeof fetch;
+  // Cancels this provider for good: build a new boat() for the next operation.
   signal?: AbortSignal;
 }): Provider {
   const fetchFn: FetchFn = o.fetch ?? globalThis.fetch;

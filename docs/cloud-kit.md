@@ -441,8 +441,10 @@ would leave a new person with no machine for their first week.
 Errors on every call: HTTP 401 or 403 → `unauthorized`; 404 on `GET /sandboxes/{id}` → status `gone`; 429 and 5xx
 retried 3 times with 1 s, 2 s, 4 s waits, then `provider`; the waits end at once when the caller's abort signal
 (`boat()`'s `signal`, also carried on the request when the fetch honors it) fires, and one 10 s deadline bounds the
-backoff waits and when a new attempt may start: past it the last answer stands as if the retries ran out, while a
-request already in flight is never cut; an aborted wait fails `unreachable`, the same typed error an aborted fetch
+backoff waits and when a new attempt may start, per request (one request with all its attempts and waits; a method
+that sends several requests gets one deadline each): past it the last answer stands as if the retries ran out, while
+a request already in flight is never cut. The signal cancels the provider for good: once aborted, every later call
+fails `unreachable`, so build a new `boat()` for the next operation; an aborted wait fails `unreachable`, the same typed error an aborted fetch
 gives; a `fetch` rejection → `unreachable`; any other non-2xx → `provider` with the body's message capped at 200
 characters. The key never appears in an error message or `extra`.
 
