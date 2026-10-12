@@ -6,6 +6,8 @@
 import { Accounts, billingWords, browserStore, planLabel, resolveSelection, roomOf, say, signInError, PROVIDERS, type Account, type ModelInfo, type Room } from '@byokit/accounts';
 import { accountRows, bestMoveTarget, modelPicker, moveWords, type AccountRow, type Pick, type PickerView } from '@byokit/ui/accounts';
 import { phaseOf } from '@byokit/ui/phase';
+import type { Reading, Window } from '@byokit/usage';
+import { windowsView } from '@byokit/usage/view';
 
 declare const __BYOKIT_AUTH_BASE__: string | undefined;
 declare const __BYOKIT_DEVICE_BASE__: string | undefined;
@@ -31,44 +33,51 @@ const accounts = new Accounts<any, number>({
 const LOGO: Record<string, string> = { chatgpt: '#10a37f', claude: '#d97757', grok: '#1d1d1f', kimi: '#4d6bfe', copilot: '#6e40c9', meta: '#0082fb' };
 const mmss = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms % 60000 / 1000)).padStart(2, '0')}`;
 
-/** Live rooms by account id, read seconds ago; Ask reuses a fresh one instead of delaying the run. */
-const roomCache = new Map<string, { room: Room; at: number }>();
+/** The last usage reading per account id and when it was asked for; Ask reuses one from seconds ago instead of
+ *  delaying the run, and a failed refresh keeps the last one, which then shows its age. */
+const readingCache = new Map<string, { reading?: Reading; asked: number }>();
 const ROOM_TTL_MS = 60_000;
 
-/** This provider's quota, read live for the run that is starting; unknown when it cannot be read. */
-async function roomFor(id: string): Promise<Room> {
+/** The tightest window as Auto weighs it, carrying the reading's own time so a day-old one counts as unknown. */
+const roomIn = (r?: Reading): Room =>
+  r ? roomOf(r.windows.map((w) => ({ ...w, usedPercent: w.usedPercent ?? NaN })), r.at, 'milliseconds') : { left: 'unknown' };
+/** Rooms by account id, for the picker, Auto and Move. */
+const roomsIn = (readings: Map<string, Reading | undefined>) => new Map([...readings].map(([id, r]) => [id, roomIn(r)] as const));
+
+/** This provider's usage windows, read live for the run that is starting; undefined when they cannot be read. */
+async function readingFor(id: string): Promise<Reading | undefined> {
   try {
     const { access, accountId } = await accounts.access(ME, undefined, id);
     const res = await forwarded('https://chatgpt.com/backend-api/wham/usage',
       { headers: { authorization: `Bearer ${access}`, 'ChatGPT-Account-Id': accountId }, signal: AbortSignal.timeout(8000) });
-    if (!res.ok) return { left: 'unknown' };
+    if (!res.ok) return undefined;
     const raw: any = await res.json();
-    const panes: { usedPercent: number; kind: string; resetsAt?: number }[] = [];
+    const panes: Window[] = [];
     const take = (w: any) => {
       if (typeof w?.used_percent !== 'number') return;
       const mins = typeof w.limit_window_seconds === 'number' ? w.limit_window_seconds / 60 : undefined;
-      panes.push({ usedPercent: w.used_percent, kind: mins === 300 ? 'session' : mins === 10080 ? 'weekly' : mins === 43200 ? 'monthly' : 'custom',
+      panes.push({ provider: 'codex', usedPercent: w.used_percent, kind: mins === 300 ? 'session' : mins === 10080 ? 'weekly' : mins === 43200 ? 'monthly' : 'custom',
         ...(typeof w.reset_at === 'number' ? { resetsAt: w.reset_at * 1000 }
           : typeof w.reset_after_seconds === 'number' && w.reset_after_seconds >= 0 ? { resetsAt: Date.now() + w.reset_after_seconds * 1000 } : {}) });
     };
     take(raw?.rate_limit?.primary_window);
     take(raw?.rate_limit?.secondary_window);
     for (const extra of raw?.additional_rate_limits ?? []) { take(extra?.rate_limit?.primary_window); take(extra?.rate_limit?.secondary_window); }
-    return roomOf(panes, Date.now(), 'milliseconds');
-  } catch { return { left: 'unknown' }; }
+    return { provider: 'codex', windows: panes, at: Date.now() };
+  } catch { return undefined; }
 }
 
-/** Fresh rooms for these rows, reusing readings from seconds ago so neither paint nor Ask waits on quota. */
-async function readRooms(rows: Account[]): Promise<Map<string, Room>> {
-  const rooms = new Map<string, Room>();
+/** Fresh readings for these rows, reusing ones from seconds ago so neither paint nor Ask waits on quota. */
+async function readReadings(rows: Account[]): Promise<Map<string, Reading | undefined>> {
+  const readings = new Map<string, Reading | undefined>();
   await Promise.all(rows.map(async (a) => {
-    const kept = roomCache.get(a.id);
-    if (kept && Date.now() - kept.at < ROOM_TTL_MS) { rooms.set(a.id, kept.room); return; }
-    const room = a.provider === 'chatgpt' ? await roomFor(a.id) : { left: 'unknown' as const };
-    roomCache.set(a.id, { room, at: Date.now() });
-    rooms.set(a.id, room);
+    const kept = readingCache.get(a.id);
+    if (kept && Date.now() - kept.asked < ROOM_TTL_MS) { readings.set(a.id, kept.reading); return; }
+    const reading = (a.provider === 'chatgpt' ? await readingFor(a.id) : undefined) ?? kept?.reading;
+    readingCache.set(a.id, { reading, asked: Date.now() });
+    readings.set(a.id, reading);
   }));
-  return rooms;
+  return readings;
 }
 
 function card(key: string) {
@@ -145,11 +154,18 @@ function card(key: string) {
   };
 
   /** Every connected account from the shared rows: the kit's own title and room (or why it cannot run), the
-   *  account's own address beside the title, and the usage bar while the room is known. */
-  function paintRows(rows: Account[], rooms: Map<string, Room>, self: { id: string; email?: string }) {
+   *  account's own address beside the title, the usage bar while the room is known, then each usage window with
+   *  its reset and how old the reading is. */
+  function paintRows(rows: Account[], readings: Map<string, Reading | undefined>, self: { id: string; email?: string }) {
     const box = q('accounts');
     box.replaceChildren();
-    for (const v of accountRows(rows, (a) => rooms.get(a.id) ?? { left: 'unknown' }, Date.now())) {
+    const rooms = roomsIn(readings);
+    const now = Date.now();
+    const views = accountRows(rows, (a) => rooms.get(a.id) ?? { left: 'unknown' }, now, (a) => {
+      const r = readings.get(a.id);
+      return r && windowsView(r, now);
+    });
+    for (const v of views) {
       const a = rows.find((r) => r.id === v.id)!;
       const row = document.createElement('div');
       row.className = 'acc';
@@ -182,6 +198,16 @@ function card(key: string) {
       text.dataset.room = '';
       text.textContent = v.detail;
       row.append(text);
+      const line = (words: string, data: string) => {
+        const p = document.createElement('p');
+        p.className = 'acc-room';
+        p.dataset[data] = '';
+        p.textContent = words;
+        row.append(p);
+      };
+      for (const w of v.windows ?? []) line(`${w.text} · ${w.resetText}`, 'window');
+      if (v.asOf) line(v.asOf.text, 'age');
+      if (v.asOf?.stale) row.dataset.stale = '';
       // No per-row Sign out: the card's own Sign out is the single way out, so it never shows twice.
       box.append(row);
     }
@@ -189,8 +215,9 @@ function card(key: string) {
 
   /** The run picker from the shared picker: the Auto row carrying Auto's own reason, then one row per account, and
    *  a Move suggestion when the chosen account is low and a roomier one is signed in. */
-  async function paintPick(rows: Account[], rooms: Map<string, Room>, self: { id: string; email?: string }) {
+  async function paintPick(rows: Account[], readings: Map<string, Reading | undefined>, self: { id: string; email?: string }) {
     const pick = q<HTMLSelectElement>('pick');
+    const rooms = roomsIn(readings);
     const now = Date.now();
     const roomOf = (a: { id: string }): Room => rooms.get(a.id) ?? { left: 'unknown' };
     const models = await modelsFor(rows);
@@ -253,10 +280,10 @@ function card(key: string) {
     const phase = phaseOf({ ready: !pendingAdd && status.state === 'ready', signIn: shown });
     const waiting = shown?.state === 'waiting';
     if (mine !== drawing) return; // a later draw (a sign-out, say) already said how things are
-    readRooms(rows).then((rooms) => {
+    readReadings(rows).then((readings) => {
       if (mine !== drawing) return;
-      paintRows(rows, rooms, self);
-      void paintPick(rows, rooms, self);
+      paintRows(rows, readings, self);
+      void paintPick(rows, readings, self);
     });
     el.dataset.state = waiting ? 'signing' : status.state;
     q('status').textContent = status.words;
@@ -359,8 +386,8 @@ function card(key: string) {
       const rows = (await accounts.list(ME)).filter((a) => a.provider === key);
       if (mine !== asking) return;
       const rooms = new Map<string, Room>();
-      for (const a of rows) rooms.set(a.id, roomCache.get(a.id)?.room ?? { left: 'unknown' });
-      void readRooms(rows); // the next run's rooms, never this one's delay
+      for (const a of rows) rooms.set(a.id, roomIn(readingCache.get(a.id)?.reading));
+      void readReadings(rows); // the next run's rooms, never this one's delay
       const now = Date.now();
       const models = await modelsFor(rows);
       if (mine !== asking) return;

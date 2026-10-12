@@ -170,16 +170,20 @@ test('sign in with Claude in a browser: its page, the code pasted back, the plan
   await context.close();
 });
 
-test('two ChatGPT plans: every plan listed with billing and room, Auto asks the roomiest, switching sticks, Move when low, a signed-out pick runs nothing', { timeout: 120_000 }, async () => {
+test('two ChatGPT plans: every plan listed with billing, room and both windows, Auto asks the roomiest, switching sticks, Move when low, a signed-out pick runs nothing, a day-old reading stale', { timeout: 120_000 }, async () => {
   const context = await browser.newContext({ serviceWorkers: 'block' });
   const page = await context.newPage();
+  // The page's clock runs as usual until the reading is made a day old at the end.
+  await page.clock.install();
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e)));
-  // Each test plan's live quota, as its provider reports it: acct-1 nearly spent and low, acct-2 nearly full.
+  // Each test plan's live quota, as its provider reports it: acct-1 nearly spent and low, acct-2 nearly full; the
+  // week is half as used as the session.
   const quota = (used: number) => ({ rate_limit: {
     primary_window: { used_percent: used, limit_window_seconds: 18000, reset_after_seconds: 3600 },
-    secondary_window: { used_percent: used, limit_window_seconds: 604800, reset_after_seconds: 72000 } } });
-  await page.route('**/fwd/chatgpt/backend-api/wham/usage', (route) => route.fulfill({
+    secondary_window: { used_percent: Math.floor(used / 2), limit_window_seconds: 604800, reset_after_seconds: 72000 } } });
+  let usageDown = false;
+  await page.route('**/fwd/chatgpt/backend-api/wham/usage', (route) => usageDown ? route.fulfill({ status: 503, body: '' }) : route.fulfill({
     json: route.request().headers()['chatgpt-account-id'] === 'acct-2' ? quota(10) : quota(85) }));
   const askedIds: string[] = [];
   // The next answer fails once as a plan exclusion, then answers normally.
@@ -221,6 +225,14 @@ test('two ChatGPT plans: every plan listed with billing and room, Auto asks the 
   assert.equal(await page.locator('#chatgpt [data-chip]').count(), 0, 'no plan pill repeats on any account row');
   await page.locator('#chatgpt [data-room]').filter({ hasText: 'Plus · 90% left this session' }).waitFor();
   await page.locator('#chatgpt [data-room]').filter({ hasText: 'Plus · 15% left this session' }).waitFor();
+  // Both windows under each plan, tightest first, each with its reset, then how old the reading is.
+  const lines = async (id: string) => page.locator(`#chatgpt [data-account="${id}"]`).locator('[data-window], [data-age]').allTextContents();
+  const low = (await page.locator('#chatgpt [data-account]').filter({ hasText: 'umer@example.com' }).getAttribute('data-account'))!;
+  const roomy = (await page.locator('#chatgpt [data-account]').filter({ hasText: 'b@example.com' }).getAttribute('data-account'))!;
+  const resets = /^(Session: \d+% left · resets in (59m|1h)|Week: \d+% left · resets in (19h 59m|20h)|Read a moment ago)$/;
+  for (const id of [low, roomy]) for (const l of await lines(id)) assert.match(l, resets);
+  assert.deepEqual((await lines(low)).map((l) => l.replace(/ · .*/, '')), ['Session: 15% left', 'Week: 58% left', 'Read a moment ago']);
+  assert.deepEqual((await lines(roomy)).map((l) => l.replace(/ · .*/, '')), ['Session: 90% left', 'Week: 95% left', 'Read a moment ago']);
 
   const ask = async (question: string) => {
     await part(page, 'chatgpt', 'question').fill(question);
@@ -258,6 +270,14 @@ test('two ChatGPT plans: every plan listed with billing and room, Auto asks the 
   assert.equal(askedIds.length, runs, 'a signed-out pick runs nothing');
   assert.equal(await part(page, 'chatgpt', 'ask').isDisabled(), false, 'the controls come back');
   assert.equal(await part(page, 'chatgpt', 'stop').isVisible(), false);
+
+  // A day later the quota cannot be read: the last reading keeps its numbers, says how old it is and that it is stale.
+  usageDown = true;
+  await page.clock.setSystemTime(Date.now() + 25 * 3_600_000);
+  await page.locator('#chatgpt [data-pick]').dispatchEvent('change');
+  const stale = page.locator(`#chatgpt [data-account="${roomy}"][data-stale]`);
+  await stale.locator('[data-age]').filter({ hasText: 'Read 1 day ago (stale)' }).waitFor();
+  assert.deepEqual((await lines(roomy)).map((l) => l.replace(/ · .*/, '')), ['Session: 90% left', 'Week: 95% left', 'Read 1 day ago (stale)']);
   assert.deepEqual(errors, []);
   openai.state.accountId = 'acct-1';
   openai.state.email = 'umer@example.com';

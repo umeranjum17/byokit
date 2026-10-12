@@ -60,6 +60,7 @@
   "account.room.week": "{left} left this week",
   "account.room.month": "{left} left this month",
   "account.room.tightest": "{left} left for now",
+  "account.stale": "{age} (stale)",
 
   "picker.auto": "Auto — most room left",
   "picker.out.state": "Sign in first",

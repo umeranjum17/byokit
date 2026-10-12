@@ -17,6 +17,8 @@ import { mockOpenAI } from '@byokit/accounts/testing';
 import { cliAccounts } from '@byokit/accounts/cli';
 import { accountsSource, cliSource, useAccounts, useModelPicker, type AccountHooksSource, type ModelPickerSource, type UseAccounts, type UseModelPicker } from '@byokit/ui';
 import { accountRows, bestMoveTarget, modelPicker, moveWords, nameSuggestions, rowsOf, type Account, type AccountRow, type ModelInfo, type Pick, type Room, type RunSelection, type SignInState } from '@byokit/ui/accounts';
+import { windowsView } from '@byokit/usage/view';
+import type { Reading } from '@byokit/usage';
 import { scratchDir } from '../../test-support.ts';
 
 // The test's own authenticated seal: an app's OS keychain seal stands in as AES-256-GCM. The key never leaves the run.
@@ -63,20 +65,45 @@ test('a person with two ChatGPT accounts sees one plain row each, the room left,
     await accounts.rename(1, work, 'Work');
     assert.notEqual(work, personal);
 
-    const rooms: Record<string, Room> = { [work]: { left: 72, span: 'week' }, [personal]: { left: 30, span: 'week' } };
-    const source = { accounts: () => accounts.list(1), room: (a: Account) => rooms[a.id] ?? { left: 'unknown' } };
-    const rows = await rowsOf(source, Date.now());
+    // Both usage windows as the built @byokit/usage/view reads them: Work's from two minutes ago, Personal's two days old.
+    const now = Date.now();
+    const H = 3_600_000;
+    const readings: Record<string, Reading> = {
+      [work]: { provider: 'codex', at: now - 120_000, windows: [
+        { provider: 'codex', kind: 'session', usedPercent: 10, resetsAt: now + 3 * H },
+        { provider: 'codex', kind: 'weekly', usedPercent: 28, resetsAt: now + 96 * H }] },
+      [personal]: { provider: 'codex', at: now - 48 * H, windows: [
+        { provider: 'codex', kind: 'session', usedPercent: 85, resetsAt: now - 40 * H },
+        { provider: 'codex', kind: 'weekly', usedPercent: 70, resetsAt: now + 24 * H }] },
+    };
+    const rooms: Record<string, Room> = { [work]: { left: 72, span: 'week' }, [personal]: { left: 15, span: 'session' } };
+    const source = { accounts: () => accounts.list(1), room: (a: Account) => rooms[a.id] ?? { left: 'unknown' },
+      windows: (a: Account) => readings[a.id] && windowsView(readings[a.id], now) };
+    const rows = await rowsOf(source, now);
     const byId = Object.fromEntries(rows.map((r) => [r.id, r] as const));
 
-    assert.deepEqual(byId[work], { id: work, title: 'ChatGPT · Work', detail: 'Plus · 72% left this week', state: 'ready', billing: 'subscription', low: false });
+    assert.deepEqual(byId[work], { id: work, title: 'ChatGPT · Work', detail: 'Plus · 72% left this week', state: 'ready', billing: 'subscription', low: false,
+      windows: [
+        { kind: 'weekly', text: 'Week: 72% left', resetText: 'resets in 4d', resetsAt: now + 96 * H, usedPercent: 28 },
+        { kind: 'session', text: 'Session: 90% left', resetText: 'resets in 3h', resetsAt: now + 3 * H, usedPercent: 10 }],
+      asOf: { at: now - 120_000, ageMs: 120_000, text: 'Read 2 minutes ago', stale: false } });
     assert.equal(byId[personal].title, 'ChatGPT', 'the account that keeps the provider name is not repeated');
-    assert.equal(byId[personal].detail, 'Plus · 30% left this week');
+    assert.equal(byId[personal].detail, 'Plus · 15% left this session');
+    // Two days old: still its numbers, marked stale, and never low however little it showed left.
+    assert.deepEqual(byId[personal].windows!.map((w) => `${w.text} · ${w.resetText}`), ['Session: 15% left · resets in 0m', 'Week: 30% left · resets in 1d']);
+    assert.deepEqual([byId[personal].asOf!.text, byId[personal].asOf!.stale, byId[personal].low], ['Read 2 days ago (stale)', true, false]);
     assert.equal(JSON.stringify(rows).includes('@'), false, 'an email never reaches a row');
+
+    // An openclaw-sourced room carries no reading time: its resets show, and no age is made up.
+    const undated = accountRows(await accounts.list(1), (a) => rooms[a.id], now,
+      (a) => windowsView({ provider: 'codex', windows: readings[a.id].windows }, now)).find((r) => r.id === work)!;
+    assert.deepEqual(undated.windows!.map((w) => w.resetText), ['resets in 4d', 'resets in 3h']);
+    assert.equal(undated.asOf, undefined);
 
     // A room source that fails for one account leaves only that row unknown, without breaking the list.
     const partial = await rowsOf({ accounts: () => accounts.list(1), room: (a: Account) => { if (a.id === work) throw new Error('readings are down'); return rooms[a.id]; } }, Date.now());
     assert.equal(partial.find((r) => r.id === work)!.detail, 'Room left unknown');
-    assert.equal(partial.find((r) => r.id === personal)!.detail, 'Plus · 30% left this week');
+    assert.equal(partial.find((r) => r.id === personal)!.detail, 'Plus · 15% left this session');
   } finally {
     accounts.stop();
     await openai.close();
