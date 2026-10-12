@@ -406,23 +406,42 @@ mock.method(globalThis, 'fetch', (input, options) => {
   const kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), callbackPort: 0 });
   try {
     await kit.start();
+    const go = (from: number, bearer: string) => stub.calls.slice(from).filter((c) => c.authorization === `Bearer ${bearer}`);
+    const start = stub.calls.length;
     const views: SignInView[] = [];
     const added = await kit.addAccount('m1', { authChoice: 'opencode-go' }, (v) => views.push(v));
     added.paste(key);
     assert.deepEqual(await added.done, { view: { state: 'done', via: 'browser' }, id: 'opencode-go' });
     assert.deepEqual((await kit.accounts('m1')).map((a) => [a.id, a.billing, a.state]), [['opencode-go', 'subscription', 'ready']]);
+    // OpenCode Go routes only a request carrying `x-opencode-session` (400 without it, since 2026-09-06): the
+    // activation's live test sends one too.
+    const probe = go(start, key);
+    assert.ok(probe.length && probe.every((c) => c.session), `activation probe: ${JSON.stringify(probe.map((c) => c.session))}`);
 
     // Straight after done, with no model named: the gateway already restarted onto the new sign-in, and the
     // models map the kit writes is not an allowlist that would send the member back to openai.
-    const before = stub.calls.length;
-    const texts: string[] = [];
-    const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:o14:go', message: 'hello go' },
-      (e) => { if (e.type === 'text') texts.push(e.text); });
-    assert.ok(end.ok, JSON.stringify(end));
-    assert.ok(texts.length && end.usage?.total, 'streamed with usage');
-    const calls = stub.calls.slice(before);
-    assert.ok(calls.length && calls.every((c) => c.authorization === `Bearer ${key}` && c.body.model === 'deepseek-v4-pro'),
-      JSON.stringify(calls.map((c) => [c.authorization === `Bearer ${key}`, c.body.model])));
+    const turn = async (sessionKey: string, spec: { member: string; auth?: 'apiKey' }, bearer: string) => {
+      const before = stub.calls.length;
+      const texts: string[] = [];
+      const end = await kit.run({ ...spec, sessionKey, message: 'hello go' }, (e) => { if (e.type === 'text') texts.push(e.text); });
+      assert.ok(end.ok, JSON.stringify(end));
+      assert.ok(texts.length && end.usage?.total, 'streamed with usage');
+      const calls = stub.calls.slice(before);
+      assert.ok(calls.length && calls.every((c) => c.authorization === `Bearer ${bearer}` && c.body.model === 'deepseek-v4-pro' && c.session),
+        JSON.stringify(calls.map((c) => [c.authorization === `Bearer ${bearer}`, c.body.model, !!c.session])));
+      return new Set(calls.map((c) => c.session));
+    };
+    const first = await turn('agent:m1:o14:go', { member: 'm1' }, key);
+    const again = await turn('agent:m1:o14:go', { member: 'm1' }, key);
+    const other = await turn('agent:m1:o14:go-2', { member: 'm1' }, key);
+    assert.equal(first.size, 1, 'one session header per conversation');
+    assert.deepEqual([...again], [...first], 'stable across turns of one conversation');
+    assert.ok(![...other].some((s) => first.has(s)), 'another conversation, another session');
     assert.ok(!JSON.stringify(views).includes(key), 'the key is never shown');
+
+    // The key path too: addKey sets the same plan key up on the member's key agent, and `auth: 'apiKey'` runs on it.
+    const key2 = 'byokit-go-stand-in-key-6682';
+    assert.equal(await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: key2 }), 'ok');
+    await turn('agent:m2:o14:go-key', { member: 'm2', auth: 'apiKey' }, key2);
   } finally { await kit.stop(); mock.restoreAll(); syncBuiltinESMExports(); }
 });

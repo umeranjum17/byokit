@@ -23,7 +23,7 @@ export type StubRequest = {
   messages?: { role?: string; content?: unknown; name?: unknown; tool_call_id?: unknown }[];
   stream_options?: { include_usage?: boolean };
 };
-export type StubCall = { authorization: string; path: string; body: StubRequest };
+export type StubCall = { authorization: string; path: string; body: StubRequest; session?: string };
 
 /** The token usage every stub reply reports when asked (`stream_options.include_usage`), per model call. */
 export const STUB_USAGE = { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 } as const;
@@ -77,7 +77,8 @@ export function startModelStub(script: string[] = [], o: ModelStubOptions = {}):
     for await (const chunk of req) chunks.push(chunk);
     let body: StubRequest;
     try { body = JSON.parse(Buffer.concat(chunks).toString()) as StubRequest; } catch { res.writeHead(400).end(); return; }
-    const call = { authorization: String(req.headers.authorization ?? ''), path: req.url ?? '', body };
+    const call = { authorization: String(req.headers.authorization ?? ''), path: req.url ?? '', body,
+      ...(req.headers['x-opencode-session'] ? { session: String(req.headers['x-opencode-session']) } : {}) };
     calls.push(call); o.onCall?.(call); // Fixture evidence is persisted before any response/hold awaits.
     if (req.url === '/api/embed' || req.url === '/api/embeddings') {
       res.writeHead(200, { 'content-type': 'application/json' });
