@@ -95,7 +95,7 @@ export function createRuns(ctx: {
   tools: ReadonlySet<string>; // KitOptions.tools names, the only names a run's subset may carry
   accounts?: Pick<ReturnType<typeof createAccounts>, 'pick' | 'rest'>; // 5.15: account runs
   locks?: ReturnType<typeof createLocks>;
-  routes: Map<string, string>; // the caller's session key -> the account session its live run uses; steer and abort follow it
+  routes: Map<string, { session: string }>; // the caller's session key -> the account session its live run uses; steer and abort follow it
 }): {
   run<const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void, keyAgent?: string, preparedOutput?: ReturnType<typeof outputSchema>): Promise<RunEnd<SchemaOutput<S>>>;
   steer(k: string, t: string): Promise<void>;
@@ -164,16 +164,22 @@ export function createRuns(ctx: {
       // lock from its ready check to its end. An automatic pick not signed in is skipped before any event; an explicit
       // one announces itself, then ends signed-out.
       const end = await locks.shared(agent!, async (): Promise<RunEnd<SchemaOutput<S>> | undefined> => {
-        if (automatic && !await signedIn(agent!, pick.account.provider)) return undefined;
-        ctx.routes.set(spec.sessionKey, sessionKey);
+        let ready: boolean;
+        try {
+          ready = await signedIn(agent!, pick.account.provider);
+        } catch (error) {
+          return failure(error instanceof Error ? error.message : String(error));
+        }
+        if (!ready && automatic) return undefined;
+        const route = { session: sessionKey };
+        ctx.routes.set(spec.sessionKey, route);
         try {
           on?.({ type: 'account', account: pick.account.id, model: pick.model, sessionKey, how: pick.how, why: pick.why, considered: pick.considered });
-          if (!automatic && !await signedIn(agent!, pick.account.provider))
-            return { ok: false, kind: 'signed-out', message: `${pick.account.name} is not signed in` };
+          if (!ready) return { ok: false, kind: 'signed-out', message: `${pick.account.name} is not signed in` };
           return await start(spec, on, { agentId: agent!, sessionKey, idempotencyKey, system,
             picked: pick.model ? account(pick.model) : undefined, output, chosen: pick }); // '' = no override
         } finally {
-          ctx.routes.delete(spec.sessionKey);
+          if (ctx.routes.get(spec.sessionKey) === route) ctx.routes.delete(spec.sessionKey);
         }
       });
       if (end === undefined) {
@@ -310,7 +316,7 @@ export function createRuns(ctx: {
   };
   return {
     run,
-    steer: (k, t) => ctx.request('sessions.steer', { sessionKey: ctx.routes.get(k) ?? k, message: t }) as Promise<void>,
-    abort: async (k) => { await ctx.request('chat.abort', { sessionKey: ctx.routes.get(k) ?? k }); },
+    steer: (k, t) => ctx.request('sessions.steer', { sessionKey: ctx.routes.get(k)?.session ?? k, message: t }) as Promise<void>,
+    abort: async (k) => { await ctx.request('chat.abort', { sessionKey: ctx.routes.get(k)?.session ?? k }); },
   };
 }
