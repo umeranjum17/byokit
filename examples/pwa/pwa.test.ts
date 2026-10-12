@@ -365,7 +365,8 @@ test('Ask on both cards: one question at a time, Stop, and an older answer never
     await asked(3);
     await held[2].route.abort('failed');
     await page.waitForFunction((k) => !(document.querySelector(`#${k} [data-ask]`) as HTMLButtonElement).disabled, key);
-    assert.match((await out.textContent())!, /fetch|could not answer/i, `${key}: the failure is shown`);
+    // The Claude card names an unreachable network in plain words; the ChatGPT card keeps the browser's own fetch error.
+    assert.match((await out.textContent())!, key === 'claude' ? /could not be reached/ : /fetch/i, `${key}: the failure is shown`);
     await idle();
     await part(page, key, 'question').fill('Fourth');
     await ask.click();
