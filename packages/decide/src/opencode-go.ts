@@ -1,0 +1,68 @@
+// OpenCode Go plan models used for decisions, not a dedicated decision model. Probabilities are self-reported.
+// Endpoint and wire format come from the @byokit/accounts route `opencode:plan_key:opencode-go` and its pinned
+// upstream (`@earendil-works/pi-ai`, provider `opencode-go`): the OpenAI Responses shape at
+// https://opencode.ai/zen/go/v1, billed with the member's plan key as Bearer. Plan only: there is no
+// API-billed key input and no fallback between billing routes.
+import type { OpenCodeGoAccount } from '@byokit/accounts/opencode-go';
+import { UnsupportedAccountError } from './account-error.ts';
+import type { Backend } from './core.ts';
+import { normalizeImages, validateImageReferences, UnsupportedImagesError } from './images.ts';
+import { retryFetch, type RetryOptions } from './http.ts';
+import { responsesAnswers, responsesInput, responsesInstructions, responsesSchema } from './responses-wire.ts';
+import type { OpenAIRequestOptions } from './openai.ts';
+
+export { UnsupportedAccountError } from './account-error.ts';
+export type { OpenCodeGoAccount };
+export type OpenCodeGoOptions = RetryOptions & {
+  model: string;
+  /** The member's OpenCode Go plan account from the @byokit/accounts peer (`accounts.opencodeGo(member)`). */
+  account: OpenCodeGoAccount;
+  fetch?: typeof fetch;
+  request?: OpenAIRequestOptions;
+  /** Host declares the selected model supports vision; absent means text only. */
+  supportsImages?: boolean;
+};
+
+export const OPENCODE_GO_ROUTES = {
+  account: { billing: 'subscription', offer: true, consentRequired: true },
+} as const;
+
+const BASE = 'https://opencode.ai/zen/go/v1';
+
+/** One OpenCode Go plan account. Never falls back to API billing. */
+export function opencodeGo(o: OpenCodeGoOptions): Backend {
+  if (typeof o.model !== 'string' || !o.model.trim()) throw new Error('opencodeGo needs an explicit model');
+  const account = o.account;
+  if (!account || account.billing !== 'subscription' || typeof account.access !== 'function') {
+    throw new UnsupportedAccountError('OpenCode Go plan usage needs a plan account from the @byokit/accounts peer (install it and use accounts.opencodeGo(member)).');
+  }
+  const request = o.request ?? {};
+  const send = retryFetch('opencode-go', o.fetch ?? globalThis.fetch, o);
+  return {
+    name: 'opencode-go', leaves: true, supportsImages: o.supportsImages === true,
+    async ask(state, questions, signal, inputImages = []) {
+      const images = normalizeImages(inputImages);
+      validateImageReferences(questions, images);
+      if (images.length && !o.supportsImages) throw new UnsupportedImagesError(o.model);
+      const instructions = responsesInstructions(questions, request.instructions as string | undefined);
+      const input = responsesInput(state, questions, images);
+      const text = { ...request.text, format: { type: 'json_schema' as const, name: 'decisions', strict: true, schema: responsesSchema(questions) } };
+      const token = await account.access(signal);
+      // The Go endpoint routes on a per-conversation session id (pinned upstream maps its
+      // `sessionId` option to this header and omits it only when the caller has none; Go rejects
+      // the request without it). One decide call is one conversation; retries keep its id.
+      const sessionId = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(16).slice(2);
+      const headers = { 'content-type': 'application/json', authorization: `Bearer ${token}`, 'x-opencode-session': sessionId };
+      const body = { ...request, model: o.model, instructions, input, text };
+      const res = await send(`${BASE}/responses`, { method: 'POST', signal, headers, body: JSON.stringify(body) });
+      if (!res.ok) {
+        if ([400, 401, 403, 404].includes(res.status)) {
+          throw new UnsupportedAccountError(`OpenCode Go plan request unsupported (http ${res.status}).`);
+        }
+        throw new Error(`http ${res.status}`);
+      }
+      const json: unknown = await res.json();
+      return responsesAnswers(questions, json);
+    },
+  };
+}
