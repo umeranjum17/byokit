@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { test } from 'node:test';
@@ -266,6 +267,29 @@ test('API key is explicit, member-local, secret-free, and removed without fallba
   assert.equal((fake.calls.findLast((c) => c.method === 'agent')?.params as Record<string, unknown>).agentId, 'm1');
   assert.equal(JSON.stringify([end, other, views, fake.calls]).includes(canary), false);
   off();
+}));
+
+test('a Go plan key registers the live catalog once and runs any Go model', async () => withKit(async (kit, fake) => {
+  const patches = () => fake.calls.filter((c) => c.method === 'config.patch').length;
+  const goModels = async () => ((await kit.call('config.get', {}) as { config: { models?: { providers?: Record<string,
+    { models?: { id: string; api?: string }[] }> } } }).config.models?.providers?.['opencode-go']?.models);
+  const settled = async (n: number) => { for (let i = 0; i < 100 && fake.calls.filter((c) => c.method === 'byokit.catalog').length < n; i++) await delay(10); await delay(20); };
+  await settled(1);
+  assert.equal(await goModels(), undefined, 'no key, nothing registered');
+  const before = patches();
+  assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY' }), 'ok');
+  await settled(2);
+  assert.deepEqual((await goModels())?.map((m) => [m.id, m.api]),
+    [['fake-key-model', 'openai-completions'], ['fake-live-model', 'openai-responses']]);
+  assert.equal(patches(), before + 1);
+  assert.equal(await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY' }), 'ok');
+  await settled(3);
+  assert.equal(patches(), before + 1, 'an unchanged catalog is never rewritten');
+  const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:muse', auth: 'apiKey', model: 'opencode-go/fake-live-model', message: 'Hi' });
+  assert.equal(end.ok, true);
+  assert.equal((fake.calls.findLast((c) => c.method === 'agent')?.params as Record<string, unknown>).model, 'fake-live-model');
+  assert.deepEqual(await kit.run({ member: 'm1', sessionKey: 'agent:m1:muse', auth: 'apiKey', model: 'openai/gpt-5.1', message: 'Hi' }),
+    { ok: false, kind: 'plan', message: 'Choose a model of the provider saved with this key.' });
 }));
 
 test('ready runs reuse only witnessed, bounded member auth; mutations, expiry and disconnect recheck', async (t) => {
