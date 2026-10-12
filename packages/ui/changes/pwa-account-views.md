@@ -1,0 +1,1 @@
+- The PWA example's account card now runs on the shared views: `accountRows`/`modelPicker` from `@byokit/ui/accounts` draw the rows and the run picker (Auto carries its own reason, a signed-out pick shows `Sign in first` and runs nothing), and `bestMoveTarget`/`moveWords` suggest the roomier account when the chosen one is low.
