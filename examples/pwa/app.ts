@@ -267,11 +267,13 @@ function card(key: string) {
   let drawing = 0;
   let pendingAdd: string | undefined;
   let cancelledHere = false;
+  let signedIn = false;
   async function draw() {
     const mine = ++drawing;
     const status = await accounts.status(ME, key);
     // Signed in, even while resting or when the plan lacks something: Ask says why, and Sign out stays.
     const ready = status.state === 'ready' || status.state === 'resting' || status.state === 'not_included';
+    signedIn = ready;
     const plan = ready ? await accounts.plan(ME, key) : null;
     const rows = (await accounts.list(ME)).filter((a) => a.provider === key);
     const self = { id: status.id, email: plan?.email };
@@ -349,8 +351,8 @@ function card(key: string) {
     b.textContent = 'Copied';
     window.setTimeout(() => { b.textContent = 'Copy'; }, 1200);
   };
-  q('signin').onclick = () => { banner('', ''); accounts.login(ME, key).then(draw); };
-  q('add').onclick = async () => {
+  const signIn = () => { banner('', ''); return accounts.login(ME, key).then(draw); };
+  const addAnother = async () => {
     note('');
     try {
       const added = await accounts.add(ME, key, { fresh: true });
@@ -358,6 +360,10 @@ function card(key: string) {
     } catch (e: any) { note(e.message); }
     draw();
   };
+  q('signin').onclick = signIn;
+  q('add').onclick = addAnother;
+  // A row in the Add sheet starts this card's own way in. A sign-in already waiting here is shown, never doubled.
+  const start = () => (pendingAdd || accounts.view(ME, key)?.state === 'waiting' ? draw() : signedIn ? addAnother() : signIn());
   q('cancel').onclick = () => {
     cancelledHere = true;
     accounts.cancel(ME, pendingAdd ?? key);
@@ -429,16 +435,16 @@ function card(key: string) {
   };
   q('stop').onclick = () => settle();
   q('signout').onclick = async () => { settle(); await accounts.logout(ME, key); note(''); show('answer', false); draw(); };
-  return draw;
+  return { draw, start };
 }
 
 const $ = (id: string) => document.getElementById(id)!;
 // The picker is the catalogue's: every provider this platform can sign in to, in the order the kit offers them.
-const draws: Record<string, () => Promise<void>> = Object.fromEntries(accounts.providers.map((p) => [p.key, card(p.key)]));
+const cards: Record<string, ReturnType<typeof card>> = Object.fromEntries(accounts.providers.map((p) => [p.key, card(p.key)]));
 // An account being added reports under its own id, not its provider: redraw its card too, not only exact hits.
-accounts.onChange = (_member, key) => { const d = draws[key]; if (d) d(); else Object.values(draws).forEach((d) => d()); };
+accounts.onChange = (_member, key) => { const c = cards[key]; if (c) c.draw(); else Object.values(cards).forEach((c) => c.draw()); };
 Promise.all(accounts.providers.map((p) => accounts.signedIn(ME, p.key)))
-  .then(() => accounts.keepFresh([ME])).then(() => Object.values(draws).forEach((d) => d()));
+  .then(() => accounts.keepFresh([ME])).then(() => Object.values(cards).forEach((c) => c.draw()));
 
 /** The card a route signs in on, when this page has one: the provider with that route's upstream id. */
 const cardFor = (row: ConnectRow, routes: RouteView[]) => accounts.providers.find((p) => p.pi === routes.find((r) => r.id === row.id)?.upstream.id)?.key;
@@ -476,12 +482,11 @@ function addSheet() {
       row.onclick = () => {
         if (!key) return;
         $('add-sheet').hidden = true;
-        const card = $(key);
-        card.tabIndex = -1;
-        card.focus();
-        card.scrollIntoView({ block: 'start' });
-        const start = card.querySelector<HTMLButtonElement>('[data-signin]:not([hidden])') ?? card.querySelector<HTMLButtonElement>('[data-add]:not([hidden])');
-        start?.click();
+        const el = $(key);
+        el.tabIndex = -1;
+        el.focus();
+        el.scrollIntoView({ block: 'start' });
+        void cards[key].start();
       };
       group.append(row);
     }

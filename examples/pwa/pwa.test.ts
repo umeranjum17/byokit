@@ -165,6 +165,45 @@ test('Add an account: every route grouped, Plans first, unavailable ones say why
   } finally { await context.close(); }
 });
 
+test('Add sheet rows start their own card: a signed-in plan row adds another sign-in with its code; a tap while one waits starts nothing new', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext({ serviceWorkers: 'block' });
+  try {
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    const usercodes = () => openai.state.requests.filter((r) => r.path === '/api/accounts/deviceauth/usercode').length;
+    const shownCode = () => page.locator('#chatgpt [data-sheet]:not([hidden]) [data-code]').textContent();
+    await page.goto(site.url);
+    await part(page, 'chatgpt', 'signin').click();
+    const code = (await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).textContent())!;
+    const [provider] = await Promise.all([context.waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
+    await provider.fill('#code', code);
+    await provider.click('#continue');
+    await provider.close();
+    await page.locator('#chatgpt [data-email]').filter({ hasText: 'umer@example.com' }).waitFor();
+
+    await page.locator('#add-open').click();
+    await page.locator('[data-route="openai:code"]').click();
+    await page.waitForFunction((first) => {
+      const shown = document.querySelector('#chatgpt [data-sheet]:not([hidden]) [data-code]')?.textContent ?? '';
+      return shown.startsWith('MOCK-') && shown !== first;
+    }, code);
+    const added = await shownCode();
+    assert.equal(await part(page, 'chatgpt', 'signin').isVisible(), false, 'the card is not signed out');
+    assert.equal(await page.locator('#add-sheet').isVisible(), false, 'the sheet closes on the card it started');
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'chatgpt', 'focus lands on that card');
+
+    const started = usercodes();
+    await page.locator('#add-open').click();
+    await page.locator('[data-route="openai:code"]').click();
+    await page.waitForTimeout(1500);
+    assert.equal(usercodes(), started, 'a tap while that sign-in waits starts nothing new');
+    assert.equal(await shownCode(), added, 'the waiting code is the one shown');
+    assert.equal(await part(page, 'chatgpt', 'sheet').isVisible(), true, 'the pending sign-in stays on its card');
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
 test('sign in with Claude in a browser: its page, the code pasted back, the plan named, an answer streamed', { timeout: 120_000 }, async () => {
   const fixture = (f: string) => JSON.parse(readFileSync(new URL(`../../fixtures/conformance/${f}`, import.meta.url), 'utf8'));
   const plan = fixture('claude-plan-typescript.json'), messages = fixture('claude-messages-typescript.json').cases[0];
