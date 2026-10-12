@@ -61,8 +61,8 @@ export function createTurns(kit: HerdrKit) {
     if (panes.has(target.paneId)) throw fail('turn-busy');
     if (!isAbsolute(o.cwd)) throw fail('turn-cwd');
     const timeoutMs = positiveLimit(o.timeoutMs, 300000);
-    // Fail invalid configuration before delivering a prompt.
-    positiveLimit(o.files?.maxFiles, 10000); positiveLimit(o.files?.maxBytes, 128 * 1024 * 1024);
+    // Fail invalid configuration before delivering a prompt (no scan means no file limits to check).
+    if (o.files !== false) { positiveLimit(o.files?.maxFiles, 10000); positiveLimit(o.files?.maxBytes, 128 * 1024 * 1024); }
     if (o.result) positiveLimit(o.result.maxBytes, 1024 * 1024);
     const schema = o.result ? JSON.stringify(o.result.schema) : undefined;
     const id = randomUUID();
@@ -102,7 +102,7 @@ export function createTurns(kit: HerdrKit) {
       const endSignal = new Promise<'idle' | 'done'>((resolve) => { resolveEnd = resolve; });
       const watch = kit.subscribe([{ type: 'pane.agent_status_changed', pane_id: target.paneId }], (e) => {
         if (!armed) {
-          if (e.agent_status !== 'idle') abort('turn-busy');
+          if (e.agent_status !== 'idle' && e.agent_status !== 'done') abort('turn-busy');
           return;
         }
         if (ended) {
@@ -125,7 +125,7 @@ export function createTurns(kit: HerdrKit) {
       if (!await gate(watch.ready)) throw fail('turn-watch-lost');
       const beforeAgent = await gate(kit.call('agent.get', { target: target.paneId }));
       const agent = beforeAgent.agent;
-      if (agent.agent_status !== 'idle' || agent.launch_pending === true) throw fail('turn-not-idle');
+      if ((agent.agent_status !== 'idle' && agent.agent_status !== 'done') || agent.launch_pending === true) throw fail('turn-not-idle');
       if (target.name && agent.name !== target.name) throw fail('turn-unavailable');
       const cwd = agent.foreground_cwd ?? agent.cwd;
       if (typeof cwd !== 'string' || await gate(realpath(cwd)) !== root) throw fail('turn-cwd');
