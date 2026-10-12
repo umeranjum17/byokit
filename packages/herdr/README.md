@@ -287,8 +287,10 @@ the extra install dirs a service PATH omits (`extraPathDirs`: `~/.local/bin`, th
 Sign-in comes only from each CLI's own documented non-secret status command, with a 10 s timeout;
 a kind whose CLI has none, or whose command gives no answer, reads `unknown`. Credential files
 are never opened, read or statted — only the signed-in boolean is kept. Install detection tells a
-real runnable binary apart from an auto-install launcher: a mise-style shim on PATH, or nothing
-on PATH at all, retains the legacy `installState: 'installs-on-first-start'` with `installed: false`.
+real runnable binary apart from an auto-install launcher: a shell script (a `sh`, `bash`, `zsh`,
+`dash`, `ksh` or `ash` shebang) whose text mentions mise, or nothing on PATH at all, retains the
+legacy `installState: 'installs-on-first-start'` with `installed: false`. A binary whose interpreter
+merely lives under mise (for example a Node script) reads `installed`.
 **Muse is different:** no executable, an auto-install shim, or an official launcher without its selected native release,
 reads `installState: 'missing'`. Stock Herdr does not install an absent Muse command. That covers `pi`, which
 Herdr installs via mise: a missing or shimmed `pi` reads `installed: false` with `installs on
