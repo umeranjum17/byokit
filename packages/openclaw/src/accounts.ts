@@ -231,6 +231,9 @@ export function createAccounts(ctx: {
     if (before !== undefined && await identityOf(memberAgent) !== before)
       await ctx.request('agents.files.set', { agentId: memberAgent, name: IDENTITY, content: before });
   };
+  const onGateway = (agent: string): Promise<boolean> => untilListed(ctx.request, agent)
+    .then(() => true, () => (ctx.request('agents.list') as Promise<{ agents: { id: string }[] }>)
+      .then((r) => r.agents.some((a) => a.id === agent)));
   // A new agent whose sign-in did not finish goes with its entry (5.15); the shared workspace stays. The entry is
   // dropped only once the agent's directory is gone, so a later removal can finish what this one could not.
   const discard = (member: Member, memberAgent: string, id: AccountId, agent: string, created: boolean): Promise<void> => (async () => {
@@ -287,8 +290,11 @@ export function createAccounts(ctx: {
         } catch (error) {
           await restoreIdentity(memberAgent, before)
             .catch((restoreError: unknown) => ctx.log?.(`addAccount: IDENTITY.md is not restored: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`));
-          const exists = created || (await rosterOf()).has(agent);
-          await discard(member, memberAgent, id, agent, exists);
+          const exists = created || await onGateway(agent).catch((listError: unknown) => {
+            ctx.log?.(`addAccount: ${agent} is not removed yet: ${listError instanceof Error ? listError.message : String(listError)}`);
+            return undefined;
+          });
+          if (exists !== undefined) await discard(member, memberAgent, id, agent, exists);
           throw error;
         }
       });

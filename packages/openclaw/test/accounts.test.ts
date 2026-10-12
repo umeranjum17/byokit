@@ -99,6 +99,7 @@ test('account index: sign in, list, rename, defaults, restart, list again', asyn
     let gate: Promise<void> | undefined;
     let wrongAnswer: string | undefined;
     let loseReply = false;
+    let lagging: { id: string; until: number } | undefined;
     let holdCreate: { landed: () => void; release: Promise<void> } | undefined;
     let holding: string[] | undefined;
     const gated: typeof fake.factory = (ctx) => {
@@ -106,9 +107,13 @@ test('account index: sign in, list, rename, defaults, restart, list again', asyn
       return { ...transport, request: async (method, params, o) => {
         holding?.push(method);
         if (method === 'wizard.next') await gate;
+        if (method === 'agents.list' && lagging && Date.now() < lagging.until) {
+          const list = await transport.request(method, params, o) as { agents: { id: string }[] };
+          return { ...list, agents: list.agents.filter((a) => a.id !== lagging!.id) };
+        }
         if (method !== 'agents.create') return transport.request(method, params, o);
         const made = await transport.request(method, params, o) as { agentId: string };
-        if (loseReply) { loseReply = false; throw new Error('gateway reply lost'); }
+        if (loseReply) { loseReply = false; lagging = { id: made.agentId, until: Date.now() + 200 }; throw new Error('gateway reply lost'); }
         if (wrongAnswer !== undefined) { const answer = wrongAnswer; wrongAnswer = undefined; return { ...made, agentId: answer }; }
         if (holdCreate) {
           const hold = holdCreate;
@@ -187,9 +192,11 @@ test('account index: sign in, list, rename, defaults, restart, list again', asyn
       assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8')).accounts), ['openai', 'openai.def456'], 'and its entry');
       assert.equal(await identity(), identityBefore, 'IDENTITY.md is restored after the failed create');
 
-      // The gateway made the agent, then the create reply was lost: the failure is the real cause, and the agent it made goes too.
+      // The gateway made the agent, then the create reply was lost: its roster lags the reply, so the failure is the real
+      // cause and the agent it made goes too once the roster shows it.
       loseReply = true;
       await assert.rejects(third.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {}), /gateway reply lost/);
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, lagging!.until - Date.now()) + 1));
       assert.deepEqual(await roster(), rosterBefore, 'the agent the lost reply left behind is removed');
       assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8')).accounts), ['openai', 'openai.def456'], 'and its entry');
       assert.equal(await identity(), identityBefore, 'IDENTITY.md is restored after the lost reply');
