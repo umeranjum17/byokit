@@ -52,8 +52,8 @@ export function createAccounts(ctx: {
   setDefaults(member: Member, d: Defaults): Promise<void>;
 } {
   const path = (member: Member): string => join(ctx.root, 'accounts', `${member}.json`);
-  // Accounts whose sign-in is running, as `<member>\n<id>`: listed `signing` until it ends.
-  const signing = new Set<string>();
+  // Accounts whose sign-in is running, as `<member>\n<id>`, counted per add: listed `signing` until the last one ends.
+  const signing = new Map<string, number>();
   const check = (member: Member): void => {
     if (!MEMBER_ID.test(member) || member.startsWith(KEY_PREFIX)) throw new Error(`invalid member id: ${member}`);
   };
@@ -227,6 +227,10 @@ export function createAccounts(ctx: {
     const { file } = await ctx.request('agents.files.get', { agentId, name: IDENTITY }) as { file: { missing?: boolean; content?: string } };
     return file.missing ? undefined : file.content;
   };
+  const restoreIdentity = async (memberAgent: string, before: string | undefined): Promise<void> => {
+    if (before !== undefined && await identityOf(memberAgent) !== before)
+      await ctx.request('agents.files.set', { agentId: memberAgent, name: IDENTITY, content: before });
+  };
   // A new agent whose sign-in did not finish goes with its entry (5.15); the shared workspace stays. The entry is
   // dropped only once the agent's directory is gone, so a later removal can finish what this one could not.
   const discard = (member: Member, memberAgent: string, id: AccountId, agent: string, created: boolean): Promise<void> => (async () => {
@@ -270,23 +274,27 @@ export function createAccounts(ctx: {
       });
       added = true;
       let created = false;
-      try {
-        // The pin rewrites the shared workspace's IDENTITY.md Name line on create; the member's own line is kept.
-        const before = await identityOf(memberAgent);
-        const made = await ctx.request('agents.create', { name: agent, workspace }) as { agentId?: string };
-        created = true;
-        if (made.agentId !== agent) throw new Error(`addAccount: agents.create answered ${String(made.agentId)}, not ${agent}`);
-        await untilListed(ctx.request, agent);
-        if (before !== undefined && await identityOf(memberAgent) !== before)
-          await ctx.request('agents.files.set', { agentId: memberAgent, name: IDENTITY, content: before });
-      } catch (error) {
-        await discard(member, memberAgent, id, agent, created);
-        throw error;
-      }
+      // The pin rewrites the shared workspace's IDENTITY.md Name line on create, so the create window is one lock per member.
+      await ctx.locks.exclusive([`${member}#identity`], async () => {
+        let before: string | undefined;
+        try {
+          before = await identityOf(memberAgent);
+          const made = await ctx.request('agents.create', { name: agent, workspace }) as { agentId?: string };
+          created = true;
+          if (made.agentId !== agent) throw new Error(`addAccount: agents.create answered ${String(made.agentId)}, not ${agent}`);
+          await untilListed(ctx.request, agent);
+          await restoreIdentity(memberAgent, before);
+        } catch (error) {
+          if (created) await restoreIdentity(memberAgent, before)
+            .catch((restoreError: unknown) => ctx.log?.(`addAccount: IDENTITY.md is not restored: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`));
+          await discard(member, memberAgent, id, agent, created);
+          throw error;
+        }
+      });
     }
 
     const key = `${member}\n${id}`;
-    signing.add(key);
+    signing.set(key, (signing.get(key) ?? 0) + 1);
     const handle = ctx.signIn(agent, { authChoice: route.choice, ...(o.via ? { via: o.via } : {}) },
       (v) => { if (v.state === 'waiting') on(v); }, fresh);
     // Sealed before the person sees done: the agent keeps only this sign-in, and its `who` goes to the index.
@@ -308,8 +316,11 @@ export function createAccounts(ctx: {
         .catch((error: unknown) => ctx.log?.(`addAccount: ${id} entry is kept: ${error instanceof Error ? error.message : String(error)}`));
       return view;
     };
-    const done = handle.done.then(settle).then((view) => {
-      signing.delete(key);
+    const done = handle.done.then(settle).finally(() => {
+      const left = signing.get(key)! - 1;
+      if (left) signing.set(key, left);
+      else signing.delete(key);
+    }).then((view) => {
       on(view);
       return { view, id };
     });

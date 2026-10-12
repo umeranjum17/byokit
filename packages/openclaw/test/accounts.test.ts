@@ -97,11 +97,17 @@ test('account index: sign in, list, rename, defaults, restart, list again', asyn
     // S6: a second ChatGPT account on its own sealed agent. wizard.next waits on `gate` so a sign-in can be
     // caught running; the first draw collides with the unindexed `m1--abc123` above and is drawn again.
     let gate: Promise<void> | undefined;
+    let wrongAnswer: string | undefined;
+    let holdCreate: { landed: () => void; release: Promise<void> } | undefined;
     const gated: typeof fake.factory = (ctx) => {
       const transport = fake.factory(ctx);
       return { ...transport, request: async (method, params, o) => {
         if (method === 'wizard.next') await gate;
-        return transport.request(method, params, o);
+        if (method !== 'agents.create') return transport.request(method, params, o);
+        const made = await transport.request(method, params, o) as { agentId: string };
+        if (wrongAnswer !== undefined) { const answer = wrongAnswer; wrongAnswer = undefined; return { ...made, agentId: answer }; }
+        if (holdCreate) { const hold = holdCreate; holdCreate = undefined; hold.landed(); await hold.release; }
+        return made;
       } };
     };
     const draws = ['abc123', 'def456'];
@@ -161,6 +167,36 @@ test('account index: sign in, list, rename, defaults, restart, list again', asyn
       const after = readFileSync(file, 'utf8');
       for (const canary of ['fake-access', 'fake-refresh', 'fake-m1', 'openai:default', '@', 'email', 'token'])
         assert.ok(!after.includes(canary), `index leaks ${canary}`);
+
+      // A failure after agents.create (its answer names another agent) restores IDENTITY.md and removes the new agent and entry.
+      const rosterBefore = await roster();
+      wrongAnswer = 'm1--elsewhere';
+      await assert.rejects(third.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {}), /answered m1--elsewhere/);
+      assert.deepEqual(await roster(), rosterBefore, 'the agent of the failed create is removed');
+      assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8')).accounts), ['openai', 'openai.def456'], 'and its entry');
+      assert.equal(await identity(), identityBefore, 'IDENTITY.md is restored after the failed create');
+
+      // Two adds on one member at once: the second waits while the first's create is held, so IDENTITY.md keeps the member's line.
+      gate = new Promise(() => {});
+      let landed!: () => void;
+      const createLanded = new Promise<void>((resolve) => { landed = resolve; });
+      let release!: () => void;
+      holdCreate = { landed, release: new Promise<void>((resolve) => { release = resolve; }) };
+      const racing = third.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+      await createLanded;
+      const late = third.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      release();
+      const [a, b] = await Promise.all([racing, late]);
+      assert.equal(await identity(), identityBefore, 'two adds at once leave IDENTITY.md byte-identical');
+      a.cancel();
+      b.cancel();
+      assert.notEqual((await a.done).view.state, 'done');
+      assert.notEqual((await b.done).view.state, 'done');
+      gate = undefined;
+      assert.deepEqual(await roster(), rosterBefore, 'both new agents are removed');
+      assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8')).accounts), ['openai', 'openai.def456'], 'and their entries');
+      assert.equal(await identity(), identityBefore);
     } finally {
       mock.restoreAll();
       syncBuiltinESMExports();
