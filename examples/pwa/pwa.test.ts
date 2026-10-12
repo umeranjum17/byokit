@@ -142,6 +142,11 @@ test('Add an account: every route grouped, Plans first, unavailable ones say why
     assert.ok((await lines('plans')).every((l) => l.startsWith('Uses your ')), 'a plan says it uses your plan');
     assert.ok((await lines('perUse')).every((l) => l.startsWith('Charged per use')), 'nothing billed per use is a plan');
     const row = (id: string) => page.locator(`[data-route="${id}"]`);
+    assert.equal(await row('openai:code').locator('.route-name').textContent(), 'ChatGPT — sign in with a code', 'each card names its way in');
+    for (const g of groups) {
+      const unavailable = await page.locator(`[data-group="${g}"] .route`).evaluateAll((els) => els.map((e) => e.hasAttribute('data-unavailable')));
+      assert.deepEqual(unavailable, [...unavailable].sort((a, b) => Number(a) - Number(b)), `${g}: ready ways in before unavailable ones`);
+    }
     for (const [id, words] of [['anthropic:paste', 'Needs the app on your computer.'], ['openai:browser', 'Not available on this device.']]) {
       assert.equal(await row(id).isDisabled(), true, `${id} cannot be tapped`);
       assert.equal(await row(id).getAttribute('data-unavailable'), '');

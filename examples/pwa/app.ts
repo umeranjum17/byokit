@@ -458,7 +458,8 @@ function addSheet() {
     note.className = 'company';
     note.textContent = g.note;
     group.append(title, note);
-    for (const r of g.rows) {
+    // Ready ways in first, then the ones that cannot be used here; each keeps the kit's order within its kind.
+    for (const r of [...g.rows].sort((a, b) => Number(b.ready) - Number(a.ready))) {
       const key = r.does === 'signin' ? cardFor(r, routes) : undefined;
       const row = document.createElement('button');
       row.className = 'route';
@@ -468,8 +469,9 @@ function addSheet() {
       if (!key) row.setAttribute('aria-disabled', 'true');
       if (!r.ready) row.dataset.unavailable = '';
       const line = (cls: string, words: string) => { const s = document.createElement('span'); s.className = cls; s.textContent = words; row.append(s); };
-      line('route-name', r.name);
-      line('route-line', `${r.billingWords} · ${r.method}`);
+      // The way in names the card: one provider can have several (its page, a pasted code, a key).
+      line('route-name', `${r.name} — ${r.method[0].toLowerCase()}${r.method.slice(1)}`);
+      line('route-line', r.billingWords);
       line('route-status', r.ready && !key ? 'Ready, but this page has no form for it yet.' : r.status);
       row.onclick = () => {
         if (!key) return;

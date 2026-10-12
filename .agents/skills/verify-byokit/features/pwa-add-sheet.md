@@ -1,6 +1,6 @@
 # PWA Add an account sheet (WP10-S6)
 
-The example PWA's **Add an account** sheet lists every route `accounts.routes()` returns, grouped by `@byokit/ui/connect`'s `connectView`: Plans first, then Pay per use and the rest, each row with how it is paid for, how you sign in and whether it works here. A row is a button only when this page can start it (a ready sign-in route whose provider has a card here, e.g. `openai:code` → the ChatGPT card's sign-in). A route that is not ready (`needs_host`, `unsupported_platform`, `no_upstream_flow`; no browser route needs a binary today) shows its readiness words and is disabled; a ready key route this page has no form for is disabled and says so.
+The example PWA's **Add an account** sheet lists every route `accounts.routes()` returns, grouped by `@byokit/ui/connect`'s `connectView`: Plans first, then Pay per use and the rest, each row titled by its provider and way in (`ChatGPT — sign in with a code`), with how it is paid for and whether it works here; ready routes first within each group. A row is a button only when this page can start it (a ready sign-in route whose provider has a card here, e.g. `openai:code` → the ChatGPT card's sign-in). A route that is not ready (`needs_host`, `unsupported_platform`, `no_upstream_flow`; no browser route needs a binary today) shows its readiness words and is disabled; a ready key route this page has no form for is disabled and says so.
 
 ## How to get to it (user POV)
 
