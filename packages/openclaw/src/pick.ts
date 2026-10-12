@@ -125,11 +125,12 @@ export function resolveSelection(accounts: readonly Account[], defaults: Default
   const rows = considerRows(accounts, (a) => room(a, demand), nowMs, demand, models, provider, named, bound);
   const considered = rows.map((c) => c.row);
   const auto = rank(rows); // also fills explanations for every eligible row, even on explicit selection
+  const restingPick = (c: Candidate): AccountPick => ({ ok: false, code: 'resting', account: c.account.id, until: c.row.until,
+    reason: words('pick.out.resting', { time: finite(c.row.until) ? clock(c.row.until) : '' }), considered });
   if (named !== undefined) {
     const chosen = rows.find((c) => c.account.id === named);
     if (!chosen) return { ok: false, code: 'unknown_account', reason: words('auto.none', { provider: provider ?? '' }), considered };
-    if (chosen.row.out === 'resting') return { ok: false, code: 'resting', account: chosen.account.id, until: chosen.row.until,
-      reason: words('pick.out.resting', { time: finite(chosen.row.until) ? clock(chosen.row.until) : '' }), considered };
+    if (chosen.row.out === 'resting') return restingPick(chosen);
     if (chosen.row.out) return { ok: false, code: 'not_included', reason: words(`pick.out.${chosen.row.out}` as WordKey, { model: chosen.row.missing ?? '' }), considered };
     return finish(chosen.account, chosen.row, sel.account === 'default' ? 'default' : 'chosen', sel.account === 'default' ? 'default' : 'chosen');
   }
@@ -137,6 +138,10 @@ export function resolveSelection(accounts: readonly Account[], defaults: Default
     const first = rows.find((c) => !c.row.out);
     if (first) return finish(first.account, first.row, 'default', 'first_ready');
   } else if (auto) return finish(auto.account, auto.row, 'auto', auto.why);
+  const eligible = rows.filter((c) => !c.row.out || c.row.out === 'resting');
+  const rests = eligible.filter((c) => c.row.out === 'resting');
+  if (rests.length && rests.length === eligible.length)
+    return restingPick(rests.reduce((a, b) => ((b.row.until ?? Infinity) < (a.row.until ?? Infinity) ? b : a)));
   return { ok: false, code: 'none', reason: words('auto.none', { provider: provider ?? '' }), considered };
 
   function finish(account: Account, row: Considered, how: 'chosen' | 'default' | 'auto', why: PickWhy): AccountPick {

@@ -435,7 +435,8 @@ test('run on an account: account event first, Auto by room, resting skip, ready 
     assert.ok(!memberRested.end.ok && 'kind' in memberRested.end && memberRested.end.kind === 'resting');
     assert.ok(Math.abs(memberRested.end.until! - (Date.now() + 5 * 60_000)) < 60_000, 'no time named: five minutes');
     const none = await run({ sessionKey: 'agent:m1:chat:6', account: 'auto' });
-    assert.deepEqual(none.end, { ok: false, kind: 'signed-out', message: 'No signed-in openai account.' });
+    assert.ok(!none.end.ok && 'kind' in none.end && none.end.kind === 'resting' && none.end.until === memberRested.end.until,
+      JSON.stringify(none.end));
     assert.deepEqual([none.events, none.requests], [[], []]);
 
     await assert.rejects(kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:7', message: 'hi', account: 'openai.ffffff' }),

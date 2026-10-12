@@ -138,16 +138,18 @@ export function createRuns(ctx: {
     }
     if (keyAgent) throw new Error('refused: an API-key run uses its own account');
     if (!ctx.accounts || !ctx.locks) throw new Error('gateway not ready');
+    const accounts = ctx.accounts;
+    const restAccount = async (id: string, until: number | undefined): Promise<number> => {
+      const at = until ?? Date.now() + REST_MS;
+      await accounts.rest(spec.member, id, at);
+      return at;
+    };
     // Step 4: the selection is resolved once, before any request; `needs` alone resolves as 'default'.
-    const { pick, agent } = await ctx.accounts.pick(spec.member, { account: spec.account ?? 'default',
+    const { pick, agent } = await accounts.pick(spec.member, { account: spec.account ?? 'default',
       ...(spec.model !== undefined ? { model: spec.model } : {}), ...(spec.needs ? { needs: spec.needs } : {}) });
     if (!pick.ok) {
       if (pick.code === 'unknown_account') throw new Error(`unknown account: ${spec.account}`); // a caller bug
-      if (pick.code === 'resting') {
-        const until = pick.until ?? Date.now() + REST_MS;
-        await ctx.accounts.rest(spec.member, pick.account, until);
-        return { ok: false, kind: 'resting', until, message: pick.reason };
-      }
+      if (pick.code === 'resting') return { ok: false, kind: 'resting', until: await restAccount(pick.account, pick.until), message: pick.reason };
       return { ok: false, kind: pick.code === 'none' ? 'signed-out' : pick.code === 'not_included' ? 'plan' : 'other', message: pick.reason };
     }
     // An unbound key runs on the picked account's agent, under the app key's tail. The run holds the agent's shared
@@ -156,8 +158,7 @@ export function createRuns(ctx: {
       idempotencyKey, system, picked: pick.model ? account(pick.model) : undefined, output, chosen: pick })); // '' = no override
     // Step 7: a resting end rests the account, so the next Auto skips it until then.
     if (end.ok || !('kind' in end) || end.kind !== 'resting') return end;
-    const until = end.until ?? Date.now() + REST_MS;
-    await ctx.accounts.rest(spec.member, pick.account.id, until);
+    const until = await restAccount(pick.account.id, end.until);
     return { ...end, until };
   };
   const start = async <const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on: ((e: RunEvent) => void) | undefined, t: {
