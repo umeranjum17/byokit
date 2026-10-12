@@ -4,14 +4,14 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { OpenClawKit } from '../../src/kit.ts';
 import { scratchDir, sharedEngineDir } from '../../../test-support.ts';
 import { startModelStub, useModelStub, type ModelStub } from '../../src/testing/model-stub.ts';
-import type { SignInView } from '../../src/types.ts';
+import type { RunEvent, SignInView } from '../../src/types.ts';
 
 let stub: ModelStub;
 before(async () => { stub = await startModelStub(); });
@@ -285,5 +285,88 @@ test('addAccount: a second ChatGPT account agent leaves IDENTITY.md byte-identic
     assert.ok(!(added.id in JSON.parse(readFileSync(join(root, 'accounts', 'm1.json'), 'utf8')).accounts), 'and its entry');
     assert.deepEqual(readFileSync(identityPath), before, 'IDENTITY.md is still the member\'s');
     assert.ok((await kit.providers('m1')).includes('openai'), 'the member keeps its own sign-in');
+  } finally { await kit.stop(); }
+});
+
+// O14j on the real pinned engine: `run({ account })` on an unbound key runs on the account agent's own sealed sign-in.
+// Two account agents each hold their own stub key and each run bills only its own; with the member agent signed in to
+// the same provider, a signed-out account agent ends signed-out before any model request. Stub keys and the loopback
+// model stub only, never an account or the network.
+test('run({ account }): each account agent bills its own key; a signed-out one ends signed-out', { timeout: 900_000 }, async () => {
+  const dir = scratchDir('o14j-run');
+  const stateDir = join(dir, 'state');
+  const root = join(stateDir, 'openclaw');
+  // The openai provider points at the stub with no config key: every request carries the calling profile's own key.
+  const config = { plugins: { allow: ['openai'] }, models: { providers: { openai: { baseUrl: stub.url, api: 'openai-completions',
+    models: [{ id: 'gpt-5.6-sol', name: 'Test', api: 'openai-completions', reasoning: false, input: ['text'],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 2048 }] } } } };
+  let kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), config });
+  try {
+    await kit.start();
+    await kit.ensureMember('m1');
+    await kit.stop();
+    await seed(kit, dir, 'm1');
+    kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), config });
+    await kit.start();
+    assert.ok((await kit.providers('m1')).includes('openai'), 'the member agent is signed in to openai');
+
+    // Two account agents in the member's workspace, each activated with its own stub key and sealed to it.
+    const keys = { aaaaaa: 'stub-key-account-a', bbbbbb: 'stub-key-account-b' };
+    const accounts: Record<string, unknown> = {};
+    for (const [hex, apiKey] of Object.entries(keys)) {
+      const agent = `m1--${hex}`;
+      await kit.call('agents.create', { name: agent, workspace: join(root, 'workspaces', 'm1') });
+      const activated = await kit.call('openclaw.setup.activate', { kind: 'api-key', agentId: agent, authChoice: 'openai-api-key', apiKey },
+        { timeoutMs: 180_000 }) as { ok: boolean };
+      assert.equal(activated.ok, true, agent);
+      // A config write may restart a cold gateway; poll the agent's own sealed view, never an arbitrary delay.
+      let ready = false;
+      for (const deadline = Date.now() + 60_000; !ready && Date.now() < deadline;) {
+        try {
+          const sealed = await kit.callDynamic('byokit.accounts', { action: 'seal', agentId: agent, provider: 'openai' }) as { ok: boolean };
+          ready = sealed.ok && (await kit.callDynamic('byokit.accounts', { action: 'ready', agentId: agent, provider: 'openai' }) as { ok: boolean }).ok;
+        } catch { /* restarting */ }
+        if (!ready) await delay(250);
+      }
+      assert.ok(ready, `${agent} holds its sealed key`);
+      accounts[`openai.${hex}`] = { agent, name: `Key ${hex}`, route: 'openai-api-key', addedAt: Number.parseInt(hex, 16) };
+    }
+    const index = join(root, 'accounts', 'm1.json');
+    mkdirSync(join(index, '..'), { recursive: true });
+    writeFileSync(index, JSON.stringify({ v: 1, accounts, defaults: {} }));
+    chmodSync(index, 0o600);
+    // The activations' config writes can restart the gateway later, mid-run: start fresh so none is pending.
+    await kit.stop();
+    kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), config });
+    await kit.start();
+    assert.deepEqual((await kit.accounts('m1')).map((a) => [a.id, a.billing, a.state]),
+      [['openai', 'subscription', 'ready'], ['openai.aaaaaa', 'api', 'ready'], ['openai.bbbbbb', 'api', 'ready']]);
+
+    for (const [hex, apiKey] of Object.entries(keys)) {
+      const from = stub.calls.length;
+      const events: RunEvent[] = [];
+      const end = await kit.run({ member: 'm1', sessionKey: `agent:m1:o14j:${hex}`, message: 'hello account',
+        account: `openai.${hex}`, model: 'openai/gpt-5.6-sol' }, (e) => events.push(e));
+      assert.ok(end.ok && end.account === `openai.${hex}` && end.model === 'openai/gpt-5.6-sol', JSON.stringify(end));
+      const first = events[0];
+      assert.ok(first?.type === 'account' && first.sessionKey === `agent:m1--${hex}:o14j:${hex}` && first.how === 'chosen',
+        JSON.stringify(first));
+      const billed = stub.calls.slice(from).map((c) => c.authorization);
+      assert.ok(billed.length > 0 && billed.every((k) => k === `Bearer ${apiKey}`), `openai.${hex} billed: ${billed.join()}`);
+    }
+
+    // B's sign-in goes; the member agent is still signed in to openai, and B's run ends before any model request.
+    assert.deepEqual(await kit.callDynamic('byokit.accounts', { action: 'clear', agentId: 'm1--bbbbbb' }), { ok: true });
+    assert.ok((await kit.providers('m1')).includes('openai'), 'the member agent is still signed in');
+    const before = stub.calls.length;
+    const events: RunEvent[] = [];
+    const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:o14j:out', message: 'hello', account: 'openai.bbbbbb',
+      model: 'openai/gpt-5.6-sol' }, (e) => events.push(e));
+    assert.deepEqual(end, { ok: false, kind: 'signed-out', message: 'Key bbbbbb is not signed in' });
+    assert.deepEqual(events.map((e) => e.type), ['account']);
+    assert.ok(events[0]?.type === 'account' && events[0].account === 'openai.bbbbbb');
+    assert.equal(stub.calls.length, before, 'no stub request');
+    const text = JSON.stringify([readFileSync(index, 'utf8'), await kit.accounts('m1')]);
+    for (const apiKey of Object.values(keys)) assert.ok(!text.includes(apiKey), 'no key in the index or the rows');
   } finally { await kit.stop(); }
 });

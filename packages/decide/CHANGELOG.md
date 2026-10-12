@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.8.0 (2026-10-12)
+
+- FIX: Claude-judge calls through `claudeCode` no longer fail before sign-in on Claude Code 2.1.294 and later, which refuse `--input-format stream-json` with `--output-format json`. Generation now asks for `--output-format stream-json --verbose` (input stays stream-json) and reads the final `result` event from the event stream; every isolation flag (tools off, MCP off, empty setting sources, safe mode, forced claude.ai login, hooks off, no session persistence, scratch HOME, separate sign-in dir) is unchanged.
+- ADD: `opencodeGo({ model, account, request?, ... })` backend answering typed questions on the member's OpenCode Go plan (`accounts.opencodeGo(member)`, route `opencode:plan_key:opencode-go`): same Responses wire format, schema validation, retry, usage and abstention behavior as `openai()`, over `https://opencode.ai/zen/go/v1/responses` with the plan key as Bearer and one `x-opencode-session` id per decide call. Plan only (`OPENCODE_GO_ROUTES.account` labels `subscription`); a plan that cannot serve the request throws `UnsupportedAccountError` with no API-key fallback.
+
 ## 0.7.0 (2026-10-12)
 
 - ADD: `@byokit/decide/slim` for tools that decide without the account, OpenAI SDK or pairing trees. It carries the rules backend, any host-owned model behind `answerer`, and Jev over plain fetch; a cold install is the one package (316 KB on disk, about 4 s cold) instead of the full tree (195 MB, 238 packages, about 28 s on the same machine). The main entry keeps every export and behavior; only ChatGPT plan billing needs the peer.

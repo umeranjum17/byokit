@@ -280,8 +280,11 @@ function card(key: string) {
     const plan = ready ? await accounts.plan(ME, key) : null;
     const rows = (await accounts.list(ME)).filter((a) => a.provider === key);
     const self = { id: status.id, email: plan?.email };
-    paintRows(rows, new Map(), self);
-    await paintPick(rows, new Map(), self);
+    // Seed the first paint from the last readings: a redraw (after a run, say) must not say "no recent
+    // reading" while the fresh read is still in flight.
+    const seeded: Map<string, Reading | undefined> = new Map(rows.map((a) => [a.id, readingCache.get(a.id)?.reading]));
+    paintRows(rows, seeded, self);
+    await paintPick(rows, seeded, self);
     const adding = !!pendingAdd;
     const landed = pendingAdd ? accounts.view(ME, pendingAdd) : undefined;
     if (landed?.state === 'done' && pendingAdd) pendingAdd = undefined;
@@ -458,12 +461,45 @@ Promise.all(accounts.providers.map((p) => accounts.signedIn(ME, p.key)))
 /** The card a route signs in on, when this page has one: the provider with that route's upstream id. */
 const cardFor = (row: ConnectRow, routes: RouteView[]) => accounts.providers.find((p) => p.pi === routes.find((r) => r.id === row.id)?.upstream.id)?.key;
 /** Every route, grouped. A row is a button only when this page can start it: a ready sign-in with its card here.
- *  Anything else stays listed and cannot be tapped, saying why: its readiness words, or that this page has no form for it. */
+ *  Anything else stays listed and cannot be tapped, saying why: its readiness words, or that this page has no form for it.
+ *  Rows this page has no form for leave their group for one collapsed "Coming soon" group at the end. */
 function addSheet() {
   const box = $('add-groups');
   box.replaceChildren();
   const routes = accounts.routes();
+  const paintRow = (r: ConnectRow, key: string | undefined) => {
+    const row = document.createElement('button');
+    row.className = 'route';
+    row.type = 'button';
+    row.dataset.route = r.id;
+    // aria-disabled, not disabled: the row stays focusable, so its reason is still read out.
+    if (!key) row.setAttribute('aria-disabled', 'true');
+    if (!r.ready) row.dataset.unavailable = '';
+    const line = (cls: string, words: string) => { const s = document.createElement('span'); s.className = cls; s.textContent = words; row.append(s); };
+    // The way in names the card: one provider can have several (its page, a pasted code, a key).
+    line('route-name', `${r.name} — ${r.method[0].toLowerCase()}${r.method.slice(1)}`);
+    line('route-line', r.billingWords);
+    line('route-status', r.ready && !key ? 'Ready, but this page has no form for it yet.' : r.status);
+    row.onclick = () => {
+      if (!key) return;
+      $('add-sheet').hidden = true;
+      const el = $(key);
+      el.tabIndex = -1;
+      el.focus();
+      el.scrollIntoView({ block: 'start' });
+      void cards[key].start();
+    };
+    return row;
+  };
+  // Rows this page cannot start leave their group: they gather in the Coming soon group at the end.
+  const soon: ConnectRow[] = [];
   for (const g of connectView(routes).groups) {
+    const keep = g.rows.filter((r) => {
+      const key = r.does === 'signin' ? cardFor(r, routes) : undefined;
+      if (r.ready && !key) { soon.push(r); return false; }
+      return true;
+    });
+    if (!keep.length) continue;
     const group = document.createElement('section');
     group.className = 'group';
     group.dataset.group = g.id;
@@ -474,31 +510,40 @@ function addSheet() {
     note.textContent = g.note;
     group.append(title, note);
     // Ready ways in first, then the ones that cannot be used here; each keeps the kit's order within its kind.
-    for (const r of [...g.rows].sort((a, b) => Number(b.ready) - Number(a.ready))) {
-      const key = r.does === 'signin' ? cardFor(r, routes) : undefined;
-      const row = document.createElement('button');
-      row.className = 'route';
-      row.type = 'button';
-      row.dataset.route = r.id;
-      // aria-disabled, not disabled: the row stays focusable, so its reason is still read out.
-      if (!key) row.setAttribute('aria-disabled', 'true');
-      if (!r.ready) row.dataset.unavailable = '';
-      const line = (cls: string, words: string) => { const s = document.createElement('span'); s.className = cls; s.textContent = words; row.append(s); };
-      // The way in names the card: one provider can have several (its page, a pasted code, a key).
-      line('route-name', `${r.name} — ${r.method[0].toLowerCase()}${r.method.slice(1)}`);
-      line('route-line', r.billingWords);
-      line('route-status', r.ready && !key ? 'Ready, but this page has no form for it yet.' : r.status);
-      row.onclick = () => {
-        if (!key) return;
-        $('add-sheet').hidden = true;
-        const el = $(key);
-        el.tabIndex = -1;
-        el.focus();
-        el.scrollIntoView({ block: 'start' });
-        void cards[key].start();
-      };
-      group.append(row);
+    for (const r of [...keep].sort((a, b) => Number(b.ready) - Number(a.ready))) {
+      group.append(paintRow(r, r.does === 'signin' ? cardFor(r, routes) : undefined));
     }
+    box.append(group);
+  }
+  if (soon.length) {
+    const group = document.createElement('section');
+    group.className = 'group';
+    group.dataset.group = 'coming-soon';
+    const title = document.createElement('h3');
+    title.textContent = 'Coming soon';
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'quiet';
+    toggle.setAttribute('data-coming-toggle', '');
+    toggle.setAttribute('aria-expanded', 'false');
+    toggle.setAttribute('aria-controls', 'coming-soon-rows');
+    toggle.textContent = `Show ${soon.length} more ways in`;
+    const body = document.createElement('div');
+    body.id = 'coming-soon-rows';
+    body.hidden = true;
+    const note = document.createElement('p');
+    note.className = 'company';
+    note.textContent = 'These ways in work in the kit, but this page has no form for them yet.';
+    body.append(note);
+    // The kit's order, as they were gathered group by group.
+    for (const r of soon) body.append(paintRow(r, undefined));
+    toggle.onclick = () => {
+      const open = body.hidden;
+      body.hidden = !open;
+      toggle.setAttribute('aria-expanded', String(open));
+      toggle.textContent = open ? 'Hide' : `Show ${soon.length} more ways in`;
+    };
+    group.append(title, toggle, body);
     box.append(group);
   }
 }

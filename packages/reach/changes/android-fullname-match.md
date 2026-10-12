@@ -1,0 +1,1 @@
+- FIX: Android mDNS discovery flows through the pinned `@byokit/discover` browse fix, which accepts resolved services whose `fullName` carries the service type without a trailing dot, so `scan()` finds computers announced to Android phones.

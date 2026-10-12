@@ -27,7 +27,7 @@ function harness(reply?: string) {
     if (!(list.agents ?? []).some((agent) => agent.id === member)) await t.request('agents.create', { name: member });
     return { agentId: member };
   };
-  const runs = createRuns({
+  const runs = createRuns({ routes: new Map(),
     request: async (method, params, options) => {
       const result = await t.request(method, params, method === 'agent' ? { ...options, onAccepted: (payload) => {
         options?.onAccepted?.(payload);
@@ -106,7 +106,7 @@ function scripted(o: { text?: string; final?: unknown; wait?: unknown; auth?: un
     if (method === 'models.authStatus') return o.auth ?? { providers: [] };
     throw new Error(`unexpected ${method}`);
   };
-  const runs = createRuns({ request, onEvent: (fn) => (listeners.add(fn), () => { listeners.delete(fn); }),
+  const runs = createRuns({ routes: new Map(), request, onEvent: (fn) => (listeners.add(fn), () => { listeners.delete(fn); }),
     ensure: async (member) => ({ agentId: member }), bridge: { register: () => () => {} }, tools: new Set() });
   return { runs, calls };
 }
@@ -124,7 +124,7 @@ test('an in-flight cache replay waits without redispatching; capped JSON fails h
     assert.equal((params as { runId: string }).runId, 'stable');
     return { status: 'ok', terminalReply: { disposition: 'visible', text: text.slice(0, 4095) + '…' } };
   };
-  const runs = createRuns({ request, onEvent: () => () => {}, ensure: async () => ({ agentId: 'm1' }),
+  const runs = createRuns({ routes: new Map(), request, onEvent: () => () => {}, ensure: async () => ({ agentId: 'm1' }),
     bridge: { register: () => () => {} }, tools: new Set() });
   const end = await runs.run({ member: 'm1', sessionKey: 'agent:m1:retry', message: 'report', idempotencyKey: 'stable',
     schema: { type: 'object', properties: { report: { type: 'string' } }, required: ['report'] } });
