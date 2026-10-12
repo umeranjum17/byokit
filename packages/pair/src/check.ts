@@ -39,7 +39,7 @@ function probe(url: string, o: CheckOptions, timeoutMs: number): Promise<CheckRe
       try { ws.close(); } catch {}
       resolve(r);
     };
-    const timer = setTimeout(() => finish(fail(url, opened ? 'timeout' : 'unreachable')), timeoutMs);
+    const timer = setTimeout(() => finish(fail(url, opened ? 'slow' : 'unreachable')), timeoutMs);
     (timer as unknown as { unref?: () => void }).unref?.();
     try {
       const WS = o.WebSocket ?? (globalThis as any).WebSocket;
@@ -61,9 +61,9 @@ function probe(url: string, o: CheckOptions, timeoutMs: number): Promise<CheckRe
   });
 }
 
-/** Probe each URL for a link host, in input order. Only `unreachable` (nothing there), `timeout` (something there
- *  that never answered) and `wrong-host` (something else answered) can come back, each with its LINK_WORDS sentence;
- *  no new codes were needed. Never sends a ticket, so offers stay usable. */
+/** Probe each URL for a link host, in input order. Only `unreachable` (nothing there: same network or firewall),
+ *  `slow` (something there that never answered: wait and try again) and `wrong-host` (something else answered) can
+ *  come back, each with its LINK_WORDS sentence. Never sends a ticket, so offers stay usable. */
 export async function check(urls: string[], o: CheckOptions = {}): Promise<CheckResult[]> {
   const timeoutMs = o.timeoutMs ?? 8000;
   const out: CheckResult[] = new Array(urls.length);
