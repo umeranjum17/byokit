@@ -45,9 +45,9 @@
     "access": "public"
   },
   "peerDependencies": {
-    "@byokit/accounts": "0.21.0",
+    "@byokit/accounts": "0.22.0",
     "openai": "7.25.0",
-    "@byokit/pair": "0.9.0"
+    "@byokit/pair": "0.10.0"
   },
   "peerDependenciesMeta": {
     "@byokit/accounts": {
