@@ -335,6 +335,10 @@ test('run({ account }): each account agent bills its own key; a signed-out one e
     mkdirSync(join(index, '..'), { recursive: true });
     writeFileSync(index, JSON.stringify({ v: 1, accounts, defaults: {} }));
     chmodSync(index, 0o600);
+    // The activations' config writes can restart the gateway later, mid-run: start fresh so none is pending.
+    await kit.stop();
+    kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), config });
+    await kit.start();
     assert.deepEqual((await kit.accounts('m1')).map((a) => [a.id, a.billing, a.state]),
       [['openai', 'subscription', 'ready'], ['openai.aaaaaa', 'api', 'ready'], ['openai.bbbbbb', 'api', 'ready']]);
 
