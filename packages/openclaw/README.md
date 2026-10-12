@@ -135,6 +135,11 @@ once at run start), `'default'` (the saved default) or an id from `kit.accounts(
 for other models the run may call. The first event is `{ type: 'account', account, model, sessionKey, how, why, considered }`,
 and an ok end carries `account` and `model`. A chosen account that isn't signed in ends `signed-out` with no agent request;
 when every account is resting, the end is `resting` with `until`, and Auto skips a resting account until then.
+A conversation keeps its account: a later run on the same `sessionKey` stays on the account that holds the session,
+whatever `account` says. Naming another account ends `{ ok: false, kind: 'other' }` with words to show (`account.bound`).
+A conversation on an API-key account continues only when that account is named (`account.paid`). Both end before any
+request. `kit.pick(member, { account, model?, needs? }, { sessionKey })` returns what that run would choose now,
+refusals included, without running. `steer` and `abort` accept the same `sessionKey` while its run is live.
 
 
 For an owner who explicitly offers keys, `kit.addKey('ana', { authChoice: 'openai-api-key', apiKey })` returns

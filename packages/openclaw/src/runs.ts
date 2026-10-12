@@ -93,7 +93,7 @@ export function createRuns(ctx: {
   ensure(member: Member): Promise<{ agentId: string }>;
   bridge: Pick<Bridge, 'register'>;
   tools: ReadonlySet<string>; // KitOptions.tools names, the only names a run's subset may carry
-  accounts?: Pick<ReturnType<typeof createAccounts>, 'pick' | 'rest'>; // 5.15: account runs
+  accounts?: Pick<ReturnType<typeof createAccounts>, 'bind' | 'pick' | 'rest'>; // 5.15: account runs
   locks?: ReturnType<typeof createLocks>;
   routes: Map<string, { session: string }>; // the caller's session key -> the account session its live run uses; steer and abort follow it
 }): {
@@ -118,8 +118,9 @@ export function createRuns(ctx: {
     return { ok: false as const, ...classified, message };
   };
   const run = async <const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void, keyAgent?: string, preparedOutput?: ReturnType<typeof outputSchema>): Promise<RunEnd<SchemaOutput<S>>> => {
-    // Member boundary first: a member never speaks in another member's session, refused before any request.
-    if (!spec.sessionKey.startsWith(`agent:${spec.member}:`))
+    // Member boundary first: a member never speaks in another member's session, refused before any request. A key
+    // of one of the member's account agents is the member's too; binding below checks the index names it.
+    if (!spec.sessionKey.startsWith(`agent:${spec.member}:`) && !(ctx.accounts && !keyAgent && spec.sessionKey.startsWith(`agent:${spec.member}--`)))
       throw new Error(`refused: "${spec.sessionKey}" is not a session of member "${spec.member}"`);
     // Same validation as the pin's NonEmptyString; preserve the caller's bytes (including whitespace).
     if (spec.idempotencyKey !== undefined && (typeof spec.idempotencyKey !== 'string' || !spec.idempotencyKey.length))
@@ -131,9 +132,12 @@ export function createRuns(ctx: {
     for (const need of spec.needs ?? []) account(need);
     for (const tool of spec.tools ?? [])
       if (!ctx.tools.has(tool)) throw new Error(`refused: "${tool}" is not one of this kit's tools`);
-    const tail = spec.sessionKey.slice(`agent:${spec.member}:`.length);
-    // Runs step 3 (5.15): with `account` and `needs` both absent, exactly the run on the member agent it always was.
-    if (spec.account === undefined && !spec.needs?.length) {
+    const tail = spec.sessionKey.slice(spec.sessionKey.indexOf(':', 'agent:'.length) + 1);
+    // Runs step 1 (5.15): every run first finds the account its session is bound to. The API-key lane keeps its own history.
+    const binding = keyAgent || !ctx.accounts ? undefined : await ctx.accounts.bind(spec.member, spec.sessionKey);
+    // Step 3: with `account` and `needs` both absent, on a key no account agent holds, exactly the run on the member
+    // agent it always was.
+    if (binding?.id === undefined && spec.account === undefined && !spec.needs?.length) {
       const agentId = keyAgent ?? (await ctx.ensure(spec.member)).agentId;
       return start(spec, on, { agentId, sessionKey: keyAgent ? `agent:${keyAgent}:${tail}` : spec.sessionKey, idempotencyKey, system, picked, output });
     }
@@ -150,9 +154,10 @@ export function createRuns(ctx: {
       !!(await ctx.request('byokit.accounts', { action: 'ready', agentId, provider }) as { ok?: boolean }).ok;
     const skipped: string[] = [];
     for (;;) {
-      // Step 4: the selection is resolved once per attempt, before any request; `needs` alone resolves as 'default'.
+      // Steps 2 and 4: the selection is resolved once per attempt, before any request, narrowed by the binding; `needs`
+      // alone resolves as 'default'. A refusal (`bound`, `paid`) ends the run with its words before any request.
       const { pick, agent } = await accounts.pick(spec.member, { account: spec.account ?? 'default',
-        ...(spec.model !== undefined ? { model: spec.model } : {}), ...(spec.needs ? { needs: spec.needs } : {}) }, skipped);
+        ...(spec.model !== undefined ? { model: spec.model } : {}), ...(spec.needs ? { needs: spec.needs } : {}) }, skipped, binding);
       if (!pick.ok) {
         if (pick.code === 'unknown_account') throw new Error(`unknown account: ${spec.account}`); // a caller bug
         if (pick.code === 'resting') return { ok: false, kind: 'resting', until: await restAccount(pick.account, pick.until), message: pick.reason };
@@ -160,7 +165,7 @@ export function createRuns(ctx: {
       }
       const sessionKey = `agent:${agent}:${tail}`;
       const automatic = pick.how === 'auto' || pick.why === 'first_ready';
-      // An unbound key runs on the picked account's agent, under the app key's tail. The run holds the agent's shared
+      // The run goes to the picked account's agent, under the key's tail. The run holds the agent's shared
       // lock from its ready check to its end. An automatic pick not signed in is skipped before any event; an explicit
       // one announces itself, then ends signed-out.
       const end = await locks.shared(agent!, async (): Promise<RunEnd<SchemaOutput<S>> | undefined> => {

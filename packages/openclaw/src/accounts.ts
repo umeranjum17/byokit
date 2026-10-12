@@ -1,7 +1,8 @@
 // The per-member account index (5.15, O14 step S5): `<root>/accounts/<member>.json` (0600, whole-file temp
 // plus rename) is the only kit state: `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?,
 // who? } }, defaults }`. No credential, token, email or engine line. Listing, rename, defaults, models, room,
-// adding (O14 step S6) and the start-of-run pick (S10) live here; remove and move arrive in later steps.
+// adding (O14 step S6), the start-of-run pick (S10) and session binding (S11) live here; remove and move arrive in later
+// steps.
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -20,6 +21,8 @@ const ACCOUNT_AGENT = /^[a-z][a-z0-9-]{0,31}--[0-9a-f]{6}$/;
 const usable = (status: string | undefined): boolean => status === 'ok' || status === 'expiring' || status === 'static';
 const IDENTITY = 'IDENTITY.md';
 
+/** The agent a session lives on (5.15 Runs step 1); `id` absent: the member agent, which may hold several accounts. */
+export type Binding = { agentId: string; id?: AccountId };
 type AddOptions = { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId };
 type AccountSignIn = { id: AccountId; paste(text: string): void; cancel(): void; done: Promise<{ view: SignInView; id: AccountId }> };
 type StartSignIn = (agentId: string, o: SignInOptions, on: (v: SignInView) => void, fresh: boolean) =>
@@ -53,7 +56,8 @@ export function createAccounts(ctx: {
   setDefaults(member: Member, d: Defaults): Promise<void>;
   models(member: Member, id: AccountId): Promise<ModelInfo[]>;
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;
-  pick(member: Member, sel: RunSelection, skip?: readonly AccountId[]): Promise<{ pick: AccountPick; agent?: string }>;
+  bind(member: Member, sessionKey: string): Promise<Binding | undefined>;
+  pick(member: Member, sel: RunSelection, skip?: readonly AccountId[], binding?: Binding): Promise<{ pick: AccountPick; agent?: string }>;
   rest(member: Member, id: AccountId, until: number): Promise<void>;
 } {
   const path = (member: Member): string => join(ctx.root, 'accounts', `${member}.json`);
@@ -328,21 +332,69 @@ export function createAccounts(ctx: {
       return roomOf(row.provider, answer);
     });
 
-  // Choosing (5.15) for an unbound key: every listed account's room and models are read live once, then the pure
-  // `resolveSelection` decides. `agent` is the picked account's engine agent. A model unavailable only because the
-  // account is signed out or resting is still in its plan: the account's state and the run's ready check judge that.
+  // Runs step 1 (5.15): a key `agent:<member>--<hex6>:<tail>` of an indexed account agent is bound to that account; a
+  // key `agent:<member>:<tail>` to whichever of the member's agents holds `agent:<that agent>:<tail>` (member agent
+  // first), else unbound. Any other key is not the member's. With no account agent, the member agent and an unbound
+  // key run alike, so nothing is asked.
+  async function bind(member: Member, sessionKey: string): Promise<Binding | undefined> {
+    check(member);
+    const agents = new Map(Object.entries(read(member).accounts)
+      .filter(([, e]) => ACCOUNT_AGENT.test(e.agent) && e.agent.startsWith(`${member}--`)).map(([id, e]) => [e.agent, id]));
+    if (!sessionKey.startsWith(`agent:${member}:`)) {
+      const agent = /^agent:([^:]+):/.exec(sessionKey)?.[1];
+      const id = agent === undefined ? undefined : agents.get(agent);
+      if (id === undefined) throw new Error(`refused: "${sessionKey}" is not a session of member "${member}"`);
+      return { agentId: agent!, id };
+    }
+    if (!agents.size) return undefined;
+    const tail = sessionKey.slice(`agent:${member}:`.length);
+    const { agentId } = await ctx.ensure(member);
+    const roster = new Set((await ctx.request('agents.list') as { agents: { id: string }[] }).agents.map((a) => a.id));
+    for (const [agent, id] of [[agentId, undefined] as const, ...agents]) {
+      if (agent !== agentId && !roster.has(agent)) continue;
+      const found = await ctx.request('sessions.resolve', { key: `agent:${agent}:${tail}`, agentId: agent, allowMissing: true }) as { missing?: boolean };
+      if (!found.missing) return id === undefined ? { agentId: agent } : { agentId: agent, id };
+    }
+    return undefined;
+  }
+
+  // Choosing (5.15): every listed account's room and models are read live once, then the pure `resolveSelection`
+  // decides. A binding narrows it (Runs step 2): a key bound to an account agent resolves 'auto', 'default' and no id to
+  // that account, refuses another id (`bound`) and, when that account bills per use, anything but its own id (`paid`);
+  // a key bound to the member agent chooses only among its own accounts and refuses an id on another agent (`bound`).
+  // An unknown id stays the caller bug it always was. `agent` is the picked account's engine agent. A model unavailable
+  // only because the account is signed out or resting is still in its plan: the account's state and the run's ready
+  // check judge that.
   // The pinned engine may hold no prepared model catalog for an agent added since it started, and refuses its models; that
   // row's models are then unknown (`undefined`), and `resolveSelection` host-validates its membership by provider.
-  async function pick(member: Member, sel: RunSelection, skip: readonly AccountId[] = []): Promise<{ pick: AccountPick; agent?: string }> {
-    const rows = (await list(member)).filter((r) => !skip.includes(r.id));
+  async function pick(member: Member, sel: RunSelection, skip: readonly AccountId[] = [], binding?: Binding): Promise<{ pick: AccountPick; agent?: string }> {
+    const listed = await list(member);
+    const rows = listed.filter((r) => !skip.includes(r.id));
     const file = read(member);
+    const named = sel.account === 'auto' || sel.account === 'default' ? undefined : sel.account;
+    const known = named === undefined || listed.some((r) => r.id === named);
+    let bound: AccountId[] | undefined;
+    let refusal: { code: 'bound' | 'paid'; name: string } | undefined;
+    if (binding?.id !== undefined && known) {
+      const held = listed.find((r) => r.id === binding.id);
+      bound = [binding.id];
+      if (held?.billing === 'api' && named !== binding.id) refusal = { code: 'paid', name: held.name };
+      else if (named !== undefined && named !== binding.id) refusal = { code: 'bound', name: held?.name ?? '' };
+      else sel = { ...sel, account: binding.id };
+    } else if (binding && known) {
+      bound = listed.filter((r) => file.accounts[r.id]?.agent === binding.agentId).map((r) => r.id);
+      if (named !== undefined && !bound.includes(named))
+        refusal = { code: 'bound', name: listed.find((r) => bound!.includes(r.id))?.name ?? '' };
+    }
     const reads = new Map(await Promise.all(rows.map(async (row) => {
       const entry = file.accounts[row.id]!;
       const models = await readModels(row, entry).then((ms) => ms.map((m) => (m.why ? { ...m, available: true } : m)), () => undefined);
       return [row.id, { room: await readRoom(row, entry), models }] as const;
     })));
     const chosen = resolveSelection(rows, file.defaults, sel, (a) => reads.get(a.id)!.room, Date.now(),
-      (a) => reads.get(a.id)!.models);
+      (a) => reads.get(a.id)!.models, bound);
+    if (refusal) return { pick: { ok: false, code: refusal.code, reason: words(`account.${refusal.code}`, { name: refusal.name }),
+      considered: chosen.considered } };
     return { pick: chosen, ...(chosen.ok ? { agent: file.accounts[chosen.account.id]!.agent } : {}) };
   }
 
@@ -465,5 +517,5 @@ export function createAccounts(ctx: {
     return { id, paste: handle.paste, cancel: handle.cancel, done };
   }
 
-  return { list, add, rename, defaults, setDefaults, models, room, pick, rest };
+  return { list, add, rename, defaults, setDefaults, models, room, bind, pick, rest };
 }

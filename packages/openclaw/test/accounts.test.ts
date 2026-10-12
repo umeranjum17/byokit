@@ -6,6 +6,9 @@
 // The S10 run (O14j): run({ account, model, needs }) on unbound keys. Pass: the account event comes first, Auto picks
 // by room on the account's own agent and key, a resting end rests the account, a failed ready check and an empty pick
 // end signed-out with no agent request, and a run with neither account nor needs is exactly the run it was.
+// The S11 binding (O14k): a second run on one app key stays on the account that holds its session, pick equals the run's
+// account event (unbound, bound to an account agent, bound to the member agent), a bound key refuses another id and an
+// API-key conversation refuses 'auto' before any request, and steer and abort reach the engine key.
 import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -475,6 +478,106 @@ test('run on an account: abort with the member key reaches the account run; an A
     assert.ok(events[0]?.type === 'account' && events[0].account === 'openai' && events[0].how === 'auto', JSON.stringify(events));
     assert.ok(fell.ok && fell.account === 'openai', JSON.stringify(fell));
     assert.deepEqual(fake.calls.slice(from).filter((c) => c.method === 'agent').map((c) => (c.params as { agentId: string }).agentId), ['m1']);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('session binding: a run stays on the account that holds its session; pick equals the run; bound and paid refuse', async () => {
+  const stateDir = scratchDir('o14k-binding');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done, { state: 'done', via: 'browser' });
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    const names = Object.fromEntries((await kit.accounts('m1')).map((a) => [a.id, a.name]));
+    const roomy = async (member: number, account: number) => {
+      fake.setUsage('m1', 'openai', [{ label: 'session', usedPercent: 100 - member }]);
+      fake.setUsage(agent, 'openai', [{ label: 'session', usedPercent: 100 - account }]);
+      for (const id of ['openai', second.id]) await kit.room('m1', id);
+    };
+    const agentCalls = () => fake.calls.filter((c) => c.method === 'agent');
+    const run = async (spec: { sessionKey: string; account?: string }) => {
+      const events: RunEvent[] = [];
+      const before = agentCalls().length;
+      const end = await kit.run({ member: 'm1', message: 'hello', ...spec }, (e) => events.push(e));
+      return { end, events, requests: agentCalls().slice(before).map((c) => c.params as { agentId: string; sessionKey: string }) };
+    };
+    // `pick` with the key equals the run's account event on the same state, `considered` included.
+    const same = async (sessionKey: string, account: string) => {
+      const pick = await kit.pick('m1', { account }, { sessionKey });
+      const ran = await run({ sessionKey, account });
+      const event = ran.events[0];
+      assert.ok(pick.ok && event?.type === 'account', JSON.stringify([pick, ran.events]));
+      assert.deepEqual({ account: pick.account.id, model: pick.model, how: pick.how, why: pick.why, considered: pick.considered },
+        { account: event.account, model: event.model, how: event.how, why: event.why, considered: event.considered });
+      return ran;
+    };
+    // A refusal: run ends `other` with the pick's words, with no event and no agent request.
+    const refuses = async (sessionKey: string, account: string | undefined, code: 'bound' | 'paid', message: string) => {
+      const pick = await kit.pick('m1', { account: account ?? 'default' }, { sessionKey });
+      assert.ok(!pick.ok && pick.code === code && pick.reason === message, JSON.stringify(pick));
+      const ran = await run({ sessionKey, ...(account !== undefined ? { account } : {}) });
+      assert.deepEqual([ran.end, ran.events, ran.requests], [{ ok: false, kind: 'other', message }, [], []]);
+    };
+
+    // Unbound: Auto takes the account with the most room, on its own agent under the app key's tail.
+    await roomy(20, 90);
+    const first = await same('agent:m1:chat:1', 'auto');
+    assert.deepEqual(first.requests.map((r) => [r.agentId, r.sessionKey]), [[agent, `agent:${agent}:chat:1`]]);
+
+    // Bound to the member agent: Auto chooses only among its accounts, though the account agent has more room.
+    const memberRun = await run({ sessionKey: 'agent:m1:chat:m', account: 'openai' });
+    assert.deepEqual(memberRun.requests.map((r) => r.agentId), ['m1']);
+    const onMember = await same('agent:m1:chat:m', 'auto');
+    assert.deepEqual(onMember.requests.map((r) => [r.agentId, r.sessionKey]), [['m1', 'agent:m1:chat:m']]);
+    assert.ok(onMember.events[0]?.type === 'account' && onMember.events[0].account === 'openai'
+      && onMember.events[0].considered.find((r) => r.id === second.id)?.out === 'bound', JSON.stringify(onMember.events[0]));
+    await refuses('agent:m1:chat:m', second.id, 'bound', `This conversation uses ${names.openai}. Move it to switch accounts.`);
+
+    // The member account now has the most room, yet a second run on chat:1 stays on the account agent that holds it,
+    // with no account named, with 'auto', and by its engine key; pick agrees.
+    await roomy(90, 20);
+    const again = await run({ sessionKey: 'agent:m1:chat:1' });
+    assert.ok(again.events[0]?.type === 'account' && again.events[0].account === second.id && again.events[0].how === 'chosen', JSON.stringify(again.events));
+    assert.ok(again.end.ok && again.end.account === second.id);
+    const bound = await same('agent:m1:chat:1', 'auto');
+    assert.deepEqual(bound.requests.map((r) => [r.agentId, r.sessionKey]), [[agent, `agent:${agent}:chat:1`]]);
+    const byEngineKey = await same(`agent:${agent}:chat:1`, 'auto');
+    assert.deepEqual(byEngineKey.requests.map((r) => [r.agentId, r.sessionKey]), [[agent, `agent:${agent}:chat:1`]]);
+    await refuses('agent:m1:chat:1', 'openai', 'bound', `This conversation uses ${names[second.id]}. Move it to switch accounts.`);
+    // An unknown id is still a caller bug, and a key of an agent the index does not name is not the member's.
+    await assert.rejects(kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:1', message: 'hi', account: 'openai.ffffff' }), /unknown account/);
+    await assert.rejects(kit.run({ member: 'm1', sessionKey: 'agent:m1--abcdef:chat:1', message: 'hi' }), /not a session of member/);
+    await assert.rejects(kit.pick('m1', { account: 'auto' }, { sessionKey: 'agent:m2:chat:1' }), /not a session of member/);
+
+    // Steer and abort with the app key reach the live run's engine key.
+    const aborted = await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:1', message: 'hello' }, (e) => {
+      if (e.type === 'started') void kit.steer('agent:m1:chat:1', 'and more').then(() => kit.abort('agent:m1:chat:1'));
+    });
+    assert.deepEqual(aborted, { ok: false, aborted: true });
+    assert.deepEqual(fake.calls.filter((c) => c.method === 'sessions.steer' || c.method === 'chat.abort').map((c) => [c.method, (c.params as { sessionKey: string }).sessionKey]),
+      [['sessions.steer', `agent:${agent}:chat:1`], ['chat.abort', `agent:${agent}:chat:1`]]);
+
+    // An API-key conversation: only its own id continues it; 'auto', 'default', no account and another id refuse.
+    const keyAgent = 'm1--a0a0a0';
+    await kit.call('agents.create', { name: keyAgent, workspace: join(stateDir, 'openclaw', 'workspaces', 'm1') });
+    await kit.call('openclaw.setup.activate', { kind: 'api-key', agentId: keyAgent, authChoice: 'apiKey', apiKey: 'sk-test' });
+    const file = indexOf(stateDir, 'm1');
+    const stored = JSON.parse(readFileSync(file, 'utf8')) as { accounts: Record<string, unknown> };
+    stored.accounts['anthropic.a0a0a0'] = { agent: keyAgent, name: 'Key', route: 'apiKey', addedAt: Date.now() };
+    writeFileSync(file, JSON.stringify(stored, null, 2) + '\n');
+    chmodSync(file, 0o600);
+    const keyed = await same('agent:m1:chat:k', 'anthropic.a0a0a0');
+    assert.deepEqual(keyed.requests.map((r) => [r.agentId, r.sessionKey]), [[keyAgent, `agent:${keyAgent}:chat:k`]]);
+    const paid = 'This conversation uses Key, which is billed per use. Choose Key to keep going.';
+    for (const account of ['auto', 'default', undefined, 'openai']) await refuses('agent:m1:chat:k', account, 'paid', paid);
+    const kept = await run({ sessionKey: 'agent:m1:chat:k', account: 'anthropic.a0a0a0' });
+    assert.ok(kept.end.ok && kept.end.account === 'anthropic.a0a0a0', JSON.stringify(kept.end));
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });
