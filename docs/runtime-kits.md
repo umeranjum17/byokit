@@ -1459,7 +1459,7 @@ cache.
    engine key, and keep the optional `{ auth: 'apiKey' }` of the key lane.
 
 **Adding.** `addAccount(member, { authChoice, via, name?, again? }, on)` accepts any pinned `subscription` choice
-(D12); `api` routes go through `addKey`, `local` routes are not accounts. A member whose id passes only the old D9
+(D12), and `openai-codex` as the `openai` route's choice (D15's engine id); `api` routes go through `addKey`, `local` routes are not accounts. A member whose id passes only the old D9
 rule is refused (words `account.legacyMember`). The target agent is the member agent when it holds no local profile
 of the route's provider and `again` is absent, else a new account agent (`again` names an existing account of the same
 provider). The index entry is written, then 5.7's sign-in loop runs against that `agentId` (one sign-in at a time per

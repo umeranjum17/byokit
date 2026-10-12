@@ -227,6 +227,13 @@ test('account index: sign in, list, rename, defaults, restart, list again', asyn
       assert.deepEqual(await roster(), rosterBefore, 'both new agents are removed');
       assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8')).accounts), ['openai', 'openai.def456'], 'and their entries');
       assert.equal(await identity(), identityBefore);
+
+      // The engine's provider id names the openai route: it signs in on its own agent like any further ChatGPT account.
+      const codex = await third.addAccount('m1', { authChoice: 'openai-codex', via: 'browser' }, () => {});
+      assert.match(codex.id, /^openai\.[0-9a-f]{6}$/);
+      assert.deepEqual(await codex.done, { view: { state: 'done', via: 'browser' }, id: codex.id });
+      assert.equal(JSON.parse(readFileSync(file, 'utf8')).accounts[codex.id].route, 'openai');
+      assert.ok((await roster()).includes(`m1--${codex.id.slice('openai.'.length)}`));
     } finally {
       mock.restoreAll();
       syncBuiltinESMExports();

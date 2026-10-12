@@ -350,7 +350,8 @@ export function createAccounts(ctx: {
   async function add(member: Member, o: AddOptions, on: (v: SignInView) => void): Promise<AccountSignIn> {
     check(member);
     if (!NEW_MEMBER_ID.test(member)) throw new Error(words('account.legacyMember'));
-    const route = routes().find((r) => r.choice === o?.authChoice && r.billing === 'subscription');
+    const choice = o?.authChoice === 'openai-codex' ? 'openai' : o?.authChoice;
+    const route = routes().find((r) => r.choice === choice && r.billing === 'subscription');
     if (!route) throw new Error(`addAccount: ${String(o?.authChoice)} is not a subscription sign-in`);
     const name = o.name === undefined ? undefined : named(o.name, 'addAccount');
     const provider = route.provider;
