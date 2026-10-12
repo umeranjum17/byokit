@@ -12,11 +12,24 @@ export const BOAT_API = 'https://boat.dev/api/v1';
 export type SetupWhy = 'unknown-key' | 'unreachable' | 'cancelled' | 'missing';
 export type SetupResult = { ok: true } | { ok: false; why: SetupWhy };
 
-/** A Boat provider that checks one pasted key: every read carries only that key. */
-export const setupProvider = (o: { label: string; key: string; baseUrl?: string; fetch?: typeof fetch; signal?: AbortSignal }): Provider => {
+const SETUP_DEADLINE_MS = 10_000;
+
+/** A Boat provider that checks one pasted key: every read carries only that key, and ends at the deadline or on cancel. */
+export const setupProvider = (o: { label: string; key: string; baseUrl?: string; fetch?: typeof fetch; signal?: AbortSignal; deadlineMs?: number }): Provider => {
   const inner = o.fetch ?? globalThis.fetch;
-  const via: typeof globalThis.fetch = (o.signal === undefined ? inner : (async (url: string, init?: RequestInit) =>
-    inner(url, { ...init, signal: o.signal })) as typeof globalThis.fetch);
+  const via: typeof globalThis.fetch = async (url, init) => {
+    const deadline = new AbortController();
+    const timer = setTimeout(() => deadline.abort(), o.deadlineMs ?? SETUP_DEADLINE_MS);
+    const cancel = () => deadline.abort();
+    if (o.signal?.aborted) cancel();
+    o.signal?.addEventListener('abort', cancel);
+    try {
+      return await inner(url, { ...init, signal: deadline.signal });
+    } finally {
+      clearTimeout(timer);
+      o.signal?.removeEventListener('abort', cancel);
+    }
+  };
   return boat({ baseUrl: o.baseUrl ?? BOAT_API, label: o.label, prices: [], key: async () => o.key, fetch: via });
 };
 

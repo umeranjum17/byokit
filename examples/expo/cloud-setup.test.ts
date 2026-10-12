@@ -38,7 +38,7 @@ const memStore = (initial: MachineRecord | null = null): MachineStore & { saved:
   return store;
 };
 
-const provider = (baseUrl: string, key = KEY, extra?: { fetch?: typeof fetch; signal?: AbortSignal }) =>
+const provider = (baseUrl: string, key = KEY, extra?: { fetch?: typeof fetch; signal?: AbortSignal; deadlineMs?: number }) =>
   setupProvider({ label: LABEL, key, baseUrl, ...extra });
 
 test('a pasted key is checked once, then kept in the phone store with the machine ref intact', async () => {
@@ -85,6 +85,21 @@ test('an empty paste checks nothing and spends nothing', async () => {
   } finally { await fake.close(); }
 });
 
+/** A connection that never answers; it rejects only when its signal aborts, as a real fetch does. */
+const hangingFetch = ((...a: [string, RequestInit?]) => new Promise<Response>((_, reject) => {
+  const onAbort = () => reject(new DOMException('aborted', 'AbortError'));
+  const s = a[1]?.signal as AbortSignal | undefined;
+  if (s?.aborted) onAbort(); // like a real fetch: an already-aborted signal rejects at once
+  else s?.addEventListener('abort', onAbort, { once: true });
+})) as typeof fetch;
+
+test('a silent connection ends unreachable at the deadline and saves nothing', async () => {
+  const store = memStore();
+  assert.deepEqual(await setupKey({ provider: provider('http://127.0.0.1:1', KEY, { fetch: hangingFetch, deadlineMs: 20 }), store, key: KEY }),
+    { ok: false, why: 'unreachable' });
+  assert.equal(store.saved, null);
+});
+
 test('an interrupted connection and a cancelled check save nothing', async () => {
   const down = { fetch: (async () => { throw new TypeError('fetch failed'); }) as typeof fetch };
   const store = memStore();
@@ -93,14 +108,8 @@ test('an interrupted connection and a cancelled check save nothing', async () =>
   assert.equal(store.saved, null);
   assert.ok(!setupWords('unreachable', LABEL).includes(KEY));
 
-  const hanging = { fetch: ((...a: [string, RequestInit?]) => new Promise<Response>((_, reject) => {
-    const onAbort = () => reject(new DOMException('aborted', 'AbortError'));
-    const s = a[1]?.signal as AbortSignal | undefined;
-    if (s?.aborted) onAbort(); // like a real fetch: an already-aborted signal rejects at once
-    else s?.addEventListener('abort', onAbort, { once: true });
-  })) as typeof fetch };
   const abort = new AbortController();
-  const waiting = setupKey({ provider: provider('http://127.0.0.1:1', KEY, { ...hanging, signal: abort.signal }), store, key: KEY, signal: abort.signal });
+  const waiting = setupKey({ provider: provider('http://127.0.0.1:1', KEY, { fetch: hangingFetch, signal: abort.signal }), store, key: KEY, signal: abort.signal });
   abort.abort();
   assert.deepEqual(await waiting, { ok: false, why: 'cancelled' });
   assert.equal(store.saved, null);
