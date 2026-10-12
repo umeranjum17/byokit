@@ -74,7 +74,9 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
 
   // Every placement takes its pane id from the server's answer, never a prediction (6.4).
   // Placements that make a pane (every path but `pane`) roll it back with `pane.close` when the
-  // start fails, so a failed start leaves no extra pane behind.
+  // start fails, so a failed start leaves no extra pane behind. A label placement that created
+  // its workspace rolls the workspace back with `workspace.close` instead, so no empty workspace
+  // survives either; a reused workspace is never closed.
   async function startAgent(o: StartAgent): Promise<AgentRef> {
     const emit = (e: AgentStartEvent): void => {
       try { o.onEvent?.(e); } catch { /* a listener never breaks a start */ }
@@ -130,7 +132,18 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       XDG_CONFIG_HOME: join(home, '.config'), XDG_DATA_HOME: join(home, '.local', 'share'),
       XDG_STATE_HOME: join(home, '.local', 'state'), XDG_CACHE_HOME: join(home, '.cache'), ...o.env } };
     let paneId: string | undefined;
-    let created = false;
+    let createdPane = false;                 // a pane this start made: roll it back on failure
+    let createdWorkspace: string | undefined;   // a workspace this start made: roll it back instead
+    let workspaceCreated = false;            // reported as `created`: a workspace was made
+    async function rollback(): Promise<void> {
+      if (createdWorkspace !== undefined) {
+        try { await call('workspace.close', { workspace_id: createdWorkspace }); return; }
+        catch { /* fall through to the pane when the workspace close misses */ }
+      }
+      if (createdPane && paneId !== undefined) {
+        try { await call('pane.close', { pane_id: paneId }); } catch { /* rollback is best-effort */ }
+      }
+    }
     if (o.worktree !== undefined) {
       const made = await call('worktree.create', { cwd: o.cwd, focus: false, ...env,
         ...(o.worktree.branch === undefined ? {} : { branch: o.worktree.branch }),
@@ -143,20 +156,45 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       paneId = rootPaneOf(made) ?? rootPaneOf(await call('tab.create', {
         workspace_id: made?.workspace?.workspace_id, cwd: checkout, focus: false, ...env,
       }));
-      created = true;
+      createdPane = true;
+      workspaceCreated = true;
+    } else if ('workspace' in o.place && o.place.workspace !== 'new') {
+      // A workspace label (6.4): reuse the one workspace with this label, or create it.
+      // The lookup is a fresh `workspace.list`, never the kit's tree, so a workspace made
+      // moments ago is found. Two matches refuse with `workspace-ambiguous` and pick nothing.
+      const label = o.place.workspace;
+      const listed = await call('workspace.list', {}) as Raw;
+      const workspaces = Array.isArray(listed?.workspaces) ? listed.workspaces : [];
+      const matches = workspaces.filter((w: Raw) => isObj(w) && w.label === label);
+      if (matches.length > 1) throw fail('workspace-ambiguous',
+        `More than one workspace is named "${label}". Rename one, then try again.`);
+      if (matches.length === 1) {
+        paneId = rootPaneOf(await call('tab.create', { workspace_id: matches[0].workspace_id, cwd: o.cwd,
+          ...(o.place.label === undefined ? {} : { label: o.place.label }), focus: false, ...env }));
+        createdPane = true;
+      } else {
+        const made = await call('workspace.create', { cwd: o.cwd, label, focus: false, ...env }) as Raw;
+        paneId = rootPaneOf(made);
+        createdPane = true;
+        workspaceCreated = true;
+        if (isObj(made?.workspace) && typeof made.workspace.workspace_id === 'string') {
+          createdWorkspace = made.workspace.workspace_id;
+        }
+      }
     } else if ('workspace' in o.place) {
       paneId = rootPaneOf(await call('workspace.create', { cwd: o.cwd,
         ...(o.place.label === undefined ? {} : { label: o.place.label }), focus: false, ...env }));
-      created = true;
+      createdPane = true;
+      workspaceCreated = true;
     } else if ('tab' in o.place) {
       paneId = rootPaneOf(await call('tab.create', { workspace_id: o.place.workspaceId, cwd: o.cwd,
         ...(o.place.label === undefined ? {} : { label: o.place.label }), focus: false, ...env }));
-      created = true;
+      createdPane = true;
     } else if ('split' in o.place) {
       const made = await call('pane.split', { target_pane_id: o.place.split,
         direction: o.place.direction, focus: false, ...env }) as Raw;
       paneId = typeof made?.pane?.pane_id === 'string' ? made.pane.pane_id : undefined;
-      created = true;
+      createdPane = true;
     } else {
       paneId = o.place.pane;
     }
@@ -164,7 +202,7 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
     if (launch) {
       try { await prepareLaunchEnv(call, paneId, launch, timeout); }
       catch (error) {
-        if (created) { try { await call('pane.close', { pane_id: paneId }); } catch { /* best effort */ } }
+        await rollback();
         throw error;
       }
     }
@@ -176,15 +214,13 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
     for (;;) {
       try {
         await call('agent.start', params, timeout + 5000);
-        return { paneId, name };
+        return { paneId, name, created: workspaceCreated };
       } catch (error) {
         if (START_RETRYABLE.has(codeOf(error) ?? '') && Date.now() < deadline) {
           await sleep(START_RETRY_DELAY_MS);
           continue;
         }
-        if (created) {
-          try { await call('pane.close', { pane_id: paneId }); } catch { /* rollback is best-effort */ }
-        }
+        await rollback();
         if (launch) throw fail('start_failed', words('agent.notReady'));
         throw error;
       }
