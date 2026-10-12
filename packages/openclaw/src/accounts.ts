@@ -471,11 +471,14 @@ export function createAccounts(ctx: {
           const answer = await ctx.request('byokit.accounts', { action: 'seal', agentId: agent, provider }) as { ok?: boolean; who?: string };
           if (!answer.ok) return 'Sign-in could not be saved. Try again.';
           const roster = new Set((await ctx.request('agents.list') as { agents: { id: string }[] }).agents.map((a) => a.id));
-          const held = (await ctx.request('byokit.accounts', { action: 'list', agentId: memberAgent }) as { profiles?: LiveProfile[] }).profiles ?? [];
-          const memberHolds = held.some((p) => p.provider === provider && p.who === answer.who);
+          const held = await (ctx.request('byokit.accounts', { action: 'list', agentId: memberAgent }) as Promise<{ ok?: boolean; profiles?: LiveProfile[] }>)
+            .catch(() => undefined);
+          const mergeable = held?.ok === true && Array.isArray(held.profiles);
+          if (!mergeable) ctx.log?.(`addAccount: ${memberAgent} profiles are unreadable; the sign-in is kept as its own row`);
+          const memberHolds = (held?.profiles ?? []).some((p) => p.provider === provider && p.who === answer.who);
           const file = read(member);
           const own = file.accounts[id];
-          const sharing = answer.who ? Object.entries(file.accounts)
+          const sharing = answer.who && mergeable ? Object.entries(file.accounts)
             .filter(([other, e]) => other.split('.')[0] === provider && e.who === answer.who && liveEntry(roster, memberHolds, e))
             .sort(([, a], [, b]) => a.addedAt - b.addedAt) : [];
           const keep = sharing[0];

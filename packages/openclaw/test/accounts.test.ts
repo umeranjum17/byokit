@@ -318,11 +318,17 @@ test('identity: same who refreshes, again with another who adds, no who never me
   const fake = fakeGateway();
   let refuseAdopt = false;
   let loseAdoptReply = false;
+  let armMemberRead = false;
+  let failMemberRead = false;
   const adopts: { from: string; to: string }[] = [];
   const refusing: typeof fake.factory = (ctx) => {
     const transport = fake.factory(ctx);
     return { ...transport, request: async (method, params, o) => {
-      if (method !== 'byokit.accounts' || (params as { action?: string }).action !== 'adopt') return transport.request(method, params, o);
+      if (method !== 'byokit.accounts') return transport.request(method, params, o);
+      const { action, agentId } = params as { action?: string; agentId?: string };
+      if (action === 'seal' && armMemberRead) { armMemberRead = false; failMemberRead = true; }
+      if (action === 'list' && failMemberRead && agentId === 'm1') { failMemberRead = false; return { ok: false }; }
+      if (action !== 'adopt') return transport.request(method, params, o);
       adopts.push(params as { from: string; to: string });
       if (refuseAdopt) { refuseAdopt = false; return { ok: false }; }
       const answer = await transport.request(method, params, o);
@@ -486,6 +492,25 @@ test('identity: same who refreshes, again with another who adds, no who never me
     assert.equal(index().accounts.openai?.who, whoOf('canary-acct-y'), 'the signed-out member row stays');
     assert.equal((await kit.accounts('m1')).find((r) => r.id === 'openai')?.state, 'signed_out');
     assert.equal((await rows()).length, 3);
+
+    // The member's profiles cannot be read after the seal: the sign-in is kept as its own row, nothing adopted or merged.
+    fake.signInAs({ accountId: 'canary-acct-q' });
+    assert.deepEqual(await add(), { added: 'openai', id: 'openai' }, 'the signed-out member takes the sign-in');
+    const withQ = index();
+    withQ.accounts[b.id]!.who = whoOf('canary-acct-q');
+    withQ.accounts[b.id]!.addedAt = 1;
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(withQ, null, 2) + '\n');
+    fake.signInAs({ accountId: 'canary-acct-q', expires: later + 7 });
+    armMemberRead = true;
+    const adoptsBeforeRead = adopts.length;
+    const logBeforeRead = lines.length;
+    const unmerged = await add();
+    assert.equal(unmerged.id, unmerged.added, 'the sign-in keeps its own row');
+    assert.notEqual(unmerged.id, b.id, 'the earlier row holding that who is not taken');
+    assert.deepEqual(adopts.slice(adoptsBeforeRead), [], 'no adopt');
+    assert.equal(index().accounts[unmerged.id]!.who, whoOf('canary-acct-q'));
+    assert.ok(lines.slice(logBeforeRead).some((line) => line.includes('unreadable')), 'the kit logs the unreadable member');
+    assert.equal((await rows()).length, 4);
 
     // No who or account id reaches the app: rows, views, done results, errors, kit state or log lines.
     await assert.rejects(kit.addAccount('m1', { authChoice: 'openai', again: 'openai.000000' }, () => {}), (error: Error) => { seen.push(error.message); return true; });
