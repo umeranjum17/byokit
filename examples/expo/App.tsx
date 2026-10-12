@@ -22,6 +22,8 @@ import { answerer, decide } from '@byokit/decide';
 import { DeviceLink, secureDeviceStore, type LinkStatus } from '@byokit/pair';
 import { boxKeyPairFromSeed, openBox, openSecretBox, sealBox, sealSecretBox, signDetached, signingKeyPairFromSeed, verifyDetached } from '@byokit/seal';
 import { forgettableStore, pairInput, pairingGeneration } from './pairing.ts';
+import { setupKey, setupProvider, setupWords } from './cloud-setup.ts';
+import { errorWords, MachineError, type MachineStore } from '@byokit/cloud';
 import { linkWords, pairingView, useConnect, useSignIn, type PairPhase, type UseSignIn } from '@byokit/ui';
 import { overlay, stateWords, type OverlayState } from '@byokit/bubble';
 import { stateWords as chipWords, status as chip } from '@byokit/statusbar';
@@ -168,6 +170,75 @@ function Plan({ k, options, onPick, onClose }: { k: string; options?: UseSignIn;
 const refreshers = new Map<string, () => void>();
 /** Signed in, even while resting or when the plan lacks something: Ask says why, and Sign out stays. */
 const signedIn = (s: Status | null) => s?.state === 'ready' || s?.state === 'resting' || s?.state === 'not_included';
+
+/** The cloud computer key: paste the Boat key once; the phone checks it (one
+ * identity read, no machine, no spend) and keeps it in its own secure store.
+ * The input clears on submit, so the key never stays on screen or in a screenshot. */
+const CLOUD_RECORD = 'byokit.cloud.record';
+function CloudSetup() {
+  const s = useStyles();
+  const [pasted, setPasted] = useState('');
+  const [checking, setChecking] = useState(false);
+  const [message, setMessage] = useState('Make a key on the Boat site, then paste it here.');
+  const [stored, setStored] = useState(false);
+  const abort = useRef<AbortController | null>(null);
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    SecureStore.getItemAsync(CLOUD_RECORD).then((r) => {
+      if (!alive.current) return;
+      if (r !== null) { setStored(true); setMessage('A cloud key is saved on this phone.'); }
+    }, () => {});
+    return () => { alive.current = false; abort.current?.abort(); };
+  }, []);
+  const store: MachineStore = {
+    load: async () => JSON.parse(await SecureStore.getItemAsync(CLOUD_RECORD) ?? 'null'),
+    save: async (r) => SecureStore.setItemAsync(CLOUD_RECORD, JSON.stringify(r),
+      { keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY }),
+  };
+  const connect = async () => {
+    if (checking) return;
+    const entered = pasted;
+    setPasted('');
+    const signal = new AbortController();
+    abort.current = signal;
+    setChecking(true); setMessage('Checking the key…');
+    try {
+      const result = await setupKey({
+        provider: setupProvider({ label: 'Boat', key: entered, baseUrl: process.env.EXPO_PUBLIC_BOAT_BASE,
+          fetch: streamingFetch as unknown as typeof fetch, signal: signal.signal }),
+        store, key: entered, signal: signal.signal,
+      });
+      if (!alive.current) return;
+      if (result.ok) { setStored(true); setMessage('Cloud key saved on this phone.'); }
+      else setMessage(setupWords(result.why, 'Boat'));
+    } catch (e: any) {
+      if (!alive.current) return;
+      setMessage(e instanceof MachineError ? errorWords(e, { app: 'byokit example', label: 'Boat' }) : `Couldn't save the key.`);
+    } finally {
+      if (alive.current) setChecking(false);
+    }
+  };
+  const remove = async () => {
+    await SecureStore.deleteItemAsync(CLOUD_RECORD).catch(() => {});
+    if (await SecureStore.getItemAsync(CLOUD_RECORD)) { setMessage(`Couldn't remove the key.`); return; }
+    setStored(false); setMessage('Cloud key removed. Make a key on the Boat site, then paste it here.');
+  };
+  return (
+    <View testID="cloud-setup" style={s.sheet}>
+      <Text style={s.name}>Cloud computer</Text>
+      <Text testID="cloud-status" style={s.words}>{message}</Text>
+      {checking ? <>
+        <Button id="cloud-cancel" label="Cancel" onPress={() => abort.current?.abort()} />
+      </> : <>
+        <TextInput testID="cloud-paste" value={pasted} onChangeText={setPasted} placeholder="Paste the Boat key"
+          autoCapitalize="none" autoCorrect={false} secureTextEntry style={s.input} />
+        <Button id="cloud-connect" label={stored ? 'Replace the key' : 'Connect'} onPress={connect} />
+        {stored && <Button id="cloud-remove" label="Remove the key" onPress={remove} />}
+      </>}
+    </View>
+  );
+}
 
 /** Pair with a computer from its pairing code (scanned or pasted), compare the two words, then use the link. */
 function Pair() {
@@ -380,6 +451,7 @@ function KitDemo() {
         </View>)}
       </View>)}
       <Pair />
+      <CloudSetup />
       <Bubble />
       <Chip />
       <Button id="seal" label="Try sealing" onPress={trySeal} />
