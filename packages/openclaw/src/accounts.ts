@@ -333,8 +333,9 @@ export function createAccounts(ctx: {
       return roomOf(row.provider, answer);
     });
 
-  // Runs step 2 reads the index alone, so a refusal makes no request: the accounts a binding holds, in list order, and
-  // the name a refusal shows (`account.another` when it holds none).
+  // Runs step 2 reads the index alone: the index-only refusal makes no request, and a cold index adds one account
+  // listing (the pick's late check after `list`; `keyRefusal` lists when the held account is not API-billed). This
+  // gives the accounts a binding holds, in list order, and the name a refusal shows (`account.another` when it holds none).
   const boundOf = (file: IndexFile, binding: Binding): AccountId[] => binding.id !== undefined ? [binding.id]
     : Object.entries(file.accounts).filter(([, e]) => e.agent === binding.agentId)
       .sort(([a, x], [b, y]) => x.addedAt - y.addedAt || (a < b ? -1 : 1)).map(([id]) => id);
