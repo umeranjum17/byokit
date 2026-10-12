@@ -1,7 +1,7 @@
 // The per-member account index (5.15, O14 step S5): `<root>/accounts/<member>.json` (0600, whole-file temp
 // plus rename) is the only kit state: `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?,
 // who? } }, defaults }`. No credential, token, email or engine line. Listing, rename, defaults, models, room and
-// adding (O14 step S6) live here; remove, pick and move arrive in later steps.
+// adding with its identity merge (O14 steps S6, S7) live here; remove, pick and move arrive in later steps.
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -407,32 +407,55 @@ export function createAccounts(ctx: {
     signing.set(key, (signing.get(key) ?? 0) + 1);
     const handle = ctx.signIn(agent, { authChoice: route.choice, ...(o.via ? { via: o.via } : {}) },
       (v) => { if (v.state === 'waiting') on(v); }, fresh);
-    // Sealed before the person sees done: the agent keeps only this sign-in, and its `who` goes to the index.
-    const settle = async (view: SignInView): Promise<SignInView> => {
+    // `adopt` moves the sign-in into X's agent and clears it from the target; refused, the sign-in stays a new
+    // account and keeps its `who`.
+    const adopt = (who: string, to: string): Promise<boolean> => ctx.locks.exclusive([memberAgent, agent, to], async () => {
+      const answer = await (ctx.request('byokit.accounts', { action: 'adopt', from: agent, to, provider, who }) as Promise<{ ok?: boolean }>)
+        .catch((error: unknown) => {
+          ctx.log?.(`addAccount: the sign-in stays a new account: ${error instanceof Error ? error.message : String(error)}`);
+          return {} as { ok?: boolean };
+        });
+      if (answer.ok) return true;
+      const file = read(member);
+      const own = file.accounts[id];
+      if (own) { own.who = who; write(member, file); }
+      return false;
+    }).catch(() => false);
+    const drop = (): Promise<void> => agent !== memberAgent ? discard(member, memberAgent, id, agent, true)
+      : added ? edit(member, memberAgent, (file) => { delete file.accounts[id]; })
+        .catch((error: unknown) => ctx.log?.(`addAccount: ${id} entry is kept: ${error instanceof Error ? error.message : String(error)}`))
+        : Promise.resolve();
+    // Sealed before the person sees done: the agent keeps only this sign-in. Identity is its `who`, compared only
+    // within this member and provider: the target's own `who` signs it in again; another account's `who` (the
+    // earliest `addedAt` when several share it, only from before O14) takes the sign-in by `adopt`, whatever
+    // `again` names; no `who` never merges. The email never decides.
+    const settle = async (view: SignInView): Promise<{ view: SignInView; id: AccountId }> => {
       if (view.state === 'done') {
-        const sealed = await ctx.locks.exclusive([memberAgent, agent], async (): Promise<true | string> => {
+        const sealed = await ctx.locks.exclusive([memberAgent, agent], async (): Promise<{ who?: string; into?: [AccountId, IndexEntry] } | string> => {
           const answer = await ctx.request('byokit.accounts', { action: 'seal', agentId: agent, provider }) as { ok?: boolean; who?: string };
           if (!answer.ok) return 'Sign-in could not be saved. Try again.';
           const file = read(member);
-          const entry = file.accounts[id];
-          if (entry && answer.who) { entry.who = answer.who; write(member, file); }
-          return true;
+          const own = file.accounts[id];
+          const into = answer.who && own?.who !== answer.who ? Object.entries(file.accounts)
+            .filter(([other, e]) => other !== id && other.split('.')[0] === provider && e.who === answer.who)
+            .sort(([, a], [, b]) => a.addedAt - b.addedAt)[0] : undefined;
+          if (!into && own) { if (answer.who) own.who = answer.who; else delete own.who; write(member, file); }
+          return { ...(answer.who ? { who: answer.who } : {}), ...(into ? { into } : {}) };
         }).catch((error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 200));
-        if (sealed === true) return view;
-        view = { state: 'failed', via: view.via, why: 'failed', error: sealed };
+        if (typeof sealed === 'string') view = { state: 'failed', via: view.via, why: 'failed', error: sealed };
+        else if (!sealed.into || !await adopt(sealed.who!, sealed.into[1].agent)) return { view, id };
+        else { await drop(); return { view, id: sealed.into[0] }; }
       }
-      if (agent !== memberAgent) await discard(member, memberAgent, id, agent, true);
-      else if (added) await edit(member, memberAgent, (file) => { delete file.accounts[id]; })
-        .catch((error: unknown) => ctx.log?.(`addAccount: ${id} entry is kept: ${error instanceof Error ? error.message : String(error)}`));
-      return view;
+      await drop();
+      return { view, id };
     };
     const done = handle.done.then(settle).finally(() => {
       const left = signing.get(key)! - 1;
       if (left) signing.set(key, left);
       else signing.delete(key);
-    }).then((view) => {
-      on(view);
-      return { view, id };
+    }).then((result) => {
+      on(result.view);
+      return result;
     });
     return { id, paste: handle.paste, cancel: handle.cancel, done };
   }
