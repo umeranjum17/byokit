@@ -64,7 +64,9 @@
   "devDependencies": {
     "@byokit/accounts": "0.21.0",
     "@types/react": "^19.3.0",
-    "react": "^19.3.0"
+    "@types/react-test-renderer": "^19.3.0",
+    "react": "^19.3.0",
+    "react-test-renderer": "^19.3.0"
   },
   "publishConfig": {
     "access": "public"

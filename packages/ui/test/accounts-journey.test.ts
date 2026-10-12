@@ -4,12 +4,18 @@
 // `accounts` entry bundles for react-native with nothing from Node in it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { build } from 'esbuild';
+import { createElement } from 'react';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { Accounts, fileStore, portable, resolveSelection } from '@byokit/accounts';
 import { mockOpenAI } from '@byokit/accounts/testing';
+import { cliAccounts } from '@byokit/accounts/cli';
+import { accountsSource, cliSource, useAccounts, useModelPicker, type AccountHooksSource, type ModelPickerSource, type UseAccounts, type UseModelPicker } from '@byokit/ui';
 import { accountRows, bestMoveTarget, modelPicker, moveWords, nameSuggestions, rowsOf, type Account, type AccountRow, type ModelInfo, type Pick, type Room, type RunSelection, type SignInState } from '@byokit/ui/accounts';
 import { scratchDir } from '../../test-support.ts';
 
@@ -261,4 +267,131 @@ test('bestMoveTarget names Auto’s own winner, and stays undefined with nowhere
 
   assert.equal(moveWords('Work'), 'Move to Work');
   assert.equal(moveWords('Work', false), "Couldn't move to Work");
+});
+
+// ---- Live rows and the picker as React hooks (WP10-S3) -------------------------------------------------------
+// `useAccounts`/`useModelPicker` from the built `@byokit/ui`, rendered with real React over a real two-account
+// ChatGPT `list()` and a real `cliAccounts()` kit (fake native binary, task-private state dir): live refresh,
+// select kept across refreshes, a failing room leaving only its row unknown, a mid-refresh removal dropping it.
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const uiRequire = createRequire(import.meta.url);
+
+let live: { acc: UseAccounts; pick: UseModelPicker } | undefined;
+function Consumer(o: { accSource: AccountHooksSource; pickSource: ModelPickerSource }) {
+  const acc = useAccounts(o.accSource);
+  const pick = useModelPicker(o.pickSource);
+  live = { acc, pick };
+  return createElement('pre', null, JSON.stringify({
+    rows: acc.rows.map((r) => [r.id, r.title, r.detail] as const),
+    ready: acc.ready,
+    selection: pick.selection,
+    ok: pick.picker?.ok ?? null,
+    account: pick.picker?.account ?? null,
+    model: pick.picker?.model ?? null,
+    selected: pick.picker?.rows.filter((r) => r.selected).map((r) => r.key) ?? null,
+    autoDetail: pick.picker?.rows[0]?.detail ?? null,
+  }));
+}
+const shown = (root: ReactTestRenderer): any => JSON.parse((root.root.findByType('pre').children as string[]).join(''));
+function OnlyCli(o: { source: AccountHooksSource }) {
+  const acc = useAccounts(o.source);
+  return createElement('pre', null, JSON.stringify({ rows: acc.rows.map((r) => [r.id, r.title, r.detail] as const), ready: acc.ready }));
+}
+async function settled(root: ReactTestRenderer, pred: (s: any) => boolean, label: string): Promise<any> {
+  for (let n = 0; n < 200; n++) {
+    let s: any;
+    await act(async () => { await new Promise((r) => setTimeout(r, 10)); s = shown(root); });
+    if (pred(s)) return s;
+  }
+  throw new Error(`never settled: ${label}: ${JSON.stringify(shown(root))}`);
+}
+// A fake native CLI: any argv exits 0, and `auth status` reports the fixture sign-in (never a real grant).
+function fakeClaude(dir: string): string {
+  mkdirSync(dir, { recursive: true });
+  const bin = join(dir, 'claude');
+  writeFileSync(bin, `#!${process.execPath}\nconsole.log(JSON.stringify({loggedIn:true,email:'alice.work@example.test',subscriptionType:'pro'}));\n`, { mode: 0o755 });
+  return bin;
+}
+
+test('hooks stay live over real Accounts and cliAccounts, through refresh, pick, a failed room and mid-refresh removal', async () => {
+  assert.ok(uiRequire.resolve('@byokit/ui').includes('packages/ui/dist'), 'the hooks come from the built entry');
+  const openai = await mockOpenAI();
+  const dir = scratchDir('account-hooks');
+  const accounts = new Accounts<any, number>(
+    { authBase: openai.base, apiBase: openai.base, app: 'byokit ui hooks', store: () => fileStore(join(dir, 'member-1.json'), sealing) },
+    portable,
+  );
+  try {
+    Object.assign(openai.state, { accountId: 'umer-personal', email: 'umer@example.com', plan: 'plus' });
+    const personalSignIn = await accounts.add(1, 'chatgpt', { via: 'code' });
+    openai.approve(personalSignIn.signIn!.code!);
+    await accounts.finished(1, personalSignIn.id);
+    const personal = accounts.view(1, personalSignIn.id)!.id!;
+    Object.assign(openai.state, { accountId: 'umer-work', email: 'umer@work.example', plan: 'plus' });
+    const workSignIn = await accounts.add(1, 'chatgpt', { via: 'code' });
+    openai.approve(workSignIn.signIn!.code!);
+    await accounts.finished(1, workSignIn.id);
+    const work = accounts.view(1, workSignIn.id)!.id!;
+    await accounts.rename(1, work, 'Work');
+
+    const rooms: Record<string, Room> = { [work]: { left: 72, span: 'week' }, [personal]: { left: 30, span: 'week' } };
+    const room = (a: Account): Room => rooms[a.id] ?? { left: 'unknown' };
+    const source = accountsSource<number>(accounts, 1, room);
+    let root: ReactTestRenderer | undefined;
+    await act(async () => { root = create(createElement(Consumer, { accSource: source, pickSource: source })); });
+    const first = await settled(root!, (s) => s.ready && s.ok === true, 'first refresh');
+    assert.deepEqual(first.rows.find((r: string[]) => r[0] === work), [work, 'ChatGPT · Work', 'Plus · 72% left this week']);
+    assert.deepEqual(first.rows.find((r: string[]) => r[0] === personal), [personal, 'ChatGPT', 'Plus · 30% left this week']);
+    const auto = await accounts.pick(1, { account: 'auto' }, room);
+    assert.deepEqual([first.selection, first.account, first.selected, first.autoDetail],
+      [{ account: 'auto' }, work, ['auto'], auto.ok ? auto.reason : null], 'Auto names the roomier account');
+
+    // The picker's select() marks the explicit account at once and keeps it across a refresh.
+    const models = await accounts.models(1, personal);
+    await act(async () => { live!.pick.select({ account: personal }); });
+    assert.deepEqual(shown(root!).selection, { account: personal });
+    assert.deepEqual([shown(root!).selected, shown(root!).account, shown(root!).model],
+      [[personal], personal, models[0].id], 'the explicit pick is marked with its first model');
+    await act(async () => { await live!.pick.refresh(); });
+    assert.deepEqual([shown(root!).selection, shown(root!).selected, shown(root!).account],
+      [{ account: personal }, [personal], personal], 'a refresh keeps the caller selection');
+
+    // A room source that fails for one account leaves only that row unknown, without breaking the list.
+    const failing = accountsSource<number>(accounts, 1, (a) => { if (a.id === work) throw new Error('readings are down'); return room(a); });
+    await act(async () => { root!.unmount(); root = create(createElement(Consumer, { accSource: failing, pickSource: failing })); });
+    const failedRoom = await settled(root!, (s) => s.ready, 'failed-room refresh');
+    assert.equal(failedRoom.rows.find((r: string[]) => r[0] === work)![2], 'Room left unknown');
+    assert.deepEqual(failedRoom.rows.find((r: string[]) => r[0] === personal), [personal, 'ChatGPT', 'Plus · 30% left this week']);
+
+    // A remove landing while a refresh is in flight still drops the row, on screen and in the back end.
+    const slow = accountsSource<number>(accounts, 1, async (a) => {
+      if (a.id === work) await new Promise((r) => setTimeout(r, 50));
+      return room(a);
+    });
+    await act(async () => { root!.unmount(); root = create(createElement(Consumer, { accSource: slow, pickSource: slow })); });
+    await settled(root!, (s) => s.ready, 'slow refresh');
+    const flight = live!.acc.refresh();
+    await act(async () => { await live!.acc.remove(work); await flight; });
+    assert.equal(shown(root!).rows.some((r: string[]) => r[0] === work), false, 'the removed row is gone');
+    assert.deepEqual(shown(root!).rows.find((r: string[]) => r[0] === personal), [personal, 'ChatGPT', 'Plus · 30% left this week']);
+    assert.deepEqual((await accounts.list(1)).map((a) => a.id), [personal], 'the back end removed it too');
+    await act(async () => { root!.unmount(); });
+
+    // The cli adapter fits a real managed login with one line, and its rows read plainly.
+    const kit = cliAccounts({ stateDir: join(dir, 'plans'), bins: { claude: fakeClaude(join(dir, 'bins')) }, env: { HOME: join(dir, 'home'), PATH: '/unused' } });
+    const { account, signIn } = await kit.add('claude');
+    assert.equal(spawnSync('/bin/sh', ['-c', signIn.shell], { encoding: 'utf8' }).status, 0);
+    assert.equal((await kit.status(account.id)).state, 'ready');
+    await kit.rename(account.id, 'Work');
+    let cliRoot: ReactTestRenderer | undefined;
+    const cliSeen = cliSource(kit, () => ({ left: 72, span: 'week' }));
+    await act(async () => { cliRoot = create(createElement(OnlyCli, { source: cliSeen })); });
+    const cliRows = await settled(cliRoot!, (s) => s.ready, 'cli refresh');
+    assert.deepEqual(cliRows.rows, [[account.id, 'Claude · Work', 'Pro · 72% left this week']]);
+    await act(async () => { cliRoot!.unmount(); });
+  } finally {
+    accounts.stop();
+    await openai.close();
+  }
 });
