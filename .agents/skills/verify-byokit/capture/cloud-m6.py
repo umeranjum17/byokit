@@ -11,7 +11,7 @@ def adb(*args, data=None):
 
 def ui():
     assert app in adb('shell', 'dumpsys window | grep -m1 mCurrentFocus').decode(), 'Approved lab app is not focused'
-    raw = adb('shell', 'uiautomator', 'dump', '/dev/tty').decode()
+    raw = adb('shell', 'uiautomator dump /sdcard/byokit-m6-ui.xml >/dev/null && cat /sdcard/byokit-m6-ui.xml').decode()  # some phones print nothing to /dev/tty
     root = ET.fromstring(raw[raw.index('<hierarchy'):raw.index('</hierarchy>') + 12])
     assert all(n.get('package') in (app, 'com.android.systemui', '') for n in root.iter('node')), 'Lab app is not the foreground UI'
     return list(root.iter('node'))
@@ -66,7 +66,7 @@ finally:
         if video:
             adb('pull', '/sdcard/byokit-m6-recording.mp4', str(out / 'journey.mp4'))
             sp.run(['ffprobe', '-v', 'error', str(out / 'journey.mp4')], check=True)
-        if opened: adb('shell', 'am', 'force-stop', app)
+        if opened: adb('shell', 'am', 'force-stop', app); adb('shell', 'rm', '-f', '/sdcard/byokit-m6-ui.xml')
         record['skips'] = ['before: new lab-only route absent on base', 'desktop/web: native-only lab', 'dark: fixed light lab screen']
         record['setup_seconds'] = record.get('setup_end', time.time()) - record['setup_start']
         (out / 'manifest.tmp').write_text(json.dumps(record, indent=2)); (out / 'manifest.tmp').replace(out / 'manifest.json')
