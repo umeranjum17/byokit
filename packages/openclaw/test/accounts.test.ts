@@ -534,10 +534,28 @@ test('identity: same who refreshes, again with another who adds, no who never me
     assert.equal((await ready(f.id)).expiresAt, later + 8);
     assert.equal((await rows()).length, 6);
 
+    // The member row is the earliest holder of W; an account duplicate of W is discarded, and the newest sign-in's
+    // credential is the one that survives on the member row.
+    await kit.signOut('m1', 'openai');
+    fake.signInAs({ accountId: 'canary-acct-w', expires: later + 9 });
+    assert.equal((await add()).id, 'openai', 'the signed-out member takes W');
+    await kit.signOut('m1', 'openai');
+    fake.signInAs({ accountId: 'canary-acct-w', expires: later + 10 });
+    const dupW = await add('openai');
+    assert.equal(dupW.id, dupW.added, 'again on a signed-out member row adds an account row for W');
+    assert.equal(index().accounts[dupW.id]!.who, whoOf('canary-acct-w'));
+    assert.equal((await rows()).length, 7);
+    fake.signInAs({ accountId: 'canary-acct-w', expires: later + 11 });
+    assert.equal((await add()).id, 'openai', 'the newest sign-in stays on the member row');
+    assert.equal(index().accounts[dupW.id], undefined, 'the account duplicate of W is discarded');
+    assert.equal((await ready('openai')).expiresAt, later + 11, 'with the newest credential');
+    assert.equal((await ready('openai')).who, whoOf('canary-acct-w'));
+    assert.equal((await rows()).length, 6);
+
     // No who or account id reaches the app: rows, views, done results, errors, kit state or log lines.
     await assert.rejects(kit.addAccount('m1', { authChoice: 'openai', again: 'openai.000000' }, () => {}), (error: Error) => { seen.push(error.message); return true; });
     const out = JSON.stringify([seen, lines, kit.state]);
-    for (const id of ['a', 'b', 'e', 'f']) {
+    for (const id of ['a', 'b', 'e', 'f', 'w']) {
       assert.ok(!out.includes(whoOf(`canary-acct-${id}`)), `who of ${id} leaks`);
       assert.ok(!out.includes(`canary-acct-${id}`), `account id ${id} leaks`);
     }
