@@ -1,5 +1,6 @@
 {
   "name": "@byokit/link",
+  "private": true,
   "version": "0.8.1",
   "description": "Deprecated: renamed to @byokit/pair. Re-exports @byokit/pair as is; removed in 0.9.0.",
   "license": "Apache-2.0",
