@@ -13,6 +13,8 @@ import { Engine, refusedOnly } from './engine.ts';
 import { AuthStoreSealSizeError } from './auth-store.ts';
 import { gatewayTransport } from './transport.ts';
 import { createMembers } from './members.ts';
+import { createAccounts } from './accounts.ts';
+import { createLocks } from './locks.ts';
 import { keyAgentId, KEY_PREFIX, MEMBER_ID } from './members.ts';
 import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLogin } from './migrate.ts';
 import { createRuns, signedInProviders } from './runs.ts';
@@ -27,9 +29,12 @@ import { createBrowserHost, type BrowserHostController, type HostBroker } from '
 import { fileSignInStore } from './browser/store.ts';
 import { launchBroker } from './browser/broker.ts';
 import type {
+  Account,
+  AccountId,
   Approval,
   CallOptions,
   Decision,
+  Defaults,
   GatewayEventName,
   GatewayEventPayload,
   GatewayMethod,
@@ -494,6 +499,8 @@ export class OpenClawKit {
   private transport?: GatewayTransport;
   private greeting?: Hello;
   private members?: ReturnType<typeof createMembers>;
+  private readonly locks = createLocks();
+  private accountsCtl?: ReturnType<typeof createAccounts>;
   // One bridge and one approval surface per kit: listeners and run registrations survive reconnects (B3).
   // Only the socket itself is per-connection. Approvals always reaches the live transport through this.request().
   private readonly bridge: Bridge;
@@ -753,6 +760,8 @@ export class OpenClawKit {
       for (const name of operatorMethods) if (!hello.methods.includes(name)) this.o.log?.(`gateway missing generated method: ${name}`);
       for (const name of hello.methods) if (!operatorMethods.has(name) && !nodeMethods.has(name)) this.o.log?.(`gateway has unknown method: ${name}`);
       this.members = createMembers({ request: transport.request.bind(transport), root: this.engine.root });
+      this.accountsCtl = createAccounts({ request: transport.request.bind(transport), root: this.engine.root,
+        ensure: (member) => this.ensureMember(member), locks: this.locks });
       // The fail-closed tool bridge feeds the kit's single Approval surface (5.9, O5).
       await this.bridge.start();
       this.off.push(transport.onEvent((e) => this.approvalsCtl.handleEvent(e)));
@@ -791,7 +800,7 @@ export class OpenClawKit {
     this.admission.invalidate();
     this.off.splice(0).forEach((fn) => fn());
     const transport = this.transport;
-    this.transport = undefined; this.greeting = undefined; this.members = undefined;
+    this.transport = undefined; this.greeting = undefined; this.members = undefined; this.accountsCtl = undefined;
     this.browserPolicySessions.clear();
     this.bridge.stop();
     await transport?.stop();
@@ -908,6 +917,28 @@ export class OpenClawKit {
 
   signOut(member: Member, provider: string): Promise<void> {
     return engineSignOut(this.signInCtx(), member, provider);
+  }
+
+  // accounts (5.15, O14 step S5): the per-member index with listing, defaults and rename. Adding,
+  // removing, models, room, pick and move arrive in later steps.
+  accounts(member: Member): Promise<Account[]> {
+    if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
+    return this.accountsCtl.list(member);
+  }
+
+  renameAccount(member: Member, id: AccountId, name: string): Promise<Account> {
+    if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
+    return this.accountsCtl.rename(member, id, name);
+  }
+
+  defaults(member: Member): Promise<Defaults> {
+    if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
+    return this.accountsCtl.defaults(member);
+  }
+
+  setDefaults(member: Member, d: Defaults): Promise<void> {
+    if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
+    return this.accountsCtl.setDefaults(member, d);
   }
 
   /** Save an explicitly supplied API key (billed per use) in this member's separate key agent. */
