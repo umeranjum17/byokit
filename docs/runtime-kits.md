@@ -2157,13 +2157,15 @@ export declare class Blocked {
 `runTurn<T>(target, options): Promise<AgentTurnEnd<T>>` adds host-side turn tracking to an existing
 agent; it neither starts a CLI nor changes its subscription. `options` supplies `prompt`, an absolute
 app-owned `cwd`, optional `timeoutMs` (default 300000), `signal`, `onEnd`, file policy (`exclude`,
-`maxFiles`, `maxBytes`), and optional result policy `{ schema, validate, maxBytes }`. `schema` is an
+`maxFiles`, `maxBytes`, or `false` to skip the scan so `changedFiles` is always empty), and optional
+result policy `{ schema, validate, maxBytes }`. `schema` is an
 app-supplied JSON Schema sent as instructions; `validate(unknown): value is T` is the app's schema
 validator. No provider API or additional billing path is introduced. `onTurnEnd(fn)` subscribes
 app-wide; `onEnd` and the promise carry the same completed turn, exactly once.
 
 Before delivery, the kit acknowledges a pane-specific Herdr status subscription, checks that the
-agent is idle and its working directory matches, and snapshots that directory. Completion requires
+agent is idle or already `done` and its working directory matches, and snapshots that directory (or
+skips the snapshot when the file policy is `false`). Completion requires
 an observed `working` followed by `idle` or `done` after delivery starts; initial idle, blocked,
 unknown and prompt receipts alone never end a turn. It buffers a completion arriving before the
 prompt receipt. Rejected delivery, watch loss, pane replacement/closure, cancellation, timeout and
