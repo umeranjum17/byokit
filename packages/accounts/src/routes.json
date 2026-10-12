@@ -4,7 +4,7 @@
     "provider": "alibaba",
     "name": "Qwen Token Plan",
     "company": "Alibaba",
-    "label": "Uses your Qwen Token Plan plan",
+    "label": "Uses your Qwen Token Plan",
     "aliases": [
       "qwen-token-plan"
     ],
@@ -30,7 +30,7 @@
     "provider": "alibaba",
     "name": "Qwen Token Plan CN",
     "company": "Alibaba",
-    "label": "Uses your Qwen Token Plan CN plan",
+    "label": "Uses your Qwen Token Plan CN",
     "aliases": [
       "qwen-token-plan-cn"
     ],
@@ -56,7 +56,7 @@
     "provider": "alibaba",
     "name": "Qwen Token Plan Individual",
     "company": "Alibaba",
-    "label": "Uses your Qwen Token Plan Individual plan",
+    "label": "Uses your Qwen Token Plan Individual",
     "aliases": [
       "qwen-token-plan-individual"
     ],
@@ -1656,7 +1656,7 @@
     "provider": "xiaomi",
     "name": "Xiaomi Token Plan AMS",
     "company": "Xiaomi Token Plan AMS",
-    "label": "Uses your Xiaomi Token Plan AMS plan",
+    "label": "Uses your Xiaomi Token Plan AMS",
     "aliases": [
       "xiaomi-token-plan-ams"
     ],
@@ -1682,7 +1682,7 @@
     "provider": "xiaomi",
     "name": "Xiaomi Token Plan CN",
     "company": "Xiaomi Token Plan CN",
-    "label": "Uses your Xiaomi Token Plan CN plan",
+    "label": "Uses your Xiaomi Token Plan CN",
     "aliases": [
       "xiaomi-token-plan-cn"
     ],
@@ -1708,7 +1708,7 @@
     "provider": "xiaomi",
     "name": "Xiaomi Token Plan SGP",
     "company": "Xiaomi Token Plan SGP",
-    "label": "Uses your Xiaomi Token Plan SGP plan",
+    "label": "Uses your Xiaomi Token Plan SGP",
     "aliases": [
       "xiaomi-token-plan-sgp"
     ],
