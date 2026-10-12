@@ -280,8 +280,11 @@ function card(key: string) {
     const plan = ready ? await accounts.plan(ME, key) : null;
     const rows = (await accounts.list(ME)).filter((a) => a.provider === key);
     const self = { id: status.id, email: plan?.email };
-    paintRows(rows, new Map(), self);
-    await paintPick(rows, new Map(), self);
+    // Seed the first paint from the last readings: a redraw (after a run, say) must not say "no recent
+    // reading" while the fresh read is still in flight.
+    const seeded: Map<string, Reading | undefined> = new Map(rows.map((a) => [a.id, readingCache.get(a.id)?.reading]));
+    paintRows(rows, seeded, self);
+    await paintPick(rows, seeded, self);
     const adding = !!pendingAdd;
     const landed = pendingAdd ? accounts.view(ME, pendingAdd) : undefined;
     if (landed?.state === 'done' && pendingAdd) pendingAdd = undefined;
