@@ -173,6 +173,45 @@ test('Add an account: every route grouped, Plans first, unavailable ones say why
   } finally { await context.close(); }
 });
 
+test('Add an OpenCode Go plan account: its row opens the paste-key form, a pasted key connects and is kept', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext({ serviceWorkers: 'block' });
+  try {
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.goto(site.url);
+    await part(page, 'opencode', 'signin').waitFor();
+    assert.equal(await part(page, 'opencode', 'billing').textContent(), 'Plan');
+    await page.locator('#add-open').click();
+    const row = page.locator('[data-route="opencode:plan_key:opencode-go"]');
+    await row.waitFor();
+    assert.equal(await row.getAttribute('aria-disabled'), null, 'the Go row can be tapped');
+    assert.equal(await row.locator('.route-status').textContent(), 'Ready');
+    assert.equal(await row.locator('.route-name').textContent(), 'OpenCode Go — paste the key from your plan', 'each card names its way in');
+    assert.equal(await page.locator('[data-group="coming-soon"] [data-route="opencode:plan_key:opencode-go"]').count(), 0, 'the Go row stays in Plans, not Coming soon');
+    await row.click();
+    assert.equal(await page.locator('#add-sheet').isVisible(), false, 'the sheet closes on the card it started');
+    assert.equal(await page.evaluate(() => document.activeElement?.id), 'opencode', 'focus lands on that card');
+    // The form opens on the card's async redraw, so wait for it instead of asserting one synchronous frame.
+    await part(page, 'opencode', 'paste').waitFor({ state: 'visible' });
+    assert.equal(await part(page, 'opencode', 'pasted').getAttribute('placeholder'), 'Paste the key from your plan');
+    await part(page, 'opencode', 'pasted').fill('fake-go-plan-key-canary');
+    await part(page, 'opencode', 'connect').click();
+    await part(page, 'opencode', 'status').filter({ hasText: /is connected/ }).waitFor();
+    await page.locator('#opencode [data-room]').filter({ hasText: 'Room left unknown' }).waitFor();
+    assert.match((await page.locator('#opencode [data-email]').textContent())!, /OpenCode Go/);
+    assert.equal(await page.locator('#opencode [data-chip]').count(), 0, 'no plan pill repeats on any account row');
+
+    await page.reload();
+    await part(page, 'opencode', 'status').filter({ hasText: /is connected/ }).waitFor(); // kept in this browser's stores
+    await page.locator('#opencode [data-room]').filter({ hasText: 'Room left unknown' }).waitFor();
+
+    await part(page, 'opencode', 'signout').click();
+    await part(page, 'opencode', 'signin').waitFor();
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
 test('Add sheet rows start their own card: a signed-in plan row adds another sign-in with its code; a tap while one waits starts nothing new', { timeout: 120_000 }, async () => {
   const context = await browser.newContext({ serviceWorkers: 'block' });
   try {

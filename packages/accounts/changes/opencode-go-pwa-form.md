@@ -1,0 +1,1 @@
+- ADD: `opencode` catalogue provider (pi `opencode-go`, subscription plan-key auth) so the OpenCode Go plan is in the default offer with a paste-key card: `portable.signsIn` covers pasted plan keys, provider-level status/logout resolve to the saved key account, and `checked()` without a key store reads signed out.

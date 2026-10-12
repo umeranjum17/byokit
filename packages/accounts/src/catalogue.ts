@@ -86,6 +86,11 @@ export const deviceFlow = (pi: string, region?: 'global' | 'cn'): DeviceFlow | u
   const endpoints = d && region && region !== 'global' ? d.regions?.[region] : undefined;
   return d && endpoints ? { ...d, authorization: endpoints.authorization, token: endpoints.token } : d;
 };
+/** A pasted plan key signs in on any platform its route is present on, so phones and browsers
+ *  sign in to plan-key providers too, with no device flow of their own. */
+export const planKey = (pi: string): boolean => (ROUTES as Route[])
+  .some((r) => r.upstream.id === pi && r.via === 'plan_key' && r.upstream.flow === 'present'
+    && (r.platforms.browser === 'yes' || r.platforms.rn === 'yes'));
 /** What the picker offers: the provider rows a phone or browser can sign in to, in catalogue order.
  *  The app's own `offer` list (the same `readonly string[]` as `offered` and `AccountsOptions.offer`), when passed,
  *  decides membership: a provider it names is included even when the catalogue marks it explicit (`offer: false`),
