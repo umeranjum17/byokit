@@ -9,10 +9,11 @@
 import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { chmodSync, readFileSync, statSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
+import { Engine } from '../src/engine.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { createLocks } from '../src/locks.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
@@ -521,6 +522,90 @@ test('a plan key: addAccount pastes the OpenCode Go key into typed activation an
     failed.paste(secret);
     assert.deepEqual(await failed.done, { state: 'failed', via: 'browser', why: 'failed',
       error: 'That key-based provider is not available on this Gateway.' });
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+// The pin writes config `auth` on a plan-key activation and restarts the gateway for it: the fake records the write
+// and, when dropAfterMs is given, drops its connection then, so the kit's own closed() and reconnect run.
+function activatingGateway(fake: ReturnType<typeof fakeGateway>, root: () => string, dropAfterMs?: number): typeof fake.factory {
+  return (ctx) => {
+    const inner = fake.factory(ctx);
+    return { ...inner, request: async (method, params, options) => {
+      const answer = await inner.request(method, params, options);
+      if (method === 'openclaw.setup.activate') {
+        const path = join(root(), 'openclaw.json');
+        const config = JSON.parse(readFileSync(path, 'utf8'));
+        writeFileSync(path, JSON.stringify({ ...config, auth: { profiles: { 'opencode-go:default': { provider: 'opencode-go', mode: 'api_key' } } } }, null, 2));
+        if (dropAfterMs !== undefined) setTimeout(() => fake.drop('gateway restart'), dropAfterMs);
+      }
+      return answer;
+    } };
+  };
+}
+
+test('a plan key add whose gateway restarts 11 s after activation is done, and its key is sealed', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  t.mock.method(Engine.prototype, 'start', async function (this: unknown) {
+    const root = (this as { root: string }).root;
+    mkdirSync(root, { recursive: true });
+    if (!existsSync(join(root, 'openclaw.json'))) writeFileSync(join(root, 'openclaw.json'), '{}');
+    return { port: 0, token: 'test', identityPath: '' };
+  });
+  t.mock.method(Engine.prototype, 'stop', async () => {});
+  const stateDir = scratchDir('go-late-restart');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root, 11_000), spawnEngine: true, callbackPort: 0 });
+  try {
+    await kit.start();
+    const added = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
+    await flush();
+    added.paste('CANARY-GO-LATE-RESTART');
+    await flush();
+    t.mock.timers.tick(11_000);
+    await flush();
+    t.mock.timers.tick(1_000);
+    await flush();
+    const { view, id } = await added.done;
+    assert.deepEqual(view, { state: 'done', via: 'browser' });
+    assert.equal(id, 'opencode-go');
+    assert.ok(fake.calls.some((c) => c.method === 'byokit.accounts' && (c.params as { action?: string }).action === 'seal'));
+    assert.equal(kit.state.phase, 'ready');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a plan key add whose gateway never restarts ends retry and keeps the activated key', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  t.mock.method(Engine.prototype, 'start', async function (this: unknown) {
+    const root = (this as { root: string }).root;
+    mkdirSync(root, { recursive: true });
+    if (!existsSync(join(root, 'openclaw.json'))) writeFileSync(join(root, 'openclaw.json'), '{}');
+    return { port: 0, token: 'test', identityPath: '' };
+  });
+  t.mock.method(Engine.prototype, 'stop', async () => {});
+  const stateDir = scratchDir('go-no-restart');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
+  try {
+    await kit.start();
+    const added = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
+    await flush();
+    added.paste('CANARY-GO-NO-RESTART');
+    await flush();
+    t.mock.timers.tick(60_000);
+    await flush();
+    const { view } = await added.done;
+    assert.equal(view.state, 'failed');
+    assert.equal(view.why, 'retry');
+    assert.ok(!fake.calls.some((c) => c.method === 'byokit.accounts' && (c.params as { action?: string }).action === 'clear'));
+    assert.ok((await kit.accounts('m1')).some((row) => row.id === 'opencode-go'));
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });

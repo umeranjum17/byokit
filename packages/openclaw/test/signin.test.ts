@@ -603,7 +603,7 @@ test('a key activation whose restart does not finish fails retryably and keeps i
   const drive = signIn(ctx(fake, { restarted: async () => false }), 'm1', { authChoice: 'apiKey' }, () => {});
   drive.paste(secret);
   const view = await drive.done;
-  assert.deepEqual(view, { state: 'failed', via: 'browser', why: 'failed',
+  assert.deepEqual(view, { state: 'failed', via: 'browser', why: 'retry',
     error: 'Sign-in could not be confirmed after the gateway restarted. Try again.' });
   assert.ok(!JSON.stringify(view).includes(secret));
 });

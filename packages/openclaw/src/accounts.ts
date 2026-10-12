@@ -448,8 +448,9 @@ export function createAccounts(ctx: {
           return true;
         }).catch((error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 200));
         if (sealed === true) return view;
-        view = { state: 'failed', via: view.via, why: 'failed', error: sealed };
+        return { state: 'failed', via: view.via, why: 'retry', error: sealed };
       }
+      if (view.why === 'retry') return view;
       if (agent !== memberAgent) await discard(member, id, agent, true);
       else if (added) await edit(member, (file) => { delete file.accounts[id]; })
         .catch((error: unknown) => ctx.log?.(`addAccount: ${id} entry is kept: ${error instanceof Error ? error.message : String(error)}`));

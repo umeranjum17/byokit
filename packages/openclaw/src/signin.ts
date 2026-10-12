@@ -14,9 +14,11 @@ export type SignInCtx = {
   ensure(member: Member): Promise<{ agentId: string }>;
   callbackPort: number;
   onDisconnect?(fn: () => void): () => void;
-  // Resolves true once the gateway restart an activation caused has begun and the kit is ready again; false if it
-  // failed or ran past its bound. Absent in tests that have no engine to restart.
-  restarted?(signal: AbortSignal): Promise<boolean>;
+  // The engine's config `auth` as text, read before an activation; a changed one is the restart the kit waits out.
+  authConfig?(): string;
+  // Resolves true once the restart that an activation's `auth` change causes has begun and the kit is ready again;
+  // false if it fails or runs past its bound. Absent in tests that have no engine to restart.
+  restarted?(authBefore: string | undefined, signal: AbortSignal): Promise<boolean>;
   // A further account of a provider the member already holds (5.15): its sign-in must not reuse the browser's session.
   fresh?: boolean;
 };
@@ -246,14 +248,15 @@ export function signIn(
         secret = apiKey.trim() || undefined;
       }
       if (signal.aborted) return { state: 'failed', via, why: 'declined' };
+      const authBefore = ctx.authConfig?.();
       const result = await ctx.request('openclaw.setup.activate', {
         agentId, kind: apiKey === undefined ? 'claude-cli' : 'api-key',
         ...(apiKey === undefined ? {} : { authChoice: o.authChoice, apiKey }),
       }, { timeoutMs: PULL_MS, signal }) as { ok?: boolean; error?: string };
-      // The pin restarts the gateway for the `auth` change activation wrote, once in-flight requests drain; a
-      // run started before that runs on the old config (signed out of the old model). Done waits for that restart.
-      if (result.ok && ctx.restarted && !await ctx.restarted(signal))
-        return { state: 'failed', via, why: 'failed', error: 'Sign-in could not be confirmed after the gateway restarted. Try again.' };
+      // An activation that changes config `auth` restarts the gateway once in-flight requests drain; a run started
+      // before that runs on the old config. Done waits for that restart. A failed wait keeps the activated key (retry).
+      if (result.ok && ctx.restarted && !await ctx.restarted(authBefore, signal))
+        return { state: 'failed', via, why: 'retry', error: 'Sign-in could not be confirmed after the gateway restarted. Try again.' };
       return result.ok ? { state: 'done', via } : { state: 'failed', via, why: 'failed',
         error: clean(result.error ?? (apiKey === undefined ? 'Claude Code activation failed' : 'Key activation failed')) };
     }

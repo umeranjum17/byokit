@@ -113,7 +113,7 @@ export type SignInView = {
   message?: string; // the engine's instructions shown with `code`
   prompt?: string; // what a waiting text step asks, answered through paste: the engine's question, or a fixed label once sensitive; never a value
   error?: string;
-  why?: 'busy' | 'declined' | 'expired' | 'failed';
+  why?: 'busy' | 'declined' | 'expired' | 'failed' | 'retry'; // retry: the activated key is kept; try again
 };
 
 export type Approval = {

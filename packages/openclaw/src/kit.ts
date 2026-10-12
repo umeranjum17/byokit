@@ -816,12 +816,17 @@ export class OpenClawKit {
   }
 
   private engineRestarting(): boolean {
-    return this.o.spawnEngine !== false && (this.current.phase === 'restarting' || this.current.phase === 'starting');
+    return this.current.phase === 'restarting' || this.current.phase === 'starting';
   }
 
-  // Resolves true once a restart has begun and the kit is ready again; false if it fails or runs past RESTART_MS.
-  private restarted(signal: AbortSignal): Promise<boolean> {
-    if (this.o.spawnEngine === false) return Promise.resolve(true);
+  private authSnapshot(): string {
+    return JSON.stringify(this.getConfigKey('auth')) ?? '';
+  }
+
+  // An activation that changed config `auth` makes the pin restart the gateway; then this resolves true once that
+  // restart has begun and the kit is ready again, false if it fails or runs past RESTART_MS. No change: true at once.
+  private restarted(authBefore: string | undefined, signal: AbortSignal): Promise<boolean> {
+    if (this.o.spawnEngine === false || this.authSnapshot() === authBefore) return Promise.resolve(true);
     return new Promise((resolve) => {
       let began = this.engineRestarting();
       const end = (ok: boolean) => {
@@ -923,7 +928,8 @@ export class OpenClawKit {
       authStatus: (agentId, refresh, native) => this.admission.read(agentId, refresh, native, false),
       ensure: (member) => this.ensureMember(member), callbackPort: this.o.callbackPort ?? 1455,
       onDisconnect: (fn) => { this.signInDisconnects.add(fn); return () => { this.signInDisconnects.delete(fn); }; },
-      restarted: (signal) => this.restarted(signal) };
+      authConfig: () => this.authSnapshot(),
+      restarted: (authBefore, signal) => this.restarted(authBefore, signal) };
   }
 
   routes(): RouteView[] {

@@ -734,9 +734,10 @@ A `keyEntry` choice (a plan key such as `opencode-go`) never starts the wizard, 
 `{ prompt: 'Plan key' }` (`'API key (billed per use)'` for `api` billing), waits for `paste` (15 min) and calls typed
 `openclaw.setup.activate { kind: 'api-key', agentId, authChoice, apiKey }`; the engine live-tests the key and saves
 the agent's model. The key is cut from any error the view carries. Activation (this one and `anthropic-cli`'s) writes
-`auth`, which the pin applies by restarting the gateway once its requests drain; with a spawned engine `done` waits
-for that restart to begin and the kit to be ready again, within 60 s (event-driven, not polled); past that the sign-in
-fails with a retryable error, so a run started on done uses the new sign-in.
+`auth`, which the pin applies by restarting the gateway once its requests drain; when the activation changed config
+`auth` and a spawned engine restarts for it, `done` waits for that restart to begin and the kit to be ready again,
+within 60 s (event-driven, not polled); past that the sign-in ends `why: 'retry'` and keeps the account and its
+activated key (no discard; a later seal or retry, not a new paste, finishes it), so a run started on done uses the new sign-in.
 A run prepares its models from configured facts and the static catalog only (the pin's run path; live discovery
 feeds `models.list view: 'all'`, never a run): a live-only OpenCode Go model (Muse) resolves once the app lists it in
 `KitOptions.config.models.providers['opencode-go'].models` with its upstream API (`openai-responses` for Muse). The pin's
