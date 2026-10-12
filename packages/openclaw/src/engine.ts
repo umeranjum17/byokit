@@ -12,6 +12,7 @@ import { ENGINE_VERSION } from './constants.ts';
 import { appendUsageBoot } from './usage-boots.ts';
 import { reconcileConfig, appRecoveryPrefixes } from './config.ts';
 import { writePlugin, resolveBridge } from './bridge.ts';
+import { ACCOUNT_AGENT, indexedAgents } from './accounts.ts';
 import type { KitOptions } from './kit.ts';
 import type { KitState, ToolSpec } from './types.ts';
 
@@ -309,22 +310,11 @@ export class Engine {
   // the gateway is down, and no add is in flight while preparing (an entry is written before its agent is created,
   // so an account being added is named). The roster-aware sweep after every removal lives in accounts.ts.
   private sweepAccountOrphans(): void {
-    const accountAgent = /^[a-z][a-z0-9-]{0,31}--[0-9a-f]{6}$/;
-    const named = new Set<string>();
     try {
-      for (const file of readdirSync(join(this.root, 'accounts'))) {
-        if (!file.endsWith('.json')) continue;
-        try {
-          const parsed = JSON.parse(readFileSync(join(this.root, 'accounts', file), 'utf8')) as
-            { accounts?: Record<string, { agent?: unknown }> };
-          for (const entry of Object.values(parsed.accounts ?? {}))
-            if (typeof entry.agent === 'string') named.add(entry.agent);
-        } catch { /* an unreadable index names nothing */ }
-      }
-    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') this.o.log?.(`prepare: orphans are not swept: ${String((error as Error).message).slice(0, 200)}`); return; }
-    try {
-      for (const dir of readdirSync(join(this.root, 'state', 'agents'))) {
-        if (!accountAgent.test(dir) || named.has(dir)) continue;
+      const dirs = readdirSync(join(this.root, 'state', 'agents'));
+      const named = indexedAgents(this.root);
+      for (const dir of dirs) {
+        if (!ACCOUNT_AGENT.test(dir) || named.has(dir)) continue;
         rmSync(join(this.root, 'state', 'agents', dir), { recursive: true, force: true });
       }
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') this.o.log?.(`prepare: orphans are not swept: ${String((error as Error).message).slice(0, 200)}`); }

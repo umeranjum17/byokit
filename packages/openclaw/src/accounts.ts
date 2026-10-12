@@ -17,7 +17,7 @@ type IndexEntry = { agent: string; name: string; route: string; addedAt: number;
 type IndexFile = { v: 1; accounts: Record<string, IndexEntry>; defaults: Defaults };
 
 type LiveProfile = { provider?: string; profileId?: string; type?: string; status?: string; who?: string };
-const ACCOUNT_AGENT = /^[a-z][a-z0-9-]{0,31}--[0-9a-f]{6}$/;
+export const ACCOUNT_AGENT = /^[a-z][a-z0-9-]{0,31}--[0-9a-f]{6}$/;
 const usable = (status: string | undefined): boolean => status === 'ok' || status === 'expiring' || status === 'static';
 const IDENTITY = 'IDENTITY.md';
 
@@ -38,6 +38,21 @@ const validEntry = (v: unknown): v is IndexEntry => !!v && typeof v === 'object'
   && ((v as IndexEntry).until === undefined || Number.isFinite((v as IndexEntry).until))
   && ((v as IndexEntry).model === undefined || typeof (v as IndexEntry).model === 'string')
   && ((v as IndexEntry).who === undefined || typeof (v as IndexEntry).who === 'string');
+
+// Every agent any member's index names. An index that cannot be read or parsed throws: its accounts are unknown,
+// so no sweep may run.
+export function indexedAgents(root: string): Set<string> {
+  const named = new Set<string>();
+  let files: string[];
+  try { files = readdirSync(join(root, 'accounts')); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return named; throw error; }
+  for (const file of files) {
+    if (!file.endsWith('.json')) continue;
+    const parsed = JSON.parse(readFileSync(join(root, 'accounts', file), 'utf8')) as Partial<IndexFile>;
+    for (const entry of Object.values(parsed.accounts ?? {})) if (typeof entry?.agent === 'string') named.add(entry.agent);
+  }
+  return named;
+}
 
 export function createAccounts(ctx: {
   request: GatewayTransport['request'];
@@ -357,32 +372,17 @@ export function createAccounts(ctx: {
     edit(member, (file) => { const entry = file.accounts[id]; if (entry) entry.until = until; });
 
   const agentDir = (agent: string): string => join(ctx.root, 'state', 'agents', agent);
-  // Every agent the index names, across all members: a sweep never touches one of these.
-  const namedAgents = (): Set<string> => {
-    const named = new Set<string>();
-    let files: string[];
-    try { files = readdirSync(join(ctx.root, 'accounts')); }
-    catch { return named; }
-    for (const file of files) {
-      if (!file.endsWith('.json')) continue;
-      try {
-        const parsed = JSON.parse(readFileSync(join(ctx.root, 'accounts', file), 'utf8')) as Partial<IndexFile>;
-        for (const entry of Object.values(parsed.accounts ?? {}))
-          if (validEntry(entry)) named.add(entry.agent);
-      } catch { /* an unreadable index names nothing */ }
-    }
-    return named;
-  };
   // A late engine write cannot be ruled out by a bounded check, so after every removal (and on prepare, in
   // engine.ts without a roster) the kit removes each `<root>/state/agents/<member>--<hex6>` directory that no
   // index names and no engine agent owns. An entry is written before its agent is created, so an account being
-  // added is never swept.
+  // added is never swept. The directories are listed first: each one listed was created after its entry was
+  // written, so the index read after the listing names it.
   const sweep = async (): Promise<void> => {
-    const named = namedAgents();
-    const roster = await rosterOf().catch(() => new Set<string>());
     let dirs: string[];
     try { dirs = readdirSync(join(ctx.root, 'state', 'agents')); }
     catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+    const roster = await rosterOf();
+    const named = indexedAgents(ctx.root);
     for (const dir of dirs) {
       if (!ACCOUNT_AGENT.test(dir) || named.has(dir) || roster.has(dir)) continue;
       rmSync(join(ctx.root, 'state', 'agents', dir), { recursive: true, force: true });
@@ -402,9 +402,8 @@ export function createAccounts(ctx: {
     if (agent === memberAgent) {
       await ctx.locks.exclusive([agent, indexLock(member)], async () => {
         const listed = await ctx.request('byokit.accounts', { action: 'list', agentId: agent }) as { ok?: boolean; profiles?: { profileId?: string; provider?: string }[] };
-        const profileIds = Array.isArray(listed.profiles)
-          ? listed.profiles.filter((p) => p.provider === provider && typeof p.profileId === 'string' && p.profileId).map((p) => p.profileId!)
-          : [];
+        if (listed.ok !== true || !Array.isArray(listed.profiles)) throw new Error('removeAccount: the sign-ins could not be read');
+        const profileIds = listed.profiles.filter((p) => p.provider === provider && typeof p.profileId === 'string' && p.profileId).map((p) => p.profileId!);
         if (profileIds.length) await ctx.request('models.authLogout', { provider, agentId: agent, profileIds });
         const file = read(member);
         delete file.accounts[id];

@@ -886,3 +886,49 @@ test('removeAccount and the orphan sweep', async () => {
     rmSync(stateDir, { recursive: true, force: true });
   }
 });
+
+// Fail closed (O14h): an index that cannot be parsed sweeps nothing, and a member-agent removal whose sign-in list
+// cannot be read deletes no entry and logs out nothing.
+test('an unreadable index sweeps nothing, and a removal whose list fails deletes nothing', async () => {
+  const stateDir = scratchDir('o14h-fail-closed');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agentDir = join(stateDir, 'openclaw', 'state', 'agents', `m1--${second.id.slice('openai.'.length)}`);
+    mkdirSync(join(agentDir, 'agent'), { recursive: true });
+    writeFileSync(join(agentDir, 'agent', 'auth.json'), '{}');
+    await kit.stop();
+
+    const index = readFileSync(indexOf(stateDir, 'm1'), 'utf8');
+    writeFileSync(indexOf(stateDir, 'm1'), '{');
+    const kit2 = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+    try {
+      await kit2.prepare();
+      assert.ok(existsSync(agentDir), 'the unreadable index keeps the account agent');
+    } finally { await kit2.stop(); }
+
+    writeFileSync(indexOf(stateDir, 'm1'), index);
+    let listing = false;
+    const failingList: typeof fake.factory = (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, request: async (method, params, o) => {
+        if (listing && method === 'byokit.accounts' && (params as { action?: string }).action === 'list') return { ok: false };
+        return transport.request(method, params, o);
+      } };
+    };
+    const kit3 = new OpenClawKit({ stateDir, transport: failingList, spawnEngine: false, callbackPort: 0 });
+    try {
+      await kit3.start();
+      const logoutsBefore = fake.calls.filter((c) => c.method === 'models.authLogout').length;
+      listing = true;
+      await assert.rejects(kit3.removeAccount('m1', 'openai'), /could not be read/);
+      listing = false;
+      assert.equal(fake.calls.filter((c) => c.method === 'models.authLogout').length, logoutsBefore, 'nothing is logged out');
+      assert.ok('openai' in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts, 'and the entry stays');
+    } finally { await kit3.stop(); }
+  } finally { rmSync(stateDir, { recursive: true, force: true }); }
+});
