@@ -559,7 +559,7 @@ test('a plan key add whose gateway restarts 11 s after activation is done, and i
   t.mock.method(Engine.prototype, 'stop', async () => {});
   const stateDir = scratchDir('go-late-restart');
   const fake = fakeGateway();
-  const kit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root, 11_000), spawnEngine: true, callbackPort: 0 });
+  const kit: OpenClawKit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root, 11_000), spawnEngine: true, callbackPort: 0 });
   try {
     await kit.start();
     const added = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
@@ -600,7 +600,7 @@ test('a plan key add whose gateway never restarts fails, is cleaned up, and keep
   spawnedEngine(t);
   const stateDir = scratchDir('go-no-restart');
   const fake = fakeGateway();
-  const kit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
+  const kit: OpenClawKit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
   try {
     await kit.start();
     const added = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
@@ -624,7 +624,7 @@ test('a plan key add cancelled after its activation is cancelled, cleaned up, an
   spawnedEngine(t);
   const stateDir = scratchDir('go-cancel-after-ok');
   const fake = fakeGateway();
-  const kit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
+  const kit: OpenClawKit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
   try {
     await kit.start();
     fake.seedProfile('m1', 'anthropic:default', { provider: 'anthropic', type: 'api_key' });
@@ -652,7 +652,7 @@ test('a key add whose gateway restarts 10 s after activation is ok, and its key 
   spawnedEngine(t);
   const stateDir = scratchDir('key-late-restart');
   const fake = fakeGateway();
-  const kit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root, 10_000), spawnEngine: true, callbackPort: 0 });
+  const kit: OpenClawKit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root, 10_000), spawnEngine: true, callbackPort: 0 });
   try {
     await kit.start();
     const pending = kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-LATE-RESTART' });
@@ -673,7 +673,7 @@ test('a key add whose gateway never restarts returns retry and clears the key it
   spawnedEngine(t);
   const stateDir = scratchDir('key-no-restart');
   const fake = fakeGateway();
-  const kit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
+  const kit: OpenClawKit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
   try {
     await kit.start();
     const pending = kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-NO-RESTART' });
@@ -693,7 +693,7 @@ test('a key add that finds the gateway restarting before the engine saw the key 
   spawnedEngine(t);
   const stateDir = scratchDir('key-pre-accept');
   const fake = fakeGateway();
-  const kit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
+  const kit: OpenClawKit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
   try {
     await kit.start();
     fake.drop('gateway restart');
@@ -711,7 +711,7 @@ test('a plan key add cancelled while its activation is in flight is cleaned up o
   const fake = fakeGateway();
   let answer!: (value: object) => void;
   fake.handle('openclaw.setup.activate', () => new Promise((resolve) => { answer = resolve; }));
-  const kit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
+  const kit: OpenClawKit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
   try {
     await kit.start();
     const added = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});

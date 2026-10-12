@@ -44,7 +44,7 @@ function house(providers: unknown[] = []): House {
       return {};
     },
     ensure: async () => ({ agentId: 'm1' }),
-    callbackPort: 0,
+    callbackPort: 0, authConfig: () => '', restarted: async () => true,
   };
   return Object.assign(box, { ctx, signInCtx });
 }

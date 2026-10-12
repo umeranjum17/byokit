@@ -120,6 +120,8 @@ const signInCtx = () => {
       return { agentId: member };
     },
     callbackPort: 0,
+    authConfig: () => '',
+    restarted: async () => true,
   };
 };
 
@@ -145,7 +147,7 @@ async function withGateway<T>(plugins: string[], fn: (ctx: SignInCtx, request: G
     const list = await request('agents.list') as { agents: { id: string }[] };
     if (!list.agents.some((agent) => agent.id === 'm1'))
       await request('agents.create', { name: 'm1', workspace: join(state, 'openclaw', 'workspaces', 'm1') });
-    return await fn({ request, ensure: async (member: string) => ({ agentId: member }), callbackPort: 0 }, request, state);
+    return await fn({ request, ensure: async (member: string) => ({ agentId: member }), callbackPort: 0, authConfig: () => '', restarted: async () => true }, request, state);
   } finally {
     await probeTransport?.stop().catch(() => {});
     await probe.stop().catch(() => {});

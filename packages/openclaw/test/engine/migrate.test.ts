@@ -63,7 +63,7 @@ async function start(house: House): Promise<SignInCtx> {
     if (!list.agents.some((agent) => agent.id === member))
       await request('agents.create', { name: member, workspace: join(house.stateDir, 'openclaw', 'workspaces', member) });
     return { agentId: member };
-  }, callbackPort: 0 };
+  }, callbackPort: 0, authConfig: () => '', restarted: async () => true };
 }
 
 const stop = async (house: House) => { await house.transport?.stop(); await house.engine.stop(); };
