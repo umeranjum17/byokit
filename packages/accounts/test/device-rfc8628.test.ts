@@ -25,18 +25,21 @@ const post = (base: string, url: string, form: Record<string, string>, headers: 
 const get = (base: string, url: string, headers: Record<string, string> = {}) => fetch(`${base}${path(url)}`, { method: 'GET', headers });
 const keys = (body: Record<string, unknown>) => Object.keys(body).sort();
 
-test('the fixture data is the runtime catalogue data for Grok and Kimi; the four existing providers are unchanged', () => {
+test('the fixture data is the runtime catalogue data for Grok, Kimi and Copilot; ChatGPT and MiniMax are unchanged', () => {
   for (const key of ['grok', 'kimi'] as const) {
     const spec = fixture.providers[key];
     const flow = deviceFlow(spec.pi)!;
     assert.deepEqual({ authorization: flow.authorization, token: flow.token, clientId: flow.clientId, scope: flow.scope, form: flow.form },
       { authorization: spec.authorization, token: spec.token, clientId: spec.clientId, scope: spec.scope, form: spec.form }, key);
   }
-  // No device row was added or changed: the picker and every pinned endpoint stay as they were.
-  assert.deepEqual(signInChoices().map((p) => p.key), ['grok', 'kimi']);
+  // Copilot's device row is the fixture's exchange contract: the grant plus the second token step.
+  const copilot = fixture.providers.copilot;
+  const exchange = deviceFlow(copilot.pi)!;
+  assert.deepEqual({ authorization: exchange.authorization, token: exchange.token, exchange: exchange.exchange, clientId: exchange.clientId, scope: exchange.scope },
+    { authorization: copilot.authorization, token: copilot.token, exchange: copilot.exchange, clientId: copilot.clientId, scope: copilot.scope }, 'copilot');
+  assert.deepEqual(signInChoices().map((p) => p.key), ['grok', 'copilot', 'kimi']);
   assert.equal(deviceFlow('openai-codex'), undefined, 'ChatGPT keeps its own engine, not catalogue device data');
   assert.equal(deviceFlow('minimax')!.authorization, 'https://account.minimax.io/oauth2/device/code');
-  assert.equal(deviceFlow('github-copilot'), undefined, 'Copilot is data in the fixture, not wired into the runtime yet');
 });
 
 test('Grok and Kimi replay their fixture start, poll, refresh and decline cases against the generic stand-in', async () => {

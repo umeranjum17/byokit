@@ -98,7 +98,7 @@ test('device and token errors never expose response bodies', async () => {
 
 test('sign in with ChatGPT by device code: the code and page to show, approved there, kept, plan read', async () => {
   const a = kit();
-  assert.deepEqual(a.providers.map((p) => p.key), ['chatgpt', 'grok', 'claude', 'kimi'], 'only what a phone or browser can sign in to, the device ones from catalogue data');
+  assert.deepEqual(a.providers.map((p) => p.key), ['chatgpt', 'grok', 'copilot', 'claude', 'kimi'], 'only what a phone or browser can sign in to, the device ones from catalogue data');
   const v = (await a.login(1, 'chatgpt'))!;
   assert.deepEqual([v.state, v.via, v.url], ['waiting', 'code', `${openai.base}/codex/device`]);
   assert.match(v.code!, /^MOCK-/);
@@ -126,7 +126,7 @@ test("a poll that can't get through (a backgrounded phone) waits for the next in
 
 test('any provider the catalogue gives device data signs in on the phone, with no provider of its own', async () => {
   // The picker offers what the catalogue says; nothing here names a provider in code.
-  assert.deepEqual(signInChoices().map((p) => p.key), ['grok', 'kimi']);
+  assert.deepEqual(signInChoices().map((p) => p.key), ['grok', 'copilot', 'kimi']);
   // An app's own offer list reaches the picker: naming MiniMax adds its card even though the catalogue keeps it explicit,
   // and the default call still leaves it out.
   assert.ok(!signInChoices().some((p) => p.key === 'minimax'), 'the default picker leaves MiniMax out');

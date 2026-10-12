@@ -610,8 +610,8 @@
     "offer": "default",
     "platforms": {
       "node": "yes",
-      "browser": "no",
-      "rn": "no"
+      "browser": "host",
+      "rn": "yes"
     },
     "upstream": {
       "surface": "accounts",

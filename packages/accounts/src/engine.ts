@@ -117,6 +117,23 @@ function deviceCredential(j: any, name: string, previous?: string): OAuthCredent
   return { type: 'oauth', access: j.access_token, refresh, expires: Date.now() + number(j, 'expires_in', 3600) * 1000 };
 }
 
+function copilotCredential(j: any, name: string, intermediate: string): OAuthCredential {
+  if (typeof j?.token !== 'string' || typeof j?.expires_at !== 'number') throw new Error(`${name} did not return a token for this sign-in.`);
+  return { type: 'oauth', access: j.token, refresh: intermediate, expires: j.expires_at * 1000 };
+}
+async function copilotExchange(url: string, intermediate: string, name: string, signal?: AbortSignal) {
+  let res: Response;
+  try {
+    res = await fetch(url, { signal, headers: { accept: 'application/json', authorization: `Bearer ${intermediate}` } });
+  } catch (e) {
+    if (signal?.aborted) throw new Error('Login cancelled');
+    throw e;
+  }
+  const body = await res.text();
+  if (res.status < 200 || res.status > 299) throw Object.assign(new Error(`${name} credential exchange failed (${res.status})`), { status: res.status, revoked: res.status === 401 || res.status === 403 });
+  try { return copilotCredential(json(body), name, intermediate); } catch (e) { throw Object.assign(e as Error, { status: res.status }); }
+}
+
 /** Keep the credential, or nothing, if the person gave up while it was being written. */
 async function keep(credentials: CredentialStore, id: string, c: OAuthCredential, signal?: AbortSignal) {
   let wrote = false;
@@ -133,10 +150,14 @@ async function keep(credentials: CredentialStore, id: string, c: OAuthCredential
 
 /** A token step's answer: the credential, a wait for the next poll, or how the sign-in ended. */
 type Answer = { credential: OAuthCredential } | { wait: 'pending' | 'slow_down' } | { ended: string };
-/** RFC 8628's token answers. */
-function rfcAnswer(r: { status: number; body: string }, name: string): Answer {
-  if (r.status >= 200 && r.status <= 299) return { credential: deviceCredential(json(r.body), name) };
-  const error = json(r.body)?.error;
+/** RFC 8628's token answers. `intermediate` is a provider whose grant answers an intermediate token, not the
+ *  credential (Copilot): GitHub polls 200 with an `error` field until the person approves, so the error is read
+ *  before the status, and the success access token is kept as the intermediate the exchange spends. */
+function rfcAnswer(r: { status: number; body: string }, name: string, intermediate = false): Answer {
+  const j = json(r.body);
+  if (r.status >= 200 && r.status <= 299 && !j?.error)
+    return { credential: deviceCredential(j, name, intermediate ? j?.access_token : undefined) };
+  const error = j?.error;
   if (r.status === 0 || error === 'authorization_pending') return { wait: 'pending' };
   if (error === 'slow_down') return { wait: 'slow_down' };
   return { ended: `${name} device sign-in ${error === 'access_denied' ? 'was declined' : error === 'expired_token' ? 'expired' : `failed (${r.status || 'no answer'})`}.` };
@@ -159,7 +180,12 @@ async function deviceLogin(pi: string, flow: DeviceFlow, name: string, base: str
   const minimax = flow.dialect === 'minimax';
   const crypto = webcrypto ?? globalThis.crypto;
   const pk = flow.pkce ? await pkce(crypto) : undefined;
-  const asked = await form(at(flow.authorization, base), { client_id: flow.clientId, ...(flow.scope ? { scope: flow.scope } : {}),
+  // `{host}` is the provider's default host (github.com for Copilot): phones and browsers sign in there only.
+  const host = 'github.com';
+  const authorization = at(flow.authorization.replaceAll('{host}', host), base);
+  const token = at(flow.token.replaceAll('{host}', host), base);
+  const exchange = flow.exchange && at(flow.exchange.replaceAll('{host}', host), base);
+  const asked = await form(authorization, { client_id: flow.clientId, ...(flow.scope ? { scope: flow.scope } : {}),
     ...(pk ? { code_challenge: pk.challenge, code_challenge_method: 'S256' } : {}), ...(minimax ? { state: base64url(crypto.getRandomValues(new Uint8Array(16))) } : {}), ...flow.form }, signal);
   if (asked.status < 200 || asked.status > 299) throw new Error(`${name} did not start a device sign-in (${asked.status}).`);
   const device = deviceAsked(json(asked.body), name, minimax);
@@ -169,12 +195,13 @@ async function deviceLogin(pi: string, flow: DeviceFlow, name: string, base: str
     if (Date.now() >= deadline) throw new Error('Device flow timed out');
     // A poll that can't get through waits for the next, as a phone cuts a backgrounded app's network while the
     // person is typing the code on the provider's page.
-    const r = await form(at(flow.token, base), { grant_type: flow.grant ?? 'urn:ietf:params:oauth:grant-type:device_code', client_id: flow.clientId, ...device.handle, ...(pk ? { code_verifier: pk.verifier } : {}) }, signal)
+    const r = await form(token, { grant_type: flow.grant ?? 'urn:ietf:params:oauth:grant-type:device_code', client_id: flow.clientId, ...device.handle, ...(pk ? { code_verifier: pk.verifier } : {}) }, signal)
       .catch((e) => { if (signal?.aborted) throw e; return { status: 0, body: '' }; });
-    const answer = minimax ? minimaxAnswer(r, name) : rfcAnswer(r, name);
+    const answer = minimax ? minimaxAnswer(r, name) : rfcAnswer(r, name, !!exchange);
     if ('credential' in answer) {
-      await keep(credentials, pi, answer.credential, signal);
-      return answer.credential;
+      const credential = exchange ? await copilotExchange(exchange, answer.credential.access, name, signal) : answer.credential;
+      await keep(credentials, pi, credential, signal);
+      return credential;
     }
     if ('ended' in answer) throw new Error(answer.ended);
     if (answer.wait === 'slow_down') interval += 5000;
@@ -207,6 +234,12 @@ function minimaxCredential(j: any, name: string): OAuthCredential {
 }
 
 const deviceRefresh = (flow: DeviceFlow, name: string, base?: string) => async (c: OAuthCredential) => {
+  if (flow.exchange) {
+    const stop = new AbortController();
+    const t = setTimeout(() => stop.abort(), 15_000);
+    try { return await copilotExchange(at(flow.exchange.replaceAll('{host}', 'github.com'), base), c.refresh, name, stop.signal); }
+    finally { clearTimeout(t); }
+  }
   const stop = new AbortController();
   const t = setTimeout(() => stop.abort(), 15_000);
   try {
