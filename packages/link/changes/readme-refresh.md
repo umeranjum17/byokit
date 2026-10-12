@@ -1,1 +1,0 @@
-- The README's deprecated-rename note now says the breaking `parseOffer` type carries from `@byokit/pair` 0.9.0. Docs only; no typed surface changed.

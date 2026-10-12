@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-10-12)
+
+- NEW: Android's built-in Gemini Nano (AICore, through an app-supplied ML Kit GenAI Prompt module) as a second local
+  backend: `NanoModel`, with a typed `unsupported` state when AICore is absent, unavailable, silent or failing.
+- NEW: `inferBackend({ where: 'local' })` picks Gemini Nano when it is ready, else the downloaded model, labelled by
+  `whereWords()`; `stateWords(s, { nano: true })` words Nano's states. `generate()` without a schema returns free text.
+- FIX: Gemini Nano is now told the JSON Schema describes its answer and is not the answer. Asked plainly, Nano v3 on a real phone returned the schema itself, so every Nano pane summary came back `invalid-output`. JSON validation is unchanged: there is still no grammar on the Nano path, so the wording and that validation are what keep the output conformant.
+- NEW: opt-in prompt-identity logging for `summarizePane`: `PaneSummaryOptions.identity` (`{ tracker, onIdentity }`,
+  off unless set) records `{ inputTokens, hash }` per prompt that reaches the engine — never any content — and
+  `PromptIdentityLog` counts consecutive-identical / identical-non-consecutive / changed prompts as bench-readable
+  JSON, so a later device session can measure how often the GGUF warm-cache path is actually reachable.
+  `commonPrefixLength` quantifies the shared prefix of consecutive pane prompts for the same analysis.
+
 ## 0.1.0 (2026-10-04)
 
 - FIX: Express the summary prompt's success/insufficient branches in the native JSON grammar schema as well as JS validation: true requires 3–4 single-line strings; false requires an empty array. The exact native false-with-four-lines regression stays invalid; no Boolean coercion or contradictory-output acceptance.

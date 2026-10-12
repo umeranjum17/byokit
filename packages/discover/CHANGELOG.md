@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.8.0 (2026-10-12)
+
+- Dependency update: pins @byokit/ui 0.7.0.
+
+- ADD: `firewall({ port, platform?, run?, timeoutMs? })` reports whether the local firewall would block inbound on a port as `{ blocked: true|false|'unknown', how, nextStep }`, reading only what a normal user may read (UFW, nftables, iptables on Linux; the application firewall on macOS; Windows Firewall via netsh) and never asking for administrator access. Anything unreadable is an honest `'unknown'` with a plain next step. Documented under "Reachability and firewall" in the README, which also points setup and phone callers at `@byokit/pair`'s `check()` for the probe that leaves the one-time offer usable.
+
 ## 0.7.0 (2026-10-11)
 
 - Expo config plugin (`./app.plugin.js`): `["@byokit/discover", { services: ["_byokit._tcp"], localNetwork? }]` writes `NSBonjourServices` and `NSLocalNetworkUsageDescription` into iOS `Info.plist` so `browse()` finds the computer; a missing or empty `services` list fails prebuild by name. Android needs no plugin (`react-native-zeroconf`'s manifest merges `CHANGE_WIFI_MULTICAST_STATE`).

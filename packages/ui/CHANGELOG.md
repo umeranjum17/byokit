@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 0.7.0 (2026-10-12)
+
+- Dependency update: pins @byokit/accounts 0.22.0.
+
+- FEAT: Add `useAccounts` and `useModelPicker` to `@byokit/ui` (with the `accountsSource`/`cliSource` one-line-per-member adapters): live rows with `refresh()`, a failing room leaving only its row `Room left unknown`, a `remove()` landing mid-refresh still dropping the row, and a picker whose `select()` marks the selection at once and keeps it across refreshes. The openclaw adapter stays pending O14.
+- FEAT: Add `accountRows`, `rowsOf`, `nameSuggestions` and the `AccountsSource`, `AccountRow`, `Account` and `Room` types (also `@byokit/ui/accounts`, no React): one plain-words row per account (`ChatGPT · Work` / `Plus · 72% left this week`), honest words for every sign-in state, `low` at or below 20%, a `sign_in`/`wait` action, and untaken account-name suggestions from an email's local part that never put an email in a title.
+- FEAT: `herdrTreeView` groups carry `project`, the workspace folder's own name without the tab label, so rows can name an agent (computer, project, agent) without internal tab labels.
+- FEAT: Browser sign-in sheet and live panel views: `signInSheetView(request, { name, holder })` gives the sentence, buttons and chat chip for each request state; `signInsStore(oc)` keeps requests live from sign-in pings; `livePanelView(state)` says when to draw frames, take input, show "Reconnecting…" or ask to confirm an unexpected address. Typed structurally against `@byokit/openclaw` spec 5.17.
+- FEAT: Add `connectView(routes, step)`, `connectStep`, `signInFor` (also `@byokit/ui/connect`, no React) and `useConnect`: every account route the kits list, grouped as Plans (offered by default), Pay per use, On this computer, Your own server, Cloud account, Other ways to connect, and Speech, search and media, each row with plain billing, method and readiness words. Billing decides the group, so no API, cloud, local, server or unknown-billing row is ever in Plans; key routes reuse `keyView`, sign-in routes hand `useSignIn` their row.
+- FEAT: Add `modelPicker` and `bestMoveTarget` to `@byokit/ui/accounts` (no React, no Node): the run picker with the `Auto — most room left` row carrying the pick's own reason, one plain row per account with its model rows and the selection marked, unavailable rows with a typed why and `until`, Auto disabled with a typed reason when no account can be named, and the Auto-ordered account a running session should move to (`Move to Work` / `Couldn't move to Work`).
+- FEAT: plain pairing words for the phone page: `connectedWords(hostName, url?, kind?)` renders the connected line with the route just dialled (`Connected to Kitchen computer - same Wi-Fi.`), `routeShort(route)` gives the inline label, and `pairErrorWords(error)` reads a failed pairing as expired, wrong-code or the link's own sentence from @byokit/link's error code.
+- FEAT: `describeRoute` labels in plain words: `Same Wi-Fi`, `Temporary public link`, `Away from home` (this kit's relay address) and `Your own server`. No route, choice or status sentence carries an address, a protocol name or relay jargon.
+- The PWA example's account card now runs on the shared views: `accountRows`/`modelPicker` from `@byokit/ui/accounts` draw the rows and the run picker (Auto carries its own reason, a signed-out pick shows `Sign in first` and runs nothing), and `bestMoveTarget`/`moveWords` suggest the roomier account when the chosen one is low.
+- `@byokit/ui-core` is now published as `@byokit/ui`, with the same API and the same entries (`.`, `./phase`, `./route`, `./link`, `./kits`, `./steps`, `./connect`); its earlier versions are the `@byokit/ui-core` releases below. **Deprecated:** the `@byokit/ui-core` name; it stays published as a shim that re-exports this package through 0.7.x and is removed in 0.8.0.
+- Accept OpenClaw's admitted/thinking progress frames structurally without changing the existing run reducer's rendered state.
+
 - Dependency update: pins @byokit/accounts 0.21.0.
 
 - Run views accept structured-output failures and display the kit’s plain validation message.

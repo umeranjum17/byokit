@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.5.0 (2026-10-12)
+
+- Dependency update: pins @byokit/audio 0.2.0.
+
+- Live Whisper previews decode greedily (never the host's final beam) over only the most recent `PREVIEW_WINDOW_SECONDS` (10 s) of the current turn, merging onto the turn's decoded prefix, so live text keeps up with speech instead of trailing it by tens of seconds. Finals and file readings are unchanged: they keep the host's beam and read the whole recording.
+- FIX: A live preview stuck on Whisper's silence sentinel (`[BLANK_AUDIO]`) now drops it as soon as a reading carries real words, so live text leaves the sentinel in front of the speech; a silence-only take keeps the sentinel and real shown words keep the existing agree-only, never-retract policy.
+- FIX: A dictation take longer than 30 s no longer skips the speech after a pause or repeats a passage where its automatic windows overlap: each window now steps from where Whisper actually stopped (a fixed step dropped the speech between an early end and the next window), and an agreed overlap is joined once instead of appended in full.
+
 ## 0.4.0 (2026-10-06)
 
 - `whisperRnEngine` takes an optional `speech: { model, initWhisperVad }`. Every final and file reading first runs whisper.rn's Silero VAD (`detectSpeechData`) and skips the decode when it finds no speech, so a recording of room noise returns empty text instead of made-up sentences. When speech is found the whole recording is decoded as before; previews are not gated. `WHISPER_VAD_MODEL` pins the ~0.9 MB `ggml-silero-v6.2.0` graph (URL, size, SHA-256) for `installModel`; the kit still downloads nothing.

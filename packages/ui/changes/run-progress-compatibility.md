@@ -1,1 +1,0 @@
-- Accept OpenClaw's admitted/thinking progress frames structurally without changing the existing run reducer's rendered state.

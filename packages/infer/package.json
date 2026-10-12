@@ -1,6 +1,6 @@
 {
   "name": "@byokit/infer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Text generation on the phone itself: Gemini Nano where present, else a verified downloaded model; nothing sent anywhere.",
   "license": "Apache-2.0",
   "type": "module",

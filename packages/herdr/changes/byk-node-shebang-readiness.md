@@ -1,1 +1,0 @@
-- FIX: A Node script (or any non-shell interpreter) whose path contains `mise` is now a real installed binary, so `agentStatus` runs its sign-in check instead of skipping it as an auto-install shim; only a shell launcher that mentions mise still reads `installs-on-first-start`.

@@ -1,1 +1,0 @@
-- FIX: Managed CLI `launch` returns typed `signed_out`/`not_included` refusals with sign-in words and no environment; only ready accounts receive their isolated launch settings.
