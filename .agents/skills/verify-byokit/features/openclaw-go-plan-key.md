@@ -7,6 +7,8 @@ Verification recipe for [plan-key sign-in](../../../../docs/runtime-kits.md#57-s
 - `opencode-go` reads `ready`; a choice the engine cannot set up (`fal-api-key`) reads `no_upstream_flow`, and its sign-in fails with the engine's words.
 - The view is `{ state: 'waiting', prompt: 'Plan key' }`; the key never appears in a view, result or log.
 - The account row is `opencode-go`, `subscription`, `ready`; a run with no model named, started on `done`, streams an answer with `usage`.
+- `kit.addKey(member, { authChoice: 'opencode-go', apiKey })` is `ok`, and `run({ auth: 'apiKey' })` answers on the key's saved model.
+- Every Go request carries a stable `x-opencode-session` per conversation (the pin's wrapper); live, Go answers only with it, and `test/engine/accounts.test.ts` asserts it on the activation probe and each run.
 
 ## How to get to it (user POV)
 
@@ -26,4 +28,4 @@ Use SKILL.md's Evidence capture block. Offline it drives `fakeGateway()`. The li
 
 ## Gotchas
 
-The fake never restarts; the real gateway restarts after activation (its `auth` write), and `done` waits it out, so only the live leg or `test/engine/accounts.test.ts` (`npm run test:engine`, opencode.ai answered by the loopback stub) shows that a first run lands on the plan rather than ending `signed-out` for openai. `test/engine/signin.test.ts` holds every ready and absent choice to the real Gateway.
+The fake never restarts; the real gateway restarts after activation (its `auth` write), and `done` waits it out, so only the live leg or `test/engine/accounts.test.ts` (`npm run test:engine`, opencode.ai answered by the loopback stub) shows that a first run lands on the plan rather than ending `signed-out` for openai. `test/engine/signin.test.ts` holds every ready and absent choice to the real Gateway. A run resolves only static or configured Go models: a live-only one (Muse) needs `config.models.providers['opencode-go']` with `api: 'openai-responses'` (README), and a key runs only its saved model.

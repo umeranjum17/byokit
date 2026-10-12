@@ -736,6 +736,10 @@ A `keyEntry` choice (a plan key such as `opencode-go`) never starts the wizard, 
 the agent's model. The key is cut from any error the view carries. Activation (this one and `anthropic-cli`'s) writes
 `auth`, which the pin applies by restarting the gateway once its requests drain; with a spawned engine `done` waits
 for that restart (seen within 10 s, finished within 60 s), so a run started on done uses the new sign-in.
+A run prepares its models from configured facts and the static catalog only (the pin's run path; live discovery
+feeds `models.list view: 'all'`, never a run): a live-only OpenCode Go model (Muse) resolves once the app lists it in
+`KitOptions.config.models.providers['opencode-go'].models` with its upstream API (`openai-responses` for Muse). The pin's
+opencode-go stream wrapper sends `x-opencode-session` (the run's session id) on every request, the activation probe included.
 Every exit short of done calls `wizard.cancel { sessionId }` for **its own** session. For `via: 'browser'` with
 `authChoice` `openai`, the kit holds `127.0.0.1:<callbackPort>` for the sign-in's life: any request pastes
 `http://<host><url>` into the wizard and answers a plain page (words key `signin.returned`); if the port is taken

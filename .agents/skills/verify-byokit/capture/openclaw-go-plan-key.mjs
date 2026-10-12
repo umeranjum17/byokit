@@ -34,7 +34,7 @@ try {
   assert.equal(done.view.state, 'done');
   say('accounts:', JSON.stringify((await kit.accounts('m1')).map((a) => [a.id, a.provider, a.billing, a.state])));
 
-  // Straight after done: the member's new plan answers, on its saved model and on the one BYOKIT_GO_MODEL names.
+  // Straight after done, no model named: the member's new plan answers on its saved model.
   const turn = async (label, spec) => {
     let chunks = 0;
     say(`run (${label}):`, JSON.stringify(spec));
@@ -44,15 +44,13 @@ try {
     assert.ok(end.ok && chunks > 0 && end.usage?.total, 'a streamed answer with usage');
     assert.ok(!JSON.stringify([views, done, end]).includes(key), 'the key is never in a view or result');
   };
-  const model = live ? process.env.BYOKIT_GO_MODEL : 'opencode-go/fake-key-model';
-  if (live) await turn('saved', { member: 'm1' });
-  if (model) await turn('model', { member: 'm1', model });
+  await turn('saved', { member: 'm1', ...(live ? {} : { model: 'opencode-go/fake-key-model' }) });
 
-  // The key path: addKey sets the plan key up on another member's key agent; `auth: 'apiKey'` runs on it.
+  // The key path: addKey sets the plan key up on another member's key agent; `auth: 'apiKey'` runs on its saved model.
   const keyed = await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: key });
   say('addKey:', keyed);
   assert.equal(keyed, 'ok');
-  await turn('key', { member: 'm2', auth: 'apiKey', ...(model ? { model } : {}) });
+  await turn('key', { member: 'm2', auth: 'apiKey' });
 
   // Error case: a choice the engine cannot set up is refused with the engine's words.
   const refused = await kit.signIn('m1', { authChoice: 'fal-api-key' }, () => {});
