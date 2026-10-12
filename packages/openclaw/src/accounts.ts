@@ -377,8 +377,8 @@ export function createAccounts(ctx: {
     const own = await ctx.request('byokit.accounts', { action: 'list', agentId: memberAgent }) as { ok?: boolean; profiles?: LiveProfile[] };
     if (!own.ok || !Array.isArray(own.profiles)) throw new Error('addAccount: the member\'s sign-ins could not be read');
     const fresh = o.again !== undefined || own.profiles.some((p) => p.provider === provider);
-    // The member agent's primary model before its sign-in: restored when the sign-in is adopted away from it.
-    const priorModel = fresh ? undefined : { model: await readModel(memberAgent) };
+    // The member agent's primary model before this sign-in or any merge on it: restored when its profile moves away.
+    const memberModel = await readModel(memberAgent);
     const entryOf = (file: IndexFile, agent: string): IndexEntry => ({ agent, route: route.choice, addedAt: Date.now(),
       name: name ?? `${route.label} ${Object.values(file.accounts).filter((e) => e.route === route.choice).length + 1}` });
     let id: AccountId = provider;
@@ -439,22 +439,21 @@ export function createAccounts(ctx: {
     // `adopt` moves the sign-in into X's agent and clears it from the target; refused, the sign-in stays a new
     // account and keeps its `who`.
     const adopt = (who: string, to: string): Promise<boolean> => moveTo(agent, to, who).then(async (ok) => {
-      if (ok) { if (priorModel) await restoreModel(memberAgent, priorModel.model); return true; }
+      if (ok) { if (!fresh) await restoreModel(memberAgent, memberModel); return true; }
       await edit(member, memberAgent, (file) => { const own = file.accounts[id]; if (own) own.who = who; });
       return false;
     }).catch(() => false);
-    const drop = (): Promise<void> => agent !== memberAgent ? discard(member, memberAgent, id, agent, true)
-      : added ? edit(member, memberAgent, (file) => { delete file.accounts[id]; })
-        .catch((error: unknown) => ctx.log?.(`addAccount: ${id} entry is kept: ${error instanceof Error ? error.message : String(error)}`))
-        : Promise.resolve();
+    const removeEntry = (): Promise<void> => agent !== memberAgent ? discard(member, memberAgent, id, agent, true)
+      : edit(member, memberAgent, (file) => { delete file.accounts[id]; })
+        .catch((error: unknown) => ctx.log?.(`addAccount: ${id} entry is kept: ${error instanceof Error ? error.message : String(error)}`));
+    const drop = (): Promise<void> => agent !== memberAgent || added ? removeEntry() : Promise.resolve();
     // A live account holding the same `who` merges into the earliest one before the sign-in does: an account agent is
     // removed, the member agent's own profile is moved into the earliest one and its entry dropped. A refused move
     // keeps that duplicate, logged.
     const collapse = async (dup: [AccountId, IndexEntry], keep: [AccountId, IndexEntry], who: string): Promise<void> => {
       if (dup[1].agent !== memberAgent) { await discard(member, memberAgent, dup[0], dup[1].agent, true); return; }
-      const model = await readModel(memberAgent);
       if (!await moveTo(memberAgent, keep[1].agent, who)) { ctx.log?.(`addAccount: ${dup[0]} is kept: its sign-in is not moved`); return; }
-      await restoreModel(memberAgent, model);
+      await restoreModel(memberAgent, memberModel);
       await edit(member, memberAgent, (file) => { delete file.accounts[dup[0]]; })
         .catch((error: unknown) => ctx.log?.(`addAccount: ${dup[0]} entry is kept: ${error instanceof Error ? error.message : String(error)}`));
     };
@@ -486,7 +485,7 @@ export function createAccounts(ctx: {
           for (const dup of sealed.dups) await collapse(dup, sealed.keep!, sealed.who!);
           const into = sealed.keep?.[0] !== id ? sealed.keep : undefined;
           if (!into || !await adopt(sealed.who!, into[1].agent)) return { view, id };
-          await drop();
+          await removeEntry();
           return { view, id: into[0] };
         }
       }

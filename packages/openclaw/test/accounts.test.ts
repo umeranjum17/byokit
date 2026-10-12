@@ -435,9 +435,9 @@ test('identity: same who refreshes, again with another who adds, no who never me
     fake.signInAs({ accountId: 'canary-acct-a', expires: later + 3 });
     assert.deepEqual(await add(), { added: 'openai', id: b.id }, 'the earlier account takes the sign-in');
     assert.equal((await ready(b.id)).expiresAt, later + 3);
-    assert.equal((await ready('openai')).ok, false, 'the member is signed out');
+    assert.equal(index().accounts.openai, undefined, 'the member row merges away');
     assert.equal((await configOf()).config.agents.entries.m1!.model, before, 'the member primary model is restored');
-    assert.equal((await rows()).length, 3);
+    assert.equal((await rows()).length, 2);
 
     // The member row holds the sign-in and an earlier openai row shares its who: the member row merges into the earlier one.
     fake.signInAs({ accountId: 'canary-acct-z' });
@@ -446,11 +446,13 @@ test('identity: same who refreshes, again with another who adds, no who never me
     earlier.accounts[b.id]!.who = whoOf('canary-acct-z');
     earlier.accounts[b.id]!.addedAt = 1;
     writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(earlier, null, 2) + '\n');
+    const memberBefore = (await configOf()).config.agents.entries.m1!.model;
     fake.signInAs({ accountId: 'canary-acct-z', expires: later + 4 });
     const merged = await add();
     assert.match(merged.added, /^openai\.[0-9a-f]{6}$/);
     assert.equal(merged.id, b.id, 'the earlier account takes the sign-in');
     assert.equal(index().accounts.openai, undefined, 'the member row merged away');
+    assert.equal((await configOf()).config.agents.entries.m1!.model, memberBefore, 'the member primary model is unchanged by the merge');
     assert.equal((await ready(b.id)).expiresAt, later + 4);
     assert.equal((await rows()).length, 2);
 
