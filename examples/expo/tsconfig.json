@@ -6,6 +6,7 @@
   },
   "exclude": [
     "e2e-host.mts",
+    "e2e-claude-standin.mts",
     "node_modules"
   ]
 }

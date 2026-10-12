@@ -23,6 +23,12 @@ sh scripts/test.sh examples/realtime-voice/e2e.test.ts   # the tap-to-talk voice
 Phones: `examples/expo` (`npm ci`, `npm run typecheck`, `npm run bundle` for the iOS and Android bundles, and
 `./e2e-android.sh <emulator-serial>` to sign in, ask, decide and pair end to end on an emulator against the stand-in
 OpenAI and a link host on this computer).
+The e2e also covers Grok's device code (approved and declined on the stand-in device page) and Claude's pasted code,
+both kept across a restart: it starts `packages/accounts/src/testing/mock-device.ts` on `DEVICE_PORT` (port + 2) and
+`examples/expo/e2e-claude-standin.mts` on `CLAUDE_PORT` (port + 3), which the release build reaches at
+`EXPO_PUBLIC_DEVICE_BASE` and `EXPO_PUBLIC_CLAUDE_BASE`. Egress stays loopback-only; no account, no network.
+Set `EXPO_CONNECT_EVIDENCE` to keep the journey screenshots and stand-in logs, `EXPO_CONNECT_RECORDING` for an
+emulator screen recording.
 Include the Android emulator result in the PR. CI builds both platform bundles; iOS is typechecked and bundled, not
 runtime-tested here because no simulator is available.
 The [realtime Android consumer](examples/realtime-android/README.md) checks lazy

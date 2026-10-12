@@ -74,6 +74,12 @@ export async function mockDevice({ port = 0, host = '127.0.0.1', expiresIn = 360
     accessOf.set(refresh, `at_${accessOf.size + 1}`);
     return { access_token: accessOf.get(refresh)!, refresh_token: refresh, expires_in: expiresIn, token_type: 'Bearer' };
   };
+  /** The provider's page where the person types the code; true once the code is a real one. */
+  const approve = (userCode: string, deny = false) => {
+    const c = codes.get(userCode.trim().toUpperCase());
+    if (c) Object.assign(c, deny ? { denied: true } : { approved: true });
+    return !!c;
+  };
 
   const server = createServer(async (req, res) => {
     let body = '';
@@ -148,6 +154,25 @@ export async function mockDevice({ port = 0, host = '127.0.0.1', expiresIn = 360
         if (state.refuse || !state.live.has(bearer)) return send(state.refuse ? state.refuseStatus : 401, cases.unauthorized.body);
         return send(cases.exchange.status, cases.exchange.body);
       }
+      case '/activate': {
+        // The provider's page where the person types the code (the CLI's own address for it): a person approves or
+        // declines there, and a shell approves or declines the same way (`curl --data "user_code=$code"`, with
+        // `&deny=1` to decline), as the stand-in OpenAI's /codex/device page does.
+        const page = (words: string, form = true) => `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Stand-in device sign-in</title>
+<body style="font:18px system-ui;max-width:28em;margin:3em auto;padding:0 1em"><h1>Stand-in device sign-in</h1><p id="words">${words}</p>${form ? `<form method="post">
+<input name="user_code" id="code" autocomplete="off" placeholder="FIXTURE-10001" style="font:inherit;padding:.4em"> <button id="continue" style="font:inherit;padding:.4em 1em">Continue</button></form>` : ''}</body>`;
+        if (req.method !== 'POST') {
+          res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+          return res.end(page('Type the code the app shows you.'));
+        }
+        const code = form.get('user_code') ?? '';
+        const deny = ['1', 'true', 'deny'].includes((form.get('deny') ?? form.get('action') ?? '').toLowerCase());
+        const known = approve(code, deny);
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+        return res.end(known
+          ? page(deny ? 'Declined. Go back to the app.' : 'Signed in. Go back to the app.', false)
+          : page("That code doesn't match. Try again."));
+      }
       default:
         return send(404, { error: 'not_found' });
     }
@@ -161,12 +186,8 @@ export async function mockDevice({ port = 0, host = '127.0.0.1', expiresIn = 360
     /** With `dialect: 'minimax'`, the exact start/pending/success/error/expired answers this stand-in replays;
      *  with `dialect: 'copilot'`, its start/pending/success/decline/exchange/refresh/unauthorized answers. */
     answers: dialect === 'minimax' ? MINIMAX_CASES(region) : dialect === 'copilot' ? COPILOT_CASES(domain) : undefined,
-    /** The provider's page where the person types the code; true once the code is a real one. */
-    approve: (userCode: string, deny = false) => {
-      const c = codes.get(userCode.trim().toUpperCase());
-      if (c) Object.assign(c, deny ? { denied: true } : { approved: true });
-      return !!c;
-    },
+    /** The provider's page is served at POST /activate above; true once the code is a real one. */
+    approve,
     /** The code most recently handed out. */
     lastCode: () => [...codes.keys()].at(-1),
     close: () => new Promise<void>((r) => { server.close(() => r()); server.closeAllConnections(); }),

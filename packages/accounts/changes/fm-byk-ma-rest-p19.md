@@ -1,0 +1,1 @@
+- The stand-in device sign-in serves its own approve page at `POST /activate` (with `&deny=1` to decline), as its address line already said: a shell approves the shown code the same way the stand-in OpenAI's `/codex/device` page does, so the Android emulator e2e can sign Grok in and decline it with no account.
