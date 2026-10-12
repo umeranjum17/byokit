@@ -24,6 +24,10 @@
     "./claude-code": {
       "types": "./dist/claude-code.d.ts",
       "default": "./dist/claude-code.js"
+    },
+    "./slim": {
+      "types": "./dist/slim.d.ts",
+      "default": "./dist/slim.js"
     }
   },
   "bin": {
@@ -40,9 +44,23 @@
   "publishConfig": {
     "access": "public"
   },
-  "dependencies": {
+  "peerDependencies": {
     "@byokit/accounts": "0.21.0",
     "openai": "7.25.0",
     "@byokit/pair": "0.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@byokit/accounts": {
+      "optional": true
+    },
+    "openai": {
+      "optional": true
+    },
+    "@byokit/pair": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "openai": "7.25.0"
   }
 }

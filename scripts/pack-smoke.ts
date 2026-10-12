@@ -144,6 +144,40 @@ await assert.rejects(pairedJev({ link: null }).ask({}, {}, new AbortController()
     } catch (err) {
       fail("@byokit/decide [paired host]", (err as Error).message);
     }
+    // A tool depending on decide for rules or Jev installs the one tarball: the slim and main entries
+    // decide with no peers on disk, and account billing without the peer names it.
+    const slimDecide = join(dir, "slim-decide");
+    execFileSync("mkdir", ["-p", slimDecide]);
+    writeFileSync(join(slimDecide, "package.json"), JSON.stringify({ name: "slim-decide", private: true, type: "module" }));
+    writeFileSync(join(slimDecide, "slim-decide.mjs"), `
+import assert from 'node:assert/strict';
+import { decide as slimDecide, rules, jev } from '@byokit/decide/slim';
+import { decide, openai, UnsupportedAccountError } from '@byokit/decide';
+import { existsSync } from 'node:fs';
+const questions = { intent: { kind: 'choice', options: { task: 'New', followup: 'Earlier', chat: 'Talking' } } };
+const local = await slimDecide({ text: 'thanks, that worked!' }, questions,
+  { privacy: 'stays-here', backends: [rules((s) => (/^thanks\\b/i.test(s.text) ? 'chat' : undefined))] });
+assert.equal(local.intent.answer, 'chat');
+const remote = await slimDecide({ text: 'can you check if the plumber replied?' }, questions, { privacy: 'may-leave',
+  backends: [jev({ key: 'packed-stand-in', fetch: async () => Response.json({ answers: { intent: { choice: 'followup',
+    probabilities: { task: 0.05, followup: 0.9, chat: 0.05 }, confidence: 0.9 } } }) })] });
+assert.equal(remote.intent.answer, 'followup');
+const main = await decide({ text: 'thanks, that worked!' }, questions,
+  { privacy: 'stays-here', backends: [rules(() => 'chat')] });
+assert.equal(main.intent.answer, 'chat');
+assert.throws(() => openai({ model: 'packed-model', auth: 'account', account: undefined }),
+  (e) => e instanceof UnsupportedAccountError && /@byokit\\/accounts/.test(e.message));
+for (const peer of ['@byokit/accounts', 'openai', '@byokit/pair']) {
+  assert.equal(existsSync(new URL('./node_modules/' + peer, import.meta.url)), false, peer + ' must not install');
+}
+`);
+    try {
+      sh("npm", ["install", "--no-audit", "--no-fund", tgzByName.get("@byokit/decide")!], slimDecide);
+      sh("node", ["slim-decide.mjs"], slimDecide);
+      pass("@byokit/decide [slim install]");
+    } catch (err) {
+      fail("@byokit/decide [slim install]", (err as Error).message);
+    }
     // Portable loaders are lazy: importing the entry alone cannot prove artifact/dependency packaging.
     // A sibling consumer with nested installs prevents accidental resolution from this app or the repo.
     const strictAccounts = join(dir, "strict-accounts");

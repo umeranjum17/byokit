@@ -1,13 +1,14 @@
 // OpenAI general models used for decisions, not a dedicated decision model. Probabilities are self-reported.
 import type { ResponseCreateParams, ResponseTextConfig } from 'openai/resources/responses/responses';
-import { UnsupportedAccountError, type ChatGPTPlanAccount, type ChatGPTRespondAccount } from '@byokit/accounts/chatgpt-plan';
+import { UnsupportedAccountError } from './account-error.ts';
+import type { ChatGPTPlanAccount, ChatGPTRespondAccount } from '@byokit/accounts/chatgpt-plan';
 import type { Ask } from '@byokit/accounts';
-import type { Backend, Question, Raw } from './index.ts';
+import type { Backend, Question, Raw } from './core.ts';
 import { normalizeImages, validateImageReferences, UnsupportedImagesError } from './images.ts';
 import { parseUsage, retryFetch, type RetryOptions } from './http.ts';
 import { STATE_INSTRUCTIONS } from './prompt.ts';
 
-export { UnsupportedAccountError } from '@byokit/accounts/chatgpt-plan';
+export { UnsupportedAccountError } from './account-error.ts';
 /** All SDK request options except the fields generated from typed questions. Extra instructions and text
  * options pass through; the backend owns model, input, and text.format. Account usage further restricts options. */
 export type OpenAIRequestOptions = Omit<ResponseCreateParams, 'model' | 'input' | 'text'> & {
@@ -42,7 +43,7 @@ export function openai(o: OpenAIOptions): Backend {
   const shared = account && 'access' in account ? account : undefined;
   if (o.auth === 'account' && (!account || account.billing !== 'subscription' ||
       (typeof responder?.respond !== 'function' && typeof shared?.access !== 'function'))) {
-    throw new UnsupportedAccountError('ChatGPT plan usage needs an account session.');
+    throw new UnsupportedAccountError('ChatGPT plan usage needs an account session from the @byokit/accounts peer (install it to use auth: "account").');
   }
   if (!account && (typeof o.key !== 'string' || !o.key.trim())) throw new Error('openai needs a key');
   const request = o.request ?? {};
