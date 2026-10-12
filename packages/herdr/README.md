@@ -294,7 +294,10 @@ merely lives under mise (for example a Node script) reads `installed`.
 **Muse is different:** no executable, an auto-install shim, or an official launcher without its selected native release,
 reads `installState: 'missing'`. Stock Herdr does not install an absent Muse command. That covers `pi`, which
 Herdr installs via mise: a missing or shimmed `pi` reads `installed: false` with `installs on
-first start`, while a real `pi` binary reads `installed: true`.
+first start`, while a real `pi` binary reads `installed: true`. The `museReadiness()` probe's
+`launcher-only` state is a separate check, not this shell-shebang rule: it flags any `#!` file whose
+head contains `mise`, so a Node script under mise reads `launcher-only` there but `installed` on the
+agent path.
 
 ```ts
 import { HerdrKit } from '@byokit/herdr';
