@@ -1,14 +1,17 @@
-// The S5 account spine (docs/runtime-kits.md 5.15, O14 step S5): a fake-gateway journey through the built
-// kit that signs in, lists, renames, calls setDefaults, restarts and lists again. Pass: expected rows, index
-// mode 0600, clean canary scan.
-import { test } from 'node:test';
+// The account spine (docs/runtime-kits.md 5.15, O14 steps S5 and S6): a fake-gateway journey through the built
+// kit that signs in, lists, renames, calls setDefaults, restarts and lists again, then adds a second ChatGPT
+// account on its own sealed agent. Pass: expected rows, index mode 0600, clean canary scan.
+import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { readFileSync, statSync, rmSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { createLocks } from '../src/locks.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
+import type { SignInView } from '../src/types.ts';
 
 const indexOf = (stateDir: string, member: string): string => join(stateDir, 'openclaw', 'accounts', `${member}.json`);
 
@@ -90,6 +93,79 @@ test('account index: sign in, list, rename, defaults, restart, list again', asyn
     assert.ok(!('email' in stored.accounts.openai!));
     for (const canary of ['fake-access', 'fake-refresh', 'openai:default', '@', 'accountId', 'email', 'token', 'access', 'refresh'])
       assert.ok(!text.includes(canary), `index leaks ${canary}`);
+
+    // S6: a second ChatGPT account on its own sealed agent. wizard.next waits on `gate` so a sign-in can be
+    // caught running; the first draw collides with the unindexed `m1--abc123` above and is drawn again.
+    let gate: Promise<void> | undefined;
+    const gated: typeof fake.factory = (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, request: async (method, params, o) => {
+        if (method === 'wizard.next') await gate;
+        return transport.request(method, params, o);
+      } };
+    };
+    const draws = ['abc123', 'def456'];
+    const randomBytes = crypto.randomBytes;
+    mock.method(crypto, 'randomBytes', (size: number) => draws.length ? Buffer.from(draws.shift()!, 'hex') : randomBytes(size));
+    syncBuiltinESMExports();
+    const third = new OpenClawKit({ stateDir, transport: gated, spawnEngine: false, callbackPort: 0 });
+    try {
+      await third.start();
+      const identity = async () => (await third.call('agents.files.get', { agentId: 'm1', name: 'IDENTITY.md' })).file.content;
+      const roster = async () => (await third.call('agents.list', {})).agents.map((a) => a.id);
+      const identityBefore = await identity();
+      assert.ok(identityBefore);
+      let open!: () => void;
+      gate = new Promise((resolve) => { open = resolve; });
+      const views: SignInView[] = [];
+      const second = await third.addAccount('m1', { authChoice: 'openai', via: 'browser' }, (v) => views.push(v));
+      assert.equal(second.id, 'openai.def456', 'the taken m1--abc123 is drawn again');
+      assert.ok((await roster()).includes('m1--def456'));
+      assert.equal(await identity(), identityBefore, 'IDENTITY.md is byte-identical after the account agent is created');
+      const entry = JSON.parse(readFileSync(file, 'utf8')).accounts['openai.def456'];
+      assert.deepEqual([entry.agent, entry.name, entry.route], ['m1--def456', 'ChatGPT Login 2', 'openai']);
+      assert.equal((await third.accounts('m1')).find((a) => a.id === 'openai.def456')?.state, 'signing');
+
+      // One setup admission: a sign-in started while this one runs ends busy, and its agent and entry go.
+      const busy = await third.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+      assert.match(busy.id, /^openai\.[0-9a-f]{6}$/);
+      assert.deepEqual((await busy.done).view, { state: 'failed', via: 'browser', why: 'busy' });
+      assert.ok(!(await roster()).includes(`m1--${busy.id.slice('openai.'.length)}`), 'the busy agent is removed');
+      assert.ok(!(busy.id in JSON.parse(readFileSync(file, 'utf8')).accounts), 'and its entry');
+
+      open();
+      gate = undefined;
+      assert.deepEqual(await second.done, { view: { state: 'done', via: 'browser' }, id: 'openai.def456' });
+      const url = new URL(views.find((v) => v.url)!.url!);
+      assert.equal(`${url.origin}${url.pathname}`, 'https://auth.openai.com/oauth/authorize');
+      assert.equal(url.searchParams.get('prompt'), 'login', 'a further ChatGPT account asks for the login screen');
+      assert.equal(url.searchParams.get('state'), 'fake-state', 'the rest of the URL is the engine\'s');
+      assert.deepEqual(views.at(-1), { state: 'done', via: 'browser' }, 'done comes only after sealing');
+
+      // Sealed: the account agent holds only its own sign-in, and its identity hash (never an email) is indexed.
+      const sealed = await third.callDynamic('byokit.accounts', { action: 'list', agentId: 'm1--def456' }) as { profiles: { provider: string }[] };
+      assert.deepEqual(sealed.profiles.map((p) => p.provider), ['openai']);
+      assert.match(JSON.parse(readFileSync(file, 'utf8')).accounts['openai.def456'].who, /^[0-9a-f]{16}$/);
+      assert.deepEqual((await third.accounts('m1')).map((a) => [a.id, a.name, a.state]),
+        [['openai', 'Work', 'ready'], ['openai.def456', 'ChatGPT Login 2', 'ready']], 'two ChatGPT accounts on two agents');
+
+      // A cancelled sign-in removes its new agent and entry; IDENTITY.md is still the member's.
+      gate = new Promise(() => {});
+      const cancelled = await third.addAccount('m1', { authChoice: 'openai', via: 'browser', name: 'Spare' }, () => {});
+      cancelled.cancel();
+      assert.equal((await cancelled.done).view.why, 'declined');
+      gate = undefined;
+      assert.ok(!(await roster()).includes(`m1--${cancelled.id.slice('openai.'.length)}`));
+      assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8')).accounts), ['openai', 'openai.def456']);
+      assert.equal(await identity(), identityBefore);
+      const after = readFileSync(file, 'utf8');
+      for (const canary of ['fake-access', 'fake-refresh', 'fake-m1', 'openai:default', '@', 'email', 'token'])
+        assert.ok(!after.includes(canary), `index leaks ${canary}`);
+    } finally {
+      mock.restoreAll();
+      syncBuiltinESMExports();
+      await third.stop();
+    }
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });

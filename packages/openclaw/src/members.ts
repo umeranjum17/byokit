@@ -4,7 +4,7 @@ import type { GatewayTransport, Member } from './types.ts';
 // Any member that may run: D9's older rule, which a member created before O14 still matches (D17).
 export const MEMBER_ID: RegExp = /^[a-z][a-z0-9-]{0,31}$/;
 // D9 for a member the kit creates: no `--` (account agents are `<member>--<6 hex>`) and at most 24 characters.
-const NEW_MEMBER_ID = /^[a-z](?!.*--)[a-z0-9-]{0,23}$/;
+export const NEW_MEMBER_ID: RegExp = /^[a-z](?!.*--)[a-z0-9-]{0,23}$/;
 export const KEY_PREFIX = 'byokit-key-';
 // The inherited auth base every agent reads through (5.15): the kit never creates, signs in to or runs it.
 export const BASE_AGENT = 'byokit-base';
@@ -16,13 +16,21 @@ export const keyAgentId = (member: Member): string => `${KEY_PREFIX}${member}`;
 // at once fails as 'unknown agent id'. ensure resolves only once agents.list shows the member.
 const VISIBLE_TIMEOUT_MS = 5_000;
 const VISIBLE_POLL_MS = 25;
+const listed = (request: GatewayTransport['request'], id: string): Promise<boolean> =>
+  request('agents.list').then((list) => (list as { agents: { id: string }[] }).agents.some((agent) => agent.id === id));
+/** Resolves once agents.list shows `id`, which agents.create answers before. */
+export async function untilListed(request: GatewayTransport['request'], id: string): Promise<void> {
+  const deadline = Date.now() + VISIBLE_TIMEOUT_MS;
+  while (!await listed(request, id)) {
+    if (Date.now() >= deadline) throw new Error(`agent ${id} is not listed by agents.list after agents.create`);
+    await new Promise((resolve) => setTimeout(resolve, VISIBLE_POLL_MS));
+  }
+}
 
 export function createMembers(ctx: { request: GatewayTransport['request']; root: string }): {
   ensure(member: Member): Promise<{ agentId: string; workspace: string }>;
 } {
   const cache = new Map<string, Promise<{ agentId: string; workspace: string }>>();
-  const listed = (member: Member): Promise<boolean> =>
-    ctx.request('agents.list').then((list) => (list as { agents: { id: string }[] }).agents.some((agent) => agent.id === member));
   return { ensure(member) {
     const invalid = () => new Error(`invalid member id: ${member}`);
     if (!MEMBER_ID.test(member) || member.startsWith(KEY_PREFIX) || RESERVED.has(member)) return Promise.reject(invalid());
@@ -30,14 +38,10 @@ export function createMembers(ctx: { request: GatewayTransport['request']; root:
     if (existing) return existing;
     const workspace = join(ctx.root, 'workspaces', member);
     const result = (async () => {
-      if (!await listed(member)) {
+      if (!await listed(ctx.request, member)) {
         if (!NEW_MEMBER_ID.test(member) || member.startsWith('byokit-')) throw invalid();
         await ctx.request('agents.create', { name: member, workspace });
-        const deadline = Date.now() + VISIBLE_TIMEOUT_MS;
-        while (!await listed(member)) {
-          if (Date.now() >= deadline) throw new Error(`agent ${member} is not listed by agents.list after agents.create`);
-          await new Promise((resolve) => setTimeout(resolve, VISIBLE_POLL_MS));
-        }
+        await untilListed(ctx.request, member);
       }
       return { agentId: member, workspace };
     })();

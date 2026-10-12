@@ -4,12 +4,14 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { OpenClawKit } from '../../src/kit.ts';
 import { scratchDir, sharedEngineDir } from '../../../test-support.ts';
 import { startModelStub, useModelStub, type ModelStub } from '../../src/testing/model-stub.ts';
+import type { SignInView } from '../../src/types.ts';
 
 let stub: ModelStub;
 before(async () => { stub = await startModelStub(); });
@@ -239,5 +241,49 @@ test('byokit.accounts lists, seals, adopts and clears an agent\'s own profile st
 
     // No response ever carried a credential: the synthetic canary is absent from every answer.
     assert.ok(!JSON.stringify(responses).includes(CANARY), 'no secret in any byokit.accounts answer');
+  } finally { await kit.stop(); }
+});
+
+// O14f on the real pinned engine: addAccount for a member that already holds ChatGPT creates `<member>--<hex6>` in the
+// member's workspace. The pin's create-time IDENTITY.md rewrite is undone byte for byte, the fleet is explicit, the
+// engine's own authorize URL is surfaced with `prompt=login`, and a cancelled sign-in removes the agent, its directory
+// and its entry. Never an account or the network: the person never signs in, the sign-in is cancelled.
+test('addAccount: a second ChatGPT account agent leaves IDENTITY.md byte-identical', { timeout: 900_000 }, async () => {
+  const dir = scratchDir('o14-add');
+  const stateDir = join(dir, 'state');
+  const root = join(stateDir, 'openclaw');
+  let kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), callbackPort: 0 });
+  try {
+    await kit.start();
+    await kit.ensureMember('m1');
+    await kit.stop();
+    await seed(kit, dir, 'm1');
+    kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), callbackPort: 0 });
+    await kit.start();
+    const identityPath = join(root, 'workspaces', 'm1', 'IDENTITY.md');
+    const before = readFileSync(identityPath);
+    const roster = async () => (await kit.call('agents.list', {})).agents.map((a) => a.id);
+
+    const views: SignInView[] = [];
+    const added = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, (v) => views.push(v));
+    assert.match(added.id, /^openai\.[0-9a-f]{6}$/);
+    const agent = `m1--${added.id.slice('openai.'.length)}`;
+    assert.ok((await roster()).includes(agent), 'the account agent is on the roster');
+    assert.deepEqual(readFileSync(identityPath), before, 'IDENTITY.md is byte-identical after agents.create');
+    assert.equal(JSON.parse(readFileSync(join(root, 'openclaw.json'), 'utf8')).agents.ownership, 'explicit');
+    assert.equal(JSON.parse(readFileSync(join(root, 'accounts', 'm1.json'), 'utf8')).accounts[added.id].agent, agent);
+
+    for (let waited = 0; !views.some((v) => v.url) && waited < 60_000; waited += 200) await delay(200);
+    const url = new URL(views.find((v) => v.url)?.url ?? 'about:blank');
+    assert.equal(`${url.origin}${url.pathname}`, 'https://auth.openai.com/oauth/authorize', JSON.stringify(views));
+    assert.equal(url.searchParams.get('prompt'), 'login', 'the engine\'s unsigned URL asks for the login screen');
+
+    added.cancel();
+    assert.equal((await added.done).view.why, 'declined');
+    assert.ok(!(await roster()).includes(agent), 'the cancelled agent is deleted');
+    assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'and its directory');
+    assert.ok(!(added.id in JSON.parse(readFileSync(join(root, 'accounts', 'm1.json'), 'utf8')).accounts), 'and its entry');
+    assert.deepEqual(readFileSync(identityPath), before, 'IDENTITY.md is still the member\'s');
+    assert.ok((await kit.providers('m1')).includes('openai'), 'the member keeps its own sign-in');
   } finally { await kit.stop(); }
 });
