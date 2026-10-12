@@ -53,12 +53,12 @@ try {
 
   let live;
   const rooms = { [work]: { left: 72, span: 'week' }, [personal]: { left: 30, span: 'week' } };
-  const source = accountsSource(accounts, 1, (x) => rooms[x.id] ?? { left: 'unknown' });
-  const Consumer = () => {
+  const room = (x) => rooms[x.id] ?? { left: 'unknown' };
+  const Consumer = ({ source }) => {
     const acc = useAccounts(source); const pick = useModelPicker(source); live = { acc, pick };
     return createElement('pre', null, JSON.stringify({ rows: acc.rows.map((r) => [r.id, r.title, r.detail]), selection: pick.selection, ok: pick.picker?.ok ?? null, account: pick.picker?.account ?? null, selected: pick.picker?.rows.filter((r) => r.selected).map((r) => r.key) ?? null }));
   };
-  let root; await act(async () => { root = create(createElement(Consumer, null)); });
+  let root; await act(async () => { root = create(createElement(Consumer, { source: accountsSource(accounts, 1, room) })); });
   const shown = () => JSON.parse(root.root.findByType('pre').children.join(''));
   for (let n = 0; n < 200 && !(shown().account === work); n++) await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
   const first = shown();
@@ -69,6 +69,22 @@ try {
   await act(async () => { await live.pick.refresh(); });
   if (shown().account !== personal) fail('selection kept', shown());
   console.log('accounts rows, auto pick and select OK');
+
+  // A room source that fails for one account leaves only that row unknown.
+  const failing = accountsSource(accounts, 1, (x) => { if (x.id === work) throw new Error('readings are down'); return room(x); });
+  await act(async () => { root.unmount(); root = create(createElement(Consumer, { source: failing })); });
+  for (let n = 0; n < 200 && !shown().rows.some((r) => r[0] === work && r[2] === 'Room left unknown'); n++) await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+  if (shown().rows.find((r) => r[0] === work)[2] !== 'Room left unknown' || shown().rows.find((r) => r[0] === personal)[2] !== 'Plus · 30% left this week') fail('failed room', shown().rows);
+
+  // A remove() landing while a refresh is in flight still drops the row, on screen and in the back end.
+  const slow = accountsSource(accounts, 1, async (x) => { if (x.id === work) await new Promise((r) => setTimeout(r, 50)); return room(x); });
+  await act(async () => { root.unmount(); root = create(createElement(Consumer, { source: slow })); });
+  for (let n = 0; n < 200 && !shown().rows.some((r) => r[0] === work); n++) await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
+  const flight = live.acc.refresh();
+  await act(async () => { await live.acc.remove(work); await flight; });
+  if (shown().rows.some((r) => r[0] === work) || JSON.stringify((await accounts.list(1)).map((x) => x.id)) !== JSON.stringify([personal])) fail('mid-refresh removal', shown().rows);
+  console.log('failed room and mid-refresh removal OK');
+  await act(async () => { root.unmount(); });
 
   const dir = new URL('./verify-cli/', import.meta.url).pathname; mkdirSync(dir, { recursive: true });
   const bin = `${dir}claude`; writeFileSync(bin, `#!${process.execPath}\nconsole.log(JSON.stringify({loggedIn:true,email:'alice.work@example.test',subscriptionType:'pro'}));\n`, { mode: 0o755 });
