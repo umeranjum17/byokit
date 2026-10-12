@@ -1,5 +1,5 @@
 // Lab-only consumer: the subscription stays on the phone; the cloud host holds only its own pairing keys.
-import { isFunctionCall, provider, type Accounts, type AnthropicToolUse } from '@byokit/accounts';
+import { provider, type Accounts, type AnthropicToolUse } from '@byokit/accounts';
 import type { DeviceLink } from '@byokit/pair';
 import type { HostRecipe } from '@byokit/cloud';
 export const M6_KEY = 'byokit.m6.provider';
@@ -74,28 +74,15 @@ const tools = [{ name: 'get_machine', description: 'Read the paired cloud comput
 /** The turn's first Claude call on its own: the no-machine check that the phone's Claude plan answers. */
 export const claudeToolCall = (accounts: Accounts<any, number>) => step('tool call', () => accounts.respond(1, { ...ask, system: 'Call only the approved machine-state tool.',
   messages: [{ role: 'user', content: prompt }], tools, tool_choice: { type: 'auto' } })); // the plan's strong model refuses a forced tool ('tool'/'any')
-export async function pairedTurn(accounts: Accounts<any, number>, link: Pick<DeviceLink, 'request'>, plan: 'claude' | 'chatgpt' = 'claude') {
-  if (plan === 'claude') {
-    const first = await claudeToolCall(accounts);
-    const calls = first.raw.content.filter((c): c is AnthropicToolUse => c.type === 'tool_use');
-    if (calls.length !== 1 || calls[0].name !== 'get_machine') throw new Error('The model did not return the single approved machine-state tool call.');
-    checked(calls[0].input);
-    const state = await step('machine state', () => link.request('get.state'));
-    // Anthropic refuses tool_use/tool_result history without the tools defined; 'none' keeps the answer to text.
-    const { text } = await step('answer', () => accounts.respond(1, { ...ask, system: 'Use the tool result, not a guess. Answer in one short sentence.', tools, tool_choice: { type: 'none' }, messages: [{ role: 'user', content: prompt },
-      { role: 'assistant', content: first.raw.content }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: calls[0].id, content: JSON.stringify(state) }] }] }));
-    if (!text.trim()) throw new Error('The agent returned no final answer.');
-    return { text, state };
-  }
-  const first = await accounts.respond(1, { instructions: 'Call only the approved machine-state tool.', input: prompt, tools: [{ type: 'function', name: 'get_machine',
-    parameters: schema, strict: true }], tool_choice: { type: 'function', name: 'get_machine' } });
-  const calls = first.output.filter(isFunctionCall);
-  if (calls.length !== 1 || calls[0].name !== 'get_machine' || !calls[0].call_id)
-    throw new Error('The model did not return the single approved machine-state tool call.');
-  checked(JSON.parse(calls[0].arguments));
-  const state = await link.request('get.state');
-  const text = await accounts.respond(1, { instructions: 'Use the tool result, not a guess. Answer in one short sentence.',
-    input: [{ role: 'user', content: prompt }, ...first.output, { type: 'function_call_output', call_id: calls[0].call_id, output: JSON.stringify(state) }] });
+export async function pairedTurn(accounts: Accounts<any, number>, link: Pick<DeviceLink, 'request'>) {
+  const first = await claudeToolCall(accounts);
+  const calls = first.raw.content.filter((c): c is AnthropicToolUse => c.type === 'tool_use');
+  if (calls.length !== 1 || calls[0].name !== 'get_machine') throw new Error('The model did not return the single approved machine-state tool call.');
+  checked(calls[0].input);
+  const state = await step('machine state', () => link.request('get.state'));
+  // Anthropic refuses tool_use/tool_result history without the tools defined; 'none' keeps the answer to text.
+  const { text } = await step('answer', () => accounts.respond(1, { ...ask, system: 'Use the tool result, not a guess. Answer in one short sentence.', tools, tool_choice: { type: 'none' }, messages: [{ role: 'user', content: prompt },
+    { role: 'assistant', content: first.raw.content }, { role: 'user', content: [{ type: 'tool_result', tool_use_id: calls[0].id, content: JSON.stringify(state) }] }] }));
   if (!text.trim()) throw new Error('The agent returned no final answer.');
   return { text, state };
 }

@@ -225,7 +225,7 @@ export function anthropic(opts: AnthropicOptions) {
 /** The plain-words Claude plan failure: usage limit with its reset, expired sign-in, busy, unreachable, or the HTTP status. */
 export function claudeFailure(kind: ResponseError['kind'], until: number, status?: number, now = Date.now()): string {
   if (kind === 'rate_limit') return 'You have hit your Claude plan usage limit.' + (until > now ? ` Try again in ~${Math.max(1, Math.round((until - now) / 60_000))} min.` : ' Try again later.');
-  if (kind === 'signed_out') return 'Your Claude sign-in has expired. Sign in again.';
+  if (kind === 'signed_out') return status === 403 ? 'Claude refused this sign-in (HTTP 403). Sign in with Claude again.' : 'Your Claude sign-in has expired. Sign in with Claude again.';
   if (kind === 'overloaded') return 'Claude is busy right now. Try again in a few minutes.';
   if (kind === 'network' && status === undefined) return 'Claude could not be reached. Check the connection and try again.';
   return `Claude could not answer${status ? ` (HTTP ${status})` : ''}. Try again or sign in again.`;

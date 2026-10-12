@@ -897,7 +897,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
           await this.logout(member, account).catch(() => {});
           this.forget(member, account);
           this.onExpired?.(member, account);
-          throw new ClaudePlanExpiredError();
+          throw new ClaudePlanExpiredError(e.message);
         }
         if (e instanceof ResponseError && e.kind) {
           // Mirror the ChatGPT branch: the exact account that ran rests or is marked, and a selected account's answer

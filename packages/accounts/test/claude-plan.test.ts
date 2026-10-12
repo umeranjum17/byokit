@@ -170,6 +170,9 @@ test('a failed Claude plan answer names its cause in plain words and never echoe
   }
   const s = standIn(); await s.store.modify(id, async () => token(fixture.now + 3600_000)); s.set({}, 401);
   await assert.rejects(s.a.respond(1, request), { name: 'ClaudePlanExpiredError', message: 'Your Claude sign-in has expired. Sign in with Claude again.' });
+  const refused = standIn(); await refused.store.modify(id, async () => token(fixture.now + 3600_000)); refused.set({}, 403);
+  await assert.rejects(refused.a.respond(1, request), { name: 'ClaudePlanExpiredError', message: 'Claude refused this sign-in (HTTP 403). Sign in with Claude again.' });
+  assert.equal(await refused.store.read(id), undefined, 'a refused sign-in is signed out, as before');
 });
 
 test('two members, device keystore adapter and unoffered account retain ownership', async () => {

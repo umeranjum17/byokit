@@ -16,7 +16,7 @@ export class ClaudePlanExpiredError extends Error {
   readonly status = 401;
   /** Thrown where a refresh is sent, it ends the sign-in (`recordStore` marks the grant terminal). */
   readonly revoked = true;
-  constructor() { super('Your Claude sign-in has expired. Sign in with Claude again.'); this.name = 'ClaudePlanExpiredError'; }
+  constructor(message = 'Your Claude sign-in has expired. Sign in with Claude again.') { super(message); this.name = 'ClaudePlanExpiredError'; }
 }
 export class ClaudePlanPlatformError extends Error {
   readonly code = 'CLAUDE_PLAN_UNSUPPORTED_PLATFORM';

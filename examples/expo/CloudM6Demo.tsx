@@ -58,7 +58,7 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
     link.current?.stop();
     // A failed removal keeps the key (so `ready`, the Stop button and the watchdog stay live) and shows why.
     await stopAndRemove({
-      remove: async () => { if (id) await computer.state(); if (computer.ref) { await computer.sleep(); say('Cloud computer stopped.'); await computer.remove(computer.ref.id); say('Cloud computer stopped and removed.'); } },
+      remove: async () => { const asleep = !!id && (await computer.state()) === 'asleep'; if (computer.ref) { if (!asleep) { await computer.sleep(); say('Cloud computer stopped.'); } await computer.remove(computer.ref.id); say('Cloud computer stopped and removed.'); } },
       purge: async () => { await purge(); await store.clear(); },
     });
     say('Cloud computer stopped and removed. Lab key removed.');
