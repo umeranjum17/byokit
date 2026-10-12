@@ -1,0 +1,1 @@
+- Held back from later releases: this is the final published rename shim for @byokit/pair and stays private from here on.
