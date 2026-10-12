@@ -4,7 +4,7 @@
 // billing and room; the Add rows come after. Ask runs on one account chosen at the start through the shared run
 // picker: Auto takes the most room and says which one and why, and suggests the roomier account when yours is low.
 import { Accounts, billingWords, browserStore, planLabel, resolveSelection, roomOf, say, signInError, PROVIDERS, type Account, type ModelInfo, type Room } from '@byokit/accounts';
-import { accountRows, bestMoveTarget, modelPicker, moveWords } from '@byokit/ui/accounts';
+import { accountRows, bestMoveTarget, modelPicker, moveWords, type AccountRow, type Pick, type PickerView } from '@byokit/ui/accounts';
 import { phaseOf } from '@byokit/ui/phase';
 
 declare const __BYOKIT_AUTH_BASE__: string | undefined;
@@ -132,6 +132,18 @@ function card(key: string) {
     return models;
   }
 
+  /** The line under the picker, naming the same account the picker shows: Auto's own reason, the chosen
+   *  account, or why the chosen account cannot run. */
+  const noteFor = (rows: Account[], views: AccountRow[], view: PickerView, auto: Pick, want: string, self: { id: string; email?: string }): string => {
+    if (want === 'auto') return auto.reason;
+    const a = rows.find((r) => r.id === want);
+    if (!a) return auto.reason;
+    const addr = addrOf(a, self);
+    if (view.ok) return say('pick.why.chosen', { name: addr });
+    const detail = views.find((v) => v.id === want)?.detail;
+    return detail ? `${addr} — ${detail}` : auto.reason;
+  };
+
   /** Every connected account from the shared rows: the kit's own title and room (or why it cannot run), the
    *  account's own address beside the title, and the usage bar while the room is known. */
   function paintRows(rows: Account[], rooms: Map<string, Room>, self: { id: string; email?: string }) {
@@ -170,13 +182,7 @@ function card(key: string) {
       text.dataset.room = '';
       text.textContent = v.detail;
       row.append(text);
-      if (a.state !== 'ready') {
-        const out = document.createElement('button');
-        out.className = 'quiet';
-        out.textContent = 'Sign out';
-        out.onclick = async () => { await accounts.logout(ME, a.id); draw(); };
-        row.append(out);
-      }
+      // No per-row Sign out: the card's own Sign out is the single way out, so it never shows twice.
       box.append(row);
     }
   }
@@ -207,9 +213,13 @@ function card(key: string) {
       pick.append(option);
     }
     pick.value = Array.from(pick.options).some((o) => o.value === keep) ? keep : 'auto';
+    const views = accountRows(rows, roomOf, now);
+    // The note always names what the picker shows, so the two never drift apart between runs.
+    const picked = q('picked');
+    picked.textContent = noteFor(rows, views, view, auto, pick.value, self);
+    show('picked', rows.length > 0);
     const move = q<HTMLButtonElement>('move');
     const current = pick.value === 'auto' ? (auto.ok ? auto.account.id : undefined) : pick.value;
-    const views = accountRows(rows, roomOf, now);
     const target = current !== undefined && (views.find((v) => v.id === current)?.low ?? false)
       ? bestMoveTarget(rows, Object.fromEntries(rooms), current, now)
       : undefined;
@@ -298,6 +308,8 @@ function card(key: string) {
     show('ready', ready);
   }
 
+  // Choosing another account redraws at once, so the note and the Move suggestion name what the picker shows.
+  q<HTMLSelectElement>('pick').onchange = () => { draw(); };
   q('copy').onclick = async () => {
     const code = q('code').textContent.trim();
     if (!code) return;
