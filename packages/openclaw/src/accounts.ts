@@ -3,7 +3,7 @@
 // who? } }, defaults }`. No credential, token, email or engine line. Listing, rename, defaults, models, room,
 // adding with its identity merge (O14 steps S6, S7), the start-of-run pick (S10) and removal with its orphan
 // sweep (O14 step S8) live here.
-import { chmodSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { createLocks } from './locks.ts';
@@ -63,6 +63,8 @@ export function sweepOrphans(root: string): void {
   const named = indexedAgents(root);
   for (const dir of dirs) {
     if (!ACCOUNT_AGENT.test(dir) || named.has(dir)) continue;
+    const owner = dir.slice(0, -8);
+    if (existsSync(join(root, 'accounts', `${dir}.json`)) || !existsSync(join(root, 'accounts', `${owner}.json`))) continue;
     rmSync(join(root, 'state', 'agents', dir), { recursive: true, force: true });
   }
 }
@@ -604,13 +606,18 @@ export function createAccounts(ctx: {
           return { ...(answer.who ? { who: answer.who } : {}), ...(keep ? { keep } : {}), dups };
         }).catch((error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 200));
         if (typeof sealed === 'string') {
+          let error = sealed;
           // A seal failure on the member agent (the non-fresh path) leaves its new credential with no index entry,
           // so listing hides it but runs could use it. Clear only this provider: the bare clear wipes every profile.
           if (agent === memberAgent) {
-            await ctx.request('byokit.accounts', { action: 'clear', agentId: memberAgent, provider })
-              .catch((error: unknown) => ctx.log?.(`addAccount: ${memberAgent} ${provider} is not cleared: ${error instanceof Error ? error.message : String(error)}`));
+            const cleared = await ctx.request('byokit.accounts', { action: 'clear', agentId: memberAgent, provider })
+              .then((answer) => (answer as { ok?: boolean } | undefined)?.ok === true, () => false);
+            if (!cleared) {
+              ctx.log?.(`addAccount: ${memberAgent} ${provider} is not cleared`);
+              error = `${sealed} Its credential is still on the member agent: remove this account.`;
+            }
           }
-          view = { state: 'failed', via: view.via, why: 'failed', error: sealed };
+          view = { state: 'failed', via: view.via, why: 'failed', error };
         } else {
           for (const dup of sealed.dups) await collapse(dup, sealed.keep!, sealed.who!);
           const into = sealed.keep?.[0] !== id ? sealed.keep : undefined;

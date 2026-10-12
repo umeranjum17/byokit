@@ -938,3 +938,53 @@ test('an unreadable index sweeps nothing, and a removal whose list fails deletes
     } finally { await kit3.stop(); }
   } finally { rmSync(stateDir, { recursive: true, force: true }); }
 });
+
+test('prepare keeps a legacy member dir with no index and removes a real orphan', async () => {
+  const stateDir = scratchDir('o14h-legacy-sweep');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    await kit.accounts('m1');
+    assert.ok(existsSync(indexOf(stateDir, 'm1')), 'm1 has an index');
+    await kit.stop();
+    const agents = join(stateDir, 'openclaw', 'state', 'agents');
+    const legacy = join(agents, 'ops--a1b2c3', 'agent', 'auth.json');
+    const orphan = join(agents, 'm1--abcdef', 'agent', 'auth.json');
+    for (const file of [legacy, orphan]) { mkdirSync(join(file, '..'), { recursive: true }); writeFileSync(file, '{}'); }
+    const kit2 = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+    try {
+      await kit2.prepare();
+      assert.ok(existsSync(legacy), 'the legacy member keeps its sign-in');
+      assert.ok(!existsSync(join(agents, 'm1--abcdef')), 'a real orphan of an indexed member is removed');
+    } finally { await kit2.stop(); }
+  } finally { rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a failed member-agent seal says the credential is still there when its clear is refused', async () => {
+  const stateDir = scratchDir('o14h-seal-clear-refused');
+  const fake = fakeGateway();
+  let seals = 0;
+  const refusing: typeof fake.factory = (ctx) => {
+    const transport = fake.factory(ctx);
+    return { ...transport, request: async (method, params, o) => {
+      const { action, provider } = (params ?? {}) as { action?: string; provider?: string };
+      if (method === 'byokit.accounts' && action === 'seal' && seals++ === 0) return { ok: false };
+      if (method === 'byokit.accounts' && action === 'clear' && provider === 'openai') return { ok: false };
+      return transport.request(method, params, o);
+    } };
+  };
+  const kit = new OpenClawKit({ stateDir, transport: refusing, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    await kit.ensureMember('m2');
+    const failed = await kit.addAccount('m2', { authChoice: 'openai', via: 'browser' }, () => {});
+    const { view } = await failed.done;
+    assert.equal(view.state, 'failed');
+    assert.match(view.error ?? '', /still on the member agent/);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});

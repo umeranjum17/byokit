@@ -1357,7 +1357,7 @@ using the plugin SDK's `resolveAgentDir` and local-only `updateAuthProfileStoreW
   the pin would keep pinning the deleted profile on every run with the agent's default model.
 - Before any sign-in on an existing agent the kit notes that agent's primary model (`config.get`); when the sign-in's
   profile is adopted away or cleared from it, the kit restores that primary model (the pin's sign-in rewrote it).
-- `clear { agentId }`: removes every profile from the agent's own store. `clear { agentId, provider }` removes only that provider's profiles, order entry and last-good mark, leaving every other provider's sign-in alone (a failed member-agent sign-in's cleanup and `removeAccount`'s member path use this; the bare form is the account-agent path).
+- `clear { agentId }`: removes every profile from the agent's own store. `clear { agentId, provider }` removes only that provider's profiles, order entry and last-good mark, leaving every other provider's sign-in alone (a failed member-agent sign-in's cleanup uses this; `removeAccount`'s member path uses `models.authLogout` with its sealed profileIds; the bare form is the account-agent path).
 
 `@byokit/accounts`' structural `roomOf(windows, at, resetUnit?)` keeps legacy reset seconds as its default;
 normalized `@byokit/usage` 0.2.0+ windows use epoch milliseconds and must pass `resetUnit: 'milliseconds'`
