@@ -1483,7 +1483,7 @@ it never decides which account a sign-in belongs to, and a changed email changes
 - No `who` on either side (a provider or profile without an account id, or an account signed in before its `who`
   was recorded that holds no profile now): no merge, even with `again` or the same email; the sign-in stays a new
   account, `done` names it, and the person removes the old row.
-- A row whose agent holds no credential of that `who` (a signed-out member row keeps its index `who`) is not a holder: it is never adopted into, collapsed or removed; the person removes it.
+- A signed-out member row (the member agent holds no credential of that `who`; it keeps its index `who`) is not a holder: it is never adopted into, collapsed or removed; the person removes it. Account rows are holders while their agent is on the roster.
 - A new agent whose sign-in fails, expires or is cancelled is removed with its index entry.
 
 `addAccount` resolves once the target is known: `Promise<{ id; paste; cancel; done: Promise<{ view: SignInView; id:

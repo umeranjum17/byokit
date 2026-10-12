@@ -318,10 +318,12 @@ test('identity: same who refreshes, again with another who adds, no who never me
   const fake = fakeGateway();
   let refuseAdopt = false;
   let loseAdoptReply = false;
+  const adopts: { from: string; to: string }[] = [];
   const refusing: typeof fake.factory = (ctx) => {
     const transport = fake.factory(ctx);
     return { ...transport, request: async (method, params, o) => {
       if (method !== 'byokit.accounts' || (params as { action?: string }).action !== 'adopt') return transport.request(method, params, o);
+      adopts.push(params as { from: string; to: string });
       if (refuseAdopt) { refuseAdopt = false; return { ok: false }; }
       const answer = await transport.request(method, params, o);
       if (loseAdoptReply) { loseAdoptReply = false; throw new Error('gateway reply lost'); }
@@ -474,8 +476,12 @@ test('identity: same who refreshes, again with another who adds, no who never me
     stale.accounts[b.id]!.who = whoOf('canary-acct-y');
     stale.accounts[b.id]!.addedAt = 1;
     writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(stale, null, 2) + '\n');
+    const adoptsBefore = adopts.length;
+    const logBefore = lines.length;
     fake.signInAs({ accountId: 'canary-acct-y', expires: later + 6 });
     assert.equal((await add(b.id)).id, b.id, 'the earliest live row takes the sign-in');
+    assert.deepEqual(adopts.slice(adoptsBefore).filter((a) => a.from === 'm1' || a.to === 'm1'), [], 'the signed-out member is never adopted from or into');
+    assert.ok(!lines.slice(logBefore).some((line) => line.includes('is kept')), 'no duplicate is kept');
     assert.equal((await ready(b.id)).expiresAt, later + 6);
     assert.equal(index().accounts.openai?.who, whoOf('canary-acct-y'), 'the signed-out member row stays');
     assert.equal((await kit.accounts('m1')).find((r) => r.id === 'openai')?.state, 'signed_out');
