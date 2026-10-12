@@ -736,8 +736,8 @@ A `keyEntry` choice (a plan key such as `opencode-go`) never starts the wizard, 
 the agent's model. The key is cut from any error the view carries. Activation (this one and `anthropic-cli`'s) writes
 `auth`, which the pin applies by restarting the gateway once its requests drain; when the activation changed config
 `auth` and a spawned engine restarts for it, `done` waits for that restart to begin and the kit to be ready again,
-within 60 s (event-driven, not polled). Past that, or when cancelled during the wait, the sign-in ends `why: 'failed'` with
-the words that the engine took too long and to try again, and the add is cleaned up: a new agent is discarded, a member agent
+within 60 s (event-driven, not polled). Past that the sign-in ends `why: 'failed'` with the words that the engine took too long and to try again (cancelled
+during the wait it ends `why: 'declined'`), and the add is cleaned up either way: a new agent is discarded, a member agent
 clears only this provider's profile and its index entry. The same wait and cleanup apply to `addKey` (below). A cancel during the activation request waits for the engine's answer before the cleanup, and ends `why: 'declined'`. Adds of one provider for one member take turns until each settles. Done means sealed.
 A run started on done uses the new sign-in.
 A run prepares its models from configured facts and the static catalog only (the pin's run path; live discovery
