@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Explicit, one-shot physical M6 journey. Call under the device/heavy locks; no sign-in or retries."""
-import json, os, re, subprocess as sp, sys, time, xml.etree.ElementTree as ET
+import json, os, re, signal, subprocess as sp, sys, time, xml.etree.ElementTree as ET
 from pathlib import Path
 serial, apk, evidence, keyfile = sys.argv[1:]
 assert serial == 'a4b93ea2', 'Only the approved physical lab phone'
@@ -31,6 +31,7 @@ def tap(name):
         adb('shell', 'input', 'swipe', '500', '1500', '500', '650', '300')
     raise RuntimeError('Lab button unavailable: ' + name)
 def shot(name): (out / (name + '.png')).write_bytes(adb('exec-out', 'screencap', '-p'))
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # a lock timeout still runs the cleanup below
 record = {'device': serial, 'setup_start': time.time(), 'human_steps': ['Main unlock (PIN not observed)'], 'qualified': False}
 video = None; video_pid = None; secret = None; opened = False
 try:
@@ -40,6 +41,7 @@ try:
     if not any('Existing ChatGPT sign-in available.' in n.get('text', '') for n in ui()):
         raise RuntimeError('Existing phone-local ChatGPT sign-in unavailable; ask Main, do not sign in')
     secret = Path(keyfile).read_bytes().strip()
+    record['key_imported'] = True; (out / 'manifest.tmp').write_text(json.dumps(record)); (out / 'manifest.tmp').replace(out / 'manifest.json')
     adb('shell', 'content', 'write', '--uri', 'content://' + app + '.m6/key', data=secret)
     wait('Lab key ready.'); shot('ready')
     tap('m6-create'); nodes = wait('Cloud computer created.', 360)
