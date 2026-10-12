@@ -31,6 +31,13 @@ const DEVICE_STEP = {
   deviceCode: { code: 'CREW-2026', expiresInMinutes: 15 }, externalUrl: 'https://auth.openai.com/codex/device',
 };
 const PROGRESS_STEP = { id: 'step-wait', type: 'progress', message: 'Waiting for authorization', executor: 'gateway' };
+// ChatGPT's browser route: the pin hands its unsigned authorize URL to the next step as `externalUrl`.
+const BROWSER_STEP = {
+  id: 'step-browser', type: 'note', executor: 'client', message: 'Open this URL in your LOCAL browser.',
+  externalUrl: 'https://auth.openai.com/oauth/authorize?response_type=code&client_id=fake-client&redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback&state=fake-state',
+};
+// The pin's agents.create into an existing workspace rewrites IDENTITY.md's Name line (mergeIdentityMarkdownContent).
+const IDENTITY_NAME = /^- \*\*Name:\*\*.*$/m;
 
 const EVENTS = [
   'agent',
@@ -60,7 +67,7 @@ type Run = {
   waiters: ((result: Record<string, unknown>) => void)[];
 };
 
-type WizardSession = { agentId: string; answered: boolean; pulls: number };
+type WizardSession = { agentId: string; authChoice: string; answered: boolean; pulls: number };
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -150,6 +157,22 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
   const orders = new Map<string, Record<string, string[]>>();
   const models = new Map<string, string>();
   const wizards = new Map<string, WizardSession>();
+  // Each workspace's files by name, as `agents.files.get/set` and the create-time IDENTITY.md rewrite see them.
+  const workspaces = new Map<string, Map<string, string>>();
+  const filesOf = (agentId: string): { workspace: string; files: Map<string, string> } => {
+    const agent = agents.get(agentId);
+    if (!agent) throw new Error(`unknown agent id "${agentId}"`);
+    const workspace = agent.workspace ?? `workspace-${agentId}`;
+    let files = workspaces.get(workspace);
+    if (!files) { files = new Map(); workspaces.set(workspace, files); }
+    return { workspace, files };
+  };
+  const fileAnswer = (agentId: string, name: string) => {
+    const { workspace, files } = filesOf(agentId);
+    const content = files.get(name);
+    return { agentId, workspace, file: { name, path: join(workspace, name), missing: content === undefined,
+      ...(content === undefined ? {} : { size: Buffer.byteLength(content), content }) } };
+  };
   const runs = new Map<string, Run>();
   // The engine's own cached read of each provider's usage endpoint (O14): cold until a `models.authStatus`
   // answer has carried the provider once (no `usage` on that first answer), then whatever `setUsage` stored.
@@ -330,12 +353,31 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     }),
     'agents.create': (p) => {
       const id = String(p.name);
+      if (agents.has(id)) throw new Error(`agent "${id}" already exists`);
       const workspace = p.workspace ? String(p.workspace) : undefined;
+      if (workspace) {
+        const files = workspaces.get(workspace) ?? new Map<string, string>();
+        workspaces.set(workspace, files);
+        const identity = files.get('IDENTITY.md') ?? '# IDENTITY.md - Agent Identity\n\n';
+        files.set('IDENTITY.md', IDENTITY_NAME.test(identity) ? identity.replace(IDENTITY_NAME, `- **Name:** ${id}`) : `${identity}- **Name:** ${id}\n`);
+      }
       // With rosterApplyMs the fake mirrors the pinned engine: create answers before the roster hot-reload
       // makes the agent visible to agents.list (Crewhouse saw ~113 ms).
       if (o?.rosterApplyMs) setTimeout(() => ensureAgent(id, workspace), o.rosterApplyMs);
       else ensureAgent(id, workspace);
-      return { id };
+      return { ok: true, agentId: id, name: id, workspace: workspace ?? `workspace-${id}` };
+    },
+    // deleteFiles: false keeps the workspace, as the kit always asks; the agent's own store and model go.
+    'agents.delete': (p) => {
+      const id = String(p.agentId);
+      if (!agents.delete(id)) throw new Error(`agent "${id}" not found`);
+      profiles.delete(id); orders.delete(id); models.delete(id);
+      return { ok: true, agentId: id, removedBindings: 0 };
+    },
+    'agents.files.get': (p) => fileAnswer(String(p.agentId), String(p.name)),
+    'agents.files.set': (p) => {
+      filesOf(String(p.agentId)).files.set(String(p.name), String(p.content));
+      return { ok: true, ...fileAnswer(String(p.agentId), String(p.name)) };
     },
     // One profile per signed-in provider, `<provider>:default`, as the pin lists an agent's own profiles.
     // Plus its cached usage once warm: cold on the first answer carrying the provider (no `usage`), then the
@@ -474,8 +516,10 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       return { ok: true, status: 'ok', modelRef: model };
     },
     'openclaw.setup.auth.start': (p) => {
+      // The pin's single setup admission: a second start while a session runs is refused.
+      if (wizards.size) throw new Error('setup is already in progress');
       const sessionId = String(p.sessionId ?? `fake-${randomUUID()}`);
-      wizards.set(sessionId, { agentId: String(p.agentId ?? 'main'), answered: false, pulls: 0 });
+      wizards.set(sessionId, { agentId: String(p.agentId ?? 'main'), authChoice: String(p.authChoice ?? ''), answered: false, pulls: 0 });
       return { sessionId, done: false, status: 'running' };
     },
     'wizard.next': (p) => {
@@ -485,7 +529,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
         session.answered = true;
         return { done: false, step: PROGRESS_STEP };
       }
-      if (!session.answered) return { done: false, step: DEVICE_STEP };
+      if (!session.answered) return { done: false, step: session.authChoice === 'openai' ? BROWSER_STEP : DEVICE_STEP };
       if (session.pulls++ === 0) return { done: false, step: PROGRESS_STEP };
       wizards.delete(String(p.sessionId));
       signInAgent(session.agentId, 'openai');

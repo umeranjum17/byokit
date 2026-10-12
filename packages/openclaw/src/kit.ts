@@ -763,7 +763,9 @@ export class OpenClawKit {
       for (const name of hello.methods) if (!operatorMethods.has(name) && !nodeMethods.has(name)) this.o.log?.(`gateway has unknown method: ${name}`);
       this.members = createMembers({ request: transport.request.bind(transport), root: this.engine.root });
       this.accountsCtl = createAccounts({ request: transport.request.bind(transport), root: this.engine.root,
-        ensure: (member) => this.ensureMember(member), locks: this.locks });
+        ensure: (member) => this.ensureMember(member), locks: this.locks,
+        signIn: (agentId, o, on, fresh) => startSignIn({ ...this.signInCtx(), ensure: async () => ({ agentId }), fresh }, agentId, o, on),
+        log: this.o.log });
       // The fail-closed tool bridge feeds the kit's single Approval surface (5.9, O5).
       await this.bridge.start();
       this.off.push(transport.onEvent((e) => this.approvalsCtl.handleEvent(e)));
@@ -921,8 +923,8 @@ export class OpenClawKit {
     return engineSignOut(this.signInCtx(), member, provider);
   }
 
-  // accounts (5.15, O14 step S5): the per-member index with listing, defaults, rename, models and room.
-  // Adding, removing, pick and move arrive in later steps.
+  // accounts (5.15, O14 steps S5, S6 and S9): the per-member index with listing, adding, defaults, rename, models and
+  // room. Removing, pick and move arrive in later steps.
   accounts(member: Member): Promise<Account[]> {
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.accountsCtl.list(member);
@@ -936,6 +938,14 @@ export class OpenClawKit {
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room> {
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.accountsCtl.room(member, id, demand);
+  }
+
+  /** Sign in one more account: on the member agent while it holds none of the provider, else on a new sealed agent. */
+  addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId },
+    on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
+      done: Promise<{ view: SignInView; id: AccountId }> }> {
+    if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
+    return this.accountsCtl.add(member, o, on);
   }
 
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account> {

@@ -1,16 +1,19 @@
-// The S5 account spine (docs/runtime-kits.md 5.15, O14 step S5): a fake-gateway journey through the built
-// kit that signs in, lists, renames, calls setDefaults, restarts and lists again. Pass: expected rows, index
-// mode 0600, clean canary scan.
+// The account spine (docs/runtime-kits.md 5.15, O14 steps S5 and S6): a fake-gateway journey through the built
+// kit that signs in, lists, renames, calls setDefaults, restarts and lists again, then adds a second ChatGPT
+// account on its own sealed agent. Pass: expected rows, index mode 0600, clean canary scan.
 // The S9 Auto input (O14i): models and room over the same journey, with the fake's cold usage cache (no usage
 // on the first read). Pass: expected models and room.
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import { chmodSync, readFileSync, statSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { createLocks } from '../src/locks.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
+import type { SignInView } from '../src/types.ts';
 
 const indexOf = (stateDir: string, member: string): string => join(stateDir, 'openclaw', 'accounts', `${member}.json`);
 
@@ -92,6 +95,150 @@ test('account index: sign in, list, rename, defaults, restart, list again', asyn
     assert.ok(!('email' in stored.accounts.openai!));
     for (const canary of ['fake-access', 'fake-refresh', 'openai:default', '@', 'accountId', 'email', 'token', 'access', 'refresh'])
       assert.ok(!text.includes(canary), `index leaks ${canary}`);
+
+    // S6: a second ChatGPT account on its own sealed agent. wizard.next waits on `gate` so a sign-in can be
+    // caught running; the first draw collides with the unindexed `m1--abc123` above and is drawn again.
+    let gate: Promise<void> | undefined;
+    let wrongAnswer: string | undefined;
+    let loseReply = false;
+    let lagging: { id: string; until: number } | undefined;
+    let holdCreate: { landed: () => void; release: Promise<void> } | undefined;
+    let holding: string[] | undefined;
+    const gated: typeof fake.factory = (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, request: async (method, params, o) => {
+        holding?.push(method);
+        if (method === 'wizard.next') await gate;
+        if (method === 'agents.list' && lagging && Date.now() < lagging.until) {
+          const list = await transport.request(method, params, o) as { agents: { id: string }[] };
+          return { ...list, agents: list.agents.filter((a) => a.id !== lagging!.id) };
+        }
+        if (method !== 'agents.create') return transport.request(method, params, o);
+        const made = await transport.request(method, params, o) as { agentId: string };
+        if (loseReply) { loseReply = false; lagging = { id: made.agentId, until: Date.now() + 200 }; throw new Error('gateway reply lost'); }
+        if (wrongAnswer !== undefined) { const answer = wrongAnswer; wrongAnswer = undefined; return { ...made, agentId: answer }; }
+        if (holdCreate) {
+          const hold = holdCreate;
+          holdCreate = undefined;
+          holding = [];
+          hold.landed();
+          await hold.release;
+          holding = undefined;
+        }
+        return made;
+      } };
+    };
+    const draws = ['abc123', 'def456'];
+    const randomBytes = crypto.randomBytes;
+    mock.method(crypto, 'randomBytes', (size: number) => draws.length ? Buffer.from(draws.shift()!, 'hex') : randomBytes(size));
+    syncBuiltinESMExports();
+    const third = new OpenClawKit({ stateDir, transport: gated, spawnEngine: false, callbackPort: 0 });
+    try {
+      await third.start();
+      const identity = async () => (await third.call('agents.files.get', { agentId: 'm1', name: 'IDENTITY.md' })).file.content;
+      const roster = async () => (await third.call('agents.list', {})).agents.map((a) => a.id);
+      const identityBefore = await identity();
+      assert.ok(identityBefore);
+      let open!: () => void;
+      gate = new Promise((resolve) => { open = resolve; });
+      const views: SignInView[] = [];
+      const second = await third.addAccount('m1', { authChoice: 'openai', via: 'browser' }, (v) => views.push(v));
+      assert.equal(second.id, 'openai.def456', 'the taken m1--abc123 is drawn again');
+      assert.ok((await roster()).includes('m1--def456'));
+      assert.equal(await identity(), identityBefore, 'IDENTITY.md is byte-identical after the account agent is created');
+      const entry = JSON.parse(readFileSync(file, 'utf8')).accounts['openai.def456'];
+      assert.deepEqual([entry.agent, entry.name, entry.route], ['m1--def456', 'ChatGPT Login 2', 'openai']);
+      assert.equal((await third.accounts('m1')).find((a) => a.id === 'openai.def456')?.state, 'signing');
+
+      // One setup admission: a sign-in started while this one runs ends busy, and its agent and entry go.
+      const busy = await third.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+      assert.match(busy.id, /^openai\.[0-9a-f]{6}$/);
+      assert.deepEqual((await busy.done).view, { state: 'failed', via: 'browser', why: 'busy' });
+      assert.ok(!(await roster()).includes(`m1--${busy.id.slice('openai.'.length)}`), 'the busy agent is removed');
+      assert.ok(!(busy.id in JSON.parse(readFileSync(file, 'utf8')).accounts), 'and its entry');
+
+      open();
+      gate = undefined;
+      assert.deepEqual(await second.done, { view: { state: 'done', via: 'browser' }, id: 'openai.def456' });
+      const url = new URL(views.find((v) => v.url)!.url!);
+      assert.equal(`${url.origin}${url.pathname}`, 'https://auth.openai.com/oauth/authorize');
+      assert.equal(url.searchParams.get('prompt'), 'login', 'a further ChatGPT account asks for the login screen');
+      assert.equal(url.searchParams.get('state'), 'fake-state', 'the rest of the URL is the engine\'s');
+      assert.deepEqual(views.at(-1), { state: 'done', via: 'browser' }, 'done comes only after sealing');
+
+      // Sealed: the account agent holds only its own sign-in, and its identity hash (never an email) is indexed.
+      const sealed = await third.callDynamic('byokit.accounts', { action: 'list', agentId: 'm1--def456' }) as { profiles: { provider: string }[] };
+      assert.deepEqual(sealed.profiles.map((p) => p.provider), ['openai']);
+      assert.match(JSON.parse(readFileSync(file, 'utf8')).accounts['openai.def456'].who, /^[0-9a-f]{16}$/);
+      assert.deepEqual((await third.accounts('m1')).map((a) => [a.id, a.name, a.state]),
+        [['openai', 'Work', 'ready'], ['openai.def456', 'ChatGPT Login 2', 'ready']], 'two ChatGPT accounts on two agents');
+
+      // A cancelled sign-in removes its new agent and entry; IDENTITY.md is still the member's.
+      gate = new Promise(() => {});
+      const cancelled = await third.addAccount('m1', { authChoice: 'openai', via: 'browser', name: 'Spare' }, () => {});
+      cancelled.cancel();
+      assert.equal((await cancelled.done).view.why, 'declined');
+      gate = undefined;
+      assert.ok(!(await roster()).includes(`m1--${cancelled.id.slice('openai.'.length)}`));
+      assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8')).accounts), ['openai', 'openai.def456']);
+      assert.equal(await identity(), identityBefore);
+      const after = readFileSync(file, 'utf8');
+      for (const canary of ['fake-access', 'fake-refresh', 'fake-m1', 'openai:default', '@', 'email', 'token'])
+        assert.ok(!after.includes(canary), `index leaks ${canary}`);
+
+      // A failure after agents.create (its answer names another agent) restores IDENTITY.md and removes the new agent and entry.
+      const rosterBefore = await roster();
+      wrongAnswer = 'm1--elsewhere';
+      await assert.rejects(third.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {}), /answered m1--elsewhere/);
+      assert.deepEqual(await roster(), rosterBefore, 'the agent of the failed create is removed');
+      assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8')).accounts), ['openai', 'openai.def456'], 'and its entry');
+      assert.equal(await identity(), identityBefore, 'IDENTITY.md is restored after the failed create');
+
+      // The gateway made the agent, then the create reply was lost: its roster lags the reply, so the failure is the real
+      // cause and the agent it made goes too once the roster shows it.
+      loseReply = true;
+      await assert.rejects(third.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {}), /gateway reply lost/);
+      await new Promise((resolve) => setTimeout(resolve, Math.max(0, lagging!.until - Date.now()) + 1));
+      assert.deepEqual(await roster(), rosterBefore, 'the agent the lost reply left behind is removed');
+      assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8')).accounts), ['openai', 'openai.def456'], 'and its entry');
+      assert.equal(await identity(), identityBefore, 'IDENTITY.md is restored after the lost reply');
+
+      // Two adds on one member at once: the second waits while the first's create is held, so IDENTITY.md keeps the member's line.
+      gate = new Promise(() => {});
+      let landed!: () => void;
+      const createLanded = new Promise<void>((resolve) => { landed = resolve; });
+      let release!: () => void;
+      holdCreate = { landed, release: new Promise<void>((resolve) => { release = resolve; }) };
+      const racing = third.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+      await createLanded;
+      const late = third.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+      for (let i = 0; i < 1000 && !holding?.includes('agents.list'); i++) await new Promise((resolve) => setImmediate(resolve));
+      assert.ok(holding?.includes('agents.list'), 'the second add reaches its roster read while the first create is held');
+      for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve));
+      assert.ok(!holding?.includes('agents.files.get'), 'the second add reads IDENTITY.md only after the held create is restored');
+      release();
+      const [a, b] = await Promise.all([racing, late]);
+      assert.equal(await identity(), identityBefore, 'two adds at once leave IDENTITY.md byte-identical');
+      a.cancel();
+      b.cancel();
+      assert.notEqual((await a.done).view.state, 'done');
+      assert.notEqual((await b.done).view.state, 'done');
+      gate = undefined;
+      assert.deepEqual(await roster(), rosterBefore, 'both new agents are removed');
+      assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8')).accounts), ['openai', 'openai.def456'], 'and their entries');
+      assert.equal(await identity(), identityBefore);
+
+      // The engine's provider id names the openai route: it signs in on its own agent like any further ChatGPT account.
+      const codex = await third.addAccount('m1', { authChoice: 'openai-codex', via: 'browser' }, () => {});
+      assert.match(codex.id, /^openai\.[0-9a-f]{6}$/);
+      assert.deepEqual(await codex.done, { view: { state: 'done', via: 'browser' }, id: codex.id });
+      assert.equal(JSON.parse(readFileSync(file, 'utf8')).accounts[codex.id].route, 'openai');
+      assert.ok((await roster()).includes(`m1--${codex.id.slice('openai.'.length)}`));
+    } finally {
+      mock.restoreAll();
+      syncBuiltinESMExports();
+      await third.stop();
+    }
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });

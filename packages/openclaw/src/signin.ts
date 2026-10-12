@@ -13,6 +13,8 @@ export type SignInCtx = {
   ensure(member: Member): Promise<{ agentId: string }>;
   callbackPort: number;
   onDisconnect?(fn: () => void): () => void;
+  // A further account of a provider the member already holds (5.15): its sign-in must not reuse the browser's session.
+  fresh?: boolean;
 };
 
 // The pin's wizard contract (2026.8.1): steps arrive only from `wizard.next` (wizard.status answers {status, error}
@@ -62,6 +64,14 @@ export function signIn(
   const { signal } = owner;
   const driveOwner = new AbortController();
   const wantsCallback = via === 'browser' && o.authChoice === 'openai';
+  // The pin builds ChatGPT's authorize URL unsigned, so a fresh sign-in can ask for the login screen itself.
+  const shown = (url: string): string => {
+    if (!ctx.fresh || !wantsCallback) return url;
+    const parsed = URL.canParse(url) ? new URL(url) : undefined;
+    if (parsed?.origin !== 'https://auth.openai.com' || parsed.pathname !== '/oauth/authorize') return url;
+    parsed.searchParams.set('prompt', 'login');
+    return parsed.toString();
+  };
   let server: Server | undefined;
   let sessionId = '';
   let starting: Promise<unknown> | undefined;
@@ -291,7 +301,7 @@ export function signIn(
         if (timed) codeTimer = setTimeout(() => { codeExpired = true; owner.abort(); }, duration);
         const message = deviceCode.message ?? current.message;
         // The code is on the card; acknowledging it lets the engine poll the provider itself.
-        say({ ...(deviceCode.code ? { code: deviceCode.code } : {}), ...(current.externalUrl ? { url: current.externalUrl } : {}),
+        say({ ...(deviceCode.code ? { code: deviceCode.code } : {}), ...(current.externalUrl ? { url: shown(current.externalUrl) } : {}),
           ...(timed ? { expiresAt: Date.now() + duration } : {}), ...(message ? { message } : {}) });
         const next = await answer(current);
         if (next.done) { terminal = next; break; }
@@ -312,7 +322,7 @@ export function signIn(
         continue;
       }
       if (current.type === 'note' || current.type === 'confirm' || current.type === 'select' || current.type === 'action') {
-        if (current.externalUrl) say({ url: current.externalUrl });
+        if (current.externalUrl) say({ url: shown(current.externalUrl) });
         const next = await answer(current);
         if (next.done) { terminal = next; break; }
         step = next.step;

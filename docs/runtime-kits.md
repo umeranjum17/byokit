@@ -1085,7 +1085,7 @@ import type { AccountView, Approval, Decision, GatewayTransport, KitState, KitOp
 declare function outputSchema(value: unknown): { prompt: string; parse(text: string): { data: unknown } | undefined };
 type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
-interface OpenClawKit {   // 5.3 signatures; the built kit has addKey only until O14
+interface OpenClawKit {   // 5.3 signatures; the built kit has addKey and addAccount, the rest lands with O14
   addKey(member: Member, o: { authChoice: string; apiKey: string; name?: string }): Promise<'ok' | 'invalid' | 'not_included'>;
   addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId },
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
@@ -1459,9 +1459,9 @@ cache.
    engine key, and keep the optional `{ auth: 'apiKey' }` of the key lane.
 
 **Adding.** `addAccount(member, { authChoice, via, name?, again? }, on)` accepts any pinned `subscription` choice
-(D12); `api` routes go through `addKey`, `local` routes are not accounts. A member whose id passes only the old D9
-rule is refused (words `account.legacyMember`). The target agent is the member agent when it holds no local profile
-of the route's provider and `again` is absent, else a new account agent (`again` names an existing account of the same
+(D12), and `openai-codex` as the `openai` route's choice (D15's engine id); `api` routes go through `addKey`, `local`
+routes are not accounts. A member whose id passes only the old D9 rule is refused (words `account.legacyMember`). The
+target agent is the member agent when it holds no local profile of the route's provider and `again` is absent, else a new account agent (`again` names an existing account of the same
 provider). The index entry is written, then 5.7's sign-in loop runs against that `agentId` (one sign-in at a time per
 kit: the engine has one setup admission; a second start ends `why: 'busy'`). A sign-in for a provider the member
 already holds must not reuse the provider's browser session: for `openai` browser sign-ins the kit adds
