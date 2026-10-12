@@ -3,6 +3,7 @@
 // `who` is a one-way identity: the first 16 hex digits of sha256(`<provider>\n<accountId>`), so the account id
 // itself never leaves the engine.
 import { createHash } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 
 // Local-only store I/O (as keys.js): never read through inherited auth and never sync an external CLI.
 const LOCAL = { filterExternalAuthProfiles: false, syncExternalCli: false };
@@ -198,6 +199,10 @@ async function adopt(params, config, resolveAgentDir, updateAuthProfileStoreWith
     } });
     if (!sealed) { await pin(target); return { ok: false }; }
     const cleared = await updateAuthProfileStoreWithLock({ agentDir: fromDir, saveOptions: LOCAL, updater(s) {
+      // A refresh between the read and this clear must not be deleted with the stale snapshot: refuse when the
+      // live record no longer equals the moved one (a who check alone would miss it; the account id never
+      // changes on refresh), and the caller rolls the move back.
+      if (!isDeepStrictEqual(s.profiles?.[fromId], moved)) return false;
       if (s.profiles) delete s.profiles[fromId];
       if (s.order?.[provider]) {
         s.order[provider] = s.order[provider].filter((id) => id !== fromId);
