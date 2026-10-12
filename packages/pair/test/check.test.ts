@@ -53,7 +53,7 @@ test('check times out on a socket that never answers, keeping input order', asyn
   const quietUrl = `ws://127.0.0.1:${(quiet.address() as AddressInfo).port}/link`;
   const [first, second, third] = await check([quietUrl, h.url, await closedPort()], { timeoutMs: 300 });
   assert.equal(first!.url, quietUrl);
-  assert.deepEqual({ ...first, url: '' }, { url: '', ok: false, code: 'timeout', message: LINK_WORDS.timeout });
+  assert.deepEqual({ ...first, url: '' }, { url: '', ok: false, code: 'slow', message: LINK_WORDS.slow });
   assert.deepEqual(second, { url: h.url, ok: true });
   assert.equal(third!.ok, false);
 });
