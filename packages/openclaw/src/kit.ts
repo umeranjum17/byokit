@@ -48,6 +48,8 @@ import type {
   LearningCapture,
   LearningMode,
   Member,
+  ModelInfo,
+  Room,
   Route,
   RunEnd,
   RunEvent,
@@ -921,11 +923,21 @@ export class OpenClawKit {
     return engineSignOut(this.signInCtx(), member, provider);
   }
 
-  // accounts (5.15, O14 steps S5 and S6): the per-member index with listing, adding, defaults and rename.
-  // Removing, models, room, pick and move arrive in later steps.
+  // accounts (5.15, O14 steps S5, S6 and S9): the per-member index with listing, adding, defaults, rename, models and
+  // room. Removing, pick and move arrive in later steps.
   accounts(member: Member): Promise<Account[]> {
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.accountsCtl.list(member);
+  }
+
+  models(member: Member, id: AccountId): Promise<ModelInfo[]> {
+    if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
+    return this.accountsCtl.models(member, id);
+  }
+
+  room(member: Member, id: AccountId, demand?: string[]): Promise<Room> {
+    if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
+    return this.accountsCtl.room(member, id, demand);
   }
 
   /** Sign in one more account: on the member agent while it holds none of the provider, else on a new sealed agent. */

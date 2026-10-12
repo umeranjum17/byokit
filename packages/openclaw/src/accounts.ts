@@ -1,7 +1,7 @@
 // The per-member account index (5.15, O14 step S5): `<root>/accounts/<member>.json` (0600, whole-file temp
 // plus rename) is the only kit state: `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?,
-// who? } }, defaults }`. No credential, token, email or engine line. Listing, rename, defaults and adding (O14
-// step S6) live here; remove, models, room, pick and move arrive in later steps.
+// who? } }, defaults }`. No credential, token, email or engine line. Listing, rename, defaults, models, room and
+// adding (O14 step S6) live here; remove, pick and move arrive in later steps.
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -9,7 +9,7 @@ import { createLocks } from './locks.ts';
 import { KEY_PREFIX, MEMBER_ID, NEW_MEMBER_ID, untilListed } from './members.ts';
 import { routes, routeFor } from './routes.ts';
 import { words } from './words.ts';
-import type { Account, AccountId, Defaults, GatewayTransport, Member, SignInOptions, SignInState, SignInView } from './types.ts';
+import type { Account, AccountId, Defaults, GatewayTransport, Member, ModelInfo, Room, RoomSpan, SignInOptions, SignInState, SignInView } from './types.ts';
 
 type IndexEntry = { agent: string; name: string; route: string; addedAt: number; until?: number; model?: string; who?: string };
 type IndexFile = { v: 1; accounts: Record<string, IndexEntry>; defaults: Defaults };
@@ -50,6 +50,8 @@ export function createAccounts(ctx: {
   rename(member: Member, id: AccountId, name: string): Promise<Account>;
   defaults(member: Member): Promise<Defaults>;
   setDefaults(member: Member, d: Defaults): Promise<void>;
+  models(member: Member, id: AccountId): Promise<ModelInfo[]>;
+  room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;
 } {
   const path = (member: Member): string => join(ctx.root, 'accounts', `${member}.json`);
   // Accounts whose sign-in is running, as `<member>\n<id>`, counted per add: listed `signing` until the last one ends.
@@ -166,6 +168,77 @@ export function createAccounts(ctx: {
     const [roster, profiles] = await gather(agentId);
     return { ...(await build(member, agentId, file, roster, profiles)), file };
   };
+  // The account's index entry, only when `list` names it: an unindexed agent is never reachable, whatever the
+  // file holds.
+  const entryOf = async (member: Member, id: AccountId): Promise<{ row: Account; entry: IndexEntry }> => {
+    const row = (await list(member)).find((r) => r.id === id);
+    const entry = read(member).accounts[id];
+    if (!row || !entry) throw new Error(`unknown account: ${id}`);
+    return { row, entry };
+  };
+  const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+  // `models.list { agentId, view: 'default' }` rows of the account's provider, mapped to `provider/model`. The pin
+  // reports no per-plan availability, so `why: 'plan'` only comes from a run ending `plan`, never from here.
+  const modelsOf = (provider: string, answer: unknown): ModelInfo[] => {
+    const rows = record(answer) && Array.isArray(answer.models) ? answer.models : [];
+    const out: ModelInfo[] = [];
+    for (const candidate of rows) {
+      if (!record(candidate) || typeof candidate.provider !== 'string'
+        || candidate.provider.toLowerCase() !== provider.toLowerCase()) continue;
+      if (typeof candidate.id !== 'string' || !candidate.id || typeof candidate.name !== 'string') continue;
+      const id = candidate.id.includes('/') ? candidate.id : `${candidate.provider}/${candidate.id}`;
+      const available = candidate.available === undefined
+        ? candidate.unavailableReason === undefined : candidate.available === true;
+      const info: ModelInfo = { id, name: candidate.name, available };
+      if ((candidate.tier === 'strong' || candidate.tier === 'fast')) info.tier = candidate.tier;
+      if (!available) {
+        if (candidate.unavailableReason === 'missing-auth' || candidate.unavailableReason === 'auth-failed')
+          info.why = 'signed_out';
+        else if (candidate.unavailableReason === 'cooldown') {
+          info.why = 'resting';
+          if (typeof candidate.unavailableUntil === 'number' && Number.isFinite(candidate.unavailableUntil))
+            info.until = candidate.unavailableUntil;
+        }
+      }
+      out.push(info);
+    }
+    return out;
+  };
+  const spanOf = (label: string): RoomSpan => {
+    const lower = label.toLowerCase();
+    if (lower === 'session') return 'session';
+    if (lower === 'weekly') return 'week';
+    if (lower === 'monthly') return 'month';
+    return 'tightest';
+  };
+  // The `models.authStatus { agentId }` row for the account's provider: of its `usage.windows` entries the one
+  // with the highest numeric `usedPercent` gives `left`, `resetsAt` and `span`. A window applies to every model
+  // unless the engine scopes it to models; the pin's rows carry no scope, so the demand never narrows them today
+  // (the tightest known). A window without a numeric `usedPercent` is skipped, never read as unused. `at` is left
+  // out: the pin exposes no reading age, so the kit never stamps receipt time as reading time. The kit adds no
+  // cache: every call reads live.
+  const roomOf = (provider: string, answer: unknown): Room => {
+    const unknown: Room = { left: 'unknown' };
+    const rows = record(answer) && Array.isArray(answer.providers) ? answer.providers : undefined;
+    if (!rows) return unknown;
+    const row = rows.find((r) => record(r) && typeof r.provider === 'string'
+      && r.provider.toLowerCase() === provider.toLowerCase());
+    if (!row || !record(row)) return unknown;
+    const windows = record(row.usage) && Array.isArray(row.usage.windows) ? row.usage.windows : undefined;
+    if (!windows) return unknown;
+    let best: { used: number; resetAt?: number; span: RoomSpan } | undefined;
+    for (const candidate of windows) {
+      if (!record(candidate)) continue;
+      if (typeof candidate.usedPercent !== 'number' || !Number.isFinite(candidate.usedPercent)) continue;
+      const span = spanOf(typeof candidate.label === 'string' ? candidate.label : '');
+      const resetAt = typeof candidate.resetAt === 'number' && Number.isFinite(candidate.resetAt)
+        ? candidate.resetAt : undefined;
+      if (!best || candidate.usedPercent > best.used)
+        best = { used: candidate.usedPercent, ...(resetAt !== undefined ? { resetAt } : {}), span };
+    }
+    if (!best) return unknown;
+    return { left: 100 - best.used, span: best.span, ...(best.resetAt !== undefined ? { resetsAt: best.resetAt } : {}) };
+  };
 
   async function list(member: Member): Promise<Account[]> {
     check(member);
@@ -217,6 +290,35 @@ export function createAccounts(ctx: {
       if (d.model !== undefined) next.model = d.model;
       if (d.auto !== undefined) next.auto = d.auto;
       write(member, { ...file, defaults: next });
+    });
+  }
+
+  async function models(member: Member, id: AccountId): Promise<ModelInfo[]> {
+    check(member);
+    await ctx.ensure(member);
+    const { row, entry } = await entryOf(member, id);
+    // The shared hold covers the read, so no kit read of the agent is in flight while it is removed.
+    return ctx.locks.shared(entry.agent, async () => {
+      const answer = await ctx.request('models.list', { agentId: entry.agent, view: 'default' });
+      return modelsOf(row.provider, answer);
+    });
+  }
+
+  async function room(member: Member, id: AccountId, demand?: string[]): Promise<Room> {
+    check(member);
+    await ctx.ensure(member);
+    const { row, entry } = await entryOf(member, id);
+    // An API-key account is used only when chosen, never by Auto: its room is always unknown, with no read.
+    if (row.billing === 'api') return { left: 'unknown' };
+    // `demand` is accepted but never narrows the windows: see `roomOf`.
+    return ctx.locks.shared(entry.agent, async () => {
+      let answer: unknown;
+      try {
+        answer = await ctx.request('models.authStatus', { agentId: entry.agent }, { timeoutMs: 20_000 });
+      } catch {
+        return { left: 'unknown' } as Room;
+      }
+      return roomOf(row.provider, answer);
     });
   }
 
@@ -334,5 +436,5 @@ export function createAccounts(ctx: {
     return { id, paste: handle.paste, cancel: handle.cancel, done };
   }
 
-  return { list, add, rename, defaults, setDefaults };
+  return { list, add, rename, defaults, setDefaults, models, room };
 }

@@ -20,13 +20,31 @@ export type Account = {
 export type AccountsSource = {
   accounts: () => Promise<readonly Account[]> | readonly Account[];
   room: (account: Account) => Promise<Room> | Room;
+  /** The account's `windowsView`, when the app keeps its usage reading. */
+  windows?: (account: Account) => Promise<UsageWindows | undefined> | UsageWindows | undefined;
 };
+
+/** One usage window, restated structurally from `@byokit/usage/view` `windowsView`: its line (`Week: 58% left`), its
+ *  reset line (`resets in 4h 40m`) and the unchanged millisecond reset. */
+export type UsageWindow = {
+  kind: 'session' | 'weekly' | 'monthly' | 'rolling' | 'custom'; text: string; resetText: string;
+  resetsAt?: number; usedPercent?: number; limited?: boolean;
+};
+/** An account's `windowsView(reading, now)`, restated structurally; only these fields are read. */
+export type UsageWindows = { windows: readonly UsageWindow[]; at?: number; ageMs?: number; ageText?: string; stale: boolean };
+/** How old a row's windows are, taken only from the reading's own time: `Read 2 minutes ago`, with `(stale)` past a day. */
+export type AsOf = { at: number; ageMs: number; text: string; stale: boolean };
 
 export type AccountAction = 'sign_in' | 'wait';
 export type AccountRow = {
   id: string; title: string; detail: string; state: SignInState; billing: Billing;
-  /** Room left is at or below 20%: true at exactly 20, false above it or when the room is unknown. */
+  /** Room left is at or below 20%: true at exactly 20, false above it, when the room is unknown or the windows are stale. */
   low: boolean;
+  /** A ready account's usage windows, tightest first, each with its reset; one that reset since the reading reads
+   *  `Session: reset since this reading`, with an empty `resetText` and no `usedPercent`. Present when the app passed them. */
+  windows?: UsageWindow[];
+  /** The windows' age; absent when the reading carries no time of its own (never a made-up one) or a future one. */
+  asOf?: AsOf;
   /** What the person can do: sign in again, or wait for a resting account to refill. Absent when nothing helps. */
   action?: AccountAction;
   /** A resting account's next refill, epoch milliseconds. */
@@ -51,13 +69,32 @@ function titleOf(a: Account): string {
 /** A resting account whose refill time has passed reads as ready again, exactly as the Auto chooser treats it. */
 const refilled = (a: Account, now: number): boolean => a.state === 'resting' && typeof a.until === 'number' && a.until <= now;
 
-function rowOf(a: Account, room: Room, now: number): AccountRow {
+/** A reset at or before now happened after the reading, so its numbers no longer hold. */
+const resetSince = (resetsAt: number | undefined, now: number): boolean => typeof resetsAt === 'number' && resetsAt <= now;
+
+/** Only the named fields, so nothing else on the app's view (a scope, a provider) reaches a row. A window that reset
+ *  since the reading says so, with no percent and no countdown. */
+const windowOf = (x: UsageWindow, now: number): UsageWindow => resetSince(x.resetsAt, now)
+  ? { kind: x.kind, text: WORDS['account.window.resetSince'].replace('{label}', WORDS[`account.window.${x.kind}`]), resetText: '', resetsAt: x.resetsAt! }
+  : { kind: x.kind, text: x.text, resetText: x.resetText, ...(typeof x.resetsAt === 'number' ? { resetsAt: x.resetsAt } : {}),
+    ...(typeof x.usedPercent === 'number' ? { usedPercent: x.usedPercent } : {}), ...(x.limited ? { limited: true } : {}) };
+
+function asOfOf(w: UsageWindows): AsOf | undefined {
+  if (typeof w.at !== 'number' || typeof w.ageMs !== 'number' || !w.ageText) return undefined;
+  return { at: w.at, ageMs: w.ageMs, text: w.stale ? WORDS['account.stale'].replace('{age}', w.ageText) : w.ageText, stale: w.stale };
+}
+
+function rowOf(a: Account, room: Room, now: number, w?: UsageWindows): AccountRow {
   const state: SignInState = refilled(a, now) ? 'ready' : a.state;
   const title = titleOf(a);
   if (state === 'ready') {
-    const words = roomWords(room);
+    // A room whose window reset since the reading no longer holds its number: say so, and it is not low.
+    const reset = room.left !== 'unknown' && resetSince(room.resetsAt, now);
+    const words = reset ? WORDS['account.room.resetSince'] : roomWords(room);
+    const asOf = w && asOfOf(w);
     return { id: a.id, title, detail: a.plan && room.left !== 'unknown' ? `${planLabel(a.plan)} · ${words}` : words, state, billing: a.billing,
-      low: room.left !== 'unknown' && room.left <= LOW_AT };
+      low: room.left !== 'unknown' && room.left <= LOW_AT && !w?.stale && !reset,
+      ...(w ? { windows: w.windows.map((x) => windowOf(x, now)) } : {}), ...(asOf ? { asOf } : {}) };
   }
   if (state === 'resting') {
     return { id: a.id, title, detail: WORDS['account.resting'], state, billing: a.billing, low: false, action: 'wait',
@@ -67,23 +104,31 @@ function rowOf(a: Account, room: Room, now: number): AccountRow {
   return { id: a.id, title, detail: WORDS[`account.${state}`], state, billing: a.billing, low: false, ...(action ? { action } : {}) };
 }
 
-/** One row per account, reading one room per account; a missing or throwing reading is 'Room left unknown'. */
-export function accountRows(accounts: readonly Account[], room: (account: Account) => Room, now: number): AccountRow[] {
+/** One row per account, reading one room per account; a missing or throwing reading is 'Room left unknown'. `windows`
+ *  is the account's `windowsView` from `@byokit/usage/view`, when the app keeps the reading; a missing or throwing one
+ *  leaves the row without windows. */
+export function accountRows(accounts: readonly Account[], room: (account: Account) => Room, now: number,
+  windows?: (account: Account) => UsageWindows | undefined): AccountRow[] {
   return accounts.map((a) => {
     let r: Room = UNKNOWN;
     try { r = room(a) ?? UNKNOWN; } catch { r = UNKNOWN; }
-    return rowOf(a, r, now);
+    let w: UsageWindows | undefined;
+    try { w = windows?.(a); } catch { w = undefined; }
+    return rowOf(a, r, now, w);
   });
 }
 
-/** `accountRows` over an `AccountsSource`: the app's own `accounts()` and `room()`, awaited; a failing room reads unknown. */
+/** `accountRows` over an `AccountsSource`: the app's own `accounts()`, `room()` and `windows()`, awaited; a failing room
+ *  reads unknown and failing windows leave the row without them. */
 export async function rowsOf(source: AccountsSource, now: number): Promise<AccountRow[]> {
   const accounts = await source.accounts();
   const rooms = new Map<string, Room>();
+  const windows = new Map<string, UsageWindows | undefined>();
   for (const a of accounts) {
     try { rooms.set(a.id, (await source.room(a)) ?? UNKNOWN); } catch { rooms.set(a.id, UNKNOWN); }
+    try { windows.set(a.id, await source.windows?.(a)); } catch { windows.set(a.id, undefined); }
   }
-  return accountRows(accounts, (a) => rooms.get(a.id) ?? UNKNOWN, now);
+  return accountRows(accounts, (a) => rooms.get(a.id) ?? UNKNOWN, now, (a) => windows.get(a.id));
 }
 
 /** Untaken names an app can offer for a new account, from the email's local part (never the email itself), else the
