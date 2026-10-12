@@ -439,7 +439,8 @@ export function createAccounts(ctx: {
     const settle = async (view: SignInView): Promise<SignInView> => {
       if (view.state === 'done') {
         const sealed = await ctx.locks.exclusive([memberAgent, agent, indexLock(member)], async (): Promise<true | string> => {
-          const answer = await ctx.request('byokit.accounts', { action: 'seal', agentId: agent, provider }) as { ok?: boolean; who?: string };
+          const answer = await ctx.request('byokit.accounts', { action: 'seal', agentId: agent, provider,
+            ...(route.keyEntry ? { planKey: true } : {}) }) as { ok?: boolean; who?: string };
           if (!answer.ok) return 'Sign-in could not be saved. Try again.';
           const file = read(member);
           const entry = file.accounts[id];

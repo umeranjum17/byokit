@@ -10,8 +10,8 @@ export const PIN = '2026.8.1';
 export const REVISION = 'ea806575e6450e4d1efdfc72c19f04be982a1b9b';
 export type Choice = {
   provider: string; method: string; choiceId: string; choiceLabel: string;
-  choiceHint?: string; groupLabel?: string; appGuidedAuth?: string;
-  assistantVisibility?: string; onboardingScopes?: string[]; deprecatedChoiceIds?: string[];
+  choiceHint?: string; groupLabel?: string; appGuidedAuth?: string; appGuidedSecret?: boolean;
+  appGuidedDiscovery?: boolean; assistantVisibility?: string; onboardingScopes?: string[]; deprecatedChoiceIds?: string[];
 };
 export type Manifest = {
   id: string; providers?: string[]; providerAuthChoices?: Choice[];
@@ -65,9 +65,12 @@ export function generateRoutes(snapshot: PinSnapshot): Route[] {
     const keyEntry = via === 'key' || via === 'plan_key' || id === 'custom-api-key' || id === 'llama-cpp-existing-server';
     const scopes = choice.onboardingScopes;
     const services = !!scopes?.length && !scopes.includes('text-inference');
-    // The pin's Gateway setup refuses an interactive sign-in whose choice has no app-guided flow
-    // ("That provider setup is not available on this Gateway."): list it, never offer it.
-    const unguided = !keyEntry && ['browser', 'code', 'setup_token'].includes(via) && !choice.appGuidedAuth;
+    // The pin's Gateway sets a choice up only for text inference and only app-guided: a pasted key through
+    // `setup.activate` needs `appGuidedSecret`, a login through `setup.auth.start` needs `appGuidedAuth` or
+    // `appGuidedDiscovery`; anything else is refused ("That provider setup is not available on this Gateway.",
+    // "That key-based provider is not available on this Gateway."). Native CLI login is detected, not set up.
+    const guided = keyEntry ? choice.appGuidedSecret === true : !!choice.appGuidedAuth || choice.appGuidedDiscovery === true;
+    const unguided = via !== 'cli' && (services || !guided);
     const absent = alias || unguided;
     const offerPolicy = billing === 'subscription' && !absent ? 'default' : 'explicit';
     return {
@@ -81,7 +84,7 @@ export function generateRoutes(snapshot: PinSnapshot): Route[] {
         : id === 'minimax-global-oauth' || id === 'minimax-cn-oauth'
           ? { legacy: { provider: 'minimax', via: 'code' as const } } : {}),
       reason: alias ? 'Compatibility alias the Gateway does not offer; use xai-oauth.'
-        : unguided ? 'The pinned Gateway has no app-guided sign-in for this choice.'
+        : unguided ? 'The pinned Gateway has no app-guided setup for this choice.'
         : billing === 'api' ? `${choice.groupLabel ?? choice.provider}: ${via === 'cloud' ? 'Cloud credentials' : keyEntry ? 'API key' : 'OAuth'} (billed per use).`
         : billing === 'subscription' ? `${choice.choiceLabel}: subscription sign-in.`
         : billing === 'local' ? 'Local runtime; explicitly select this route.'

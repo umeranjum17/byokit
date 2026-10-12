@@ -55,7 +55,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D9 | Members. OpenClaw: a member is an app-chosen id matching `/^[a-z](?!.*--)[a-z0-9-]{0,23}$/` (no `--`, at most 24 characters, so every account agent id `<member>--<6 hex>` stays within 32), never `main`, `openclaw`, `crestodian` or starting `byokit-`; an agent that already exists under the older `/^[a-z][a-z0-9-]{0,31}$/` rule and is no member's account agent keeps working with its member agent only (D17), and no new member is created under the old rule. The id is used verbatim as the OpenClaw `agentId` of the member agent; every session key must start `agent:<member>:`, `agent:<member>--<6 hex>:` for an account agent in the member's index (5.15), or (key lane) exactly `agent:byokit-key-<member>:`; each sign-in is granted once and shared across that member's agents as scoped views (D11, D17). Herdr: no member concept upstream; a link grant carries `meta.scope = { workspaces: 'all' \| string[] }`. |
 | D10 | Approvals. OpenClaw: (a) the kit's fail-closed tool bridge (Crewhouse's plugin hook → unix socket → app `gate()`), extended with a parked `ask` result; (b) OpenClaw's native `exec.approval.*`, `plugin.approval.*`, `question.*` surfaced through the same `Approval` shape. Herdr: an agent in `blocked` state is an approval; the answer is keys sent to that exact pane occupant (revision-checked). |
 | D11 | Sign-in: sign in once. OpenClaw: the kit drives OpenClaw's own `openclaw.setup.auth.start` + `wizard.next` loop and holds the ChatGPT callback port during a browser sign-in; each credential is granted once and shared, and every account agent sees only its scoped view of the grant (`viewStore` in `@byokit/accounts`, `packages/accounts/src/stores.ts`: one credential mapped to scoped slots); an optional host-injected seal sees bytes only to protect the isolated store at rest. With the person's consent, the kit may adopt the machine's existing Claude/Codex login instead of a fresh sign-in, then detect and activate it through the engine. Explicit API-key entry passes a secret only to typed `setup.activate`, never to kit storage, logs or return values (5.15). Herdr: each agent CLI's own login, done by the person inside an account-specific pane (terminal stream); `openSignInTab` opens that CLI in a new tab with the host's explicit account environment. Without the person's consent the kit never runs a login command, copies credentials between homes, or reads a CLI's credential files. |
-| D12 | Route policy is data: all subscription routes, including native Claude Code (`anthropic-cli`: reports provider `claude-cli`, the id a Claude Code login is signed in as; manifest provider and plugin `anthropic`), and plan keys, are offered by default with plain sign-in; a choice the pinned Gateway has no app-guided sign-in for (`setup-token` at 2026.8.1) is listed with `flow: 'absent'`, never offered. API-billed routes are app opt-in only. Proxy routes, compatibility aliases, local runtimes and `copilot-proxy` are listed in discovery and used only when named (D18); the 2026.8.1 table shipped today still marks them off until WP B6 regenerates it. Native login is completed in Claude Code, or adopted from the machine's existing Claude/Codex login with the person's consent (D11); the kit asks engine `setup.detect` and `setup.activate`. No consent screen or terms gate is added. |
+| D12 | Route policy is data: all subscription routes, including native Claude Code (`anthropic-cli`: reports provider `claude-cli`, the id a Claude Code login is signed in as; manifest provider and plugin `anthropic`), and plan keys, are offered by default with plain sign-in (a plan key is pasted once into typed `setup.activate`, 5.7); a choice the pinned Gateway cannot set up (a key-entry choice without its manifest's `appGuidedSecret`, any other without `appGuidedAuth`/`appGuidedDiscovery`: `setup-token` and `fal-api-key` at 2026.8.1) is listed with `flow: 'absent'` (readiness `no_upstream_flow`), never ready or offered; the engine job holds every ready and every absent choice to the real Gateway. API-billed routes are app opt-in only. Proxy routes, compatibility aliases, local runtimes and `copilot-proxy` are listed in discovery and used only when named (D18); the 2026.8.1 table shipped today still marks them off until WP B6 regenerates it. Native login is completed in Claude Code, or adopted from the machine's existing Claude/Codex login with the person's consent (D11); the kit asks engine `setup.detect` and `setup.activate`. No consent screen or terms gate is added. |
 | D13 | Library code reads no environment variables except `PATH`, and only to locate `npm` for the engine install when `npmPath` is not given. Every spawned process gets an explicit env; `process.env` is never inherited. The Herdr binary path is always an explicit option. |
 | D14 | `npm test` stays network-free. Tests needing the real engine (network `npm ci` of the pin, loopback only afterwards) run under `npm run test:engine` in a separate CI job `openclaw-engine`. Real-Herdr contract runs happen only in an isolated lab under a `--herdr-lab` brief, never in CI and never against a person's Herdr. |
 | D15 | Retained-login migration source for OpenClaw is a Pi `auth.json`-shaped record (`{ [provider]: credential }`): a file path (Crewhouse's legacy engine) or an in-memory record (an app moving from `@byokit/accounts`' `fileStore`/`secureStore`). Retire only after the Gateway itself reports the member signed in to every provider in the source. |
@@ -581,7 +581,10 @@ writing only if bytes change (0600):
 - Auth isolation (5.15): `agents.defaults.authInheritance.agentId = 'byokit-base'`, an id the kit never creates or
   signs in to, so no agent reads another agent's sign-ins through.
 - Subscription runtime: `agents.defaults.models['openai/*'].agentRuntime = { id: 'openclaw' }`; if
-  `agents.defaults.modelPolicy.allow` is non-empty it gains `'openai/*'`.
+  `agents.defaults.modelPolicy.allow` is non-empty it gains `'openai/*'`. Unless the app config sets a policy, the kit
+  writes `agents.defaults.modelPolicy = {}` (no `allow`) and drops a saved `allow: ['openai/*']`: left unset, the pin
+  reads the `models` keys as a legacy allowlist and migrates them to that list on boot, so a member's OpenCode Go (any
+  non-OpenAI) model fell back to openai.
 - **No silent API billing** (Crewhouse #138): top-level and every `agents.entries[*].memory.search` →
   `provider` stays only if in `none|local|ollama|lmstudio|github-copilot` and, for ollama/lmstudio, `remote.baseUrl`
   host is loopback with no `remote.apiKey`; else `'none'`; `fallback: 'none'` always.
@@ -601,7 +604,8 @@ writing only if bytes change (0600):
   `minimax-global-oauth`/`minimax-cn-oauth`); Crewhouse passes `offered(['chatgpt', 'grok', 'copilot', 'openrouter'])`
   and `plugins.allow: ['crewhouse', 'memory-core', 'openai']`. The kit never writes an empty list, nor one wider than
   app ids ∪ kit id ∪ those routes' plugins. A provider plugin also
-  carries that provider's key-entry choices; the Gateway's `openclaw.setup.auth.start` refuses those in 2026.8.1, and
+  carries that provider's key-entry choices; the Gateway's `openclaw.setup.auth.start` refuses those in 2026.8.1 (they are
+  set up through `openclaw.setup.activate`, 5.7), and
   the memory-search invariant above keeps the plugin from billing embeddings.
 - Install policy when `installPolicy` is given: `security.installPolicy = { enabled: true, exec: { source: 'exec',
   command: process.execPath, args: [<kit>/policy/policy.mjs], trustedDirs: [dirname(process.execPath),
@@ -726,6 +730,12 @@ Every `text` step → view `{ prompt }`, wait for `paste` (15 min), then answer 
 is the engine's own `sensitive` flag: a non-sensitive step is not a secret, so its `message` is the prompt as
 written (`github-copilot-enterprise` asks for the Enterprise domain first); once any step is sensitive, or the
 choice is `setup-token`, the prompt is the fixed `Sign-in token` label and no gateway prose is shown; `note|confirm|select|action` → surface `externalUrl`, acknowledge; `progress` → pull again.
+A `keyEntry` choice (a plan key such as `opencode-go`) never starts the wizard, which refuses it: the view asks
+`{ prompt: 'Plan key' }` (`'API key (billed per use)'` for `api` billing), waits for `paste` (15 min) and calls typed
+`openclaw.setup.activate { kind: 'api-key', agentId, authChoice, apiKey }`; the engine live-tests the key and saves
+the agent's model. The key is cut from any error the view carries. Activation (this one and `anthropic-cli`'s) writes
+`auth`, which the pin applies by restarting the gateway once its requests drain; with a spawned engine `done` waits
+for that restart (seen within 10 s, finished within 60 s), so a run started on done uses the new sign-in.
 Every exit short of done calls `wizard.cancel { sessionId }` for **its own** session. For `via: 'browser'` with
 `authChoice` `openai`, the kit holds `127.0.0.1:<callbackPort>` for the sign-in's life: any request pastes
 `http://<host><url>` into the wizard and answers a plain page (words key `signin.returned`); if the port is taken
@@ -1343,7 +1353,7 @@ using the plugin SDK's `resolveAgentDir` and local-only `updateAuthProfileStoreW
   primary (the pin's sign-in sets it to `provider/model@<new profile id>`); no such suffix, or a different provider →
   `{ ok: false }`; else `{ ok: true, who? }`. The agent's store keeps only that profile of `provider`, `order[provider] = [it]`, `lastGood`
   cleared for it; on an account agent every other provider's profile is removed too; on the member agent an
-  `api_key` profile is refused. Run after every finished sign-in and key activation. A member-agent provider signed in
+  `api_key` profile is refused unless `planKey: true` (a plan key, Adding). Run after every finished sign-in and key activation. A member-agent provider signed in
   before O14 (no local order) is sealed on its first use as an account when it has exactly one local profile of that
   provider; with several and none named by the model, its `state` is `needs_again`.
 - `ready { agentId, provider }`: `{ ok: true, type: 'oauth' | 'token' | 'api_key', expiresAt?, who? }` only when the agent's
@@ -1476,7 +1486,8 @@ provider). The index entry is written, then 5.7's sign-in loop runs against that
 kit: the engine has one setup admission; a second start ends `why: 'busy'`). A sign-in for a provider the member
 already holds must not reuse the provider's browser session: for `openai` browser sign-ins the kit adds
 `prompt=login` to the sign-in URL it surfaces (the pin builds that URL unsigned); for other routes the connect sheet
-shows words `account.signOutFirst` first. When done: seal; its `who` (Sealing) is the sign-in's identity. Identity is
+shows words `account.signOutFirst` first. When done: seal (a plan key with `planKey: true`: subscription billing, so
+the member agent may keep its `api_key` profile); its `who` (Sealing) is the sign-in's identity. Identity is
 compared only within one member and one provider, against each account's index `who`. The email is a display hint:
 it never decides which account a sign-in belongs to, and a changed email changes nothing.
 
@@ -3284,7 +3295,10 @@ OpenClaw (pinned 2026.8.1, verified in Crewhouse at `a9ca74e`):
 - Doctor refuses to run while a Gateway owns the state dir; it exits 0 even when it imports nothing, so only the
   Gateway's `models.authStatus` confirms an import. Staging `auth.json` instead of `auth-profiles.json` imports the
   old provider id as-is (looks signed in, cannot authenticate `openai/*`).
-- `openai/*` must use `agentRuntime: { id: 'openclaw' }`; an explicit `modelPolicy.allow` must include `openai/*`.
+- `openai/*` must use `agentRuntime: { id: 'openclaw' }`; an explicit `modelPolicy.allow` must include `openai/*`. No
+  `modelPolicy` record makes the `agents.defaults.models` keys an allowlist (migrated to `modelPolicy.allow` on boot).
+- A config `auth` change (`setup.activate` writes one) restarts the gateway, deferred until in-flight requests drain; a
+  run admitted before it runs on the old config.
 - Unset/auto memory search defaults to API-billed OpenAI embeddings; force `none` (or local) and `fallback: 'none'`.
 - Exit code 78 at start is repaired by one doctor `--fix` run.
 - Plugin `before_tool_call` hook timeout must exceed the bridge relay timeout (200 s > 195 s).

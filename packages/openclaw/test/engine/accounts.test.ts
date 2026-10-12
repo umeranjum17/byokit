@@ -1,7 +1,10 @@
 // O14a on the real pinned engine (5.15 Isolation, D9): a member runs only on its own sign-ins, sign-out removes only
 // the agent's own profiles, and D9's member rule applies to new members only. Synthetic sign-ins, the loopback model
 // stub, never an account or the network. Runs only in the engine job (npm run test:engine).
-import { test, before, after } from 'node:test';
+import { test, before, after, mock } from 'node:test';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -369,4 +372,57 @@ test('run({ account }): each account agent bills its own key; a signed-out one e
     const text = JSON.stringify([readFileSync(index, 'utf8'), await kit.accounts('m1')]);
     for (const apiKey of Object.values(keys)) assert.ok(!text.includes(apiKey), 'no key in the index or the rows');
   } finally { await kit.stop(); }
+});
+
+test('addAccount: an OpenCode Go plan key is set up through activation and the first run answers on it, streamed with usage', { timeout: 900_000 }, async () => {
+  const dir = scratchDir('o14-go-plan-key');
+  const stateDir = join(dir, 'state');
+  const key = 'byokit-go-stand-in-key-5571';
+  // The plugin's own catalog provider, untouched; only this kit's engine sees opencode.ai answered by the loopback
+  // stub (activation's live test and the run), the way signin.test answers auth.openai.com.
+  const preload = join(dir, 'go-fake.mjs');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(preload, `
+import { mock } from 'node:test';
+const fetch = globalThis.fetch;
+mock.method(globalThis, 'fetch', (input, options) => {
+  const url = new URL(input instanceof Request ? input.url : input);
+  if (url.origin === 'https://opencode.ai') {
+    const base = new URL(${JSON.stringify(stub.url)});
+    url.protocol = base.protocol; url.host = base.host;
+    input = input instanceof Request ? new Request(url, input) : url;
+  }
+  return fetch(input, options);
+});
+`, { mode: 0o600 });
+  const spawn = childProcess.spawn;
+  mock.method(childProcess, 'spawn', (...args: Parameters<typeof spawn>) => {
+    const [file, argv, options] = args;
+    if (file === process.execPath && Array.isArray(argv) && argv[1] === 'gateway')
+      return spawn(file, ['--import', pathToFileURL(preload).href, ...argv], options);
+    return spawn(...args);
+  });
+  syncBuiltinESMExports();
+  const kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), callbackPort: 0 });
+  try {
+    await kit.start();
+    const views: SignInView[] = [];
+    const added = await kit.addAccount('m1', { authChoice: 'opencode-go' }, (v) => views.push(v));
+    added.paste(key);
+    assert.deepEqual(await added.done, { view: { state: 'done', via: 'browser' }, id: 'opencode-go' });
+    assert.deepEqual((await kit.accounts('m1')).map((a) => [a.id, a.billing, a.state]), [['opencode-go', 'subscription', 'ready']]);
+
+    // Straight after done, with no model named: the gateway already restarted onto the new sign-in, and the
+    // models map the kit writes is not an allowlist that would send the member back to openai.
+    const before = stub.calls.length;
+    const texts: string[] = [];
+    const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:o14:go', message: 'hello go' },
+      (e) => { if (e.type === 'text') texts.push(e.text); });
+    assert.ok(end.ok, JSON.stringify(end));
+    assert.ok(texts.length && end.usage?.total, 'streamed with usage');
+    const calls = stub.calls.slice(before);
+    assert.ok(calls.length && calls.every((c) => c.authorization === `Bearer ${key}` && c.body.model === 'deepseek-v4-pro'),
+      JSON.stringify(calls.map((c) => [c.authorization === `Bearer ${key}`, c.body.model])));
+    assert.ok(!JSON.stringify(views).includes(key), 'the key is never shown');
+  } finally { await kit.stop(); mock.restoreAll(); syncBuiltinESMExports(); }
 });

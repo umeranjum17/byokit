@@ -480,3 +480,49 @@ test('run on an account: abort with the member key reaches the account run; an A
     rmSync(stateDir, { recursive: true, force: true });
   }
 });
+
+test('a plan key: addAccount pastes the OpenCode Go key into typed activation and a run answers on it', async () => {
+  const stateDir = scratchDir('go-plan-key');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  const secret = 'CANARY-GO-PLAN-KEY-5571';
+  try {
+    await kit.start();
+    // Discovery offers the route as ready, and the engine sets it up only from a pasted key, never auth.start.
+    assert.equal(kit.routes().find((r) => r.choice === 'opencode-go')?.readiness, 'ready');
+    const views: SignInView[] = [];
+    const added = await kit.addAccount('m1', { authChoice: 'opencode-go' }, (v) => views.push(v));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(views[0], { state: 'waiting', via: 'browser', prompt: 'Plan key' });
+    added.paste(secret);
+    const { view, id } = await added.done;
+    assert.deepEqual(view, { state: 'done', via: 'browser' });
+    assert.equal(id, 'opencode-go');
+    assert.ok(!fake.calls.some((c) => c.method === 'openclaw.setup.auth.start'));
+    assert.deepEqual(fake.calls.find((c) => c.method === 'openclaw.setup.activate')?.params,
+      { agentId: 'm1', kind: 'api-key', authChoice: 'opencode-go', apiKey: '[redacted]' });
+    const [row] = await kit.accounts('m1');
+    assert.deepEqual({ id: row?.id, provider: row?.provider, billing: row?.billing, state: row?.state },
+      { id: 'opencode-go', provider: 'opencode-go', billing: 'subscription', state: 'ready' });
+
+    const texts: string[] = [];
+    const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:go', message: 'Hello', model: 'opencode-go/fake-key-model' },
+      (e) => { if (e.type === 'text') texts.push(e.text); });
+    assert.ok(end.ok, JSON.stringify(end));
+    assert.equal(texts.at(-1), 'fake: Hello');
+    assert.ok(end.ok && end.usage?.total, 'the run reports usage');
+    assert.ok(!JSON.stringify([views, end, fake.calls]).includes(secret));
+    assert.ok(!readFileSync(indexOf(stateDir, 'm1'), 'utf8').includes(secret));
+
+    // A choice the engine cannot set up is never ready, and the kit's sign-in for it fails with the engine's words.
+    const refused = kit.routes().find((r) => r.choice === 'fal-api-key');
+    assert.equal(refused?.readiness, 'no_upstream_flow');
+    const failed = await kit.signIn('m1', { authChoice: 'fal-api-key' }, () => {});
+    failed.paste(secret);
+    assert.deepEqual(await failed.done, { state: 'failed', via: 'browser', why: 'failed',
+      error: 'That key-based provider is not available on this Gateway.' });
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});

@@ -762,8 +762,10 @@ export class OpenClawKit {
       this.greeting = hello;
       for (const name of operatorMethods) if (!hello.methods.includes(name)) this.o.log?.(`gateway missing generated method: ${name}`);
       for (const name of hello.methods) if (!operatorMethods.has(name) && !nodeMethods.has(name)) this.o.log?.(`gateway has unknown method: ${name}`);
+      const live = transport;
       this.members = createMembers({ request: transport.request.bind(transport), root: this.engine.root });
-      this.accountsCtl = createAccounts({ request: transport.request.bind(transport), root: this.engine.root,
+      // An add outlives a restart (activation restarts the gateway before it settles): requests use the live transport.
+      this.accountsCtl = createAccounts({ request: (method, params, o) => (this.transport ?? live).request(method, params, o), root: this.engine.root,
         ensure: (member) => this.ensureMember(member), locks: this.locks,
         signIn: (agentId, o, on, fresh) => startSignIn({ ...this.signInCtx(), ensure: async () => ({ agentId }), fresh }, agentId, o, on),
         log: this.o.log });
@@ -892,7 +894,8 @@ export class OpenClawKit {
       // Public readiness/sign-in reads stay live; their fresh result can prepare the next run's admission.
       authStatus: (agentId, refresh, native) => this.admission.read(agentId, refresh, native, false),
       ensure: (member) => this.ensureMember(member), callbackPort: this.o.callbackPort ?? 1455,
-      onDisconnect: (fn) => { this.signInDisconnects.add(fn); return () => { this.signInDisconnects.delete(fn); }; } };
+      onDisconnect: (fn) => { this.signInDisconnects.add(fn); return () => { this.signInDisconnects.delete(fn); }; },
+      ...(this.o.spawnEngine === false ? {} : { restarting: () => this.current.phase === 'restarting' || this.current.phase === 'starting' }) };
   }
 
   routes(): RouteView[] {

@@ -124,8 +124,10 @@ async function handle(params) {
     let sealed = false;
     const store = await updateAuthProfileStoreWithLock({ agentDir, saveOptions: LOCAL, updater(s) {
       const credential = s.profiles?.[profileId];
-      // No such profile, or the named profile belongs to another provider; on a member agent an api_key is refused.
-      if (!credential || credential.provider !== provider || (!account && credential.type === 'api_key')) return false;
+      // No such profile, or the named profile belongs to another provider; on a member agent an api_key is refused
+      // unless it is a plan key (subscription billing, never billed per use).
+      if (!credential || credential.provider !== provider
+        || (!account && credential.type === 'api_key' && params.planKey !== true)) return false;
       who = whoOf(credential);
       s.profiles = sealProfiles(s.profiles, provider, profileId, account);
       s.order = account ? { [provider]: [profileId] } : { ...(s.order ?? {}), [provider]: [profileId] };

@@ -25,6 +25,13 @@ test('fresh and adversarial config force isolation and no paid memory fallback',
   assert.equal(c.memory.search.provider, 'none');
   assert.equal(c.memory.search.fallback, 'none');
   assert.equal(c.agents.defaults.models['openai/*'].agentRuntime.id, 'openclaw');
+  // The models map never becomes an allowlist: an empty policy record, and the list the pin migrated from it is dropped.
+  assert.deepEqual(c.agents.defaults.modelPolicy, {});
+  assert.deepEqual((reconcileConfig({ agents: { defaults: { modelPolicy: { allow: ['openai/*'] } } } }, opts(root)) as any).agents.defaults.modelPolicy, {});
+  assert.deepEqual((reconcileConfig(undefined, { ...opts(root), app: { agents: { defaults: { modelPolicy: { allow: ['openai/*'] } } } } }) as any)
+    .agents.defaults.modelPolicy, { allow: ['openai/*'] });
+  assert.deepEqual((reconcileConfig({ agents: { defaults: { modelPolicy: { allow: ['x/*'] } } } }, opts(root)) as any)
+    .agents.defaults.modelPolicy.allow, ['x/*', 'openai/*']);
   // 5.15: the inherited auth base is a reserved id the kit never creates, whatever the saved config named.
   assert.deepEqual(c.agents.defaults.authInheritance, { agentId: 'byokit-base' });
   assert.deepEqual((reconcileConfig({ agents: { defaults: { authInheritance: { agentId: 'm1' } } } }, opts(root)) as any)
