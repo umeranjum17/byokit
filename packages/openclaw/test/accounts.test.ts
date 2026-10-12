@@ -520,10 +520,24 @@ test('identity: same who refreshes, again with another who adds, no who never me
     assert.ok(lines.slice(logBeforeRead).some((line) => line.includes('unreadable')), 'the kit logs the unreadable member');
     assert.equal((await rows()).length, 5);
 
+    // An account row whose index who was lost while its agent still holds the profile: the same identity refreshes it,
+    // with no list() before the sign-in.
+    fake.signInAs({ accountId: 'canary-acct-f' });
+    const f = await add();
+    const lost = index();
+    delete lost.accounts[f.id]!.who;
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(lost, null, 2) + '\n');
+    fake.signInAs({ accountId: 'canary-acct-f', expires: later + 8 });
+    const refreshedF = await add();
+    assert.equal(refreshedF.id, f.id, 'the existing row takes the sign-in');
+    assert.equal(index().accounts[f.id]!.who, whoOf('canary-acct-f'), 'and its who is recorded again');
+    assert.equal((await ready(f.id)).expiresAt, later + 8);
+    assert.equal((await rows()).length, 6);
+
     // No who or account id reaches the app: rows, views, done results, errors, kit state or log lines.
     await assert.rejects(kit.addAccount('m1', { authChoice: 'openai', again: 'openai.000000' }, () => {}), (error: Error) => { seen.push(error.message); return true; });
     const out = JSON.stringify([seen, lines, kit.state]);
-    for (const id of ['a', 'b', 'e']) {
+    for (const id of ['a', 'b', 'e', 'f']) {
       assert.ok(!out.includes(whoOf(`canary-acct-${id}`)), `who of ${id} leaks`);
       assert.ok(!out.includes(`canary-acct-${id}`), `account id ${id} leaks`);
     }

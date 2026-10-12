@@ -148,6 +148,8 @@ export function createAccounts(ctx: {
       const provider = id.split('.')[0]!;
       const meta = metaOf(entry.route);
       const profiles = await profilesOf(entry.agent);
+      const who = profiles.find((p) => p.provider === provider)?.who;
+      if (!entry.who && typeof who === 'string' && !signing.has(`${member}\n${id}`)) { entry.who = who; dirty = true; }
       agentRows.push({ id, provider, route: entry.route, name: entry.name, label: meta.label,
         billing: meta.billing, state: stateOf(entry.route, profiles[0]?.status, entry.until),
         ...(entry.until !== undefined ? { until: entry.until } : {}), addedAt: entry.addedAt });
@@ -477,6 +479,7 @@ export function createAccounts(ctx: {
           if (!mergeable) ctx.log?.(`addAccount: ${memberAgent} profiles are unreadable; the sign-in is kept as its own row`);
           const memberHolds = (held?.profiles ?? []).some((p) => p.provider === provider && p.who === answer.who);
           const file = read(member);
+          if (mergeable && (await build(member, memberAgent, file, roster, held?.profiles ?? [])).dirty) write(member, file);
           const own = file.accounts[id];
           const sharing = answer.who && mergeable ? Object.entries(file.accounts)
             .filter(([other, e]) => other.split('.')[0] === provider && e.who === answer.who && liveEntry(roster, memberHolds, e))
