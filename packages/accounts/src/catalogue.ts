@@ -1,5 +1,6 @@
 import CATALOGUE from './catalogue.json' with { type: 'json' };
 import ROUTES from './routes.json' with { type: 'json' };
+import { GOOGLE_CLIENTS, type GoogleClient } from './flows/google.ts';
 
 /** How the person pays. Only subscription billing is eligible for default selection. */
 export type Billing = 'subscription' | 'api' | 'local' | 'free' | 'unknown';
@@ -67,6 +68,10 @@ export type DeviceFlow = { authorization: string; token: string; clientId: strin
 export type Provider = { key: string; pi: string; name: string; company: string; models: { strong: string; fast?: string }; fresh?: { param: string; value: string }; callbackPort?: number; clientId?: string; revoke?: string; billing: Billing; auth?: 'api-key' | 'oauth'; label?: string; offer?: boolean; readiness?: Readiness; routes?: string[]; device?: DeviceFlow; source: string; multiAccount: MultiAccountTerms };
 
 export const PROVIDERS: Record<string, Provider> = Object.fromEntries(Object.entries(CATALOGUE).map(([key, p]) => [key, { key, ...p } as Provider]));
+// The loopback ports have one source of truth, the runtime client config: the catalogue derives them, so the
+// listener (accounts.ts) and the redirect address (flows/google.ts) always agree. catalogue.json carries no port.
+for (const client of Object.keys(GOOGLE_CLIENTS) as GoogleClient[])
+  PROVIDERS[client].callbackPort = GOOGLE_CLIENTS[client].callback.port;
 // This gateway's billing is not subscription-qualified at the pin. Never add it to the default offer.
 PROVIDERS.radius = {
   key: 'radius', pi: 'radius', name: 'Radius', company: 'Radius', models: { strong: 'balanced', fast: 'cheap' },

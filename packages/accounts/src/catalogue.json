@@ -250,7 +250,6 @@
     "models": {
       "strong": "gemini-3-pro"
     },
-    "callbackPort": 8085,
     "billing": "subscription",
     "auth": "oauth",
     "revoke": "https://oauth2.googleapis.com/revoke",
@@ -269,7 +268,6 @@
     "models": {
       "strong": "gemini-3-pro"
     },
-    "callbackPort": 51121,
     "billing": "subscription",
     "auth": "oauth",
     "revoke": "https://oauth2.googleapis.com/revoke",
