@@ -2722,7 +2722,7 @@ examples/herdr-kit/     package.json  host.ts  web/index.html  web/app.ts  READM
   `hd.events`, blocked list with key buttons `Enter`, `y`, `n`, `Esc`. Plain DOM, no framework. Works in a phone browser over LAN/Tailscale.
 - `README.md`, minutes to working: prerequisites (Node 22.18; Herdr example: Herdr 0.9.1 installed; OpenClaw example:
   the first start downloads and installs the pinned engine, a few minutes, then runs offline except for the model),
-  `npm i`, `npm start`, open the printed address on the phone, pair, sign in (OpenClaw: "Sign in with ChatGPT" device code;
+  `npm i`, `npm start`, open the printed address on the phone, pair, sign in (OpenClaw: the "ChatGPT Device Pairing — sign in with a code" row under Plans;
   Herdr: log in inside the agent's pane), send a message, approve. Includes a troubleshooting table keyed by the
   words sentences.
 - `e2e.test.ts` (CI, `browser` job): packs the workspace packages (`npm pack -w …`), installs the tarballs into a temp
