@@ -13,7 +13,7 @@ import type { AgentCliSignIn, AgentInstallProbe, AgentInstallState, AgentLaunchF
 import { words } from './words.ts';
 import { accountKind } from './kinds.ts';
 import { prepareLaunchEnv, type LaunchEnvironment } from './launch-env.ts';
-import { museNative, MUSE_INSTALL_URL } from './muse.ts';
+import { museNative, MUSE_INSTALL_URL, isMiseLauncher } from './muse.ts';
 
 export type Call = (method: string, params: Record<string, unknown>, timeoutMs?: number) => Promise<unknown>;
 
@@ -394,15 +394,7 @@ function readHead(file: string): string | undefined {
 }
 
 // A mise-style auto-install launcher is a shell script that goes through mise — the found
-// "binary" runs, but the first run installs the agent instead. A shell shebang (path or env
-// form) plus a mise mention marks it; a Node interpreter under mise or a non-shell script
-// that mentions mise is a real command.
-function isMiseLauncher(head: string): boolean {
-  const shebang = head.split('\n', 1)[0] ?? '';
-  return /^#!\s*(?:\S*\/)?(?:env\s+)?(?:sh|bash|zsh|dash|ksh|ash)(?:\s|$)/.test(shebang)
-    && head.includes('mise');
-}
-
+// "binary" runs, but the first run installs the agent instead (see isMiseLauncher in muse.ts).
 export function isAutoInstallShim(file: string,
   readFile: (file: string) => string | undefined = readHead): boolean {
   let head: string | undefined;

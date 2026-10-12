@@ -34,6 +34,13 @@ export function museNative(launcher: string): { native: string; version: string 
   } catch { return; }
 }
 
+/** A mise-style auto-install launcher is a shell script that goes through mise. Shared with agents.ts. */
+export function isMiseLauncher(head: string): boolean {
+  const shebang = head.split('\n', 1)[0] ?? '';
+  return /^#!\s*(?:\S*\/)?(?:env\s+)?(?:sh|bash|zsh|dash|ksh|ash)(?:\s|$)/.test(shebang)
+    && head.includes('mise');
+}
+
 export type MuseReadiness = { state: 'unknown' | 'missing' | 'launcher-only' | 'installed'; signedIn: 'unknown'; bin?: string; version?: string };
 /** Only the supplied effective pane PATH is probed, never the controller's personal directories. */
 export function museReadiness(env?: Record<string, string>): MuseReadiness {
@@ -46,7 +53,7 @@ export function museReadiness(env?: Record<string, string>): MuseReadiness {
       accessSync(bin, constants.X_OK);
       const selected = museNative(bin);
       const head = launcherHead(bin);
-      const launcherOnly = head.startsWith('#!') && (head.includes('mise') || (!selected && head.includes('MUSE_CHANNEL')));
+      const launcherOnly = isMiseLauncher(head) || (!selected && head.includes('MUSE_CHANNEL'));
       return { state: launcherOnly ? 'launcher-only' : 'installed', signedIn: 'unknown', bin,
         ...(selected ? { version: selected.version } : {}) };
     } catch { /* next PATH entry */ }
