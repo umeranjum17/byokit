@@ -46,16 +46,19 @@ try {
   };
   await turn('saved', { member: 'm1', ...(live ? {} : { model: 'opencode-go/fake-key-model' }) });
 
+  // Error case (before addKey, whose activation restarts the gateway): a choice the engine cannot set up is refused with the engine's words.
+  const refused = await kit.signIn('m1', { authChoice: 'fal-api-key' }, () => {});
+  refused.paste('byokit-probe-not-a-key');
+  const failed = await refused.done;
+  say('refused:', JSON.stringify(failed));
+  assert.match(failed.error ?? '', /not available on this Gateway/);
+
   // The key path: addKey sets the plan key up on another member's key agent; `auth: 'apiKey'` runs on its saved model.
   const keyed = await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: key });
   say('addKey:', keyed);
   assert.equal(keyed, 'ok');
   await turn('key', { member: 'm2', auth: 'apiKey' });
 
-  // Error case: a choice the engine cannot set up is refused with the engine's words.
-  const refused = await kit.signIn('m1', { authChoice: 'fal-api-key' }, () => {});
-  refused.paste('byokit-probe-not-a-key');
-  say('refused:', JSON.stringify(await refused.done));
   say('GO-PLAN-KEY OK');
 } finally {
   await kit.stop();
