@@ -79,7 +79,7 @@ export function parseSubscription(s: any, hosts?: readonly string[]): Subscripti
 
 /** A notification as a host sent it, checked; undefined if it is not one. */
 export function parseNotification(n: any): Notification | undefined {
-  if (!(typeof n?.id === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(n.id) && text(n.title, 120))) return undefined;
+  if (!(typeof n?.id === 'string' && /^[A-Za-z0-9_-][A-Za-z0-9._:-]{0,63}$/.test(n.id) && text(n.title, 120))) return undefined;
   if (n.body !== undefined && !text(n.body, 400)) return undefined;
   if (n.data !== undefined && (typeof n.data !== 'object' || n.data === null || Array.isArray(n.data) || JSON.stringify(n.data).length > 2048)) return undefined;
   if (n.to !== undefined && !(Array.isArray(n.to) && n.to.length <= 256 && n.to.every((d: unknown) => text(d, 128)))) return undefined;
