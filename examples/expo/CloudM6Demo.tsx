@@ -5,7 +5,7 @@ import { useKeepAwake } from 'expo-keep-awake';
 import { boat, machine, type MachineRecord } from '@byokit/cloud';
 import { DeviceLink, pairWithOffer, secureDeviceStore } from '@byokit/pair';
 import { ResponseError, type Accounts } from '@byokit/accounts';
-import { claudeToolCall, cloudRecipe, diagnostic, M6_API, M6_KEY, pairedTurn, trialBudget } from './cloud-m6.ts';
+import { claudeToolCall, cloudRecipe, diagnostic, stopAndRemove, M6_API, M6_KEY, pairedTurn, trialBudget } from './cloud-m6.ts';
 // One create and one turn per approved run: the build names the run, so an approved retry starts clean (pm clear is blocked on some phones).
 const run = process.env.EXPO_PUBLIC_M6_RUN ? '.' + process.env.EXPO_PUBLIC_M6_RUN : '';
 const recordKey = 'byokit.m6.machine' + run, identityKey = 'byokit.m6.identity' + run, turnKey = 'byokit.m6.turn' + run;
@@ -56,8 +56,11 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
   const purge = async () => { await SecureStore.deleteItemAsync(M6_KEY); if (await SecureStore.getItemAsync(M6_KEY)) throw new Error('The lab key was not removed.'); setReady(false); };
   const stop = async () => {
     link.current?.stop();
-    try { if (id) await computer.state(); if (computer.ref) { await computer.sleep(); say('Cloud computer stopped.'); await computer.remove(computer.ref.id); say('Cloud computer stopped and removed.'); } }
-    finally { await purge(); await store.clear(); }
+    // A failed removal keeps the key (so `ready`, the Stop button and the watchdog stay live) and shows why.
+    await stopAndRemove({
+      remove: async () => { if (id) await computer.state(); if (computer.ref) { await computer.sleep(); say('Cloud computer stopped.'); await computer.remove(computer.ref.id); say('Cloud computer stopped and removed.'); } },
+      purge: async () => { await purge(); await store.clear(); },
+    });
     say('Cloud computer stopped and removed. Lab key removed.');
   };
   const act = async (run: () => Promise<void>) => {

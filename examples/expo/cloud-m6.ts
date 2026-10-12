@@ -56,6 +56,12 @@ const checked = (args: unknown) => {
 /** One agent turn: the model calls the one machine-state tool, the paired cloud host answers it, and the model replies. */
 // Names the turn step that failed (the error keeps its safe message, status and reason).
 const step = <T>(call: string, run: () => Promise<T>) => run().catch((e: unknown) => { throw Object.assign(e instanceof Error ? e : new Error(String(e)), { call }); });
+/** Stop and remove the run's machine. The Boat key is purged only once removal is confirmed: it is the only way to retry. */
+export async function stopAndRemove(steps: { remove: () => Promise<void>; purge: () => Promise<void> }) {
+  try { await steps.remove(); }
+  catch (e) { throw new Error(`Removing the cloud computer failed; the lab key is kept so Stop and remove can retry. (${(e as Error)?.message ?? e})`); }
+  await steps.purge();
+}
 /** The lab's diagnostic line: which call, HTTP status, kind and reason, never a message body or credential. */
 export const diagnostic = (e: unknown) => {
   const x = (e ?? {}) as { call?: unknown; status?: unknown; kind?: unknown; reason?: unknown; name?: unknown };

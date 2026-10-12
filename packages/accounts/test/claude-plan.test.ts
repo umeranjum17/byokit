@@ -144,6 +144,8 @@ test('a failed Claude plan answer names its cause in plain words and never echoe
     { reply: () => { throw new TypeError('Network request failed'); }, message: 'Claude could not be reached. Check the connection and try again.', kind: 'network', reason: 'TypeError' },
     { reply: () => new Response(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'tools.0: recorded-access is not valid sk-ant-oat01-' + 'x'.repeat(40) } }), { status: 400 }),
       message: 'Claude could not answer (HTTP 400). Try again or sign in again.', kind: null, status: 400, reason: 'invalid_request_error', detail: 'tools.0: [private] is not valid [private]' },
+    { reply: () => { throw new DOMException('The operation was aborted.', 'AbortError'); }, message: 'The Claude request was cancelled.', kind: null, reason: 'AbortError' },
+    { reply: () => { throw new Error('a local fault'); }, message: 'Claude could not answer. Try again or sign in again.', kind: null, reason: 'Error' },
   ];
   for (const c of cases) {
     const store = memoryStore(); await store.modify(id, async () => token(fixture.now + 3600_000));
@@ -154,6 +156,7 @@ test('a failed Claude plan answer names its cause in plain words and never echoe
     assert.equal(error.kind, c.kind); assert.equal(error.status, c.status); assert.equal(error.reason, c.reason);
     if (c.detail) assert.equal(error.detail, c.detail);
     assert.ok(!JSON.stringify({ ...error, message: error.message }).includes('recorded-access')); assert.ok(!JSON.stringify(error).includes('xxxxxxxx'));
+    if (!c.kind) assert.equal((await a.status(1, 'claude')).state, 'ready', 'a cancelled or local failure rests nothing');
     if (c.kind === 'rate_limit') {
       assert.equal(error.until, reset * 1000);
       const status = await a.status(1, 'claude'); assert.equal(status.state, 'resting'); assert.equal(status.until, reset * 1000);

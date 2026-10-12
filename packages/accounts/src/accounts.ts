@@ -905,7 +905,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
           // path stays byte-identical.
           const acted = await this.failed(member, account, e, picked !== undefined);
           if (acted && (picked !== undefined || acted.kind !== e.kind)) throw Object.assign(new ResponseError(e.message, acted.kind, acted.until,
-            e.status !== undefined ? { status: e.status, retryAfter: e.retryAfter } : undefined), e.reason ? { reason: e.reason } : {});
+            e.status !== undefined ? { status: e.status, retryAfter: e.retryAfter } : undefined), e.reason ? { reason: e.reason } : {}, e.detail ? { detail: e.detail } : {});
         }
         throw e;
       }

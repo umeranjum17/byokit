@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Accounts, memoryStore } from '@byokit/accounts';
-import { diagnostic, pairedTurn } from './cloud-m6.ts';
+import { diagnostic, pairedTurn, stopAndRemove } from './cloud-m6.ts';
 
 // A fake Anthropic Messages server that enforces the rules the live API applies to these two calls.
 function claudeServer(fail?: { call: number; status: number; type: string }) {
@@ -60,4 +60,13 @@ test('M6 turn refuses an answer that skips the approved tool call', async () => 
   }) as unknown as typeof fetch);
   await assert.rejects(pairedTurn(accounts, link), /did not return the single approved machine-state tool call/);
   assert.equal(server.bodies.length, 1);
+});
+
+test('a failed removal keeps the lab key so Stop and remove can retry; a confirmed removal purges it', async () => {
+  let key = 'boat-key', removes = 0;
+  const steps = { remove: async () => { removes++; if (removes === 1) throw new Error('network dropped'); }, purge: async () => { key = ''; } };
+  await assert.rejects(stopAndRemove(steps), /Removing the cloud computer failed; the lab key is kept so Stop and remove can retry\. \(network dropped\)/);
+  assert.equal(key, 'boat-key', 'the key (and so Stop) stays available');
+  await stopAndRemove(steps);
+  assert.equal(removes, 2); assert.equal(key, '', 'purged only after removal is confirmed');
 });

@@ -222,7 +222,6 @@ export function anthropic(opts: AnthropicOptions) {
   return anthropicMessages({ ...opts, headers: { 'x-api-key': opts.key } });
 }
 
-/** Internal auth seam for the API-key and subscription routes. */
 /** The plain-words Claude plan failure: usage limit with its reset, expired sign-in, busy, unreachable, or the HTTP status. */
 export function claudeFailure(kind: ResponseError['kind'], until: number, status?: number, now = Date.now()): string {
   if (kind === 'rate_limit') return 'You have hit your Claude plan usage limit.' + (until > now ? ` Try again in ~${Math.max(1, Math.round((until - now) / 60_000))} min.` : ' Try again later.');
@@ -232,6 +231,7 @@ export function claudeFailure(kind: ResponseError['kind'], until: number, status
   return `Claude could not answer${status ? ` (HTTP ${status})` : ''}. Try again or sign in again.`;
 }
 
+/** Internal auth seam for the API-key and subscription routes. */
 export function anthropicMessages(opts: Pick<AnthropicOptions, 'fetch' | 'base' | 'betas'> & {
   headers: Record<string, string>; prepare?: (request: AnthropicRequest) => AnthropicRequest; safeErrors?: boolean;
 }) {
@@ -244,8 +244,10 @@ export function anthropicMessages(opts: Pick<AnthropicOptions, 'fetch' | 'base' 
       if (!opts.safeErrors || e instanceof AnthropicIncompleteError) throw e;
       // Never the provider's message (it can echo a credential): plain words for the cause, plus status and reason.
       const http = e instanceof ResponseError && e.status !== undefined ? { status: e.status, retryAfter: e.retryAfter } : undefined;
-      const kind = e instanceof ResponseError ? e.kind : 'network', until = e instanceof ResponseError ? e.until : 0;
-      const safe = new ResponseError(claudeFailure(kind, until, http?.status), kind, until, http);
+      // Only a failed fetch (TypeError) is "unreachable"; a cancelled request says so and rests nothing; other local errors stay generic.
+      const cancelled = !(e instanceof ResponseError) && ((e as Error | undefined)?.name === 'AbortError' || !!o.signal?.aborted);
+      const kind = e instanceof ResponseError ? e.kind : e instanceof TypeError && !cancelled ? 'network' : null, until = e instanceof ResponseError ? e.until : 0;
+      const safe = new ResponseError(cancelled ? 'The Claude request was cancelled.' : claudeFailure(kind, until, http?.status), kind, until, http);
       const reason = e instanceof ResponseError ? e.reason : (e as Error | undefined)?.name;
       if (reason && /^[A-Za-z_]{1,64}$/.test(reason)) safe.reason = reason;
       if (e instanceof ResponseError && e.status !== undefined) {
