@@ -100,6 +100,20 @@ test('a silent connection ends unreachable at the deadline and saves nothing', a
   assert.equal(store.saved, null);
 });
 
+test('a body that stalls after its headers ends unreachable at the deadline and saves nothing', async () => {
+  const stalledBody = ((_url: string, init?: RequestInit) => new Promise<Response>((resolve) => {
+    const signal = init?.signal as AbortSignal;
+    const body = new ReadableStream({
+      start(c) { signal.addEventListener('abort', () => c.error(new DOMException('aborted', 'AbortError')), { once: true }); },
+    });
+    resolve(new Response(body, { status: 200, headers: { 'content-type': 'application/json' } }));
+  })) as typeof fetch;
+  const store = memStore();
+  assert.deepEqual(await setupKey({ provider: provider('http://127.0.0.1:1', KEY, { fetch: stalledBody, deadlineMs: 20 }), store, key: KEY }),
+    { ok: false, why: 'unreachable' });
+  assert.equal(store.saved, null);
+});
+
 test('an interrupted connection and a cancelled check save nothing', async () => {
   const down = { fetch: (async () => { throw new TypeError('fetch failed'); }) as typeof fetch };
   const store = memStore();

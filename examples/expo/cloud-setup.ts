@@ -24,7 +24,9 @@ export const setupProvider = (o: { label: string; key: string; baseUrl?: string;
     if (o.signal?.aborted) cancel();
     o.signal?.addEventListener('abort', cancel);
     try {
-      return await inner(url, { ...init, signal: deadline.signal });
+      const res = await inner(url, { ...init, signal: deadline.signal });
+      const text = await res.text();
+      return new Response(text.length > 0 ? text : null, { status: res.status, statusText: res.statusText, headers: res.headers });
     } finally {
       clearTimeout(timer);
       o.signal?.removeEventListener('abort', cancel);
