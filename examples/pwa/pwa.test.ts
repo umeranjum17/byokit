@@ -192,7 +192,8 @@ test('Add an OpenCode Go plan account: its row opens the paste-key form, a paste
     await row.click();
     assert.equal(await page.locator('#add-sheet').isVisible(), false, 'the sheet closes on the card it started');
     assert.equal(await page.evaluate(() => document.activeElement?.id), 'opencode', 'focus lands on that card');
-    assert.equal(await part(page, 'opencode', 'paste').isVisible(), true, 'the paste-key form is open');
+    // The form opens on the card's async redraw, so wait for it instead of asserting one synchronous frame.
+    await part(page, 'opencode', 'paste').waitFor({ state: 'visible' });
     assert.equal(await part(page, 'opencode', 'pasted').getAttribute('placeholder'), 'Paste the key from your plan');
     await part(page, 'opencode', 'pasted').fill('fake-go-plan-key-canary');
     await part(page, 'opencode', 'connect').click();
