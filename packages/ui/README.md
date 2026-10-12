@@ -123,9 +123,9 @@ export function useChatGptSheet() {
 | `useRun`, `useApprovals`, `useHerdrTree`, `useBlocked` | React hooks over those stores |
 | `connectView(routes, step?)`, `connectStep(step, action)` | Every account route the kits list, grouped by how the person pays, with the picked row and its key card |
 | `signInFor(view, { read, start?, cancel })`, `useConnect({ routes, read, start?, cancel })` | `useSignIn`'s options for the picked sign-in row; the hook holds the step |
-| `accountRows(accounts, room, now)`, `rowsOf(source, now)`, `nameSuggestions(email, taken, provider?)` | One plain-words row per account (`ChatGPT · Work` / `Plus · 72% left this week`), the honest words for every sign-in state, and untaken account-name suggestions |
+| `accountRows(accounts, room, now, windows?)`, `rowsOf(source, now)`, `nameSuggestions(email, taken, provider?)` | One plain-words row per account (`ChatGPT · Work` / `Plus · 72% left this week`), the honest words for every sign-in state, and untaken account-name suggestions |
 | `useAccounts(source)`, `useModelPicker(source, initial?)` | React hooks: the rows live with `refresh()` and `remove()` (a failing room leaves only its row unknown; a mid-refresh remove still drops it), and the run picker with `select()` keeping the caller's selection across refreshes; `accountsSource(accounts, member, room?)` and `cliSource(cli, room?)` fill the source with one line per member (the openclaw adapter stays pending O14) |
-| Types | `Phase`, `SignInView`, `AccountView`, `UseSignIn`, `Route`, `RouteChoice`, `RouteCode`, `PairPhase`, `Role`, `DeviceKind`, `LinkStatus`; `RouteKind` from `@byokit/ui/route`; `Account`, `AccountRow`, `AccountAction`, `AccountsSource`, `Billing`, `Room`, `RoomSpan`, `SignInState` from `@byokit/ui/accounts` |
+| Types | `Phase`, `SignInView`, `AccountView`, `UseSignIn`, `Route`, `RouteChoice`, `RouteCode`, `PairPhase`, `Role`, `DeviceKind`, `LinkStatus`; `RouteKind` from `@byokit/ui/route`; `Account`, `AccountRow`, `AccountAction`, `AccountsSource`, `AsOf`, `Billing`, `Room`, `RoomSpan`, `SignInState`, `UsageWindow`, `UsageWindows` from `@byokit/ui/accounts` |
 
 Entry points: `@byokit/ui` (everything, including the React hooks), `@byokit/ui/phase`,
 `@byokit/ui/route`, `@byokit/ui/link`, `@byokit/ui/kits`, `@byokit/ui/steps`,
@@ -214,7 +214,7 @@ A key route's `chosen.key` is the existing `keyView` card, labelled for its bill
 
 ## Account rows
 
-`accountRows(accounts, room, now)` (also `@byokit/ui/accounts`, no React) turns a list of accounts and a room reading
+`accountRows(accounts, room, now, windows?)` (also `@byokit/ui/accounts`, no React) turns a list of accounts and a room reading
 into one plain row each: the provider and the person's own name for the account (`ChatGPT · Work`), then the plan and
 the room left (`Plus · 72% left this week`). A row also carries `state`, `billing`, `low` (room left at or below 20%,
 exactly 20 included, never true for an unknown room) and, when it helps, an `action`: `sign_in` for a signed-out or
@@ -222,8 +222,14 @@ lapsed account, `wait` plus the `until` refill time for a resting one. `accountR
 so a credential on an account never reaches a row. A row that is not ready shows its own honest words ("Checking…",
 "Cooling down", "Not signed in", "Sign in again", "Not in your plan") instead of the room.
 
-`AccountsSource` is the shape an app fills from its own back end — `accounts()` and `room(account)` — and `rowsOf(source, now)`
-awaits both and builds the same rows; `@byokit/accounts` `list()` and a room reading fit it with one line per member.
+Pass `windows`, the account's `windowsView(reading, now)` from `@byokit/usage/view`, as a fourth argument and a ready
+row also carries `windows` (each usage window, tightest first: `Week: 72% left` with `resets in 4d`) and `asOf`
+(`Read 2 minutes ago`, or `Read 2 days ago (stale)` past a day). A window whose reset is already past reads
+`Session: reset since this reading`, with no percent or countdown, and the room line `Reset since this reading`. A stale row is never `low`; a reading without its own
+time, such as an openclaw room, shows its resets and no `asOf`, never a made-up age.
+
+`AccountsSource` is the shape an app fills from its own back end — `accounts()`, `room(account)` and optionally
+`windows(account)` — and `rowsOf(source, now)` awaits them and builds the same rows; `@byokit/accounts` `list()` and a room reading fit it with one line per member.
 `nameSuggestions(email, taken, provider?)` offers up to three untaken account names from an email's local part
 (deduped case-insensitively against `taken`), falling back to the provider's name; the email itself is never offered.
 

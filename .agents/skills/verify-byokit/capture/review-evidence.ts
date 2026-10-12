@@ -21,7 +21,9 @@ import { serve } from '../../../../examples/pwa/serve.ts';
 const themes = ['light', 'dark'] as const;
 type Theme = (typeof themes)[number];
 /** A form factor is a width the app actually lays out for; the sizes are what `examples/pwa` and the Expo app target. */
-const formFactors = { phone: { width: 390, height: 844, deviceScaleFactor: 2 }, desktop: { width: 1280, height: 800, deviceScaleFactor: 1 } } as const;
+const formFactors = { phone: { width: 390, height: 844, deviceScaleFactor: 2 }, desktop: { width: 1280, height: 800, deviceScaleFactor: 1 },
+  /** The narrowest phone still in use, for screens whose lines could wrap or clip. */
+  narrow: { width: 320, height: 640, deviceScaleFactor: 2 } } as const;
 type FormFactor = keyof typeof formFactors;
 
 type Drive = (page: Page) => Promise<void>;
@@ -71,14 +73,28 @@ async function connectChatGPT(page: Page, identity: { accountId: string; email: 
   await page.locator('#chatgpt [data-account]', { hasText: identity.email }).waitFor();
 }
 
-/** The stand-in does not serve ChatGPT's usage endpoint: answer it per account, so Auto has a room to rank. */
-async function withRooms(page: Page, rooms: Record<string, { usedPercent: number }>) {
+/** The stand-in does not serve ChatGPT's usage endpoint: answer it per account, so Auto has a room to rank. With
+ *  `weekly`, the account reports a five-hour session window and a weekly one, as ChatGPT does; `down()` true answers 503. */
+async function withRooms(page: Page, rooms: Record<string, { usedPercent: number; weekly?: number }>, down = () => false) {
   await page.route('**/wham/usage', (route) => {
+    if (down()) return route.fulfill({ status: 503, body: '', headers: { 'access-control-allow-origin': '*' } });
     const id = route.request().headers()['chatgpt-account-id'];
-    const used = id ? rooms[id]?.usedPercent ?? 100 : 0;
+    const room = id ? rooms[id] : undefined;
+    const used = id ? room?.usedPercent ?? 100 : 0;
+    const rate_limit = room?.weekly === undefined
+      ? { primary_window: { used_percent: used, limit_window_seconds: 604800, reset_after_seconds: 3600 } }
+      : { primary_window: { used_percent: used, limit_window_seconds: 18000, reset_after_seconds: 8400 },
+        secondary_window: { used_percent: room.weekly, limit_window_seconds: 604800, reset_after_seconds: 302400 } };
     return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' },
-      body: JSON.stringify({ rate_limit: { primary_window: { used_percent: used, limit_window_seconds: 604800, reset_after_seconds: 3600 } } }) });
+      body: JSON.stringify({ rate_limit }) });
   });
+}
+
+/** Two ChatGPT plans reporting both windows; Work's address is the longest a row has to fit. */
+const WINDOW_ROOMS = { 'umer-work': { usedPercent: 62, weekly: 41 }, 'umer-personal': { usedPercent: 12, weekly: 88 } };
+async function connectWindows(page: Page) {
+  await connectChatGPT(page, { accountId: 'umer-work', email: 'umer.anjum.engineering.team@longest-company-name.example', plan: 'team' }, true);
+  await connectChatGPT(page, { accountId: 'umer-personal', email: 'umer@example.com', plan: 'plus' }, false);
 }
 
 /** Answers go through the page's own `/fwd/chatgpt/` proxy; send them to the stand-in instead of the real endpoint. */
@@ -101,6 +117,52 @@ async function askAuto(page: Page, question: string, answer: string | RegExp = `
 }
 
 const SCREENS: Screen[] = [
+  {
+    id: 'account-windows',
+    path: '',
+    what: 'Each ChatGPT plan row shows its session and weekly window, tightest first, each with its reset, and how old the reading is',
+    themes: [...themes],
+    formFactors: ['narrow', 'phone', 'desktop'],
+    interaction: 'account-windows',
+    before: { via: 'ref' },
+    beforeDrive: true, // the base card with the same two plans, which drew only the tightest window
+    async drive(page) {
+      await withRooms(page, WINDOW_ROOMS);
+      await connectWindows(page);
+      await page.locator('#chatgpt [data-room]').filter({ hasText: /Team · 38% left this session/ }).waitFor();
+      if (await page.locator('#chatgpt [data-window]').count()) {
+        await page.locator('#chatgpt [data-age]').filter({ hasText: 'Read a moment ago' }).first().waitFor();
+      }
+      await page.locator('#chatgpt [data-accounts]').scrollIntoViewIfNeeded();
+    },
+  },
+  {
+    id: 'account-stale',
+    path: '',
+    what: 'A day later the quota cannot be read: each row keeps its last windows, says how old they are and that they are stale',
+    themes: [...themes],
+    formFactors: ['narrow', 'phone', 'desktop'],
+    interaction: 'account-stale',
+    before: { via: 'ref' },
+    beforeDrive: true, // the base card a day later, which showed the last room without its age
+    async drive(page) {
+      let down = false;
+      await withRooms(page, WINDOW_ROOMS, () => down);
+      await connectWindows(page);
+      await page.locator('#chatgpt [data-room]').filter({ hasText: /Team · 38% left this session/ }).waitFor();
+      // The page's own clock from here on, so the reading can turn a day old without waiting a day.
+      await page.clock.install();
+      await page.reload();
+      await page.locator('#chatgpt [data-room]').filter({ hasText: /Team · 38% left this session/ }).waitFor();
+      down = true;
+      await page.clock.setSystemTime(Date.now() + 25 * 3_600_000);
+      await page.locator('#chatgpt [data-pick]').dispatchEvent('change');
+      if (await page.locator('#chatgpt [data-window]').count()) {
+        await page.locator('#chatgpt [data-age]').filter({ hasText: 'Read 1 day ago (stale)' }).nth(1).waitFor();
+      } else await page.waitForTimeout(500); // the base card has no age to wait for; its repaint is one tick
+      await page.locator('#chatgpt [data-accounts]').scrollIntoViewIfNeeded();
+    },
+  },
   ...(['code', 'connected', 'reloaded', 'signed-out'] as const).map((state): Screen => ({
     id: `grok-${state}`, path: '', what: `Grok local mockDevice journey: ${state}`,
     themes: [...themes], formFactors: ['phone', 'desktop'], interaction: `grok-${state}`,
