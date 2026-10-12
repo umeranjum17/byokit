@@ -1,0 +1,1 @@
+- FEAT: `byokit.accounts` seals an agent's own sign-ins (list/seal/ready/adopt/clear), loaded as the `plugin/accounts.js` gateway method; a failed `adopt` rolls the model and both profile stores back so no partial move or dangling pin survives, a self-adopt is refused, and the fake gateway mirrors every branch.

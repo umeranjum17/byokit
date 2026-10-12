@@ -2,7 +2,7 @@
 // `new OpenClawKit({ transport: fake.factory, spawnEngine: false, ... })` or drive `fake.transport.request`
 // directly. No engine, no network, no account.
 import { connect } from 'node:net';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { ENGINE_VERSION, PROTOCOL_VERSION } from '../constants.ts';
@@ -42,6 +42,12 @@ const EVENTS = [
 /** Window between a run's last event and its completion, so an abort issued on the text event still lands. */
 const ABORT_WINDOW_MS = 25;
 const BRIDGE_TIMEOUT_MS = 30_000;
+// The plugin's accounts.js status thresholds: auth selection's refresh margin and auth-health's oauth warn window.
+const EXPIRING_MS = 300_000;
+const OAUTH_WARN_MS = 86_400_000;
+// The plugin's account agent shape (D9) and agent id shape, as plugin/accounts.js tests them.
+const ACCOUNT_AGENT = /--[0-9a-f]{6}$/;
+const AGENT_ID = /^[a-z][a-z0-9-]{0,31}$/;
 
 type Run = {
   runId: string;
@@ -135,6 +141,12 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
   const handlers = new Map<string, Handler>();
   const agents = new Map<string, { id: string; workspace?: string; providers: string[] }>();
   const keys = new Map<string, { provider: string; key: string; sealed: boolean; model: string }>();
+  // The account sealing method's own view: each agent's profile store, its per-provider order, and its model
+  // primary (`provider/model@<profileId>`, as a real sign-in writes it), so `byokit.accounts` behaves like the pin.
+  type FakeProfile = { provider: string; type: string; status?: string; accountId?: string; email?: string; expires?: number } & Record<string, unknown>;
+  const profiles = new Map<string, Record<string, FakeProfile>>();
+  const orders = new Map<string, Record<string, string[]>>();
+  const models = new Map<string, string>();
   const wizards = new Map<string, WizardSession>();
   const runs = new Map<string, Run>();
   const configBox = { hash: 'hash-1', config: {} as Record<string, unknown> };
@@ -148,9 +160,72 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     } else if (workspace) agent.workspace = workspace;
     return agent;
   };
-  const signInAgent = (id: string, provider: string) => {
+  const storeOf = (id: string): Record<string, FakeProfile> => {
+    let store = profiles.get(id);
+    if (!store) { store = {}; profiles.set(id, store); }
+    return store;
+  };
+  const orderOf = (id: string): Record<string, string[]> => {
+    let order = orders.get(id);
+    if (!order) { order = {}; orders.set(id, order); }
+    return order;
+  };
+  // As the plugin's accounts.js: `who` only exists for an OAuth profile that stores a provider account id.
+  const whoOf = (credential: FakeProfile): string | undefined => credential.type === 'oauth' && typeof credential.accountId === 'string' && credential.accountId.length > 0
+    ? createHash('sha256').update(`${credential.provider}\n${credential.accountId}`).digest('hex').slice(0, 16) : undefined;
+  const hasSecret = (value: unknown, ref: unknown): boolean =>
+    (typeof value === 'string' && value.length > 0) || (!!ref && typeof ref === 'object' && !Array.isArray(ref));
+  // The plugin's token expiry state (credential-state.ts): missing, invalid, expired, or valid.
+  const expiryState = (expires: number | undefined, now: number): string => {
+    if (expires === undefined) return 'missing';
+    if (typeof expires !== 'number' || !Number.isFinite(expires) || expires <= 0 || expires > 8.64e13) return 'invalid';
+    return expires <= now ? 'expired' : 'valid';
+  };
+  // The plugin's profile status (auth-health.ts) from the credential alone: static, ok, expiring, expired or missing.
+  const statusOf = (credential: FakeProfile, now: number): string => {
+    if (credential.type === 'api_key') return hasSecret(credential.key, credential.keyRef) ? 'static' : 'missing';
+    if (credential.type === 'token') {
+      if (!hasSecret(credential.token, credential.tokenRef)) return 'missing';
+      const state = expiryState(credential.expires, now);
+      if (state === 'invalid') return 'missing';
+      if (state === 'expired') return 'expired';
+      if (credential.expires === undefined) return 'static';
+      return credential.expires - now <= EXPIRING_MS ? 'expiring' : 'ok';
+    }
+    if (!hasSecret(credential.access, undefined) && !hasSecret(credential.refresh, undefined)) return 'missing';
+    const expires = credential.expires;
+    const state = expiryState(expires, now);
+    if (state === 'invalid' || state === 'missing') return 'missing';
+    if (state === 'expired') return 'expired';
+    return (expires as number) - now <= OAUTH_WARN_MS ? 'expiring' : 'ok';
+  };
+  const entryPrimaryOf = (id: string): string | undefined => {
+    const entries = (configBox.config.agents as { entries?: Record<string, unknown> } | undefined)?.entries as Record<string, Record<string, unknown>> | undefined;
+    const entry = entries?.[id];
+    const ref = entry?.model;
+    if (typeof ref === 'string') return ref;
+    if (isPlainObject(ref) && typeof ref.primary === 'string') return ref.primary as string;
+    return undefined;
+  };
+  const primaryOfId = (id: string): string | undefined => entryPrimaryOf(id) ?? models.get(id);
+  const setPrimaryOfId = (id: string, primary: string): void => {
+    models.set(id, primary);
+    const entries = (configBox.config.agents as { entries?: Record<string, unknown> } | undefined)?.entries as Record<string, Record<string, unknown>> | undefined;
+    const entry = entries?.[id];
+    if (entry && isPlainObject(entry)) {
+      const current = entry.model;
+      if (isPlainObject(current)) current.primary = primary;
+      else entry.model = primary;
+    }
+  };
+  const signInAgent = (id: string, provider: string, extra?: Partial<FakeProfile>) => {
     const agent = ensureAgent(id);
     if (!agent.providers.includes(provider)) agent.providers.push(provider);
+    // The pin names the first profile of a provider `<provider>:default` and points the agent's model at it.
+    storeOf(id)[`${provider}:default`] = { provider, type: 'oauth', status: 'ok', access: 'fake-access',
+      refresh: 'fake-refresh', expires: Date.now() + 30 * 86_400_000, accountId: `fake-${id}`, ...extra };
+    orderOf(id)[provider] = [`${provider}:default`];
+    setPrimaryOfId(id, `${provider}/default@${provider}:default`);
   };
 
   // Every transport the factory made; events fan out to all of them, drop() closes all of them.
@@ -256,10 +331,20 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       return { id };
     },
     // One profile per signed-in provider, `<provider>:default`, as the pin lists an agent's own profiles.
-    'models.authStatus': (p) => ({
-      providers: (agents.get(String(p?.agentId ?? 'main'))?.providers ?? []).map((provider) => ({ provider,
-        profiles: [{ profileId: `${provider}:default`, type: 'oauth', status: 'ok' }] })),
-    }),
+    'models.authStatus': (p) => {
+      const id = String(p?.agentId ?? 'main');
+      const store = storeOf(id);
+      const now = Date.now();
+      return {
+        providers: (agents.get(id)?.providers ?? []).map((provider) => {
+          const profileId = `${provider}:default`;
+          const credential = store[profileId];
+          return { provider,
+            profiles: [{ profileId, type: credential?.type ?? 'oauth',
+              status: credential ? statusOf(credential, now) : 'ok' }] };
+        }),
+      };
+    },
     'models.authLogout': (p) => {
       const agent = agents.get(String(p?.agentId ?? 'main'));
       // The pin refuses a profileIds list naming a profile the agent does not hold.
@@ -267,6 +352,12 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
         || p.profileIds.some((id: unknown) => id !== `${p.provider}:default` || !agent?.providers.includes(String(p.provider)))))
         throw new Error('profileIds contain unavailable auth profiles');
       if (agent) agent.providers = agent.providers.filter((provider) => provider !== p.provider);
+      const store = profiles.get(String(p.agentId ?? 'main'));
+      if (store) for (const profileId of Object.keys(store)) if (store[profileId].provider === p.provider) delete store[profileId];
+      const order = orders.get(String(p.agentId ?? 'main'));
+      if (order) delete order[String(p.provider)];
+      const pin = models.get(String(p.agentId ?? 'main'));
+      if (typeof pin === 'string' && pin.includes(`@${String(p.provider)}:`)) models.delete(String(p.agentId ?? 'main'));
       if (keys.get(String(p.agentId))?.provider === p.provider) keys.delete(String(p.agentId));
       return {};
     },
@@ -277,6 +368,78 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       if (!key) return { ok: false };
       if (p.action === 'seal') { key.sealed = true; return { ok: true }; }
       return { ok: key.sealed, ...(key.sealed ? { model: key.model } : {}) };
+    },
+    // Account sealing (5.15): the same five actions, branches and refusals the shipped plugin method serves.
+    'byokit.accounts': (p) => {
+      const action = String(p.action ?? '');
+      const entries = (configBox.config.agents as { entries?: Record<string, unknown> } | undefined)?.entries;
+      const known = (id: string) => Boolean(id) && AGENT_ID.test(id) && ((Boolean(entries) && id in entries!) || agents.has(id));
+      if (action === 'adopt') {
+        const from = String(p.from), to = String(p.to), provider = String(p.provider);
+        if (from === to || !known(from) || !known(to)) return { ok: false };
+        if (typeof p.who !== 'string' || !p.who) return { ok: false };
+        const fromOrder = orderOf(from), named = fromOrder[provider] ?? [];
+        const fromId = named.length === 1 ? named[0] : undefined;
+        const credential = fromId ? storeOf(from)[fromId] : undefined;
+        if (!fromId || !credential || credential.provider !== provider || whoOf(credential) !== p.who) return { ok: false };
+        const target = primaryOfId(to);
+        if (typeof target !== 'string') return { ok: false };
+        const toStore = storeOf(to), toOrder = orderOf(to);
+        for (const [otherId, other] of Object.entries(toStore))
+          if (ACCOUNT_AGENT.test(to) ? otherId !== fromId : other.provider === provider && otherId !== fromId) delete toStore[otherId];
+        toStore[fromId] = credential;
+        toOrder[provider] = [fromId];
+        if (!ensureAgent(to).providers.includes(provider)) ensureAgent(to).providers.push(provider);
+        delete storeOf(from)[fromId];
+        if (fromOrder[provider]) { fromOrder[provider] = fromOrder[provider].filter((x) => x !== fromId); if (!fromOrder[provider].length) delete fromOrder[provider]; }
+        if (!Object.values(storeOf(from)).some((c) => c.provider === provider))
+          ensureAgent(from).providers = ensureAgent(from).providers.filter((x) => x !== provider);
+        const cut = target.lastIndexOf('@');
+        setPrimaryOfId(to, `${cut > 0 ? target.slice(0, cut) : target}@${fromId}`);
+        return { ok: true };
+      }
+      const id = String(p.agentId ?? '');
+      if (!known(id)) return { ok: false };
+      const store = storeOf(id), order = orderOf(id);
+      if (action === 'list')
+        return { ok: true, profiles: Object.entries(store).map(([profileId, credential]) => ({ provider: credential.provider,
+          profileId, type: credential.type, status: statusOf(credential, Date.now()), ...(whoOf(credential) ? { who: whoOf(credential) } : {}) })) };
+      if (action === 'clear') { profiles.set(id, {}); orders.set(id, {});
+        const cleared = agents.get(id);
+        if (cleared) cleared.providers = [];
+        return { ok: true }; }
+      if (action === 'ready') {
+        const provider = String(p.provider ?? '');
+        const named = order[provider] ?? [];
+        const credential = named.length === 1 ? store[named[0]] : undefined;
+        if (!provider || !credential || credential.provider !== provider) return { ok: false };
+        const status = statusOf(credential, Date.now());
+        if (status === 'missing' || status === 'expired') return { ok: false };
+        return { ok: true, type: credential.type, ...(typeof credential.expires === 'number' ? { expiresAt: credential.expires } : {}),
+          ...(whoOf(credential) ? { who: whoOf(credential) } : {}) };
+      }
+      if (action === 'seal') {
+        const primary = primaryOfId(id) ?? '';
+        const at = primary.lastIndexOf('@');
+        if (at < 1) return { ok: false };
+        const profileId = primary.slice(at + 1);
+        const credential = store[profileId];
+        const account = ACCOUNT_AGENT.test(id);
+        if (!credential || credential.provider !== p.provider || (!account && credential.type === 'api_key')) return { ok: false };
+        for (const [otherId, other] of Object.entries(store))
+          if (account ? otherId !== profileId : other.provider === p.provider && otherId !== profileId) delete store[otherId];
+        // An account agent's whole order is replaced; a member's keeps its other providers, as plugin/accounts.js does.
+        const provider = String(p.provider);
+        if (account) orders.set(id, { [provider]: [profileId] });
+        else order[provider] = [profileId];
+        const sealedAgent = agents.get(id);
+        if (sealedAgent) {
+          if (account) sealedAgent.providers = [provider];
+          else if (!sealedAgent.providers.includes(provider)) sealedAgent.providers.push(provider);
+        }
+        return { ok: true, ...(whoOf(credential) ? { who: whoOf(credential) } : {}) };
+      }
+      return { ok: false };
     },
     'openclaw.setup.activate': (p) => {
       if (p.kind !== 'api-key') throw new Error('only the API-key setup path is simulated');
