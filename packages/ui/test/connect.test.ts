@@ -137,6 +137,15 @@ test('steps: a key route opens the key card with words for its billing; a sign-i
   assert.equal(o.ms, 5);
 });
 
+test('subscription rows whose name already says plan do not add it again', () => {
+  const names = ['Qwen Token Plan', 'Qwen Token Plan CN', 'Qwen Token Plan Individual', 'qwen token plan'];
+  const routes: ConnectRoute[] = names.map((name, i) => (
+    { id: `q:${i}`, provider: 'q', name, via: 'browser', billing: 'subscription', offer: 'default', readiness: 'ready' }));
+  assert.deepEqual(rows(connectView(routes)).map((r) => r.billingWords), names.map((n) => `Uses your ${n}`));
+  const plain: ConnectRoute[] = [{ id: 'q:x', provider: 'q', name: 'Qwen', via: 'browser', billing: 'subscription', offer: 'default', readiness: 'ready' }];
+  assert.equal(rows(connectView(plain))[0].billingWords, 'Uses your Qwen plan');
+});
+
 test('useConnect holds the step and hands useSignIn the chosen row', async () => {
   const probe = `
 import { useConnect } from 'useConnect-src';

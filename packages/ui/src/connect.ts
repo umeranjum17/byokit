@@ -76,13 +76,16 @@ function rowOf(r: ConnectRoute, w: ConnectWords): ConnectRow {
   const group = groupOf(r);
   const ready = r.readiness === 'ready';
   const billing = r.via === 'endpoint' ? w['billing.server'] : r.via === 'local' ? w['billing.local'] : w[`billing.${r.billing}`];
+  // A route name can already carry the word the subscription line adds ("Qwen Token Plan CN"):
+  // then leave it out, so the row never reads "... Plan ... plan".
+  const line = r.billing === 'subscription' && /\bplan\b/i.test(name) ? billing.replace(/(\{name\})\s+plan\b/i, '$1') : billing;
   return {
     key: `${r.upstream?.surface ?? ''}/${id}`, id, provider: r.provider,
     ...(r.upstream ? { surface: r.upstream.surface } : {}),
     name, company, via: r.via, billing: r.billing, group,
     offered: group === 'plans' && ready, ready, readiness: r.readiness,
     does: !ready ? 'unavailable' : SIGNIN.includes(r.via) ? 'signin' : KEY.includes(r.via) ? 'key' : 'setup',
-    billingWords: fill(billing, { name, company }), method: w[`via.${r.via}`], status: w[`ready.${r.readiness}`],
+    billingWords: fill(line, { name, company }), method: w[`via.${r.via}`], status: w[`ready.${r.readiness}`],
   };
 }
 

@@ -1,0 +1,1 @@
+- FIX: a subscription row whose route name already says plan ("Qwen Token Plan", "Qwen Token Plan CN", "Qwen Token Plan Individual") no longer reads "Uses your ... plan" with the word twice: `connectView` leaves the template's trailing plan out when the name already carries the word (any case). Names without it ("Qwen") still read "Uses your Qwen plan".
