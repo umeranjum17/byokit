@@ -1,1 +1,0 @@
-- Align the `@byokit/reach` shim version with `@byokit/discover` 0.7.0, which it re-exports unchanged through 0.7.x; no API change.

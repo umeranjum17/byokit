@@ -1,1 +1,0 @@
-- DOCS: the "Checking reachability before pairing" section now shows both sides: setup self-checks its own advertised URLs with `check()` before printing the tick, and the phone re-checks the scanned offer before consent. The probe still spends nothing, so a checked offer pairs afterwards.

@@ -1,1 +1,0 @@
-- FEATURE: Prove the example PWA Grok device-code journey through built browser exports with a local mockDevice endpoint: approval, a dropped poll, reload persistence and sign-out. The example server accepts an optional device endpoint; omitting it keeps the upstream default.

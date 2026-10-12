@@ -1,1 +1,0 @@
-- Dependency update: the optional peers follow this release train (`@byokit/accounts` 0.22.0, `@byokit/pair` 0.10.0).

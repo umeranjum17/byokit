@@ -1,6 +1,6 @@
 {
   "name": "@byokit/ui-core",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Deprecated: renamed to @byokit/ui. Re-exports @byokit/ui unchanged through 0.7.x; removed in 0.8.0.",
   "license": "Apache-2.0",
   "type": "module",
@@ -51,7 +51,7 @@
     "prepack": "tsc -b"
   },
   "dependencies": {
-    "@byokit/ui": "0.6.0"
+    "@byokit/ui": "0.7.0"
   },
   "publishConfig": {
     "access": "public"

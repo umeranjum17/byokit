@@ -1,6 +1,6 @@
 {
   "name": "@byokit/connect",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Connect a person's third-party apps with PKCE, refresh and typed remote MCP.",
   "license": "Apache-2.0",
   "type": "module",
@@ -37,6 +37,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.31.0",
-    "@byokit/secrets": "0.5.0"
+    "@byokit/secrets": "0.5.1"
   }
 }

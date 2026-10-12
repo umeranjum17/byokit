@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.8.0 (2026-10-12)
+
+- SECURITY: A `credentialsFile`, `configFile` or `statuslineFile` source now refuses, with `UsageError` before any open, any path that carries a `.claude`, `.codex` or `.pi` segment either lexically or once symlinks are resolved, so an app can no longer be pointed at the person's own default sign-in; an app-owned file elsewhere still reads normally, and the segment check is shared with the managed-folder guard.
+- FIX: The Codex app-server source no longer opens or reads `<home>/auth.json` to key its account cache; it derives the account fingerprint from the sign-in file's metadata (`dev:ino:size:mtimeMs:ctimeMs`), mirroring the managed Claude folder key. A missing, symlinked or oversized sign-in file falls back to `codex-home\0<home>`. A re-login or a refresh-only rewrite of the file changes that metadata and drops the last-good reading.
+- NEW: `preflight(call, { prices, allowance, room })` reports a call's cost ceiling from the app's prices, its billing label, the remaining seven-day token allowance and plan room before the call; it never sends the call, and missing prices, mismatched billing, unbounded output or an invalid price row return an explicit unknown instead of a default rate.
+- NEW: `windowsView(reading, nowMs)` (from `@byokit/usage/view`) lists every usage window tightest first, each with its unchanged millisecond `resetsAt`, a `text` line and a `resetText` reset line, plus an as-of age taken only from `Reading.at` ("Read {ago} ago"), "Reading time unknown" without one and no age for a future one. A reading past 24h is marked `stale` while keeping its numbers, and a window without a used percent is reported as unknown.
+
 ## 0.7.0 (2026-10-02)
 
 - FIX: Subscription usage views now derive today, activity and people from one account-scoped call snapshot, preserve unknown token counts and distinguish quota polling failures from exhaustion; plan and model labels use plain names.

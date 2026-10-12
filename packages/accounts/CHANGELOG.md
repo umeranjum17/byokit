@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.22.0 (2026-10-12)
+
+- Dependency update: pins @byokit/secrets 0.5.1.
+- Dependency update: pins @byokit/usage 0.8.0.
+
+- Keep independent selected accounts and default models per app-defined agent kind in the existing account index. Scoped picks refuse missing, signed-out, unavailable accounts and stale models without fallback; removing an account clears all referencing selections and models. Hosts may supply qualified routes and model choices.
+- FEATURE: GitHub Copilot's phone sign-in is defined as data. `DeviceFlow.exchange` names its second token step, `copilot_internal/v2/token`: the device grant answers an intermediate GitHub token, a GET with that token as `Authorization: Bearer` answers the credential (`{token,expires_at}`), and the intermediate is kept as `refresh`, re-minted by that same GET on every refresh; a 401 or 403 on the exchange is a refused grant (signed out, never retried). Device URLs may carry `{host}`, the person's GitHub Enterprise domain (blank for github.com). `mockDevice({ dialect: 'copilot', domain })` serves the three GitHub paths and replays `fixtures/conformance/device-code-rfc8628-typescript.json`, which also pins Grok and Kimi start/poll/refresh/decline. No runtime exchange is implemented yet; the ChatGPT, Grok, Kimi and MiniMax device paths are unchanged.
+- FEATURE: Sign in to Copilot on a phone with `login(member, 'copilot')`: the GitHub device code and the github.com device page, the catalogue exchange turning the approved intermediate GitHub token into the credential, and the same exchange re-minting it on `keepFresh`; a declined code keeps nothing, a revoked intermediate signs out once, and an enterprise domain is refused before any store is read. `github-copilot:code` is `rn: yes` and browser `host`.
+- FIX: The loopback callback ports in the provider catalogue are now derived from the runtime client config, the single source of truth: `catalogue.json` no longer repeats them and `PROVIDERS` takes each client port from `GOOGLE_CLIENTS`, so the sign-in listener and the redirect address cannot diverge. Every current port is unchanged, an app-set port still moves the listener and the redirect address together, and the journey test fails if the two ever disagree.
+- FIX: Managed CLI `launch` returns typed `signed_out`/`not_included` refusals with sign-in words and no environment; only ready accounts receive their isolated launch settings.
+- FIX: `signInChoices` now honours the app's own `offer` list (the same `readonly string[]` as `offered` and `AccountsOptions.offer`): a provider the app names is offered even when the catalogue marks it explicit (`offer: false`), so an app that offers `minimax` gets the MiniMax card, and a provider the app does not name is left out. Called with no argument it still offers the catalogue's default rows, and the device-flow, API-key and subscription-billing filters are unchanged.
+- FEATURE: Prove the example PWA Grok device-code journey through built browser exports with a local mockDevice endpoint: approval, a dropped poll, reload persistence and sign-out. The example server accepts an optional device endpoint; omitting it keeps the upstream default.
+
 ## 0.21.0 (2026-10-11)
 
 - FEAT: `Accounts.respond` accepts `select: { account: 'auto' | 'default' | id }` and answers ChatGPT through that account's own sign-in, resolved once before any request (Auto and default use the same `pick`; a caller reads it first and passes the id). Omitting `select` is unchanged.

@@ -1,6 +1,6 @@
 {
   "name": "@byokit/audio",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Shared on-device audio detection: streaming speech detection with one pinned neural graph, in Node, React Native and the browser. No network, no keys.",
   "license": "Apache-2.0",
   "type": "module",

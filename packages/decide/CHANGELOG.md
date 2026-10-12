@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.7.0 (2026-10-12)
+
+- ADD: `@byokit/decide/slim` for tools that decide without the account, OpenAI SDK or pairing trees. It carries the rules backend, any host-owned model behind `answerer`, and Jev over plain fetch; a cold install is the one package (316 KB on disk, about 4 s cold) instead of the full tree (195 MB, 238 packages, about 28 s on the same machine). The main entry keeps every export and behavior; only ChatGPT plan billing needs the peer.
+- The former hard dependencies are optional peers: `@byokit/accounts` 0.21.0 (only ChatGPT plan billing, API key (billed per use) and subscription alike), `openai` 7.25.0 (only request types), `@byokit/pair` 0.9.0 (only paired-link types). npm skips optional peers, so install one only when the backend uses it: `npm install @byokit/decide` for rules, answerer and Jev; add `@byokit/accounts` for `openai({ auth: 'account', ... })`, and `@byokit/pair` plus `@byokit/secrets` for the paired Jev route. Account billing without the accounts peer throws `UnsupportedAccountError` naming `@byokit/accounts`.
+- Dependency update: the optional peers follow this release train (`@byokit/accounts` 0.22.0, `@byokit/pair` 0.10.0).
+
 ## 0.6.5 (2026-10-11)
 
 - Dependency update: pins @byokit/accounts 0.21.0.

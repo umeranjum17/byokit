@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.8.1 (2026-10-12)
+
+- Dependency update: pins @byokit/pair 0.10.0.
+
+- The README's deprecated-rename note now says the breaking `parseOffer` type carries from `@byokit/pair` 0.9.0. Docs only; no typed surface changed.
+
 ## 0.8.0 (2026-10-09)
 
 - Dependency update: pins @byokit/pair 0.9.0.

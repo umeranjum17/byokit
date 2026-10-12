@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.7.0 (2026-10-12)
+
+- Dependency update: pins @byokit/discover 0.8.0.
+
+- Align the `@byokit/reach` shim version with `@byokit/discover` 0.7.0, which it re-exports unchanged through 0.7.x; no API change.
+
 ## 0.6.1 (2026-10-11)
 
 - Dependency update: pins @byokit/discover 0.7.0.

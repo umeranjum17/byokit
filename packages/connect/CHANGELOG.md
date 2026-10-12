@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.4.0 (2026-10-12)
+
+- Dependency update: pins @byokit/secrets 0.5.1.
+
+- FEAT: One documented house Google client route: `googleClientFile(path)` in `@byokit/connect/node` reads Google's downloaded Desktop-app JSON (mode 600) for Gmail and every other Google preset, returns `null` when it is absent, and refuses a file other users can read, a non-regular file, or another client type.
+
 ## 0.3.0 (2026-10-06)
 
 - Add approval-gated Gmail send (`MailSender`): one plain-text message per call, sent only after the host's approval returns `true` for that exact message.

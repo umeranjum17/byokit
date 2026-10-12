@@ -1,6 +1,6 @@
 {
   "name": "@byokit/reach",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Deprecated: renamed to @byokit/discover. Re-exports @byokit/discover unchanged through 0.7.x; removed in 0.8.0.",
   "license": "Apache-2.0",
   "type": "module",
@@ -31,7 +31,7 @@
     "prepack": "tsc -b"
   },
   "dependencies": {
-    "@byokit/discover": "0.7.0"
+    "@byokit/discover": "0.8.0"
   },
   "publishConfig": {
     "access": "public"

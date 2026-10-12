@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.5.1 (2026-10-12)
+
+- Unreleased source dependency metadata: pin @byokit/seal 0.3.0; this package's existing version is not republished. Previously published consumer metadata remains unchanged.
+- FIX: `encrypt()` builds no snapshot-sized JSON string: the authenticated `{ service, text }` envelope is assembled as bytes through bounded chunk-wise JSON escaping (byte-identical to the previous whole-string stringify, including surrogate pairs kept in one chunk), so sealing a large string never hits the runtime string limit on the envelope; it is still transiently two byte copies while concatenating. Envelope bytes, headers and decrypt compatibility are unchanged.
+
 ## 0.5.0 (2026-09-30)
 
 
