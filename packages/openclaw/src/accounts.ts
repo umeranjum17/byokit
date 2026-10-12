@@ -54,15 +54,15 @@ function indexedAgents(root: string): Set<string> {
   return named;
 }
 
-// Removes each `<root>/state/agents/<member>--<hex6>` directory that no index names and no roster agent owns. The
-// directories are listed before the index is read: each listed one was created after its entry was written.
-export function sweepOrphans(root: string, roster: ReadonlySet<string> = new Set()): void {
+// Removes each `<root>/state/agents/<member>--<hex6>` directory that no index names. The directories are listed
+// before the index is read: each listed one was created after its entry was written.
+export function sweepOrphans(root: string): void {
   let dirs: string[];
   try { dirs = readdirSync(join(root, 'state', 'agents')); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
   const named = indexedAgents(root);
   for (const dir of dirs) {
-    if (!ACCOUNT_AGENT.test(dir) || named.has(dir) || roster.has(dir)) continue;
+    if (!ACCOUNT_AGENT.test(dir) || named.has(dir)) continue;
     rmSync(join(root, 'state', 'agents', dir), { recursive: true, force: true });
   }
 }
@@ -85,7 +85,6 @@ export function createAccounts(ctx: {
   pick(member: Member, sel: RunSelection, skip?: readonly AccountId[]): Promise<{ pick: AccountPick; agent?: string }>;
   rest(member: Member, id: AccountId, until: number): Promise<void>;
   remove(member: Member, id: AccountId): Promise<void>;
-  sweep(): Promise<void>;
 } {
   const path = (member: Member): string => join(ctx.root, 'accounts', `${member}.json`);
   // Accounts whose sign-in is running, as `<member>\n<id>`, counted per add: listed `signing` until the last one ends.
@@ -389,13 +388,6 @@ export function createAccounts(ctx: {
     edit(member, (file) => { const entry = file.accounts[id]; if (entry) entry.until = until; });
 
   const agentDir = (agent: string): string => join(ctx.root, 'state', 'agents', agent);
-  // A late engine write cannot be ruled out by a bounded check, so after every removal (and on prepare, in
-  // engine.ts without a roster) the kit removes the orphan account directories. The roster is strict: a failed read
-  // must not look like an empty roster and let an engine-owned agent's directory go.
-  const sweep = async (): Promise<void> => {
-    try { sweepOrphans(ctx.root, await agentRoster()); }
-    catch (error) { ctx.log?.(`removeAccount: orphans are not swept: ${error instanceof Error ? error.message : String(error)}`); }
-  };
   // Removing (5.15): a member-agent account goes through `models.authLogout` with its sealed profileIds, then its
   // entry is dropped. An account agent goes through `clear`, an empty `list`, `agents.delete` with
   // `deleteFiles: false`, removal of its state dir, then the entry is dropped. Refused `busy` while a run holds
@@ -417,7 +409,6 @@ export function createAccounts(ctx: {
         dropEntry(file, id);
         write(member, file);
       });
-      await sweep();
       return;
     }
     await ctx.locks.exclusive([agent, indexLock(member)], async () => {
@@ -435,7 +426,6 @@ export function createAccounts(ctx: {
       dropEntry(file, id);
       write(member, file);
     });
-    await sweep();
   }
 
   // Index edits take the index lock, as listing's own write does.
@@ -643,5 +633,5 @@ export function createAccounts(ctx: {
     return { id, paste: handle.paste, cancel: handle.cancel, done };
   }
 
-  return { list, add, rename, defaults, setDefaults, models, room, pick, rest, remove, sweep };
+  return { list, add, rename, defaults, setDefaults, models, room, pick, rest, remove };
 }
