@@ -140,7 +140,7 @@ test('a failed Claude plan answer names its cause in plain words and never echoe
     { reply: () => new Response(JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'recorded-access' } }), { status: 429, headers: { 'anthropic-ratelimit-unified-reset': String(reset) } }),
       message: /^You have hit your Claude plan usage limit\. Try again in ~4[78] min\.$/, kind: 'rate_limit', status: 429, reason: 'rate_limit_error' },
     { reply: () => new Response(JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'recorded-access' } }), { status: 529 }),
-      message: 'Claude is busy right now. Try again in a moment.', kind: 'overloaded', status: 529, reason: 'overloaded_error' },
+      message: 'Claude is busy right now. Try again in a few minutes.', kind: 'overloaded', status: 529, reason: 'overloaded_error' },
     { reply: () => { throw new TypeError('Network request failed'); }, message: 'Claude could not be reached. Check the connection and try again.', kind: 'network', reason: 'TypeError' },
     { reply: () => new Response(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'tools.0: recorded-access is not valid sk-ant-oat01-' + 'x'.repeat(40) } }), { status: 400 }),
       message: 'Claude could not answer (HTTP 400). Try again or sign in again.', kind: null, status: 400, reason: 'invalid_request_error', detail: 'tools.0: [private] is not valid [private]' },
