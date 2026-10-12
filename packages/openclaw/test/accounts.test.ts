@@ -98,15 +98,26 @@ test('account index: sign in, list, rename, defaults, restart, list again', asyn
     // caught running; the first draw collides with the unindexed `m1--abc123` above and is drawn again.
     let gate: Promise<void> | undefined;
     let wrongAnswer: string | undefined;
+    let loseReply = false;
     let holdCreate: { landed: () => void; release: Promise<void> } | undefined;
+    let holding: string[] | undefined;
     const gated: typeof fake.factory = (ctx) => {
       const transport = fake.factory(ctx);
       return { ...transport, request: async (method, params, o) => {
+        holding?.push(method);
         if (method === 'wizard.next') await gate;
         if (method !== 'agents.create') return transport.request(method, params, o);
         const made = await transport.request(method, params, o) as { agentId: string };
+        if (loseReply) { loseReply = false; throw new Error('gateway reply lost'); }
         if (wrongAnswer !== undefined) { const answer = wrongAnswer; wrongAnswer = undefined; return { ...made, agentId: answer }; }
-        if (holdCreate) { const hold = holdCreate; holdCreate = undefined; hold.landed(); await hold.release; }
+        if (holdCreate) {
+          const hold = holdCreate;
+          holdCreate = undefined;
+          holding = [];
+          hold.landed();
+          await hold.release;
+          holding = undefined;
+        }
         return made;
       } };
     };
@@ -176,6 +187,13 @@ test('account index: sign in, list, rename, defaults, restart, list again', asyn
       assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8')).accounts), ['openai', 'openai.def456'], 'and its entry');
       assert.equal(await identity(), identityBefore, 'IDENTITY.md is restored after the failed create');
 
+      // The gateway made the agent, then the create reply was lost: the failure is the real cause, and the agent it made goes too.
+      loseReply = true;
+      await assert.rejects(third.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {}), /gateway reply lost/);
+      assert.deepEqual(await roster(), rosterBefore, 'the agent the lost reply left behind is removed');
+      assert.deepEqual(Object.keys(JSON.parse(readFileSync(file, 'utf8')).accounts), ['openai', 'openai.def456'], 'and its entry');
+      assert.equal(await identity(), identityBefore, 'IDENTITY.md is restored after the lost reply');
+
       // Two adds on one member at once: the second waits while the first's create is held, so IDENTITY.md keeps the member's line.
       gate = new Promise(() => {});
       let landed!: () => void;
@@ -185,7 +203,10 @@ test('account index: sign in, list, rename, defaults, restart, list again', asyn
       const racing = third.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
       await createLanded;
       const late = third.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      for (let i = 0; i < 1000 && !holding?.includes('agents.list'); i++) await new Promise((resolve) => setImmediate(resolve));
+      assert.ok(holding?.includes('agents.list'), 'the second add reaches its roster read while the first create is held');
+      for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve));
+      assert.ok(!holding?.includes('agents.files.get'), 'the second add reads IDENTITY.md only after the held create is restored');
       release();
       const [a, b] = await Promise.all([racing, late]);
       assert.equal(await identity(), identityBefore, 'two adds at once leave IDENTITY.md byte-identical');

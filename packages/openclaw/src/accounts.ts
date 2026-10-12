@@ -285,9 +285,10 @@ export function createAccounts(ctx: {
           await untilListed(ctx.request, agent);
           await restoreIdentity(memberAgent, before);
         } catch (error) {
-          if (created) await restoreIdentity(memberAgent, before)
+          await restoreIdentity(memberAgent, before)
             .catch((restoreError: unknown) => ctx.log?.(`addAccount: IDENTITY.md is not restored: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`));
-          await discard(member, memberAgent, id, agent, created);
+          const exists = created || (await rosterOf()).has(agent);
+          await discard(member, memberAgent, id, agent, exists);
           throw error;
         }
       });
