@@ -927,6 +927,7 @@ the engine. External retained sources are touched only when explicitly passed to
   It returns `ok | invalid | not_included | retry`, never engine lines, errors or credentials. `retry`: the engine took the key
   but the gateway restart ran late or the seal failed; the key agent is cleared, so nothing unsealed is kept. A restart or not-ready gateway before the engine saw the key is also `retry` (nothing was sent). Only routes whose pinned
   manifests allow manual secrets for text inference expose `keyEntry`; every route carries `revision` and `checked`.
+- The `byokit.keys` plugin actions are `prepare`, `seal`, `ready` and `clear` (`clear` drops the unsealed key a failed add left; `plugin/keys.js`).
 - The engine has no strict per-run auth-profile pin. Key isolation is by agent: a member's normal agent never
   receives a key from `addKey`. A reserved `byokit-key-<member>` agent has its own workspace and credential store;
   the `byokit-key-` prefix is not a member id. Its key is `copyToAgents: false`. The plugin seals the local store
