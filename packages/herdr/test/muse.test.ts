@@ -212,4 +212,7 @@ test('unsafe/symlink/escape targets are refused and existing files are preserved
   executable(join(installDir, 'muse'), '#!/bin/sh\nexec mise x -- muse "$@"\n');
   assert.equal(museReadiness({ PATH: installDir }).state, 'launcher-only');
   assert.equal(agentInstallState('muse', { path: [installDir] }).state, 'missing', 'a shim is not an installed native Muse');
+  // A non-shell binary whose interpreter path contains mise is a real install, not a launcher.
+  executable(join(installDir, 'muse'), '#!/home/u/.local/share/mise/installs/node/24/bin/node\nconsole.log("mise");\n');
+  assert.equal(museReadiness({ PATH: installDir }).state, 'installed');
 });
