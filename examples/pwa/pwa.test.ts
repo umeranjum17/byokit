@@ -157,6 +157,14 @@ test('Add an account: every route grouped, Plans first, unavailable ones say why
     assert.equal(await part(page, 'claude', 'sheet').isVisible(), false);
     assert.equal(await row('openai:key').isDisabled(), true, 'a key this page has no form for is not offered');
     assert.equal(await row('openai:key').getAttribute('data-unavailable'), null);
+    const soon = page.locator('[data-group="coming-soon"]');
+    await soon.waitFor();
+    assert.equal(groups.at(-1), 'coming-soon', 'the Coming soon group comes last');
+    assert.deepEqual((await page.locator('#add-groups [data-group]:not([data-group="coming-soon"]) .route-status').allTextContents())
+      .filter((s) => s === 'Ready, but this page has no form for it yet.'), [],
+      'no "no form for it yet" row outside the Coming soon group');
+    assert.equal(await soon.locator('[data-route]').first().isVisible(), false, 'the Coming soon group starts closed');
+    assert.equal(await soon.locator('[data-coming-toggle]').getAttribute('aria-expanded'), 'false');
     await row('openai:code').click();
     await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).waitFor();
     assert.equal(await page.locator('#add-sheet').isVisible(), false, 'the sheet closes on the card it started');

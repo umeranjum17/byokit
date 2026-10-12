@@ -220,6 +220,24 @@ const SCREENS: Screen[] = [
     },
   })),
   {
+    id: 'add-sheet-coming', path: '',
+    what: 'Add an account: the Coming soon group opened, holding every row this page has no form for',
+    themes: [...themes],
+    formFactors: ['narrow', 'phone', 'desktop'],
+    interaction: 'add-sheet-coming',
+    before: { via: 'ref' }, // the base page has no Coming soon group: its before frame is the signed-out list it showed instead
+    async drive(page) {
+      await part(page, 'chatgpt', 'status').filter({ hasText: /isn't signed in/ }).waitFor();
+      if (!await page.locator('#add-open').count()) return;
+      await page.locator('#add-open').click();
+      const toggle = page.locator('[data-coming-toggle]');
+      if (!await toggle.count()) return; // the base sheet lists those rows where they were
+      await toggle.click();
+      await page.locator('[data-group="coming-soon"] [data-route]').first().waitFor({ state: 'visible' });
+      await page.locator('[data-group="coming-soon"]').evaluate((e) => e.scrollIntoView({ block: 'start' }));
+    },
+  },
+  {
     id: 'signin',
     path: '',
     what: 'Sign in with ChatGPT by device code',
