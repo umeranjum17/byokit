@@ -168,6 +168,94 @@ export class LinkStream {
   }
 }
 
+/** The longest one JSON line `ndjson` buffers, in bytes (a line is its UTF-8 bytes up to `\n`). */
+export const NDJSON_MAX_LINE = 1024 * 1024;
+/** The stream error an `ndjson` reader ends its stream with when a line runs past its cap. Both sides see it. */
+export const NDJSON_LINE_TOO_LONG = 'line-too-long';
+
+export type NdjsonOptions = {
+  /** The longest one line buffered before the stream ends with `NDJSON_LINE_TOO_LONG`. Defaults to `NDJSON_MAX_LINE`. */
+  maxLine?: number;
+};
+
+export type NdjsonStream = {
+  /** The byte stream underneath, for `onEnd`, `end` and anything else not about JSON. */
+  readonly stream: LinkStream;
+  /** Sends one JSON message (`JSON.stringify` plus `\n`) through the stream's credit window. */
+  send(message: unknown): Promise<void>;
+  /** Each whole JSON message, in order. Returning a promise holds the sender back until it settles. */
+  onMessage(fn: (message: unknown) => void | Promise<void>): void;
+  /** Ends the stream both ways: after the sends already made, or at once with an error. */
+  end(error?: string): void;
+};
+
+/** Whole JSON messages over a byte `LinkStream`, one `\n`-terminated line each. Chunks split at any byte
+ *  boundary reassemble before decoding, so a multi-byte character split across two chunks still arrives whole.
+ *  A line past the cap ends the stream with `NDJSON_LINE_TOO_LONG` and is never delivered, so nothing is buffered
+ *  without bound; a line that is not JSON ends it with `failed` through the stream's usual handler-error path. */
+export function ndjson(stream: LinkStream, opts: NdjsonOptions = {}): NdjsonStream {
+  const maxLine = opts.maxLine ?? NDJSON_MAX_LINE;
+  if (!Number.isInteger(maxLine) || maxLine < 1) throw new Error('bad ndjson maxLine');
+  const decode = new TextDecoder();
+  let parts: Uint8Array[] = [];
+  let buffered = 0;
+  let failed = false;
+
+  const untilNewline = (): number => {
+    let at = 0;
+    for (const p of parts) {
+      const i = p.indexOf(10);
+      if (i !== -1) return at + i;
+      at += p.byteLength;
+    }
+    return -1;
+  };
+  const take = (n: number): Uint8Array => {
+    const out = new Uint8Array(n);
+    for (let at = 0; at < n;) {
+      const p = parts[0];
+      const k = Math.min(p.byteLength, n - at);
+      out.set(p.subarray(0, k), at);
+      at += k;
+      parts = k === p.byteLength ? parts.slice(1) : [p.subarray(k), ...parts.slice(1)];
+    }
+    return out;
+  };
+
+  return {
+    stream,
+    send(message: unknown) {
+      const line = JSON.stringify(message);
+      if (line === undefined) throw new Error('ndjson cannot send undefined');
+      return stream.write(`${line}\n`);
+    },
+    onMessage(fn: (message: unknown) => void | Promise<void>) {
+      stream.onData = async (chunk: Uint8Array) => {
+        if (failed) return;
+        parts.push(chunk);
+        buffered += chunk.byteLength;
+        for (;;) {
+          const at = untilNewline();
+          if (at === -1) {
+            if (buffered > maxLine) {
+              failed = true;
+              parts = [];
+              buffered = 0;
+              stream.end(NDJSON_LINE_TOO_LONG);
+            }
+            return;
+          }
+          const line = decode.decode(take(at));
+          take(1); // the '\n'
+          buffered -= at + 1;
+          if (line.length > 0) await fn(JSON.parse(line));
+        }
+      };
+    },
+    end(error?: string) { stream.end(error); },
+  };
+}
+
 const count = (n: unknown, max: number) => {
   if (!Number.isInteger(n) || (n as number) < 0 || (n as number) > max) throw new Error('bad stream message');
   return n as number;

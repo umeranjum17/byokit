@@ -357,14 +357,21 @@ function readHead(file: string): string | undefined {
   finally { if (fd !== undefined) try { closeSync(fd); } catch { /* already gone */ } }
 }
 
-// A mise-style auto-install launcher reads as a shell script that execs through mise — the
-// found "binary" runs, but the first run installs the agent instead. Real binaries (ELF,
-// Mach-O) never match: the shebang gate keeps a stray "mise" substring ("promise", …) out.
+// A mise-style auto-install launcher is a shell script that goes through mise — the found
+// "binary" runs, but the first run installs the agent instead. A shell shebang (path or env
+// form) plus a mise mention marks it; a Node interpreter under mise or a non-shell script
+// that mentions mise is a real command.
+function isMiseLauncher(head: string): boolean {
+  const shebang = head.split('\n', 1)[0] ?? '';
+  return /^#!\s*(?:\S*\/)?(?:env\s+)?(?:sh|bash|zsh|dash|ksh|ash)(?:\s|$)/.test(shebang)
+    && head.includes('mise');
+}
+
 export function isAutoInstallShim(file: string,
   readFile: (file: string) => string | undefined = readHead): boolean {
   let head: string | undefined;
   try { head = readFile(file); } catch { return false; }
-  return head !== undefined && head.startsWith('#!') && head.includes('mise');
+  return head !== undefined && isMiseLauncher(head);
 }
 
 // Muse has no absent-CLI auto-installer in stock Herdr. Its official launcher needs the
@@ -378,7 +385,7 @@ export function agentInstallState(kind: string,
     try { if (!statSync(found.path).isFile()) return { kind, state: 'missing', path: found.path }; }
     catch { return { kind, state: 'missing', path: found.path }; }
     const head = (o?.readFile ?? readHead)(found.path);
-    if (head?.startsWith('#!') && (head.includes('mise') || (head.includes('MUSE_CHANNEL') && !museNative(found.path)))) {
+    if (head !== undefined && (isMiseLauncher(head) || (head.startsWith('#!') && head.includes('MUSE_CHANNEL') && !museNative(found.path)))) {
       return { kind, state: 'missing', path: found.path };
     }
     return { kind, state: 'installed', path: found.path };

@@ -1,0 +1,1 @@
+- ADD: `ndjson(stream)` sends and receives whole JSON messages over a pair stream, one per `\n`-terminated line, through the existing credit window. Chunks split at any byte boundary reassemble before decoding, a line past `NDJSON_MAX_LINE` (1 MiB, configurable per stream) ends the stream with `line-too-long` on both ends, and a non-JSON line ends it with `failed`.

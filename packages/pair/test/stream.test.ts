@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
-import { DeviceLink, Host, LinkError, PublicLinkError, WINDOW, b64url, keyPair, type Grant, type HostOptions, type LinkStream, type Role } from '../src/index.ts';
+import { DeviceLink, Host, LinkError, NDJSON_LINE_TOO_LONG, PublicLinkError, WINDOW, b64url, keyPair, ndjson, type Grant, type HostOptions, type LinkStream, type Role } from '../src/index.ts';
 import { Streams } from '../src/stream.ts';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -332,6 +332,65 @@ test('T4: a peer that sends past its window, or data that is not bytes, is cut o
   assert.throws(() => streams.message({ t: 'credit', s: 3, n: -1 }), /bad stream/);
   assert.equal(streams.message({ t: 'data', s: 99, d: new Uint8Array(1) }), true, 'late data for a stream ended here is dropped');
   assert.equal(streams.message({ t: 'req' }), false);
+});
+
+test('ndjson: 1000 JSON objects in 1-7 byte chunks arrive whole and in order, through the credit window', async () => {
+  const sent = Array.from({ length: 1000 }, (_, i) => ({ i, text: `message ${i} 🎉🚀`, tag: 'x'.repeat(i % 64) }));
+  const payload = Buffer.concat(sent.slice(3).map((o) => Buffer.from(`${JSON.stringify(o)}\n`, 'utf8')));
+  const chunks: Buffer[] = [];
+  for (let at = 0, k = 0; at < payload.length; k++) {
+    const n = (k % 7) + 1; // deterministic 1-7 byte splits, so boundaries fall at every offset class
+    chunks.push(payload.subarray(at, at + n));
+    at += n;
+  }
+  let off = 0;
+  const splitInsideMultibyte = chunks.some((c) => {
+    off += c.length;
+    const b = payload[off]; // the byte after this boundary starts a new character unless it continues one
+    return off < payload.length && b !== undefined && b >= 0x80 && b < 0xc0;
+  });
+  assert.ok(splitInsideMultibyte, 'some chunk boundary must split a multi-byte character for this proof');
+
+  const got: unknown[] = [];
+  let hostEnded = false, hostEnd: string | undefined = 'unset';
+  const h = await startHost({
+    stream: (s) => {
+      const j = ndjson(s);
+      j.onMessage((m) => { got.push(m); });
+      s.onEnd = (e) => { hostEnded = true; hostEnd = e; };
+    },
+  });
+  const d = await device(h, 'Phone');
+  const j = ndjson(await d.link.stream('json'));
+  for (const o of sent.slice(0, 3)) await j.send(o); // whole messages through send()'s credit-window write
+  await Promise.all(chunks.map((c) => j.stream.write(c))); // the rest as raw 1-7 byte pieces below it
+  j.end();
+  await until(() => hostEnded, 20_000);
+  assert.equal(hostEnd, undefined, 'a clean end');
+  assert.deepEqual(got, sent, 'all 1000 whole and in order');
+});
+
+test('ndjson: a line past the cap ends the stream with its named error before the newline even arrives', async () => {
+  let hostGot = 0, hostEnded = false, hostEnd: string | undefined = 'unset';
+  let deviceEnded = false, deviceEnd: string | undefined = 'unset';
+  const h = await startHost({
+    stream: (s) => {
+      const j = ndjson(s, { maxLine: 64 });
+      j.onMessage(() => { hostGot++; });
+      s.onEnd = (e) => { hostEnded = true; hostEnd = e; };
+    },
+  });
+  const d = await device(h, 'Phone');
+  const s = await d.link.stream('json');
+  const j = ndjson(s);
+  s.onEnd = (e) => { deviceEnded = true; deviceEnd = e; };
+  const line = Buffer.from(`${JSON.stringify({ big: 'x'.repeat(200) })}\n`, 'utf8');
+  await j.stream.write(line.subarray(0, 100)); // past the 64-byte cap, with no newline yet
+  await until(() => hostEnded && deviceEnded);
+  assert.equal(hostGot, 0, 'the over-long line is never delivered');
+  assert.equal(hostEnd, NDJSON_LINE_TOO_LONG);
+  assert.equal(deviceEnd, NDJSON_LINE_TOO_LONG, 'the sender hears the same named error');
+  await assert.rejects(j.stream.write('late'), /ended/, 'nothing more is buffered after the end');
 });
 
 test('F4: stream bytes go as binary WebSocket messages on a direct socket, and as text through a relay, which still works', async () => {
