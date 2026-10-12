@@ -137,6 +137,17 @@ async function handle(params) {
   }
 
   if (params.action === 'clear') {
+    const provider = params.provider;
+    if (typeof provider === 'string' && provider) {
+      const cleared = await updateAuthProfileStoreWithLock({ agentDir, saveOptions: LOCAL, updater(s) {
+        for (const [id, credential] of Object.entries(s.profiles ?? {}))
+          if (credential?.provider === provider) delete s.profiles[id];
+        if (s.order?.[provider]) delete s.order[provider];
+        if (object(s.lastGood) && provider in s.lastGood) delete s.lastGood[provider];
+        return true;
+      } });
+      return cleared ? { ok: true } : { ok: false };
+    }
     const cleared = await updateAuthProfileStoreWithLock({ agentDir, saveOptions: LOCAL, updater(s) {
       s.profiles = {}; s.order = {}; delete s.lastGood; return true;
     } });

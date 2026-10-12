@@ -925,7 +925,7 @@ export class OpenClawKit {
   }
 
   // accounts (5.15, O14 steps S5, S6, S9 and S10): the per-member index with listing, adding, defaults, rename, models
-  // and room; `run({ account })` picks among them. Removing, `pick` and move arrive in later steps.
+  // and room; `run({ account })` picks among them. `pick` and move arrive in later steps.
   accounts(member: Member): Promise<Account[]> {
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.accountsCtl.list(member);
@@ -952,6 +952,13 @@ export class OpenClawKit {
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account> {
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.accountsCtl.rename(member, id, name);
+  }
+
+  /** Remove one account: a member-agent account through `authLogout` with its profileIds, an account agent through
+   * `clear`, an empty `list`, `agents.delete` with `deleteFiles: false`, removal of its state dir, then the entry. */
+  removeAccount(member: Member, id: AccountId): Promise<void> {
+    if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
+    return this.accountsCtl.remove(member, id);
   }
 
   defaults(member: Member): Promise<Defaults> {

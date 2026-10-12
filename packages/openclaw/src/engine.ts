@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { randomBytes, generateKeyPairSync, randomUUID } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, copyFileSync, rmSync, realpathSync, statSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, writeFileSync, copyFileSync, rmSync, realpathSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { basename, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -155,6 +155,7 @@ export class Engine {
     if (!this.o.authSeal && existsSync(join(this.root, 'auth-store.sealed'))) throw new Error('authSeal required for sealed credential store');
     await this.recoverOrphan();
     for (const d of [this.root, ...(!this.o.authSeal ? [join(this.root, 'home'), join(this.root, 'state')] : []), join(this.root, 'tmp'), join(this.root, 'usage'), join(this.root, 'install-home'), join(this.root, 'npm-cache'), join(this.o.stateDir, 'logs')]) mkdirSync(d, { recursive: true, mode: 0o700 });
+    this.sweepAccountOrphans();
     try { await this.authStore.prepare(); this.credentialsLocked = false; }
     catch (error) { if (this.locked(error)) return; throw error; }
     if (this.o.spawnEngine) {
@@ -302,6 +303,31 @@ export class Engine {
     for (let i = 0; i < 15 && pidAlive(pid); i++) await delay(200);
     if (pidAlive(pid)) throw occupied();
     // The new store owner now seals crash leftovers under its lock before restoring them.
+  }
+  // The account orphan sweep (5.15): a late engine write after a removal cannot be ruled out by a bounded check,
+  // so `prepare` removes each `<root>/state/agents/<member>--<hex6>` directory that no index names. No roster here:
+  // the gateway is down, and no add is in flight while preparing (an entry is written before its agent is created,
+  // so an account being added is named). The roster-aware sweep after every removal lives in accounts.ts.
+  private sweepAccountOrphans(): void {
+    const accountAgent = /^[a-z][a-z0-9-]{0,31}--[0-9a-f]{6}$/;
+    const named = new Set<string>();
+    try {
+      for (const file of readdirSync(join(this.root, 'accounts'))) {
+        if (!file.endsWith('.json')) continue;
+        try {
+          const parsed = JSON.parse(readFileSync(join(this.root, 'accounts', file), 'utf8')) as
+            { accounts?: Record<string, { agent?: unknown }> };
+          for (const entry of Object.values(parsed.accounts ?? {}))
+            if (typeof entry.agent === 'string') named.add(entry.agent);
+        } catch { /* an unreadable index names nothing */ }
+      }
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') this.o.log?.(`prepare: orphans are not swept: ${String((error as Error).message).slice(0, 200)}`); return; }
+    try {
+      for (const dir of readdirSync(join(this.root, 'state', 'agents'))) {
+        if (!accountAgent.test(dir) || named.has(dir)) continue;
+        rmSync(join(this.root, 'state', 'agents', dir), { recursive: true, force: true });
+      }
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') this.o.log?.(`prepare: orphans are not swept: ${String((error as Error).message).slice(0, 200)}`); }
   }
   start(): Promise<{ port: number; token: string; identityPath: string } | undefined> {
     if (this.starting) return this.starting;

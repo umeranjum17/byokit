@@ -146,6 +146,10 @@ export type FakeGateway = {
   /** Profile fields every later wizard sign-in stores (O14 identity): `accountId: undefined` signs in with no account
    * id, so no `who`. With no call, or `signInAs()`, the account id is `fake-<agentId>`. */
   signInAs(fields?: { accountId?: string; email?: string; expires?: number }): void;
+  /** A late engine refresh racing a removal (O14 S8): writes one profile of `provider` onto `agentId` whole, as the
+   * pin would under its store lock. With `order: false` it lands with no order entry; `expires` (default: valid)
+   * may name an expired credential. */
+  refresh(agentId: string, provider: string, o?: { order?: boolean; expires?: number }): void;
 } & { transport: GatewayTransport };
 export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number }): FakeGateway {
   const calls: { method: string; params: unknown }[] = [];
@@ -473,7 +477,19 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       if (action === 'list')
         return { ok: true, profiles: Object.entries(store).map(([profileId, credential]) => ({ provider: credential.provider,
           profileId, type: credential.type, status: statusOf(credential, Date.now()), ...(whoOf(credential) ? { who: whoOf(credential) } : {}) })) };
-      if (action === 'clear') { profiles.set(id, {}); orders.set(id, {});
+      if (action === 'clear') {
+        const provider = typeof p.provider === 'string' && p.provider ? String(p.provider) : undefined;
+        if (provider) {
+          const store = storeOf(id);
+          for (const [profileId, credential] of Object.entries(store))
+            if (credential.provider === provider) delete store[profileId];
+          const order = orderOf(id);
+          if (order[provider]) delete order[provider];
+          const cleared = agents.get(id);
+          if (cleared) cleared.providers = cleared.providers.filter((x) => x !== provider);
+          return { ok: true };
+        }
+        profiles.set(id, {}); orders.set(id, {});
         const cleared = agents.get(id);
         if (cleared) cleared.providers = [];
         return { ok: true }; }
@@ -706,6 +722,16 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       perAgent.set(provider, windows);
     },
     signInAs: (fields) => { signInFields = fields && { ...fields }; },
+    refresh: (agentId, provider, o) => {
+      const agent = ensureAgent(agentId);
+      if (!agent.providers.includes(provider)) agent.providers.push(provider);
+      const profileId = `${provider}:default`;
+      storeOf(agentId)[profileId] = { provider, type: 'oauth', status: 'ok', access: 'fake-access',
+        refresh: 'fake-refresh', expires: o?.expires ?? Date.now() + 30 * 86_400_000,
+        accountId: `fake-refresh-${agentId}` };
+      if (o?.order !== false) orderOf(agentId)[provider] = [profileId];
+      else if (orderOf(agentId)[provider]) delete orderOf(agentId)[provider];
+    },
     transport: factory({ port: 0, token: 'test', identityPath: '', bridgeSock: '' }),
   };
 }

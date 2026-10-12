@@ -9,7 +9,7 @@
 import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { chmodSync, readFileSync, statSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
@@ -773,6 +773,116 @@ test('identity: same who refreshes, again with another who adds, no who never me
     assert.ok(!readFileSync(indexOf(stateDir, 'm1'), 'utf8').includes('example.com'), 'the index holds no email');
   } finally {
     await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+// S8 (O14h): removeAccount and the orphan sweep. A member-agent account goes through authLogout with profileIds;
+// an account agent through clear, an empty list, agents.delete with deleteFiles:false, removal of its state dir,
+// then the entry. Removal is refused busy while live; the member stays ready. A late refresh racing clear is
+// cleared again; a file written after removal is swept on the next prepare. A seal failure on a non-fresh add
+// clears only that provider on the member agent.
+test('removeAccount and the orphan sweep', async () => {
+  const stateDir = scratchDir('o14h-remove');
+  const fake = fakeGateway();
+  const root = join(stateDir, 'openclaw');
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done, { state: 'done', via: 'browser' });
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    assert.deepEqual((await kit.accounts('m1')).map((a) => a.id).sort(), ['openai', second.id].sort());
+
+    // Busy: a live run holds the agent's shared lock, so removal is refused and the member stays ready.
+    fake.setUsage('m1', 'openai', [{ label: 'session', usedPercent: 80 }]);
+    fake.setUsage(agent, 'openai', [{ label: 'session', usedPercent: 10 }]);
+    for (const id of ['openai', second.id]) await kit.room('m1', id);
+    const pending = kit.run({ member: 'm1', sessionKey: 'agent:m1:remove-busy', message: 'hello', account: second.id });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    await assert.rejects(kit.removeAccount('m1', second.id), /busy/);
+    assert.equal((await kit.accounts('m1')).find((a) => a.id === 'openai')?.state, 'ready', 'the member stays ready');
+    assert.ok((await pending).ok, 'the live run finishes');
+
+    // A refresh racing clear: after the first clear the engine lands one expired profile with no order; the kit
+    // clears again and the removal still drops the entry with no file left.
+    let clears = 0;
+    const racing: typeof fake.factory = (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, request: async (method, params, o) => {
+        const answer = await transport.request(method, params, o);
+        if (method === 'byokit.accounts' && (params as { action?: string; agentId?: string }).action === 'clear'
+          && (params as { agentId?: string }).agentId === agent && clears++ === 0)
+          fake.refresh(agent, 'openai', { order: false, expires: Date.now() - 1_000 });
+        return answer;
+      } };
+    };
+    await kit.stop();
+    const kit2 = new OpenClawKit({ stateDir, transport: racing, spawnEngine: false, callbackPort: 0 });
+    try {
+      await kit2.start();
+      const deleteCalls = () => fake.calls.filter((c) => c.method === 'agents.delete');
+      const deletesBefore = deleteCalls().length;
+      await kit2.removeAccount('m1', second.id);
+      assert.ok(clears >= 1, 'clear raced a refresh');
+      const deletes = deleteCalls().slice(deletesBefore);
+      assert.equal(deletes.length, 1);
+      assert.deepEqual((deletes[0]!.params as { deleteFiles?: boolean }).deleteFiles, false);
+      assert.ok(!(await kit2.call('agents.list', {})).agents.some((a) => a.id === agent), 'the agent is gone');
+      assert.ok(!(second.id in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts), 'and its entry');
+      assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'and its state dir');
+      assert.equal((await kit2.accounts('m1')).find((a) => a.id === 'openai')?.state, 'ready');
+
+      // A file the engine lands after removal is swept on the next prepare.
+      const late = join(root, 'state', 'agents', agent, 'agent', 'late.json');
+      mkdirSync(join(late, '..'), { recursive: true });
+      writeFileSync(late, '{}');
+      await kit2.prepare();
+      assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'the late file is swept on prepare');
+
+      // The member-agent account goes through authLogout with its sealed profileIds, then the entry.
+      const authCalls = () => fake.calls.filter((c) => c.method === 'models.authLogout');
+      const authBefore = authCalls().length;
+      await kit2.removeAccount('m1', 'openai');
+      const auth = authCalls().slice(authBefore);
+      assert.equal(auth.length, 1);
+      const logout = auth[0]!.params as { provider?: string; agentId?: string; profileIds?: unknown };
+      assert.equal(logout.provider, 'openai');
+      assert.equal(logout.agentId, 'm1');
+      assert.ok(Array.isArray(logout.profileIds) && logout.profileIds.length > 0, 'with its sealed profile');
+      assert.ok(!('openai' in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts), 'the member entry is dropped');
+    } finally { await kit2.stop(); }
+
+    // A seal failure on a non-fresh add clears only that provider on the member agent: listing hides the
+    // credential and runs cannot use it.
+    let seals = 0;
+    const failing: typeof fake.factory = (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, request: async (method, params, o) => {
+        if (method === 'byokit.accounts' && (params as { action?: string }).action === 'seal' && seals++ === 0)
+          return { ok: false };
+        return transport.request(method, params, o);
+      } };
+    };
+    const kit3 = new OpenClawKit({ stateDir, transport: failing, spawnEngine: false, callbackPort: 0 });
+    try {
+      await kit3.start();
+      await kit3.ensureMember('m2');
+      const failed = await kit3.addAccount('m2', { authChoice: 'openai', via: 'browser' }, () => {});
+      assert.equal((await failed.done).view.state, 'failed');
+      const held = await kit3.callDynamic('byokit.accounts', { action: 'list', agentId: 'm2' }) as
+        { ok: boolean; profiles: { provider: string }[] };
+      assert.deepEqual(held.profiles.filter((p) => p.provider === 'openai'), [], 'the failed credential is cleared');
+      assert.ok(!(await kit3.accounts('m2')).some((a) => a.id === 'openai'), 'listing hides it');
+      const scoped = fake.calls.filter((c) => c.method === 'byokit.accounts'
+        && (c.params as { action?: string; provider?: string }).action === 'clear'
+        && (c.params as { agentId?: string }).agentId === 'm2');
+      assert.ok(scoped.some((c) => (c.params as { provider?: string }).provider === 'openai'),
+        'the member is cleared provider-scoped, not wiped');
+    } finally { await kit3.stop(); }
+  } finally {
+    try { await kit.stop(); } catch { /* already stopped for the racing leg */ }
     rmSync(stateDir, { recursive: true, force: true });
   }
 });

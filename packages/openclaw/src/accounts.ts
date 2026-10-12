@@ -1,9 +1,9 @@
 // The per-member account index (5.15, O14 step S5): `<root>/accounts/<member>.json` (0600, whole-file temp
 // plus rename) is the only kit state: `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?,
 // who? } }, defaults }`. No credential, token, email or engine line. Listing, rename, defaults, models, room,
-// adding with its identity merge (O14 steps S6, S7) and the start-of-run pick (S10) live here; remove arrives in a
-// later step.
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+// adding with its identity merge (O14 steps S6, S7), the start-of-run pick (S10) and removal with its orphan
+// sweep (O14 step S8) live here.
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { createLocks } from './locks.ts';
@@ -56,6 +56,8 @@ export function createAccounts(ctx: {
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;
   pick(member: Member, sel: RunSelection, skip?: readonly AccountId[]): Promise<{ pick: AccountPick; agent?: string }>;
   rest(member: Member, id: AccountId, until: number): Promise<void>;
+  remove(member: Member, id: AccountId): Promise<void>;
+  sweep(): Promise<void>;
 } {
   const path = (member: Member): string => join(ctx.root, 'accounts', `${member}.json`);
   // Accounts whose sign-in is running, as `<member>\n<id>`, counted per add: listed `signing` until the last one ends.
@@ -354,6 +356,97 @@ export function createAccounts(ctx: {
   const rest = (member: Member, id: AccountId, until: number): Promise<void> =>
     edit(member, (file) => { const entry = file.accounts[id]; if (entry) entry.until = until; });
 
+  const agentDir = (agent: string): string => join(ctx.root, 'state', 'agents', agent);
+  // Every agent the index names, across all members: a sweep never touches one of these.
+  const namedAgents = (): Set<string> => {
+    const named = new Set<string>();
+    let files: string[];
+    try { files = readdirSync(join(ctx.root, 'accounts')); }
+    catch { return named; }
+    for (const file of files) {
+      if (!file.endsWith('.json')) continue;
+      try {
+        const parsed = JSON.parse(readFileSync(join(ctx.root, 'accounts', file), 'utf8')) as Partial<IndexFile>;
+        for (const entry of Object.values(parsed.accounts ?? {}))
+          if (validEntry(entry)) named.add(entry.agent);
+      } catch { /* an unreadable index names nothing */ }
+    }
+    return named;
+  };
+  // A late engine write cannot be ruled out by a bounded check, so after every removal (and on prepare, in
+  // engine.ts without a roster) the kit removes each `<root>/state/agents/<member>--<hex6>` directory that no
+  // index names and no engine agent owns. An entry is written before its agent is created, so an account being
+  // added is never swept.
+  const sweep = async (): Promise<void> => {
+    const named = namedAgents();
+    const roster = await rosterOf().catch(() => new Set<string>());
+    let dirs: string[];
+    try { dirs = readdirSync(join(ctx.root, 'state', 'agents')); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+    for (const dir of dirs) {
+      if (!ACCOUNT_AGENT.test(dir) || named.has(dir) || roster.has(dir)) continue;
+      rmSync(join(ctx.root, 'state', 'agents', dir), { recursive: true, force: true });
+    }
+  };
+  // Removing (5.15): a member-agent account goes through `models.authLogout` with its sealed profileIds, then its
+  // entry is dropped. An account agent goes through `clear`, an empty `list`, `agents.delete` with
+  // `deleteFiles: false`, removal of its state dir, then the entry is dropped. Refused `busy` while a run holds
+  // the agent; the member agent stays ready (only the named provider is logged out or cleared).
+  async function remove(member: Member, id: AccountId): Promise<void> {
+    check(member);
+    const { agentId: memberAgent } = await ctx.ensure(member);
+    const { entry } = await entryOf(member, id);
+    const agent = entry.agent;
+    const provider = id.split('.')[0]!;
+    if (ctx.locks.live(agent)) throw new Error('removeAccount: busy');
+    if (agent === memberAgent) {
+      await ctx.locks.exclusive([agent, indexLock(member)], async () => {
+        const listed = await ctx.request('byokit.accounts', { action: 'list', agentId: agent }) as { ok?: boolean; profiles?: { profileId?: string; provider?: string }[] };
+        const profileIds = Array.isArray(listed.profiles)
+          ? listed.profiles.filter((p) => p.provider === provider && typeof p.profileId === 'string' && p.profileId).map((p) => p.profileId!)
+          : [];
+        if (profileIds.length) await ctx.request('models.authLogout', { provider, agentId: agent, profileIds });
+        const file = read(member);
+        delete file.accounts[id];
+        if (file.defaults.account === id) delete file.defaults.account;
+        write(member, file);
+      });
+      await sweep().catch((error: unknown) => ctx.log?.(`removeAccount: ${agent} orphans are not swept: ${error instanceof Error ? error.message : String(error)}`));
+      return;
+    }
+    await ctx.locks.exclusive([agent, indexLock(member)], async () => {
+      const roster = await rosterOf();
+      if (roster.has(agent)) {
+        const emptyList = async (): Promise<boolean> => {
+          const listed = await ctx.request('byokit.accounts', { action: 'list', agentId: agent }) as { ok?: boolean; profiles?: unknown[] };
+          return listed.ok === true && Array.isArray(listed.profiles) && listed.profiles.length === 0;
+        };
+        await ctx.request('byokit.accounts', { action: 'clear', agentId: agent });
+        if (!await emptyList()) {
+          // A profile the engine refreshed during `clear` lands whole before or after it, under the same store
+          // lock: clear once more; still listed means the refresh is still racing, so stop with nothing deleted.
+          await ctx.request('byokit.accounts', { action: 'clear', agentId: agent });
+          if (!await emptyList()) throw new Error('removeAccount: the account is still signing in');
+        }
+        await ctx.request('agents.delete', { agentId: agent, deleteFiles: false });
+      }
+      const dir = agentDir(agent);
+      rmSync(dir, { recursive: true, force: true });
+      if (existsSync(dir)) {
+        // A late write recreated it: remove once more; still there means the engine is still writing, so keep
+        // the entry for the next sweep.
+        rmSync(dir, { recursive: true, force: true });
+        if (existsSync(dir)) throw new Error('removeAccount: the account is still signing in');
+      }
+      // Already holding the index lock: write directly instead of `edit`, which would wait on itself.
+      const file = read(member);
+      delete file.accounts[id];
+      if (file.defaults.account === id) delete file.defaults.account;
+      write(member, file);
+    });
+    await sweep().catch((error: unknown) => ctx.log?.(`removeAccount: ${agent} orphans are not swept: ${error instanceof Error ? error.message : String(error)}`));
+  }
+
   // Index edits take the index lock, as listing's own write does.
   const edit = (member: Member, fn: (file: IndexFile) => void): Promise<void> =>
     ctx.locks.exclusive([indexLock(member)], async () => { const file = read(member); fn(file); write(member, file); });
@@ -529,8 +622,15 @@ export function createAccounts(ctx: {
           if (!(keep && keep[0] !== id) && own) { if (answer.who) own.who = answer.who; else delete own.who; write(member, file); }
           return { ...(answer.who ? { who: answer.who } : {}), ...(keep ? { keep } : {}), dups };
         }).catch((error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 200));
-        if (typeof sealed === 'string') view = { state: 'failed', via: view.via, why: 'failed', error: sealed };
-        else {
+        if (typeof sealed === 'string') {
+          // A seal failure on the member agent (the non-fresh path) leaves its new credential with no index entry,
+          // so listing hides it but runs could use it. Clear only this provider: the bare clear wipes every profile.
+          if (agent === memberAgent) {
+            await ctx.request('byokit.accounts', { action: 'clear', agentId: memberAgent, provider })
+              .catch((error: unknown) => ctx.log?.(`addAccount: ${memberAgent} ${provider} is not cleared: ${error instanceof Error ? error.message : String(error)}`));
+          }
+          view = { state: 'failed', via: view.via, why: 'failed', error: sealed };
+        } else {
           for (const dup of sealed.dups) await collapse(dup, sealed.keep!, sealed.who!);
           const into = sealed.keep?.[0] !== id ? sealed.keep : undefined;
           if (!into || !await adopt(sealed.who!, into[1].agent)) return { view, id };
@@ -552,5 +652,5 @@ export function createAccounts(ctx: {
     return { id, paste: handle.paste, cancel: handle.cancel, done };
   }
 
-  return { list, add, rename, defaults, setDefaults, models, room, pick, rest };
+  return { list, add, rename, defaults, setDefaults, models, room, pick, rest, remove, sweep };
 }
