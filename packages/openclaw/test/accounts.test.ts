@@ -409,16 +409,24 @@ test('identity: same who refreshes, again with another who adds, no who never me
     assert.equal((await ready(b.id)).expiresAt, later + 2);
     assert.equal((await rows()).length, 4, 'the refused row kept by the earlier sign-in merges away');
 
-    // Two pre-O14 accounts sharing a who: a sign-in with it adopts into the earlier addedAt (d, not c).
+    // Two pre-O14 accounts sharing a who: a sign-in with it moves the later one's credential into the earlier addedAt
+    // (d, not n), removes n, then adopts into d. c holds no credential, so it is left alone.
+    fake.signInAs({ accountId: 'canary-acct-e' });
+    const n = await add(c.id);
+    const dupAgent = index().accounts[n.id]!.agent;
     const file = index() as { accounts: Record<string, { addedAt: number; who?: string }> };
-    file.accounts[c.id]!.who = file.accounts[d.id]!.who = whoOf('canary-acct-e');
+    file.accounts[d.id]!.who = whoOf('canary-acct-e');
     file.accounts[d.id]!.addedAt = 1;
     writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(file, null, 2) + '\n');
+    const dAgent = index().accounts[d.id]!.agent;
     fake.signInAs({ accountId: 'canary-acct-e' });
+    const adoptsBeforeDup = adopts.length;
     assert.equal((await add()).id, d.id);
+    assert.deepEqual(adopts.slice(adoptsBeforeDup).map((a) => [a.from, a.to]).slice(0, 1), [[dupAgent, dAgent]], 'the later duplicate moves into the earliest first');
+    assert.equal(adopts.length - adoptsBeforeDup, 2, 'then the sign-in');
+    assert.equal(index().accounts[n.id], undefined, 'n merges into d');
     assert.equal((await ready(d.id)).who, whoOf('canary-acct-e'));
-    assert.equal(index().accounts[c.id], undefined, 'c merges into d');
-    assert.equal((await rows()).length, 3);
+    assert.equal((await rows()).length, 4);
 
     // The member agent signing in again to its signed-out account's who: that account, nothing adopted or cleared.
     await kit.signOut('m1', 'openai');
@@ -427,7 +435,7 @@ test('identity: same who refreshes, again with another who adds, no who never me
     assert.deepEqual(await add(), { added: 'openai', id: 'openai' });
     assert.equal((await ready('openai')).who, whoOf('canary-acct-a'));
     assert.equal((await ready(b.id)).who, whoOf('canary-acct-b'));
-    assert.equal((await rows()).length, 3);
+    assert.equal((await rows()).length, 4);
 
     // The member row and an earlier pre-O14 account share a who: the member's sign-in adopts into the earlier one
     // and the member's primary model goes back to what it was before that sign-in.
@@ -445,7 +453,7 @@ test('identity: same who refreshes, again with another who adds, no who never me
     assert.equal((await ready(b.id)).expiresAt, later + 3);
     assert.equal(index().accounts.openai, undefined, 'the member row merges away');
     assert.equal((await configOf()).config.agents.entries.m1!.model, before, 'the member primary model is restored');
-    assert.equal((await rows()).length, 2);
+    assert.equal((await rows()).length, 3);
 
     // The member row holds the sign-in and an earlier openai row shares its who: the member row merges into the earlier one.
     fake.signInAs({ accountId: 'canary-acct-z' });
@@ -462,7 +470,7 @@ test('identity: same who refreshes, again with another who adds, no who never me
     assert.equal(index().accounts.openai, undefined, 'the member row merged away');
     assert.equal((await configOf()).config.agents.entries.m1!.model, memberBefore, 'the member primary model is unchanged by the merge');
     assert.equal((await ready(b.id)).expiresAt, later + 4);
-    assert.equal((await rows()).length, 2);
+    assert.equal((await rows()).length, 3);
 
     // A removal that stopped partway left an entry whose agent is gone, still carrying the who: it is skipped.
     const dead = index();
@@ -471,7 +479,7 @@ test('identity: same who refreshes, again with another who adds, no who never me
     fake.signInAs({ accountId: 'canary-acct-z', expires: later + 5 });
     assert.equal((await add()).id, b.id, 'the sign-in merges into the live row');
     assert.equal((await ready(b.id)).expiresAt, later + 5);
-    assert.equal((await rows()).length, 2);
+    assert.equal((await rows()).length, 3);
 
     // A signed-out member row keeps its who but holds nothing: it is no holder, so the earlier live row takes the sign-in and the row stays.
     fake.signInAs({ accountId: 'canary-acct-y' });
@@ -491,7 +499,7 @@ test('identity: same who refreshes, again with another who adds, no who never me
     assert.equal((await ready(b.id)).expiresAt, later + 6);
     assert.equal(index().accounts.openai?.who, whoOf('canary-acct-y'), 'the signed-out member row stays');
     assert.equal((await kit.accounts('m1')).find((r) => r.id === 'openai')?.state, 'signed_out');
-    assert.equal((await rows()).length, 3);
+    assert.equal((await rows()).length, 4);
 
     // The member's profiles cannot be read after the seal: the sign-in is kept as its own row, nothing adopted or merged.
     fake.signInAs({ accountId: 'canary-acct-q' });
@@ -510,7 +518,7 @@ test('identity: same who refreshes, again with another who adds, no who never me
     assert.deepEqual(adopts.slice(adoptsBeforeRead), [], 'no adopt');
     assert.equal(index().accounts[unmerged.id]!.who, whoOf('canary-acct-q'));
     assert.ok(lines.slice(logBeforeRead).some((line) => line.includes('unreadable')), 'the kit logs the unreadable member');
-    assert.equal((await rows()).length, 4);
+    assert.equal((await rows()).length, 5);
 
     // No who or account id reaches the app: rows, views, done results, errors, kit state or log lines.
     await assert.rejects(kit.addAccount('m1', { authChoice: 'openai', again: 'openai.000000' }, () => {}), (error: Error) => { seen.push(error.message); return true; });

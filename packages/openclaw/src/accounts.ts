@@ -449,12 +449,12 @@ export function createAccounts(ctx: {
       : edit(member, memberAgent, (file) => { delete file.accounts[id]; })
         .catch((error: unknown) => ctx.log?.(`addAccount: ${id} entry is kept: ${error instanceof Error ? error.message : String(error)}`));
     const drop = (): Promise<void> => agent !== memberAgent || added ? removeEntry() : Promise.resolve();
-    // A live account holding the same `who` merges into the earliest one before the sign-in does: an account agent is
-    // removed, the member agent's own profile is moved into the earliest one and its entry dropped. A refused move
+    // A live account holding the same `who` merges into the earliest one before the sign-in does: its profile is moved
+    // into the earliest one, then an account agent is removed and the member agent's entry dropped. A refused move
     // keeps that duplicate, logged.
     const collapse = async (dup: [AccountId, IndexEntry], keep: [AccountId, IndexEntry], who: string): Promise<void> => {
+      if (!await moveTo(dup[1].agent, keep[1].agent, who)) { ctx.log?.(`addAccount: ${dup[0]} is kept: its sign-in is not moved`); return; }
       if (dup[1].agent !== memberAgent) { await discard(member, memberAgent, dup[0], dup[1].agent, true); return; }
-      if (!await moveTo(memberAgent, keep[1].agent, who)) { ctx.log?.(`addAccount: ${dup[0]} is kept: its sign-in is not moved`); return; }
       await edit(member, memberAgent, (file) => { delete file.accounts[dup[0]]; })
         .catch((error: unknown) => ctx.log?.(`addAccount: ${dup[0]} entry is kept: ${error instanceof Error ? error.message : String(error)}`));
     };
