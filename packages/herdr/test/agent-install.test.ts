@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
-import { agentInstallState, resolveAgentBinary } from '../src/agents.ts';
+import { agentInstallState, isAutoInstallShim, resolveAgentBinary } from '../src/agents.ts';
 import { HerdrKit } from '../src/kit.ts';
 import { startFakeHerdr } from '../src/testing/index.ts';
 import type { AgentStartEvent } from '../src/types.ts';
@@ -49,6 +49,20 @@ test('agentStatus: a shim reads not-installed, a real pi binary reads installed'
   const [pi] = await kit.agentStatus(['pi'], { path: [real], run: async () => undefined });
   assert.deepEqual(pi, { kind: 'pi', installed: true, installState: 'installed',
     signedIn: 'unknown', installHint: 'installs on first start' });
+});
+
+test('a Node interpreter under mise is installed, not a shim; a shell launcher stays a shim', () => {
+  const node = '#!/home/u/.local/share/mise/installs/node/24/bin/node\nconsole.log("pi");\n';
+  const dir = binDir('herdr-install-umer-node-interp', { pi: node, claude: '#!/usr/bin/env node\n' + "console.log('mise x is not a shim');\n" });
+  assert.deepEqual(agentInstallState('pi', { path: [dir] }),
+    { kind: 'pi', state: 'installed', path: join(dir, 'pi') });
+  assert.deepEqual(agentInstallState('claude', { path: [dir] }),
+    { kind: 'claude', state: 'installed', path: join(dir, 'claude') });
+  assert.equal(isAutoInstallShim('pi', () => node), false);
+  assert.equal(isAutoInstallShim('pi', () => SHIM), true);
+  assert.equal(isAutoInstallShim('pi', () => '#!/bin/sh\nexec "/home/u/.local/bin/mise" x -- pi "$@"\n'), true);
+  assert.equal(isAutoInstallShim('pi', () => '#!/bin/zsh\nmise x -- pi "$@"\n'), true);
+  assert.equal(isAutoInstallShim('pi', () => '#!/usr/bin/env node\nmise x -- pi\n'), false);
 });
 
 async function withKit(
