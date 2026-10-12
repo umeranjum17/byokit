@@ -363,6 +363,13 @@ s.end();
 View-only devices open only the streams `allow` permits (or `canView` when `allow` is absent). A host without `stream`
 tells devices so (`LinkError` `not-supported`), and so does a host older than streams.
 
+For whole JSON messages instead of bytes, `ndjson(stream)` sends one object per `\n`-terminated line and delivers
+each complete message in order: `const j = ndjson(s); await j.send({ text: 'hi' }); j.onMessage((m) => …)`.
+Messages split at any byte boundary arrive whole, including a multi-byte character split across two chunks, and a
+returned handler promise holds the sender back through the same credit window. A line past `NDJSON_MAX_LINE`
+(1 MiB, `ndjson(s, { maxLine })` changes it) ends the stream with `'line-too-long'` on both ends and is never
+delivered, so nothing is buffered without bound; a line that is not JSON ends it with `failed`.
+
 On a direct socket, stream bytes go as binary WebSocket messages (without base64 overhead); through a relay, whose
 host wrapper is text, the same frames go as base64 text. The host says which in `ready`; everything else stays text.
 
