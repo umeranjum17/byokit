@@ -399,7 +399,7 @@ test('identity: same who refreshes, again with another who adds, no who never me
     loseAdoptReply = true;
     assert.equal((await add()).id, b.id, 'the earlier of the two rows holding that who');
     assert.equal((await ready(b.id)).expiresAt, later + 2);
-    assert.equal((await rows()).length, 5);
+    assert.equal((await rows()).length, 4, 'the refused row kept by the earlier sign-in merges away');
 
     // Two pre-O14 accounts sharing a who: a sign-in with it adopts into the earlier addedAt (d, not c).
     const file = index() as { accounts: Record<string, { addedAt: number; who?: string }> };
@@ -409,8 +409,8 @@ test('identity: same who refreshes, again with another who adds, no who never me
     fake.signInAs({ accountId: 'canary-acct-e' });
     assert.equal((await add()).id, d.id);
     assert.equal((await ready(d.id)).who, whoOf('canary-acct-e'));
-    assert.deepEqual(await ready(c.id), { ok: true, type: 'oauth', expiresAt: (await ready(c.id)).expiresAt }, 'c keeps its own sign-in');
-    assert.equal((await rows()).length, 5);
+    assert.equal(index().accounts[c.id], undefined, 'c merges into d');
+    assert.equal((await rows()).length, 3);
 
     // The member agent signing in again to its signed-out account's who: that account, nothing adopted or cleared.
     await kit.signOut('m1', 'openai');
@@ -419,7 +419,7 @@ test('identity: same who refreshes, again with another who adds, no who never me
     assert.deepEqual(await add(), { added: 'openai', id: 'openai' });
     assert.equal((await ready('openai')).who, whoOf('canary-acct-a'));
     assert.equal((await ready(b.id)).who, whoOf('canary-acct-b'));
-    assert.equal((await rows()).length, 5);
+    assert.equal((await rows()).length, 3);
 
     // The member row and an earlier pre-O14 account share a who: the member's sign-in adopts into the earlier one
     // and the member's primary model goes back to what it was before that sign-in.
@@ -437,7 +437,31 @@ test('identity: same who refreshes, again with another who adds, no who never me
     assert.equal((await ready(b.id)).expiresAt, later + 3);
     assert.equal((await ready('openai')).ok, false, 'the member is signed out');
     assert.equal((await configOf()).config.agents.entries.m1!.model, before, 'the member primary model is restored');
-    assert.equal((await rows()).length, 5);
+    assert.equal((await rows()).length, 3);
+
+    // The member row holds the sign-in and an earlier openai row shares its who: the member row merges into the earlier one.
+    fake.signInAs({ accountId: 'canary-acct-z' });
+    assert.deepEqual(await add(), { added: 'openai', id: 'openai' }, 'the member holds the new sign-in');
+    const earlier = index();
+    earlier.accounts[b.id]!.who = whoOf('canary-acct-z');
+    earlier.accounts[b.id]!.addedAt = 1;
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(earlier, null, 2) + '\n');
+    fake.signInAs({ accountId: 'canary-acct-z', expires: later + 4 });
+    const merged = await add();
+    assert.match(merged.added, /^openai\.[0-9a-f]{6}$/);
+    assert.equal(merged.id, b.id, 'the earlier account takes the sign-in');
+    assert.equal(index().accounts.openai, undefined, 'the member row merged away');
+    assert.equal((await ready(b.id)).expiresAt, later + 4);
+    assert.equal((await rows()).length, 2);
+
+    // A removal that stopped partway left an entry whose agent is gone, still carrying the who: it is skipped.
+    const dead = index();
+    dead.accounts['openai.dead00'] = { agent: 'm1--dead00', name: 'Gone', route: 'openai', addedAt: 0, who: whoOf('canary-acct-z') };
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(dead, null, 2) + '\n');
+    fake.signInAs({ accountId: 'canary-acct-z', expires: later + 5 });
+    assert.equal((await add()).id, b.id, 'the sign-in merges into the live row');
+    assert.equal((await ready(b.id)).expiresAt, later + 5);
+    assert.equal((await rows()).length, 2);
 
     // No who or account id reaches the app: rows, views, done results, errors, kit state or log lines.
     await assert.rejects(kit.addAccount('m1', { authChoice: 'openai', again: 'openai.000000' }, () => {}), (error: Error) => { seen.push(error.message); return true; });
