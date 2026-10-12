@@ -124,7 +124,8 @@ export function createAccounts(ctx: {
         file.accounts[provider] = entry;
         dirty = true;
       }
-      if (!entry.who && typeof profiles[0]?.who === 'string') { entry.who = profiles[0].who; dirty = true; }
+      // Not while the member agent's own sign-in runs: settle decides whose that `who` is (it may be adopted away).
+      if (!entry.who && typeof profiles[0]?.who === 'string' && !signing.has(`${member}\n${provider}`)) { entry.who = profiles[0].who; dirty = true; }
       const meta = metaOf(entry.route);
       memberRows.push({ id: provider, provider, route: entry.route, name: entry.name, label: meta.label,
         billing: meta.billing, state: stateOf(entry.route, profiles[0]?.status, entry.until),
@@ -411,9 +412,12 @@ export function createAccounts(ctx: {
     // account and keeps its `who`.
     const adopt = (who: string, to: string): Promise<boolean> => ctx.locks.exclusive([memberAgent, agent, to], async () => {
       const answer = await (ctx.request('byokit.accounts', { action: 'adopt', from: agent, to, provider, who }) as Promise<{ ok?: boolean }>)
-        .catch((error: unknown) => {
-          ctx.log?.(`addAccount: the sign-in stays a new account: ${error instanceof Error ? error.message : String(error)}`);
-          return {} as { ok?: boolean };
+        .catch(async (error: unknown) => {
+          ctx.log?.(`addAccount: adopt has no answer: ${error instanceof Error ? error.message : String(error)}`);
+          // A lost reply can follow a committed move: the target no longer holding this sign-in means it moved.
+          const held = await (ctx.request('byokit.accounts', { action: 'list', agentId: agent }) as Promise<{ ok?: boolean; profiles?: LiveProfile[] }>)
+            .catch(() => undefined);
+          return { ok: held?.ok === true && Array.isArray(held.profiles) && !held.profiles.some((p) => p.provider === provider && p.who === who) };
         });
       if (answer.ok) return true;
       const file = read(member);

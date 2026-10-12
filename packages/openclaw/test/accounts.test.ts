@@ -317,11 +317,15 @@ test('identity: same who refreshes, again with another who adds, no who never me
   const stateDir = scratchDir('o14g-identity');
   const fake = fakeGateway();
   let refuseAdopt = false;
+  let loseAdoptReply = false;
   const refusing: typeof fake.factory = (ctx) => {
     const transport = fake.factory(ctx);
     return { ...transport, request: async (method, params, o) => {
-      if (refuseAdopt && method === 'byokit.accounts' && (params as { action?: string }).action === 'adopt') { refuseAdopt = false; return { ok: false }; }
-      return transport.request(method, params, o);
+      if (method !== 'byokit.accounts' || (params as { action?: string }).action !== 'adopt') return transport.request(method, params, o);
+      if (refuseAdopt) { refuseAdopt = false; return { ok: false }; }
+      const answer = await transport.request(method, params, o);
+      if (loseAdoptReply) { loseAdoptReply = false; throw new Error('gateway reply lost'); }
+      return answer;
     } };
   };
   const lines: string[] = [];
@@ -388,6 +392,13 @@ test('identity: same who refreshes, again with another who adds, no who never me
     const kept = await add();
     assert.equal(kept.id, kept.added);
     assert.equal(index().accounts[kept.id]!.who, whoOf('canary-acct-b'));
+    assert.equal((await rows()).length, 5);
+
+    // The engine moved the sign-in but its adopt reply was lost: the kit sees it moved, so no stray row is left.
+    fake.signInAs({ accountId: 'canary-acct-b', expires: later + 2 });
+    loseAdoptReply = true;
+    assert.equal((await add()).id, b.id, 'the earlier of the two rows holding that who');
+    assert.equal((await ready(b.id)).expiresAt, later + 2);
     assert.equal((await rows()).length, 5);
 
     // Two pre-O14 accounts sharing a who: a sign-in with it adopts into the earlier addedAt (d, not c).
