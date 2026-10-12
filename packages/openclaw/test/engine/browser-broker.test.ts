@@ -297,9 +297,10 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
       assert.ok((await denied.send(method, {}, privateSid)).error, `controller closed set: ${method}`);
     }
     assert.ok((await denied.send('Page.reload', { scriptToEvaluateOnLoad: 'globalThis.fixtureBypass=true' }, privateSid)).error);
+    // Mid-redirect Chromium can reply with an error ("Not attached to an active page"); that is not-yet-committed, so keep polling.
     await until(async () => {
       const h = (await denied.send('Page.getNavigationHistory', {}, privateSid)).result;
-      return h.entries[h.currentIndex].url === `${siteOrigin}/ready`;
+      return h?.entries[h.currentIndex]?.url === `${siteOrigin}/ready`;
     });
     const point = async (x: number, y: number) => {
       for (const type of ['mousePressed', 'mouseReleased']) assert.ok((await denied.send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 }, privateSid)).result);
