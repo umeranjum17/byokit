@@ -1146,9 +1146,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     if (body.enterpriseDomain !== undefined) {
       if (p.pi !== 'github-copilot') throw new Error('Enterprise domains apply only to GitHub Copilot.');
       const domain = body.enterpriseDomain.trim();
-      // Phones and browsers sign in to github.com only: an enterprise domain is refused here, before any store is
-      // read, never silently fallen back to the public host. Enterprise per-account plumbing is a follow-up.
-      if (domain && !this.platform.loopback) throw new Error('GitHub Enterprise sign-in is not supported on this device yet.');
+      // A GitHub Enterprise domain signs in per-account on every platform: the device flow asks once at sign-in and
+      // keeps the host on the credential, so refresh re-mints on the same host. Validation stays before any store is
+      // read, never silently fallen back to the public host.
       if (domain && (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(domain) || !domain.includes('.') || domain.includes('..')))
         throw new Error('Enter a GitHub Enterprise domain, without a path or credentials.');
     }

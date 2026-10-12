@@ -117,11 +117,26 @@ function deviceCredential(j: any, name: string, previous?: string): OAuthCredent
   return { type: 'oauth', access: j.access_token, refresh, expires: Date.now() + number(j, 'expires_in', 3600) * 1000 };
 }
 
-function copilotCredential(j: any, name: string, intermediate: string): OAuthCredential {
+function copilotCredential(j: any, name: string, intermediate: string, enterprise?: string): OAuthCredential {
   if (typeof j?.token !== 'string' || typeof j?.expires_at !== 'number') throw new Error(`${name} did not return a token for this sign-in.`);
-  return { type: 'oauth', access: j.token, refresh: intermediate, expires: j.expires_at * 1000 };
+  // The person's own host stays on the credential (the pinned engine keeps the same `enterpriseUrl` shape), so a
+  // refresh after a restart signs in to the same host without asking again; github.com keeps exactly
+  // access/expires/refresh/type.
+  return { type: 'oauth', access: j.token, refresh: intermediate, expires: j.expires_at * 1000, ...(enterprise ? { enterpriseUrl: enterprise } : {}) };
 }
-async function copilotExchange(url: string, intermediate: string, name: string, signal?: AbortSignal) {
+/** A GitHub Enterprise host from a sign-in answer or a kept credential: blank means github.com. The hostname rule
+ *  mirrors the sign-in gate in accounts.ts; a kept value that fails it reads as the default host, never a refusal. */
+function enterpriseHost(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    const url = trimmed.includes('://') ? new URL(trimmed) : new URL(`https://${trimmed}`);
+    if (!/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/i.test(url.hostname) || !url.hostname.includes('.') || url.hostname.includes('..')) return undefined;
+    return url.hostname;
+  } catch { return undefined; }
+}
+async function copilotExchange(url: string, intermediate: string, name: string, signal?: AbortSignal, enterprise?: string) {
   let res: Response;
   try {
     res = await fetch(url, { signal, headers: { accept: 'application/json', authorization: `Bearer ${intermediate}` } });
@@ -131,7 +146,7 @@ async function copilotExchange(url: string, intermediate: string, name: string, 
   }
   const body = await res.text();
   if (res.status < 200 || res.status > 299) throw Object.assign(new Error(`${name} credential exchange failed (${res.status})`), { status: res.status, revoked: res.status === 401 || res.status === 403 });
-  try { return copilotCredential(json(body), name, intermediate); } catch (e) { throw Object.assign(e as Error, { status: res.status }); }
+  try { return copilotCredential(json(body), name, intermediate, enterprise); } catch (e) { throw Object.assign(e as Error, { status: res.status }); }
 }
 
 /** Keep the credential, or nothing, if the person gave up while it was being written. */
@@ -176,12 +191,21 @@ function minimaxAnswer(r: { status: number; body: string }, name: string): Answe
 /** RFC 8628 device authorization, plus the catalogue's data for a provider whose client differs: `pkce` adds the S256
  *  challenge, `grant` overrides the token grant, and `dialect: 'minimax'` polls by user code with the verifier, reads a
  *  status-field answer and takes the code's absolute expiry. */
-async function deviceLogin(pi: string, flow: DeviceFlow, name: string, base: string | undefined, credentials: CredentialStore, { signal, notify }: AuthInteraction, webcrypto?: Pick<Crypto, 'getRandomValues' | 'subtle'>): Promise<Credential> {
+async function deviceLogin(pi: string, flow: DeviceFlow, name: string, base: string | undefined, credentials: CredentialStore, { signal, notify, prompt }: AuthInteraction, webcrypto?: Pick<Crypto, 'getRandomValues' | 'subtle'>): Promise<Credential> {
   const minimax = flow.dialect === 'minimax';
   const crypto = webcrypto ?? globalThis.crypto;
   const pk = flow.pkce ? await pkce(crypto) : undefined;
-  // `{host}` is the provider's default host (github.com for Copilot): phones and browsers sign in there only.
-  const host = 'github.com';
+  // `{host}` is the person's own GitHub Enterprise host for a provider with an exchange step (Copilot), asked once
+  // here (blank for the provider's default host); every other provider signs in on its catalogue host. The kept
+  // credential carries the host, so refresh never asks again.
+  let enterprise: string | undefined;
+  if (flow.exchange) {
+    const raw = (await prompt({ type: 'text', message: 'GitHub Enterprise URL/domain (blank for github.com)', placeholder: 'company.ghe.com' })).trim();
+    if (signal?.aborted) throw new Error('Login cancelled');
+    enterprise = raw ? enterpriseHost(raw) : undefined;
+    if (raw && !enterprise) throw new Error('Enter a GitHub Enterprise domain, without a path or credentials.');
+  }
+  const host = enterprise ?? 'github.com';
   const authorization = at(flow.authorization.replaceAll('{host}', host), base);
   const token = at(flow.token.replaceAll('{host}', host), base);
   const exchange = flow.exchange && at(flow.exchange.replaceAll('{host}', host), base);
@@ -199,7 +223,7 @@ async function deviceLogin(pi: string, flow: DeviceFlow, name: string, base: str
       .catch((e) => { if (signal?.aborted) throw e; return { status: 0, body: '' }; });
     const answer = minimax ? minimaxAnswer(r, name) : rfcAnswer(r, name, !!exchange);
     if ('credential' in answer) {
-      const credential = exchange ? await copilotExchange(exchange, answer.credential.access, name, signal) : answer.credential;
+      const credential = exchange ? await copilotExchange(exchange, answer.credential.access, name, signal, enterprise) : answer.credential;
       await keep(credentials, pi, credential, signal);
       return credential;
     }
@@ -235,9 +259,12 @@ function minimaxCredential(j: any, name: string): OAuthCredential {
 
 const deviceRefresh = (flow: DeviceFlow, name: string, base?: string) => async (c: OAuthCredential) => {
   if (flow.exchange) {
+    // A kept Enterprise credential re-mints on its own host, read from the credential the way the pinned engine reads
+    // it, so a freshly built engine refreshes the same account without asking again; github.com keeps its default host.
+    const enterprise = enterpriseHost(c.enterpriseUrl);
     const stop = new AbortController();
     const t = setTimeout(() => stop.abort(), 15_000);
-    try { return await copilotExchange(at(flow.exchange.replaceAll('{host}', 'github.com'), base), c.refresh, name, stop.signal); }
+    try { return await copilotExchange(at(flow.exchange.replaceAll('{host}', enterprise ?? 'github.com'), base), c.refresh, name, stop.signal, enterprise); }
     finally { clearTimeout(t); }
   }
   const stop = new AbortController();
