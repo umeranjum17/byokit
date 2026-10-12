@@ -6,7 +6,9 @@ import { boat, machine, type MachineRecord } from '@byokit/cloud';
 import { DeviceLink, pairWithOffer, secureDeviceStore } from '@byokit/pair';
 import type { Accounts } from '@byokit/accounts';
 import { cloudRecipe, M6_API, M6_KEY, pairedTurn, trialBudget } from './cloud-m6.ts';
-const recordKey = 'byokit.m6.machine', identityKey = 'byokit.m6.identity', turnKey = 'byokit.m6.turn';
+// One create and one turn per approved run: the build names the run, so an approved retry starts clean (pm clear is blocked on some phones).
+const run = process.env.EXPO_PUBLIC_M6_RUN ? '.' + process.env.EXPO_PUBLIC_M6_RUN : '';
+const recordKey = 'byokit.m6.machine' + run, identityKey = 'byokit.m6.identity' + run, turnKey = 'byokit.m6.turn' + run;
 const store = secureDeviceStore(SecureStore, 'byokit.m6.link');
 const readKey = async () => { const key = await SecureStore.getItemAsync(M6_KEY); if (!key) throw new Error('The lab provider key is missing.'); return key; };
 export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
