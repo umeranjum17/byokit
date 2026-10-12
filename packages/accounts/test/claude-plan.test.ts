@@ -175,6 +175,20 @@ test('a failed Claude plan answer names its cause in plain words and never echoe
   assert.equal(await refused.store.read(id), undefined, 'a refused sign-in is signed out, as before');
 });
 
+test('a timed-out Claude request says it took too long, and a cancelled one says it was cancelled, both rest nothing', async () => {
+  for (const [signal, thrown, message] of [
+    [AbortSignal.abort(new DOMException('The operation timed out.', 'TimeoutError')), new DOMException('The operation timed out.', 'TimeoutError'), 'Claude took too long to answer. Try again.'],
+    [AbortSignal.abort(), new DOMException('The operation was aborted.', 'AbortError'), 'The Claude request was cancelled.'],
+  ] as const) {
+    const store = memoryStore(); await store.modify(id, async () => token(fixture.now + 3600_000));
+    const a = new Accounts({ store: () => store, fetch: (async () => { throw thrown; }) as typeof fetch, claudePlan: { now: () => fixture.now } });
+    const error = await a.respond(1, { ...request, signal }).then(() => assert.fail('should fail'), (e: ResponseError) => e);
+    assert.ok(error instanceof ResponseError);
+    assert.equal(error.message, message); assert.equal(error.kind, null);
+    assert.equal((await a.status(1, 'claude')).state, 'ready');
+  }
+});
+
 test('two members, device keystore adapter and unoffered account retain ownership', async () => {
   const saved = new Map<string, string>();
   const backend = { get: async (name: string) => saved.get(name) ?? null, set: async (name: string, value: string) => { saved.set(name, value); } };

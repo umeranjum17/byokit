@@ -7,6 +7,11 @@ import { answerer, decide } from '../../decide/src/index.ts';
 const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/anthropic-sse-typescript.json', import.meta.url), 'utf8'));
 const good = fixture.cases[0].stream as string;
 
+test('the API-key route rejects a failed fetch with the raw TypeError, not a plan-style network error', async () => {
+  const api = anthropic({ key: 'key', fetch: (async () => { throw new TypeError('fetch failed'); }) as typeof fetch });
+  await assert.rejects(api.respond({ model: 'claude-test', max_tokens: 10, messages: [{ role: 'user', content: 'Hi' }] }), (e: unknown) => e instanceof TypeError && e.message === 'fetch failed');
+});
+
 test('recorded Messages streams: text/tools/thinking, cumulative usage, incomplete and errors at arbitrary boundaries', () => {
   for (const c of fixture.cases) for (const stream of [c.stream, c.stream.replace(/\n/g, '\r\n'), c.stream.replace(/\n/g, '\r')]) {
     for (const chunks of [[stream], [...stream]]) {

@@ -223,7 +223,7 @@ export function anthropic(opts: AnthropicOptions) {
 }
 
 /** The plain-words Claude plan failure: usage limit with its reset, expired sign-in, busy, unreachable, or the HTTP status. */
-export function claudeFailure(kind: ResponseError['kind'], until: number, status?: number, now = Date.now()): string {
+function claudeFailure(kind: ResponseError['kind'], until: number, status?: number, now = Date.now()): string {
   if (kind === 'rate_limit') return 'You have hit your Claude plan usage limit.' + (until > now ? ` Try again in ~${Math.max(1, Math.round((until - now) / 60_000))} min.` : ' Try again later.');
   if (kind === 'signed_out') return status === 403 ? 'Claude refused this sign-in (HTTP 403). Sign in with Claude again.' : 'Your Claude sign-in has expired. Sign in with Claude again.';
   if (kind === 'overloaded') return 'Claude is busy right now. Try again in a few minutes.';
@@ -246,8 +246,10 @@ export function anthropicMessages(opts: Pick<AnthropicOptions, 'fetch' | 'base' 
       const http = e instanceof ResponseError && e.status !== undefined ? { status: e.status, retryAfter: e.retryAfter } : undefined;
       // A cancelled request says so and rests nothing; other local errors stay generic. Only a rejected fetch is "network" (run marks it).
       const cancelled = !(e instanceof ResponseError) && ((e as Error | undefined)?.name === 'AbortError' || !!o.signal?.aborted);
+      const timedOut = !(e instanceof ResponseError) && ((e as Error | undefined)?.name === 'TimeoutError' || (o.signal?.reason as Error | undefined)?.name === 'TimeoutError');
       const kind = e instanceof ResponseError ? e.kind : null, until = e instanceof ResponseError ? e.until : 0;
-      const safe = new ResponseError(cancelled ? 'The Claude request was cancelled.' : claudeFailure(kind, until, http?.status), kind, until, http);
+      const message = timedOut ? 'Claude took too long to answer. Try again.' : cancelled ? 'The Claude request was cancelled.' : claudeFailure(kind, until, http?.status);
+      const safe = new ResponseError(message, kind, until, http);
       const reason = e instanceof ResponseError ? e.reason : (e as Error | undefined)?.name;
       if (reason && /^[A-Za-z_]{1,64}$/.test(reason)) safe.reason = reason;
       if (e instanceof ResponseError && e.status !== undefined) {
@@ -269,7 +271,7 @@ export function anthropicMessages(opts: Pick<AnthropicOptions, 'fetch' | 'base' 
         body: JSON.stringify({ ...(opts.prepare ? opts.prepare(request) : request), stream: true }),
       });
     } catch (e) {
-      if (!(e instanceof TypeError) || signal?.aborted) throw e;
+      if (!opts.safeErrors || !(e instanceof TypeError) || signal?.aborted) throw e;
       const failed = new ResponseError(e.message, 'network'); failed.reason = e.name; throw failed;
     }
     if (!res.ok) {
