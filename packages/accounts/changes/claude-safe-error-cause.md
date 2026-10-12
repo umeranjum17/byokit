@@ -1,1 +1,7 @@
-- Claude plan answer failures keep their generic message but now carry the HTTP `status` and a safe `reason` on `ResponseError`: Anthropic's error type, or the local error's name. Neither is a message body, so apps can log why a call failed without risking a credential echo.
+- A failed Claude plan answer now names its cause in plain words without echoing the provider's message:
+  - usage limit, with the minutes until it resets (`until` comes from Anthropic's reset header and the account rests until then)
+  - expired sign-in
+  - Claude busy
+  - unreachable
+  - otherwise, the HTTP status
+- The `ResponseError` also carries the HTTP `status` and a safe `reason`: Anthropic's error type, or the local error's name.

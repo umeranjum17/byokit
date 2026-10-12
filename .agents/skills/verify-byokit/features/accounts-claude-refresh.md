@@ -19,7 +19,7 @@ Preconditions: baseline (features/README.md); no process of a previous drive is 
 - **Write the consumer.** Create `"$scratch_dir/verify-claude-refresh.mjs"` importing `Accounts, memoryStore` from `@byokit/accounts`. Start a `node:http` server on `127.0.0.1:0` that records each JSON body's `refresh_token` and answers from a queue; pass its URL as `claudePlan.tokenUrl`. Seed `{ type: 'oauth', access: 'old-access', refresh: 'grant-1', expires: Date.now() + 60_000 }`. Queue and call `getAuth` four times: `503 {}`; `401 {"error":{"type":"authentication_error","message":"Unauthorized"}}`; `200 { access_token: 'new-access', refresh_token: 'grant-2', expires_in: 60 }`; `400 { error: 'invalid_grant' }`. After each, print the result or the error's name and message, `signedIn`, `status().state` and the grants sent. Close the server at the end.
 - **Run and capture.** `feature=accounts-claude-refresh; entry=@byokit/accounts; drive=(node "$scratch_dir/verify-claude-refresh.mjs")`, then run SKILL.md Evidence's capture block. Exit code `0`.
 - **Happy path shows.** After the 503 and after the 401: an `Error` whose message says the sign-in is kept, `signedIn=true status=ready`; after the rotation: `access=new-access` with grants sent `["grant-1","grant-1","grant-1"]`.
-- **Error case shows.** `ClaudePlanExpiredError: Sign in with Claude again.`, `signedIn=false status=signed_out`, and the stored credential gone.
+- **Error case shows.** `ClaudePlanExpiredError: Your Claude sign-in has expired. Sign in with Claude again.`, `signedIn=false status=signed_out`, and the stored credential gone.
 - **Proof.** The captured artifact contains command output for the action and resulting state of every sub-feature above.
 
 ## Gotchas

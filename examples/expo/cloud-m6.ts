@@ -62,11 +62,14 @@ export const diagnostic = (e: unknown) => {
   const safe = (v: unknown) => typeof v === 'number' || (typeof v === 'string' && /^[A-Za-z0-9 _.-]{1,64}$/.test(v)) ? v : undefined;
   return 'M6 diagnostic ' + JSON.stringify({ call: safe(x.call), status: safe(x.status), kind: safe(x.kind), reason: safe(x.reason) ?? safe(x.name) });
 };
+const ask = { provider: 'claude' as const, model: provider('claude').models.strong, max_tokens: 1024 };
+const tools = [{ name: 'get_machine', description: 'Read the paired cloud computer state.', input_schema: schema }];
+/** The turn's first Claude call on its own: the no-machine check that the phone's Claude plan answers. */
+export const claudeToolCall = (accounts: Accounts<any, number>) => step('tool call', () => accounts.respond(1, { ...ask, system: 'Call only the approved machine-state tool.',
+  messages: [{ role: 'user', content: prompt }], tools, tool_choice: { type: 'tool', name: 'get_machine' } }));
 export async function pairedTurn(accounts: Accounts<any, number>, link: Pick<DeviceLink, 'request'>, plan: 'claude' | 'chatgpt' = 'claude') {
   if (plan === 'claude') {
-    const ask = { provider: 'claude' as const, model: provider('claude').models.strong, max_tokens: 1024 };
-    const tools = [{ name: 'get_machine', description: 'Read the paired cloud computer state.', input_schema: schema }];
-    const first = await step('tool call', () => accounts.respond(1, { ...ask, system: 'Call only the approved machine-state tool.', messages: [{ role: 'user', content: prompt }], tools, tool_choice: { type: 'tool', name: 'get_machine' } }));
+    const first = await claudeToolCall(accounts);
     const calls = first.raw.content.filter((c): c is AnthropicToolUse => c.type === 'tool_use');
     if (calls.length !== 1 || calls[0].name !== 'get_machine') throw new Error('The model did not return the single approved machine-state tool call.');
     checked(calls[0].input);

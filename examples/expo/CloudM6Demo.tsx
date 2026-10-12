@@ -4,8 +4,8 @@ import * as SecureStore from 'expo-secure-store';
 import { useKeepAwake } from 'expo-keep-awake';
 import { boat, machine, type MachineRecord } from '@byokit/cloud';
 import { DeviceLink, pairWithOffer, secureDeviceStore } from '@byokit/pair';
-import type { Accounts } from '@byokit/accounts';
-import { cloudRecipe, diagnostic, M6_API, M6_KEY, pairedTurn, trialBudget } from './cloud-m6.ts';
+import { ResponseError, type Accounts } from '@byokit/accounts';
+import { claudeToolCall, cloudRecipe, diagnostic, M6_API, M6_KEY, pairedTurn, trialBudget } from './cloud-m6.ts';
 // One create and one turn per approved run: the build names the run, so an approved retry starts clean (pm clear is blocked on some phones).
 const run = process.env.EXPO_PUBLIC_M6_RUN ? '.' + process.env.EXPO_PUBLIC_M6_RUN : '';
 const recordKey = 'byokit.m6.machine' + run, identityKey = 'byokit.m6.identity' + run, turnKey = 'byokit.m6.turn' + run;
@@ -62,7 +62,7 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
   };
   const act = async (run: () => Promise<void>) => {
     if (locked.current) return; locked.current = true; setBusy(true); cause.current = '';
-    try { await run(); } catch (e) { console.warn(diagnostic(e)); const key = await SecureStore.getItemAsync(M6_KEY); say(cause.current || (key ? String((e as Error).message).split(key).join('[private]') : `Lab step failed (${(e as Error & { code?: string }).code ?? (e as Error).name}); key already removed.`)); }
+    try { await run(); } catch (e) { console.warn(diagnostic(e)); const key = await SecureStore.getItemAsync(M6_KEY); say(cause.current || (key ? String((e as Error).message).split(key).join('[private]') : e instanceof ResponseError ? e.message : `Lab step failed (${(e as Error & { code?: string }).code ?? (e as Error).name}); key already removed.`)); }
     finally { locked.current = false; setBusy(false); }
   };
   // The one approved Claude plan sign-in: Main opens the link and pastes the code here; nothing leaves this phone.
@@ -105,6 +105,8 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
     await store.save(grant); link.current = new DeviceLink(grant, { store, onStatus: s => { if (s === 'online') say("Paired with Umer's cloud computer."); } });
     say("Paired with Umer's cloud computer.");
   };
+  // No machine, no Boat key: one Claude call shows whether the phone's plan answers, and why not.
+  const check = async () => { say('Checking Claude…'); await claudeToolCall(accounts); say('Claude answered the tool call.'); };
   const turn = async () => {
     if (!link.current) throw new Error('Pair the lab phone first.');
     if (await SecureStore.getItemAsync(turnKey)) throw new Error('The single agent turn was already attempted.');
@@ -116,7 +118,7 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
     <Text style={{ color: '#111', fontSize: 24, fontWeight: '600' }}>Umer's cloud computer</Text><Text style={{ color: '#111' }}>One Boat free-trial lab run. Model sign-in stays on this phone.</Text>
     <Text testID="m6-key" style={{ color: '#111' }}>{ready ? 'Lab key present.' : 'No lab key stored.'}</Text><Text testID="m6-model" style={{ color: '#111' }}>{model ? 'Existing Claude sign-in available.' : 'No Claude sign-in. Main approval needed.'}</Text><Text testID="m6-signins" style={{ color: '#111' }}>{`Sign-ins on this phone: ${signins}`}</Text>
     <Text testID="m6-note" style={{ color: '#111', fontSize: 18 }}>{note}</Text><Text testID="m6-resource" style={{ color: '#111' }} selectable>{id ? `Machine: ${id}` : 'No task machine.'}</Text>
-    {!model && !signUrl && button('m6-claude', 'Sign in to Claude', claude)}
+    {!model && !signUrl && button('m6-claude', 'Sign in to Claude', claude)}{model && button('m6-claude-check', 'Check Claude (no machine)', check)}
     {!!signUrl && <><Text testID="m6-claude-url" style={{ color: '#111' }} selectable>{signUrl}</Text>
       <TextInput testID="m6-claude-code" value={code} onChangeText={setCode} secureTextEntry autoCorrect={false} autoCapitalize="none" placeholder="Paste the Claude code" placeholderTextColor="#555" style={{ color: '#111', borderWidth: 1, borderColor: '#888', padding: 12 }} />
       {button('m6-claude-finish', 'Finish sign-in', finish, !!code)}</>}

@@ -134,14 +134,32 @@ test('plan inference uses direct bearer/native headers and identity body; 401 re
   assert.equal(s.calls.length, 2); assert.equal(await s.store.read(id), undefined); assert.equal((await s.a.status(1, 'claude')).state, 'needs_again');
 });
 
-test('a failed Claude plan answer keeps the generic message and carries only its HTTP status and safe reason', async () => {
-  const s = standIn(); await s.store.modify(id, async () => token(fixture.now + 3600_000));
-  s.set({}, 400);
-  const error = await s.a.respond(1, request).then(() => assert.fail('should fail'), (e: ResponseError) => e);
-  assert.ok(error instanceof ResponseError); assert.equal(error.message, 'Claude could not answer. Try again or sign in again.');
-  assert.equal(error.status, 400); assert.equal(error.reason, undefined, 'no provider type, no invented reason');
-  assert.ok(!JSON.stringify({ ...error, message: error.message }).includes('recorded'));
-  assert.equal((await s.a.status(1, 'claude')).state, 'ready');
+test('a failed Claude plan answer names its cause in plain words and never echoes the provider message', async () => {
+  const reset = Math.floor(Date.now() / 1000) + 47 * 60;
+  const cases: { reply: () => Response; message: string | RegExp; kind?: string | null; status?: number; reason?: string }[] = [
+    { reply: () => new Response(JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'recorded-access' } }), { status: 429, headers: { 'anthropic-ratelimit-unified-reset': String(reset) } }),
+      message: /^You have hit your Claude plan usage limit\. Try again in ~4[78] min\.$/, kind: 'rate_limit', status: 429, reason: 'rate_limit_error' },
+    { reply: () => new Response(JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'recorded-access' } }), { status: 529 }),
+      message: 'Claude is busy right now. Try again in a moment.', kind: 'overloaded', status: 529, reason: 'overloaded_error' },
+    { reply: () => { throw new TypeError('Network request failed'); }, message: 'Claude could not be reached. Check the connection and try again.', kind: 'network', reason: 'TypeError' },
+    { reply: () => new Response(JSON.stringify({ type: 'error', error: { type: 'invalid_request_error', message: 'recorded-access' } }), { status: 400 }),
+      message: 'Claude could not answer (HTTP 400). Try again or sign in again.', kind: null, status: 400, reason: 'invalid_request_error' },
+  ];
+  for (const c of cases) {
+    const store = memoryStore(); await store.modify(id, async () => token(fixture.now + 3600_000));
+    const a = new Accounts({ store: () => store, fetch: (async () => c.reply()) as typeof fetch, claudePlan: { now: () => fixture.now } });
+    const error = await a.respond(1, request).then(() => assert.fail('should fail'), (e: ResponseError) => e);
+    assert.ok(error instanceof ResponseError);
+    if (typeof c.message === 'string') assert.equal(error.message, c.message); else assert.match(error.message, c.message);
+    assert.equal(error.kind, c.kind); assert.equal(error.status, c.status); assert.equal(error.reason, c.reason);
+    assert.ok(!JSON.stringify({ ...error, message: error.message }).includes('recorded'));
+    if (c.kind === 'rate_limit') {
+      assert.equal(error.until, reset * 1000);
+      const status = await a.status(1, 'claude'); assert.equal(status.state, 'resting'); assert.equal(status.until, reset * 1000);
+    }
+  }
+  const s = standIn(); await s.store.modify(id, async () => token(fixture.now + 3600_000)); s.set({}, 401);
+  await assert.rejects(s.a.respond(1, request), { name: 'ClaudePlanExpiredError', message: 'Your Claude sign-in has expired. Sign in with Claude again.' });
 });
 
 test('two members, device keystore adapter and unoffered account retain ownership', async () => {

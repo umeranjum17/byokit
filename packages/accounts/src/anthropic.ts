@@ -83,12 +83,16 @@ export type AnthropicOptions = {
 };
 
 const record = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
-const error = (status: number, value: unknown): ResponseError => {
+const error = (status: number, value: unknown, headers?: Headers): ResponseError => {
   const e = record(value) && record(value.error) ? value.error : {};
   const kind = status === 429 || e.type === 'rate_limit_error' ? 'rate_limit'
     : status === 401 || status === 403 || e.type === 'authentication_error' ? 'signed_out'
       : status >= 500 || e.type === 'overloaded_error' ? 'overloaded' : null;
-  const out = new ResponseError(typeof e.message === 'string' ? e.message : 'Anthropic could not answer. Try again.', kind, 0, { status });
+  // When a limit lifts: the plan's unified reset (epoch seconds), else Retry-After (seconds).
+  const reset = Number(headers?.get('anthropic-ratelimit-unified-reset')), retry = Number(headers?.get('retry-after'));
+  const until = kind !== 'rate_limit' ? 0 : reset > 0 ? reset * 1000 : retry > 0 ? Date.now() + retry * 1000 : 0;
+  const out = new ResponseError(typeof e.message === 'string' ? e.message : 'Anthropic could not answer. Try again.', kind, until,
+    { status, retryAfter: headers?.get('retry-after') ?? undefined });
   if (typeof e.type === 'string' && /^[a-z_]{1,64}$/.test(e.type)) out.reason = e.type;
   return out;
 };
@@ -219,6 +223,15 @@ export function anthropic(opts: AnthropicOptions) {
 }
 
 /** Internal auth seam for the API-key and subscription routes. */
+/** The plain-words Claude plan failure: usage limit with its reset, expired sign-in, busy, unreachable, or the HTTP status. */
+export function claudeFailure(kind: ResponseError['kind'], until: number, status?: number, now = Date.now()): string {
+  if (kind === 'rate_limit') return 'You have hit your Claude plan usage limit.' + (until > now ? ` Try again in ~${Math.max(1, Math.round((until - now) / 60_000))} min.` : ' Try again later.');
+  if (kind === 'signed_out') return 'Your Claude sign-in has expired. Sign in again.';
+  if (kind === 'overloaded') return 'Claude is busy right now. Try again in a moment.';
+  if (kind === 'network' && status === undefined) return 'Claude could not be reached. Check the connection and try again.';
+  return `Claude could not answer${status ? ` (HTTP ${status})` : ''}. Try again or sign in again.`;
+}
+
 export function anthropicMessages(opts: Pick<AnthropicOptions, 'fetch' | 'base' | 'betas'> & {
   headers: Record<string, string>; prepare?: (request: AnthropicRequest) => AnthropicRequest; safeErrors?: boolean;
 }) {
@@ -229,9 +242,10 @@ export function anthropicMessages(opts: Pick<AnthropicOptions, 'fetch' | 'base' 
   async function respond(o: AnthropicAsk): Promise<string | AnthropicResult> {
     try { return await run(o); } catch (e) {
       if (!opts.safeErrors || e instanceof AnthropicIncompleteError) throw e;
-      // The message stays generic (a provider message can echo a credential); status and reason say why, safely.
-      const safe = new ResponseError('Claude could not answer. Try again or sign in again.', e instanceof ResponseError ? e.kind : 'network', 0,
-        e instanceof ResponseError && e.status !== undefined ? { status: e.status, retryAfter: e.retryAfter } : undefined);
+      // Never the provider's message (it can echo a credential): plain words for the cause, plus status and reason.
+      const http = e instanceof ResponseError && e.status !== undefined ? { status: e.status, retryAfter: e.retryAfter } : undefined;
+      const kind = e instanceof ResponseError ? e.kind : 'network', until = e instanceof ResponseError ? e.until : 0;
+      const safe = new ResponseError(claudeFailure(kind, until, http?.status), kind, until, http);
       const reason = e instanceof ResponseError ? e.reason : (e as Error | undefined)?.name;
       if (reason && /^[A-Za-z_]{1,64}$/.test(reason)) safe.reason = reason;
       throw safe;
@@ -249,7 +263,7 @@ export function anthropicMessages(opts: Pick<AnthropicOptions, 'fetch' | 'base' 
     if (!res.ok) {
       let body: unknown;
       try { body = await res.json(); } catch {}
-      throw error(res.status, body);
+      throw error(res.status, body, res.headers);
     }
     const reader = anthropicSseReader(onText, onEvent);
     const body = res.body;
