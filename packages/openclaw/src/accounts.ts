@@ -330,12 +330,15 @@ export function createAccounts(ctx: {
   // Choosing (5.15) for an unbound key: every listed account's room and models are read live once, then the pure
   // `resolveSelection` decides. `agent` is the picked account's engine agent. A model unavailable only because the
   // account is signed out or resting is still in its plan: the account's state and the run's ready check judge that.
+  // The pinned engine may hold no prepared model catalog for an agent added since it started, and refuses its models; that
+  // row's membership is then host-validated (the demand counts as its models).
   async function pick(member: Member, sel: RunSelection): Promise<{ pick: AccountPick; agent?: string }> {
     const rows = await list(member);
     const file = read(member);
+    const demand = [...(sel.model ? [sel.model] : []), ...(sel.needs ?? [])].map((id) => ({ id, name: id, available: true }));
     const reads = new Map(await Promise.all(rows.map(async (row) => {
       const entry = file.accounts[row.id]!;
-      const models = (await readModels(row, entry)).map((m) => (m.why ? { ...m, available: true } : m));
+      const models = await readModels(row, entry).then((ms) => ms.map((m) => (m.why ? { ...m, available: true } : m)), () => demand);
       return [row.id, { room: await readRoom(row, entry), models }] as const;
     })));
     const chosen = resolveSelection(rows, file.defaults, sel, (a) => reads.get(a.id)!.room, Date.now(),
