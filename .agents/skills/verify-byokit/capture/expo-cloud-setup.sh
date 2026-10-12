@@ -127,6 +127,6 @@ cat > "$evidence/manifest.json" <<JSON
 {"feature": "cloud-setup-phone", "base": "origin/main",
  "files": ["entry.png", "missing.png", "unknown-key.png", "cancelled.png", "unreachable.png", "drive.log", "fixture.log"],
  "skips": ["connected state: no live key on a device; proved by examples/expo/cloud-setup.test.ts",
-  "claim refused/expired UI: claim() is M8's; proved by scripted steps in examples/expo/cloud-setup.test.ts"]}
+  "claim refused/expired: not built in this slice (claim() is M8's stub); unproven"]}
 JSON
 log "done"

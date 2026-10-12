@@ -198,7 +198,7 @@ function CloudSetup() {
   };
   const connect = async () => {
     if (checking) return;
-    const entered = pasted;
+    const entered = pasted.trim();
     setPasted('');
     const signal = new AbortController();
     abort.current = signal;
