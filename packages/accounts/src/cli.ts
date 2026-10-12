@@ -7,6 +7,7 @@ import { say } from './words.ts';
 import { launchEnv as cleanLaunchEnv } from './isolate.ts';
 import type { AccountLike } from './multi.ts';
 import routes from './routes.json' with { type: 'json' };
+export { remoteCliHost, remoteCliState, type RemoteCliHostOptions } from './remote-cli-host.ts';
 
 export type CliProvider = 'claude' | 'codex' | 'pi';
 /** Published Pi subscription OAuth provider id, validated against the route catalogue. */
