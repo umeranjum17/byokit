@@ -456,14 +456,18 @@ export function createAccounts(ctx: {
     const handle = ctx.signIn(agent, { authChoice: route.choice, ...(o.via ? { via: o.via } : {}) },
       (v) => { if (v.state === 'waiting') on(v); }, fresh);
     // Moves the profile `who` names from `from` into `to`, under both agents' locks; refused, nothing changes.
+    const profilesOf = (agent: string): Promise<LiveProfile[] | undefined> => (ctx.request('byokit.accounts', { action: 'list', agentId: agent }) as Promise<{ ok?: boolean; profiles?: LiveProfile[] }>)
+      .then((r) => (r.ok === true && Array.isArray(r.profiles) ? r.profiles : undefined), () => undefined);
+    const profileIdOf = (profiles: LiveProfile[] | undefined, who: string): string | undefined =>
+      profiles?.find((p) => p.provider === provider && p.who === who)?.profileId;
     const moveTo = (from: string, to: string, who: string): Promise<boolean> => ctx.locks.exclusive([memberAgent, from, to], async () => {
+      const sent = profileIdOf(await profilesOf(from), who);
       const answer = await (ctx.request('byokit.accounts', { action: 'adopt', from, to, provider, who }) as Promise<{ ok?: boolean }>)
         .catch(async (error: unknown) => {
           ctx.log?.(`addAccount: adopt has no answer: ${error instanceof Error ? error.message : String(error)}`);
-          // A lost reply can follow a committed move: the source no longer holding this sign-in means it moved.
-          const held = await (ctx.request('byokit.accounts', { action: 'list', agentId: from }) as Promise<{ ok?: boolean; profiles?: LiveProfile[] }>)
-            .catch(() => undefined);
-          return { ok: held?.ok === true && Array.isArray(held.profiles) && !held.profiles.some((p) => p.provider === provider && p.who === who) };
+          // A lost reply can follow a committed move: the destination holding the sign-in's own profile means it moved.
+          const landed = sent !== undefined && profileIdOf(await profilesOf(to), who) === sent;
+          return { ok: landed };
         });
       if (!answer.ok) return false;
       if (from === memberAgent) await restoreModel(memberAgent, memberModel);

@@ -488,6 +488,7 @@ test('identity: same who refreshes, again with another who adds, no who never me
   const fake = fakeGateway();
   let refuseAdopt = false;
   let loseAdoptReply = false;
+  let loseAdoptBeforeMove = false;
   let armMemberRead = false;
   let failMemberRead = false;
   let armRosterRead = false;
@@ -505,6 +506,11 @@ test('identity: same who refreshes, again with another who adds, no who never me
       if (action !== 'adopt') return transport.request(method, params, o);
       adopts.push(params as { from: string; to: string });
       if (refuseAdopt) { refuseAdopt = false; return { ok: false }; }
+      if (loseAdoptBeforeMove) {
+        loseAdoptBeforeMove = false;
+        await transport.request('byokit.accounts', { action: 'clear', agentId: (params as { from: string }).from }, o);
+        throw new Error('gateway reply lost');
+      }
       const answer = await transport.request(method, params, o);
       if (loseAdoptReply) { loseAdoptReply = false; throw new Error('gateway reply lost'); }
       return answer;
@@ -746,10 +752,21 @@ test('identity: same who refreshes, again with another who adds, no who never me
     assert.equal((await ready(rosterKept.id)).expiresAt, later + 13);
     assert.equal((await rows()).length, 7);
 
+    // The adopt reply is lost before the engine moves anything, and the sign-in's profile is gone from its agent by
+    // another path: b did not receive it, so the sign-in keeps its own row and done does not name b.
+    const bBefore = await ready(b.id);
+    fake.signInAs({ accountId: 'canary-acct-b', expires: later + 14 });
+    loseAdoptBeforeMove = true;
+    const unmoved = await add();
+    assert.equal(unmoved.id, unmoved.added, 'the sign-in keeps its own row');
+    assert.equal(index().accounts[unmoved.added]!.who, whoOf('canary-acct-b'));
+    assert.deepEqual(await ready(b.id), bBefore, 'b keeps its own credential');
+    assert.equal((await rows()).length, 8);
+
     // No who or account id reaches the app: rows, views, done results, errors, kit state or log lines.
     await assert.rejects(kit.addAccount('m1', { authChoice: 'openai', again: 'openai.000000' }, () => {}), (error: Error) => { seen.push(error.message); return true; });
     const out = JSON.stringify([seen, lines, kit.state]);
-    for (const id of ['a', 'b', 'e', 'f', 'w', 'h', 'r']) {
+    for (const id of ['a', 'b', 'e', 'f', 'h', 'q', 'r', 'w', 'y', 'z']) {
       assert.ok(!out.includes(whoOf(`canary-acct-${id}`)), `who of ${id} leaks`);
       assert.ok(!out.includes(`canary-acct-${id}`), `account id ${id} leaks`);
     }
