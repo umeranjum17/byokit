@@ -20,12 +20,8 @@ npm install @byokit/decide
 ```
 
 That is the whole tree for rules, any host-owned model behind `answerer`, and Jev: those backends
-run on plain `fetch` and install no further packages. Import them from `@byokit/decide/slim` and
-bundlers resolve zero peers:
-
-```ts
-import { decide, rules, answerer, jev } from '@byokit/decide/slim';
-```
+run on plain `fetch` and install no further packages. Import them from `@byokit/decide/slim`
+(`import { decide, rules, answerer, jev } from '@byokit/decide/slim'`) and bundlers resolve zero peers.
 
 The remaining backends are optional peers npm skips unless the app installs them: `@byokit/accounts`
 for ChatGPT plan billing (`openai({ auth: 'account', ... })`, subscription), and `@byokit/pair` for the
