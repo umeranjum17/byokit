@@ -1,6 +1,8 @@
-import { cacheKey, decide, type Answer, type Backend, type DecideCache, type Question, type ImageInput } from './index.ts';
+import { cacheKey, decideWithKey, type Answer, type Backend, type DecideCache, type Question, type ImageInput } from './core.ts';
+import { normalizeImages, validateImageReferences } from './images.ts';
 import { jev } from './jev.ts';
-import { openai, UnsupportedAccountError, type OpenAIAccount, type OpenAIRequestOptions } from './openai.ts';
+import { openai, type OpenAIAccount, type OpenAIRequestOptions } from './openai.ts';
+import { UnsupportedAccountError } from './account-error.ts';
 import type { RetryOptions } from './http.ts';
 
 export type DecideConfig = RetryOptions & (
@@ -66,7 +68,7 @@ export function configuredBackend(o: ConfigOptions): { backend: Backend; config:
   const config = parseConfig(o.config);
   if (config.backend === 'jev') return { config, backend: jev({ ...config, key: o.host.keys?.jev ?? '', fetch: o.host.fetch }) };
   if (config.auth === 'apiKey') return { config, backend: openai({ ...config, auth: 'apiKey', key: o.host.keys?.openai ?? '', fetch: o.host.fetch }) };
-  if (!o.host.account) throw new UnsupportedAccountError('ChatGPT plan usage needs an account session.');
+  if (!o.host.account) throw new UnsupportedAccountError('ChatGPT plan usage needs an account session from the @byokit/accounts peer (install it to use auth: "account").');
   if (o.cache && !o.host.cacheScope?.trim()) throw new ConfigError('Account caches require a per-person cacheScope.');
   return { config, backend: openai({ ...config, auth: 'account', account: o.host.account, fetch: o.host.fetch }) };
 }
@@ -77,6 +79,20 @@ export function configCacheKey(state: unknown, questions: Record<string, Questio
     credential: config.auth === 'apiKey' ? host.keys?.[config.backend] : undefined }, questions, images);
 }
 
+/** A `{ config, host }` call: resolve its one configured backend, then run the shared engine under the
+ * config-namespaced cache key. The main entry's `decide` routes here when `opts` carries `config`. */
+export function decideForConfig(state: unknown, questions: Record<string, Question>, o: ConfigOptions): Promise<Record<string, Answer>> {
+  const selected = configuredBackend(o);
+  const images = normalizeImages(o.images);
+  validateImageReferences(questions, images);
+  return decideWithKey(state, questions, {
+    privacy: o.privacy,
+    backends: [selected.backend],
+    ...(o.timeoutMs !== undefined && { timeoutMs: o.timeoutMs }),
+    ...(o.cache !== undefined && { cache: o.cache }),
+  }, images, o.cache ? configCacheKey(state, questions, selected.config, o.host, images) : undefined);
+}
+
 /** Set configuration once. A per-call partial override replaces provider-specific settings on a backend switch. */
 export function createDecider(config: DecideConfig | string | Record<string, unknown>, options: Omit<ConfigOptions, 'config'>) {
   const base = parseConfig(config);
@@ -84,6 +100,6 @@ export function createDecider(config: DecideConfig | string | Record<string, unk
     const { images = options.images, ...settings } = override ?? {};
     const changed = override?.backend !== undefined && override.backend !== base.backend;
     const shared = changed ? { auth: base.auth, maxRetries: base.maxRetries, retryBaseMs: base.retryBaseMs, retryMaxMs: base.retryMaxMs } : base;
-    return decide(state, questions, { ...options, images, config: parseConfig({ ...shared, ...settings }) });
+    return decideForConfig(state, questions, { ...options, images, config: parseConfig({ ...shared, ...settings }) });
   };
 }

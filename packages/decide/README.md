@@ -19,6 +19,20 @@ set the floors.</p>
 npm install @byokit/decide
 ```
 
+That is the whole tree for rules, any host-owned model behind `answerer`, and Jev: those backends
+run on plain `fetch` and install no further packages. Import them from `@byokit/decide/slim` and
+bundlers resolve zero peers:
+
+```ts
+import { decide, rules, answerer, jev } from '@byokit/decide/slim';
+```
+
+The remaining backends are optional peers npm skips unless the app installs them: `@byokit/accounts`
+for ChatGPT plan billing (`openai({ auth: 'account', ... })`, subscription), and `@byokit/pair` for the
+paired Jev route (the host app keeps its API key (billed per use) in its own store). Account billing
+without the accounts peer throws `UnsupportedAccountError` naming `@byokit/accounts`. API-key OpenAI
+needs no peer at runtime. The main entry keeps every export and works either way.
+
 [![npm](https://img.shields.io/npm/v/@byokit/decide?style=flat&label=)](https://www.npmjs.com/package/@byokit/decide) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=decide-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
 
 ## Quickstart

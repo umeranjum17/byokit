@@ -1,4 +1,4 @@
-import type { Usage } from './index.ts';
+import type { Usage } from './core.ts';
 
 export type RetryOptions = {
   /** 429 retries after the first attempt (default 2). Other statuses never retry. */

@@ -1,7 +1,7 @@
 // Jev, TypeSafe's decision model, over its own API or OpenRouter's copy of it (the same request and answers).
 // The key is the host's: the app reads it from its own environment or config and hands it here. The kit never reads
 // an environment variable, never ships a key and never puts it anywhere but the one request header.
-import type { Backend, Question, Raw } from './index.ts';
+import type { Backend, Question, Raw } from './core.ts';
 import { UnsupportedImagesError } from './images.ts';
 import { parseUsage, retryFetch, type RetryOptions } from './http.ts';
 
