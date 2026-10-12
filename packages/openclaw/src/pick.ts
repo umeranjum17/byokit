@@ -10,6 +10,11 @@ export type RoomOf = (a: Account, demand: readonly string[]) => Room;
 type Candidate = { account: Account; row: Considered };
 const DAY_MS = 24 * 60 * 60 * 1000;
 const finite = (n: number | undefined): n is number => typeof n === 'number' && Number.isFinite(n);
+/** The lowercased provider of a well-formed `provider/model` reference; undefined when the reference is malformed. */
+export function providerOf(model: string): string | undefined {
+  const at = model.indexOf('/');
+  return at <= 0 || at === model.length - 1 || /[\s@]/.test(model) ? undefined : model.slice(0, at).toLowerCase();
+}
 const reset = (r: Considered) => r.resetsAt ?? Infinity;
 const roomWords = (left: number, span: RoomSpan) => words(`room.${span}` as WordKey, { left: `${Math.round(left)}%` });
 // "3:40pm", or "Fri 3:40pm" when it isn't today (matches @byokit/accounts' clock).
@@ -129,7 +134,7 @@ export function resolveSelection(accounts: readonly Account[], defaults: Default
     const ready = listed?.filter((m) => m.available && !m.why);
     const usable = ready?.length ? ready : listed?.filter((m) => m.available && m.why === 'signed_out');
     const saved = defaults.model && (usable ? usable.some((m) => m.id === defaults.model)
-      : defaults.model.split('/')[0]!.toLowerCase() === account.provider.toLowerCase()) ? defaults.model : undefined;
+      : providerOf(defaults.model) === account.provider.toLowerCase()) ? defaults.model : undefined;
     const model = sel.model ?? saved ?? usable?.[0]?.id ?? '';
     if (listed && !model) return { ok: false, code: 'not_included', reason: words('pick.out.model', { model: sel.model ?? '' }), considered };
     row.reason = why;

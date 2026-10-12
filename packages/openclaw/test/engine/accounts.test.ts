@@ -359,7 +359,8 @@ test('run({ account }): each account agent bills its own key; a signed-out one e
     const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:o14j:out', message: 'hello', account: 'openai.bbbbbb',
       model: 'openai/gpt-5.6-sol' }, (e) => events.push(e));
     assert.deepEqual(end, { ok: false, kind: 'signed-out', message: 'Key bbbbbb is not signed in' });
-    assert.deepEqual(events, []);
+    assert.deepEqual(events.map((e) => e.type), ['account']);
+    assert.ok(events[0]?.type === 'account' && events[0].account === 'openai.bbbbbb');
     assert.equal(stub.calls.length, before, 'no stub request');
     const text = JSON.stringify([readFileSync(index, 'utf8'), await kit.accounts('m1')]);
     for (const apiKey of Object.values(keys)) assert.ok(!text.includes(apiKey), 'no key in the index or the rows');

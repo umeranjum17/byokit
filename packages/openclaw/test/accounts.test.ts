@@ -405,7 +405,8 @@ test('run on an account: account event first, Auto by room, resting skip, ready 
     const signedOut = await run({ sessionKey: 'agent:m1:chat:4', account: second.id });
     const name = (await kit.accounts('m1')).find((a) => a.id === second.id)!.name;
     assert.deepEqual(signedOut.end, { ok: false, kind: 'signed-out', message: `${name} is not signed in` });
-    assert.deepEqual([signedOut.events, signedOut.requests], [[], []]);
+    assert.deepEqual([signedOut.events.map((e) => e.type), signedOut.requests], [['account'], []]);
+    assert.ok(signedOut.events[0]?.type === 'account' && signedOut.events[0].account === second.id);
 
     // The member account rests too: Auto has no candidate, so the run ends signed-out with no agent request.
     fake.failNext('agent', 'usage limit reached');

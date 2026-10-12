@@ -8,6 +8,7 @@ import { authStatus } from './auth-status.ts';
 import { outputSchema, type OutputSchema, type SchemaOutput } from './output.ts';
 import { words } from './words.ts';
 import { classify } from './classify.ts';
+import { providerOf } from './pick.ts';
 import type { AccountPick, GatewayTransport, Member, PlanWindow, RunEnd, RunEvent, RunSpec, RunUsage } from './types.ts';
 
 // The gateway gives up on a silent run after an hour; we wait ten minutes longer for the reply frame itself.
@@ -79,10 +80,9 @@ function planOf(provider: string, row: Row | undefined): PlanWindow | undefined 
  * a session preference it may rotate away from (docs/runtime-kits.md 5.8), so the kit never sends one.
  */
 function account(model: string): { provider: string; model: string } {
-  const at = model.indexOf('/');
-  if (at <= 0 || at === model.length - 1 || /[\s@]/.test(model))
-    throw new Error(`refused: "${model}" is not a provider/model reference`);
-  return { provider: model.slice(0, at).toLowerCase(), model: model.slice(at + 1) }; // the engine lowercases ids
+  const provider = providerOf(model);
+  if (provider === undefined) throw new Error(`refused: "${model}" is not a provider/model reference`);
+  return { provider, model: model.slice(model.indexOf('/') + 1) }; // the engine lowercases ids
 }
 
 export function createRuns(ctx: {
@@ -193,11 +193,11 @@ export function createRuns(ctx: {
     });
     try {
       if (chosen) {
+        on?.({ type: 'account', account: chosen.account.id, model: chosen.model, sessionKey, how: chosen.how, why: chosen.why,
+          considered: chosen.considered });
         // Runs step 5: the account's own sealed sign-in on its agent replaces the member-wide status check below.
         const ready = await ctx.request('byokit.accounts', { action: 'ready', agentId, provider: chosen.account.provider }) as { ok?: boolean };
         if (!ready.ok) return { ok: false, kind: 'signed-out', message: `${chosen.account.name} is not signed in` };
-        on?.({ type: 'account', account: chosen.account.id, model: chosen.model, sessionKey, how: chosen.how, why: chosen.why,
-          considered: chosen.considered });
       } else if (picked) {
         // The picked account must be the one called: check it is signed in for this member before the run, since
         // the engine would otherwise fail the run only after admitting it. An explicit provider/model is strict on
