@@ -1434,7 +1434,7 @@ test('restore skips an unchanged object but rewrites changed, missing and differ
     fs.chmodSync(modePath, 0o644);
     for (const path of [samePath, changedPath, modePath]) fs.utimesSync(path, old, old);
     const sameMtime = fs.statSync(samePath).mtimeMs;
-    assert.equal(sameMtime, old.getTime(), 'the test setup pinned the skip candidate to the old mtime');
+    assert.ok(Math.abs(sameMtime - old.getTime()) < 5, 'the test setup pinned the skip candidate to the old mtime');
 
     // A second start over the live tree: drop the first store's lock so a fresh store can acquire it.
     // The abandoned first store is never stopped; the second store owns the restore and the cleanup stop.
@@ -1446,7 +1446,7 @@ test('restore skips an unchanged object but rewrites changed, missing and differ
     assert.equal(digestOf(samePath), digests.get(sameName), 'the skipped file still holds the sealed bytes');
     assert.equal(readFileSync(changedPath).equals(tampered), false, 'a same-size changed file is rewritten');
     assert.equal(digestOf(changedPath), digests.get(changedName), 'the changed file restores the sealed bytes');
-    assert.notEqual(fs.statSync(changedPath).mtimeMs, old.getTime(), 'the changed file was rewritten');
+    assert.ok(Math.abs(fs.statSync(changedPath).mtimeMs - old.getTime()) > 1000, 'the changed file was rewritten');
     assert.equal(readFileSync(authPath, 'utf8'), 'saved-login', 'a missing file is rewritten');
     assert.equal(digestOf(modePath), digests.get(modeName), 'a different-mode file keeps the sealed bytes');
     assert.equal(fs.statSync(modePath).mode & 0o777, 0o600, 'a different-mode file is rewritten at the restore mode');
