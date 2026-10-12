@@ -140,7 +140,7 @@ export function resolveSelection(accounts: readonly Account[], defaults: Default
   } else if (auto) return finish(auto.account, auto.row, 'auto', auto.why);
   const eligible = rows.filter((c) => !c.row.out || c.row.out === 'resting');
   const rests = eligible.filter((c) => c.row.out === 'resting');
-  if (rests.length && rests.length === eligible.length)
+  if (rests.length)
     return restingPick(rests.reduce((a, b) => ((b.row.until ?? Infinity) < (a.row.until ?? Infinity) ? b : a)));
   return { ok: false, code: 'none', reason: words('auto.none', { provider: provider ?? '' }), considered };
 

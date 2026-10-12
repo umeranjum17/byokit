@@ -53,7 +53,7 @@ export function createAccounts(ctx: {
   setDefaults(member: Member, d: Defaults): Promise<void>;
   models(member: Member, id: AccountId): Promise<ModelInfo[]>;
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;
-  pick(member: Member, sel: RunSelection): Promise<{ pick: AccountPick; agent?: string }>;
+  pick(member: Member, sel: RunSelection, skip?: readonly AccountId[]): Promise<{ pick: AccountPick; agent?: string }>;
   rest(member: Member, id: AccountId, until: number): Promise<void>;
 } {
   const path = (member: Member): string => join(ctx.root, 'accounts', `${member}.json`);
@@ -333,8 +333,8 @@ export function createAccounts(ctx: {
   // account is signed out or resting is still in its plan: the account's state and the run's ready check judge that.
   // The pinned engine may hold no prepared model catalog for an agent added since it started, and refuses its models; that
   // row's models are then unknown (`undefined`), and `resolveSelection` host-validates its membership by provider.
-  async function pick(member: Member, sel: RunSelection): Promise<{ pick: AccountPick; agent?: string }> {
-    const rows = await list(member);
+  async function pick(member: Member, sel: RunSelection, skip: readonly AccountId[] = []): Promise<{ pick: AccountPick; agent?: string }> {
+    const rows = (await list(member)).filter((r) => !skip.includes(r.id));
     const file = read(member);
     const reads = new Map(await Promise.all(rows.map(async (row) => {
       const entry = file.accounts[row.id]!;

@@ -446,3 +446,37 @@ test('run on an account: account event first, Auto by room, resting skip, ready 
     rmSync(stateDir, { recursive: true, force: true });
   }
 });
+
+test('run on an account: abort with the member key reaches the account run; an Auto pick not signed in falls through', async () => {
+  const stateDir = scratchDir('o14j-route');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done, { state: 'done', via: 'browser' });
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    fake.setUsage('m1', 'openai', [{ label: 'session', usedPercent: 80 }]);
+    fake.setUsage(agent, 'openai', [{ label: 'session', usedPercent: 10 }]);
+    for (const id of ['openai', second.id]) await kit.room('m1', id);
+
+    const aborted = await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:1', message: 'hello', account: 'auto' }, (e) => {
+      if (e.type === 'started') void kit.abort('agent:m1:chat:1');
+    });
+    assert.deepEqual(aborted, { ok: false, aborted: true });
+    assert.deepEqual(fake.calls.filter((c) => c.method === 'chat.abort').map((c) => (c.params as { sessionKey: string }).sessionKey),
+      [`agent:${agent}:chat:1`]);
+
+    await kit.callDynamic('byokit.accounts', { action: 'clear', agentId: agent });
+    const events: RunEvent[] = [];
+    const from = fake.calls.length;
+    const fell = await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:2', message: 'hello', account: 'auto' }, (e) => events.push(e));
+    assert.ok(events[0]?.type === 'account' && events[0].account === 'openai' && events[0].how === 'auto', JSON.stringify(events));
+    assert.ok(fell.ok && fell.account === 'openai', JSON.stringify(fell));
+    assert.deepEqual(fake.calls.slice(from).filter((c) => c.method === 'agent').map((c) => (c.params as { agentId: string }).agentId), ['m1']);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});

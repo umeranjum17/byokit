@@ -502,6 +502,7 @@ export class OpenClawKit {
   private greeting?: Hello;
   private members?: ReturnType<typeof createMembers>;
   private readonly locks = createLocks();
+  private readonly routes = new Map<string, string>();
   private accountsCtl?: ReturnType<typeof createAccounts>;
   // One bridge and one approval surface per kit: listeners and run registrations survive reconnects (B3).
   // Only the socket itself is per-connection. Approvals always reaches the live transport through this.request().
@@ -995,6 +996,7 @@ export class OpenClawKit {
       tools: new Set(this.toolNames()),
       ...(this.accountsCtl ? { accounts: this.accountsCtl } : {}),
       locks: this.locks,
+      routes: this.routes,
     });
   }
 

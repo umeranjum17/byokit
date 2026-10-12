@@ -95,6 +95,7 @@ export function createRuns(ctx: {
   tools: ReadonlySet<string>; // KitOptions.tools names, the only names a run's subset may carry
   accounts?: Pick<ReturnType<typeof createAccounts>, 'pick' | 'rest'>; // 5.15: account runs
   locks?: ReturnType<typeof createLocks>;
+  routes: Map<string, string>; // the caller's session key -> the account session its live run uses; steer and abort follow it
 }): {
   run<const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void, keyAgent?: string, preparedOutput?: ReturnType<typeof outputSchema>): Promise<RunEnd<SchemaOutput<S>>>;
   steer(k: string, t: string): Promise<void>;
@@ -139,27 +140,51 @@ export function createRuns(ctx: {
     if (keyAgent) throw new Error('refused: an API-key run uses its own account');
     if (!ctx.accounts || !ctx.locks) throw new Error('gateway not ready');
     const accounts = ctx.accounts;
+    const locks = ctx.locks;
     const restAccount = async (id: string, until: number | undefined): Promise<number> => {
       const at = until ?? Date.now() + REST_MS;
       await accounts.rest(spec.member, id, at);
       return at;
     };
-    // Step 4: the selection is resolved once, before any request; `needs` alone resolves as 'default'.
-    const { pick, agent } = await accounts.pick(spec.member, { account: spec.account ?? 'default',
-      ...(spec.model !== undefined ? { model: spec.model } : {}), ...(spec.needs ? { needs: spec.needs } : {}) });
-    if (!pick.ok) {
-      if (pick.code === 'unknown_account') throw new Error(`unknown account: ${spec.account}`); // a caller bug
-      if (pick.code === 'resting') return { ok: false, kind: 'resting', until: await restAccount(pick.account, pick.until), message: pick.reason };
-      return { ok: false, kind: pick.code === 'none' ? 'signed-out' : pick.code === 'not_included' ? 'plan' : 'other', message: pick.reason };
+    const signedIn = async (agentId: string, provider: string): Promise<boolean> =>
+      !!(await ctx.request('byokit.accounts', { action: 'ready', agentId, provider }) as { ok?: boolean }).ok;
+    const skipped: string[] = [];
+    for (;;) {
+      // Step 4: the selection is resolved once per attempt, before any request; `needs` alone resolves as 'default'.
+      const { pick, agent } = await accounts.pick(spec.member, { account: spec.account ?? 'default',
+        ...(spec.model !== undefined ? { model: spec.model } : {}), ...(spec.needs ? { needs: spec.needs } : {}) }, skipped);
+      if (!pick.ok) {
+        if (pick.code === 'unknown_account') throw new Error(`unknown account: ${spec.account}`); // a caller bug
+        if (pick.code === 'resting') return { ok: false, kind: 'resting', until: await restAccount(pick.account, pick.until), message: pick.reason };
+        return { ok: false, kind: pick.code === 'none' ? 'signed-out' : pick.code === 'not_included' ? 'plan' : 'other', message: pick.reason };
+      }
+      const sessionKey = `agent:${agent}:${tail}`;
+      const automatic = pick.how === 'auto' || pick.why === 'first_ready';
+      // An unbound key runs on the picked account's agent, under the app key's tail. The run holds the agent's shared
+      // lock from its ready check to its end. An automatic pick not signed in is skipped before any event; an explicit
+      // one announces itself, then ends signed-out.
+      const end = await locks.shared(agent!, async (): Promise<RunEnd<SchemaOutput<S>> | undefined> => {
+        if (automatic && !await signedIn(agent!, pick.account.provider)) return undefined;
+        ctx.routes.set(spec.sessionKey, sessionKey);
+        try {
+          on?.({ type: 'account', account: pick.account.id, model: pick.model, sessionKey, how: pick.how, why: pick.why, considered: pick.considered });
+          if (!automatic && !await signedIn(agent!, pick.account.provider))
+            return { ok: false, kind: 'signed-out', message: `${pick.account.name} is not signed in` };
+          return await start(spec, on, { agentId: agent!, sessionKey, idempotencyKey, system,
+            picked: pick.model ? account(pick.model) : undefined, output, chosen: pick }); // '' = no override
+        } finally {
+          ctx.routes.delete(spec.sessionKey);
+        }
+      });
+      if (end === undefined) {
+        skipped.push(pick.account.id);
+        continue;
+      }
+      // Step 7: a resting end rests the account, so the next Auto skips it until then.
+      if (end.ok || !('kind' in end) || end.kind !== 'resting') return end;
+      const until = await restAccount(pick.account.id, end.until);
+      return { ...end, until };
     }
-    // An unbound key runs on the picked account's agent, under the app key's tail. The run holds the agent's shared
-    // lock from its ready check to its end.
-    const end = await ctx.locks.shared(agent!, () => start(spec, on, { agentId: agent!, sessionKey: `agent:${agent}:${tail}`,
-      idempotencyKey, system, picked: pick.model ? account(pick.model) : undefined, output, chosen: pick })); // '' = no override
-    // Step 7: a resting end rests the account, so the next Auto skips it until then.
-    if (end.ok || !('kind' in end) || end.kind !== 'resting') return end;
-    const until = await restAccount(pick.account.id, end.until);
-    return { ...end, until };
   };
   const start = async <const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on: ((e: RunEvent) => void) | undefined, t: {
     agentId: string; sessionKey: string; idempotencyKey: string; system: string; picked?: { provider: string; model: string };
@@ -198,13 +223,7 @@ export function createRuns(ctx: {
       }
     });
     try {
-      if (chosen) {
-        on?.({ type: 'account', account: chosen.account.id, model: chosen.model, sessionKey, how: chosen.how, why: chosen.why,
-          considered: chosen.considered });
-        // Runs step 5: the account's own sealed sign-in on its agent replaces the member-wide status check below.
-        const ready = await ctx.request('byokit.accounts', { action: 'ready', agentId, provider: chosen.account.provider }) as { ok?: boolean };
-        if (!ready.ok) return { ok: false, kind: 'signed-out', message: `${chosen.account.name} is not signed in` };
-      } else if (picked) {
+      if (picked && !chosen) {
         // The picked account must be the one called: check it is signed in for this member before the run, since
         // the engine would otherwise fail the run only after admitting it. An explicit provider/model is strict on
         // the pinned engine (never another provider or model), so this check plus the override is the guarantee.
@@ -291,7 +310,7 @@ export function createRuns(ctx: {
   };
   return {
     run,
-    steer: (k, t) => ctx.request('sessions.steer', { sessionKey: k, message: t }) as Promise<void>,
-    abort: async (k) => { await ctx.request('chat.abort', { sessionKey: k }); },
+    steer: (k, t) => ctx.request('sessions.steer', { sessionKey: ctx.routes.get(k) ?? k, message: t }) as Promise<void>,
+    abort: async (k) => { await ctx.request('chat.abort', { sessionKey: ctx.routes.get(k) ?? k }); },
   };
 }
