@@ -1,8 +1,8 @@
 // The per-member account index (5.15, O14 step S5): `<root>/accounts/<member>.json` (0600, whole-file temp
 // plus rename) is the only kit state: `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?,
 // who? } }, defaults }`. No credential, token, email or engine line. Listing, rename, defaults, models, room,
-// adding with its identity merge (O14 steps S6, S7) and the start-of-run pick (S10) live here; remove and move
-// arrive in later steps.
+// adding with its identity merge (O14 steps S6, S7) and the start-of-run pick (S10) live here; remove arrives in a
+// later step.
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';

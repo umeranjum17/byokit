@@ -12,7 +12,7 @@ Verification recipe for [adding an account](../../../../docs/runtime-kits.md#515
 
 ## How to get to it (user POV)
 
-A person already signed in to ChatGPT taps "Add another ChatGPT account" on a member. The browser opens on OpenAI's login screen rather than reusing the session; after signing in, the member lists two ChatGPT accounts.
+A person already signed in to ChatGPT taps "Add another ChatGPT account" on a member. The browser opens on OpenAI's login screen rather than reusing the session; after signing in as a different ChatGPT account, the member lists two ChatGPT accounts. Signing in again as the same account refreshes its row instead ([identity merge](./openclaw-identity-merge.md)).
 
 ## Driving it with node scratch consumers
 
