@@ -1445,8 +1445,9 @@ cache.
    Bound to the member agent with `spec.account` set: `'auto'` and `'default'` choose only among the member agent's
    own accounts (`bound` = those), and an id on another agent is refused with `account.bound`.
    An `auth: 'apiKey'` run on a conversation bound to a subscription account or to the member agent is refused the same
-   way (`code: 'bound'`, words `account.bound`); on an API-billed binding it continues on the key. The refusals here read
-   the index alone, so only the binding read itself (step 1) reaches the Gateway before them.
+   way (`code: 'bound'`, words `account.bound`); on an API-billed binding it continues on the key. An API-key run first
+   reads the key (`byokit.keys ready`), then the binding (step 1); the refusals here read the index alone, so no other
+   request follows the binding read.
 3. Bound to the member agent, or unbound, with `spec.account` absent and `spec.needs` absent or empty: exactly today's 5.8
    behavior on the member agent (existing requests stay byte-identical). A non-empty `spec.needs` with `spec.account`
    absent resolves as `account: 'default'`.
