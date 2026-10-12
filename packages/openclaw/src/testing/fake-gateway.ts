@@ -203,7 +203,8 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     const agent = ensureAgent(id);
     if (!agent.providers.includes(provider)) agent.providers.push(provider);
     // The pin names the first profile of a provider `<provider>:default` and points the agent's model at it.
-    storeOf(id)[`${provider}:default`] = { provider, type: 'oauth', status: 'ok', ...extra };
+    storeOf(id)[`${provider}:default`] = { provider, type: 'oauth', status: 'ok', access: 'fake-access',
+      refresh: 'fake-refresh', expires: Date.now() + 30 * 86_400_000, accountId: `fake-${id}`, ...extra };
     orderOf(id)[provider] = [`${provider}:default`];
     models.set(id, `${provider}/default@${provider}:default`);
   };
@@ -311,10 +312,20 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       return { id };
     },
     // One profile per signed-in provider, `<provider>:default`, as the pin lists an agent's own profiles.
-    'models.authStatus': (p) => ({
-      providers: (agents.get(String(p?.agentId ?? 'main'))?.providers ?? []).map((provider) => ({ provider,
-        profiles: [{ profileId: `${provider}:default`, type: 'oauth', status: 'ok' }] })),
-    }),
+    'models.authStatus': (p) => {
+      const id = String(p?.agentId ?? 'main');
+      const store = storeOf(id);
+      const now = Date.now();
+      return {
+        providers: (agents.get(id)?.providers ?? []).map((provider) => {
+          const profileId = `${provider}:default`;
+          const credential = store[profileId];
+          return { provider,
+            profiles: [{ profileId, type: credential?.type ?? 'oauth',
+              status: credential ? statusOf(credential, now) : 'ok' }] };
+        }),
+      };
+    },
     'models.authLogout': (p) => {
       const agent = agents.get(String(p?.agentId ?? 'main'));
       // The pin refuses a profileIds list naming a profile the agent does not hold.
@@ -326,6 +337,8 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       if (store) for (const profileId of Object.keys(store)) if (store[profileId].provider === p.provider) delete store[profileId];
       const order = orders.get(String(p.agentId ?? 'main'));
       if (order) delete order[String(p.provider)];
+      const pin = models.get(String(p.agentId ?? 'main'));
+      if (typeof pin === 'string' && pin.includes(`@${String(p.provider)}:`)) models.delete(String(p.agentId ?? 'main'));
       if (keys.get(String(p.agentId))?.provider === p.provider) keys.delete(String(p.agentId));
       return {};
     },
@@ -357,8 +370,11 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
           if (ACCOUNT_AGENT.test(to) ? otherId !== fromId : other.provider === provider && otherId !== fromId) delete toStore[otherId];
         toStore[fromId] = credential;
         toOrder[provider] = [fromId];
+        if (!ensureAgent(to).providers.includes(provider)) ensureAgent(to).providers.push(provider);
         delete storeOf(from)[fromId];
         if (fromOrder[provider]) { fromOrder[provider] = fromOrder[provider].filter((x) => x !== fromId); if (!fromOrder[provider].length) delete fromOrder[provider]; }
+        if (!Object.values(storeOf(from)).some((c) => c.provider === provider))
+          ensureAgent(from).providers = ensureAgent(from).providers.filter((x) => x !== provider);
         const cut = target.lastIndexOf('@');
         models.set(to, `${cut > 0 ? target.slice(0, cut) : target}@${fromId}`);
         return { ok: true };
@@ -369,7 +385,10 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       if (action === 'list')
         return { ok: true, profiles: Object.entries(store).map(([profileId, credential]) => ({ provider: credential.provider,
           profileId, type: credential.type, status: statusOf(credential, Date.now()), ...(whoOf(credential) ? { who: whoOf(credential) } : {}) })) };
-      if (action === 'clear') { profiles.set(id, {}); orders.set(id, {}); return { ok: true }; }
+      if (action === 'clear') { profiles.set(id, {}); orders.set(id, {}); models.delete(id);
+        const cleared = agents.get(id);
+        if (cleared) cleared.providers = [];
+        return { ok: true }; }
       if (action === 'ready') {
         const provider = String(p.provider ?? '');
         const named = order[provider] ?? [];
@@ -394,6 +413,11 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
         const provider = String(p.provider);
         if (account) orders.set(id, { [provider]: [profileId] });
         else order[provider] = [profileId];
+        const sealedAgent = agents.get(id);
+        if (sealedAgent) {
+          if (account) sealedAgent.providers = [provider];
+          else if (!sealedAgent.providers.includes(provider)) sealedAgent.providers.push(provider);
+        }
         return { ok: true, ...(whoOf(credential) ? { who: whoOf(credential) } : {}) };
       }
       return { ok: false };
