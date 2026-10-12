@@ -268,6 +268,9 @@ function card(key: string) {
   let pendingAdd: string | undefined;
   let cancelledHere = false;
   let signedIn = false;
+  type Said = { tone: '' | 'error' | 'expired' | 'info'; words: string };
+  // The last way an account being added ended, kept so the card still says it after the add is gone.
+  let failure: Said | undefined;
   async function draw() {
     const mine = ++drawing;
     const status = await accounts.status(ME, key);
@@ -331,13 +334,15 @@ function card(key: string) {
       show('codewell', false); show('open', false); show('paste', false);
     } else if (!ready || adding) {
       // The sheet is gone; the sign-in button is the single primary again, under a banner saying what happened.
-      if (phase === 'expired') banner('expired', signInError(name, shown?.error ?? 'expired'));
-      else if (phase === 'cancelled') banner('info', say('signIn.cancelled'));
-      else if (phase === 'failed' || phase === 'busy' || phase === 'offline') {
-        banner(cancelledHere ? 'info' : 'error', cancelledHere ? say('signIn.cancelled') : signInError(name, shown?.error ?? 'failed'));
-      } else banner('', '');
+      const said: Said = phase === 'expired' ? { tone: 'expired', words: signInError(name, shown?.error ?? 'expired') }
+        : phase === 'cancelled' ? { tone: 'info', words: say('signIn.cancelled') }
+        : phase === 'failed' || phase === 'busy' || phase === 'offline'
+          ? (cancelledHere ? { tone: 'info', words: say('signIn.cancelled') } : { tone: 'error', words: signInError(name, shown?.error ?? 'failed') })
+          : { tone: '', words: '' };
+      banner(said.tone, said.words);
+      if (adding) failure = said;
       cancelledHere = false;
-    } else banner('', '');
+    } else banner(failure?.tone ?? '', failure?.words ?? '');
     if (shown?.state === 'failed') void 0; // banner above already said it, in this card's own words
     show('signin', !ready && !waiting && !pendingAdd);
     show('add', ready && !waiting && !pendingAdd);
@@ -354,8 +359,9 @@ function card(key: string) {
     b.textContent = 'Copied';
     window.setTimeout(() => { b.textContent = 'Copy'; }, 1200);
   };
-  const signIn = () => { banner('', ''); return accounts.login(ME, key).then(draw); };
+  const signIn = () => { failure = undefined; banner('', ''); return accounts.login(ME, key).then(draw); };
   const addAnother = async () => {
+    failure = undefined;
     note('');
     try {
       const added = await accounts.add(ME, key, { fresh: true });

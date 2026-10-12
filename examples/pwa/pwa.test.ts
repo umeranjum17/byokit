@@ -204,6 +204,40 @@ test('Add sheet rows start their own card: a signed-in plan row adds another sig
   } finally { await context.close(); }
 });
 
+test('an added sign-in that runs out: the card is not stuck, its expiry words survive an unrelated redraw', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext({ serviceWorkers: 'block' });
+  try {
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.clock.install();
+    await page.goto(site.url);
+    await part(page, 'chatgpt', 'signin').click();
+    const code = (await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).textContent())!;
+    const [provider] = await Promise.all([context.waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
+    await provider.fill('#code', code);
+    await provider.click('#continue');
+    await provider.close();
+    await page.locator('#chatgpt [data-email]').filter({ hasText: 'umer@example.com' }).waitFor();
+
+    await page.locator('#add-open').click();
+    await page.locator('[data-route="openai:code"]').click();
+    await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).waitFor();
+    await page.clock.fastForward(16 * 60_000);
+    await part(page, 'chatgpt', 'add').waitFor({ state: 'visible' });
+    assert.equal(await part(page, 'chatgpt', 'sheet').isVisible(), false, 'the expired sheet is gone');
+    assert.equal(await part(page, 'chatgpt', 'note').getAttribute('data-tone'), 'expired', 'the card says the code ran out');
+    const words = await part(page, 'chatgpt', 'note').textContent();
+
+    await part(page, 'chatgpt', 'pick').dispatchEvent('change');
+    await page.waitForTimeout(300);
+    assert.equal(await part(page, 'chatgpt', 'note').isVisible(), true, 'the words survive an unrelated redraw');
+    assert.equal(await part(page, 'chatgpt', 'note').textContent(), words);
+    assert.equal(await part(page, 'chatgpt', 'add').isVisible(), true, 'Add another is back, so the card is not stuck');
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
 test('sign in with Claude in a browser: its page, the code pasted back, the plan named, an answer streamed', { timeout: 120_000 }, async () => {
   const fixture = (f: string) => JSON.parse(readFileSync(new URL(`../../fixtures/conformance/${f}`, import.meta.url), 'utf8'));
   const plan = fixture('claude-plan-typescript.json'), messages = fixture('claude-messages-typescript.json').cases[0];
