@@ -147,6 +147,13 @@ export function herdrLink(kit: HerdrKit, o: {
           const wid = asString((place.tab as Record<string, unknown>).workspaceId);
           if (!wid || !kit.snapshot().workspaces.some((w) => w.id === wid && inScope(scope, w.id))) deny();
         }
+        if (typeof place.workspace === 'string' && place.workspace !== 'new') {
+          // A label placement lands its tab in the matching workspace: every match must already
+          // be in scope, or the device would reach a workspace its grant never named. No match
+          // creates, which stays creatable like a 'new' workspace.
+          const label = place.workspace;
+          if (kit.snapshot().workspaces.some((w) => w.label === label && !inScope(scope, w.id))) deny();
+        }
         return kit.startAgent(args as Parameters<HerdrKit['startAgent']>[0]);
       }
       case 'hd.prompt': {

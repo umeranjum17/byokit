@@ -83,6 +83,17 @@ export function herdrContract(
     return { status, panes };
   }
 
+  function ownerOf(snapshot: HerdrSnapshot, paneId: string):
+    { workspace: HerdrSnapshot['workspaces'][number];
+      tab: HerdrSnapshot['workspaces'][number]['tabs'][number] } | undefined {
+    for (const workspace of snapshot.workspaces) {
+      for (const tab of workspace.tabs) {
+        if (tab.panes.some((pane) => pane.id === paneId)) return { workspace, tab };
+      }
+    }
+    return undefined;
+  }
+
   test('contract: start reaches ready and ping speaks the pinned protocol', async () => {
     await bench(async ({ kit }) => {
       await kit.start();
@@ -308,12 +319,107 @@ export function herdrContract(
       }
       assert.equal(pane.paneId, 'w1:p1', 'the pane placement uses the pane as given');
       assert.equal(typeof ws.name, 'string');
+      // `created` tells a workspace-making placement from one landing in an existing workspace.
+      assert.equal(ws.created, true, 'a new workspace reports created');
+      assert.equal(tree.created, true, 'a worktree checkout reports created');
+      assert.equal(tab.created, false, 'a new tab reports reuse');
+      assert.equal(split.created, false, 'a split reports reuse');
+      assert.equal(pane.created, false, 'a caller-owned pane reports reuse');
 
       const workspaces = (await kit.call('workspace.list', {})) as { workspaces?: { worktree?: { is_linked_worktree?: boolean } }[] };
       assert.ok(
         workspaces.workspaces?.some((workspace) => workspace.worktree?.is_linked_worktree === true),
         'the worktree placement registers a linked checkout',
       );
+    });
+  });
+
+  test('contract: startAgent with a workspace label reuses the matching workspace', async () => {
+    await bench(async ({ kit }) => {
+      await kit.start();
+      const before = kit.snapshot().workspaces.length;
+      const made = (await kit.call('workspace.create', { cwd: '/tmp/h6-label', label: 'byokit-reuse' })) as
+        { workspace?: { workspace_id?: string } };
+      const wid = made.workspace?.workspace_id;
+      assert.equal(typeof wid, 'string');
+      await until(() => kit.snapshot().workspaces.find((w) => w.id === wid), (w) => w !== undefined);
+
+      const first = await kit.startAgent({ kind: 'pi', cwd: '/tmp/h6', place: { workspace: 'byokit-reuse', label: 'agent-tab' } });
+      assert.equal(first.created, false, 'landing in an existing workspace reports reuse');
+      assert.match(first.paneId, /^w\d+:p\d+$/);
+      const tree = await until(() => {
+        const snap = kit.snapshot();
+        const owner = ownerOf(snap, first.paneId);
+        return owner !== undefined && snap.workspaces.length === before + 1 ? { snap, owner } : undefined;
+      }, () => true);
+      assert.equal(tree.owner.workspace.id, wid, 'the agent lands in the workspace with that label');
+      assert.equal(tree.owner.tab.label, 'agent-tab', 'the tab label rides the reuse');
+
+      const second = await kit.startAgent({ kind: 'pi', cwd: '/tmp/h6', place: { workspace: 'byokit-reuse' } });
+      assert.equal(second.created, false);
+      assert.notEqual(second.paneId, first.paneId, 'the second start gets its own tab pane');
+      const again = await until(() => {
+        const snap = kit.snapshot();
+        return ownerOf(snap, second.paneId) !== undefined && snap.workspaces.length === before + 1 ? snap : undefined;
+      }, () => true);
+      assert.equal(again.workspaces.length, before + 1, 'reuse adds a tab, never a workspace');
+    });
+  });
+
+  test('contract: startAgent with an unknown workspace label creates it', async () => {
+    await bench(async ({ kit }) => {
+      await kit.start();
+      const before = kit.snapshot().workspaces.length;
+      const ref = await kit.startAgent({ kind: 'pi', cwd: '/tmp/h6', place: { workspace: 'byokit-fresh' } });
+      assert.equal(ref.created, true, 'no match creates the workspace');
+      assert.match(ref.paneId, /^w\d+:p\d+$/);
+      const snap = await until(() => {
+        const s = kit.snapshot();
+        const owner = ownerOf(s, ref.paneId);
+        return owner !== undefined && owner.workspace.label === 'byokit-fresh' && s.workspaces.length === before + 1
+          ? s : undefined;
+      }, () => true);
+      assert.equal(snap.workspaces.length, before + 1);
+    });
+  });
+
+  test('contract: a failed start into a reused workspace keeps the workspace', async () => {
+    await bench(async ({ kit, fake }) => {
+      if (!fake) return;
+      await kit.start();
+      const made = (await kit.call('workspace.create', { cwd: '/tmp/h6-label', label: 'byokit-keep' })) as
+        { workspace?: { workspace_id?: string } };
+      const wid = made.workspace?.workspace_id;
+      assert.equal(typeof wid, 'string');
+      await until(() => kit.snapshot().workspaces.find((w) => w.id === wid), (w) => w !== undefined);
+      const panesBefore = agentStatusOf(kit.snapshot(), 'none').panes;
+      fake.agentStartFaults.push({ code: 'agent_failed', message: 'boom' });
+      await assert.rejects(
+        kit.startAgent({ kind: 'pi', cwd: '/tmp/h6', place: { workspace: 'byokit-keep' } }), /boom/);
+      await until(() => agentStatusOf(kit.snapshot(), 'none').panes, (n) => n === panesBefore);
+      assert.ok(kit.snapshot().workspaces.some((w) => w.id === wid && w.label === 'byokit-keep'),
+        'the reused workspace is never closed by a failed start');
+    });
+  });
+
+  test('contract: two workspaces with one label refuse as ambiguous and pick nothing', async () => {
+    await bench(async ({ kit }) => {
+      await kit.start();
+      await kit.call('workspace.create', { cwd: '/tmp/h6-label', label: 'byokit-dup' });
+      await kit.call('workspace.create', { cwd: '/tmp/h6-label', label: 'byokit-dup' });
+      const settled = await until(() => {
+        const snap = kit.snapshot();
+        return snap.workspaces.filter((w) => w.label === 'byokit-dup').length === 2 ? snap : undefined;
+      }, () => true);
+      const workspacesBefore = settled.workspaces.length;
+      const panesBefore = agentStatusOf(settled, 'none').panes;
+      await assert.rejects(
+        kit.startAgent({ kind: 'pi', cwd: '/tmp/h6', place: { workspace: 'byokit-dup' } }),
+        (e: { code?: string }) => e.code === 'workspace-ambiguous',
+        'two matching labels refuse with the named ambiguous error');
+      assert.equal(kit.snapshot().workspaces.filter((w) => w.label === 'byokit-dup').length, 2);
+      assert.equal(kit.snapshot().workspaces.length, workspacesBefore, 'the refusal creates no workspace');
+      assert.equal(agentStatusOf(kit.snapshot(), 'none').panes, panesBefore, 'the refusal creates no pane');
     });
   });
 

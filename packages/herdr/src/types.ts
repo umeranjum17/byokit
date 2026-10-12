@@ -82,10 +82,15 @@ export type AgentStartEvent =
   | { phase: 'installing'; kind: string; message: string }
   | { phase: 'ready'; kind: string; ref: AgentRef }
   | { phase: 'launchFailed'; kind: string; reason: AgentLaunchFailureReason; message: string };
-export type AgentRef = { paneId: string; name?: string };
+export type AgentRef = { paneId: string; name?: string; created?: boolean };   // created: startAgent sets it always
 export type StartAgent = {
   kind: string; cwd: string; name?: string;             // name: /^[a-z][a-z0-9_-]{0,31}$/
-  place: { workspace: 'new'; label?: string } | { tab: 'new'; workspaceId: string; label?: string }
+  // `workspace: 'new'` always creates a workspace; any other `workspace` string is a workspace
+  // label: the agent lands in the matching workspace (new tab, created: false) or in a workspace
+  // created with that label (created: true). Two workspaces with the label reject with
+  // `workspace-ambiguous` and create nothing (docs/runtime-kits.md 6.4).
+  place: { workspace: 'new'; label?: string } | { workspace: string; label?: string }
+       | { tab: 'new'; workspaceId: string; label?: string }
        | { split: string; direction: 'right' | 'down' } | { pane: string };
   worktree?: { branch?: string; base?: string };
   args?: string[]; env?: Record<string, string> | { env: Record<string, string>; unset: string[] }; timeoutMs?: number;   // default 60_000
