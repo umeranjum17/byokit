@@ -17,14 +17,14 @@ Open the default Expo example, scroll to Cloud computer, paste the Boat key and 
 
 ## Driving it with the maintained capture
 
-Build and doctor the workspace per the parent verify skill, then run the capture with a private emulator serial and an absolute private evidence dir (the caller owns the emulator, the memory gate and the device/heavy locks):
+Build and doctor the workspace per the parent verify skill. Then build the release APK the capture installs, pointed at the fixture (`cd examples/expo/android && EXPO_PUBLIC_BOAT_BASE=http://10.0.2.2:21456 NODE_ENV=production ./gradlew assembleRelease --rerun-tasks -q`, as `e2e-android.sh` does). Run the capture with a private emulator serial, an absolute private evidence dir and a `FIXTURE_KEY` (any rejected alphanumeric-and-dash value; the caller owns the emulator, the memory gate and the device/heavy locks):
 
 ```sh
-/home/umer/firstmate/config/fm-mem-gate.sh \
+FIXTURE_KEY=<rejected-fixture-key> /home/umer/firstmate/config/fm-mem-gate.sh \
   sh .agents/skills/verify-byokit/capture/expo-cloud-setup.sh <private-emulator-serial> <absolute-private-evidence-dir>
 ```
 
-The capture builds the actual release app with `EXPO_PUBLIC_BOAT_BASE=http://10.0.2.2:21456`, serves one host fixture on that port in three modes (fast 401, 5 s delayed 401, stopped), and screenshots the missing, unknown-key, cancelled and unreachable states through the same uiautomator path as `e2e-android.sh`. It then runs the credential leak check with the fixture key as the canary. Check every PNG visually; keep the command log and failures. A connected phone state is covered by `examples/expo/cloud-setup.test.ts` (loopback journey, real `boat()` adapter), not by this capture: state that split in the report.
+The capture installs that prebuilt APK (it fails if it is missing), serves one host fixture on port 21456 in three modes (fast 401, 5 s delayed 401, stopped), and screenshots the missing, unknown-key, cancelled and unreachable states through the same uiautomator path as `e2e-android.sh`. It then runs the credential leak check with the fixture key as the canary. Check every PNG visually; keep the command log and failures. A connected phone state is covered by `examples/expo/cloud-setup.test.ts` (loopback journey, real `boat()` adapter), not by this capture: state that split in the report.
 
 ## Gotchas
 

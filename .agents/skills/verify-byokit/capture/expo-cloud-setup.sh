@@ -41,7 +41,7 @@ tap() {
   seek "$1"
   xy=$(screen | grep -o "resource-id=\"$1\"[^>]*bounds=\"[^\"]*\"" | sed 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]"/\1 \2 \3 \4/' | awk '{print int(($1+$3)/2), int(($2+$4)/2)}')
   [ -n "$xy" ] || { echo "no $1 on screen" >&2; exit 1; }
-  a shell input tap $xy
+  a shell input tap "${xy% *}" "${xy#* }"
 }
 expect() {
   for _ in $(seq 20); do case "$(words)" in *"$1"*) log "ok: $1"; return;; esac; sleep 1; done
