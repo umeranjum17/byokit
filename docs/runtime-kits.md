@@ -470,10 +470,10 @@ export declare class OpenClawKit {
   addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId },
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
     done: Promise<{ view: SignInView; id: AccountId }> }>;
-  addKey(member: Member, o: { authChoice: string; apiKey: string; name?: string }): Promise<'ok' | 'invalid' | 'not_included' | 'retry'>;
+  addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string }): Promise<AddKeyResult>;
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account>;
   removeAccount(member: Member, id: AccountId): Promise<void>;
-  models(member: Member, id: AccountId): Promise<ModelInfo[]>;
+  models(member: Member, id: AccountId | { authChoice: string }): Promise<ModelInfo[]>;
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;   // demand: 'provider/model' ids (5.15)
   defaults(member: Member): Promise<Defaults>;
   setDefaults(member: Member, d: Defaults): Promise<void>;
@@ -966,14 +966,25 @@ the engine. External retained sources are touched only when explicitly passed to
   account; every further account is its own agent holding a scoped view of the shared grant (5.15).
   Absent, the request is unchanged and the engine uses its own selection.
 - API keys are opt-in, labelled **API key (billed per use)**, and every API route retains `offer: false`.
-  `addKey(member, { authChoice, apiKey })` uses typed `openclaw.setup.activate` with `kind: 'api-key'` only.
-  It returns `ok | invalid | not_included | retry`, never engine lines, errors or credentials. `retry`: the engine may have taken the key
-  but the gateway restart ran late, the seal failed, or the activation threw after it was sent (timeout, lost transport); the key agent is cleared best-effort, and a clear the engine refuses is swept at the kit's next start (the `byokit.keys` line below). A restart or not-ready gateway before the engine saw the key is also `retry` (nothing was sent). Only routes whose pinned
+  `addKey(member, { authChoice, apiKey, model? })` uses typed `openclaw.setup.activate` with `kind: 'api-key'` only.
+  `AddKeyResult` is `{ status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry'; reason: 'auth' | 'model' | 'network' | 'engine' | 'busy' }`.
+  Failures carry only fixed discriminants: no engine lines, raw errors, key fragments or headers. Provider refusal (`auth`)
+  comes from the typed activation probe status; timeout/transport failure is `network`, schema/inference failure is `engine`,
+  an unsupported route or unknown chosen model is `model`, and a retryable unavailable/restarting engine is `busy`.
+  `retry` means the activation may have taken the key but it was not sealed (late restart, seal failure, thrown request);
+  the key agent is cleared best-effort, and a clear the engine refuses is swept at the kit's next start (the `byokit.keys` line below), so runs fail closed meanwhile.
+  A restart or not-ready gateway before the engine saw the key is `busy` with `retry` (nothing was sent). Only routes whose pinned
   manifests allow manual secrets for text inference expose `keyEntry`; every route carries `revision` and `checked`.
+  The optional `model` is a full `provider/model` id from that route's catalog, checked after activation makes live discovery
+  available, then saved in the key lane's sealed selection. An unknown model clears the attempted replacement and returns
+  `{ status: 'invalid', reason: 'model' }`. Absent, the engine's current starter model stays. The public
+  `models(member, { authChoice })` exposes the same provider catalog (live when a key is available, otherwise engine discovery),
+  not a second catalog. Catalog or control failures never become a claim that the key is invalid.
 - The `byokit.keys` plugin actions are `prepare`, `seal`, `ready` and `clear` (`clear` drops the unsealed key a failed add left; `plugin/keys.js`). The kit's sweep runs at its first ready after start and sweeps each `byokit-key-<member>` agent under that member's lock: it clears a key only when `ready` reports the marker absent (`absent: true`), so a sealed key survives and an add that seals mid-sweep keeps its key. A refused read or clear leaves the sweep incomplete, and the next ready of that kit instance runs it again; a completed sweep never reruns.
 - The engine has no strict per-run auth-profile pin. Key isolation is by agent: a member's normal agent never
   receives a key from `addKey`. A reserved `byokit-key-<member>` agent has its own workspace and credential store;
-  the `byokit-key-` prefix is not a member id. Its key is `copyToAgents: false`. The plugin seals the local store
+  the `byokit-key-` prefix is not a member id. Key creation waits for `agents.list` visibility, exactly as member creation
+  does, before activation can use that agent's prepared runtime owner. Its key is `copyToAgents: false`. The plugin seals the local store
   to exactly the selected key and a local auth order containing only that profile; no shared/global order is mutated.
   The normal agent's local order lists only its OAuth sign-ins, excluding paid keys. The pin prunes empty
   local orders on save; with no sign-ins the normal agent's store contains no key profile to try. The normal agent's model selection and auth pin are unchanged by activation on the key agent. If the normal
@@ -985,8 +996,8 @@ the engine. External retained sources are touched only when explicitly passed to
   `{ auth: 'apiKey' }` to address that separate history (host and device). A supplied model must
   be the selected key model's provider (`provider/model`); another provider ends `plan`. A key pays for its
   provider's models, not one: a Go plan key runs every Go model, and the engine refuses a model its catalog does
-  not list. This is smaller than a model choice in `addKey`, which would need a model picker before the key is known
-  and a re-add to change it. Absent, the selected key model runs. Ordinary runs never enter the key agent.
+  not list. `addKey` may save a catalog model as the default for this lane. Absent a run override, that saved model runs.
+  Ordinary runs never enter the key agent.
   `addKey` invalidates the old key before checking a replacement; a failed replacement leaves the key option
   unavailable. Key entry and its result are represented by the framework-free `ui/kits` key card view.
 - `classify(message)` (`src/classify.ts`) = Crewhouse `classifyText` mapped `rate_limit|overloaded → resting`,
@@ -1230,14 +1241,16 @@ import type { AccountView, Approval, ArtifactBytes, ArtifactFrame, ArtifactPiece
 declare function outputSchema(value: unknown): { prompt: string; parse(text: string): { data: unknown } | undefined };
 type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
+type AddKeyResult = { status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry';
+  reason: 'auth' | 'model' | 'network' | 'engine' | 'busy' };   // 5.8, fixed discriminants only
 interface OpenClawKit {   // 5.3 signatures; the built kit has addKey and addAccount, the rest lands with O14
-  addKey(member: Member, o: { authChoice: string; apiKey: string; name?: string }): Promise<'ok' | 'invalid' | 'not_included' | 'retry'>;
+  addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string }): Promise<AddKeyResult>;
   addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId },
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
     done: Promise<{ view: SignInView; id: AccountId }> }>;
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account>;
   removeAccount(member: Member, id: AccountId): Promise<void>;
-  models(member: Member, id: AccountId): Promise<ModelInfo[]>;
+  models(member: Member, id: AccountId | { authChoice: string }): Promise<ModelInfo[]>;
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;
   defaults(member: Member): Promise<Defaults>;
   setDefaults(member: Member, d: Defaults): Promise<void>;

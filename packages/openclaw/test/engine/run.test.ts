@@ -244,7 +244,7 @@ test('API-key activation seals a sibling store; normal selection and stores rema
     const off = kit.onEvent('*', (e) => events.push(e));
     const before = await kit.call('config.get', {}) as any;
     const added = await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: canary });
-    assert.equal(added, 'ok', JSON.stringify({ added, logs: logs.slice(-10) }));
+    assert.deepEqual(added, { status: 'ok' }, JSON.stringify({ added, logs: logs.slice(-10) }));
     const after = await kit.call('config.get', {}) as any;
     assert.deepEqual(after.config.agents.entries.m1, before.config.agents.entries.m1);
     assert.deepEqual(after.config.agents.defaults.model, before.config.agents.defaults.model);

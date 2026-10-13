@@ -39,7 +39,12 @@ try {
     say('addAccount:', done.view.state, done.id);
     assert.equal(done.view.state, 'done');
     account = done.id;
-  } else say('addKey:', await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: key }));
+  } else {
+    const added = await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: key, model: MODEL });
+    say('addKey:', JSON.stringify(added));
+    assert.deepEqual(added, { status: 'ok' });
+    assert.ok((await kit.models('m1', { authChoice: 'opencode-go' })).some((m) => m.id === MODEL));
+  }
   const wanted = MODEL.slice('opencode-go/'.length);
   for (let i = 0; i < 90 && !(await registered(kit)).some((m) => m.id === wanted); i++) await delay(live ? 1000 : 20);
   const list = await registered(kit);
@@ -64,11 +69,15 @@ try {
   await turn('model', { model: MODEL, ...(live ? {} : { auth: 'apiKey' }) });
   // The key path: a member with only a Go key reads signedIn and runs Muse on it (live: a second member).
   const keyMember = live ? 'm2' : 'm1';
-  if (live) say('addKey:', await kit.addKey(keyMember, { authChoice: 'opencode-go', apiKey: key }));
+  if (live) {
+    const added = await kit.addKey(keyMember, { authChoice: 'opencode-go', apiKey: key, model: MODEL });
+    say('addKey:', JSON.stringify(added));
+    assert.deepEqual(added, { status: 'ok' });
+  }
   const signed = await kit.signedIn(keyMember, 'opencode-go');
   say('signedIn after addKey:', signed);
   assert.equal(signed, true);
-  if (live) await turn('key', { model: MODEL, auth: 'apiKey' }, keyMember);
+  await turn('saved-key-model', { auth: 'apiKey' }, keyMember);
   if (!live) {
     const other = await kit.run({ member: 'm1', sessionKey: 'agent:m1:verify-go-other', auth: 'apiKey', model: 'openai/gpt-5.1', message: 'Hi' });
     say('key run on another provider:', JSON.stringify(other));

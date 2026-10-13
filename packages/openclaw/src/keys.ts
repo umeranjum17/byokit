@@ -1,13 +1,27 @@
 import { join } from 'node:path';
 import { activate, type ActivationCtx } from './activation.ts';
-import { keyAgentId, MEMBER_ID, KEY_PREFIX } from './members.ts';
+import { keyAgentId, MEMBER_ID, KEY_PREFIX, untilListed } from './members.ts';
 import { routes } from './routes.ts';
-import type { Member } from './types.ts';
+import { modelsOf } from './accounts.ts';
+import { LIVE_CATALOGS } from './constants.ts';
+import type { Member, ModelInfo } from './types.ts';
 
 // retry: the engine may have taken the key but it was not kept; the unsealed key is cleared best-effort. If that clear
 // does not reach the engine, the key stays unsealed and unusable until the next key add or kit start, and runs fail
 // closed meanwhile.
-export type AddKeyResult = 'ok' | 'invalid' | 'not_included' | 'retry';
+export type KeyFailureReason = 'auth' | 'model' | 'network' | 'engine' | 'busy';
+export type AddKeyResult = { status: 'ok' } |
+  { status: 'invalid' | 'not_included' | 'retry'; reason: KeyFailureReason };
+
+const probeReason = (status: string | undefined): KeyFailureReason => {
+  switch (status) {
+    case 'auth': return 'auth';
+    case 'unavailable': case 'no_model': return 'model';
+    case 'timeout': case 'network': return 'network';
+    case 'rate_limit': case 'busy': return 'busy';
+    default: return 'engine';
+  }
+};
 
 export function createKeys(ctx: ActivationCtx & {
   root: string;
@@ -29,22 +43,45 @@ export function createKeys(ctx: ActivationCtx & {
     const refusal = error as { code?: string; retryable?: boolean } | null;
     return Boolean(ctx.restarting?.() || (refusal?.code === 'UNAVAILABLE' && refusal.retryable === true));
   };
-  const control = (member: Member, action: 'prepare' | 'seal' | 'ready' | 'clear', provider?: string) =>
-    ctx.request('byokit.keys', { member, action, ...(provider ? { provider } : {}) }) as Promise<{ ok: boolean; model?: string; absent?: boolean }>;
+  const control = (member: Member, action: 'prepare' | 'seal' | 'ready' | 'clear', provider?: string, model?: string) =>
+    ctx.request('byokit.keys', { member, action, ...(provider ? { provider } : {}), ...(model ? { model } : {}) }) as
+      Promise<{ ok: boolean; model?: string; absent?: boolean }>;
+  const failure = (status: 'invalid' | 'not_included' | 'retry', reason: KeyFailureReason): AddKeyResult => ({ status, reason });
+  const errorReason = (error: unknown): KeyFailureReason => {
+    if (transient(error)) return 'busy';
+    const e = error as { code?: string; name?: string } | null;
+    return ['ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'ETIMEDOUT', 'CLIENT_TIMEOUT', 'NETWORK_ERROR'].includes(e?.code ?? '')
+      || e?.name === 'TimeoutError' ? 'network' : 'engine';
+  };
+  const models = async (member: Member, o: { authChoice: string }): Promise<ModelInfo[]> => {
+    if (!check(member)) throw new Error('Choose your own member.');
+    const route = routes().find((r) => r.choice === o.authChoice && r.keyEntry && r.readiness === 'ready');
+    if (!route) return [];
+    await ctx.ensure(member);
+    if (LIVE_CATALOGS.includes(route.provider)) {
+      const catalog = await ctx.request('byokit.catalog', { provider: route.provider }) as
+        { ok: boolean; reason?: string; models?: Record<string, unknown>[] };
+      if (catalog.ok) return modelsOf(route.provider, { models: catalog.models?.map((m) => ({ ...m, provider: route.provider })) });
+      if (catalog.reason !== 'no-key') throw new Error('Model catalog is unavailable.');
+    }
+    return modelsOf(route.provider, await ctx.request('models.list', { agentId: member, view: 'all' }));
+  };
   return {
+    models,
     exclusive,
-    async add(member: Member, o: { authChoice: string; apiKey: string }): Promise<AddKeyResult> {
-      if (!check(member) || !o.apiKey.trim()) return 'invalid';
+    async add(member: Member, o: { authChoice: string; apiKey: string; model?: string }): Promise<AddKeyResult> {
+      if (!check(member)) return failure('invalid', 'engine');
+      if (!o.apiKey.trim()) return failure('invalid', 'auth');
       const route = routes().find((r) => r.choice === o.authChoice && r.keyEntry && r.readiness === 'ready');
-      if (!route) return 'not_included';
+      if (!route) return failure('not_included', 'model');
       return exclusive(member, async () => {
         let sent = false;
         // A key the engine may have taken but not sealed is cleared (prepare already emptied the agent); if the clear
         // does not reach the engine, the key stays unsealed and unusable until the next key add or kit start, so runs
         // fail closed.
-        const abandon = async (): Promise<AddKeyResult> => {
+        const abandon = async (reason: KeyFailureReason, status: 'invalid' | 'not_included' | 'retry' = 'retry'): Promise<AddKeyResult> => {
           await control(member, 'clear').catch(() => undefined);
-          return 'retry';
+          return failure(status, reason);
         };
         try {
           await ctx.ensure(member);
@@ -52,17 +89,24 @@ export function createKeys(ctx: ActivationCtx & {
           const list = await ctx.request('agents.list') as { agents: { id: string }[] };
           if (!list.agents.some((a) => a.id === agentId))
             await ctx.request('agents.create', { name: agentId, workspace: join(ctx.root, 'key-workspaces', member) });
-          if (!(await control(member, 'prepare', route.provider)).ok) return 'invalid';
+          // Creation answers before the runtime roster/owners publish, just as for ordinary members.
+          await untilListed(ctx.request, agentId);
+          if (!(await control(member, 'prepare', route.provider)).ok) return failure('invalid', 'engine');
           // The public pin's typed API-key path, never a CLI-login import. Discard the engine's lines/errors.
           sent = true;
           const result = await activate(ctx, { kind: 'api-key', agentId, authChoice: o.authChoice, apiKey: o.apiKey },
             { timeoutMs: 180_000 });
-          if (!result.ok && !result.late) return result.status === 'unavailable' ? 'not_included' : 'invalid';
-          if (!result.late && (await control(member, 'seal')).ok) return 'ok';
-          return abandon();
+          if (!result.ok && !result.late)
+            return abandon(probeReason(result.status), result.status === 'unavailable' ? 'not_included' : 'invalid');
+          if (result.late) return abandon('busy');
+          if (o.model !== undefined && !(await models(member, o)).some((m) => m.id === o.model))
+            return abandon('model', 'invalid');
+          if ((await control(member, 'seal', undefined, o.model)).ok) return { status: 'ok' };
+          return abandon('engine');
         } catch (error) {
-          if (sent) return abandon();
-          return transient(error) ? 'retry' : 'invalid';
+          const reason = errorReason(error);
+          if (sent) return abandon(reason);
+          return failure(reason === 'busy' || reason === 'network' ? 'retry' : 'invalid', reason);
         }
       });
     },

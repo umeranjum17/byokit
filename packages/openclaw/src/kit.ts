@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { PROTOCOL_VERSION } from './constants.ts';
+import { PROTOCOL_VERSION, LIVE_CATALOGS } from './constants.ts';
 import { atomic } from './engine-patches.ts';
 import { Approvals } from './approvals.ts';
 import { Bridge } from './bridge.ts';
@@ -100,8 +100,6 @@ export type RetainedLogin = { path: string } | { record: Record<string, unknown>
 
 /** The engine's learning-mode config key (5.6 "Engine learning state"). */
 const LEARNING_KEY = 'skills.workshop.autonomous.mode';
-// Providers whose live catalog the kit registers (5.6); registering fixes a provider's catalog membership.
-const LIVE_CATALOGS = ['opencode-go'];
 const RESTART_MS = 60_000;
 
 const operatorMethods = new Set<string>([
@@ -996,7 +994,8 @@ export class OpenClawKit {
     return this.accountsCtl.list(member);
   }
 
-  models(member: Member, id: AccountId): Promise<ModelInfo[]> {
+  models(member: Member, id: AccountId | { authChoice: string }): Promise<ModelInfo[]> {
+    if (typeof id !== 'string') return this.keys.models(member, id);
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.accountsCtl.models(member, id);
   }
@@ -1045,8 +1044,8 @@ export class OpenClawKit {
   }
 
   /** Save an explicitly supplied API key (billed per use) in this member's separate key agent. */
-  addKey(agentId: Member, o: { authChoice: string; apiKey: string }): Promise<AddKeyResult> {
-    return this.keys.add(agentId, o).then((r) => { if (r === 'ok') this.syncCatalogs(); return r; });
+  addKey(agentId: Member, o: { authChoice: string; apiKey: string; model?: string }): Promise<AddKeyResult> {
+    return this.keys.add(agentId, o).then((r) => { if (r.status === 'ok') this.syncCatalogs(); return r; });
   }
 
   // Live provider catalogs (5.6): registers each live model with its api from the provider's catalog data, so

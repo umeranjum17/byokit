@@ -14,6 +14,36 @@ import { routes, routeFor } from './routes.ts';
 import { words } from './words.ts';
 import type { Account, AccountId, AccountPick, Defaults, GatewayTransport, Member, ModelInfo, MoveResult, Room, RoomSpan, RunSelection, SignInOptions, SignInState, SignInView } from './types.ts';
 
+const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+// `models.list { agentId, view: 'default' }` rows of the account's provider, mapped to `provider/model`. The pin
+// reports no per-plan availability, so `why: 'plan'` only comes from a run ending `plan`, never from here.
+export const modelsOf = (provider: string, answer: unknown): ModelInfo[] => {
+  const rows = record(answer) && Array.isArray(answer.models) ? answer.models : [];
+  const out: ModelInfo[] = [];
+  for (const candidate of rows) {
+    if (!record(candidate) || typeof candidate.provider !== 'string'
+      || candidate.provider.toLowerCase() !== provider.toLowerCase()) continue;
+    if (typeof candidate.id !== 'string' || !candidate.id || typeof candidate.name !== 'string') continue;
+    const id = candidate.id.includes('/') ? candidate.id : `${candidate.provider}/${candidate.id}`;
+    if (providerOf(id) !== provider.toLowerCase()) continue;
+    const available = candidate.available === undefined
+      ? candidate.unavailableReason === undefined : candidate.available === true;
+    const info: ModelInfo = { id, name: candidate.name, available };
+    if ((candidate.tier === 'strong' || candidate.tier === 'fast')) info.tier = candidate.tier;
+    if (!available) {
+      if (candidate.unavailableReason === 'missing-auth' || candidate.unavailableReason === 'auth-failed')
+        info.why = 'signed_out';
+      else if (candidate.unavailableReason === 'cooldown') {
+        info.why = 'resting';
+        if (typeof candidate.unavailableUntil === 'number' && Number.isFinite(candidate.unavailableUntil))
+          info.until = candidate.unavailableUntil;
+      }
+    }
+    out.push(info);
+  }
+  return out;
+};
+
 type IndexEntry = { agent: string; name: string; route: string; addedAt: number; until?: number; model?: string; who?: string };
 type IndexFile = { v: 1; accounts: Record<string, IndexEntry>; defaults: Defaults };
 
@@ -211,35 +241,6 @@ export function createAccounts(ctx: {
     const entry = read(member).accounts[id];
     if (!row || !entry) throw new Error(`unknown account: ${id}`);
     return { row, entry };
-  };
-  const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-  // `models.list { agentId, view: 'default' }` rows of the account's provider, mapped to `provider/model`. The pin
-  // reports no per-plan availability, so `why: 'plan'` only comes from a run ending `plan`, never from here.
-  const modelsOf = (provider: string, answer: unknown): ModelInfo[] => {
-    const rows = record(answer) && Array.isArray(answer.models) ? answer.models : [];
-    const out: ModelInfo[] = [];
-    for (const candidate of rows) {
-      if (!record(candidate) || typeof candidate.provider !== 'string'
-        || candidate.provider.toLowerCase() !== provider.toLowerCase()) continue;
-      if (typeof candidate.id !== 'string' || !candidate.id || typeof candidate.name !== 'string') continue;
-      const id = candidate.id.includes('/') ? candidate.id : `${candidate.provider}/${candidate.id}`;
-      if (providerOf(id) !== provider.toLowerCase()) continue;
-      const available = candidate.available === undefined
-        ? candidate.unavailableReason === undefined : candidate.available === true;
-      const info: ModelInfo = { id, name: candidate.name, available };
-      if ((candidate.tier === 'strong' || candidate.tier === 'fast')) info.tier = candidate.tier;
-      if (!available) {
-        if (candidate.unavailableReason === 'missing-auth' || candidate.unavailableReason === 'auth-failed')
-          info.why = 'signed_out';
-        else if (candidate.unavailableReason === 'cooldown') {
-          info.why = 'resting';
-          if (typeof candidate.unavailableUntil === 'number' && Number.isFinite(candidate.unavailableUntil))
-            info.until = candidate.unavailableUntil;
-        }
-      }
-      out.push(info);
-    }
-    return out;
   };
   const spanOf = (label: string): RoomSpan => {
     const lower = label.toLowerCase();

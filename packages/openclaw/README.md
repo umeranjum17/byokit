@@ -146,8 +146,11 @@ returns what that run would choose now, refusals included, without running. `ste
 
 
 For an owner who explicitly offers keys, `kit.addKey('ana', { authChoice: 'openai-api-key', apiKey })` returns
-`ok`, `invalid`, `not_included` or `retry` (the engine took the key but it was not kept, for example a gateway restart
-ran late; no usable key was kept, so add it again). Label the option **API key (billed per use)**. Select only `routes()` rows with
+`{ status: 'ok' }` or `{ status: 'invalid' | 'not_included' | 'retry', reason }`.
+`reason` is `auth` (provider refused the key), `model` (unsupported route/unknown model), `network`
+(timeout/transport), `engine` (schema/inference/control failure), or `busy` (rate limit/restarting engine).
+Check `result.status`, not the old string result. `retry` means the engine may have taken the key but it was not kept
+sealed (for example a gateway restart ran late); no usable key was kept, so add it again. Failures never contain keys, key fragments, headers or raw engine diagnostics. Label the option **API key (billed per use)**. Select only `routes()` rows with
 `keyEntry: true`; API rows remain `offer: false`. Each route also carries its engine `revision`, `checked` date,
 label and key error word names. Submit the input directly, clear the field afterwards, and never log or save it in
 app state. The kit never returns engine key-check errors or the key. [`@byokit/ui/kits`](../ui/README.md) supplies `keyStep`/`keyView`
@@ -155,13 +158,18 @@ for entry, checking, success and failure states, using the kit's `key.*` words.
 
 To use the saved key for one run, pass `auth: 'apiKey'`. The key lives in the member's separate
 `byokit-key-<member>` agent and workspace, with `copyToAgents: false` and only that key in its local auth order.
-Its selected model is used when `model` is omitted; any other model of the same provider (`provider/model`) runs too,
+List the route's models with `kit.models('ana', { authChoice: 'opencode-go' })`; this uses the existing live
+catalog when a key is available, engine discovery otherwise. Pass a full catalog id, e.g.
+`model: 'opencode-go/muse-spark-1.3-contributor'`, to `addKey` to save it as the lane's default after activation.
+An unknown model returns `{ status: 'invalid', reason: 'model' }` and clears the replacement.
+With no choice, today's starter stays. Header injection (including `x-opencode-session`) stays engine-owned.
+The saved model is used when a run's `model` is omitted; any other model of the same provider (`provider/model`) runs too,
 and another provider ends `plan`. Key runs have separate history. To steer or stop
 one, pass `{ auth: 'apiKey' }` to `steer` or `abort` too (the device helpers accept the same option).
 Ordinary runs never enter the key agent, even when the subscription is resting. This agent boundary is necessary
 because the engine's profile pins can rotate. The `byokit-key-` member prefix is reserved. Adding another key
 replaces the previous key; a failed replacement leaves this option unavailable. If the normal agent already has
-an API key added through pass-through calls, `addKey` returns `invalid` and leaves that key untouched.
+an API key added through pass-through calls, `addKey` returns `{ status: 'invalid', reason: 'engine' }` and leaves that key untouched.
 
 `OpenClawKit.abort` always returns a Promise. Await it or attach `.catch(...)`: an unavailable engine, transport
 failure or invalid API-key session key rejects with the original error, never throws synchronously, and is not
