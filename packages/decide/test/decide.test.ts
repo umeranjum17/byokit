@@ -371,7 +371,7 @@ test('a host selects an Anthropic or Go plan key through one config, with no oth
   // The Go account route reads the member's saved plan key from its own slot; a missing Go account fails before any request.
   const viaGoAccount = createDecider(parseConfig({ backend: 'opencode-go', auth: 'account', model: 'muse-spark-1.3-contributor' }), {
     privacy: 'may-leave',
-    host: { accounts: { 'opencode-go': { billing: 'subscription' as const, access: async () => 'member-plan-key' } }, fetch: fetch as typeof fetch },
+    host: { accounts: { 'opencode-go': { provider: 'opencode-go' as const, billing: 'subscription' as const, access: async () => 'member-plan-key' } }, fetch: fetch as typeof fetch },
   });
   assert.equal((await viaGoAccount({}, { intent: questions.intent })).intent.answer, 'followup');
   assert.equal(seen.at(-1), 'go:Bearer member-plan-key');

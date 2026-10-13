@@ -451,9 +451,11 @@ account auth throws `UnsupportedAccountError`. API-key credentials must be expli
 `host.keys.anthropic` for Anthropic, `host.keys['opencode-go']` for the Go plan key, and
 `host.accounts['opencode-go']` for the Go plan account. Each account slot reaches only its own provider:
 an OpenAI account in `host.account` never reaches the Go endpoint, and a Go plan account in
-`host.accounts['opencode-go']` never reaches the OpenAI endpoint. The slot decides, not the object: a Go plan
-handle and a ChatGPT plan handle have the same shape, so `openai({ auth: 'account', account })` given a Go handle
-sends it to OpenAI. Pass each handle to its own provider. A backend switch clears
+`host.accounts['opencode-go']` never reaches the OpenAI endpoint. Plan handles also carry a readonly provider
+tag (`'chatgpt'`, `'opencode-go'`), so a misplaced handle is refused with plain words even outside the config
+path: `openai({ auth: 'account', account })` refuses any tag other than `'chatgpt'` (untagged handles predate
+tags and still work), and `opencodeGo()` requires `'opencode-go'`. Pass each handle to its own provider;
+nothing falls back. A backend switch clears
 provider-specific model/route/request settings; a switch to OpenAI, Anthropic or OpenCode Go must specify
 its model.
 

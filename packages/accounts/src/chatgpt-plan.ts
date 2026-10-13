@@ -12,6 +12,8 @@ export type ChatGPTRespondAccount = {
 export type ChatGPTPlanSession = { accessToken: string; scopes: readonly string[] };
 export type ChatGPTPlanAccount = {
   readonly billing: 'subscription';
+  /** Provider tag: a plan handle only reaches its own provider's endpoint. */
+  readonly provider: 'chatgpt';
   access(signal: AbortSignal): Promise<string>;
 };
 
@@ -28,6 +30,7 @@ export function chatgptPlan(o: {
 }): ChatGPTPlanAccount {
   return {
     billing: 'subscription',
+    provider: 'chatgpt',
     async access(signal) {
       const session = await o.session(signal);
       if (!session || !Array.isArray(session.scopes) || !session.scopes.includes('chatgpt.tokens.use.direct') ||

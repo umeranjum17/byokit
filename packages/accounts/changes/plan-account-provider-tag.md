@@ -1,0 +1,1 @@
+- SECURITY: A plan sign-in can no longer reach another provider's endpoint: the ChatGPT plan account carries a readonly `provider: 'chatgpt'` tag and the OpenCode Go plan account a readonly `provider: 'opencode-go'` tag, so consumers such as `@byokit/decide` refuse a misplaced handle with plain words instead of sending its token to the wrong provider.

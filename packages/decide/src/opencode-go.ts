@@ -39,8 +39,9 @@ export function opencodeGo(o: OpenCodeGoOptions): Backend {
     if (o.account !== undefined) throw new Error('opencodeGo takes a plan key or a plan account, not both');
   } else if (o.key !== undefined) {
     throw new Error('opencodeGo needs a key');
-  } else if (!o.account || o.account.billing !== 'subscription' || typeof o.account.access !== 'function') {
-    throw new UnsupportedAccountError('OpenCode Go plan usage needs a plan key or a plan account from the @byokit/accounts peer (install it and use accounts.opencodeGo(member)).');
+  } else if (!o.account || o.account.billing !== 'subscription' || typeof o.account.access !== 'function' ||
+      (o.account as { provider?: unknown }).provider !== 'opencode-go') {
+    throw new UnsupportedAccountError('OpenCode Go plan usage needs an OpenCode Go plan account from the @byokit/accounts peer (install it and use accounts.opencodeGo(member)).');
   }
   const request = o.request ?? {};
   const send = retryFetch('opencode-go', o.fetch ?? globalThis.fetch, o);

@@ -1040,7 +1040,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    * the current plan key from the member's own store; the handle exposes no credentials and never
    * falls back to API billing. */
   opencodeGo(member: M): OpenCodeGoAccount {
-    return { billing: 'subscription', access: async () => this.key(member, 'opencode:plan_key:opencode-go') };
+    return { provider: 'opencode-go', billing: 'subscription', access: async () => this.key(member, 'opencode:plan_key:opencode-go') };
   }
 
   /** An account's error, acted on. A limit or overload rests it (until when it said, or a default). A plan without this

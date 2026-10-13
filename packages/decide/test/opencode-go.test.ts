@@ -8,7 +8,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { build } from 'esbuild';
-import { decide, opencodeGo, OPENCODE_GO_ROUTES, UnsupportedAccountError, UnsupportedImagesError,
+import { decide, openai, opencodeGo, OPENCODE_GO_ROUTES, UnsupportedAccountError, UnsupportedImagesError,
   InvalidImageError, type ImageInput, type Question } from '../src/index.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/openai-responses.json', import.meta.url), 'utf8'));
@@ -18,7 +18,7 @@ const questions: Record<string, Question> = {
   urgent: { kind: 'yesno', question: 'Urgent?' },
   rating: { kind: 'score', levels: ['low', 'medium', 'high'] },
 };
-const account = (token = 'plan-token') => ({ billing: 'subscription' as const, access: async () => token });
+const account = (token = 'plan-token') => ({ provider: 'opencode-go' as const, billing: 'subscription' as const, access: async () => token });
 
 test('an app decides on an OpenCode Go plan account over the Responses endpoint, plan-billed only', async () => {
   assert.deepEqual(OPENCODE_GO_ROUTES, { apiKey: { billing: 'subscription', offer: false },
@@ -103,15 +103,44 @@ test('a host holding the plain Go plan key decides without the accounts peer, st
   })] }), UnsupportedAccountError);
 });
 
+test('a misplaced plan handle is refused on both providers, naming the provider, with no fallback', async () => {
+  const { chatgptPlan } = await import('../../accounts/src/chatgpt-plan.ts');
+  const chatgpt = chatgptPlan({ session: async () => ({ accessToken: 'chatgpt-token',
+    scopes: ['resource.invoke', 'chatgpt.tokens.use.direct'] }) });
+  assert.equal(chatgpt.provider, 'chatgpt');
+  assert.throws(() => opencodeGo({ model: 'muse-spark-1.3-contributor', account: chatgpt as any }),
+    /OpenCode Go plan usage needs an OpenCode Go plan account/);
+
+  const { Accounts, memoryStore } = await import('../../accounts/src/index.ts');
+  const saved = new Map<string, string>();
+  const accounts = new Accounts({ store: () => memoryStore(), keyStore: () => ({
+    get: async (id: string) => saved.get(id) ?? null,
+    set: async (id: string, value: string) => { saved.set(id, value); },
+    delete: async (id: string) => saved.delete(id),
+    list: async () => [],
+  }) });
+  await accounts.add('Umer', 'opencode:plan_key:opencode-go', { key: 'member-plan-key' });
+  const go = accounts.opencodeGo('Umer');
+  assert.equal(go.provider, 'opencode-go');
+  assert.throws(() => openai({ auth: 'account', account: go as any, model: 'gpt-6.1-sol' }),
+    /ChatGPT plan usage needs a ChatGPT plan account/);
+
+  // An untagged handle predates tags and is still accepted on the ChatGPT side, never forwarded elsewhere.
+  const legacy = { billing: 'subscription', access: async () => 'legacy-token' };
+  assert.equal(openai({ auth: 'account', account: legacy as any, model: 'gpt-6.1-sol',
+    fetch: async () => { throw new Error('must not fetch'); } }).name, 'openai');
+});
+
 test('the Go backend needs a subscription plan account and surfaces a signed-out plan without a key fallback', async () => {
   for (const bad of [undefined, null, { billing: 'subscription' }, { billing: 'api', access: async () => 'k' },
-    { billing: 'subscription', access: 'plan-token' }] as any[]) {
+    { billing: 'subscription', access: 'plan-token' },
+    { provider: 'chatgpt', billing: 'subscription', access: async () => 'k' }] as any[]) {
     assert.throws(() => opencodeGo({ model: 'muse-spark-1.3-contributor', account: bad }), UnsupportedAccountError);
   }
   assert.throws(() => opencodeGo({ model: '  ', account: account() }), /explicit model/);
   let fetched = 0;
   // A plan that cannot hand a key abstains before any request, and never substitutes another route.
-  const signedOut = { billing: 'subscription' as const, access: async () => { throw new Error('signed out'); } };
+  const signedOut = { provider: 'opencode-go' as const, billing: 'subscription' as const, access: async () => { throw new Error('signed out'); } };
   const fellBack = await decide({}, { intent: questions.intent }, { privacy: 'may-leave', backends: [opencodeGo({
     model: 'muse-spark-1.3-contributor', account: signedOut, fetch: async () => { fetched++; throw new Error('must not fetch'); },
   })] });
@@ -149,7 +178,7 @@ test('the accounts peer binds the member’s saved Go plan key for the backend',
   assert.ok(id.startsWith('opencode:plan_key:opencode-go.'));
   const handle = accounts.opencodeGo('Umer');
   assert.equal(handle.billing, 'subscription');
-  assert.deepEqual(Object.keys(handle).sort(), ['access', 'billing']);
+  assert.deepEqual(Object.keys(handle).sort(), ['access', 'billing', 'provider']);
   assert.equal(await handle.access(new AbortController().signal), 'member-plan-key');
   let sent: any;
   const result = await decide({}, { intent: questions.intent }, { privacy: 'may-leave', backends: [opencodeGo({
@@ -166,7 +195,7 @@ test('the Go backend bundles for phones without runtime SDK, Node or ambient cre
   const bundle = await build({ stdin: { contents: `
     import { decide, opencodeGo } from '../src/index.ts';
     const backend = opencodeGo({ model: 'muse-spark-1.3-contributor',
-      account: { billing: 'subscription', access: async () => 'phone-plan-key' },
+      account: { provider: 'opencode-go', billing: 'subscription', access: async () => 'phone-plan-key' },
       fetch: async () => Response.json({ status: 'completed', usage: { input_tokens: 4, output_tokens: 8 },
         output: [{ type: 'message', content: [{ type: 'output_text',
           text: JSON.stringify({ urgent: { probabilities: { true: 0.9, false: 0.1 }, pick: 'true', rationale: 'Fire.' } }) }] }] }) });
