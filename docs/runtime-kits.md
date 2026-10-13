@@ -470,10 +470,10 @@ export declare class OpenClawKit {
   addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId },
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
     done: Promise<{ view: SignInView; id: AccountId }> }>;
-  addKey(member: Member, o: { authChoice: string; apiKey: string; name?: string }): Promise<'ok' | 'invalid' | 'not_included' | 'retry'>;
+  addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string }): Promise<AddKeyResult>;
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account>;
   removeAccount(member: Member, id: AccountId): Promise<void>;
-  models(member: Member, id: AccountId): Promise<ModelInfo[]>;
+  models(member: Member, id: AccountId | { authChoice: string }): Promise<ModelInfo[]>;
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;   // demand: 'provider/model' ids (5.15)
   defaults(member: Member): Promise<Defaults>;
   setDefaults(member: Member, d: Defaults): Promise<void>;
@@ -781,8 +781,8 @@ A run started on done uses the new sign-in.
 A run prepares its models from configured facts and the static catalog only (the pin's run path; live discovery
 feeds `models.list view: 'all'`, never a run): a live-only OpenCode Go model (Muse) resolves once
 `models.providers['opencode-go'].models` lists it with its upstream API (`openai-responses` for Muse), which the kit
-writes from the plan's live catalog (5.6 Live provider catalogs) unless `KitOptions.config` sets that list. The pin's
-opencode-go stream wrapper sends `x-opencode-session` (the run's session id) on every request, the activation probe included.
+writes from the plan's live catalog (5.6 Live provider catalogs) unless `KitOptions.config` sets that list. The kit owns the
+`x-opencode-session` guarantee through its pinned engine: the opencode-go stream wrapper sends `x-opencode-session` (the run's session id) on every request, the activation probe included.
 Every exit short of done calls `wizard.cancel { sessionId }` for **its own** session. For `via: 'browser'` with
 `authChoice` `openai`, the kit holds `127.0.0.1:<callbackPort>` for the sign-in's life: any request pastes
 `http://<host><url>` into the wizard and answers a plain page (words key `signin.returned`); if the port is taken
@@ -966,27 +966,48 @@ the engine. External retained sources are touched only when explicitly passed to
   account; every further account is its own agent holding a scoped view of the shared grant (5.15).
   Absent, the request is unchanged and the engine uses its own selection.
 - API keys are opt-in, labelled **API key (billed per use)**, and every API route retains `offer: false`.
-  `addKey(member, { authChoice, apiKey })` uses typed `openclaw.setup.activate` with `kind: 'api-key'` only.
-  It returns `ok | invalid | not_included | retry`, never engine lines, errors or credentials. `retry`: the engine may have taken the key
-  but the gateway restart ran late, the seal failed, or the activation threw after it was sent (timeout, lost transport); the key agent is cleared best-effort, and a clear the engine refuses is swept at the kit's next start (the `byokit.keys` line below). A restart or not-ready gateway before the engine saw the key is also `retry` (nothing was sent). Only routes whose pinned
+  `addKey(member, { authChoice, apiKey, model? })` uses typed `openclaw.setup.activate` with `kind: 'api-key'` only.
+  `AddKeyResult` is `{ status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry'; reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' }`.
+  `invalid` only means the provider refused the key (`auth`, from the typed activation probe status), the provider's billing refused it (`billing`, the same no-retry outcome: an unchanged key is not retried), or the key was blank (`empty`, checked locally before any provider call).
+  An unsupported route or unknown chosen model is `not_included` with `model`. Every other failure is `retry`: timeout/transport `network`,
+  a probe reply in an unexpected format or an unknown probe failure `inference`, a typed request-validation refusal (`INVALID_REQUEST`) `inference`, other control or preparation failures `engine`, and a retryable unavailable or restarting engine `busy`.
+  A member that is not the caller's own throws, as `ensureMember` does, instead of returning a result. Failures carry only fixed discriminants: no engine lines, raw errors, key fragments or headers.
+  `retry` means the activation may have taken the key but it was not sealed (late restart, seal failure, thrown request);
+  the key agent is cleared best-effort, and a clear the engine refuses is swept at the kit's next start (the `byokit.keys` line below), so runs fail closed meanwhile.
+  A restart or not-ready gateway before the engine saw the key is `busy` with `retry` (nothing was sent). Only routes whose pinned
   manifests allow manual secrets for text inference expose `keyEntry`; every route carries `revision` and `checked`.
+  The optional `model` is Go-only: it applies only to a live-catalog route (`LIVE_CATALOGS`, today `opencode-go`) and is a full `provider/model` id from that route's catalog, checked after activation makes live discovery
+  available, then saved in the key lane's sealed selection. A `model` on any other route returns `{ status: 'not_included', reason: 'model' }` before activation. An unknown model clears the attempted replacement and returns
+  `{ status: 'not_included', reason: 'model' }`. Absent, the engine's current starter model stays. For a live-catalog provider, the chosen
+  full id must also be in the engine's registered `models.providers[provider].models` list, checked after preparation and before anything is sealed; otherwise the add clears the attempt and returns `{ status: 'retry', reason: 'model' }`. The public
+  `models(member, { authChoice })` exposes the Go live provider catalog once a key is saved, not a second catalog; before a key exists it
+  returns `[]` and queries no agent (no engine discovery). Other routes list no models. A chosen model must be available in that key lane's catalog, never borrowed from the ordinary member. Before returning `ok`, `addKey` awaits catalog synchronization, then prepares that key agent's
+  full-catalog owner with `models.authStatus { agentId: 'byokit-key-<member>', refresh: true }`, once under its key lock.
+  A thrown or unavailable preparation reply clears the attempted key best-effort and returns `{ status: 'retry', reason: 'engine' }`
+  without diagnostics. Ordinary runs and their admission policy are unchanged; there is no per-run cold refresh.
+  Catalog or control failures never become a claim that the key is invalid. A failed add may leave an empty reserved key agent; it clears the attempted key best-effort and never leaves a ready marker.
+  A non-auth, non-billing probe status (timeout, rate limit, format, unknown) is `retry` with its reason (`network`, `busy`, `inference`), never `invalid`.
 - The `byokit.keys` plugin actions are `prepare`, `seal`, `ready` and `clear` (`clear` drops the unsealed key a failed add left; `plugin/keys.js`). The kit's sweep runs at its first ready after start and sweeps each `byokit-key-<member>` agent under that member's lock: it clears a key only when `ready` reports the marker absent (`absent: true`), so a sealed key survives and an add that seals mid-sweep keeps its key. A refused read or clear leaves the sweep incomplete, and the next ready of that kit instance runs it again; a completed sweep never reruns.
 - The engine has no strict per-run auth-profile pin. Key isolation is by agent: a member's normal agent never
   receives a key from `addKey`. A reserved `byokit-key-<member>` agent has its own workspace and credential store;
-  the `byokit-key-` prefix is not a member id. Its key is `copyToAgents: false`. The plugin seals the local store
+  the `byokit-key-` prefix is not a member id. Key creation waits for `agents.list` visibility, exactly as member creation
+  does, before activation can use that agent's prepared runtime owner. Its key is `copyToAgents: false`. The plugin seals the local store
   to exactly the selected key and a local auth order containing only that profile; no shared/global order is mutated.
   The normal agent's local order lists only its OAuth sign-ins, excluding paid keys. The pin prunes empty
   local orders on save; with no sign-ins the normal agent's store contains no key profile to try. The normal agent's model selection and auth pin are unchanged by activation on the key agent. If the normal
   store already contains an API key from pass-through calls, adding a key is refused without deleting it.
 - `RunSpec.auth: 'apiKey'` explicitly routes to that member's key agent and its selected model. Key runs keep
   separate session history (`agent:byokit-key-<member>:...`) and app tool gates still see the original member.
+  The key-agent override enters the same explicit-model admission as an ordinary member run: `models.authStatus`
+  on that agent, then `refresh: true` once if the typed response says the prepared owner/auth snapshot is unavailable.
+  An available auth snapshot is not itself proof that the engine's full model-catalog generation is compatible.
   A missing, removed or unsealed key fails with a plain `signed-out` result before an engine run. Removal leaves
   no eligible fallback profile. Key replacement and key runs are serialized per member. `steer` and `abort` take the same optional
   `{ auth: 'apiKey' }` to address that separate history (host and device). A supplied model must
   be the selected key model's provider (`provider/model`); another provider ends `plan`. A key pays for its
   provider's models, not one: a Go plan key runs every Go model, and the engine refuses a model its catalog does
-  not list. This is smaller than a model choice in `addKey`, which would need a model picker before the key is known
-  and a re-add to change it. Absent, the selected key model runs. Ordinary runs never enter the key agent.
+  not list. `addKey` may save a Go catalog model as the default for this lane. Absent a run override, that saved model runs.
+  Ordinary runs never enter the key agent.
   `addKey` invalidates the old key before checking a replacement; a failed replacement leaves the key option
   unavailable. Key entry and its result are represented by the framework-free `ui/kits` key card view.
 - `classify(message)` (`src/classify.ts`) = Crewhouse `classifyText` mapped `rate_limit|overloaded → resting`,
@@ -1230,14 +1251,16 @@ import type { AccountView, Approval, ArtifactBytes, ArtifactFrame, ArtifactPiece
 declare function outputSchema(value: unknown): { prompt: string; parse(text: string): { data: unknown } | undefined };
 type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
+type AddKeyResult = { status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry';
+  reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' };   // 5.8, fixed discriminants only
 interface OpenClawKit {   // 5.3 signatures; the built kit has addKey and the account methods through removeAccount, the rest lands with O14
-  addKey(member: Member, o: { authChoice: string; apiKey: string; name?: string }): Promise<'ok' | 'invalid' | 'not_included' | 'retry'>;
+  addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string }): Promise<AddKeyResult>;
   addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId },
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
     done: Promise<{ view: SignInView; id: AccountId }> }>;
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account>;
   removeAccount(member: Member, id: AccountId): Promise<void>;
-  models(member: Member, id: AccountId): Promise<ModelInfo[]>;
+  models(member: Member, id: AccountId | { authChoice: string }): Promise<ModelInfo[]>;
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;
   defaults(member: Member): Promise<Defaults>;
   setDefaults(member: Member, d: Defaults): Promise<void>;
@@ -1668,10 +1691,9 @@ it never decides which account a sign-in belongs to, and a changed email changes
 AccountId }> }>`, where `done.id` is the account the sign-in ended in. `name` defaults to `<label> <n>`; the email's
 local part is only a suggestion the app offers (`@byokit/ui` `nameSuggestions`), so the index never holds it.
 
-**API keys.** `addKey(member, { authChoice, apiKey, name? })` accepts only routes with `keyEntry` (else
+**API keys.** `addKey(member, { authChoice, apiKey, model? })` accepts only routes with `keyEntry` (else
 `not_included`), writes the index entry, creates a new account agent, calls typed `openclaw.setup.activate { kind:
-'api-key', agentId, authChoice, apiKey }` (180 s), seals it, records its saved model, and returns `'ok' | 'invalid' |
-'not_included' | 'retry'`; any result but `ok` leaves nothing behind. A key the engine accepted that cannot be sealed (a late
+'api-key', agentId, authChoice, apiKey }` (180 s), seals it, records its saved model, and returns `AddKeyResult` (`{ status, reason }`, 5.8); any result but `ok` leaves nothing behind. A key the engine accepted that cannot be sealed (a late
 restart or a failed seal) is cleared and returns `retry`, never `invalid`; if that clear is refused, the kit's start sweep
 (the `byokit.keys` bullet in §5.8) clears it. Every key is a new account (keys add, never replace; a key is replaced by
 `removeAccount` then `addKey`). The key never reaches kit storage, the index, logs,
