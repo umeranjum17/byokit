@@ -142,7 +142,9 @@ export function boat(o: {
   };
 
   const read = async (res: Response): Promise<{ text: string; json: unknown }> => {
-    const text = await res.text();
+    const text = await res.text().catch(() => {
+      throw new MachineError('unreachable', 'the provider could not be reached');
+    });
     let json: unknown = null;
     try {
       json = text.length > 0 ? JSON.parse(text) : null;

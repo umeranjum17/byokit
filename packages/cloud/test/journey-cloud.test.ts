@@ -384,6 +384,19 @@ test('an app cleans up on Boat and every failure stays honest: no key leak, no l
     await failing.close();
   }
 
+  const bodyAbort = new AbortController();
+  const stalledBody: typeof fetch = async (_url, init) => new Response(new ReadableStream({
+    start(controller) {
+      init?.signal?.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')));
+    },
+  }), { status: 200 });
+  const midBody = boat({
+    baseUrl: 'http://127.0.0.1:1', label: 'Test', prices: prices(), key: async () => 'k', fetch: stalledBody, signal: bodyAbort.signal,
+  });
+  const midBodyCall = midBody.account().then(() => null, (e) => e as MachineError);
+  setTimeout(() => bodyAbort.abort(), 50);
+  assert.equal((await midBodyCall)?.code, 'unreachable', 'an abort during the body read is the typed unreachable, not a raw AbortError');
+
   // Slow 429/5xx answers cannot stretch one call past the one overall
   // deadline: the last answer stands, with the same typed error as exhausted
   // retries. Three-second 500s used to cost 4 x 3 s attempts + 1+2+4 s waits.
