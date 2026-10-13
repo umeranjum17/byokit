@@ -14,10 +14,10 @@ import type { OpenAIRequestOptions } from './openai.ts';
 
 export { UnsupportedAccountError } from './account-error.ts';
 export type { OpenCodeGoAccount };
+/** Either the member's OpenCode Go plan key itself, or the plan account from the
+ * @byokit/accounts peer (`accounts.opencodeGo(member)`) that reads it. Never both. */
 export type OpenCodeGoOptions = RetryOptions & {
   model: string;
-  /** Either the member's OpenCode Go plan key itself, or the plan account from the
-   * @byokit/accounts peer (`accounts.opencodeGo(member)`) that reads it. Never both. */
   fetch?: typeof fetch;
   request?: OpenAIRequestOptions;
   /** Host declares the selected model supports vision; absent means text only. */
