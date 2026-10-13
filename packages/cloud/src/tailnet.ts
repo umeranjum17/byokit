@@ -80,16 +80,21 @@ export async function joinTailnet(provider: Provider, ref: MachineRef, o: { host
   const link = /https:\/\/login\.tailscale\.com\/[^\s"<>]+/.exec(`${up.stdout}\n${up.stderr}`)?.[0];
   if (link) onStep?.({ step: 'open-page', url: link });
   // A short `up` deadline deliberately returns while the person signs in. Status is authoritative.
+  let approvalShown = false;
   for (;;) {
     const current = await tailnet(provider, ref);
     if (current.state === 'joined' && current.name !== null) {
       onStep?.({ step: 'joined', name: current.name });
       return { name: current.name };
     }
+    if (current.state === 'needs-login' && link === undefined && !approvalShown) {
+      approvalShown = true;
+      onStep?.({ step: 'approve', name: o.hostname });
+    }
     if (up.timedOut || (up.code !== 0 && !link && current.state !== 'needs-login')) {
       throw new MachineError('provider', `Connecting your private network failed: ${up.stderr.slice(-200)}`);
     }
-    if (Date.now() >= until) throw new MachineError('timeout', words('tailnet.loginExpired'));
+    if (Date.now() >= until) throw new MachineError('timeout', words(link === undefined ? 'tailnet.approvalNeeded' : 'tailnet.loginExpired'));
     await new Promise<void>((resolve) => setTimeout(resolve, 1000));
   }
 }
