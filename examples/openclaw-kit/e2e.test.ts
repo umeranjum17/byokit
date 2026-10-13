@@ -179,7 +179,9 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   await approval.waitFor({ state: 'detached' });
   await text(page, '#reply', `fake: ${allowMe}`);
   // The run's end carries the engine's totals, and the page shows them under the reply.
-  assert.match(await page.locator('#usage').textContent() ?? '', /^Tokens: \d+ in, \d+ out, \d+ total\.(, on \S+)?$/);
+  const usage = page.locator('#usage').filter({ hasText: /^Tokens:/ });
+  await usage.waitFor();
+  assert.match(await usage.textContent() ?? '', /^Tokens: \d+ in, \d+ out, \d+ total\.(, on \S+)?$/);
   assert.equal(await page.locator('#approvals-box').isHidden(), true);
   assert.equal(notes(), 'buy milk\n');
   await shot(page, '5-allowed');
