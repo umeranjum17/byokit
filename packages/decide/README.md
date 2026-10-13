@@ -444,8 +444,7 @@ Or call `decide(state, questions, { config, host, privacy, images?, timeoutMs?, 
 Jev's `jev-latest` model and TypeSafe route. OpenAI, Anthropic and OpenCode Go require an explicit `model`.
 `backend` is `jev`, `openai`, `anthropic` or `opencode-go`; `auth` is `apiKey` or `account` (Jev and Anthropic
 take `apiKey` only). Fields are `backend`, `auth`, `model`,
-`via` (Jev only), `request` and `supportsImages` (OpenAI and OpenCode Go only; Anthropic takes
-`supportsImages` but no `request`), `maxRetries`, `retryBaseMs`, `retryMaxMs`. Unknown fields, invalid JSON,
+`via` (Jev only), `request` (OpenAI and OpenCode Go only), `supportsImages` (OpenAI and Anthropic only), `maxRetries`, `retryBaseMs`, `retryMaxMs`. Unknown fields, invalid JSON,
 wrong types and invalid retry values throw `ConfigError` (`code: 'invalid_config'`); Jev or Anthropic
 account auth throws `UnsupportedAccountError`. API-key credentials must be explicitly supplied by the host:
 `host.keys.anthropic` for Anthropic, `host.keys['opencode-go']` for the Go plan key, and
@@ -453,9 +452,9 @@ account auth throws `UnsupportedAccountError`. API-key credentials must be expli
 an OpenAI account in `host.account` never reaches the Go endpoint, and a Go plan account in
 `host.accounts['opencode-go']` never reaches the OpenAI endpoint. Plan handles also carry a readonly provider
 tag (`'chatgpt'`, `'opencode-go'`), so a misplaced handle is refused with plain words even outside the config
-path: `openai({ auth: 'account', account })` refuses a token-bearing handle unless its tag is `'chatgpt'`, and
-`opencodeGo()` requires `'opencode-go'`. An untagged handle from an older `@byokit/accounts` is refused with a
-message to update `@byokit/accounts`; `accounts.chatgpt(member)` (Codex sign-in, no token exposed) is ChatGPT-only by construction. Pass each handle to its own provider;
+path: `openai({ auth: 'account', account })` refuses any handle whose tag is not `'chatgpt'`, including an untagged
+handle from an older `@byokit/accounts` (the message says to update it), and `opencodeGo()` requires `'opencode-go'`.
+This covers `accounts.chatgpt(member)` too. Pass each handle to its own provider;
 nothing falls back. A backend switch clears
 provider-specific model/route/request settings; a switch to OpenAI, Anthropic or OpenCode Go must specify
 its model.

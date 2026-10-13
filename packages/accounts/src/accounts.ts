@@ -1033,7 +1033,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    * the current sign-in and Accounts' refresh/limit/sign-out handling; the handle exposes no credentials. */
   chatgpt(member: M): ChatGPTRespondAccount {
     this.offer('chatgpt');
-    return { billing: 'subscription', respond: (ask) => this.respond(member, ask) };
+    return { provider: 'chatgpt', billing: 'subscription', respond: (ask) => this.respond(member, ask) };
   }
 
   /** Bind this member's saved OpenCode Go plan key for consumers such as decide. Each request reads

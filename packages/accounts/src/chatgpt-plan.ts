@@ -3,6 +3,8 @@ import type { Ask, ResponseResult } from './responses.ts';
 /** A member-bound Accounts ChatGPT subscription handle. Credentials stay inside Accounts. */
 export type ChatGPTRespondAccount = {
   readonly billing: 'subscription';
+  /** Provider tag: a plan handle only reaches its own provider's endpoint. */
+  readonly provider: 'chatgpt';
   respond(ask: Ask & { result: true }): Promise<ResponseResult>;
 };
 

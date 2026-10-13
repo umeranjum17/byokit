@@ -8,7 +8,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { build } from 'esbuild';
-import { decide, openai, opencodeGo, OPENCODE_GO_ROUTES, UnsupportedAccountError, UnsupportedImagesError,
+import { ConfigError, decide, openai, opencodeGo, OPENCODE_GO_ROUTES, parseConfig, UnsupportedAccountError, UnsupportedImagesError,
   InvalidImageError, type ImageInput, type Question } from '../src/index.ts';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/openai-responses.json', import.meta.url), 'utf8'));
@@ -132,6 +132,11 @@ test('a misplaced plan handle is refused on both providers, naming the provider,
   const legacyGo = { billing: 'subscription', access: async () => 'legacy-token' };
   assert.throws(() => opencodeGo({ model: 'muse-spark-1.3-contributor', account: legacyGo as any }),
     /update @byokit\/accounts/);
+  const legacyRespond = { billing: 'subscription', respond: async () => ({}) };
+  assert.throws(() => openai({ auth: 'account', account: legacyRespond as any, model: 'gpt-6.1-sol' }),
+    /update @byokit\/accounts/);
+  assert.throws(() => parseConfig({ backend: 'opencode-go', model: 'muse-spark-1.3-contributor', supportsImages: true }),
+    ConfigError);
 });
 
 test('the Go backend needs a subscription plan account and surfaces a signed-out plan without a key fallback', async () => {

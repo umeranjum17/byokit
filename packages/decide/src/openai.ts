@@ -45,7 +45,7 @@ export function openai(o: OpenAIOptions): Backend {
       (typeof responder?.respond !== 'function' && typeof shared?.access !== 'function'))) {
     throw new UnsupportedAccountError('ChatGPT plan usage needs an account session from the @byokit/accounts peer (install it to use auth: "account").');
   }
-  if (shared && shared.provider !== 'chatgpt') {
+  if (account && account.provider !== 'chatgpt') {
     throw new UnsupportedAccountError('ChatGPT plan usage needs a ChatGPT plan account; update @byokit/accounts if this account has no provider tag.');
   }
   if (!account && (typeof o.key !== 'string' || !o.key.trim())) throw new Error('openai needs a key');
