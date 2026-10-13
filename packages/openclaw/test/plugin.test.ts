@@ -30,6 +30,7 @@ async function withPlugin(
   copyFileSync(new URL('../plugin/keys.js', import.meta.url), join(dir, 'keys.js'));
   copyFileSync(new URL('../plugin/usage.js', import.meta.url), join(dir, 'usage.js'));
   copyFileSync(new URL('../plugin/accounts.js', import.meta.url), join(dir, 'accounts.js'));
+  copyFileSync(new URL('../plugin/catalog.js', import.meta.url), join(dir, 'catalog.js'));
   writePlugin(dir, { id: 'byokit', tools, paramPrefix: '__byokit', gateBuiltins: o.gateBuiltins, browser: o.browser });
   const bridge = new Bridge({
     path: join(dir, 'bridge.sock'),
@@ -65,6 +66,7 @@ async function withPlugin(
     } });
     assert.ok(methods.includes('byokit.usage.engineStarted'), 'Workshop accounting remains registered alongside browser protection');
     assert.ok(methods.includes('byokit.keys'), 'key registration remains available');
+    assert.ok(methods.includes('byokit.catalog'), 'live catalog reads are available');
     assert.ok(methods.includes('byokit.accounts'), 'account sealing registration remains available');
     assert.ok(hook, 'the plugin registered no before_tool_call hook');
     await fn(hook, seen);

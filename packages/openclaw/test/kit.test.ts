@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { test } from 'node:test';
@@ -241,9 +242,13 @@ test('API key is explicit, member-local, secret-free, and removed without fallba
   const canary = 'CANARY-PAID-KEY-928374';
   const views: unknown[] = [];
   const off = kit.onEvent('*', (e) => views.push(e));
+  assert.equal(await kit.signedIn('m1', 'openai'), false);
   assert.equal(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: canary }), 'ok');
-  assert.deepEqual(await kit.providers('m1'), []);
+  assert.deepEqual(await kit.providers('m1'), [], 'providers stays the member sign-ins');
   assert.deepEqual(await kit.providers('m2'), []);
+  assert.equal(await kit.signedIn('m1', 'openai'), true, 'a ready key counts for its provider');
+  assert.equal(await kit.signedIn('m1', 'anthropic'), false);
+  assert.equal(await kit.signedIn('m2', 'openai'), false);
   const activation = fake.calls.find((c) => c.method === 'openclaw.setup.activate')?.params as Record<string, unknown>;
   assert.equal(activation.kind, 'api-key');
   assert.equal(activation.agentId, 'byokit-key-m1');
@@ -259,6 +264,7 @@ test('API key is explicit, member-local, secret-free, and removed without fallba
   assert.deepEqual(other, { ok: false, kind: 'signed-out', message: 'Add an API key to use this option.' });
   await kit.call('models.authLogout', { agentId: 'byokit-key-m1', provider: 'openai' });
   assert.deepEqual(await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat', auth: 'apiKey', message: 'Hello' }), other);
+  assert.equal(await kit.signedIn('m1', 'openai'), false, 'a cleared key no longer counts');
   assert.equal(fake.calls.filter((c) => c.method === 'agent').length, count);
   fake.failNext('agent', '429 rate limit: Try again in 30 minutes');
   const resting = await kit.run({ member: 'm1', sessionKey: 'agent:m1:normal', message: 'Hello' });
@@ -267,6 +273,84 @@ test('API key is explicit, member-local, secret-free, and removed without fallba
   assert.equal(JSON.stringify([end, other, views, fake.calls]).includes(canary), false);
   off();
 }));
+
+test('a Go plan key registers the live catalog once and runs any Go model', async () => withKit(async (kit, fake) => {
+  const patches = () => fake.calls.filter((c) => c.method === 'config.patch').length;
+  const goModels = async () => ((await kit.call('config.get', {}) as { config: { models?: { providers?: Record<string,
+    { models?: { id: string; api?: string }[] }> } } }).config.models?.providers?.['opencode-go']?.models);
+  const settled = async (n: number) => { for (let i = 0; i < 100 && fake.calls.filter((c) => c.method === 'byokit.catalog').length < n; i++) await delay(10); await delay(20); };
+  await settled(1);
+  assert.equal(await goModels(), undefined, 'no key, nothing registered');
+  const before = patches();
+  assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY' }), 'ok');
+  await settled(2);
+  assert.deepEqual((await goModels())?.map((m) => [m.id, m.api]),
+    [['fake-key-model', 'openai-completions'], ['fake-live-model', 'openai-responses']]);
+  assert.equal(patches(), before + 1);
+  assert.equal(await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY' }), 'ok');
+  await settled(3);
+  assert.equal(patches(), before + 1, 'an unchanged catalog is never rewritten');
+  const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:muse', auth: 'apiKey', model: 'opencode-go/fake-live-model', message: 'Hi' });
+  assert.equal(end.ok, true);
+  assert.equal((fake.calls.findLast((c) => c.method === 'agent')?.params as Record<string, unknown>).model, 'fake-live-model');
+  assert.deepEqual(await kit.run({ member: 'm1', sessionKey: 'agent:m1:muse', auth: 'apiKey', model: 'openai/gpt-5.1', message: 'Hi' }),
+    { ok: false, kind: 'plan', message: 'Choose a model of the provider saved with this key.' });
+}));
+
+test('a catalog failure is logged without the key, no key is silent, and signedIn probes the key once', async () => {
+  const stateDir = scratchDir('o4-catalog-log');
+  const fake = fakeGateway();
+  const lines: string[] = [];
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, log: (line) => lines.push(line) });
+  const catalogLines = () => lines.filter((line) => line.startsWith('catalog sync'));
+  const until = async (ok: () => boolean) => { for (let i = 0; i < 100 && !ok(); i++) await delay(10); await delay(20); };
+  const calls = (method: string) => fake.calls.filter((c) => c.method === method).length;
+  try {
+    await kit.start();
+    await until(() => calls('byokit.catalog') >= 1);
+    assert.deepEqual(catalogLines(), [], 'no key is not a failure');
+    fake.handle('byokit.catalog', () => ({ ok: false, reason: 'failed' }));
+    assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-LOG-KEY' }), 'ok');
+    await until(() => catalogLines().length > 0);
+    assert.deepEqual(catalogLines(), ['catalog sync opencode-go: failed']);
+    assert.equal(lines.join('\n').includes('CANARY-LOG-KEY'), false);
+    fake.handle('byokit.catalog', () => { throw new Error('gateway restarting ENGINE-ECHO-TEXT'); });
+    assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-LOG-KEY' }), 'ok');
+    await until(() => catalogLines().length > 1);
+    assert.deepEqual(catalogLines(), ['catalog sync opencode-go: failed', 'catalog sync opencode-go: failed']);
+    assert.equal(lines.join('\n').includes('ENGINE-ECHO-TEXT'), false);
+    fake.handle('byokit.keys', (p) => {
+      if (p.action === 'ready') throw Object.assign(new Error('gateway restarting'), { code: 'UNAVAILABLE', retryable: true });
+      return { ok: false };
+    });
+    const before = calls('byokit.keys');
+    assert.equal(await kit.signedIn('m2', 'opencode-go'), false);
+    assert.equal(calls('byokit.keys') - before, 1, 'one ready probe, no retry while the gateway restarts');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a catalog sync that races a gateway restart is not logged; the ready handler re-syncs', async () => {
+  const stateDir = scratchDir('o4-catalog-restart');
+  const fake = fakeGateway();
+  const lines: string[] = [];
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, log: (line) => lines.push(line) });
+  let raced = false;
+  try {
+    await kit.start();
+    fake.handle('byokit.catalog', () => { raced = true; fake.drop('gateway restarting'); throw new Error('transport closed'); });
+    assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-RACE-KEY' }), 'ok');
+    for (let i = 0; i < 100 && !raced; i++) await delay(10);
+    await delay(20);
+    assert.equal(raced, true);
+    assert.deepEqual(lines.filter((line) => line.startsWith('catalog sync')), []);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
 
 test('ready runs reuse only witnessed, bounded member auth; mutations, expiry and disconnect recheck', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() });

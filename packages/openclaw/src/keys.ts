@@ -64,7 +64,7 @@ export function createKeys(ctx: ActivationCtx & {
         }
       });
     },
-    async ready(member: Member): Promise<{ agentId: string; model: string } | undefined> {
+    async ready(member: Member, o: { once?: boolean } = {}): Promise<{ agentId: string; model: string } | undefined> {
       if (!check(member)) return undefined;
       const deadline = Date.now() + 60_000;
       for (;;) {
@@ -73,7 +73,7 @@ export function createKeys(ctx: ActivationCtx & {
           return ready.ok && ready.model ? { agentId: keyAgentId(member), model: ready.model } : undefined;
         } catch (error) {
           // This read is safe to retry; an absent profile or a terminal refusal still fails closed immediately.
-          if (!transient(error) || Date.now() >= deadline) return undefined;
+          if (o.once || !transient(error) || Date.now() >= deadline) return undefined;
           await new Promise((resolve) => setTimeout(resolve, 250));
         }
       }

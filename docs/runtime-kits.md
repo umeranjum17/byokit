@@ -620,6 +620,40 @@ Crewhouse's product choices (tool profile and deny list, `skills.allowBundled`, 
 `codex: { enabled: false }`, `memory-core` dreaming off) move into Crewhouse's `config` option unchanged.
 `memoryLimited(member)` = the member's (else top-level) `memory.search.provider === 'none'`.
 
+#### Live provider catalogs (OpenCode Go)
+
+Embedded runs resolve a model only from the engine's static or configured catalog (`catalogMode: 'static'`). A
+provider's live models (the Go plan's `muse-spark-1.3-contributor`, served over the Responses API) show in
+`models.list { view: 'all' }`, but a run on one answers `Unknown model`. The kit registers them, so `models()` and runs
+see them with no model setup in the app:
+
+- Providers: `opencode-go` only (`LIVE_CATALOGS` in `src/kit.ts`). Registering a list fixes that provider's catalog
+  membership, so adding a provider is a spec change.
+- Source: the plugin's `byokit.catalog { provider }` runs the provider plugin's own `catalog.run` hook
+  (`resolvePluginProviders`) with the key of the first agent holding one (`resolveApiKeyForProvider`). It answers
+  `{ ok: true, models }`: the hook's live model rows, each with the `api` the provider's live catalog data gives it (Muse:
+  `openai-responses`), plus each pinned row (the hook run without a discovery key) whose id the live list lacks; live
+  wins by id. Rows carry no `provider`, `apiKey` or `headers`. Each row's `baseUrl` is the endpoint the pinned catalog
+  uses for that `api`: upstream now names `opencode.ai/inference/go/v1`, and the pinned engine sends Go's
+  `x-opencode-session` routing header only to endpoints it knows, so a run there ends `400 Request is missing
+  x-opencode-session`. No agent holds the provider's key answers `{ ok: false, reason: 'no-key' }`; a missing hook, a
+  throwing live fetch, a live list with no rows, or a key that cannot be read answers `{ ok: false, reason: 'failed' }`. Neither carries a key or
+  engine text. No model is special-cased.
+- Triggers: each time the kit reaches `ready` (start, and every restart, including the one an activation's auth
+  write causes), and after `addKey` or `addAccount` ends `ok` for that provider. Syncs are serialized and run in the
+  background; `start()` and the add result never wait for one.
+- Write: `patchConfig({ models: { providers: { [provider]: { models } } } })`, where `models` is the answer merged
+  by id over the registered list (the answer wins; a registered id the answer lacks stays, so a model that leaves the
+  live list is never dropped). Nothing is written when that equals the
+  registered list. The engine hot-reloads `models.*` without a restart, so a live run goes on. A write that lands
+  while an activation's auth restart is pending answers `config.patch ... a recovery restart is required` although
+  it persisted. A sync that fails while the kit is not `ready` (a restart, or that recovery answer) is silent, and the next
+  `ready` re-syncs: the list is unchanged when the write persisted.
+- App config wins: when `KitOptions.config.models.providers[provider].models` is set, the kit never syncs that
+  provider.
+- A failure (`reason: 'failed'`) is logged (`catalog sync <provider>: failed`), never thrown; the registered list stays.
+  `no-key` is not logged: a member without the provider's key is the normal state, and it is never a failure.
+
 #### One key, not the whole config (`getConfigKey` / `setConfigKey`)
 
 `patchConfig` is the only whole-config writer and it can only start from a `config.get`, whose result redacts
@@ -744,8 +778,9 @@ during the wait it ends `why: 'declined'`), and the add is cleaned up either way
 clears only this provider's profile and its index entry. The same wait and cleanup apply to `addKey` (below). A cancel during the activation request waits for the engine's answer before the cleanup, and ends `why: 'declined'`. Adds of one provider for one member take turns until each settles. Done means sealed.
 A run started on done uses the new sign-in.
 A run prepares its models from configured facts and the static catalog only (the pin's run path; live discovery
-feeds `models.list view: 'all'`, never a run): a live-only OpenCode Go model (Muse) resolves once the app lists it in
-`KitOptions.config.models.providers['opencode-go'].models` with its upstream API (`openai-responses` for Muse). The pin's
+feeds `models.list view: 'all'`, never a run): a live-only OpenCode Go model (Muse) resolves once
+`models.providers['opencode-go'].models` lists it with its upstream API (`openai-responses` for Muse), which the kit
+writes from the plan's live catalog (5.6 Live provider catalogs) unless `KitOptions.config` sets that list. The pin's
 opencode-go stream wrapper sends `x-opencode-session` (the run's session id) on every request, the activation probe included.
 Every exit short of done calls `wizard.cancel { sessionId }` for **its own** session. For `via: 'browser'` with
 `authChoice` `openai`, the kit holds `127.0.0.1:<callbackPort>` for the sign-in's life: any request pastes
@@ -763,7 +798,11 @@ Mapping to `SignInView.why`: setup-admission-busy error → `busy`; person cance
 `declined`; 200 turns or 15 min → `expired`; else `failed`. Errors are cut to 200 chars.
 
 **providerStatus / signedIn / providers**: live readiness reads; see 5.8 for the usable-provider rule,
-native Claude detection, unknown-status mapping and admission snapshots.
+native Claude detection, unknown-status mapping and admission snapshots. `signedIn(member, provider)` is also true
+when the member's key agent holds a ready key (`byokit.keys ready`) whose saved model is that provider's (5.8 API
+keys), so an app that added only a key sees it. That probe is a single `byokit.keys ready` read with no transient retry,
+so during a gateway restart `signedIn` answers `false` at once rather than waiting out the 60 s retry that runs use.
+`providers` stays the member agent's sign-ins, the ones a run without `auth: 'apiKey'` uses.
 **signOut**: `models.authLogout { provider, agentId, profileIds }` with the agent's own profiles of that provider
 (`byokit.accounts list`; from O14, 5.15). `signIn`, `signedIn`, `providers` and `signOut` address the
 member agent, whose sign-in to a provider is that provider's first account (5.15); `addAccount` adds any further one.
@@ -943,7 +982,10 @@ the engine. External retained sources are touched only when explicitly passed to
   A missing, removed or unsealed key fails with a plain `signed-out` result before an engine run. Removal leaves
   no eligible fallback profile. Key replacement and key runs are serialized per member. `steer` and `abort` take the same optional
   `{ auth: 'apiKey' }` to address that separate history (host and device). A supplied model must
-  equal the selected key model; it cannot choose another provider. Ordinary runs never enter the key agent.
+  be the selected key model's provider (`provider/model`); another provider ends `plan`. A key pays for its
+  provider's models, not one: a Go plan key runs every Go model, and the engine refuses a model its catalog does
+  not list. This is smaller than a model choice in `addKey`, which would need a model picker before the key is known
+  and a re-add to change it. Absent, the selected key model runs. Ordinary runs never enter the key agent.
   `addKey` invalidates the old key before checking a replacement; a failed replacement leaves the key option
   unavailable. Key entry and its result are represented by the framework-free `ui/kits` key card view.
 - `classify(message)` (`src/classify.ts`) = Crewhouse `classifyText` mapped `rate_limit|overloaded → resting`,
@@ -1629,7 +1671,8 @@ local part is only a suggestion the app offers (`@byokit/ui` `nameSuggestions`),
 restart or a failed seal) is cleared and returns `retry`, never `invalid`. Every key is a new account (keys add, never
 replace; a key is replaced by `removeAccount` then `addKey`). The key never reaches kit storage, the index, logs,
 errors or a return value, and is never sent over a link (`oc.account.add` refuses `key`). `RunSpec.auth: 'apiKey'`
-means `account: <the member's newest api account>` and runs its saved model; another model ends `kind: 'plan'`.
+means `account: <the member's newest api account>` and runs its saved model, or a supplied model of the same
+provider (5.8); another provider ends `kind: 'plan'`.
 If the key lane's `byokit-key-<member>` agent already exists (it shipped before O14): it is indexed as account
 `<provider>.key`, keeps its workspace (`key-workspaces/<member>`) and sessions, `agent:byokit-key-<member>:` keys are
 that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it, and every later key is a
@@ -3466,6 +3509,13 @@ OpenClaw (pinned 2026.8.1, verified in Crewhouse at `a9ca74e`):
   true`). `sessions.move` and `sessions.fork` stay in one agent; `sessions.create { agentId, key, fork: true,
   parentSessionKey, model }` copies the raw transcript across agents and refuses while the parent runs or when it
   exceeds the target model's context.
+- Live catalogs (2026.8.35, probed with a Go key): embedded runs use only static or configured models. A non-empty
+  `models.providers[p].models` fixes `p`'s catalog to exactly the listed ids in every `models.list` view and in the
+  engine's catalog loader (unless a `modelPolicy.allow` wildcard `p/*` makes it dynamic), and `models.*` changes
+  hot-reload with no restart. The provider plugin's `catalog.run` hook still answers the full live list with
+  per-model `api`/`baseUrl` (the engine maps the upstream package: `@ai-sdk/openai` → `openai-responses`,
+  `@ai-sdk/anthropic` → `anthropic-messages`, else `openai-completions`). An `openclaw.setup.activate` that writes
+  auth restarts the Gateway.
 
 Herdr (muxr notes verified on 0.8.0; H2/H9 re-verify on 0.9.1):
 - One request per connection; the server closes after answering; only `events.subscribe` stays open.

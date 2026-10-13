@@ -155,7 +155,8 @@ for entry, checking, success and failure states, using the kit's `key.*` words.
 
 To use the saved key for one run, pass `auth: 'apiKey'`. The key lives in the member's separate
 `byokit-key-<member>` agent and workspace, with `copyToAgents: false` and only that key in its local auth order.
-Its selected model is used; omit `model` or pass that same model. Key runs have separate history. To steer or stop
+Its selected model is used when `model` is omitted; any other model of the same provider (`provider/model`) runs too,
+and another provider ends `plan`. Key runs have separate history. To steer or stop
 one, pass `{ auth: 'apiKey' }` to `steer` or `abort` too (the device helpers accept the same option).
 Ordinary runs never enter the key agent, even when the subscription is resting. This agent boundary is necessary
 because the engine's profile pins can rotate. The `byokit-key-` member prefix is reserved. Adding another key
@@ -175,7 +176,9 @@ without a new accepted frame emit no `started`. Handle these frames explicitly r
 non-text/tool frame as an end.
 Live readiness reads (`providers`, `signedIn`, or device `state()`) prepare admission for the next run, avoiding
 redundant checks while authority remains reusable. `providerStatus(member)` returns `undefined` for unknown
-status rather than `[]`; `providers` maps unknown to `[]`, and `signedIn` to `false`.
+status rather than `[]`; `providers` maps unknown to `[]`, and `signedIn` to `false`. `signedIn(member, provider)`
+is also true when the member holds a ready API key for that provider (`addKey`), while `providers` lists only the
+member's own sign-ins, the ones a run without `auth: 'apiKey'` uses; a key run passes `auth: 'apiKey'`.
 See [the admission contract](../../docs/runtime-kits.md#58-runs-members-and-streams) for lifetime, expiry,
 file witnesses, invalidation and remote-revocation limits.
 Tool events carry the engine's call `id`, the `input` on `start` and the `output` and `error` on `end`. A run that
@@ -343,7 +346,7 @@ streams, [`examples/openclaw-kit`](../../examples/openclaw-kit) for a whole app,
 
 Subscription sign-ins are offered by default. API-billed routes remain in `kit.routes()` with `offer: false`;
 apps can offer them when the app or person opts in, labelled API key (billed per use). Each `Route` carries `billing` (`subscription`, `api` or
-`local`) so the app can label what is billed. Proxy routes, compatibility aliases, local runtimes stay off. Native Claude Code sign-in is offered by default. A plan key (OpenCode Go: `kit.addAccount(member, { authChoice: 'opencode-go' }, on)`) asks for `Plan key`; `paste` it and the engine live-tests it before `done`. A run reaches the pinned engine's static Go models (default `opencode-go/deepseek-v4-pro`); the engine sends OpenCode Go's `x-opencode-session` header on every request. A live-only Go model such as Muse is registered by the app with its API: `config: { models: { providers: { 'opencode-go': { baseUrl: 'https://opencode.ai/zen/go/v1', api: 'openai-responses', models: [{ id: 'muse-spark-1.3-contributor', name: 'Muse Spark 1.3 Contributor' }] } } } }`, then `run({ model: 'opencode-go/muse-spark-1.3-contributor' })` on the account. A choice the pinned Gateway cannot set up has readiness `no_upstream_flow` and is never offered. Pass the accounts the app offers in `KitOptions.offered` (the provider, auth choice or alias each route carries, e.g. `'openrouter'`); the kit allow-lists the plugin of every route those name, so an opted-in sign-in is not blocked. An app can still name a plugin directly in `config.plugins.allow`, and pass the route's `choice` explicitly to `kit.signIn()`.
+`local`) so the app can label what is billed. Proxy routes, compatibility aliases, local runtimes stay off. Native Claude Code sign-in is offered by default. A plan key (OpenCode Go: `kit.addAccount(member, { authChoice: 'opencode-go' }, on)`) asks for `Plan key`; `paste` it and the engine live-tests it before `done`. A run reaches the pinned engine's static Go models (default `opencode-go/deepseek-v4-pro`); the engine sends OpenCode Go's `x-opencode-session` header on every request. A live-only Go model such as Muse needs no app config: the kit registers the plan's live catalog with each model's API, so `run({ model: 'opencode-go/muse-spark-1.3-contributor' })` runs on the account (or with `auth: 'apiKey'` on a Go key); an app that sets `config.models.providers['opencode-go'].models` keeps its own list. A choice the pinned Gateway cannot set up has readiness `no_upstream_flow` and is never offered. Pass the accounts the app offers in `KitOptions.offered` (the provider, auth choice or alias each route carries, e.g. `'openrouter'`); the kit allow-lists the plugin of every route those name, so an opted-in sign-in is not blocked. An app can still name a plugin directly in `config.plugins.allow`, and pass the route's `choice` explicitly to `kit.signIn()`.
 Offered provider plugins are allowed by default alongside the app's plugin ids.
 
 ## API at a glance
