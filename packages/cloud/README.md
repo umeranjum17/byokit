@@ -41,8 +41,9 @@ inside the host process; `./testing` is Node only (the fake provider and the con
 **Status: in development.** This is the M3 build ([spec](../../docs/cloud-kit.md) §14):
 frozen types, words, pure parts (`renderUnit`, recipe checks, node argv, cost), `machine()`
 for §5.1–5.5 and §5.7 plus install and supervise (§8: `install`, `update`, `host`,
-`logs`, `deliver`), the fake provider and the contract suite, the Boat adapter
-(M4), and the SSH VM adapter (M2). Sleep-and-wake lands in M7, account link in M8.
+`logs`, `deliver`), `status()` (§5.9), the fake provider and the contract suite, the Boat adapter
+(M4), and the SSH VM adapter (M2). Idle sleep and wake-on-open land in M7 (manual `sleep()` and
+`wake()` are already here), account link in M8.
 The package stays private until the recorded real-provider run (M6).
 
 The library reads no environment variable. Every spawned process gets an env built from nothing.

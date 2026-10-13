@@ -410,8 +410,8 @@ and remove. It resolves `{ machine, host, words }`: `machine` is `m.state()`; wh
 and `words` is `hostWords(host)`; otherwise `host` is `null` (no command is sent to a machine that is not on) and
 `words` is `stateWords(machine)`. If `host()` rejects with any error and a second `state()` read is no longer `on` (the
 machine left `on` between the two reads), `status` resolves that state with `host` `null`; otherwise it rethrows.
-Rejections are `state()`'s and `host()`'s (`no-machine` after `remove`); the app shows `errorWords`. Boat's `create` resolves before the machine is on, so an app polls `status` until `on`
-before `install`.
+Rejections are `state()`'s and `host()`'s (`no-machine` after `remove`); the app shows `errorWords`.
+Boat's `create` resolves before the machine is on, so an app polls `status` until `on` before `install`.
 
 ## 6. Boat adapter (`src/boat.ts`)
 
