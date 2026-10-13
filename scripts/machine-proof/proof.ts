@@ -101,7 +101,7 @@ export async function runProof(o: {
       await installApp(provider, ref, target.app);
       target.onInstall?.((Date.now() - installStarted) / 1000);
       assert.equal(await m.host(), 'running');
-      session.url = await m.url(target.app.exposure.port);
+      // prepare() supplies the app's private tailnet route. Never expose a port here.
       const s = session;
       await add(adapter, 'host-doctor', async () => {
         await exec(s, target.app.doctor);
@@ -127,7 +127,7 @@ export async function runProof(o: {
         assert.equal(await m.host(), 'running');
         return { status: 'pass', detail: 'enabled app unit running after power cycle' };
       });
-      // Probe the old URL before url() can re-host it; then probe the new route separately.
+      // Probe the private route after waking; the provider must not re-host it.
       await add(adapter, 'relay-resume', () => o.hooks.observe('relay-resume', s));
       await add(adapter, 'ip-change', async () => {
         const afterIp = await o.hooks.address(s);
@@ -135,7 +135,7 @@ export async function runProof(o: {
         return { status: 'observed', detail: `address changed: ${beforeIp !== afterIp}; IPv6-only: ${!v4 && afterIp.includes(':')}` };
       });
       const oldUrl = s.url;
-      s.url = await m.url(target.app.exposure.port);
+      // MagicDNS is stable; private ingress is configured by the app, not provider hosting.
       await add(adapter, 'route-rehost', async () => {
         const observed = await o.hooks.observe('route-rehost', s);
         return { ...observed, detail: `route changed: ${oldUrl !== s.url}; ${observed.detail}` };
