@@ -40,6 +40,13 @@ Drive, retaining the actual typed results and streamed output:
 4. `kit.stop()`, construct a new kit on the same root, `start()` and run again without a model. A refusal here is retained as a restart/readiness limitation, never presented as a successful second run; no workaround or re-add qualifies restart persistence.
 5. Verify both probe and run carry `x-opencode-session`. A task-owned observer plugin can subscribe to Node's `undici:request:create` / `undici:request:headers`, restrict to the `opencode.ai` origin, and record **only** phase (`activation`/`first-run`/`restart-run`), header-name presence, and HTTP status. Add its path/id through the app's `plugins.load.paths`/`plugins.allow`; it never changes requests. Require nonzero requests in both phases and header presence on each. Save this structural excerpt beside the transcript; never record header values, bodies or raw engine errors. Stop and remove that observer with the scratch root.
 
+If a key run refuses a prepared full-catalog owner/config while auth status appears available, a diagnostic-only
+`kit.call('models.authStatus', { agentId: 'byokit-key-umer', refresh: true })` can distinguish owner preparation
+from bad credentials. Retain that reply and label any following run **manual owner refresh, not public-API acceptance**.
+The key override already enters `createRuns`' explicit-model admission (`picked && !chosen`; `chosen` is an AccountPick,
+not a key-agent override). The existing public-kit key journey asserts the unavailable → refresh sequence on the key
+agent. Do not add an app-side refresh or retry and report the unassisted API as qualified.
+
 This is nonvisual SDK behavior; no screenshots or provider OAuth/browser sign-in are involved. The offline consumer above proves the saved-model API path but does **not** prove HTTP headers or restart readiness.
 
 ## Gotchas

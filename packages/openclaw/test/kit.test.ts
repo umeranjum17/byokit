@@ -257,7 +257,17 @@ test('API key is explicit, member-local, secret-free, and removed without fallba
   const activatedKey = fake.calls.findIndex((c) => c.method === 'openclaw.setup.activate');
   assert.ok(fake.calls.slice(createdKey + 1, activatedKey).some((c) => c.method === 'agents.list'),
     'key creation awaits the published roster/owner boundary, exactly as member creation does');
+  // The key override already uses explicit-model admission on its own agent, including deferred-owner refresh.
+  fake.handle('models.authStatus', (p) => p.agentId === 'byokit-key-m1' ? p.refresh
+    ? { providers: [{ provider: 'openai', profiles: [{ status: 'static' }] }] }
+    : { providers: [], unavailable: { code: 'PREPARED_MODEL_AUTH_UNAVAILABLE', message: 'owner not prepared' } }
+    : { providers: [] });
+  const admissionAt = fake.calls.length;
   const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat', auth: 'apiKey', message: 'Hello' });
+  assert.deepEqual(fake.calls.slice(admissionAt, fake.calls.findIndex((c) => c.method === 'agent'))
+    .filter((c) => c.method === 'models.authStatus')
+    .map((c) => { const p = c.params as { agentId: string; refresh?: boolean }; return [p.agentId, p.refresh === true]; }),
+    [['byokit-key-m1', false], ['byokit-key-m1', true]]);
   assert.equal(end.ok, true);
   const request = fake.calls.find((c) => c.method === 'agent')?.params as Record<string, unknown>;
   assert.equal(request.agentId, 'byokit-key-m1');

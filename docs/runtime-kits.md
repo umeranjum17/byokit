@@ -991,6 +991,9 @@ the engine. External retained sources are touched only when explicitly passed to
   store already contains an API key from pass-through calls, adding a key is refused without deleting it.
 - `RunSpec.auth: 'apiKey'` explicitly routes to that member's key agent and its selected model. Key runs keep
   separate session history (`agent:byokit-key-<member>:...`) and app tool gates still see the original member.
+  The key-agent override enters the same explicit-model admission as an ordinary member run: `models.authStatus`
+  on that agent, then `refresh: true` once if the typed response says the prepared owner/auth snapshot is unavailable.
+  An available auth snapshot is not itself proof that the engine's full model-catalog generation is compatible.
   A missing, removed or unsealed key fails with a plain `signed-out` result before an engine run. Removal leaves
   no eligible fallback profile. Key replacement and key runs are serialized per member. `steer` and `abort` take the same optional
   `{ auth: 'apiKey' }` to address that separate history (host and device). A supplied model must
