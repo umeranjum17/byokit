@@ -317,7 +317,7 @@ is optional or new, so nothing in 4.1 or 4.3 changes meaning; they are frozen wi
 ```ts
 // types.ts
 export type Snapshot = { id: string; at: string }                          // a copy the kit saved of this machine; `at` is ISO
-export type Disk = { usedGb: number; totalGb: number }                     // the root file system, GiB to one decimal
+export type Disk = { usedGb: number; totalGb: number }                     // the root file system, decimal GB to one decimal
 export interface Provider { /* 4.1 and 4.3 members */
   snapshots?(m: MachineRef): Promise<Snapshot[]>                          // the kit's ready copies of this machine only
   deleteSnapshot?(m: MachineRef, id: string): Promise<void>               // rejects 'no-snapshot' for any other id
@@ -326,14 +326,14 @@ export interface Provider { /* 4.1 and 4.3 members */
 export interface Machine { /* 4.1 and 4.3 members */
   snapshots(): Promise<Snapshot[]>                                        // newest first
   snapshot(o?: { keep?: number }): Promise<Snapshot & { pruneError?: MachineError }>  // keep defaults to 3
-  scheduleSnapshots(o: { everyMs: number; keep?: number; onResult?(result: Snapshot | null | Error): void }): { stop(): void }
+  scheduleSnapshots(o: { everyMs: number; keep?: number; onResult?(result: Snapshot | null | Error): void }): Promise<{ stop(): void }>
   restore(id: string): Promise<void>                                      // "Reset Computer"
   disk(): Promise<Disk>
 }
 ```
 
 `MachineErrorCode` (4.2) gains `'no-snapshot'`: a restore or delete of an id that is not one of this machine's ready
-copies; and `'busy'`: a restore while another restore of the same machine is running (it creates nothing).
+copies; and `'busy'`: a save, reset or remove while another of these runs on the same machine (it changes nothing).
 
 Where this differs from the first suggested shape, and why:
 - `snapshot()` takes `keep`, not a `label`. The provider's named snapshots carry no free-text field, and a name is
@@ -464,11 +464,11 @@ land with that provider's adapter, behind the same members (follow-up).
   copy the kit did not make is never deleted. Resolves the new copy. A prune that fails does not fail the save: the
   copy is still resolved, with `pruneError` set to the provider's error, and the next save prunes again.
 - `scheduleSnapshots({ everyMs, keep = 3, onResult })`: `everyMs` is an integer from 1 to 2147483647 (the timer's
-  limit, about 24.8 days), else `bad-recipe`; `keep` is an integer of at least 1. Both are checked synchronously.
-  It returns `{ stop() }` and runs a check from the app's own process. The first check is `everyMs` after the call;
-  each later check is `everyMs` after the previous one has finished, so a copy is never judged before it is
-  `everyMs` old and a daily schedule saves daily. A check resolves `null` while the newest copy is younger than
-  `everyMs`; otherwise it saves a copy with `snapshot({ keep })` and then reports that copy. Each outcome goes to
+  limit, about 24.8 days), else `bad-recipe`; `keep` is an integer of at least 1. It rejects at creation, before any
+  timer starts: `bad-recipe`, `no-machine`, and `unsupported` (as `snapshot`). It resolves `{ stop() }` and runs a
+  check from the app's own process. The first check is `everyMs` after the call; each later check is `everyMs`
+  after the previous one has finished, so a copy is never judged before it is `everyMs` old and a daily schedule
+  saves daily. A check resolves `null` while the newest copy is younger than `everyMs`; otherwise it saves a copy with `snapshot({ keep })` and then reports that copy. Each outcome goes to
   `onResult`: the saved copy (with any `pruneError`), `null`, or the `Error` the check rejected with. Checks never
   overlap, the timer never throws or rejects out of itself, and it is unref'd where the platform has `unref`. A check
   that finds no machine (it was removed) reports its `no-machine` error once and the schedule stops itself. A device
@@ -476,8 +476,10 @@ land with that provider's adapter, behind the same members (follow-up).
   no hosted scheduler:** the kit runs only while the app runs, nothing runs on the machine (a timer there would need
   a provider key on the machine, inside the very copies it makes; M7's scoped keys are not built), and a machine
   nobody opens gets no new copies and keeps its last ones.
-- `restore(id)`: `id` must be one of `snapshots()`, else reject `no-snapshot`. One restore runs at a time per machine:
-  a call while another is running rejects `busy` before it creates anything. The kit asks no question: the app
+- One save, reset or remove runs at a time per machine store: `snapshot`, a scheduled save, `restore` or `remove`
+  called while another of these runs rejects `busy` and changes nothing (a scheduled check reports it and tries
+  again next time).
+- `restore(id)`: `id` must be one of `snapshots()`, else reject `no-snapshot`. The kit asks no question: the app
   confirms first, showing `snapshot.restore` with the copy's date, which says that everything changed since then is
   lost. Then `provider.restore(ref, id, { idempotencyKey, replaced })` with a new `byokit-<name>-<16 base36>` key,
   retried up to 3 times with the same key on `unreachable` only (as `create`); `replaced(next)` saves `next` (5.1).
@@ -488,11 +490,13 @@ land with that provider's adapter, behind the same members (follow-up).
   On Boat the ref's `id` changes, so the app calls `url(port)` again for the new address and `update(recipe)`
   rewrites `installed.json` with the new id (8.3 step 6).
 - A restore is the same machine, so it keeps its identity (its tailnet node included): the adapter stops the old
-  machine before the new one starts, so the two never run at once. A machine made from a copy or a fork as a
-  *second* machine must clear the tailnet state before its first start (9); this package adds no such path.
+  machine before the new one starts, so the two never run at once. A `failed` machine cannot be stopped and is the
+  one a person resets, so it is not stopped first; an `asleep` or `gone` one needs no stop. A machine made from a
+  copy or a fork as a *second* machine must clear the tailnet state before its first start (9); this package adds no
+  such path.
 - `disk()`: one `exec` of `df -P -k /`; `usedGb` and `totalGb` are the second line's used and total 1024-blocks in
-  GiB, rounded to one decimal. A non-zero exit or an unreadable line rejects `provider`. Like every command it needs
-  the machine on. Words: `disk.used`.
+  decimal GB (bytes / 1e9), rounded to one decimal. A non-zero exit or an unreadable line rejects `provider`. Like
+  every command it needs the machine on. Words: `disk.used`.
 - The bill: the free copies and their price are 15.1's. `keep` defaults to 3 so the kit stays inside the free ones.
 
 ## 6. Boat adapter (`src/boat.ts`)

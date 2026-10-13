@@ -77,7 +77,7 @@ export type HostRecipe = {
 }
 
 export type Snapshot = { id: string; at: string }   // K3: a copy the kit saved of this machine; `at` is ISO
-export type Disk = { usedGb: number; totalGb: number }                     // K3: the root file system, GiB to one decimal
+export type Disk = { usedGb: number; totalGb: number }                     // K3: the root file system, decimal GB (bytes / 1e9) to one decimal
 
 export type AsleepWhy = 'you' | 'out-of-credit' | 'trial-limit' | 'provider' | 'idle'      // G3
 export type Plan = { inTrial: boolean; trialEndsAt: string | null; canStayOn: boolean; checkoutUrl: string | null }  // G2
@@ -104,7 +104,7 @@ export interface Machine {
   deliver(r: HostRecipe, file: string, bytes: Uint8Array): Promise<void>  // G9 (5.8)
   snapshots(): Promise<Snapshot[]>                       // K3 (5.10): newest first
   snapshot(o?: { keep?: number }): Promise<Snapshot & { pruneError?: MachineError }>  // K3: keep defaults to 3; a failed prune is reported, not thrown
-  scheduleSnapshots(o: { everyMs: number; keep?: number; onResult?(result: Snapshot | null | Error): void }): { stop(): void }  // K3: saves when the newest copy is everyMs old, while the app runs
+  scheduleSnapshots(o: { everyMs: number; keep?: number; onResult?(result: Snapshot | null | Error): void }): Promise<{ stop(): void }>  // K3: saves when the newest copy is everyMs old, while the app runs
   restore(id: string): Promise<void>                     // K3: "Reset Computer"
   disk(): Promise<Disk>                                  // K3
 }

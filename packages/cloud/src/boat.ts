@@ -543,7 +543,8 @@ export function boat(o: {
     restore: async (m: MachineRef, id: string, { idempotencyKey, replaced }) => {
       if (!ownCopy(m, id)) throw new MachineError('no-snapshot', 'that id is not a saved copy of this machine');
       const before = await status(m);
-      if (before !== 'asleep' && before !== 'gone') await (provider.sleep as NonNullable<Provider['sleep']>)(m);
+      // A broken (`failed`) machine cannot be stopped and is the one a person resets, so it is not stopped first.
+      if (before !== 'asleep' && before !== 'gone' && before !== 'failed') await (provider.sleep as NonNullable<Provider['sleep']>)(m);
       const acct = await account();
       // No `noEnv` and no `type`: both inherit from the kit's no-env source (6.3).
       const nextId = await createSandbox({ from: id, snapshots: m.keepCopies }, idempotencyKey);

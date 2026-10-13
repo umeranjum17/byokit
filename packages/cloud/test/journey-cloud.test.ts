@@ -525,6 +525,14 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
     const tapCreates = server.requests.slice(beforeTap).filter((r) => r.method === 'POST' && r.path === '/sandboxes');
     assert.equal(tapCreates.length, 1, 'only the first reset creates a machine');
 
+    // One save, reset or remove at a time: a remove tapped during a save is refused and changes nothing.
+    const savedRef = m.ref;
+    const saving = m.snapshot();
+    await rejects(m.remove(savedRef!.id), 'busy');
+    await saving;
+    assert.deepEqual(m.ref, savedRef, 'the store still has the machine');
+    assert.equal(await m.state(), 'on');
+
     // Keep 3 by default: a fourth copy deletes the oldest only after it is ready, and never another machine's.
     for (let i = 0; i < 3; i++) await m.snapshot();
     const kept = await m.snapshots();
@@ -547,14 +555,15 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
     await rejects(m.snapshot({ keep: 0 }), 'bad-recipe');
 
     // The kit's own timer: a copy made while it waits is reported null; each later due tick saves one, in a row.
-    assert.throws(() => m.scheduleSnapshots({ everyMs: 0, onResult: () => {} }), { code: 'bad-recipe' });
-    assert.throws(() => m.scheduleSnapshots({ everyMs: 2_147_483_648, onResult: () => {} }), { code: 'bad-recipe' });
+    await rejects(m.scheduleSnapshots({ everyMs: 0, onResult: () => {} }), 'bad-recipe');
+    await rejects(m.scheduleSnapshots({ everyMs: 2_147_483_648, onResult: () => {} }), 'bad-recipe');
     // Each check starts everyMs after the previous one finished, so a copy it made is always due by the next check:
     // no check between two scheduled copies comes back null (a fixed-rate timer skips every other period).
     let skipped = 0;
     const copies = await new Promise<Snapshot[]>((resolve, reject) => {
       const saved: Snapshot[] = [];
-      const handle = m.scheduleSnapshots({
+      let handle: { stop(): void };
+      m.scheduleSnapshots({
         everyMs: 300,
         keep: 1,
         onResult: (r) => {
@@ -572,7 +581,7 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
           handle.stop();
           resolve(saved);
         },
-      });
+      }).then((h) => { handle = h; }, reject);
     });
     assert.deepEqual((await m.snapshots()).map((c) => c.id), [copies[1].id]);
     assert.equal(skipped, 0, 'no period is skipped between scheduled copies');
@@ -580,23 +589,13 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
     assert.deepEqual((await m.snapshots()).map((c) => c.id), [copies[1].id], 'no tick runs after stop()');
     const plain = machine({ provider: fakeProvider(), store: memoryStore() });
     await plain.create({ name: 'web', size: 'small', keepCopies: false });
-    const failure = await new Promise<MachineError>((resolve) => {
-      const handle = plain.scheduleSnapshots({
-        everyMs: 5,
-        onResult: (r) => {
-          if (!(r instanceof Error)) return;
-          handle.stop();
-          resolve(r as MachineError);
-        },
-      });
-    });
-    assert.equal(failure.code, 'unsupported');
+    await rejects(plain.scheduleSnapshots({ everyMs: 5 }), 'unsupported');
 
     // Disk space from the machine itself, in plain words; a failed read says so.
     server.machine.script('df', { code: 0, stdout: 'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vda 12582912 3250586 9332326 26% /\n', stderr: '', timedOut: false });
     const disk = await m.disk();
-    assert.deepEqual(disk, { usedGb: 3.1, totalGb: 12 });
-    assert.equal(words('disk.used', { used: String(disk.usedGb), total: String(disk.totalGb) }), '3.1 GB of 12 GB used on your cloud computer.');
+    assert.deepEqual(disk, { usedGb: 3.3, totalGb: 12.9 });
+    assert.equal(words('disk.used', { used: String(disk.usedGb), total: String(disk.totalGb) }), '3.3 GB of 12.9 GB used on your cloud computer.');
     server.machine.script('df', { code: 1, stdout: '', stderr: 'df: /: No such file', timedOut: false });
     await rejects(m.disk(), 'provider');
 
@@ -632,17 +631,38 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
     assert.notEqual(m.ref?.id, oldRef.id, 'the store keeps the replacement');
     assert.notEqual(server.getState(oldRef.id), null, 'the old machine is still there');
 
+    // A broken machine cannot be stopped; resetting it skips the stop and builds from the copy.
+    const broken = m.ref;
+    assert.ok(broken !== null);
+    server.setState(broken.id, 'error');
+    assert.equal(await m.state(), 'failed');
+    const beforeBroken = server.requests.length;
+    await m.restore(copyToRestore.id);
+    assert.ok(!server.requests.slice(beforeBroken).some((r) => r.path.endsWith('/stop')), 'no stop for a failed machine');
+    assert.notEqual(m.ref?.id, broken.id);
+    assert.equal(await m.state(), 'on');
+    assert.equal(await provider.status(broken), 'gone');
+
     // Removing this machine deletes its own copies and keeps another machine's copy whose name starts with its name.
     assert.ok((await m.snapshots()).length > 0);
     const live = m.ref;
     assert.ok(live !== null);
+    // A schedule running when its machine is removed reports no-machine once and stops itself.
+    const orphaned: unknown[] = [];
+    let orphanGone: () => void = () => {};
+    const orphanStopped = new Promise<void>((r) => { orphanGone = r; });
+    await m.scheduleSnapshots({ everyMs: 100, onResult: (r) => {
+      orphaned.push(r);
+      if (r instanceof MachineError && r.code === 'no-machine') orphanGone();
+    } });
     await m.remove(live.id);
     assert.deepEqual(await listedNames(), ['byokit-web-two-x']);
-    const orphaned: unknown[] = [];
-    m.scheduleSnapshots({ everyMs: 10, onResult: (r) => orphaned.push(r) });
-    await new Promise((r) => setTimeout(r, 80));
-    assert.equal(orphaned.length, 1, 'a schedule whose machine is gone reports once and stops');
-    assert.equal((orphaned[0] as MachineError).code, 'no-machine');
+    await orphanStopped;
+    const reports = orphaned.length;
+    await new Promise((r) => setTimeout(r, 250));
+    assert.equal(orphaned.length, reports, 'no check runs after the machine is gone');
+    assert.equal(orphaned.filter((r) => r instanceof MachineError && r.code === 'no-machine').length, 1);
+    await rejects(m.scheduleSnapshots({ everyMs: 10 }), 'no-machine');
   } finally {
     await server.close();
   }

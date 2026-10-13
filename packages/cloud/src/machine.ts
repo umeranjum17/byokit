@@ -24,7 +24,6 @@ const STEP_TAIL = 2048;
 const KEEP = 3;
 /** The longest delay a timer accepts; a longer one would fire at once. */
 const TIMER_MAX_MS = 2_147_483_647;
-const GIB_IN_KB = 1024 * 1024;
 
 const randomBase36 = (n: number): string => {
   const bytes = crypto.getRandomValues(new Uint8Array(n));
@@ -48,7 +47,8 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
   let record: MachineRecord | null = null;
   // host() resolves 'installing' while an install or update of this object is in flight (5.6).
   let installing = false;
-  let restoring = false;
+  // 5.10: one save, reset or remove of this machine at a time; another rejects `busy` and changes nothing.
+  let busyWith: string | null = null;
 
   const load = (): Promise<void> => {
     loading ??= o.store.load().then((r) => {
@@ -135,14 +135,25 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
     return pruneError === undefined ? made : { ...made, pruneError };
   };
 
+  // The check and claim run before the first await, so two calls in one tick cannot both pass.
+  const exclusive = async <T>(what: string, run: () => Promise<T>): Promise<T> => {
+    if (busyWith !== null) throw new MachineError('busy', `${busyWith} of this machine is already running`);
+    busyWith = what;
+    try {
+      return await run();
+    } finally {
+      busyWith = null;
+    }
+  };
+
   // 5.10: the scheduler's tick. Due when the newest copy is at least everyMs old; otherwise null.
-  const autoCopy = async (everyMs: number, keep: number): Promise<Snapshot | null> => {
+  const autoCopy = (everyMs: number, keep: number): Promise<Snapshot | null> => exclusive('a save', async () => {
     const r = await need();
     needCopies(r);
     const [newest] = await listCopies(r);
     if (newest !== undefined && Date.now() - Date.parse(newest.at) < everyMs) return null;
     return saveCopy(r, keep);
-  };
+  });
 
   // 8.2 without a recipe: probe for a system unit; exit 0 means a system unit.
   const stopUnit = async (r: MachineRef): Promise<void> => {
@@ -606,12 +617,14 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       return entered;
     },
 
-    async remove(confirm: string): Promise<void> {
-      const r = await need();
-      if (confirm !== r.id) throw new MachineError('confirm', 'confirm must equal the machine id');
-      if (o.provider.remove === undefined) throw new MachineError('unsupported', 'this provider cannot remove a machine');
-      await o.provider.remove(r, confirm);
-      await save(null);
+    remove(confirm: string): Promise<void> {
+      return exclusive('a removal', async () => {
+        const r = await need();
+        if (confirm !== r.id) throw new MachineError('confirm', 'confirm must equal the machine id');
+        if (o.provider.remove === undefined) throw new MachineError('unsupported', 'this provider cannot remove a machine');
+        await o.provider.remove(r, confirm);
+        await save(null);
+      });
     },
 
     async plan(): Promise<Plan | null> {
@@ -673,18 +686,26 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       return listCopies(await need());
     },
 
-    async snapshot(so?: { keep?: number }): Promise<Snapshot & { pruneError?: MachineError }> {
-      const r = await need();
-      const keep = so?.keep ?? KEEP;
-      checkCount('keep', keep, 1);
-      needCopies(r);
-      return saveCopy(r, keep);
+    snapshot(so?: { keep?: number }): Promise<Snapshot & { pruneError?: MachineError }> {
+      return exclusive('a save', async () => {
+        const r = await need();
+        const keep = so?.keep ?? KEEP;
+        checkCount('keep', keep, 1);
+        needCopies(r);
+        return saveCopy(r, keep);
+      });
     },
 
-    scheduleSnapshots({ everyMs, keep = KEEP, onResult }): { stop(): void } {
+    async scheduleSnapshots({ everyMs, keep = KEEP, onResult }): Promise<{ stop(): void }> {
       checkCount('everyMs', everyMs, 1);
       if (everyMs > TIMER_MAX_MS) throw new MachineError('bad-recipe', `everyMs: must be at most ${TIMER_MAX_MS}, got ${everyMs}`);
       checkCount('keep', keep, 1);
+      // A schedule that could never save is refused here, not reported on every tick.
+      const r = await need();
+      if (o.provider.snapshot === undefined || o.provider.snapshots === undefined || o.provider.deleteSnapshot === undefined) {
+        throw new MachineError('unsupported', 'this provider cannot save copies');
+      }
+      needCopies(r);
       let stopped = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
       const arm = (): void => {
@@ -714,10 +735,8 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       };
     },
 
-    async restore(id: string): Promise<void> {
-      if (restoring) throw new MachineError('busy', 'a reset of this machine is already running');
-      restoring = true;
-      try {
+    restore(id: string): Promise<void> {
+      return exclusive('a reset', async () => {
         const r = await need();
         const { restore } = o.provider;
         if (restore === undefined) throw new MachineError('unsupported', 'this provider cannot reset a machine from a copy');
@@ -728,9 +747,7 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
         // The app confirmed; the words say what is lost (`snapshot.restore`). The new ref is
         // saved (through `replaced`) before the adapter deletes the old machine.
         await withKey(r.name, (idempotencyKey) => restore(r, id, { idempotencyKey, replaced: save }));
-      } finally {
-        restoring = false;
-      }
+      });
     },
 
     async disk(): Promise<Disk> {
@@ -741,7 +758,8 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       if (shown.code !== 0 || !Number.isFinite(total) || !Number.isFinite(used)) {
         throw new MachineError('provider', `df / failed with exit ${shown.code}: ${shown.stderr.slice(-200)}`);
       }
-      const gb = (kb: number): number => Math.round((kb / GIB_IN_KB) * 10) / 10;
+      // Decimal GB (bytes / 1e9), as disks are sold and as the words say.
+      const gb = (kb: number): number => Math.round((kb * 1024) / 1e8) / 10;
       return { usedGb: gb(used), totalGb: gb(total) };
     },
   };

@@ -16,7 +16,7 @@ export type MachineErrorCode =
   | 'needs-root'          // G5b, G7: root steps on an SSH VM without passwordless sudo; extra.command holds the lines to run
   | 'timeout'
   | 'no-snapshot'         // K3: restore or delete of an id that is not one of this machine's ready copies
-  | 'busy'                // K3: a restore of this machine is already running; the second one creates nothing
+  | 'busy'                // K3: a save, reset or remove of this machine is already running; the second one changes nothing
 
 export class MachineError extends Error {
   readonly code: MachineErrorCode
