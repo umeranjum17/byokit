@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { SealingAdapter } from '@byokit/secrets';
 import { EngineAlreadyRunningError, pidAlive as live } from './engine-status.ts';
+import { removedAccountAgents, sweepOrphans } from './accounts.ts';
 
 const encoder = new TextEncoder();
 const archive = (name: string) => !name.endsWith('.sealed') && (/^(auth-profiles|auth-state|auth|oauth)\.json\.(migrated-.+|sqlite-import\..+\.bak)$/.test(name)
@@ -264,12 +265,27 @@ export class AuthStore {
     const text = this.open(bytes);
     let saved: Snapshot;
     try { saved = snapshot(text); } catch { throw new AuthStoreUnreadableError('invalid-snapshot'); }
-    const upgraded = seal.upgrade?.(bytes);
-    if (upgraded) {
-      if (seal.decryptString(Buffer.from(upgraded)) !== text) throw new Error('credential upgrade verification failed');
-      put(this.file, upgraded);
+    const gone = removedAccountAgents(this.o.root);
+    const keep = (path: string) => !path.startsWith('state/agents/') || !gone.has(path.split('/')[2]!);
+    const kept = { ...saved, dirs: saved.dirs.filter(keep), files: saved.files.filter(([path]) => keep(path)) };
+    if (kept.dirs.length !== saved.dirs.length || kept.files.length !== saved.files.length) {
+      this.seal(this.file, JSON.stringify(kept));
+    } else {
+      const upgraded = seal.upgrade?.(bytes);
+      if (upgraded) {
+        if (seal.decryptString(Buffer.from(upgraded)) !== text) throw new Error('credential upgrade verification failed');
+        put(this.file, upgraded);
+      }
     }
-    return saved;
+    if (gone.size && existsSync(this.objects)) {
+      for (const entry of readdirSync(this.objects)) {
+        const file = join(this.objects, entry);
+        if (keep(this.readObject(file)[0])) continue;
+        rmSync(file);
+        this.objectHashes.delete(entry);
+      }
+    }
+    return kept;
   }
   private readObject(file: string): [string, string, string] {
     let text = '';
@@ -294,8 +310,10 @@ export class AuthStore {
     const objects: Entry[] = [];
     let total = 0;
     const root = realpathSync(this.o.root);
+    const gone = removedAccountAgents(this.o.root);
     const walk = (path: string) => {
       const name = relative(this.o.root, path).split('\\').join('/');
+      if (name.startsWith('state/agents/') && gone.has(name.split('/')[2]!)) return; // a late refresh never enters a seal
       if (name.startsWith('home/') && nonCredential(name)) return; // regenerable home caches stay on disk; skipping a directory skips its subtree
       let stat;
       try { stat = lstatSync(path); }
@@ -335,6 +353,7 @@ export class AuthStore {
     return { dirs, files, objects };
   }
   private collect(): { saved: Snapshot; objects: Entry[] } {
+    sweepOrphans(this.o.root);
     const { dirs, files, objects } = this.inventory();
     for (const dir of dirs) {
       try { chmodSync(join(this.o.root, dir), 0o700); }

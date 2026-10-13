@@ -9,6 +9,7 @@ Verification recipe for [removing an account](../../../../docs/runtime-kits.md#5
 - Removal is refused `busy` while a run holds the agent; the member agent stays `ready`.
 - Removal re-seals the live credential store at once while the engine runs, so `auth-store.sealed` and `auth-store.objects/` stop holding the removed profile without waiting for stop.
 - A file the engine lands after removal is swept on the next `prepare` (and after a sealed restore, before launch). Only `<member>--<hex6>` dirs a removal recorded as gone and no index names are swept; a legacy member dir stays.
+- A late refresh after removal's reseal is excluded at stop from both the credential blob and native SQLite objects. The next `prepare` also prunes removed-agent entries and objects in an older sealed store; restarting keeps the member's sign-in and cannot restore the removed agent.
 
 ## How to get to it (user POV)
 
@@ -28,4 +29,4 @@ Use SKILL.md's Evidence capture block. The consumer imports only the built `@byo
 
 ## Gotchas
 
-The fake gateway holds profile stores in memory, so its `refresh` hook (a late refresh racing a removal) never writes to disk: the "late file" leg writes a real file under the removed agent's state dir to stand in for the engine landing one after removal. The real engine's sqlite store, delete semantics and prepare sweep are covered by `removeAccount` in `packages/openclaw/test/engine/accounts.test.ts`.
+The fake gateway holds profile stores in memory, so its `refresh` hook (a late refresh racing a removal) never writes to disk: the "late file" leg writes a real file under the removed agent's state dir to stand in for the engine landing one after removal. The real engine's sqlite store, delete semantics and prepare sweep are covered by `removeAccount` in `packages/openclaw/test/engine/accounts.test.ts`. Its sealed journey writes a retained native profile store after removal, stops, checks both sealed formats, then replays the older sealed snapshot through a fresh kit's `prepare` and restart. Drive it with `sh scripts/test.sh --test-name-pattern='removeAccount with a seal' packages/openclaw/test/engine/accounts.test.ts` on Node 22/24, capturing the command, result and real engine output.

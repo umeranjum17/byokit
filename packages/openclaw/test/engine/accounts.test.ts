@@ -660,6 +660,19 @@ test('removeAccount with a seal: the sealed store is resealed at once, no file h
       [id]: { agent, name: 'Spare', route: 'openai', addedAt: 1 } }, defaults: {} }));
     chmodSync(index, 0o600);
 
+    // Retain the native store bytes as a refresh already in flight when removal starts.
+    const dbPath = join(root, 'state', 'agents', agent, 'agent', 'openclaw-agent.sqlite');
+    const db = new DatabaseSync(dbPath);
+    try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } finally { db.close(); }
+    const lateStore = readFileSync(dbPath);
+    const lateProfile = JSON.stringify({ profiles: profilesOf(stateDir, agent) });
+    const removedPath = `state/agents/${agent}`;
+    const belongsToRemoved = (path: string) => path === removedPath || path.startsWith(`${removedPath}/`);
+    const snapshotFile = join(root, 'auth-store.sealed');
+    const oldSnapshot = JSON.parse(seal.decryptString(readFileSync(snapshotFile))) as { dirs: string[]; files: [string, string][] };
+    const objectsDir = join(root, 'auth-store.objects');
+    const oldObjects = readdirSync(objectsDir).map((name) => [name, readFileSync(join(objectsDir, name))] as const)
+      .filter(([, bytes]) => belongsToRemoved(JSON.parse(seal.decryptString(bytes)).path));
     await kit.removeAccount('m1', id);
     assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'its state dir is gone');
     assert.ok(existsSync(join(root, 'auth-store.sealed')), 'the sealed store exists while running');
@@ -671,5 +684,27 @@ test('removeAccount with a seal: the sealed store is resealed at once, no file h
     assert.ok(!sealedHolds(root, seal, `acct-${hex}`), 'still gone after prepare');
     assert.ok(!plaintextUnder(root, `acct-${hex}`), 'still gone after prepare');
     assert.ok((await kit.providers('m1')).includes('openai'), 'the member agent stays ready');
+
+    // The in-flight refresh lands after the removal's reseal. Cover both the credential blob and native object.
+    mkdirSync(join(dbPath, '..'), { recursive: true });
+    writeFileSync(dbPath, lateStore);
+    writeFileSync(join(dbPath, '..', 'auth-profiles.json'), lateProfile);
+    assert.ok(plaintextUnder(root, `acct-${hex}`), 'the late refresh really landed');
+    await kit.stop();
+    assert.ok(!sealedHolds(root, seal, `acct-${hex}`), 'stop never seals a removed account refresh');
+    // Replay only removed-agent residue from an older kit. Keep the current shared SQLite/WAL set consistent.
+    const saved = JSON.parse(seal.decryptString(readFileSync(snapshotFile))) as { dirs: string[]; files: [string, string][] };
+    saved.dirs.push(...oldSnapshot.dirs.filter(belongsToRemoved));
+    saved.files.push(...oldSnapshot.files.filter(([path]) => belongsToRemoved(path)));
+    writeFileSync(snapshotFile, seal.encryptString(JSON.stringify(saved)));
+    for (const [name, bytes] of oldObjects) writeFileSync(join(objectsDir, name), bytes);
+    assert.ok(sealedHolds(root, seal, `acct-${hex}`), 'the old sealed store really contains the removed account');
+    kit = kits();
+    await kit.prepare();
+    assert.ok(!sealedHolds(root, seal, `acct-${hex}`), 'no sealed file holds it after the next prepare');
+    assert.ok(!plaintextUnder(root, `acct-${hex}`), 'no plaintext file holds it after the next prepare');
+    await kit.start();
+    assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'restart cannot restore the removed agent');
+    assert.ok((await kit.providers('m1')).includes('openai'), 'restart keeps the member sign-in');
   } finally { await kit.stop(); }
 });

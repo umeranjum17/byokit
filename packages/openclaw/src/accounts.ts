@@ -125,6 +125,12 @@ function indexedAgents(root: string): { named: Set<string>; gone: Set<string> } 
   return { named, gone };
 }
 
+// Durable removal tombstones, except ids an index now names again. Shared by the live and sealed-store sweeps.
+export function removedAccountAgents(root: string): Set<string> {
+  const { named, gone } = indexedAgents(root);
+  return new Set([...gone].filter((agent) => ACCOUNT_AGENT.test(agent) && !named.has(agent)));
+}
+
 // Removes each `<root>/state/agents/<member>--<hex6>` directory that a removal recorded as gone and no index names.
 // Only recorded directories go: a legacy member's own directory is never recorded, so it stays. The directories are
 // listed before the index is read: each listed one was created after its entry was written.
@@ -132,9 +138,9 @@ export function sweepOrphans(root: string): void {
   let dirs: string[];
   try { dirs = readdirSync(join(root, 'state', 'agents')); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
-  const { named, gone } = indexedAgents(root);
+  const gone = removedAccountAgents(root);
   for (const dir of dirs) {
-    if (!ACCOUNT_AGENT.test(dir) || !gone.has(dir) || named.has(dir)) continue;
+    if (!gone.has(dir)) continue;
     rmSync(join(root, 'state', 'agents', dir), { recursive: true, force: true });
   }
 }

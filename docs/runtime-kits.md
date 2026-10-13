@@ -1723,6 +1723,8 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
   file and that no index names. Nothing else is swept: a legacy member's own directory is never recorded, so it stays.
   Either path then re-seals the live auth store at once while the engine runs (`AuthStore.reseal`), so
   `auth-store.sealed` and `auth-store.objects/` stop holding the removed profile without waiting for stop.
+  The same `gone` tombstones exclude a later refresh from every persisted snapshot and object; the next `prepare`
+  also prunes previously sealed entries and objects of those removed agents before they can be restored.
   The account's sessions go with it; `move` first keeps one.
 - `models(member, id)`: `models.list { agentId, view: 'default' }` rows of the account's provider, mapped `id =
   'provider/model'`, `available`, `unavailableReason` `missing-auth`/`auth-failed` → `why: 'signed_out'`, `cooldown`
