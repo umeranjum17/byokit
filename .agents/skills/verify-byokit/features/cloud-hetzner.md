@@ -4,7 +4,7 @@ The Node-only `@byokit/cloud/hetzner` entry loads shared sizes and dated prices 
 the API, creates one computer with an app-owned token and project identity, delegates
 SSH to the existing pinned adapter, installs the unchanged HostRecipe and confirms
 server, automatically allocated primary-IP and SSH-only firewall deletion. Creation
-attaches a provider firewall with only SSH 22/tcp inbound on IPv4 and IPv6; recipe
+attaches a provider firewall with only SSH 22/tcp inbound on IPv4; recipe
 ports stay closed, and an attachment/setup failure must leave no allocated resources. Copies and start/stop are
 explicitly absent in this first slice. A stopped server still bills.
 
@@ -44,7 +44,7 @@ try {
   assert.equal(await m.host(), 'running'); console.log('host:', await m.host(), 'state:', await m.state());
   assert.equal(api.requests.filter(r => r.method === 'POST' && r.path === '/servers').length, 1);
   assert.equal(api.firewalls.size, 1); assert.equal([...api.firewalls.values()][0].rules.length, 1);
-  console.log('only-public-inbound: SSH 22/tcp, IPv4+IPv6; app-port-rule: absent');
+  console.log('only-public-inbound: SSH 22/tcp, IPv4; app-port-rule: absent');
   api.failNext(500, 'echoed test-key');
   try { await p.hostKey(ref); assert.fail('expected provider failure'); }
   catch (e) { assert.equal(e.code, 'provider'); assert.ok(!e.message.includes('test-key')); console.log('typed-error:', e.code, e.message); }

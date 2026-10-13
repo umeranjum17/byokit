@@ -17,14 +17,14 @@ export async function startFakeHetznerServer() {
     const send = (status: number, value: unknown) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(value)); };
     if (req.headers.authorization !== 'Bearer test-key') return send(401, { error: { code: 'unauthorized', message: 'invalid key' } });
     if (failure && (!failure.path || failure.path === path)) { const f = failure; failure = null; return send(f.status, { error: { message: f.message } }); }
-    if (path === '/pricing') return send(200, { pricing: { currency: 'EUR', primary_ips: [{ type: 'ipv4', prices: [rate('0.001', '0.6')] }, { type: 'ipv6', prices: [rate('0', '0')] }], server_types: [{ name: 'small', prices: [rate('0.005', '3')] }, { name: 'large', prices: [rate('0.01', '6')] }] } });
+    if (path === '/pricing') return send(200, { pricing: { currency: 'EUR', primary_ips: [{ type: 'ipv4', prices: [rate('0.001', '0.6')] }], server_types: [{ name: 'small', prices: [rate('0.005', '3')] }, { name: 'large', prices: [rate('0.01', '6')] }] } });
     if (path === '/server_types') {
       const page = Number(url.searchParams.get('page'));
       return send(200, { server_types: [{ name: page === 1 ? 'large' : 'small', cores: page === 1 ? 4 : 2, memory: page === 1 ? 8 : 4, disk: 40, cpu_type: 'shared', locations: [{ name: 'fsn1', available: true, deprecation: null }] }], meta: { pagination: { next_page: page === 1 ? 2 : null } } });
     }
     if (path === '/firewalls' && method === 'GET') return send(200, { firewalls: [...firewalls.values()].filter(f => !url.searchParams.has('name') || f['name'] === url.searchParams.get('name')), meta: { pagination: { next_page: null } } });
     if (path === '/firewalls' && method === 'POST') {
-      assert.deepEqual(body['rules'], [{ direction: 'in', protocol: 'tcp', port: '22', source_ips: ['0.0.0.0/0', '::/0'] }]);
+      assert.deepEqual(body['rules'], [{ direction: 'in', protocol: 'tcp', port: '22', source_ips: ['0.0.0.0/0'] }]);
       const f = { ...body, id: nextFirewall++ }; firewalls.set(f.id, f); return send(201, { firewall: f, actions: [] });
     }
     if (path === '/servers' && method === 'GET') {
@@ -32,11 +32,11 @@ export async function startFakeHetznerServer() {
       return send(200, { servers: [...servers.values()].filter(s => !url.searchParams.has('name') || s['name'] === url.searchParams.get('name')), meta: { pagination: { next_page: null } } });
     }
     if (path === '/servers' && method === 'POST') {
-      const id = next++; const ipv4 = id * 2; const ipv6 = ipv4 + 1;
+      const id = next++; const ipv4 = id * 2;
       const attached = body['firewalls'] as { firewall: number }[];
       assert.equal(attached.length, 1); assert.ok(firewalls.has(attached[0].firewall), 'firewall must exist before server creation');
-      const s = { id, name: body['name'], status: 'running', labels: body['labels'], server_type: { name: body['server_type'] }, public_net: { ipv4: { id: ipv4, ip: '127.0.0.1' }, ipv6: { id: ipv6, ip: '::1/64' }, firewalls: detach ? [] : [{ id: attached[0].firewall, status: 'applied' }] } }; detach = false;
-      servers.set(id, s); ips.set(ipv4, { auto_delete: false, labels: {} }); ips.set(ipv6, { auto_delete: false, labels: {} });
+      const s = { id, name: body['name'], status: 'running', labels: body['labels'], server_type: { name: body['server_type'] }, public_net: { ipv4: { id: ipv4, ip: '127.0.0.1' }, firewalls: detach ? [] : [{ id: attached[0].firewall, status: 'applied' }] } }; detach = false;
+      servers.set(id, s); ips.set(ipv4, { auto_delete: false, labels: {} });
       if (drop) { drop = false; req.socket.destroy(); return; }
       return send(201, { server: s, action: { id: 10, status: 'running' }, next_actions: [], root_password: 'unused-fixture-password' });
     }

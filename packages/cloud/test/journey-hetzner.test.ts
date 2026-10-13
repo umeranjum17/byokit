@@ -35,7 +35,7 @@ test('Umer rents, bootstraps, prices and deletes one Hetzner computer without le
   assert.equal(await m.state(), 'on'); assert.equal(b.provider.sleep, undefined); assert.equal(b.provider.wake, undefined);
   assert.equal(b.api.firewalls.size, 1);
   const firewall = [...b.api.firewalls.values()][0];
-  assert.deepEqual(firewall['rules'], [{ direction: 'in', protocol: 'tcp', port: '22', source_ips: ['0.0.0.0/0', '::/0'] }]);
+  assert.deepEqual(firewall['rules'], [{ direction: 'in', protocol: 'tcp', port: '22', source_ips: ['0.0.0.0/0'] }]);
   await assert.rejects(m.sleep(), { code: 'unsupported' });
   await m.install({ name: 'web', node: { version: '24.15.0', sha256: { 'linux-x64': 'a'.repeat(64), 'linux-arm64': 'a'.repeat(64) } }, install: [['npm', 'ci']], run: { argv: ['node', 'server.mjs'], env: {} }, workDir: '/home/user/app' });
   assert.equal(await m.host(), 'running'); assert.equal((await m.cost()).perMonth, 3.6);
@@ -85,14 +85,16 @@ test('remove forgets a server deleted in the Hetzner console and clears its orph
   assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0);
 });
 
-test('create reclaims an orphan same-name firewall that no server uses', async () => {
+test('a new create never deletes another operation firewall; remove sweeps the orphan of its machine name', async () => {
   const b = await bench(); const m = machine(b);
   const ref = await m.create({ name: 'web', size: 'small', keepCopies: false });
+  const orphan = [...b.api.firewalls.keys()][0];
   b.api.servers.delete(Number(ref.id)); b.api.ips.clear();
   const again = await b.provider.create!({ name: 'web', size: 'small', keepCopies: false, idempotencyKey: 'second-op' });
-  assert.equal(b.api.servers.size, 1); assert.equal(b.api.firewalls.size, 1);
-  assert.equal(([...b.api.firewalls.values()][0]['labels'] as Record<string, string>)['byokit-create'], 'second-op');
-  await b.provider.remove!(again, again.id); assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0);
+  assert.equal(b.api.servers.size, 1); assert.equal(b.api.firewalls.size, 2); assert.ok(b.api.firewalls.has(orphan));
+  await b.provider.remove!(again, again.id); assert.equal(b.api.firewalls.size, 1);
+  await m.remove(ref.id);
+  assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0);
 });
 
 test('a lost create response reconciles a late-listed server, and one never listed fails naming it', async () => {

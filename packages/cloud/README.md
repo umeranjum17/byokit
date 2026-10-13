@@ -101,11 +101,13 @@ export async function connectHetzner(options: HetznerOptions) {
 
 The token is project-scoped, but Hetzner has no account-read endpoint: `project` is
 an app-supplied identity, not API-verified. Saved refs are also checked with this
-token through `/servers/{id}`; an invisible server (including an externally deleted
-one) rejects `wrong-account`, without overwriting the record. Create retries reconcile
-by unique name plus operation label. Create makes a dedicated Hetzner Cloud Firewall
-**before** the server and attaches it in the server-create request: its only inbound
-rule is **SSH 22/tcp on IPv4 and IPv6**. Every app port stays closed publicly; recipe
+token through `/servers/{id}`; an invisible server rejects `wrong-account`, without
+overwriting the record. The one exception is a server deleted in the console:
+`account()` accepts its ref so `remove()` can forget it and sweep its unused firewalls,
+while `status()` and `state()` keep rejecting `wrong-account` until then. Create retries
+reconcile by unique name plus operation label. Create makes a dedicated Hetzner Cloud
+Firewall **before** the server and attaches it in the server-create request: its only
+inbound rule is **SSH 22/tcp on IPv4**. Every app port stays closed publicly; recipe
 installation never adds a rule. SSH-only firewall ownership/rules are checked before
 SSH operations. Tailnet-only SSH is a later step; public SSH 22 remains for bootstrap.
 
