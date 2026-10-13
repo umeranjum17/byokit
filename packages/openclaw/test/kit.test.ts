@@ -624,6 +624,44 @@ test('a start sweep whose clear the engine refuses runs again on the next connec
   } finally { await second.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
+test('a start sweep that reads an unknown ready reply clears nothing and retries on the next connect', async () => {
+  const stateDir = scratchDir('o4-key-sweep-unknown');
+  const fake = fakeGateway();
+  let readys = 0;
+  const clears = () => fake.calls.filter((c) => c.method === 'byokit.keys'
+    && (c.params as { action?: string }).action === 'clear').length;
+  const first = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+  await first.start();
+  await first.ensureMember('m1');
+  await first.call('openclaw.setup.activate', { kind: 'api-key', agentId: 'byokit-key-m1',
+    authChoice: 'openai-api-key', apiKey: 'CANARY-UNKNOWN-READY-318' });
+  await first.stop();
+  // The engine answers ready with neither ok nor absent: a transient plugin-side failure on a markerless key.
+  const unknown = (ctx: Parameters<typeof fake.factory>[0]) => {
+    const transport = fake.factory(ctx);
+    const request: typeof transport.request = async (method, params, options) => {
+      const p = params as { member?: string; action?: string } | undefined;
+      if (method === 'byokit.keys' && p?.member === 'm1' && p.action === 'ready') { readys++; return { ok: false }; }
+      return transport.request(method, params, options);
+    };
+    return { ...transport, request };
+  };
+  const second = new OpenClawKit({ stateDir, spawnEngine: false, transport: unknown });
+  try {
+    await second.start();
+    await until(() => readys >= 1);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(clears(), 0);
+    const before = readys;
+    fake.drop('test');
+    await second.start();
+    // The sweep was incomplete, so this connect sweeps again instead of skipping.
+    await until(() => readys > before);
+    assert.equal(clears(), 0);
+    assert.equal(JSON.stringify(fake.calls).includes('CANARY-UNKNOWN-READY-318'), false);
+  } finally { await second.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 test('a reconnect after a gateway drop does not clear an unsealed key', async () => {
   const stateDir = scratchDir('o4-key-reconnect');
   const fake = fakeGateway();

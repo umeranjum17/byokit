@@ -1,7 +1,7 @@
 // The shipped bridge plugin (5.9) loaded as the gateway loads it: its before_tool_call hook relays every tool call,
 // engine builtins included, to host.gate over a real bridge.
 import assert from 'node:assert/strict';
-import { copyFileSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { test } from 'node:test';
@@ -213,3 +213,72 @@ test('gateBuiltins false lets builtins run ungated and still gates the app tools
     assert.deepEqual(await hook({ toolName: 'crew_x', params: {} }, { sessionKey: 'agent:m1:x' }), { block: true, blockReason: 'no' });
     assert.deepEqual(seen.gated, [['crew_x', { builtin: false }]]);
   }));
+
+test('a refused key prepare keeps the ready marker and the sealed key', async () => {
+  const dir = scratchDir('plugin-keys-prepare');
+  const agentsRoot = join(dir, 'agents');
+  mkdirSync(join(agentsRoot, 'm1'), { recursive: true });
+  mkdirSync(join(agentsRoot, 'byokit-key-m1'), { recursive: true });
+  // The engine-owned SDK seam, stubbed at the persistence boundary: the shipped handler keeps its real logic.
+  mkdirSync(join(dir, 'node_modules', 'openclaw', 'plugin-sdk'), { recursive: true });
+  // Extensionless ESM subpaths need an exports map, as the real engine package provides.
+  writeFileSync(join(dir, 'node_modules', 'openclaw', 'package.json'), JSON.stringify({ name: 'openclaw',
+    exports: { './plugin-sdk/agent-runtime': './plugin-sdk/agent-runtime.js',
+      './plugin-sdk/provider-auth': './plugin-sdk/provider-auth.js' } }));
+  writeFileSync(join(dir, 'node_modules', 'openclaw', 'plugin-sdk', 'agent-runtime.js'),
+    `exports.resolveAgentDir = (config, agentId) => require('node:path').join(process.env.BYOKIT_TEST_AGENT_ROOT, agentId);`);
+  writeFileSync(join(dir, 'node_modules', 'openclaw', 'plugin-sdk', 'provider-auth.js'), `
+    const { existsSync, readFileSync, writeFileSync } = require('node:fs');
+    const { join } = require('node:path');
+    exports.updateAuthProfileStoreWithLock = async ({ agentDir, updater }) => {
+      const file = join(agentDir, 'auth-profiles.json');
+      const store = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : { profiles: {}, order: {} };
+      store.profiles ??= {};
+      store.order ??= {};
+      const changed = await updater(store);
+      if (changed) writeFileSync(file, JSON.stringify(store));
+      return changed;
+    };`);
+  copyFileSync(new URL('../plugin/keys.js', import.meta.url), join(dir, 'keys.js'));
+  const configPath = join(dir, 'openclaw.json');
+  writeFileSync(configPath, JSON.stringify({ agents: { entries: { m1: {}, 'byokit-key-m1': {} } } }));
+  const keyStore = join(agentsRoot, 'byokit-key-m1', 'auth-profiles.json');
+  const sealed = { profiles: { 'openai:key1': { provider: 'openai', type: 'api_key', copyToAgents: false } },
+    order: { openai: ['openai:key1'] } };
+  const marker = join(agentsRoot, 'byokit-key-m1', 'byokit-key-ready.json');
+  const storeOf = () => JSON.parse(readFileSync(keyStore, 'utf8'));
+  const previousConfig = process.env.OPENCLAW_CONFIG_PATH;
+  const previousRoot = process.env.BYOKIT_TEST_AGENT_ROOT;
+  process.env.OPENCLAW_CONFIG_PATH = configPath;
+  process.env.BYOKIT_TEST_AGENT_ROOT = agentsRoot;
+  try {
+    const { registerKeys } = await import(pathToFileURL(join(dir, 'keys.js')).href) as
+      { registerKeys(api: { registerGatewayMethod(name: string, fn: unknown): void }): void };
+    let handler!: (message: { params: Record<string, unknown>; respond: (ok: boolean, value: unknown) => void }) => Promise<void>;
+    registerKeys({ registerGatewayMethod: (name, fn) => {
+      if (name === 'byokit.keys') handler = fn as typeof handler;
+    } });
+    const call = (params: Record<string, unknown>) => new Promise<unknown>((resolve) =>
+      void handler({ params, respond: (_ok, value) => resolve(value) }));
+    // The normal agent already holds an API key, so prepare is refused: marker and sealed key stay.
+    writeFileSync(join(agentsRoot, 'm1', 'auth-profiles.json'), JSON.stringify({ profiles:
+      { 'openai:default': { provider: 'openai', type: 'api_key', key: 'task-owned' } }, order: { openai: ['openai:default'] } }));
+    writeFileSync(keyStore, JSON.stringify(sealed));
+    writeFileSync(marker, JSON.stringify({ profileId: 'openai:key1', model: 'openai/gpt-x' }));
+    assert.deepEqual(await call({ member: 'm1', action: 'prepare', provider: 'openai' }), { ok: false });
+    assert.equal(existsSync(marker), true);
+    assert.deepEqual(storeOf(), sealed);
+    // Positive control: without the blocking key, prepare starts the replacement and drops the marker.
+    writeFileSync(join(agentsRoot, 'm1', 'auth-profiles.json'), JSON.stringify({ profiles:
+      { 'openai:default': { provider: 'openai', type: 'oauth' } }, order: { openai: ['openai:default'] } }));
+    assert.deepEqual(await call({ member: 'm1', action: 'prepare', provider: 'openai' }), { ok: true });
+    assert.equal(existsSync(marker), false);
+    assert.deepEqual(storeOf(), { profiles: {}, order: {} });
+  } finally {
+    if (previousConfig === undefined) delete process.env.OPENCLAW_CONFIG_PATH;
+    else process.env.OPENCLAW_CONFIG_PATH = previousConfig;
+    if (previousRoot === undefined) delete process.env.BYOKIT_TEST_AGENT_ROOT;
+    else process.env.BYOKIT_TEST_AGENT_ROOT = previousRoot;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
