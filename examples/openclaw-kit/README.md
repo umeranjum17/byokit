@@ -110,7 +110,8 @@ only. This web page takes no push notices itself; a phone app does.
   phone in plain Node gets an approval sealed and allows it from the notice. From the repo:
   `npm run build && sh scripts/test.sh examples/openclaw-kit/e2e.test.ts` (`BYOKIT_EXAMPLE_SHOTS=<folder>` keeps
   the screenshots and `relay-wire.json`, what the push service got).
-- `LIVE.md`: the check with the real engine, a real ChatGPT sign-in and a real phone, run once per kit release.
+- `LIVE.md`: the check with the real engine, a real sign-in (ChatGPT, or an OpenCode Go plan key) and a real phone,
+  run once per kit release.
 
 ## Troubleshooting
 
