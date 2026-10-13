@@ -309,6 +309,41 @@ export function claim(o: { baseUrl: string; fetch?: typeof fetch; signal?: Abort
 `MachineErrorCode` (4.2) also gains `'needs-root'` (G5b, G7: root steps on an SSH VM without passwordless sudo;
 `extra.command` holds the lines to run).
 
+### 4.4 Snapshot additions (K3)
+
+The app's cloud computer page offers "Reset Computer" (rebuild from a saved copy) and its disk space. Every member
+is optional or new, so nothing in 4.1 or 4.3 changes meaning; they are frozen with them. Behaviour is 5.10.
+
+```ts
+// types.ts
+export type Snapshot = { id: string; at: string; sizeGb: number | null }   // a copy the kit saved of this machine; `at` is ISO
+export type Disk = { usedGb: number; totalGb: number }                     // the root file system, GiB to one decimal
+export interface Provider { /* 4.1 and 4.3 members */
+  snapshots?(m: MachineRef): Promise<Snapshot[]>                          // the kit's ready copies of this machine only
+  deleteSnapshot?(m: MachineRef, id: string): Promise<void>               // rejects 'no-snapshot' for any other id
+  restore?(m: MachineRef, id: string, o: { idempotencyKey: string; replaced(next: MachineRef): Promise<void> }): Promise<MachineRef>
+}
+export interface Machine { /* 4.1 and 4.3 members */
+  snapshots(): Promise<Snapshot[]>                                        // newest first
+  snapshot(o?: { keep?: number }): Promise<Snapshot>                      // keep defaults to 3
+  autoSnapshot(o: { everyMs: number; keep?: number }): Promise<Snapshot | null>  // null while the newest copy is younger than everyMs
+  restore(id: string): Promise<void>                                      // "Reset Computer"
+  disk(): Promise<Disk>
+}
+```
+
+`MachineErrorCode` (4.2) gains `'no-snapshot'`: a restore or delete of an id that is not one of this machine's ready
+copies.
+
+Where this differs from the first suggested shape, and why:
+- `snapshot()` takes `keep`, not a `label`. The provider's named snapshots carry no free-text field, and a name is
+  `[a-z0-9-]` of at most 63 characters with about 20 left after the kit's prefix, so a label would need a store of
+  its own. The app shows each copy's date.
+- `Provider.restore` takes a `replaced` callback. On Boat a restore is a new machine with a new id; the callback lets
+  `Machine` save the new ref before the old machine is deleted, so a failure after that point never leaves the store
+  pointing at a deleted machine.
+- The auto-snapshot policy is a call the app makes, `autoSnapshot({ everyMs, keep })`, not stored state (5.10).
+
 ## 5. `Machine` (`src/machine.ts`)
 
 ### 5.1 Store and refs
@@ -413,6 +448,41 @@ machine left `on` between the two reads), `status` resolves that state with `hos
 Rejections are `state()`'s and `host()`'s (`no-machine` after `remove`); the app shows `errorWords`.
 Boat's `create` resolves before the machine is on, so an app polls `status` until `on` before `install`.
 
+### 5.10 Snapshots, reset and disk (K3)
+
+Checks run in 5.1 order; every method needs a ref. `snapshots`, `snapshot` and `autoSnapshot` reject `unsupported`
+when the provider lacks `snapshot`, `snapshots` or `deleteSnapshot`, and `restore` when it lacks `snapshots` or
+`restore`. `snapshot`, `autoSnapshot` and `restore` also reject `unsupported` when `ref.keepCopies` is false: the
+provider keeps no copy of such a machine. The SSH VM has none of these members. A VM provider's server snapshots
+land with that provider's adapter, behind the same members (follow-up).
+
+- `snapshots()`: `provider.snapshots(ref)`, sorted newest first by `at`.
+- `snapshot({ keep = 3 })`: `keep` is an integer of at least 1, else `bad-recipe`. `provider.snapshot(ref, <12
+  random base36>)` resolves once the copy is ready; `snapshots()` must then list it (else reject `provider`). Only
+  after that, every listed copy past the newest `keep` is deleted with `provider.deleteSnapshot`, never the new one.
+  Pruning touches only what `provider.snapshots` lists, the kit's own copies of this machine (6.1 names them), so a
+  copy the kit did not make is never deleted. Resolves the new copy.
+- `autoSnapshot({ everyMs, keep = 3 })`: `everyMs` is a positive integer, else `bad-recipe`. Resolves `null` while
+  the newest copy is younger than `everyMs`; otherwise `snapshot({ keep })`. **Scheduler: the app's call.** The app
+  calls it when it opens and on its own timer while open, from a device that holds the provider key; a call before
+  it is due costs one list request. The kit adds no hosted scheduler, and nothing runs on the machine: a timer there
+  would need a provider key on the machine, inside the very copies it makes (M7's scoped keys are not built). A
+  machine nobody opens gets no new copies and keeps its last ones.
+- `restore(id)`: `id` must be one of `snapshots()`, else reject `no-snapshot`. The kit asks no question: the app
+  confirms first, showing `snapshot.restore` with the copy's date, which says that everything changed since then is
+  lost. Then `provider.restore(ref, id, { idempotencyKey, replaced })` with a new `byokit-<name>-<16 base36>` key,
+  retried up to 3 times with the same key on `unreachable` only (as `create`); `replaced(next)` saves `next` (5.1).
+  On Boat the ref's `id` changes, so the app calls `url(port)` again for the new address and `update(recipe)`
+  rewrites `installed.json` with the new id (8.3 step 6).
+- A restore is the same machine, so it keeps its identity (its tailnet node included): the adapter stops the old
+  machine before the new one starts, so the two never run at once. A machine made from a copy or a fork as a
+  *second* machine must clear the tailnet state before its first start (9); this package adds no such path.
+- `disk()`: one `exec` of `df -P -k /`; `usedGb` and `totalGb` are the second line's used and total 1024-blocks in
+  GiB, rounded to one decimal. A non-zero exit or an unreadable line rejects `provider`. Like every command it needs
+  the machine on. Words: `disk.used`.
+- The bill: Boat keeps 10 named snapshots free per wallet, shared with anything else the person keeps there, then
+  $1.70 a month each (15.1). `keep` defaults to 3 so the kit stays well inside the free ones.
+
 ## 6. Boat adapter (`src/boat.ts`)
 
 `boat()` speaks one public REST shape (15.1) over `o.fetch ?? globalThis.fetch`. Every request sends
@@ -431,6 +501,9 @@ Boat's `create` resolves before the machine is on, so an app polls `status` unti
 | `snapshot` | `POST /named-snapshots` `{sandboxId, name}`, then poll `GET /named-snapshots/{name}` every 2 s until `snapshot.status` is `ready` (`failed` rejects `provider`), or 5 minutes (reject `timeout`) | The kit names copies `byokit-<ref.name>-<name>`. At most 10 exist per account; an 11th rejects `provider`. |
 | `fork` | `POST /sandboxes/{id}/fork` `{ttlSeconds: null}` + `Idempotency-Key` | The public `sandbox.forking` response carries the new id at the top level. A fork does not inherit the source's TTL: without `ttlSeconds: null` it stops after 1 h. A fork of a no-env source is always no-env, so no `noEnv` field. |
 | `remove` | `DELETE /sandboxes/{id}` + header `X-Ascii-Confirm-Delete: <id>`; poll `GET /deletion-operations/{op}` every 2 s until `operation.status` is `completed` or `blocked`, or 5 minutes (reject `timeout`); then `GET /named-snapshots` and `DELETE /named-snapshots/{name}` for every name starting `byokit-<ref.name>-` | Named snapshots survive a sandbox delete; without the second step the sign-ins inside them outlive it. A 404 on the sandbox counts as already deleted and the snapshot step still runs. `blocked` is terminal for the adapter: the operation is accepted and the sandbox is gone from every list, while a blocked stage can persist by design. |
+| `snapshots` (K3) | `GET /named-snapshots` | Keeps the entries with `status: 'ready'` whose name is `byokit-<ref.name>-` followed by `[a-z0-9]+` with no further dash, so a machine never lists another machine's copies when one name starts with the other (`web` never lists `web-two`'s). `id` is the name, `at` is `createdAt`, `sizeGb` is `sizeBytes` in GiB to one decimal, or `null`. |
+| `deleteSnapshot` (K3) | `DELETE /named-snapshots/{id}` | An id that fails the `snapshots` name rule rejects `no-snapshot` before any request; a 404 counts as deleted. |
+| `restore` (K3) | stop the old machine as `sleep` does unless it is already `asleep`; `POST /sandboxes` `{from: id, ttlSeconds: null, snapshots: ref.keepCopies}` + `Idempotency-Key`; poll `status` until `on` as `wake` does; `replaced(next)`; then `DELETE /sandboxes/{old id}` and its deletion poll as `remove` does, **without** the named-snapshot step | Boat has no in-place restore (a resume always uses the latest capture), so a restore is a new machine made from the named snapshot, and the copies stay with the machine's name. The body has no `noEnv` and no `type`: both inherit from the snapshot's source, which the kit created no-env, and an explicit `noEnv` could scrub sign-ins as a resume conversion does (6.3). Stopping first means the old and new machines never run at once, and the old one is still there, asleep, if the new one fails to start. Trial retry as `create`. |
 | `exec` | `POST /sandboxes/{id}/commands` `{command, timeoutSeconds, detached}`, and for a detached command poll `GET /sandboxes/{id}/commands/{processId}` every 1 s until `running` is false; a non-detached POST's `command.finished` response carries `stdout`, `stderr` and `exitCode` | 6.4. |
 | `write` | `PUT /sandboxes/{id}/files` `{path, content, encoding: 'base64'}` | The public file API defaults `encoding` to `utf8`, so the adapter sends `base64` explicitly. Only paths under `/home/user/` or `/tmp/`; anything else rejects `bad-recipe` before any request. After the PUT, `exec` `chmod <mode, octal> <path>`. Only 6.4's `input` uses it; `Machine` writes files through `exec` with `input` (8.3), so root never reads a staged path. |
 | `url` | `POST /sandboxes/{id}/host` `{port, public: true}` → the returned HTTPS URL | The app's process must bind `0.0.0.0`. Hosting also opens the machine firewall for that port. Re-hosting the same port returns the same URL. |
@@ -930,6 +1003,9 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
 | `error.app` | {app} hit a problem with your cloud computer. Try again, or ask for help. |
 | `key.expiring` | Your {label} key expires on {date}. Make a new one to keep your cloud computer working. |
 | `copies.on` | {label} keeps copies of your cloud computer's disk, including your sign-ins, so it can wake where it left off. Your {label} account details may be handled in the United States. |
+| `snapshot.restore` | Resetting brings your cloud computer back to how it was on {date}. Everything changed on it since then is lost. |
+| `disk.used` | {used} GB of {total} GB used on your cloud computer. |
+| `error.noSnapshot` | That saved copy of your cloud computer is gone. Choose another one. |
 
 - Sentences use ASCII apostrophes and U+2026 for the ellipsis, byte for byte as above.
 - `words(key, vars)` fills `{app}`, `{label}`, `{amount}`, `{date}` and `{code}`; an unfilled slot stays visible, as in herdr.
@@ -952,6 +1028,7 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
   | `not-linux` | `error.notLinux` |
   | `linger` | `host.linger` |
   | `needs-root` | `host.needsRoot` with `extra.command`, else `host.needsAdmin` |
+  | `no-snapshot` | `error.noSnapshot` |
   | `wrong-account` | `error.wrongAccount` |
   | `no-machine`, `exists`, `unsupported`, `confirm`, `bad-recipe` | `error.app` (these are the app's own mistakes) |
 - Jargon: every sentence, with `{…}` slots replaced by `X`, must not match the herdr expression
@@ -965,8 +1042,8 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
 1. **BYOKit operates nothing:** no relay, no wake service, no provider account, no default URL; naming an adapter does not select a provider.
 2. **One person, one provider account, one machine per app install** (D-7, 5.1).
 3. **`noEnv: true` on create; no `env` key on any request.** The kit never calls the provider's secrets, environments
-   or agent-credential endpoints. The contract fails if a create body lacks `noEnv: true`, if any body carries an
-   `env` key, or if a resume or fork body carries `noEnv`.
+   or agent-credential endpoints. The contract fails if a create body without `from` lacks `noEnv: true`, if any body
+   carries an `env` key, or if a restore (a create with `from`), resume or fork body carries `noEnv`.
 4. **Library code reads no environment variable.** Spawned `ssh` and `ssh-keyscan` get an env built from nothing.
 5. **Only the relay port is exposed** (9). Everything else stays on loopback.
 6. **SSH host keys are pinned** in the kit-owned `known_hosts`. A changed key is `host-key-changed`, never silently
@@ -1341,8 +1418,12 @@ BYOKit waits on it.
 - `Idempotency-Key` is scoped to the account and kept 24 h.
 - Commands: `timeoutSeconds` at most 600; no stdin; `detached` for long runs.
 - Files API writes only under `/home/user` and `/tmp`.
-- Snapshots capture the home, `/etc`, `/usr`, `/opt`, `/root`, `/srv` and systemd services; not `/var`. At most 10
-  named snapshots, no expiry; resume uses the latest, with no restore to an arbitrary point.
+- Snapshots capture the home, `/etc`, `/usr`, `/opt`, `/root`, `/srv` and systemd services; not `/var`. Named
+  snapshots never expire; resume uses the latest capture, with no restore to an arbitrary point in place.
+- A named snapshot deploys as a new machine: `POST /sandboxes` with `from: <name>`; type and no-env inherit from the
+  snapshot's source. Names match `^[a-z0-9][a-z0-9-]{0,62}$`; a list entry carries `name`, `status` (`saving`,
+  `ready`, `failed`), `createdAt` and `sizeBytes`. 10 are free per wallet, then $1.70 a month each, charged daily; a
+  save past the free ones with no credit answers 402 `credit_required` (K3, read 2026-10-13).
 - Hosted port URLs are `https://<machine>-<port>.<provider domain>`.
 - Usage is priced at list price. A running machine is stopped 24 h after the balance reaches zero.
 - Trial: a new account's plan starts with a 7-day trial; during it auto-stop cannot be disabled and cannot exceed 2 h

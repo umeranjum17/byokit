@@ -48,6 +48,26 @@ The package stays private until the recorded real-provider run (M6).
 
 The library reads no environment variable. Every spawned process gets an env built from nothing.
 
+## Saved copies, reset and disk space
+
+A machine made with `keepCopies: true` keeps saved copies of itself. `snapshot()` saves one and
+keeps only the newest three of the kit's own copies (`snapshot({ keep })` to change it; Boat keeps
+10 for free, then bills each). The kit runs no scheduler: the app calls
+`autoSnapshot({ everyMs })` on its own timer, and it saves only when the newest copy is older.
+`restore(id)` rebuilds the machine from a copy; everything changed since is lost, so the app
+confirms first with `words('snapshot.restore', { date })`. A copy that is gone rejects
+`no-snapshot`. `disk()` resolves `{ usedGb, totalGb }` for `words('disk.used', ...)`.
+
+```ts
+import { words, type Machine } from '@byokit/cloud';
+
+export async function reset(m: Machine, confirm: (s: string) => Promise<boolean>) {
+  const [last] = await m.snapshots();
+  if (last === undefined || !(await confirm(words('snapshot.restore', { date: last.at.slice(0, 10) })))) return null;
+  return m.restore(last.id); // the app then calls url(port) again: the machine is new
+}
+```
+
 ## Boat adapter
 
 `boat({ baseUrl, label, prices, key, fetch?, signal? })` returns the Boat `Provider`. The app

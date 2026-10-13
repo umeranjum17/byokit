@@ -1,4 +1,4 @@
-// MachineError (docs/cloud-kit.md 4.2, plus the 4.3 'needs-root' code).
+// MachineError (docs/cloud-kit.md 4.2, plus the 4.3 'needs-root' and 4.4 'no-snapshot' codes).
 export type MachineErrorCode =
   | 'no-machine'          // a call that needs a ref, with none in the store
   | 'exists'              // create() while the store already holds a ref
@@ -15,6 +15,7 @@ export type MachineErrorCode =
   | 'provider'            // any other provider failure; message holds the provider's own text
   | 'needs-root'          // G5b, G7: root steps on an SSH VM without passwordless sudo; extra.command holds the lines to run
   | 'timeout'
+  | 'no-snapshot'         // K3: restore or delete of an id that is not one of this machine's ready copies
 
 export class MachineError extends Error {
   readonly code: MachineErrorCode

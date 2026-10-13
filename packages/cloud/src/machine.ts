@@ -9,7 +9,8 @@ import {
   userUnitPath, writeUnitFile, writeUserUnit,
 } from './unit.ts';
 import type {
-  AsleepWhy, ExecResult, HostRecipe, HostState, Machine, MachineRecord, MachineRef, MachineStore, Plan, Provider,
+  AsleepWhy, Disk, ExecResult, HostRecipe, HostState, Machine, MachineRecord, MachineRef, MachineStore, Plan, Provider,
+  Snapshot,
 } from './types.ts';
 
 const EXEC_TIMEOUT_MS = 30_000;
@@ -19,6 +20,9 @@ const FILE_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const DELIVER_LIMIT = 64 * 1024;
 /** 8.3 step 5: a failed step reports the last 2 KB of stderr. */
 const STEP_TAIL = 2048;
+/** 5.10: copies kept by default, well inside Boat's 10 free per wallet. */
+const KEEP = 3;
+const GIB_IN_KB = 1024 * 1024;
 
 const randomBase36 = (n: number): string => {
   const bytes = crypto.getRandomValues(new Uint8Array(n));
@@ -77,6 +81,49 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
       throw new MachineError('bad-recipe', `port: must be an integer 1-65535, got ${JSON.stringify(port)}`);
     }
+  };
+
+  // 5.10: create, and every retry of it, carries one idempotency key; unreachable only.
+  const withKey = async <T>(name: string, run: (idempotencyKey: string) => Promise<T>): Promise<T> => {
+    const idempotencyKey = `byokit-${name}-${randomBase36(16)}`;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await run(idempotencyKey);
+      } catch (e) {
+        if ((e as { code?: string }).code === 'unreachable' && attempt < 3) continue;
+        throw e;
+      }
+    }
+  };
+
+  // 5.10: the kit's own copies of this machine, newest first.
+  const listCopies = async (r: MachineRef): Promise<Snapshot[]> => {
+    if (o.provider.snapshots === undefined) throw new MachineError('unsupported', 'this provider cannot list saved copies');
+    return (await o.provider.snapshots(r)).sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  };
+
+  const needCopies = (r: MachineRef): void => {
+    if (!r.keepCopies) throw new MachineError('unsupported', 'the provider keeps no copies of a machine made without them');
+  };
+
+  const checkCount = (field: string, n: number, min: number): void => {
+    if (!Number.isInteger(n) || n < min) {
+      throw new MachineError('bad-recipe', `${field}: must be an integer >= ${min}, got ${JSON.stringify(n)}`);
+    }
+  };
+
+  // 5.10: save one copy, confirm it is listed ready, and only then prune past `keep`.
+  const saveCopy = async (r: MachineRef, keep: number): Promise<Snapshot> => {
+    const { snapshot, snapshots, deleteSnapshot } = o.provider;
+    if (snapshot === undefined || snapshots === undefined || deleteSnapshot === undefined) {
+      throw new MachineError('unsupported', 'this provider cannot save copies');
+    }
+    const { name } = await snapshot(r, randomBase36(12));
+    const copies = await listCopies(r);
+    const made = copies.find((c) => c.id === name);
+    if (made === undefined) throw new MachineError('provider', 'the saved copy is not listed as ready');
+    for (const old of copies.filter((c) => c.id !== made.id).slice(keep - 1)) await deleteSnapshot(r, old.id);
+    return made;
   };
 
   // 8.2 without a recipe: probe for a system unit; exit 0 means a system unit.
@@ -348,19 +395,11 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       if (sizes.length > 0 && !sizes.some((s) => s.id === size)) {
         throw new MachineError('bad-recipe', `size: must be one of ${sizes.map((s) => s.id).join(', ')}, got ${JSON.stringify(size)}`);
       }
-      if (o.provider.create !== undefined) {
-        const idempotencyKey = `byokit-${name}-${randomBase36(16)}`;
-        for (let attempt = 0; ; attempt++) {
-          try {
-            const created = await o.provider.create({ name, size, keepCopies, idempotencyKey });
-            await save(created);
-            return created;
-          } catch (e) {
-            // The same key on every retry; unreachable only.
-            if ((e as { code?: string }).code === 'unreachable' && attempt < 3) continue;
-            throw e;
-          }
-        }
+      const { create } = o.provider;
+      if (create !== undefined) {
+        const created = await withKey(name, (idempotencyKey) => create({ name, size, keepCopies, idempotencyKey }));
+        await save(created);
+        return created;
       }
       // Provider without create (SSH VM): adopt the machine that already exists (5.2 step 4).
       if (keepCopies !== false) throw new MachineError('bad-recipe', 'keepCopies: must be false when the provider has no create');
@@ -610,6 +649,54 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       if (done.code !== 0) {
         throw new MachineError('provider', `deliver ${file} failed with exit ${done.code}: ${done.stderr.slice(-200)}`);
       }
+    },
+
+    async snapshots(): Promise<Snapshot[]> {
+      return listCopies(await need());
+    },
+
+    async snapshot(so?: { keep?: number }): Promise<Snapshot> {
+      const r = await need();
+      const keep = so?.keep ?? KEEP;
+      checkCount('keep', keep, 1);
+      needCopies(r);
+      return saveCopy(r, keep);
+    },
+
+    async autoSnapshot({ everyMs, keep = KEEP }): Promise<Snapshot | null> {
+      const r = await need();
+      checkCount('everyMs', everyMs, 1);
+      checkCount('keep', keep, 1);
+      needCopies(r);
+      const [newest] = await listCopies(r);
+      if (newest !== undefined && Date.now() - Date.parse(newest.at) < everyMs) return null;
+      return saveCopy(r, keep);
+    },
+
+    async restore(id: string): Promise<void> {
+      const r = await need();
+      const { restore } = o.provider;
+      if (restore === undefined) throw new MachineError('unsupported', 'this provider cannot reset a machine from a copy');
+      needCopies(r);
+      if (!(await listCopies(r)).some((c) => c.id === id)) {
+        throw new MachineError('no-snapshot', 'no ready copy of this machine has that id');
+      }
+      // The app confirmed; the words say what is lost (`snapshot.restore`). The new ref is
+      // saved before the adapter deletes the old machine.
+      const next = await withKey(r.name, (idempotencyKey) => restore(r, id, { idempotencyKey, replaced: save }));
+      await save(next);
+    },
+
+    async disk(): Promise<Disk> {
+      const r = await need();
+      const shown = await o.provider.exec(r, ['df', '-P', '-k', '/'], { timeoutMs: EXEC_TIMEOUT_MS });
+      // POSIX output: a header, then `<fs> <total 1K-blocks> <used> <available> <capacity> <mount>`.
+      const [, total, used] = (shown.stdout.split('\n')[1] ?? '').trim().split(/\s+/).map(Number);
+      if (shown.code !== 0 || !Number.isFinite(total) || !Number.isFinite(used)) {
+        throw new MachineError('provider', `df / failed with exit ${shown.code}: ${shown.stderr.slice(-200)}`);
+      }
+      const gb = (kb: number): number => Math.round((kb / GIB_IN_KB) * 10) / 10;
+      return { usedGb: gb(used), totalGb: gb(total) };
     },
   };
 

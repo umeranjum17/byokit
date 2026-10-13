@@ -5,8 +5,8 @@
 // fake-provider cases held survives as an assertion inside a journey: a deliver can never escape into
 // a root-owned path, a staged write is 0600, a recipe with a secret or an unsafe path is refused, an
 // installRoot step runs once behind its marker, a machine without root is refused rather than
-// half-installed, a rejected key never appears in an error, and a delete removes only the kit's own
-// snapshots. The provider is the kit's own bench (in-memory fake, loopback fake server); no network,
+// half-installed, a rejected key never appears in an error, a delete removes only the kit's own
+// snapshots, and a reset brings back a saved copy while pruning only the kit's own copies. The provider is the kit's own bench (in-memory fake, loopback fake server); no network,
 // key or real machine is used.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -468,6 +468,91 @@ test('an app cleans up on Boat and every failure stays honest: no key leak, no l
   assert.ok(slowElapsed < 15_000, `one call stays near the 10 s deadline (${slowElapsed} ms)`);
 });
 
+test('a person saves copies of their cloud computer, resets it from one, and only the newest few are kept', async () => {
+  const server = await startFakeSandboxServer();
+  try {
+    const provider = boat({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
+    const m = machine({ provider, store: memoryStore() });
+    const old = await m.create({ name: 'web', size: 'small', keepCopies: true });
+    // Another machine on the same account whose name starts with this one's: its copy is never this one's.
+    const other = await provider.create!({ name: 'web-two', size: 'small', keepCopies: true, idempotencyKey: 'other-1' });
+    await provider.snapshot!(other, 'x');
+
+    const marker = '/home/user/marker.txt';
+    const tailnet = '/etc/tailscale/tailscaled.state';
+    await provider.write(old, marker, new TextEncoder().encode('Umer v1'), 0o600);
+    server.machine.writeFile(tailnet, new TextEncoder().encode('node-key-1'), 0o600, 'root');
+    const saved = await m.snapshot();
+    assert.match(saved.id, /^byokit-web-[0-9a-z]{12}$/);
+    assert.deepEqual((await m.snapshots()).map((c) => c.id), [saved.id], 'only this machine\'s ready copies are listed');
+
+    // Reset: the old machine stops before the new one starts from the copy, the marker is back,
+    // the tailnet identity is kept (same machine), and the old machine is deleted with its copies kept.
+    await provider.write(old, marker, new TextEncoder().encode('Umer v2'), 0o600);
+    const before = server.requests.length;
+    await m.restore(saved.id);
+    assert.equal(textOf(server.machine.readFile(marker)!), 'Umer v1');
+    assert.equal(textOf(server.machine.readFile(tailnet)!), 'node-key-1');
+    assert.notEqual(m.ref?.id, old.id);
+    assert.equal(await m.state(), 'on');
+    assert.equal(await provider.status(old), 'gone');
+    const during = server.requests.slice(before);
+    const stopAt = during.findIndex((r) => r.method === 'POST' && r.path === `/sandboxes/${old.id}/stop`);
+    const fromAt = during.findIndex((r) => r.method === 'POST' && r.path === '/sandboxes');
+    assert.ok(stopAt >= 0 && stopAt < fromAt, 'the old machine stops before the new one is made');
+    assert.deepEqual(during[fromAt].body, { from: saved.id, snapshots: true, ttlSeconds: null }, 'a restore carries no noEnv');
+    assert.ok(!during.some((r) => r.method === 'DELETE' && r.path.startsWith('/named-snapshots/')));
+    assert.deepEqual((await m.snapshots()).map((c) => c.id), [saved.id]);
+
+    // A copy that is gone, or another machine's, is a typed refusal with its own sentence.
+    const gone = await rejects(m.restore('byokit-web-nope'), 'no-snapshot');
+    await rejects(m.restore('byokit-web-two-x'), 'no-snapshot');
+    assert.equal(errorWords(gone, { app: 'Umer', label: 'Test' }), 'That saved copy of your cloud computer is gone. Choose another one.');
+    assert.equal(
+      words('snapshot.restore', { date: saved.at.slice(0, 10) }),
+      `Resetting brings your cloud computer back to how it was on ${saved.at.slice(0, 10)}. Everything changed on it since then is lost.`,
+    );
+
+    // Keep 3 by default: a fourth copy deletes the oldest only after it is ready, and never another machine's.
+    for (let i = 0; i < 3; i++) await m.snapshot();
+    const kept = await m.snapshots();
+    assert.equal(kept.length, 3);
+    assert.ok(!kept.some((c) => c.id === saved.id), 'the oldest copy was pruned');
+    assert.ok(kept.every((c, i) => i === 0 || Date.parse(kept[i - 1].at) >= Date.parse(c.at)), 'newest first');
+    const latest = await m.snapshot({ keep: 1 });
+    assert.deepEqual((await m.snapshots()).map((c) => c.id), [latest.id]);
+    const names = ((await (await fetch(`${server.url}/named-snapshots`, { headers: { Authorization: 'Bearer test-key' } })).json()) as { snapshots: { name: string }[] }).snapshots.map((s) => s.name);
+    assert.deepEqual(names.sort(), [latest.id, 'byokit-web-two-x'].sort());
+    await rejects(m.snapshot({ keep: 0 }), 'bad-recipe');
+
+    // The app's own timer calls autoSnapshot: nothing while the newest copy is fresh, one when due.
+    assert.equal(await m.autoSnapshot({ everyMs: 3_600_000 }), null);
+    await new Promise((r) => setTimeout(r, 5));
+    const due = await m.autoSnapshot({ everyMs: 1, keep: 1 });
+    assert.ok(due !== null && due.id !== latest.id);
+    assert.deepEqual((await m.snapshots()).map((c) => c.id), [due.id]);
+
+    // Disk space from the machine itself, in plain words; a failed read says so.
+    server.machine.script('df', { code: 0, stdout: 'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vda 12582912 3250586 9332326 26% /\n', stderr: '', timedOut: false });
+    const disk = await m.disk();
+    assert.deepEqual(disk, { usedGb: 3.1, totalGb: 12 });
+    assert.equal(words('disk.used', { used: String(disk.usedGb), total: String(disk.totalGb) }), '3.1 GB of 12 GB used on your cloud computer.');
+    server.machine.script('df', { code: 1, stdout: '', stderr: 'df: /: No such file', timedOut: false });
+    await rejects(m.disk(), 'provider');
+  } finally {
+    await server.close();
+  }
+
+  // A machine without copies, or a provider that keeps none, cannot save or reset.
+  const noCopies = machine({ provider: fakeProvider(), store: memoryStore() });
+  await noCopies.create({ name: 'web', size: 'small', keepCopies: false });
+  await rejects(noCopies.snapshot(), 'unsupported');
+  const vm = machine({ provider: fakeProvider({ id: 'ssh-vm' }), store: memoryStore() });
+  await vm.create({ name: 'web', size: 'small', keepCopies: false });
+  await rejects(vm.snapshots(), 'unsupported');
+  await rejects(vm.restore('byokit-web-a'), 'unsupported');
+});
+
 test('an app tells the person what the cloud computer costs and speaks in plain words', async () => {
   const today = new Date().toISOString().slice(0, 10);
   const small: Price = { size: 'small', perHour: 0.018, planFloorPerMonth: 20, asleepPerHour: 0, currency: 'USD', basis: 'incl. IPv4, excl. VAT', source: 'http://boat.test/prices', checked: today };
@@ -533,7 +618,7 @@ test('an app tells the person what the cloud computer costs and speaks in plain 
 
   const codes: readonly MachineErrorCode[] = [
     'no-machine', 'exists', 'wrong-account', 'unsupported', 'confirm', 'bad-recipe', 'not-linux', 'linger',
-    'host-key', 'unauthorized', 'balance', 'unreachable', 'provider', 'needs-root', 'timeout',
+    'host-key', 'unauthorized', 'balance', 'unreachable', 'provider', 'needs-root', 'timeout', 'no-snapshot',
   ];
   for (const code of codes) {
     const w = errorWords(new MachineError(code, 'detail'), vars);
