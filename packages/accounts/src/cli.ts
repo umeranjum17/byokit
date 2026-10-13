@@ -53,6 +53,10 @@ const folderVar = (p: CliProvider) => p === 'claude' ? 'CLAUDE_CONFIG_DIR' : p =
 const quote = (v: string) => `'${v.replaceAll("'", "'\\''")}'`;
 const complete = (r: Row) => join(r.folder, '.byokit-signin-complete');
 const pending = (r: Row) => join(r.folder, '.byokit-signin-pending');
+/** The cross-process sign-in lock both the shell command and a remote spawn take; the holder PID sits beside it so `rmdir` still works. */
+export function signInLock(folder: string): { lock: string; holder: string } {
+  return { lock: join(folder, '.byokit-signin-lock'), holder: join(folder, '.byokit-signin-holder') };
+}
 function marker(file: string): boolean {
   try {
     const stat = lstatSync(file);
@@ -196,7 +200,7 @@ export function cliAccounts(options: CliOptions) {
   }
   function command(r: Row): SignInCommand {
     const argv = r.provider === 'pi' ? [binary('pi')] : r.provider === 'claude' ? [binary(r.provider), 'auth', 'login', '--claudeai'] : [binary(r.provider), 'login', '--device-auth'];
-    const passed = spawnEnv(r); const completion = complete(r); const lock = join(r.folder, '.byokit-signin-lock');
+    const passed = spawnEnv(r); const completion = complete(r); const { lock } = signInLock(r.folder);
     const login = ['/usr/bin/env', '-i', ...Object.entries(passed).map(([k, v]) => `${k}=${v}`), ...argv].map(quote).join(' ');
     // Cross-process guard: a native CLI owns any refresh transaction; the kit never copies or refreshes its grants.
     const shell = `(umask 077; /bin/mkdir ${quote(lock)} || exit 1; trap ${quote(`/bin/rmdir ${quote(lock)}`)} EXIT; ${login}${r.provider === 'pi' ? '' : ` && (set -C; printf complete > ${quote(completion)})`})`;

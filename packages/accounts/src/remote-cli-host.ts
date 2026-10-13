@@ -13,8 +13,9 @@
 // Compose `remoteCliHost(...).handle` into the pair `Host`'s `handle` (behind `allow`); the phone
 // uses `remoteCliDevice(link)` from `./remote-cli.ts`.
 import { spawn, type ChildProcess } from 'node:child_process';
-import { accessSync, constants, rmSync, writeFileSync } from 'node:fs';
-import { CliAccountError, cliAccounts } from './cli.ts';
+import { accessSync, constants, mkdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { CliAccountError, cliAccounts, signInLock } from './cli.ts';
 import {
   REMOTE_CLI_OPS,
   REMOTE_CLI_PROVIDERS,
@@ -56,6 +57,7 @@ type Session = {
   late: string;
   exited?: number | null;
   result?: RemoteCliResult;
+  unlock?: () => void;
 };
 
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -123,6 +125,32 @@ const fail = (provider: RemoteCliProvider, error: RemoteCliFailure['error']): Re
   return { ok: false, error, words };
 };
 
+function holderAlive(holder: string): boolean {
+  let pid: number;
+  try { pid = Number(readFileSync(holder, 'utf8')); } catch { return true; }
+  if (!Number.isSafeInteger(pid) || pid <= 0) return true;
+  try { process.kill(pid, 0); return true; }
+  catch (e) { return (e as NodeJS.ErrnoException).code !== 'ESRCH'; }
+}
+
+function claimSignIn(folder: string): (() => void) | undefined {
+  const { lock, holder } = signInLock(folder);
+  const take = () => { try { mkdirSync(lock, { mode: 0o700 }); return true; } catch { return false; } };
+  if (!take()) {
+    if (holderAlive(holder)) return undefined;
+    rmSync(holder, { force: true });
+    try { rmdirSync(lock); } catch { return undefined; }
+    if (!take()) return undefined;
+  }
+  let held = true;
+  return () => {
+    if (!held) return;
+    held = false;
+    rmSync(holder, { force: true });
+    try { rmdirSync(lock); } catch {}
+  };
+}
+
 export function remoteCliHost(options: RemoteCliHostOptions): {
   state(): Promise<RemoteCliState[]>;
   close(): Promise<void>;
@@ -184,30 +212,37 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     if (signal?.aborted) return fail(provider, 'cancelled');
     sweep();
     for (const s of sessions.values()) {
-      if (s.provider === provider && !s.result) return fail(provider, 'busy');
+      if (s.provider === provider && s.exited === undefined) return fail(provider, 'busy');
     }
     const rows = await cli.list();
     if (rows.some((r) => r.provider === provider && r.state === 'ready')) return fail(provider, 'already');
     let id: string;
     let signIn: { argv: string[]; env: Record<string, string>; completion: string };
+    let unlock: (() => void) | undefined;
     try {
       const reuse = rows.find((r) => r.provider === provider && (r.state === 'signed_out' || r.state === 'signing'));
       if (reuse) {
+        unlock = claimSignIn(Object.values(cli.launchEnv(reuse.id).set)[0]!);
+        if (!unlock) return fail(provider, 'busy');
         id = reuse.id;
         signIn = cli.signInAgain(id);
       } else {
         const added = provider === 'claude' ? await cli.add('claude') : await cli.add('codex');
         id = added.account.id;
         signIn = added.signIn;
+        unlock = claimSignIn(dirname(signIn.completion));
+        if (!unlock) { await cli.cancel(id); return fail(provider, 'busy'); }
       }
     } catch (e) {
+      unlock?.();
       if (e instanceof CliAccountError && e.code === 'bad-option') return fail(provider, 'missing');
       if (e instanceof CliAccountError && e.code === 'prepare-failed') return fail(provider, 'busy');
       throw e;
     }
-    if (signal?.aborted) { await cli.cancel(id); return fail(provider, 'cancelled'); }
+    if (signal?.aborted) { unlock?.(); await cli.cancel(id); return fail(provider, 'cancelled'); }
     const child = spawn(signIn.argv[0], signIn.argv.slice(1), { env: signIn.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
-    const session: Session = { id, provider, child, completion: signIn.completion, display: { id, provider, verificationUri: '' }, startedAt: now(), late: '' };
+    if (child.pid) writeFileSync(signInLock(dirname(signIn.completion)).holder, String(child.pid));
+    const session: Session = { id, provider, child, completion: signIn.completion, display: { id, provider, verificationUri: '' }, startedAt: now(), late: '', unlock };
     const abort = () => kill(session);
     signal?.addEventListener('abort', abort, { once: true });
     let output = '';
@@ -222,8 +257,8 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     };
     child.stdout?.on('data', append);
     child.stderr?.on('data', append);
-    child.once('exit', (code) => { session.exited = code; });
-    child.once('error', () => { session.exited ??= null; });
+    child.once('exit', (code) => { session.exited = code; session.unlock?.(); });
+    child.once('error', () => { session.exited ??= null; session.unlock?.(); });
     const deadline = now() + parseMs;
     for (;;) {
       if (found || signal?.aborted) break;

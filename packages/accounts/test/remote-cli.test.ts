@@ -3,10 +3,11 @@
 // contract `@byokit/pair` seals on the wire. No account, no network, no real credential anywhere.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { cliAccounts, remoteCliHost } from '../src/cli.ts';
+import { cliAccounts, remoteCliHost, signInLock } from '../src/cli.ts';
 import { REMOTE_CLI_OPS, remoteCliDevice, type RemoteCliLink, type RemoteCliProvider } from '../src/remote-cli.ts';
 import { scratchDir } from '../../test-support.ts';
 
@@ -342,21 +343,49 @@ test('a runtime-owned folder survives timeout and close; closing wins over late 
   } finally { await host.close(); }
 });
 
-test('a signing row left by a crashed login is retried by the next start, not reported busy', async () => {
+test('a signing row left by a crashed login is retried only once its sign-in lock holder is gone', async () => {
   const root = scratchDir('remote-stale-signing');
   const native = fakeClaude(join(root, 'bins'));
   const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
   const home = join(stateDir, 'home'); mkdirSync(home);
   const folder = join(home, '.claude');
   const bins = { claude: native.bin };
-  const env = { HOME: home, PATH: '/unused', LOGIN_MODE: 'success' };
+  const env = { HOME: home, PATH: '/unused', LOGIN_MODE: 'paste' };
   const crashed = cliAccounts({ stateDir, bins, env, managedFolders: { claude: folder } });
   assert.equal((await crashed.add('claude')).account.state, 'signing');
   const cli = cliAccounts({ stateDir, bins, env, managedFolders: { claude: folder } });
   const host = remoteCliHost({ cli, bins, waitCapMs: 60_000 });
+  const { lock, holder } = signInLock(folder);
+  const outcome = async () => { const r = await host.start('claude'); return r.ok ? 'ok' : r.error; };
   try {
-    const started = await host.start('claude');
-    assert.equal(started.ok, true, JSON.stringify(started));
+    mkdirSync(lock);
+    assert.equal(await outcome(), 'busy', 'a lock with no holder record is a live or shell-held login');
+    writeFileSync(holder, String(process.pid));
+    assert.equal(await outcome(), 'busy', 'a live holder keeps the row busy');
+    rmSync(holder, { force: true }); rmSync(lock, { recursive: true, force: true });
+    writeFileSync(holder, String(spawnSync(process.execPath, ['-e', '']).pid));
+    assert.equal(await outcome(), 'ok', 'a dead holder is a crash left behind, so the next start retries');
+    assert.equal(await outcome(), 'busy', 'the retried login now holds the lock');
+  } finally { await host.close(); }
+});
+
+test('a login still dying after cancel keeps its sign-in lock: the next start is busy until its child exits', async () => {
+  const root = scratchDir('remote-dying-session');
+  const native = fakeClaude(join(root, 'bins'));
+  const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
+  const home = join(stateDir, 'home'); mkdirSync(home);
+  const folder = join(home, '.claude');
+  const bins = { claude: native.bin };
+  const cli = cliAccounts({ stateDir, bins, env: { HOME: home, PATH: '/unused', LOGIN_MODE: 'paste' }, managedFolders: { claude: folder } });
+  const host = remoteCliHost({ cli, bins, waitCapMs: 60_000 });
+  try {
+    const first = await host.start('claude'); assert.equal(first.ok, true);
+    if (!first.ok) return;
+    const dying = host.cancel(first.signIn.id);
+    const during = await host.start('claude');
+    assert.equal(during.ok ? 'ok' : during.error, 'busy');
+    await dying;
+    const next = await host.start('claude'); assert.equal(next.ok, true);
   } finally { await host.close(); }
 });
 

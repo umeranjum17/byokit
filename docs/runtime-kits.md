@@ -32,11 +32,14 @@ surface (OpenClaw Gateway operator protocol; Herdr socket API and CLI), so no co
 They share connection adapters (`link`, `relay`, `discover`, `seal`, `ui`) and conventions, never a
 lowest-common-denominator interface. `@byokit/accounts` keeps serving direct-provider apps (including Ownvoice); its
 multi-account shapes (`Account`, `Room`, `RunSelection`, `Pick` as `AccountPick`) are restated structurally by this kit (5.15), never
-imported. CLI sign-in status lives in `@byokit/herdr` `agentStatus` (B5) and, for its managed Claude/Codex/Pi folders, `@byokit/accounts/cli` `status`; 6.6 names which one gates a move (MS-S2).
+imported. The one exception is native CLI sign-in (`signIn` `anthropic-cli`): the kit imports `cliAccounts` and `remoteCliHost` from `@byokit/accounts/cli`
+for that path only, as stated in the next section. CLI sign-in status lives in `@byokit/herdr` `agentStatus` (B5) and, for its managed Claude/Codex/Pi folders, `@byokit/accounts/cli` `status`; 6.6 names which one gates a move (MS-S2).
 
 Out of scope for the build phase: releasing (firstmate/owner runs `release.yml`), muxr adoption (section 10), any
 operated service, and any change to `@byokit/accounts`, `link`, `relay`, `discover`, `seal`, `decide` or `ui`
-source, except `@byokit/accounts/cli` `launch` (MS-S2, 6.6).
+source, except `@byokit/accounts/cli` `launch` (MS-S2, 6.6), and, for native CLI sign-in only, the `cliAccounts`
+`managedFolders` option, the `remoteCliHost` `start` signal and `close()`, and the sign-in lock helper `signInLock`.
+The kit's only `@byokit/accounts` dependency is the `@byokit/accounts/cli` import of `cliAccounts` and `remoteCliHost`; no other accounts surface is imported.
 
 ## 2. Decisions
 
@@ -767,7 +770,10 @@ again after the native login finishes. The waiting view carries the native verif
 prompt. `paste` writes one returned code to that CLI's stdin; cancel/expiry stop only that login. CLI output
 and credentials are never forwarded, logged, copied or read by the kit. A successful native exit is checked
 again through the engine, then existing `setup.activate { kind: 'claude-cli' }` live-tests and persists the route;
-only successful activation/restart is `done`. Concurrent native logins to one engine are refused as busy.
+only successful activation/restart is `done`. Concurrent native logins to one engine are refused as busy. A `signing` row left by an earlier login is reused only when its
+sign-in lock (`signInLock`: the `.byokit-signin-lock` directory the shell command also takes, with its holder PID beside it) is
+free or its holder PID is dead, and no in-host session for the provider is still unexited; a live or unknown holder is busy.
+The remote spawn holds that lock until its child exits.
 The phone uses the existing link start/view/paste/cancel operations; credentials stay on the engine machine.
 For the native Claude route, a link sign-in view reports `ready: false` while its drive is active or its latest
 attempt failed, even if native credential detection already succeeds; other providers keep their signed-in readiness. The drive's successful live activation, not credential presence,
