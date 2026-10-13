@@ -4,6 +4,7 @@ import type { SealingAdapter } from '@byokit/secrets';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { PROTOCOL_VERSION } from './constants.ts';
 import { atomic } from './engine-patches.ts';
@@ -22,6 +23,7 @@ import { createAuthStatus } from './auth-status.ts';
 import { outputSchema } from './output.ts';
 import { createKeys, type AddKeyResult } from './keys.ts';
 import { routes as routeTable, type RouteView } from './routes.ts';
+import { providerOf } from './pick.ts';
 import { signIn as startSignIn, signOut as engineSignOut, type SignInCtx } from './signin.ts';
 import { reconcileConfig, browserToolPolicySafe, browserProfileAcknowledged, browserSessionMayRun, memoryLimited as configMemoryLimited, configKeyPath, readConfigKey, writeConfigKey } from './config.ts';
 import type { BrowserHost, BrowserOptions, BrowserState } from './browser.ts';
@@ -98,6 +100,8 @@ export type RetainedLogin = { path: string } | { record: Record<string, unknown>
 
 /** The engine's learning-mode config key (5.6 "Engine learning state"). */
 const LEARNING_KEY = 'skills.workshop.autonomous.mode';
+// Providers whose live catalog the kit registers (5.6); registering fixes a provider's catalog membership.
+const LIVE_CATALOGS = ['opencode-go'];
 const RESTART_MS = 60_000;
 
 const operatorMethods = new Set<string>([
@@ -522,6 +526,7 @@ export class OpenClawKit {
   private starting?: Promise<void>;
   private stopping = false;
   private failures = 0;
+  private catalogs: Promise<void> = Promise.resolve();
   browser?: BrowserHost;
   private browserHost?: BrowserHostController;
   private readonly brokers = new Map<Member, HostBroker>();
@@ -782,6 +787,7 @@ export class OpenClawKit {
       this.off.push(transport.onEvent((e) => this.approvalsCtl.handleEvent(e)));
       this.failures = 0;
       this.setState({ phase: 'ready' });
+      this.syncCatalogs();
       if (this.o.browser) await this.checkBrowserTools();
       // Replays the engine's native approval lists over the now-live transport (N9).
       await this.approvalsCtl.resync();
@@ -952,8 +958,10 @@ export class OpenClawKit {
     return this.providerStatus(member).then((names) => names ?? []);
   }
 
+  /** A member sign-in to `provider`, or a ready key (5.8) whose saved model is that provider's. */
   signedIn(member: Member, provider: string): Promise<boolean> {
-    return this.providers(member).then((names) => names.includes(provider)).catch(() => false);
+    return this.providers(member).then(async (names) => names.includes(provider)
+      || providerOf((await this.keys.ready(member, { once: true }))?.model ?? '') === provider).catch(() => false);
   }
 
   signIn(
@@ -1005,7 +1013,8 @@ export class OpenClawKit {
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
       done: Promise<{ view: SignInView; id: AccountId }> }> {
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
-    return this.accountsCtl.add(member, o, on);
+    return this.accountsCtl.add(member, o, on).then((added) => ({ ...added,
+      done: added.done.then((r) => { if (r.view.state === 'done') this.syncCatalogs(); return r; }) }));
   }
 
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account> {
@@ -1025,7 +1034,29 @@ export class OpenClawKit {
 
   /** Save an explicitly supplied API key (billed per use) in this member's separate key agent. */
   addKey(agentId: Member, o: { authChoice: string; apiKey: string }): Promise<AddKeyResult> {
-    return this.keys.add(agentId, o);
+    return this.keys.add(agentId, o).then((r) => { if (r === 'ok') this.syncCatalogs(); return r; });
+  }
+
+  // Live provider catalogs (5.6): registers each live model with its api from the provider's catalog data, so
+  // embedded runs resolve it. Serialized and in the background; a failure is logged and keeps the registered list.
+  private syncCatalogs(): void {
+    type Providers = { models?: { providers?: Record<string, { models?: { id: string }[] }> } };
+    for (const provider of LIVE_CATALOGS) {
+      if ((this.o.config as Providers | undefined)?.models?.providers?.[provider]?.models !== undefined) continue;
+      this.catalogs = this.catalogs.then(async () => {
+        const answer = await this.request()('byokit.catalog', { provider }) as { ok?: boolean; reason?: string; models?: { id: string }[] };
+        if (!answer.ok) {
+          if (answer.reason !== 'no-key') this.o.log?.(`catalog sync ${provider}: ${answer.reason ?? 'failed'}`);
+          return;
+        }
+        const { config } = await this.request()('config.get') as { config?: Providers };
+        const registered = config?.models?.providers?.[provider]?.models ?? [];
+        const byId = new Map(registered.map((m) => [m.id, m]));
+        for (const m of answer.models ?? []) byId.set(m.id, m);
+        const models = [...byId.values()];
+        if (!isDeepStrictEqual(models, registered)) await this.patchConfig({ models: { providers: { [provider]: { models } } } });
+      }).catch(() => { if (this.current.phase === 'ready') this.o.log?.(`catalog sync ${provider}: failed`); });
+    }
   }
 
   migrateRetainedLogin(member: Member, source: RetainedLogin): Promise<'staged' | 'nothing' | 'failed'> {
@@ -1079,10 +1110,11 @@ export class OpenClawKit {
       if (!spec.sessionKey.startsWith(`agent:${spec.member}:`)) throw new Error('This conversation belongs to another member.');
       const selected = await this.keys.ready(spec.member);
       if (!selected) return { ok: false, kind: 'signed-out', message: 'Add an API key to use this option.' };
-      if (spec.model !== undefined && spec.model !== selected.model)
-        return { ok: false, kind: 'plan', message: 'Choose the model saved with this key.' };
+      // A key pays for its provider's models (5.8); the engine refuses one its catalog does not list.
+      if (spec.model !== undefined && providerOf(spec.model) !== providerOf(selected.model))
+        return { ok: false, kind: 'plan', message: 'Choose a model of the provider saved with this key.' };
       // RunRef.member stays the person for app gates; the engine receives the isolated agent and history.
-      return this.runs().run({ ...spec, model: selected.model }, on, selected.agentId, output);
+      return this.runs().run({ ...spec, model: spec.model ?? selected.model }, on, selected.agentId, output);
     });
     return this.runs().run(spec, on, undefined, output);
   }

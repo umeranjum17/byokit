@@ -239,7 +239,7 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   await page.fill('#message', 'Hello Go');
   await page.click('#send');
   await text(page, '#reply', 'fake: Hello Go');
-  await page.locator('#usage').filter({ hasText: /^\d+ tokens used on your plan\.$/ }).waitFor(); // with the end, after the text
+  await page.locator('#usage').filter({ hasText: /^\d+ tokens used\.$/ }).waitFor(); // with the end, after the text
   await shot(page, '10-plan-key-answered');
   assert.equal((await page.content()).includes(KEY), false, 'the page keeps no key');
   assert.equal(said.includes(KEY), false, 'the computer never says the key');

@@ -174,13 +174,14 @@ async function pick(row: ConnectRow) {
 }
 
 let checking = false; // a pasted key is on its way to the computer, which checks it with the provider
+let keyError = ''; // why the last pasted key was refused, shown until the next submit or until the sign-in leaves the prompt
 /** Draws the ways in and the sign-in card, or the message box; true while the sign-in is still moving. */
 function drawAccount(view: AccountView | undefined): boolean {
   const phase = view && phaseOf(view);
   const moving = view?.signIn?.state === 'waiting';
   // The kit asks for the plan's key: the phone sends it once, over the sealed link, and keeps nothing.
   const asked = moving && view?.signIn?.prompt ? view.signIn.prompt : '';
-  if (!asked) checking = false;
+  if (!asked) { checking = false; keyError = ''; }
   $('signin-key').hidden = !asked || checking;
   $('signin-key-label').textContent = asked;
   $('signin').hidden = phase === 'done';
@@ -197,7 +198,7 @@ function drawAccount(view: AccountView | undefined): boolean {
   $('signin-cancel').hidden = !moving;
   $('signin-title').textContent = !view ? ''
     : !view.signIn ? words('member.signedOut', { name })
-    : asked ? (checking ? words('key.checking') : 'Paste the key from your plan. Your computer keeps it, not this phone.')
+    : asked ? (checking ? words('key.checking') : keyError || 'Paste the key from your plan. Your computer keeps it, not this phone.')
     : phase === 'code' ? `On the ${name} page, type this code:`
     : phase === 'busy' ? words('signin.busy')
     : phase === 'expired' ? words('signin.expired')
@@ -214,9 +215,10 @@ $('signin-key').onsubmit = async (e) => {
   input.value = '';
   if (!key || !account) return;
   checking = true;
+  keyError = '';
   $('signin-key').hidden = true;
   $('signin-title').textContent = words('key.checking');
-  try { await oc.signIn.paste(account.provider, key); } catch (err) { checking = false; $('signin-title').textContent = said(err); }
+  try { await oc.signIn.paste(account.provider, key); } catch (err) { checking = false; keyError = said(err); }
   void refresh();
 };
 $('signin-cancel').onclick = async () => {
@@ -258,7 +260,7 @@ $('run-form').onsubmit = async (e) => {
         if (frame.end.ok) {
           $('reply').textContent = frame.end.text || $('reply').textContent;
           box.value = '';
-          if (frame.end.usage?.total) $('usage').textContent = `${frame.end.usage.total.toLocaleString()} tokens used on your plan.`;
+          if (frame.end.usage?.total) $('usage').textContent = `${frame.end.usage.total.toLocaleString()} tokens used.`;
         }
         $('run-said').textContent = endWords(frame.end);
         if (!frame.end.ok && 'kind' in frame.end && frame.end.kind === 'signed-out') void refresh();
