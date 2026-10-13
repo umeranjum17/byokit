@@ -3,7 +3,7 @@
 // contract `@byokit/pair` seals on the wire. No account, no network, no real credential anywhere.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -89,6 +89,7 @@ const granted = home ? require('node:path').join(home, 'granted') : '';
     return;
   }
   if (process.argv[2] === 'auth' && process.argv[3] === 'login') {
+    if (process.env.LOGIN_PID_FILE) fs.writeFileSync(process.env.LOGIN_PID_FILE, String(process.pid));
     process.stdout.write("Opening browser to sign in\\u2026\\nIf the browser didn't open, visit: https://claude.example.test/authorize?code=abc\\nPaste code here if prompted > ");
     if (mode === 'denied') { await sleep(200); process.stdout.write('sign-in declined\\n'); process.exitCode = 1; return; }
     if (mode === 'paste') {
@@ -343,6 +344,36 @@ test('a runtime-owned folder survives timeout and close; closing wins over late 
   } finally { await host.close(); }
 });
 
+test('shell and phone sign-in share a live native holder and release it before phone retry', { timeout: 10_000 }, async () => {
+  const root = scratchDir('remote-shell-holder');
+  const native = fakeClaude(join(root, 'bins'));
+  const pidFile = join(root, 'native.pid');
+  const { cli, host } = kitAndHost(root, { claude: native.bin }, { LOGIN_MODE: 'paste', LOGIN_PID_FILE: pidFile });
+  const added = await cli.add('claude');
+  const { lock, holder } = signInLock(join(added.signIn.completion, '..'));
+  const shell = spawn('/bin/sh', ['-c', added.signIn.shell], { stdio: ['pipe', 'ignore', 'ignore'] });
+  const exited = new Promise<void>(resolve => shell.once('close', () => resolve()));
+  let pid: number | undefined;
+  try {
+    for (let i = 0; !native.calls().some(c => c.argv[1] === 'login') && i < 300; i++) await delay(10);
+    assert.ok(existsSync(holder), 'the shell records the native login holder, so a crash is recoverable');
+    pid = Number(readFileSync(holder, 'utf8'));
+    assert.ok(Number.isSafeInteger(pid) && pid > 0);
+    assert.notEqual(pid, shell.pid, 'the holder is the native CLI, not its shell wrapper');
+    const live = await host.start('claude');
+    assert.equal(live.ok ? 'ok' : live.error, 'busy');
+    process.kill(pid, 'SIGTERM');
+    await exited;
+    assert.equal(existsSync(lock), false);
+    assert.equal(existsSync(holder), false);
+    assert.equal((await host.start('claude')).ok, true);
+  } finally {
+    if (!pid && existsSync(pidFile)) pid = Number(readFileSync(pidFile, 'utf8'));
+    if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+    await exited; await host.close();
+  }
+});
+
 test('a signing row left by a crashed login is retried only once its sign-in lock holder is gone', async () => {
   const root = scratchDir('remote-stale-signing');
   const native = fakeClaude(join(root, 'bins'));
@@ -363,6 +394,7 @@ test('a signing row left by a crashed login is retried only once its sign-in loc
     writeFileSync(holder, String(process.pid));
     assert.equal(await outcome(), 'busy', 'a live holder keeps the row busy');
     rmSync(holder, { force: true }); rmSync(lock, { recursive: true, force: true });
+    mkdirSync(lock);
     writeFileSync(holder, String(spawnSync(process.execPath, ['-e', '']).pid));
     assert.equal(await outcome(), 'ok', 'a dead holder is a crash left behind, so the next start retries');
     assert.equal(await outcome(), 'busy', 'the retried login now holds the lock');

@@ -772,8 +772,9 @@ and credentials are never forwarded, logged, copied or read by the kit. A succes
 again through the engine, then existing `setup.activate { kind: 'claude-cli' }` live-tests and persists the route;
 only successful activation/restart is `done`. Concurrent native logins to one engine are refused as busy. A `signing` row left by an earlier login is reused only when its
 sign-in lock (`signInLock`: the `.byokit-signin-lock` directory the shell command also takes) is free or its holder PID
-(`.byokit-signin-holder`, written only by the remote spawn) is dead, and no in-host session for the provider is still unexited;
-a live, unreadable or missing holder file is busy. The remote spawn holds that lock until its child exits.
+(`.byokit-signin-holder`, written by both the shell and remote spawn with the native child's PID) is dead, and no in-host session for the provider is still unexited;
+a live, unreadable or missing holder file is busy (including a legacy shell's holderless lock; no unproven lock is stolen).
+Both paths hold that lock until the native child exits; a shell wrapper's exit alone is not liveness proof.
 The phone uses the existing link start/view/paste/cancel operations; credentials stay on the engine machine.
 For the native Claude route, a link sign-in view reports `ready: false` while its drive is active or its latest
 attempt failed, even if native credential detection already succeeds; other providers keep their signed-in readiness. The drive's successful live activation, not credential presence,
