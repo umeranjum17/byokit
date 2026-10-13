@@ -1055,7 +1055,7 @@ export class OpenClawKit {
         for (const m of answer.models ?? []) byId.set(m.id, m);
         const models = [...byId.values()];
         if (!isDeepStrictEqual(models, registered)) await this.patchConfig({ models: { providers: { [provider]: { models } } } });
-      }).catch(() => this.o.log?.(`catalog sync ${provider}: failed`));
+      }).catch(() => { if (this.current.phase === 'ready') this.o.log?.(`catalog sync ${provider}: failed`); });
     }
   }
 

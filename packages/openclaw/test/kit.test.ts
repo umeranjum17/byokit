@@ -332,6 +332,26 @@ test('a catalog failure is logged without the key, no key is silent, and signedI
   }
 });
 
+test('a catalog sync that races a gateway restart is not logged; the ready handler re-syncs', async () => {
+  const stateDir = scratchDir('o4-catalog-restart');
+  const fake = fakeGateway();
+  const lines: string[] = [];
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, log: (line) => lines.push(line) });
+  let raced = false;
+  try {
+    await kit.start();
+    fake.handle('byokit.catalog', () => { raced = true; fake.drop('gateway restarting'); throw new Error('transport closed'); });
+    assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-RACE-KEY' }), 'ok');
+    for (let i = 0; i < 100 && !raced; i++) await delay(10);
+    await delay(20);
+    assert.equal(raced, true);
+    assert.deepEqual(lines.filter((line) => line.startsWith('catalog sync')), []);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('ready runs reuse only witnessed, bounded member auth; mutations, expiry and disconnect recheck', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   const stateDir = scratchDir('run-admission');
