@@ -644,7 +644,7 @@ see them with no model setup in the app:
   live list is never dropped). Nothing is written when that equals the
   registered list. The engine hot-reloads `models.*` without a restart, so a live run goes on. A write that lands
   while an activation's auth restart is pending answers `config.patch ... a recovery restart is required` although
-  it persisted; it is logged, and the sync at the next `ready` finds the list unchanged.
+  it persisted; the sync logs the fixed `failed` line (no engine text), and the sync at the next `ready` finds the list unchanged.
 - App config wins: when `KitOptions.config.models.providers[provider].models` is set, the kit never syncs that
   provider.
 - A failure (`reason: 'failed'`) is logged (`catalog sync <provider>: failed`), never thrown; the registered list stays.

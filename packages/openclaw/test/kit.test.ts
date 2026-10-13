@@ -314,6 +314,11 @@ test('a catalog failure is logged without the key, no key is silent, and signedI
     await until(() => catalogLines().length > 0);
     assert.deepEqual(catalogLines(), ['catalog sync opencode-go: failed']);
     assert.equal(lines.join('\n').includes('CANARY-LOG-KEY'), false);
+    fake.handle('byokit.catalog', () => { throw new Error('gateway restarting ENGINE-ECHO-TEXT'); });
+    assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-LOG-KEY' }), 'ok');
+    await until(() => catalogLines().length > 1);
+    assert.deepEqual(catalogLines(), ['catalog sync opencode-go: failed', 'catalog sync opencode-go: failed']);
+    assert.equal(lines.join('\n').includes('ENGINE-ECHO-TEXT'), false);
     fake.handle('byokit.keys', (p) => {
       if (p.action === 'ready') throw Object.assign(new Error('gateway restarting'), { code: 'UNAVAILABLE', retryable: true });
       return { ok: false };

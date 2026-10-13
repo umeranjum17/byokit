@@ -14,7 +14,7 @@ const key = live ? process.env.BYOKIT_GO_KEY ?? '' : 'byokit-go-stand-in-key-557
 delete process.env.BYOKIT_GO_KEY;
 if (!key) { console.error('no value read'); process.exit(1); }
 const say = (...parts) => console.log(parts.join(' ').split(key).join('[key]'));
-say('key:', key.length < 16 ? `(${key.length} chars, too short to mask)` : `${key.slice(0, 4)}...${key.slice(-4)} (${key.length} chars)`);
+say('key:', `(${key.length} chars)`);
 // Live: Muse; offline: the fake's live-only stand-in.
 const MODEL = live ? 'opencode-go/muse-spark-1.3-contributor' : 'opencode-go/fake-live-model';
 
