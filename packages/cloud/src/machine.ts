@@ -673,6 +673,30 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       return saveCopy(r, keep);
     },
 
+    scheduleSnapshots({ everyMs, keep = KEEP, onResult }): { stop(): void } {
+      checkCount('everyMs', everyMs, 1);
+      checkCount('keep', keep, 1);
+      let running = false;
+      const tick = async (): Promise<void> => {
+        if (running) return;
+        running = true;
+        let result: Snapshot | null | Error;
+        try {
+          result = await self.autoSnapshot({ everyMs, keep });
+        } catch (e) {
+          result = e instanceof Error ? e : new Error(String(e));
+        } finally {
+          running = false;
+        }
+        onResult?.(result);
+      };
+      const timer = setInterval(() => {
+        tick().catch(() => {});
+      }, everyMs);
+      (timer as unknown as { unref?: () => void }).unref?.();
+      return { stop: () => clearInterval(timer) };
+    },
+
     async restore(id: string): Promise<void> {
       const r = await need();
       const { restore } = o.provider;

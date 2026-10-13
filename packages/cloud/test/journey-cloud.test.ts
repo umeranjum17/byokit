@@ -14,7 +14,7 @@ import {
   machine, boat, estimate, status, words, stateWords, hostWords, errorWords, keyWords, WORDS, MachineError,
 } from '@byokit/cloud';
 import type {
-  HostRecipe, Status, MachineErrorCode, MachineState, HostState, Price, KeyInfo,
+  HostRecipe, Status, MachineErrorCode, MachineState, HostState, Price, KeyInfo, Snapshot,
 } from '@byokit/cloud';
 import { fakeProvider, memoryStore, startFakeSandboxServer } from '@byokit/cloud/testing';
 
@@ -473,6 +473,7 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
   try {
     const provider = boat({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
     const m = machine({ provider, store: memoryStore() });
+    const listedNames = async (): Promise<string[]> => ((await (await fetch(`${server.url}/named-snapshots`, { headers: { Authorization: 'Bearer test-key' } })).json()) as { snapshots: { name: string }[] }).snapshots.map((s) => s.name);
     const old = await m.create({ name: 'web', size: 'small', keepCopies: true });
     // Another machine on the same account whose name starts with this one's: its copy is never this one's.
     const other = await provider.create!({ name: 'web-two', size: 'small', keepCopies: true, idempotencyKey: 'other-1' });
@@ -521,8 +522,7 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
     assert.ok(kept.every((c, i) => i === 0 || Date.parse(kept[i - 1].at) >= Date.parse(c.at)), 'newest first');
     const latest = await m.snapshot({ keep: 1 });
     assert.deepEqual((await m.snapshots()).map((c) => c.id), [latest.id]);
-    const names = ((await (await fetch(`${server.url}/named-snapshots`, { headers: { Authorization: 'Bearer test-key' } })).json()) as { snapshots: { name: string }[] }).snapshots.map((s) => s.name);
-    assert.deepEqual(names.sort(), [latest.id, 'byokit-web-two-x'].sort());
+    assert.deepEqual((await listedNames()).sort(), [latest.id, 'byokit-web-two-x'].sort());
     await rejects(m.snapshot({ keep: 0 }), 'bad-recipe');
 
     // The app's own timer calls autoSnapshot: nothing while the newest copy is fresh, one when due.
@@ -532,6 +532,38 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
     assert.ok(due !== null && due.id !== latest.id);
     assert.deepEqual((await m.snapshots()).map((c) => c.id), [due.id]);
 
+    // The kit's own timer: each saved copy is reported, a rejected tick is reported as its error, and stop() ends it.
+    assert.throws(() => m.scheduleSnapshots({ everyMs: 0, onResult: () => {} }), { code: 'bad-recipe' });
+    const copy = await new Promise<Snapshot>((resolve, reject) => {
+      const handle = m.scheduleSnapshots({
+        everyMs: 5,
+        keep: 1,
+        onResult: (r) => {
+          if (r === null) return;
+          handle.stop();
+          if (r instanceof Error) reject(r);
+          else resolve(r);
+        },
+      });
+    });
+    const settled = (await m.snapshots()).map((c) => c.id);
+    assert.deepEqual(settled, [copy.id]);
+    await new Promise((r) => setTimeout(r, 40));
+    assert.deepEqual((await m.snapshots()).map((c) => c.id), settled, 'no tick runs after stop()');
+    const plain = machine({ provider: fakeProvider(), store: memoryStore() });
+    await plain.create({ name: 'web', size: 'small', keepCopies: false });
+    const failure = await new Promise<MachineError>((resolve) => {
+      const handle = plain.scheduleSnapshots({
+        everyMs: 5,
+        onResult: (r) => {
+          if (!(r instanceof Error)) return;
+          handle.stop();
+          resolve(r as MachineError);
+        },
+      });
+    });
+    assert.equal(failure.code, 'unsupported');
+
     // Disk space from the machine itself, in plain words; a failed read says so.
     server.machine.script('df', { code: 0, stdout: 'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vda 12582912 3250586 9332326 26% /\n', stderr: '', timedOut: false });
     const disk = await m.disk();
@@ -539,6 +571,25 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
     assert.equal(words('disk.used', { used: String(disk.usedGb), total: String(disk.totalGb) }), '3.1 GB of 12 GB used on your cloud computer.');
     server.machine.script('df', { code: 1, stdout: '', stderr: 'df: /: No such file', timedOut: false });
     await rejects(m.disk(), 'provider');
+
+    // A replacement that never comes on is deleted, and the store keeps the machine the person had.
+    const oldRef = m.ref;
+    assert.ok(oldRef !== null);
+    server.nextCreateState('error');
+    const beforeFailure = server.requests.length;
+    const [latestCopy] = await m.snapshots();
+    await rejects(m.restore(latestCopy.id), 'provider');
+    assert.equal(m.ref?.id, oldRef.id, 'the store still points at the old machine');
+    assert.equal(await provider.status(oldRef), 'asleep', 'the old machine is not deleted');
+    const deleted = server.requests.slice(beforeFailure).filter((r) => r.method === 'DELETE' && r.path.startsWith('/sandboxes/')).map((r) => r.path.slice('/sandboxes/'.length));
+    assert.equal(deleted.length, 1, 'only the replacement is deleted');
+    assert.notEqual(deleted[0], oldRef.id);
+    assert.equal(server.getState(deleted[0]), null, 'the replacement is gone');
+
+    // Removing this machine deletes its own copies and keeps another machine's copy whose name starts with its name.
+    assert.ok((await m.snapshots()).length > 0);
+    await m.remove(oldRef.id);
+    assert.deepEqual(await listedNames(), ['byokit-web-two-x']);
   } finally {
     await server.close();
   }

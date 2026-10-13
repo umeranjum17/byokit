@@ -6,6 +6,7 @@ A person's cloud computer keeps saved copies of itself. The app lists them, save
 
 - `snapshot-save-prune`: `snapshot()` returns a `byokit-<name>-<12 base36>` copy; past `keep` (default 3) the oldest of this machine's copies are deleted, and only after the new copy is listed ready. Another machine's copy is never listed or deleted.
 - `snapshot-auto`: `autoSnapshot({ everyMs })` resolves `null` while the newest copy is fresh and saves one when it is due.
+- `snapshot-schedule`: `scheduleSnapshots({ everyMs, onResult })` reports each tick's copy, `null` or error, and `stop()` ends the timer.
 - `snapshot-restore`: `restore(id)` brings back the files as they were in the copy, as a new machine (new id, same name) that is on; the old machine is gone. A missing copy rejects `no-snapshot` with `error.noSnapshot` words; `words('snapshot.restore', { date })` says what a reset loses.
 - `disk`: `disk()` resolves `{ usedGb, totalGb }` from `df` on the machine.
 

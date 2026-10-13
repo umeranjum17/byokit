@@ -48,7 +48,6 @@ const WAKE_TIMEOUT_MS = 5 * 60 * 1000;
 const OPERATION_TIMEOUT_MS = 5 * 60 * 1000;
 const NON_DETACHED_LIMIT_MS = 590_000;
 const STREAM_CAP = 8 * 1024 * 1024;
-const GIB = 1024 ** 3;
 const ERROR_BODY_CAP = 200;
 
 const randomBase36 = (n: number): string => {
@@ -497,7 +496,6 @@ export function boat(o: {
     },
 
     remove: async (m: MachineRef, confirm: string) => {
-      const prefix = `byokit-${m.name}-`;
       await deleteSandbox(m, confirm);
       // Named snapshots survive a sandbox delete; without this step the sign-ins inside
       // them outlive it. A 404 on the sandbox still runs this step (6.1).
@@ -508,7 +506,7 @@ export function boat(o: {
           const snapName = typeof snap === 'object' && snap !== null
             ? (snap as Record<string, unknown>)['name']
             : undefined;
-          if (typeof snapName === 'string' && snapName.startsWith(prefix)) {
+          if (typeof snapName === 'string' && ownCopy(m, snapName)) {
             const deleted = await send('DELETE', `/named-snapshots/${encodeURIComponent(snapName)}`);
             if (deleted.status !== 404) {
               const body = await read(deleted);
@@ -526,9 +524,8 @@ export function boat(o: {
       for (const snap of Array.isArray(listed) ? listed : []) {
         const name = field(snap, 'name');
         const at = field(snap, 'createdAt');
-        const size = field(snap, 'sizeBytes');
         if (typeof name !== 'string' || !ownCopy(m, name) || field(snap, 'status') !== 'ready' || typeof at !== 'string') continue;
-        copies.push({ id: name, at, sizeGb: typeof size === 'number' ? Math.round((size / GIB) * 10) / 10 : null });
+        copies.push({ id: name, at });
       }
       return copies;
     },
@@ -549,8 +546,14 @@ export function boat(o: {
       // No `noEnv` and no `type`: both inherit from the kit's no-env source (6.3).
       const nextId = await createSandbox({ from: id, snapshots: m.keepCopies }, idempotencyKey);
       const next: MachineRef = { provider: 'sandbox-api', account: acct, id: nextId, name: m.name, keepCopies: m.keepCopies };
-      await untilOn(next, 'start');
-      await replaced(next);
+      // A replacement that never comes on, or is not saved, is deleted so no unreferenced machine keeps billing.
+      try {
+        await untilOn(next, 'start');
+        await replaced(next);
+      } catch (e) {
+        await deleteSandbox(next, next.id).catch(() => {});
+        throw e;
+      }
       await deleteSandbox(m, m.id);
       return next;
     },

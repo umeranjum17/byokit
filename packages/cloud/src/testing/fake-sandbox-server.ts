@@ -17,7 +17,7 @@
 //   POST /sandboxes/{id}/fork { ttlSeconds } + Idempotency-Key -> { ok, type, id, status, sandbox: { id, state } }
 //   DELETE /sandboxes/{id} + X-Ascii-Confirm-Delete: <id> -> { ok, type, operation: { id, status } }
 //   GET /deletion-operations/{op} -> { ok, type, operation: { id, status } }
-//   GET /named-snapshots -> { ok, type, snapshots: [{ name, status, createdAt, sizeBytes }] }
+//   GET /named-snapshots -> { ok, type, snapshots: [{ name, status, createdAt }] }
 //   DELETE /named-snapshots/{name} -> { ok, type, name, status }
 //   POST /sandboxes/{id}/commands { command, timeoutSeconds, detached } -> { ok, type, exitCode, stdout, stderr, timedOut } | { ok, type, processId, pid, ... }
 //   GET /sandboxes/{id}/commands/{processId} -> { ok, type, processId, running, status, exitCode, stdout, stderr }
@@ -72,6 +72,8 @@ export type SandboxServer = {
   failNext(failures: readonly { status: number; body?: unknown }[]): void;
   /** Make the next detached command's status read report a lost command. */
   loseNextCommand(): void;
+  /** Give the next created sandbox this raw state (6.2), so a machine that never comes on can be simulated. */
+  nextCreateState(raw: string): void;
   close(): Promise<void>;
 };
 
@@ -110,6 +112,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
   let slowWakeReads = o.slowWakeReads ?? 0;
   let drop = 0;
   let loseCommand = false;
+  let nextCreateRaw: string | null = null;
   const failures: { status: number; body?: unknown }[] = [];
 
   const send = (res: http.ServerResponse, status: number, body: unknown): void => {
@@ -221,7 +224,8 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
         const saved = from === null ? undefined : snapshots.get(from);
         if (saved !== undefined) machine.files = new Map([...saved.files].map(([k, f]) => [k, { ...f, bytes: f.bytes.slice() }]));
         const slow = o.slowCreateReads ?? 0;
-        const sb: Sandbox = { id, raw: slow > 0 ? 'provisioning' : 'ready', wakeReads: slow, commands: new Map() };
+        const sb: Sandbox = { id, raw: nextCreateRaw ?? (slow > 0 ? 'provisioning' : 'ready'), wakeReads: slow, commands: new Map() };
+        nextCreateRaw = null;
         sandboxes.set(id, sb);
         if (idemKey !== '') createdByKey.set(idemKey, id);
         return send(res, 202, { ok: true, type: 'sandbox.created', status: 'provisioning', ttlSeconds: b['ttlSeconds'] ?? null, sandbox: sandboxBody(sb, 'Sandbox') });
@@ -359,7 +363,6 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
       if (route === 'GET /named-snapshots') {
         const listed = [...snapshots].map(([name, snap]) => ({
           name, status: 'ready', sourceSandboxId: snap.sandboxId, createdAt: snap.createdAt,
-          sizeBytes: [...snap.files.values()].reduce((n, f) => n + f.bytes.length, 0),
         }));
         // The public list is newest first.
         return send(res, 200, { ok: true, type: 'snapshot.named.list', snapshots: listed.reverse() });
@@ -426,6 +429,9 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
     },
     loseNextCommand: () => {
       loseCommand = true;
+    },
+    nextCreateState: (raw) => {
+      nextCreateRaw = raw;
     },
     close: () => new Promise<void>((resolve, reject) => {
       server.close((e) => (e !== undefined ? reject(e) : resolve()));

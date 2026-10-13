@@ -75,7 +75,7 @@ export type HostRecipe = {
   user?: string                                          // G7: run as this no-sudo user, created by the kit, home inside the machine user's home
 }
 
-export type Snapshot = { id: string; at: string; sizeGb: number | null }   // K3: a copy the kit saved of this machine; `at` is ISO
+export type Snapshot = { id: string; at: string }   // K3: a copy the kit saved of this machine; `at` is ISO
 export type Disk = { usedGb: number; totalGb: number }                     // K3: the root file system, GiB to one decimal
 
 export type AsleepWhy = 'you' | 'out-of-credit' | 'trial-limit' | 'provider' | 'idle'      // G3
@@ -104,6 +104,7 @@ export interface Machine {
   snapshots(): Promise<Snapshot[]>                       // K3 (5.10): newest first
   snapshot(o?: { keep?: number }): Promise<Snapshot>     // K3: keep defaults to 3
   autoSnapshot(o: { everyMs: number; keep?: number }): Promise<Snapshot | null>  // K3: null while the newest copy is younger than everyMs
+  scheduleSnapshots(o: { everyMs: number; keep?: number; onResult?(result: Snapshot | null | Error): void }): { stop(): void }  // K3: the kit's timer runs autoSnapshot while the app runs
   restore(id: string): Promise<void>                     // K3: "Reset Computer"
   disk(): Promise<Disk>                                  // K3
 }

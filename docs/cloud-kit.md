@@ -316,7 +316,7 @@ is optional or new, so nothing in 4.1 or 4.3 changes meaning; they are frozen wi
 
 ```ts
 // types.ts
-export type Snapshot = { id: string; at: string; sizeGb: number | null }   // a copy the kit saved of this machine; `at` is ISO
+export type Snapshot = { id: string; at: string }                          // a copy the kit saved of this machine; `at` is ISO
 export type Disk = { usedGb: number; totalGb: number }                     // the root file system, GiB to one decimal
 export interface Provider { /* 4.1 and 4.3 members */
   snapshots?(m: MachineRef): Promise<Snapshot[]>                          // the kit's ready copies of this machine only
@@ -327,6 +327,7 @@ export interface Machine { /* 4.1 and 4.3 members */
   snapshots(): Promise<Snapshot[]>                                        // newest first
   snapshot(o?: { keep?: number }): Promise<Snapshot>                      // keep defaults to 3
   autoSnapshot(o: { everyMs: number; keep?: number }): Promise<Snapshot | null>  // null while the newest copy is younger than everyMs
+  scheduleSnapshots(o: { everyMs: number; keep?: number; onResult?(result: Snapshot | null | Error): void }): { stop(): void }
   restore(id: string): Promise<void>                                      // "Reset Computer"
   disk(): Promise<Disk>
 }
@@ -450,7 +451,7 @@ Boat's `create` resolves before the machine is on, so an app polls `status` unti
 
 ### 5.10 Snapshots, reset and disk (K3)
 
-Checks run in 5.1 order; every method needs a ref. `snapshots`, `snapshot` and `autoSnapshot` reject `unsupported`
+Checks run in 5.1 order; every method needs a ref. `snapshots`, `snapshot`, `autoSnapshot` and `scheduleSnapshots` reject `unsupported`
 when the provider lacks `snapshot`, `snapshots` or `deleteSnapshot`, and `restore` when it lacks `snapshots` or
 `restore`. `snapshot`, `autoSnapshot` and `restore` also reject `unsupported` when `ref.keepCopies` is false: the
 provider keeps no copy of such a machine. The SSH VM has none of these members. A VM provider's server snapshots
@@ -463,11 +464,16 @@ land with that provider's adapter, behind the same members (follow-up).
   Pruning touches only what `provider.snapshots` lists, the kit's own copies of this machine (6.1 names them), so a
   copy the kit did not make is never deleted. Resolves the new copy.
 - `autoSnapshot({ everyMs, keep = 3 })`: `everyMs` is a positive integer, else `bad-recipe`. Resolves `null` while
-  the newest copy is younger than `everyMs`; otherwise `snapshot({ keep })`. **Scheduler: the app's call.** The app
-  calls it when it opens and on its own timer while open, from a device that holds the provider key; a call before
-  it is due costs one list request. The kit adds no hosted scheduler, and nothing runs on the machine: a timer there
-  would need a provider key on the machine, inside the very copies it makes (M7's scoped keys are not built). A
-  machine nobody opens gets no new copies and keeps its last ones.
+  the newest copy is younger than `everyMs`; otherwise `snapshot({ keep })`. A call before it is due costs one list
+  request.
+- `scheduleSnapshots({ everyMs, keep = 3, onResult })`: `everyMs` and `keep` are checked as `autoSnapshot` checks
+  them (`bad-recipe` synchronously). It runs `autoSnapshot({ everyMs, keep })` from the app's own process every
+  `everyMs` and returns `{ stop() }`. Ticks never overlap: a tick starts only after the previous one settles. Each
+  tick's outcome goes to `onResult`: the saved copy, `null` while the newest is fresh, or the `Error` it rejected
+  with. The timer never throws or rejects out of itself, and it is unref'd where the platform has `unref`. **Still
+  no hosted scheduler:** the kit runs only while the app runs, nothing runs on the machine (a timer there would need
+  a provider key on the machine, inside the very copies it makes; M7's scoped keys are not built), and a machine
+  nobody opens gets no new copies and keeps its last ones.
 - `restore(id)`: `id` must be one of `snapshots()`, else reject `no-snapshot`. The kit asks no question: the app
   confirms first, showing `snapshot.restore` with the copy's date, which says that everything changed since then is
   lost. Then `provider.restore(ref, id, { idempotencyKey, replaced })` with a new `byokit-<name>-<16 base36>` key,
@@ -500,8 +506,8 @@ land with that provider's adapter, behind the same members (follow-up).
 | `sleep` | `POST /sandboxes/{id}/stop` | The provider takes a final snapshot; if that fails the stop aborts and the machine keeps running, which the kit reports as the `provider` error it returns. The stop is asynchronous, so it then polls `status` every 2 s until `asleep` or `gone` (`failed` rejects `provider`), or 5 minutes (reject `timeout`). |
 | `snapshot` | `POST /named-snapshots` `{sandboxId, name}`, then poll `GET /named-snapshots/{name}` every 2 s until `snapshot.status` is `ready` (`failed` rejects `provider`), or 5 minutes (reject `timeout`) | The kit names copies `byokit-<ref.name>-<name>`. At most 10 exist per account; an 11th rejects `provider`. |
 | `fork` | `POST /sandboxes/{id}/fork` `{ttlSeconds: null}` + `Idempotency-Key` | The public `sandbox.forking` response carries the new id at the top level. A fork does not inherit the source's TTL: without `ttlSeconds: null` it stops after 1 h. A fork of a no-env source is always no-env, so no `noEnv` field. |
-| `remove` | `DELETE /sandboxes/{id}` + header `X-Ascii-Confirm-Delete: <id>`; poll `GET /deletion-operations/{op}` every 2 s until `operation.status` is `completed` or `blocked`, or 5 minutes (reject `timeout`); then `GET /named-snapshots` and `DELETE /named-snapshots/{name}` for every name starting `byokit-<ref.name>-` | Named snapshots survive a sandbox delete; without the second step the sign-ins inside them outlive it. A 404 on the sandbox counts as already deleted and the snapshot step still runs. `blocked` is terminal for the adapter: the operation is accepted and the sandbox is gone from every list, while a blocked stage can persist by design. |
-| `snapshots` (K3) | `GET /named-snapshots` | Keeps the entries with `status: 'ready'` whose name is `byokit-<ref.name>-` followed by `[a-z0-9]+` with no further dash, so a machine never lists another machine's copies when one name starts with the other (`web` never lists `web-two`'s). `id` is the name, `at` is `createdAt`, `sizeGb` is `sizeBytes` in GiB to one decimal, or `null`. |
+| `remove` | `DELETE /sandboxes/{id}` + header `X-Ascii-Confirm-Delete: <id>`; poll `GET /deletion-operations/{op}` every 2 s until `operation.status` is `completed` or `blocked`, or 5 minutes (reject `timeout`); then `GET /named-snapshots` and `DELETE /named-snapshots/{name}` for every name the `snapshots` rule keeps for this machine (`byokit-<ref.name>-` plus one dashless word, so `web` never deletes `web-two`'s copies) | Named snapshots survive a sandbox delete; without the second step the sign-ins inside them outlive it. A 404 on the sandbox counts as already deleted and the snapshot step still runs. `blocked` is terminal for the adapter: the operation is accepted and the sandbox is gone from every list, while a blocked stage can persist by design. |
+| `snapshots` (K3) | `GET /named-snapshots` | Keeps the entries with `status: 'ready'` whose name is `byokit-<ref.name>-` followed by `[a-z0-9]+` with no further dash, so a machine never lists another machine's copies when one name starts with the other (`web` never lists `web-two`'s). `id` is the name and `at` is `createdAt`. |
 | `deleteSnapshot` (K3) | `DELETE /named-snapshots/{id}` | An id that fails the `snapshots` name rule rejects `no-snapshot` before any request; a 404 counts as deleted. |
 | `restore` (K3) | stop the old machine as `sleep` does unless it is already `asleep`; `POST /sandboxes` `{from: id, ttlSeconds: null, snapshots: ref.keepCopies}` + `Idempotency-Key`; poll `status` until `on` as `wake` does; `replaced(next)`; then `DELETE /sandboxes/{old id}` and its deletion poll as `remove` does, **without** the named-snapshot step | Boat has no in-place restore (a resume always uses the latest capture), so a restore is a new machine made from the named snapshot, and the copies stay with the machine's name. The body has no `noEnv` and no `type`: both inherit from the snapshot's source, which the kit created no-env, and an explicit `noEnv` could scrub sign-ins as a resume conversion does (6.3). Stopping first means the old and new machines never run at once, and the old one is still there, asleep, if the new one fails to start. Trial retry as `create`. |
 | `exec` | `POST /sandboxes/{id}/commands` `{command, timeoutSeconds, detached}`, and for a detached command poll `GET /sandboxes/{id}/commands/{processId}` every 1 s until `running` is false; a non-detached POST's `command.finished` response carries `stdout`, `stderr` and `exitCode` | 6.4. |
@@ -1263,7 +1269,7 @@ the `installs` switch on the sandbox bench.
   - `write` outside `/home/user/` and `/tmp/` rejects before any request.
   - `create` retries with the same `Idempotency-Key` after a dropped connection.
   - `remove` sends the delete-confirmation header with the id, polls the deletion, then deletes every
-    `byokit-<name>-` named snapshot and no other.
+    saved copy of this machine (the `snapshots` rule) and no other.
   - 401 → `unauthorized`; 429 and 5xx retry three times; the key never appears in any error message.
   - `usage` maps to `Usage`; a zero balance rejects `balance`; with no current-key route in the API document, `key` is
     absent from the adapter.
