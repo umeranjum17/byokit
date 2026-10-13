@@ -3,10 +3,11 @@ import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { boat } from '../../packages/cloud/src/boat.ts';
 import { sshVm, sshHostKey, type SshVmOptions } from '../../packages/cloud/src/ssh.ts';
+import { joinTailnet } from '../../packages/cloud/src/tailnet.ts';
 import { memoryStore } from '../../packages/cloud/src/testing/fake-provider.ts';
 import type { HostRecipe, MachineRef, Price, Provider } from '../../packages/cloud/src/types.ts';
 import type { AppRecipe } from './recipes.ts';
-import { runProof, type ProofHooks, type ProofTarget, type Report, type Session, type Timing } from './proof.ts';
+import { runProof, tailnetRoute, type ProofHooks, type ProofTarget, type Report, type Session, type Timing } from './proof.ts';
 
 export type LiveConfig = {
   providerUrl: string; providerLabel: string; apiKeyFile: string; prices: readonly Price[];
@@ -111,6 +112,11 @@ export async function liveRun(config: LiveConfig, record: (r: Report) => Promise
           appCreateStarted = undefined;
         }
         await config.prepare(s);
+        if (provider.id !== 'sandbox-api') return null;
+        const joined = await joinTailnet(provider, s.ref, { hostname: s.app.host.name }, step => {
+          if (step.step === 'open-page') console.error(`Sign in ${s.app.host.name} on your phone: ${step.url}`);
+        });
+        return tailnetRoute(joined.name, s.app.exposure.port);
       },
       onInstall: seconds => at(provider.id, 'install', seconds),
       contractRecipe: name => ({ ...fixture, name }),

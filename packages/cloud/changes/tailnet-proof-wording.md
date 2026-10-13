@@ -1,0 +1,2 @@
+- Show the existing joining word during cloud setup; enforce demo approval-copy coverage in CI and distinguish startup, approval, shown-link and generic deadlines with fake-clock SDK journeys.
+- Cloud lab closed-port observations accept an explicit refusal or silent drop, preserving distinct details and rejecting successful connections; actual provider/phone qualification remains separate.

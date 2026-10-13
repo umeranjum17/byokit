@@ -1,4 +1,7 @@
 import { test } from 'node:test';
+import { createServer } from 'node:http';
+import { WebSocketServer } from 'ws';
+import { Socket, type AddressInfo } from 'node:net';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { writeFile, readFile, mkdtemp, rm } from 'node:fs/promises';
@@ -47,6 +50,71 @@ for (const id of ['sandbox-api', 'ssh-vm'] as const) {
   }
 }
 
+test('raw-port probe accepts refusal or a timeout and rejects a connection (loopback/forced-timer controls, not live provider proof)', async t => {
+  const listener = createServer((_q, r) => r.end('Umer lab listener'));
+  await new Promise<void>(resolve => listener.listen(0, '127.0.0.1', resolve));
+  const open = (listener.address() as AddressInfo).port;
+  const closedServer = createServer();
+  await new Promise<void>(resolve => closedServer.listen(0, '127.0.0.1', resolve));
+  const closed = (closedServer.address() as AddressInfo).port;
+  await new Promise<void>((resolve, reject) => closedServer.close(e => e ? reject(e) : resolve()));
+  const provider = fakeProvider();
+  const ref = await provider.create!({ name: 'web', size: 'small', keepCopies: false, idempotencyKey: 'private-port' });
+  const probeAt = (port: number) => {
+    const app = { ...studioRecipe(inputs), exposure: { ...studioRecipe(inputs).exposure, port } };
+    return probes({ apiRoot: 'https://boat.test', key: async () => 'test-key', vmRelayUrl: 'https://boat.test',
+      publicAddress: async () => '127.0.0.1', ask: async () => '', commands: {} }).observe('raw-port', { provider, ref, app, url: null });
+  };
+  try {
+    assert.equal(await (await fetch(`http://127.0.0.1:${open}`)).text(), 'Umer lab listener');
+    provider.fake.machine.script('curl', { code: 0, stdout: 'Umer lab listener', stderr: '', timedOut: false });
+    const refused = await probeAt(closed);
+    assert.equal(refused.status, 'pass');
+    assert.match(refused.detail, /refused \(ECONNREFUSED\)/);
+    const exposed = await probeAt(open);
+    assert.equal(exposed.status, 'fail');
+    assert.match(exposed.detail, /accepted/);
+    // Force only this probe's owned socket deadline; do not change host networking or claim a provider drop.
+    const deadline = t.mock.method(Socket.prototype, 'setTimeout', function (this: Socket, ms: number, callback?: () => void) {
+      assert.equal(ms, 10_000);
+      queueMicrotask(() => callback?.call(this));
+      return this;
+    });
+    try {
+      const dropped = await probeAt(open);
+      assert.equal(dropped.status, 'pass');
+      assert.match(dropped.detail, /dropped \(timeout\)/);
+    } finally { deadline.mock.restore(); }
+    provider.fake.machine.script('curl', { code: 7, stdout: '', stderr: 'no listener', timedOut: false });
+    await assert.rejects(probeAt(closed), /listener must answer locally/);
+  } finally {
+    listener.closeAllConnections();
+    await new Promise<void>((resolve, reject) => listener.close(e => e ? reject(e) : resolve()));
+  }
+});
+
+test('websocket probe dials the private tailnet route on the app port over plain ws (checks the probe; the live proof checks the tailnet)', async () => {
+  const http = createServer();
+  const wss = new WebSocketServer({ server: http, path: '/relay/v1/host' });
+  const paths: string[] = [];
+  wss.on('connection', (_socket, request) => { paths.push(request.url ?? ''); });
+  await new Promise<void>(resolve => http.listen(0, '127.0.0.1', resolve));
+  const port = (http.address() as AddressInfo).port;
+  const provider = fakeProvider();
+  const ref = await provider.create!({ name: 'web', size: 'small', keepCopies: false, idempotencyKey: 'ws-route' });
+  const app = { ...studioRecipe(inputs), exposure: { ...studioRecipe(inputs).exposure, port } };
+  const hooks = probes({ apiRoot: 'https://boat.test', key: async () => 'test-key', vmRelayUrl: 'https://boat.test',
+    publicAddress: async () => '127.0.0.1', ask: async () => '', commands: {} });
+  try {
+    const result = await hooks.observe('websocket', { provider, ref, app, url: `http://127.0.0.1:${port}` });
+    assert.equal(result.status, 'pass');
+    assert.deepEqual(paths, ['/relay/v1/host']);
+  } finally {
+    wss.close();
+    await new Promise<void>((resolve, reject) => http.close(e => e ? reject(e) : resolve()));
+  }
+});
+
 test('two-process wrapper forwards termination and exits when a child fails', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'm6-wrapper-'));
   const stopped = join(dir, 'stopped');
@@ -70,7 +138,7 @@ test('installation failure records missing checks and never qualifies a real rep
   provider.fake.machine.sudo = false;
   const app = crewhouseRecipe(inputs);
   const target = {
-    provider, app, prepare: async () => {}, contractRecipe: () => app.host,
+    provider, app, prepare: async () => null, contractRecipe: () => app.host,
     bench: async () => { throw new Error('fixture deliberately unavailable'); }, cleanupContract: async () => {},
   };
   const report = await runProof({ targets: [target], mode: 'live', record: async () => {}, hooks: {

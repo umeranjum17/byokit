@@ -42,7 +42,7 @@ inside the host process; `./testing` is Node only (the fake provider and the con
 frozen types, words, pure parts (`renderUnit`, recipe checks, node argv, cost), `machine()`
 for §5.1–5.5 and §5.7 plus install and supervise (§8: `install`, `update`, `host`,
 `logs`, `deliver`), `status()` (§5.9), the fake provider and the contract suite, the Boat adapter
-(M4), and the SSH VM adapter (M2). Idle sleep and wake-on-open land in M7 (manual `sleep()` and
+(M4), the keyless Boat tailnet join (§9.1), and the SSH VM adapter (M2). Idle sleep and wake-on-open land in M7 (manual `sleep()` and
 `wake()` are already here), account link in M8.
 The package stays private until the recorded real-provider run (M6).
 
@@ -66,7 +66,7 @@ import { words, type Machine } from '@byokit/cloud';
 export async function reset(m: Machine, confirm: (s: string) => Promise<boolean>) {
   const [last] = await m.snapshots();
   if (last === undefined || !(await confirm(words('snapshot.restore', { date: last.at.slice(0, 10) })))) return null;
-  return m.restore(last.id); // the app then calls url(port) again: the machine is new
+  return m.restore(last.id); // the machine is new: the app checks tailnet() before it dials it
 }
 ```
 
@@ -92,6 +92,25 @@ export function connect(options: Parameters<typeof boat>[0], store: MachineStore
 The stored provider id stays `sandbox-api`, so existing machine records continue to
 work. Credentials, cost rules and the M6 spending and publication gates are
 unchanged ([provider contract](../../docs/cloud-kit.md#6-boat-adapter-srcboatts)).
+
+## Your own tailnet
+
+`await m.joinTailnet({ hostname: 'umer-cloud' }, showStep)` installs the pinned, SHA256-checked Tailscale release as root and starts it.
+`showStep` receives `open-page` with the sign-in link (approve it on your phone), or `approve` when the
+tailnet must approve the machine (with or without a sign-in link), then `joined` with the MagicDNS name. `await m.tailnet()` reads `joined`, `needs-login`, `needs-approval`, `starting` or `off` without joining.
+This slice supports keyless Boat joins only. Passing `authKey` is a typed `unsupported` refusal:
+Boat's emulated stdin writes a temporary file, which must never carry a join key.
+
+When there is no TUN device, the daemon uses userspace networking. The app binds its host to
+loopback and its root recipe configures `tailscale serve --bg --tcp=<port> tcp://127.0.0.1:<port>`;
+joining alone does not expose a service. Advertise the tailnet name, never a provider URL.
+Tailscale state stays under `/etc/tailscale` across Boat wakes and is included in disk copies, so a copy currently carries the source's node identity. Clearing it before a copy's first start is planned follow-up ([copy policy](../../docs/cloud-kit.md#91-join-and-status)).
+The phone must be on the same tailnet; encrypted pairing is still required.
+
+**SECURITY: No public app port is opened by default.** Create, install, host and join never call
+`url()` or `/host`. Explicit `m.url(port)` makes that port public, including opening the provider
+firewall. Do not reuse a previously exposed sandbox as a fresh private-only machine: the public
+API has no unhost route. Private tailnet reachability and public-port refusal still need live proof.
 
 ## Connect an existing Boat computer
 
@@ -136,7 +155,8 @@ export async function connect(
 ## Recipes
 
 The app supplies its host program and installer as a `HostRecipe`, and the kit writes
-and owns exactly one systemd unit per app (`byokit-<name>.service`, `Restart=always`):
+and owns exactly one systemd unit per app (`byokit-<name>.service`, `Restart=always`). Joining a
+tailnet adds the machine's own `tailscaled` unit, which is not an app unit:
 a system unit on Boat (only the home and `/etc` survive sleep), a user unit
 plus `loginctl enable-linger` on an SSH VM (so the kit needs no root there unless the
 recipe asks for it), and a system unit with `User=` when the recipe sets `user`.

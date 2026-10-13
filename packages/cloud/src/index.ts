@@ -20,5 +20,5 @@ export { words, stateWords, hostWords, keyWords, errorWords, errorKey, WORDS } f
 export type { WordKey } from './words.ts';
 export type {
   AsleepWhy, Cost, Disk, ExecResult, HostRecipe, HostState, KeyInfo, Machine, MachineRecord, MachineRef,
-  MachineState, MachineStore, Plan, Price, Provider, Size, Snapshot, Usage,
+  MachineState, MachineStore, Plan, Price, Provider, Size, Snapshot, Tailnet, TailnetStep, Usage,
 } from './types.ts';

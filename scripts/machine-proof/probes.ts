@@ -1,7 +1,6 @@
 // Measured probes plus explicit operator observations for phone/account interactions.
-import { machine } from '../../packages/cloud/src/machine.ts';
-import { memoryStore } from '../../packages/cloud/src/testing/fake-provider.ts';
 import assert from 'node:assert/strict';
+import { createConnection, isIP } from 'node:net';
 import WebSocket from 'ws';
 import type { Check, Observation, ProofHooks, Session } from './proof.ts';
 
@@ -29,9 +28,10 @@ async function socket(url: string): Promise<void> {
   });
 }
 function relayUrl(s: Session, options: ProbeOptions): URL {
+  assert.ok(s.url !== null || s.provider.id === 'ssh-vm', 'sandbox probes need the private tailnet route from prepare');
   const url = new URL(s.url ?? options.vmRelayUrl);
   assert.ok(!url.username && !url.password && !url.search && !url.hash, 'relay URL must not carry a credential');
-  assert.ok(url.protocol === 'https:' || url.protocol === 'wss:', 'live relay requires TLS');
+  assert.equal(url.protocol, s.url === null ? 'https:' : 'http:', 'the VM relay requires TLS; the tailnet route is plain HTTP inside WireGuard');
   return url;
 }
 async function observation(s: Session, argv: readonly string[]): Promise<Observation> {
@@ -48,7 +48,7 @@ export function probes(o: ProbeOptions): ProofHooks {
     observe: async (check, s) => {
       if (o.commands[check]) return observation(s, o.commands[check]!);
       if (['websocket', 'relay-resume', 'route-rehost'].includes(check)) {
-        const url = relayUrl(s, o); url.protocol = 'wss:'; url.pathname = '/relay/v1/host';
+        const url = relayUrl(s, o); url.protocol = url.protocol === 'http:' ? 'ws:' : 'wss:'; url.pathname = '/relay/v1/host';
         await socket(url.href);
         return { status: 'pass', detail: 'relay WebSocket upgraded through the configured TLS ingress' };
       }
@@ -59,10 +59,19 @@ export function probes(o: ProbeOptions): ProofHooks {
       }
       if (check === 'raw-port') {
         const address = await o.publicAddress(s);
-        const url = new URL(`http://${address.includes(':') ? `[${address}]` : address}:${s.app.exposure.port}/health`);
-        let reachable = false;
-        try { await fetch(url, { signal: AbortSignal.timeout(10_000) }); reachable = true; } catch { /* unreachable is the measurement */ }
-        return { status: 'observed', detail: `raw public relay port reachable without proxy: ${reachable}; trustProxy remains off` };
+        assert.ok(isIP(address), 'provider public address must be an IP');
+        const local = await s.provider.exec(s.ref, s.app.health, timed);
+        assert.ok(local.code === 0 && !local.timedOut, 'the app listener must answer locally before probing outside');
+        const result = await new Promise<string>(resolve => {
+          const client = createConnection({ host: address, port: s.app.exposure.port });
+          const finish = (value: string) => { client.destroy(); resolve(value); };
+          client.setTimeout(10_000, () => finish('timeout'));
+          client.once('connect', () => finish('accepted'));
+          client.once('error', (e: NodeJS.ErrnoException) => finish(e.code ?? 'unknown'));
+        });
+        const refused = result === 'ECONNREFUSED', dropped = result === 'timeout' || result === 'ETIMEDOUT';
+        return { status: refused || dropped ? 'pass' : result === 'accepted' ? 'fail' : 'unavailable',
+          detail: `public app port: ${refused ? 'refused' : dropped ? 'dropped' : result} (${result}); local listener answered` };
       }
       if (['phone-pairing', 'device-code', 'signin-resume', 'claimed-key'].includes(check)) {
         const prompts: Partial<Record<Check, string>> = {
@@ -88,21 +97,7 @@ export function probes(o: ProbeOptions): ProofHooks {
         return { status: check === 'disk-12gb' ? enough ? 'pass' : 'fail' : 'observed', detail: `disk total=${total} used=${used} free=${free} bytes; unit peak=${peak} bytes; recommended size=${enough ? 'small' : 'default'}` };
       }
       if (check === 'forwarded-for') {
-        if (!s.provider.url) return { status: 'unavailable', detail: 'VM has no provider proxy; supply its own ingress observation' };
-        const source = "import{createServer}from'node:http';createServer((q,r)=>r.end(JSON.stringify({xff:q.headers['x-forwarded-for']??null}))).listen(7321,'0.0.0.0')";
-        const recipe = { ...s.app.host, name: 'm6-http', installRoot: [], install: [['node', '-e', `require('node:fs').writeFileSync('.m6-http.mjs',${JSON.stringify(source)})`]], run: { argv: ['node', `${s.app.host.workDir}/.m6-http.mjs`], env: {} } };
-        const m = machine({ provider: s.provider, store: memoryStore({ ref: { ...s.ref, name: recipe.name }, providerKey: '' }) });
-        try {
-          await m.install(recipe);
-          const url = await m.url(7321);
-          assert.ok(url);
-          const response = await fetch(url, { headers: { 'X-Forwarded-For': '198.51.100.42' }, signal: AbortSignal.timeout(15_000) });
-          assert.ok(response.ok);
-          const data = await response.json() as { xff: string | null };
-          return { status: 'observed', detail: `proxy removed forged X-Forwarded-For: ${data.xff === null || !data.xff.includes('198.51.100.42')}; trustProxy remains off` };
-        } finally {
-          await s.provider.exec(s.ref, ['systemctl', 'disable', '--now', 'byokit-m6-http.service'], { ...timed, root: true });
-        }
+        return { status: 'unavailable', detail: 'Private tailnet bootstrap has no provider HTTP proxy; no app port is exposed.' };
       }
       if (check === 'trial-cap') {
         if (s.provider.id === 'ssh-vm') return { status: 'unavailable', detail: 'SSH VM has no trial TTL API' };
