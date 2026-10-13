@@ -791,7 +791,7 @@ original's (the relay closes one as `replaced`) and scheduled work runs twice.
 ## 9. Reach from phone and web
 
 The person's own tailnet replaces the provider-proxy/own-relay route. No public app port is opened by default.
-A new Boat sandbox has closed app ingress; create/install/host/join never call `/host`. The explicit `url(port)`
+A new Boat sandbox is expected to start with closed app ingress (live proof pending, 9.2); create/install/host/join never call `/host`. The explicit `url(port)`
 method still makes a port public and is unsuitable for this bootstrap. An app must not reuse a sandbox whose
 ports it previously exposed as though it had this fresh-machine guarantee; the public API has no unhost route.
 
@@ -1332,9 +1332,10 @@ this preparation makes no publishing or real-provider-tested claim.
   `src/testing/fake-sandbox-server.ts` (key routes), `test/{wake,idle}.test.ts`, README section.
 - **Behaviour:**
   - `wakeResolve({ provider, ref, port })` returns a `Dial.resolve` function for link. Before every dial it calls
-    `status()`. Only when `asleep` does it call `wake()` and then `url(port)` (re-hosting the relay port), resolving
-    the new URL's host with the dialled path. When the machine is already `on`, or `unknown`, it resolves the dialled
-    URL unchanged (an unreachable machine then fails the dial on its own).
+    `status()`. Only when `asleep` does it call `wake()`, then waits for the tailnet to report `joined` (9.1) and
+    resolves the dialled URL's host to the machine's tailnet name. It never calls `url()`, which would re-expose a
+    port (4.2, 9). When the machine is already `on`, or `unknown`, it resolves the dialled URL unchanged (an
+    unreachable machine then fails the dial on its own).
   - **Wake keys (G11).** `boat` implements `wakeKey(ref, { label })`: one key per phone, labelled with the
     phone's name, scoped to read, resume and host on `ref.id`; and `revokeKey(id)`. The app mints one when it pairs an
     owner phone, stores it in that phone's secure store with `WHEN_UNLOCKED_THIS_DEVICE_ONLY`
