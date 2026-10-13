@@ -476,8 +476,16 @@ test('a Boat bootstrap joins the private network without opening a public app po
       }
     }), { name: 'umer-cloud.umer.ts.net' });
     assert.deepEqual(approvals, ['approve', 'joined']);
+    daemon('NeedsLogin', undefined, 'To authenticate, visit: https://login.tailscale.com/a/test-approve\n');
+    const afterLink: string[] = [];
+    assert.deepEqual(await m.joinTailnet({ hostname: 'umer-cloud' }, (s) => {
+      afterLink.push(s.step);
+      if (s.step === 'open-page') daemon('NeedsMachineAuth', 'umer-cloud.umer.ts.net.'); // signed in; the admin still must approve
+      if (s.step === 'approve') daemon('Running', 'umer-cloud.umer.ts.net.');
+    }), { name: 'umer-cloud.umer.ts.net' });
+    assert.deepEqual(afterLink, ['open-page', 'approve', 'joined']);
     daemon('NeedsMachineAuth', 'umer-cloud.umer.ts.net.');
-    assert.equal((await m.tailnet()).state, 'needs-login');
+    assert.equal((await m.tailnet()).state, 'needs-approval');
     daemon('Stopped');
     assert.equal((await m.tailnet()).state, 'off');
     daemon('Starting');

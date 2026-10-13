@@ -46,8 +46,10 @@ export async function tailnet(provider: Provider, ref: MachineRef): Promise<Tail
     case 'Running':
       if (r.code !== 0 || name === null) throw new MachineError('provider', 'Your private network did not return a cloud computer name.');
       return { state: 'joined', name };
-    case 'NeedsLogin': case 'NeedsMachineAuth':
+    case 'NeedsLogin':
       return { state: 'needs-login', name };
+    case 'NeedsMachineAuth':
+      return { state: 'needs-approval', name };
     case 'Starting': case 'NoState':
       return { state: 'starting', name };
     case 'Stopped':
@@ -72,7 +74,9 @@ export async function joinTailnet(provider: Provider, ref: MachineRef, o: { host
   if (installed.timedOut) throw new MachineError('timeout', 'Installing your private network took too long.');
   if (installed.code !== 0) throw new MachineError('provider', `Installing your private network failed: ${installed.stderr.slice(-200)}`);
   const until = Date.now() + 5 * 60_000;
-  while ((await tailnet(provider, ref)).state === 'starting') {
+  for (;;) {
+    const { state } = await tailnet(provider, ref);
+    if (state !== 'starting' && state !== 'off') break;
     if (Date.now() >= until) throw new MachineError('timeout', 'Starting your private network took too long.');
     await new Promise<void>((resolve) => setTimeout(resolve, 1000));
   }
@@ -87,14 +91,14 @@ export async function joinTailnet(provider: Provider, ref: MachineRef, o: { host
       onStep?.({ step: 'joined', name: current.name });
       return { name: current.name };
     }
-    if (current.state === 'needs-login' && link === undefined && !approvalShown) {
+    if (current.state === 'needs-approval' && !approvalShown) {
       approvalShown = true;
       onStep?.({ step: 'approve', name: o.hostname });
     }
-    if (up.timedOut || (up.code !== 0 && !link && current.state !== 'needs-login')) {
+    if (up.timedOut || (up.code !== 0 && !link && current.state === 'off')) {
       throw new MachineError('provider', `Connecting your private network failed: ${up.stderr.slice(-200)}`);
     }
-    if (Date.now() >= until) throw new MachineError('timeout', words(link === undefined ? 'tailnet.approvalNeeded' : 'tailnet.loginExpired'));
+    if (Date.now() >= until) throw new MachineError('timeout', words(link !== undefined && current.state !== 'needs-approval' ? 'tailnet.loginExpired' : 'tailnet.approvalNeeded'));
     await new Promise<void>((resolve) => setTimeout(resolve, 1000));
   }
 }
