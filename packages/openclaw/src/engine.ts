@@ -264,8 +264,11 @@ export class Engine {
       try { accessSync(path, constants.X_OK); return true; } catch { return false; }
     });
     const bins = bin ? { claude: bin } : {};
-    const cli = cliAccounts({ stateDir: this.root, bins, env: { ...env, HOME: env.HOME, PATH: env.PATH },
-      managedFolders: { claude: env.CLAUDE_CONFIG_DIR } });
+    mkdirSync(join(this.root, 'home'), { recursive: true, mode: 0o700 });
+    const cli = cliAccounts({ stateDir: this.root, bins, env: {
+      PATH: env.PATH, HOME: env.HOME, LANG: env.LANG, TMPDIR: env.TMPDIR, XDG_CONFIG_HOME: env.XDG_CONFIG_HOME,
+      XDG_CACHE_HOME: env.XDG_CACHE_HOME, XDG_DATA_HOME: env.XDG_DATA_HOME, XDG_STATE_HOME: env.XDG_STATE_HOME,
+    }, managedFolders: { claude: env.CLAUDE_CONFIG_DIR } });
     this.claudeLogin = remoteCliHost({ cli, bins });
     return this.claudeLogin;
   }

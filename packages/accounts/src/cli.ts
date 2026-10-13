@@ -20,7 +20,7 @@ export type CliOptions = {
   env: { PATH: string; HOME: string } & Record<string, string>;
   historyFrom?: Partial<Record<CliProvider, string>>;
   /** Explicit runtime-owned folders inside stateDir; never removed with roster bookkeeping. */
-  managedFolders?: Partial<Record<'claude' | 'codex', string>>;
+  managedFolders?: { claude?: string };
   prepare?: (folder: string, provider: CliProvider) => Promise<void>;
 };
 export type CliLaunchResult =
@@ -125,9 +125,9 @@ export function cliAccounts(options: CliOptions) {
   const stateDir = resolve(options.stateDir); const env = { ...options.env }; const bins = { ...options.bins }; const history = { ...options.historyFrom };
   const managedFolders = { ...options.managedFolders };
   if (options.managedFolders && (!record(options.managedFolders) || Object.entries(managedFolders).some(([p, folder]) =>
-    !['claude', 'codex'].includes(p) || !text(folder) || resolve(folder) !== folder || !folder.startsWith(stateDir + '/')
+    p !== 'claude' || !text(folder) || resolve(folder) !== folder || !folder.startsWith(stateDir + '/')
     || !directory(dirname(folder)) || realpathSync(dirname(folder)) !== dirname(folder)))) throw new CliAccountError('bad-option');
-  const managed = (r: Row) => r.provider !== 'pi' && managedFolders[r.provider] === r.folder;
+  const managed = (r: Row) => r.provider === 'claude' && managedFolders.claude === r.folder;
   for (const path of ['.claude', '.codex', '.pi']) {
     const own = join(resolve(env.HOME), path);
     if (stateDir === own || stateDir.startsWith(own + '/')) throw new CliAccountError('bad-option');
@@ -291,9 +291,9 @@ export function cliAccounts(options: CliOptions) {
     binary(provider);
     const parent = join(stateDir, provider); if (!directory(stateDir) || !directory(parent, true)) throw new CliAccountError('bad-option');
     chmodSync(parent, 0o700);
-    const r: Row = { id: `pa_${randomBytes(9).toString('hex')}`, provider, name: adopted?.name ?? '', folder: provider !== 'pi' && managedFolders[provider] || join(parent, randomBytes(8).toString('hex')), found: false, addedAt: stampAddedAt(),
+    const r: Row = { id: `pa_${randomBytes(9).toString('hex')}`, provider, name: adopted?.name ?? '', folder: provider === 'claude' && managedFolders.claude || join(parent, randomBytes(8).toString('hex')), found: false, addedAt: stampAddedAt(),
       ...(provider === 'pi' ? { piProvider: metadata!.piProvider } : {}), ...(adopted ? { adoptedFrom: adopted.id } : {}) };
-    if (managed(r) && (history[provider] || load().some(row => row.folder === r.folder))) throw new CliAccountError('prepare-failed');
+    if (managed(r) && load().some(row => row.folder === r.folder)) throw new CliAccountError('prepare-failed');
     if (!directory(r.folder, true)) throw new CliAccountError('bad-option');
     try {
       if (history[provider]) symlinkSync(history[provider]!, join(r.folder, provider === 'claude' ? 'projects' : 'sessions'), 'dir');

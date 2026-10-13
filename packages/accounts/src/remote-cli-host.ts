@@ -188,11 +188,10 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     }
     const rows = await cli.list();
     if (rows.some((r) => r.provider === provider && r.state === 'ready')) return fail(provider, 'already');
-    if (rows.some((r) => r.provider === provider && r.state === 'signing')) return fail(provider, 'busy');
-    const reuse = rows.find((r) => r.provider === provider && r.state === 'signed_out');
     let id: string;
     let signIn: { argv: string[]; env: Record<string, string>; completion: string };
     try {
+      const reuse = rows.find((r) => r.provider === provider && (r.state === 'signed_out' || r.state === 'signing'));
       if (reuse) {
         id = reuse.id;
         signIn = cli.signInAgain(id);

@@ -255,8 +255,9 @@ export function signIn(
           nativeId = started.signIn.id;
           if (signal.aborted) { await native.cancel(nativeId); return cancelled(); }
           let pasteFailed = false;
-          pasteIn = text => { void native!.paste(nativeId!, text).catch(() => {
-            pasteFailed = true; void native!.cancel(nativeId!);
+          pasteIn = text => { void native!.paste(nativeId!, text).catch((error: unknown) => {
+            if ((error as { remoteCliProblem?: unknown }).remoteCliProblem === 'unknown') return;
+            pasteFailed = true; void native!.cancel(nativeId!).catch(() => {});
           }); };
           say({ url: started.signIn.verificationUri, prompt: 'Paste the code from the sign-in page' });
           if (returned !== undefined) { pasteIn(returned); returned = undefined; }

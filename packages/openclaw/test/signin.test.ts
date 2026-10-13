@@ -12,6 +12,7 @@ import { OpenClawKit } from '../src/kit.ts';
 import { openclawLink } from '../src/link.ts';
 import { scratchDir } from '../../test-support.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
+import { hostKeySeal } from '../../secrets/src/index.ts';
 import { words } from '../src/words.ts';
 import type { GatewayTransport, SignInView } from '../src/types.ts';
 
@@ -620,6 +621,7 @@ test('phone native Claude login uses the engine folder; wrong code, expiry and c
 const fs = require('node:fs'), path = require('node:path');
 const folder = process.env.CLAUDE_CONFIG_DIR;
 if (folder !== ${JSON.stringify(folder)} || process.env.HOME !== path.dirname(folder)) process.exit(3);
+if ('OPENCLAW_GATEWAY_TOKEN' in process.env || 'BYOKIT_BRIDGE_SOCK' in process.env) process.exit(4);
 const granted = path.join(folder, 'granted');
 if (process.argv[3] === 'status') { console.log(JSON.stringify({loggedIn: fs.existsSync(granted)})); process.exit(); }
 if (process.argv.slice(2).join(' ') !== 'auth login --claudeai') process.exit(2);
@@ -677,3 +679,83 @@ else { process.stdin.setEncoding('utf8'); process.stdin.once('data', code => {
   } finally { releaseActivation(); await kit.stop(); rmSync(root, { recursive: true, force: true }); }
 });
 
+
+test('a phone paste that lands after the native Claude login exited does not cancel its finished sign-in', { timeout: 30_000 }, async () => {
+  const root = scratchDir('native-paste-after-exit');
+  const bin = join(root, 'bin'); mkdirSync(bin);
+  const folder = join(root, 'openclaw/home/.claude');
+  const granted = join(folder, 'granted');
+  const statusFlag = join(root, 'status-inflight');
+  const release = join(root, 'status-release');
+  writeFileSync(join(bin, 'claude'), `#!${process.execPath}
+const fs = require('node:fs');
+if (process.env.CLAUDE_CONFIG_DIR !== ${JSON.stringify(folder)}) process.exit(3);
+if (process.argv[3] === 'status') {
+  fs.writeFileSync(${JSON.stringify(statusFlag)}, '');
+  const answer = () => fs.existsSync(${JSON.stringify(release)})
+    ? (console.log(JSON.stringify({ loggedIn: fs.existsSync(${JSON.stringify(granted)}) })), process.exit())
+    : setTimeout(answer, 10);
+  answer();
+} else {
+  console.log('If the browser did not open, visit: https://claude.example.test/authorize');
+  process.stdin.setEncoding('utf8');
+  process.stdin.once('data', () => { fs.writeFileSync(${JSON.stringify(granted)}, 'signed in'); process.exit(0); });
+}
+`, { mode: 0o700 });
+  let activated = false;
+  const gateway = fakeGateway({
+    'openclaw.setup.detect': () => ({ candidates: [{ kind: 'claude-cli', credentials: existsSync(granted) }] }),
+    'openclaw.setup.activate': async () => { activated = true; return { ok: true }; },
+  });
+  const kit = new OpenClawKit({ stateDir: root, enginePath: [bin], spawnEngine: false, transport: gateway.factory });
+  try {
+    await kit.start();
+    const api = openclawLink(kit, { memberOf: () => 'umer' });
+    const grant = { id: 'phone', name: 'Umer', key: '', role: 'control' as const, created: 0 };
+    const call = (op: string, args: object) => api.handle!({ op, args: { provider: 'claude-cli', ...args } }, grant);
+    const until = async (condition: (v: SignInView) => boolean) => {
+      for (let i = 0; i < 300; i++) { const value = await call('oc.signin.view', {}) as { view: SignInView }; if (condition(value.view)) return value.view; await delay(10); }
+      throw new Error('native phone sign-in did not settle');
+    };
+    await call('oc.signin.start', { via: 'browser' });
+    assert.equal((await until(v => Boolean(v?.url))).url, 'https://claude.example.test/authorize');
+    await call('oc.signin.paste', { text: 'synthetic-returned-code' });
+    for (let i = 0; !existsSync(statusFlag) && i < 300; i++) await delay(10);
+    assert.ok(existsSync(statusFlag), 'the CLI exited and its status read is in flight');
+    await call('oc.signin.paste', { text: 'late-code' });
+    writeFileSync(release, '');
+    const end = await until(v => v?.state === 'done' || v?.state === 'failed');
+    assert.equal(end.state, 'done');
+    assert.equal(activated, true);
+    assert.ok(!JSON.stringify(end).includes('late-code'));
+  } finally { writeFileSync(release, ''); await kit.stop(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a sealed engine creates its own home for a phone Claude sign-in instead of failing it', { timeout: 30_000 }, async () => {
+  const root = scratchDir('native-sealed-home');
+  const bin = join(root, 'bin'); mkdirSync(bin);
+  writeFileSync(join(bin, 'claude'), `#!${process.execPath}
+console.log('If the browser did not open, visit: https://claude.example.test/authorize');
+process.stdin.resume();
+`, { mode: 0o700 });
+  const gateway = fakeGateway({
+    'openclaw.setup.detect': () => ({ candidates: [] }),
+  });
+  const kit = new OpenClawKit({ stateDir: root, authSeal: hostKeySeal({ key: new Uint8Array(32).fill(7) }), enginePath: [bin], spawnEngine: false, transport: gateway.factory });
+  try {
+    await kit.start();
+    const api = openclawLink(kit, { memberOf: () => 'umer' });
+    const grant = { id: 'phone', name: 'Umer', key: '', role: 'control' as const, created: 0 };
+    const call = (op: string, args: object) => api.handle!({ op, args: { provider: 'claude-cli', ...args } }, grant);
+    await call('oc.signin.start', { via: 'browser' });
+    let view: SignInView | undefined;
+    for (let i = 0; i < 300; i++) {
+      view = (await call('oc.signin.view', {}) as { view: SignInView }).view;
+      if (view?.url || view?.state === 'failed') break;
+      await delay(10);
+    }
+    assert.equal(view?.state, 'waiting', JSON.stringify(view));
+    assert.equal(view?.url, 'https://claude.example.test/authorize');
+    await call('oc.signin.cancel', {});
+  } finally { await kit.stop(); rmSync(root, { recursive: true, force: true }); }
+});

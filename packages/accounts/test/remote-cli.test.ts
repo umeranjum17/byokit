@@ -342,6 +342,34 @@ test('a runtime-owned folder survives timeout and close; closing wins over late 
   } finally { await host.close(); }
 });
 
+test('a signing row left by a crashed login is retried by the next start, not reported busy', async () => {
+  const root = scratchDir('remote-stale-signing');
+  const native = fakeClaude(join(root, 'bins'));
+  const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
+  const home = join(stateDir, 'home'); mkdirSync(home);
+  const folder = join(home, '.claude');
+  const bins = { claude: native.bin };
+  const env = { HOME: home, PATH: '/unused', LOGIN_MODE: 'success' };
+  const crashed = cliAccounts({ stateDir, bins, env, managedFolders: { claude: folder } });
+  assert.equal((await crashed.add('claude')).account.state, 'signing');
+  const cli = cliAccounts({ stateDir, bins, env, managedFolders: { claude: folder } });
+  const host = remoteCliHost({ cli, bins, waitCapMs: 60_000 });
+  try {
+    const started = await host.start('claude');
+    assert.equal(started.ok, true, JSON.stringify(started));
+  } finally { await host.close(); }
+});
+
+test('managed folders are Claude-only; a Codex folder is refused', () => {
+  const root = scratchDir('remote-managed-codex');
+  const native = fakeClaude(join(root, 'bins'));
+  const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
+  const home = join(stateDir, 'home'); mkdirSync(home);
+  mkdirSync(join(stateDir, 'codex'));
+  assert.throws(() => cliAccounts({ stateDir, bins: { codex: native.bin }, env: { HOME: home, PATH: '/unused' },
+    managedFolders: { codex: join(stateDir, 'codex', 'managed') } } as never), { code: 'bad-option' });
+});
+
 test('a login that prints no code fails to start without a row', async () => {
   const root = scratchDir('remote-silent');
   const codex = fakeCodex(join(root, 'bins'));

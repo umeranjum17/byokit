@@ -769,8 +769,8 @@ and credentials are never forwarded, logged, copied or read by the kit. A succes
 again through the engine, then existing `setup.activate { kind: 'claude-cli' }` live-tests and persists the route;
 only successful activation/restart is `done`. Concurrent native logins to one engine are refused as busy.
 The phone uses the existing link start/view/paste/cancel operations; credentials stay on the engine machine.
-A link sign-in view reports `ready: false` while its drive is active or its latest attempt failed, even if
-native credential detection already succeeds. The drive's successful live activation, not credential presence,
+For the native Claude route, a link sign-in view reports `ready: false` while its drive is active or its latest
+attempt failed, even if native credential detection already succeeds; other providers keep their signed-in readiness. The drive's successful live activation, not credential presence,
 is what completes that phone attempt. Passive provider status remains the engine's native readiness read.
 Both Claude and ChatGPT are plan sign-ins. Remote ChatGPT uses `openai-device-code` (`via: 'code'`): the
 engine's own wizard polls its provider and writes its grant; no kit localhost callback listener is created.
