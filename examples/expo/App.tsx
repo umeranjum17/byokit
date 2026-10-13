@@ -125,12 +125,12 @@ function Ask({ k, picker }: { k: string; picker: UseModelPicker }) {
     } catch (e: any) { setAnswer(e.message); }
   };
   return (
-    <View style={s.sheet}>
+    <>
       <TextInput testID={tid(k, 'question')} value={question} onChangeText={setQuestion} placeholder={`Ask ${name} something`} style={s.input} />
       <Button id={tid(k, 'ask')} label="Ask" onPress={ask} />
       {!!answer && <Text testID={tid(k, 'answer')} style={s.words}>{answer}</Text>}
       {!!decision && <Text testID="decision" style={s.small}>{decision}</Text>}
-    </View>
+    </>
   );
 }
 

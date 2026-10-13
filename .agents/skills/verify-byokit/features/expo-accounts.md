@@ -6,7 +6,7 @@ A provider's card lists its saved accounts through `useAccounts` and uses `useMo
 
 - Account rows named by their kit sign-in label, ready rows before unavailable rows, plain readiness and room words.
 - Expand/collapse the picker; Auto carries the kit's reason, explicit accounts expose their models, and the chosen model is passed to both the answer and decision calls.
-- A remotely revoked short-lived fixture grant remains listed with its kit terminal marker. Choosing it explicitly says `Sign in first`, without substituting Auto.
+- A remotely revoked short-lived fixture grant remains listed with its kit terminal marker. Choosing it explicitly says `Sign in first` (on its row while the picker is open, under the closed picker otherwise), without substituting Auto.
 - Native phone light/dark frames at 320 dp and font scale 1.3; connected before frames, account/picker/refusal after frames, one short real native recording. No desktop, web or native iOS runtime claim.
 
 ## How to get to it (user POV)
@@ -29,5 +29,5 @@ With the base argument it builds the base App for connected before frames and re
 
 - The capture temporarily replaces only App.tsx for the baseline build; do not edit it concurrently.
 - The baseline has no account picker, so only its real connected card is captured; `manifest.json` names that absence and the unavailable non-phone surfaces.
-- `e2e-android.sh` types pairing offers in settled chunks and checks the native field equals the whole offer before dismissing the keyboard. A length mismatch is a failure, not a usable pairing code. Its shared selector rejects inverted/empty native bounds and taps from the same dump; every sign-in endpoint override points at the fixture so a mistaken tap cannot start a real device flow.
+- `e2e-android.sh` types pairing offers in settled chunks and checks the native field equals the whole offer before dismissing the keyboard. A length mismatch is a failure, not a usable pairing code. Its shared selector rejects inverted/empty native bounds and taps from the same dump, and it scrolls by swiping in the side margin (a drag that starts on a text field never scrolls the page); every sign-in endpoint override points at the fixture so a mistaken tap cannot start a real device flow.
 - Evidence stays outside the repository. Screenshots and recording do not prove live provider credentials, billing, quantitative room readings or native iOS behavior.
