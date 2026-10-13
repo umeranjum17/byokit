@@ -783,7 +783,7 @@ export class OpenClawKit {
       this.accountsCtl = createAccounts({ request: (method, params, o) => this.request()(method, params, o), root: this.engine.root,
         ensure: (member) => this.ensureMember(member), locks: this.locks,
         signIn: (agentId, o, on, fresh) => startSignIn({ ...this.signInCtx(), ensure: async () => ({ agentId }), fresh }, agentId, o, on),
-        routes: this.routeMap, log: this.o.log });
+        routes: this.routeMap, log: this.o.log, reseal: () => this.engine.authStore.reseal() });
       // The fail-closed tool bridge feeds the kit's single Approval surface (5.9, O5).
       await this.bridge.start();
       this.off.push(transport.onEvent((e) => this.approvalsCtl.handleEvent(e)));
@@ -987,9 +987,9 @@ export class OpenClawKit {
     return memberOfAccount(this.engine.root, ref);
   }
 
-  // accounts (5.15, O14 steps S5, S6 and S9-S12): the per-member index with listing, adding, defaults, rename, models
-  // and room; `run({ account })` and `pick` choose among them, held to the account a session is bound to, and `move`
-  // carries a conversation to another account. Removing arrives in a later step.
+  // accounts (5.15, O14 steps S5, S6 and S8-S12): the per-member index with listing, adding, defaults, rename, models
+  // and room; `run({ account })` and `pick` choose among them, held to the account a session is bound to, `move`
+  // carries a conversation to another account, and `removeAccount` deletes one.
   accounts(member: Member): Promise<Account[]> {
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.accountsCtl.list(member);
@@ -1032,6 +1032,13 @@ export class OpenClawKit {
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account> {
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.accountsCtl.rename(member, id, name);
+  }
+
+  /** Remove one account: a member-agent account through `authLogout` with its profileIds, an account agent through
+   * `clear`, an empty `list`, `agents.delete` with `deleteFiles: false`, removal of its state dir, then the entry. */
+  removeAccount(member: Member, id: AccountId): Promise<void> {
+    if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
+    return this.accountsCtl.remove(member, id);
   }
 
   defaults(member: Member): Promise<Defaults> {

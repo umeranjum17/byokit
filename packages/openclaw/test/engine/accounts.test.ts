@@ -7,11 +7,12 @@ import { syncBuiltinESMExports } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { OpenClawKit } from '../../src/kit.ts';
+import { hostKeySeal } from '../../../secrets/src/index.ts';
 import { scratchDir, sharedEngineDir } from '../../../test-support.ts';
 import { startModelStub, useModelStub, type ModelStub } from '../../src/testing/model-stub.ts';
 import type { RunEvent, SignInView } from '../../src/types.ts';
@@ -512,5 +513,198 @@ test('move: the transcript (user and tool rows) carries to the target agent and 
     const text = (m: { content?: unknown }) => JSON.stringify(m.content ?? '');
     assert.ok(messages.some((m) => m.role === 'user' && text(m).includes('[tool report')), JSON.stringify(messages));
     assert.ok(messages.some((m) => m.role === 'tool' && text(m).includes('Progress: Working')), JSON.stringify(messages));
+  } finally { await kit.stop(); }
+});
+
+// O14h on the real pinned engine: `removeAccount` on an account agent clears it, deletes the agent with
+// `deleteFiles: false`, removes its state dir itself, drops the entry and leaves the member ready. A file the
+// engine lands after removal is swept on the next prepare. Synthetic sign-ins through the kit's own migration,
+// the loopback model stub, never an account or the network.
+test('removeAccount: no file of the removed agent remains', { timeout: 900_000 }, async () => {
+  const dir = scratchDir('o14-remove');
+  const stateDir = join(dir, 'state');
+  const root = join(stateDir, 'openclaw');
+  const hex = 'eeeeee';
+  const agent = `m1--${hex}`;
+  const id = `openai.${hex}`;
+  let kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), callbackPort: 0 });
+  try {
+    await kit.start();
+    await kit.ensureMember('m1');
+    await kit.stop();
+    await seed(kit, dir, 'm1');
+    kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), callbackPort: 0 });
+    await kit.start();
+    await useModelStub(kit, stub);
+    assert.ok((await kit.providers('m1')).includes('openai'), 'the member is signed in');
+    await kit.call('agents.create', { name: agent, workspace: join(root, 'workspaces', 'm1') });
+    await kit.stop();
+    const legacyPath = join(dir, 'people', agent, 'auth.json');
+    mkdirSync(join(legacyPath, '..'), { recursive: true });
+    writeFileSync(legacyPath, JSON.stringify({ 'openai-codex': { type: 'oauth', provider: 'openai-codex',
+      access: `a-${agent}`, refresh: `r-${agent}`, expires: Date.now() + 30 * 86_400_000, accountId: `acct-${hex}` } }));
+    assert.equal(await kit.migrateRetainedLogin(agent, { path: legacyPath }), 'staged');
+    kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), callbackPort: 0 });
+    await kit.start();
+    const store = profilesOf(stateDir, agent);
+    const profileId = Object.keys(store).find((key) => store[key].provider === 'openai');
+    assert.ok(profileId, 'the account agent holds a sealed openai profile');
+    const { hash } = await kit.call('config.get', {}) as { hash: string };
+    await kit.call('config.patch', { baseHash: hash,
+      raw: JSON.stringify({ agents: { entries: { [agent]: { model: { primary: `byokit-stub/test@${profileId}` } } } } }) });
+    assert.deepEqual(await kit.callDynamic('byokit.accounts', { action: 'seal', agentId: agent, provider: 'openai' }) as object,
+      { ok: true, who: identity('openai', `acct-${hex}`) });
+    const index = join(root, 'accounts', 'm1.json');
+    mkdirSync(join(index, '..'), { recursive: true });
+    writeFileSync(index, JSON.stringify({ v: 1, accounts: {
+      openai: { agent: 'm1', name: 'ChatGPT', route: 'openai', addedAt: 0 },
+      [id]: { agent, name: 'Spare', route: 'openai', addedAt: 1 } }, defaults: {} }));
+    chmodSync(index, 0o600);
+    assert.deepEqual((await kit.accounts('m1')).map((a) => a.id).sort(), ['openai', id].sort());
+
+    await kit.removeAccount('m1', id);
+    assert.ok(!(await kit.call('agents.list', {}) as { agents: { id: string }[] }).agents.some((a) => a.id === agent),
+      'the agent is gone');
+    assert.ok(!(id in JSON.parse(readFileSync(index, 'utf8')).accounts), 'and its entry');
+    assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'and its state dir');
+    assert.ok((await kit.providers('m1')).includes('openai'), 'the member agent stays ready');
+    assert.equal((await kit.accounts('m1')).map((a) => a.id).join(), 'openai');
+
+    // A file landed after removal is swept on the next prepare, leaving no file of the removed agent under <root>.
+    const late = join(root, 'state', 'agents', agent, 'agent', 'late.json');
+    mkdirSync(join(late, '..'), { recursive: true });
+    writeFileSync(late, '{}');
+    await kit.prepare();
+    assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'the late file is swept on prepare');
+  } finally { await kit.stop(); }
+});
+
+/** Decrypt every sealed credential payload under <root> (the snapshot plus each sealed object) and report
+ *  whether any decoded content includes `marker`. */
+const sealedHolds = (root: string, seal: ReturnType<typeof hostKeySeal>, marker: string): boolean => {
+  const texts: string[] = [];
+  const file = join(root, 'auth-store.sealed');
+  if (existsSync(file)) {
+    const saved = JSON.parse(seal.decryptString(readFileSync(file))) as { files?: [string, string][] };
+    for (const [, data] of saved.files ?? []) texts.push(Buffer.from(data, 'base64').toString('utf8'));
+  }
+  const objects = join(root, 'auth-store.objects');
+  if (existsSync(objects)) {
+    for (const entry of readdirSync(objects)) {
+      const payload = JSON.parse(seal.decryptString(readFileSync(join(objects, entry)))) as { data?: string };
+      if (typeof payload.data === 'string') texts.push(Buffer.from(payload.data, 'base64').toString('utf8'));
+    }
+  }
+  return texts.some((text) => text.includes(marker));
+};
+
+/** Whether any regular file under <root> holds `marker` as plaintext (sealed blobs cannot, so this covers
+ *  the live tree beyond the removed agent's own dir). */
+const plaintextUnder = (root: string, marker: string): boolean => {
+  const walk = (dir: string): boolean => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.isDirectory()) { if (walk(path)) return true; continue; }
+      if (!entry.isFile() || entry.isSymbolicLink()) continue;
+      try { if (readFileSync(path).toString('utf8').includes(marker)) return true; } catch { /* a racing write */ }
+    }
+    return false;
+  };
+  return walk(root);
+};
+
+// O14h on the real pinned engine with a sealed credential store: `removeAccount` while the engine runs re-seals
+// the live store at once, so `auth-store.sealed` and `auth-store.objects/` stop holding the removed profile
+// immediately instead of keeping it until stop. Synthetic sign-ins through the kit's own migration, the loopback
+// model stub, never an account or the network.
+test('removeAccount with a seal: the sealed store is resealed at once, no file holds the removed profile', { timeout: 900_000 }, async () => {
+  const dir = scratchDir('o14-remove-sealed');
+  const stateDir = join(dir, 'state');
+  const root = join(stateDir, 'openclaw');
+  const hex = 'ffffff';
+  const agent = `m1--${hex}`;
+  const id = `openai.${hex}`;
+  const seal = hostKeySeal({ key: new Uint8Array(32).fill(7) });
+  const kits = () => new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), callbackPort: 0, authSeal: seal });
+  let kit = kits();
+  try {
+    await kit.start();
+    await kit.ensureMember('m1');
+    await kit.stop();
+    await seed(kit, dir, 'm1');
+    kit = kits();
+    await kit.start();
+    await useModelStub(kit, stub);
+    assert.ok((await kit.providers('m1')).includes('openai'), 'the member is signed in');
+    await kit.call('agents.create', { name: agent, workspace: join(root, 'workspaces', 'm1') });
+    await kit.stop();
+    const legacyPath = join(dir, 'people', agent, 'auth.json');
+    mkdirSync(join(legacyPath, '..'), { recursive: true });
+    writeFileSync(legacyPath, JSON.stringify({ 'openai-codex': { type: 'oauth', provider: 'openai-codex',
+      access: `a-${agent}`, refresh: `r-${agent}`, expires: Date.now() + 30 * 86_400_000, accountId: `acct-${hex}` } }));
+    assert.equal(await kit.migrateRetainedLogin(agent, { path: legacyPath }), 'staged');
+    kit = kits();
+    await kit.start();
+    const store = profilesOf(stateDir, agent);
+    const profileId = Object.keys(store).find((key) => store[key].provider === 'openai');
+    assert.ok(profileId, 'the account agent holds a sealed openai profile');
+    const { hash } = await kit.call('config.get', {}) as { hash: string };
+    await kit.call('config.patch', { baseHash: hash,
+      raw: JSON.stringify({ agents: { entries: { [agent]: { model: { primary: `byokit-stub/test@${profileId}` } } } } }) });
+    assert.deepEqual(await kit.callDynamic('byokit.accounts', { action: 'seal', agentId: agent, provider: 'openai' }) as object,
+      { ok: true, who: identity('openai', `acct-${hex}`) });
+    const index = join(root, 'accounts', 'm1.json');
+    mkdirSync(join(index, '..'), { recursive: true });
+    writeFileSync(index, JSON.stringify({ v: 1, accounts: {
+      openai: { agent: 'm1', name: 'ChatGPT', route: 'openai', addedAt: 0 },
+      [id]: { agent, name: 'Spare', route: 'openai', addedAt: 1 } }, defaults: {} }));
+    chmodSync(index, 0o600);
+
+    // Retain the native store bytes as a refresh already in flight when removal starts.
+    const dbPath = join(root, 'state', 'agents', agent, 'agent', 'openclaw-agent.sqlite');
+    const db = new DatabaseSync(dbPath);
+    try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } finally { db.close(); }
+    const lateStore = readFileSync(dbPath);
+    const lateProfile = JSON.stringify({ profiles: profilesOf(stateDir, agent) });
+    const removedPath = `state/agents/${agent}`;
+    const belongsToRemoved = (path: string) => path === removedPath || path.startsWith(`${removedPath}/`);
+    const snapshotFile = join(root, 'auth-store.sealed');
+    const oldSnapshot = JSON.parse(seal.decryptString(readFileSync(snapshotFile))) as { dirs: string[]; files: [string, string][] };
+    const objectsDir = join(root, 'auth-store.objects');
+    const oldObjects = readdirSync(objectsDir).map((name) => [name, readFileSync(join(objectsDir, name))] as const)
+      .filter(([, bytes]) => belongsToRemoved(JSON.parse(seal.decryptString(bytes)).path));
+    await kit.removeAccount('m1', id);
+    assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'its state dir is gone');
+    assert.ok(existsSync(join(root, 'auth-store.sealed')), 'the sealed store exists while running');
+    // The removed profile is identified by its account id: the profile id itself stays behind legitimately in the
+    // agent's former model pin in openclaw.json, so it cannot serve as the marker.
+    assert.ok(!sealedHolds(root, seal, `acct-${hex}`), 'the sealed store no longer holds the removed account id');
+    assert.ok(!plaintextUnder(root, `acct-${hex}`), 'no live file under root holds it either');
+    await kit.prepare();
+    assert.ok(!sealedHolds(root, seal, `acct-${hex}`), 'still gone after prepare');
+    assert.ok(!plaintextUnder(root, `acct-${hex}`), 'still gone after prepare');
+    assert.ok((await kit.providers('m1')).includes('openai'), 'the member agent stays ready');
+
+    // The in-flight refresh lands after the removal's reseal. Cover both the credential blob and native object.
+    mkdirSync(join(dbPath, '..'), { recursive: true });
+    writeFileSync(dbPath, lateStore);
+    writeFileSync(join(dbPath, '..', 'auth-profiles.json'), lateProfile);
+    assert.ok(plaintextUnder(root, `acct-${hex}`), 'the late refresh really landed');
+    await kit.stop();
+    assert.ok(!sealedHolds(root, seal, `acct-${hex}`), 'stop never seals a removed account refresh');
+    // Replay only removed-agent residue from an older kit. Keep the current shared SQLite/WAL set consistent.
+    const saved = JSON.parse(seal.decryptString(readFileSync(snapshotFile))) as { dirs: string[]; files: [string, string][] };
+    saved.dirs.push(...oldSnapshot.dirs.filter(belongsToRemoved));
+    saved.files.push(...oldSnapshot.files.filter(([path]) => belongsToRemoved(path)));
+    writeFileSync(snapshotFile, seal.encryptString(JSON.stringify(saved)));
+    for (const [name, bytes] of oldObjects) writeFileSync(join(objectsDir, name), bytes);
+    assert.ok(sealedHolds(root, seal, `acct-${hex}`), 'the old sealed store really contains the removed account');
+    kit = kits();
+    await kit.prepare();
+    assert.ok(!sealedHolds(root, seal, `acct-${hex}`), 'no sealed file holds it after the next prepare');
+    assert.ok(!plaintextUnder(root, `acct-${hex}`), 'no plaintext file holds it after the next prepare');
+    await kit.start();
+    assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'restart cannot restore the removed agent');
+    assert.ok((await kit.providers('m1')).includes('openai'), 'restart keeps the member sign-in');
   } finally { await kit.stop(); }
 });

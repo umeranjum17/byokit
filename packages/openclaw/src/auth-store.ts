@@ -9,6 +9,7 @@ import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { SealingAdapter } from '@byokit/secrets';
 import { EngineAlreadyRunningError, pidAlive as live } from './engine-status.ts';
+import { removedAccountAgents, sweepOrphans } from './accounts.ts';
 
 const encoder = new TextEncoder();
 const archive = (name: string) => !name.endsWith('.sealed') && (/^(auth-profiles|auth-state|auth|oauth)\.json\.(migrated-.+|sqlite-import\..+\.bak)$/.test(name)
@@ -115,6 +116,11 @@ const objectHash = (payload: string) => createHash('sha256').update(payload).dig
 function safePath(path: unknown): path is string {
   return typeof path === 'string' && /^(state|home)(\/[^/]+)*$/.test(path)
     && !path.split('/').some((part) => part === '.' || part === '..' || part.includes('\\') || part.includes('\0'));
+}
+// A file the live engine deletes between the directory listing and the read is simply gone: there is nothing to
+// seal, so callers skip it. Every other failure still throws.
+function vanished(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException).code === 'ENOENT';
 }
 function snapshot(text: string): Snapshot {
   const s = JSON.parse(text) as Snapshot;
@@ -259,12 +265,27 @@ export class AuthStore {
     const text = this.open(bytes);
     let saved: Snapshot;
     try { saved = snapshot(text); } catch { throw new AuthStoreUnreadableError('invalid-snapshot'); }
-    const upgraded = seal.upgrade?.(bytes);
-    if (upgraded) {
-      if (seal.decryptString(Buffer.from(upgraded)) !== text) throw new Error('credential upgrade verification failed');
-      put(this.file, upgraded);
+    const gone = removedAccountAgents(this.o.root);
+    const keep = (path: string) => !path.startsWith('state/agents/') || !gone.has(path.split('/')[2]!);
+    const kept: Snapshot = { v: 1, dirs: saved.dirs.filter(keep), files: saved.files.filter(([path]) => keep(path)) };
+    if (kept.dirs.length !== saved.dirs.length || kept.files.length !== saved.files.length) {
+      this.seal(this.file, JSON.stringify(kept));
+    } else {
+      const upgraded = seal.upgrade?.(bytes);
+      if (upgraded) {
+        if (seal.decryptString(Buffer.from(upgraded)) !== text) throw new Error('credential upgrade verification failed');
+        put(this.file, upgraded);
+      }
     }
-    return saved;
+    if (gone.size && existsSync(this.objects)) {
+      for (const entry of readdirSync(this.objects)) {
+        const file = join(this.objects, entry);
+        if (keep(this.readObject(file)[0])) continue;
+        rmSync(file);
+        this.objectHashes.delete(entry);
+      }
+    }
+    return kept;
   }
   private readObject(file: string): [string, string, string] {
     let text = '';
@@ -289,13 +310,20 @@ export class AuthStore {
     const objects: Entry[] = [];
     let total = 0;
     const root = realpathSync(this.o.root);
+    const gone = removedAccountAgents(this.o.root);
     const walk = (path: string) => {
       const name = relative(this.o.root, path).split('\\').join('/');
+      if (name.startsWith('state/agents/') && gone.has(name.split('/')[2]!)) return; // a late refresh never enters a seal
       if (name.startsWith('home/') && nonCredential(name)) return; // regenerable home caches stay on disk; skipping a directory skips its subtree
-      const stat = lstatSync(path);
+      let stat;
+      try { stat = lstatSync(path); }
+      catch (error) { if (vanished(error)) return; throw error; }
       if (stat.isDirectory()) {
         if (!apart(name)) dirs.push(name);
-        for (const child of readdirSync(path).sort()) walk(join(path, child));
+        let children: string[];
+        try { children = readdirSync(path).sort(); }
+        catch (error) { if (vanished(error)) return; throw error; }
+        for (const child of children) walk(join(path, child));
         return;
       }
       let file = path;
@@ -307,7 +335,8 @@ export class AuthStore {
         }
         const rel = relative(root, file);
         if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) return;
-        target = lstatSync(file);
+        try { target = lstatSync(file); }
+        catch (error) { if (vanished(error)) return; throw error; }
       }
       if (!target.isFile()) return;
       if (apart(name)) {
@@ -324,13 +353,27 @@ export class AuthStore {
     return { dirs, files, objects };
   }
   private collect(): { saved: Snapshot; objects: Entry[] } {
+    sweepOrphans(this.o.root);
     const { dirs, files, objects } = this.inventory();
-    for (const dir of dirs) chmodSync(join(this.o.root, dir), 0o700);
-    // Read the checked target, but save the link's path: restore materializes a regular file there.
-    for (const { file } of [...files, ...objects]) chmodSync(file, 0o600);
+    for (const dir of dirs) {
+      try { chmodSync(join(this.o.root, dir), 0o700); }
+      catch (error) { if (!vanished(error)) throw error; }
+    }
+    // Read the checked target, but save the link's path: restore materializes a regular file there. A file that
+    // vanishes here is skipped by the same rule as in the listing above.
+    const read = ({ name, file }: Entry): [string, string] | undefined => {
+      try {
+        chmodSync(file, 0o600);
+        return [name, readFileSync(file).toString('base64')];
+      } catch (error) { if (vanished(error)) return undefined; throw error; }
+    };
+    const kept = objects.filter(({ file }) => {
+      try { chmodSync(file, 0o600); return true; }
+      catch (error) { if (vanished(error)) return false; throw error; }
+    });
     return {
-      saved: { v: 1, dirs, files: files.map(({ name, file }): [string, string] => [name, readFileSync(file).toString('base64')]) },
-      objects,
+      saved: { v: 1, dirs, files: files.map(read).filter((entry): entry is [string, string] => entry !== undefined) },
+      objects: kept,
     };
   }
   /** Remove the live sealed trees: all of `state` (every file there is sealed, as a blob entry or an object),
@@ -351,10 +394,13 @@ export class AuthStore {
     mkdirSync(this.objects, { recursive: true, mode: 0o700 });
     const keep = new Set<string>();
     for (const { name, file } of objects) {
+      let data: string;
+      try { data = readFileSync(file).toString('base64'); }
+      catch (error) { if (vanished(error)) continue; throw error; }
       const object = objectName(name);
       keep.add(object);
       const target = join(this.objects, object);
-      const payload = JSON.stringify({ path: name, data: readFileSync(file).toString('base64') });
+      const payload = JSON.stringify({ path: name, data });
       // An object this process already sealed (or restored) unchanged is not resealed: its plaintext hash is
       // the same and its sealed file is still on disk, so the encrypt + verify + fsyncs are skipped. A changed
       // file, a new one, or one whose sealed file vanished falls through to the normal seal.
@@ -452,6 +498,22 @@ export class AuthStore {
         await this.archives();
         await this.persist();
       } finally { this.release(); }
+    });
+  }
+  /** Re-seal the credential snapshot while the engine runs (removeAccount): it drops the removed profile at once
+   *  instead of waiting for stop, and read() drops the removed agent's sealed objects. Database objects are never
+   *  read here — each keeps its last sealed copy until stop, when persist() seals the live databases. Live files
+   *  stay in place — unlike persist(), nothing is removed and no crash-transition recovery runs, so this never
+   *  deletes the tree a live engine is running on. No-op without a seal or while the store is not active. */
+  async reseal(): Promise<void> {
+    return this.serial(async () => {
+      if (!this.o.seal || !this.active) return;
+      const previous = await this.read();
+      const { saved, objects } = this.collect();
+      // Same debris guard as persist(): a running engine always leaves files behind, so an empty live tree
+      // keeps the sealed credentials instead of replacing them with an empty snapshot.
+      if (!saved.files.length && !objects.length && previous) return;
+      this.seal(this.file, JSON.stringify(saved));
     });
   }
   start(): Promise<void> {
