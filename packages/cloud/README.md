@@ -130,7 +130,8 @@ the recipe's admin steps; adoption is not a sandbox for an untrusted installer.
 ## Recipes
 
 The app supplies its host program and installer as a `HostRecipe`, and the kit writes
-and owns exactly one systemd unit per app (`byokit-<name>.service`, `Restart=always`):
+and owns exactly one systemd unit per app (`byokit-<name>.service`, `Restart=always`). Joining a
+tailnet adds the machine's own `tailscaled` unit, which is not an app unit:
 a system unit on Boat (only the home and `/etc` survive sleep), a user unit
 plus `loginctl enable-linger` on an SSH VM (so the kit needs no root there unless the
 recipe asks for it), and a system unit with `User=` when the recipe sets `user`.

@@ -86,10 +86,11 @@ the machine:     byokit-<app>.service → the app's host process (unchanged)
 packages/cloud/
   package.json  tsconfig.json  README.md  CHANGELOG.md  LICENSE
   src/
-    index.ts          # '.' re-exports everything 4.1, 4.2 and 4.3 declare for '.'
+    index.ts          # '.' re-exports everything 4.1, 4.2, 4.3 and 4.5 declare for '.'
     types.ts          # section 4, verbatim
     errors.ts         # MachineError (4.2)
     machine.ts        # machine() (5)
+    tailnet.ts        # joinTailnet(), tailnet() (9.1)
     status.ts         # status(), the one read a phone polls (5.9)
     unit.ts           # renderUnit(), quoting (8.4), pure
     recipe.ts         # recipe checks (8.1), range compare, FNV-1a marker hash, pure
@@ -711,7 +712,7 @@ wiping Herdr pane logins. So no request other than `create` carries a `noEnv` ke
 
 The app supplies its own host program and installer as a `HostRecipe`. The kit writes and owns exactly one systemd
 unit per app, because Herdr and OpenClaw supervise their engines only while the app's host process lives, and nothing
-else restarts that process.
+else restarts that process. Joining a tailnet (9.1) adds one machine-level `tailscaled` unit; it is not an app unit.
 
 ### 8.1 Recipe checks (`src/recipe.ts`, pure; failures reject `bad-recipe`, message names the rule)
 
