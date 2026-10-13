@@ -127,6 +127,31 @@ If installation fails, the selected ref stays saved: retry `m.install(recipe)`, 
 or adopt. The app must keep the same consented recipe for that retry. Installation can execute
 the recipe's admin steps; adoption is not a sandbox for an untrusted installer.
 
+## Setup step stream
+
+`setup({ provider, store, recipe, pick, confirmId, onLine, pair })` drives one existing-computer
+connect as steps for the connect screen: `checking-access`, `listing`, `inspecting` (the picked machine
+passed the adoption guards and is saved), `installing` (`onLine` carries its lines), `pairing` (the app's
+Pair-ready gate; skipped without `pair`), then `ready`. Each step is emitted after its real result, shown
+with `words('setup.<step>', { app, label })`. A rejection ends the stream with one `failed` step (`at` the
+phase, `cause` a words key via `errorKey`, `retryable` whether a repeat may pass): re-run `setup()` with
+the same arguments and it resumes at install on the saved machine instead of renting another.
+
+```ts
+import { setup, words, type HostRecipe, type MachineRef, type MachineStore, type Provider } from '@byokit/cloud';
+
+export async function connect(
+  provider: Provider, store: MachineStore, recipe: HostRecipe,
+  pick: (listed: MachineRef[]) => MachineRef, confirmId: string,
+  pair: (ref: MachineRef) => Promise<void>, show: (s: string) => void,
+) {
+  const vars = { app: 'Tracker', label: 'Boat' };
+  for await (const s of setup({ provider, store, recipe, pick, confirmId, pair })) {
+    show(s.step === 'failed' ? words(s.cause, vars) : words(`setup.${s.step}`, vars));
+  }
+}
+```
+
 ## Recipes
 
 The app supplies its host program and installer as a `HostRecipe`, and the kit writes

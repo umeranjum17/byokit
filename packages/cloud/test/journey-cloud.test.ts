@@ -11,10 +11,10 @@
 import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  machine, boat, estimate, status, words, stateWords, hostWords, errorWords, keyWords, WORDS, MachineError,
+  machine, boat, estimate, status, setup, words, stateWords, hostWords, errorWords, errorKey, keyWords, WORDS, MachineError,
 } from '@byokit/cloud';
 import type {
-  HostRecipe, Status, MachineErrorCode, MachineState, HostState, Price, KeyInfo, Provider, Snapshot, ExecResult,
+  HostRecipe, Status, SetupStep, MachineErrorCode, MachineRef, MachineState, HostState, Price, KeyInfo, Snapshot, Provider, ExecResult,
 } from '@byokit/cloud';
 import { fakeProvider, memoryStore, startFakeSandboxServer } from '@byokit/cloud/testing';
 
@@ -44,6 +44,18 @@ const rejects = async (p: Promise<unknown>, code: string): Promise<MachineError>
 };
 
 const textOf = (bytes: Uint8Array): string => Buffer.from(bytes).toString('utf8');
+
+const collectSteps = async (it: AsyncIterable<SetupStep>): Promise<SetupStep[]> => {
+  const steps: SetupStep[] = [];
+  for await (const s of it) steps.push(s);
+  return steps;
+};
+
+const pickId = (id: string) => (listed: MachineRef[]): MachineRef => {
+  const found = listed.find((r) => r.id === id);
+  assert.ok(found !== undefined);
+  return found;
+};
 
 test('an app picks an existing Boat computer, consents to installation, and retries without another rental', async () => {
   const server = await startFakeSandboxServer();
@@ -1149,4 +1161,88 @@ test('an app tells the person what the cloud computer costs and speaks in plain 
   assert.equal(words('setup.typeCode', {}), 'Open the {label} page and type this code: {code}');
   const banned = /\b(oauth|token|api|cli|http|json|error|exception|null|undefined|status|config|env|localhost|\d{3}|gpt-|pi\b|codex|device_code|credential|refresh)|[`$~\/\\]|%/i;
   for (const [k, w] of Object.entries(WORDS)) assert.doesNotMatch(w.replace(/\{\w+\}/g, 'X'), banned, k);
+});
+
+test('a connect screen follows setup steps in order and retries a failed install on the saved machine', async () => {
+  const server = await startFakeSandboxServer();
+  try {
+    const provider = boat({ baseUrl: server.url, label: 'Boat', prices: prices(), key: async () => 'test-key' });
+    const existing = await provider.create!({ name: 'old', size: 'small', keepCopies: true, idempotencyKey: 'seed' });
+    const pick = pickId(existing.id);
+
+    // Full happy sequence in order, with install lines and Pair ready: no new rental after selection.
+    server.machine.script('npm', { code: 0, stdout: 'installed\n', stderr: '', timedOut: false });
+    const lines: string[] = [];
+    const steps = await collectSteps(setup({
+      provider, store: memoryStore(), recipe: recipe(), pick, confirmId: existing.id,
+      onLine: (l) => lines.push(l), pair: async (ref) => { assert.equal(ref.name, 'web'); },
+    }));
+    assert.deepEqual(steps.map((s) => s.step), ['checking-access', 'listing', 'inspecting', 'installing', 'pairing', 'ready']);
+    assert.equal(steps[0].step === 'checking-access' ? steps[0].account : null, 'acct-test');
+    assert.deepEqual(steps[1].step === 'listing' ? steps[1].machines.map((r) => r.id) : [], [existing.id]);
+    const ready = steps.at(-1);
+    assert.ok(ready?.step === 'ready' && ready.ref.name === 'web');
+    assert.deepEqual(lines, ['installed']);
+    assert.equal(server.requests.filter((r) => r.method === 'POST' && r.path === '/sandboxes').length, 1);
+
+    // A failed install names installing with a retryable cause; the retry resumes on the saved ref.
+    // A second existing computer with its own app name and directory keeps this leg clear of the first run.
+    const existing2 = await provider.create!({ name: 'old-two', size: 'small', keepCopies: true, idempotencyKey: 'seed-two' });
+    const retryRecipe = { ...recipe('retry'), workDir: '/home/user/retry' };
+    server.machine.script('npm', { code: 1, stdout: '', stderr: 'install refused', timedOut: false });
+    const retrying = { provider, store: memoryStore(), recipe: retryRecipe, pick: pickId(existing2.id), confirmId: existing2.id };
+    const failed = await collectSteps(setup(retrying));
+    assert.deepEqual(failed.map((s) => s.step), ['checking-access', 'listing', 'failed']);
+    assert.deepEqual(failed.at(-1), { step: 'failed', at: 'installing', cause: 'state.failed', retryable: true });
+    server.machine.script('npm', { code: 0, stdout: '', stderr: '', timedOut: false });
+    const resumed = await collectSteps(setup(retrying));
+    assert.deepEqual(resumed.map((s) => s.step), ['checking-access', 'listing', 'inspecting', 'installing', 'ready']);
+    const reready = resumed.at(-1);
+    assert.ok(reready?.step === 'ready' && reready.ref.id === existing2.id && reready.ref.name === 'retry');
+    assert.equal(server.requests.filter((r) => r.method === 'POST' && r.path === '/sandboxes').length, 2);
+  } finally { await server.close(); }
+});
+
+test('setup failures name their step: access, pairing, and a provider without listing', async () => {
+  const unreachablePick = (): MachineRef => { throw new Error('pick runs only after a listing'); };
+
+  // A wrong key fails checking-access, non-retryable, before any listing or choice.
+  const locked = boat({ baseUrl: 'http://boat.test', label: 'Boat', prices: prices(), key: async () => 'test-key',
+    fetch: async () => new Response('no', { status: 401 }) });
+  assert.deepEqual(
+    await collectSteps(setup({ provider: locked, store: memoryStore(), recipe: recipe(), pick: unreachablePick, confirmId: 'x' })),
+    [{ step: 'failed', at: 'checking-access', cause: 'error.key', retryable: false }],
+  );
+
+  // A lost pairing fails at pairing with a retryable cause, after a finished install.
+  const server = await startFakeSandboxServer();
+  try {
+    const provider = boat({ baseUrl: server.url, label: 'Boat', prices: prices(), key: async () => 'test-key' });
+    const existing = await provider.create!({ name: 'old', size: 'small', keepCopies: true, idempotencyKey: 'seed' });
+    server.machine.script('npm', { code: 0, stdout: '', stderr: '', timedOut: false });
+    const unpaired = await collectSteps(setup({
+      provider, store: memoryStore(), recipe: recipe(), pick: pickId(existing.id), confirmId: existing.id,
+      pair: async () => { throw new MachineError('unreachable', 'pair lost'); },
+    }));
+    assert.deepEqual(unpaired.map((s) => s.step), ['checking-access', 'listing', 'inspecting', 'installing', 'failed']);
+    assert.deepEqual(unpaired.at(-1), { step: 'failed', at: 'pairing', cause: 'state.unknown', retryable: true });
+  } finally { await server.close(); }
+
+  // An SSH VM has no listing: setup reports that instead of inventing computers.
+  const ssh = fakeProvider({ id: 'ssh-vm' });
+  assert.deepEqual(
+    await collectSteps(setup({ provider: ssh, store: memoryStore(), recipe: recipe(), pick: unreachablePick, confirmId: 'x' })),
+    [{ step: 'checking-access', account: 'acct-test' }, { step: 'failed', at: 'listing', cause: 'error.app', retryable: false }],
+  );
+
+  // No step is emitted before its result: a held access check yields nothing until it answers.
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const held: typeof ssh = { ...ssh, account: () => gate.then(() => 'acct-test') };
+  const iter = setup({ provider: held, store: memoryStore(), recipe: recipe(), pick: unreachablePick, confirmId: 'x' })[Symbol.asyncIterator]();
+  const first = iter.next();
+  assert.equal(await Promise.race([first.then(() => 'emitted'), new Promise((r) => setTimeout(() => r('waiting'), 50))]), 'waiting');
+  release();
+  assert.deepEqual((await first).value, { step: 'checking-access', account: 'acct-test' });
+  await iter.return?.(undefined);
 });

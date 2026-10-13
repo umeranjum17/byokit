@@ -93,7 +93,7 @@ export type MachineStore = { load(): Promise<MachineRecord | null>; save(r: Mach
 export interface Machine {
   readonly ref: MachineRef | null
   create(o: { name: string; size: string; keepCopies: boolean }): Promise<MachineRef>
-  adopt(ref: MachineRef, o: { confirmId: string; recipe: HostRecipe }): Promise<MachineRef>
+  adopt(ref: MachineRef, o: { confirmId: string; recipe: HostRecipe; onLine?: (line: string) => void }): Promise<MachineRef>
   state(): Promise<MachineState>
   wake(): Promise<void>; sleep(): Promise<void>
   install(r: HostRecipe, onLine?: (line: string) => void): Promise<void>

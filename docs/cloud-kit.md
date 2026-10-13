@@ -46,7 +46,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D-2 | Third-party adapters keep the provider's name: `boat()` is the Boat adapter; `sshVm()` describes the provider-independent SSH transport. Docs name Boat and fixtures use `boat.test`, mapped to loopback. The provider's label still comes from the app at run time. `sandboxApi()` remains a deprecated alias with the same signature; the persisted provider id remains `sandbox-api` for existing records and install behavior. No default provider or URL is added. |
 | D-3 | A capability kit, not a third aggregator. It sits beside `@byokit/openclaw` and `@byokit/herdr`: the app still picks one runtime kit, and that kit runs inside the app's host process on the machine exactly as it does at home. `@byokit/cloud` only decides where that process runs. It imports no other kit and no kit imports it. `@byokit/accounts` is untouched. |
 | D-4 | Two adapters behind one `Provider` type (4). **Boat**: create, sleep, wake, snapshot, fork, remove, exec, write and an HTTPS URL per port, over `fetch` with no vendor SDK. **SSH VM**: any rented Linux machine the person already created; exec, write, install and supervise only, through the `ssh` binary the app passes by absolute path. Optional `Provider` methods an adapter cannot do are absent, and the UI hides that action. |
-| D-5 | Types in section 4 are frozen at M1. A change is a spec change first: stop and ask. The approved tailnet amendment (4.5, 9; 2026-10-13) adds `joinTailnet` and `tailnet`; Boat keyed joins remain unsupported until a credential-safe stdin transport exists. |
+| D-5 | Types in section 4 are frozen at M1. A change is a spec change first: stop and ask. The approved tailnet amendment (4.6, 9; 2026-10-13) adds `joinTailnet` and `tailnet`; Boat keyed joins remain unsupported until a credential-safe stdin transport exists. |
 | D-6 | Entries. `.` is portable (Node, Electron, React Native): everything 3.1's `index.ts` re-exports (types, `machine()`, `boat()` (and deprecated `sandboxApi()`), `claim()` (M8), `MachineError`, `estimate()`, the words helpers and M7's `wakeResolve()`); no `node:*` import. `./ssh` is Node only (`sshVm()`, `sshHostKey()`). `./idle` (M7: `idle()`, `stopSelf()`) runs on the machine inside the host process and is portable. `./testing` is Node only: the fake provider and the contract suite. No other entries. The Boat adapter does not run from a web page (15.1), so browsers and PWAs set up from the phone app or a desktop app. |
 | D-7 | One person, one provider account, one machine per app install. The kit refuses a `MachineRef` whose `account` differs from `provider.account()`. An app operator provisioning on its own account for users is pooling and is not supported. |
 | D-8 | Model credentials are signed in on the machine, inside the aggregator (11). They are never copied from the person's computer and never pass through the provider's own credential features. Sandboxes are created with nothing of the person's passed in (`noEnv: true`). |
@@ -345,7 +345,35 @@ Where this differs from the first suggested shape, and why:
   pointing at a deleted machine.
 - The auto-snapshot policy is a call the app makes, `scheduleSnapshots({ everyMs, keep, onResult })`, not stored state (5.10).
 
-### 4.5 Approved tailnet additions (2026-10-13)
+### 4.5 Setup step stream (K-PROGRESS)
+
+The connect screen never infers success from log prose or elapsed time. `setup()` reports one step per real result
+over the 5.2a paths, for the app to show with `words()` (5.11).
+
+```ts
+// src/setup.ts, exported from '.'
+export type SetupStepName = 'checking-access' | 'listing' | 'inspecting' | 'installing' | 'pairing';
+export type SetupStep =
+  | { step: 'checking-access'; account: string }   // provider.account() returned
+  | { step: 'listing'; machines: MachineRef[] }    // provider.list() returned
+  | { step: 'inspecting'; ref: MachineRef }        // the picked machine passed the 5.2a guards and is saved
+  | { step: 'installing'; ref: MachineRef }        // install(recipe) resolved
+  | { step: 'pairing' }                            // the app's pair gate resolved
+  | { step: 'ready'; ref: MachineRef }
+  | { step: 'failed'; at: SetupStepName; cause: WordKey; retryable: boolean };
+export function setup(o: {
+  provider: Provider; store: MachineStore; recipe: HostRecipe;
+  pick: (listed: MachineRef[]) => MachineRef;      // the app's choice from the listing event
+  confirmId: string;                               // must equal the picked id (5.2a)
+  onLine?: (line: string) => void;                 // install lines, in order
+  pair?: (ref: MachineRef) => Promise<void>;       // the app's Pair-ready gate; absent skips pairing
+}): AsyncGenerator<SetupStep>
+```
+
+`Machine.adopt` gains an optional `onLine` in its options, passed to its install; nothing else in 4.1 changes.
+`src/words.ts` gains `errorKey(e: MachineError): WordKey`, the key `errorWords` shows (12).
+
+### 4.6 Approved tailnet additions (2026-10-13)
 
 ```ts
 export type TailnetStep =
@@ -546,6 +574,21 @@ land with that provider's adapter, behind the same members (follow-up).
   decimal GB (bytes / 1e9), rounded to one decimal. A non-zero exit or an unreadable line rejects `provider`. Like
   every command it needs the machine on. Words: `disk.used`.
 - The bill: the free copies and their price are 15.1's. `keep` defaults to 3 so the kit stays inside the free ones.
+
+### 5.11 Setup step stream (K-PROGRESS)
+
+`setup()` drives one existing-computer connect (5.2a) as an async iterable: checking-access
+(`provider.account()`), listing (`provider.list()`; absent reads as a non-retryable listing failure), the
+app's `pick`, inspecting plus installing (`Machine.adopt` with the consented recipe; `onLine` carries the
+install lines), the `pair` gate, then ready. No step is emitted before its result: no timer percentages and
+no log-text inference. Phone-key enrol, claim/publish, the public route and console setup are out of scope.
+- A rejection yields one `failed` step and ends the stream: `at` is the phase whose call failed, `cause` is
+  `errorKey` of the error (a non-`MachineError` reads `error.app`), and `retryable` is true only for
+  `unreachable`, `timeout`, `provider`, `balance` and `busy`. An adopt failure after the ref was saved reads
+  `installing`; before that it reads `inspecting`; `busy` always reads `inspecting`.
+- A retry calls `setup()` again with the same arguments: when the store already holds the picked machine
+  (`exists`), the stream resumes at install on that ref. Install stays idempotent, so a re-run on an installed
+  machine reinstalls rather than reporting work it did not do.
 
 ## 6. Boat adapter (`src/boat.ts`)
 
@@ -953,7 +996,7 @@ ports it previously exposed as though it had this fresh-machine guarantee; the p
   A restore of the same machine will keep its identity.
 - The app shows `tailnet.joining` while the join runs, then `tailnet.approvalNeeded` when sign-in or approval is needed,
   and `tailnet.loginExpired` for an unused shown link; the callback remains the
-  union in 4.5 (`open-page`, `approve`, `joined`). This slice's key refusal is specified in 4.5.
+  union in 4.6 (`open-page`, `approve`, `joined`). This slice's key refusal is specified in 4.6.
 
 ### 9.2 Bootstrap and proof
 
@@ -1088,6 +1131,12 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
 | `tailnet.unsupported` | This cloud computer cannot join your private network yet. |
 | `tailnet.approvalNeeded` | Approve your cloud computer on the sign-in page on your phone. |
 | `tailnet.loginExpired` | The sign-in link expired. Try connecting your cloud computer again. |
+| `setup.checking-access` | Checking your {label} account. |
+| `setup.listing` | Looking for your existing cloud computers. |
+| `setup.inspecting` | Checking this cloud computer can run {app}. |
+| `setup.installing` | Putting {app} on your cloud computer. |
+| `setup.pairing` | Connecting this device to {app}. |
+| `setup.ready` | {app} is running on your cloud computer. |
 | `host.not-installed` | {app} isn't on your cloud computer yet. |
 | `host.installing` | Putting {app} on your cloud computer… |
 | `host.running` | {app} is running on your cloud computer. |

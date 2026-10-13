@@ -448,7 +448,7 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       });
     },
 
-    adopt(selected, { confirmId, recipe }): Promise<MachineRef> {
+    adopt(selected, { confirmId, recipe, onLine }): Promise<MachineRef> {
       return exclusive('an adoption', async () => {
         await load();
         await checkAccount(current());
@@ -488,7 +488,7 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
           if (user.code !== 1 || user.timedOut) throw new MachineError('provider', 'could not check the requested run user');
         }
         await save(ref);
-        await self.install(recipe);
+        await self.install(recipe, onLine);
         return ref;
       });
     },
