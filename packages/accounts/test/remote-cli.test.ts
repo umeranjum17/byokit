@@ -481,6 +481,29 @@ test('a login still dying after cancel keeps its sign-in lock: the next start is
   } finally { await host.close(); }
 });
 
+test('a native login that exits 0 with no phone waiter is settled before its lock frees', { timeout: 10_000 }, async () => {
+  const root = scratchDir('remote-unwaited-success');
+  const native = fakeClaude(join(root, 'bins'));
+  const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
+  const home = join(stateDir, 'home'); mkdirSync(home);
+  const folder = join(home, '.claude');
+  const bins = { claude: native.bin };
+  const cli = cliAccounts({ stateDir, bins, env: { HOME: home, PATH: '/unused', LOGIN_MODE: 'success' }, managedFolders: { claude: folder } });
+  const host = remoteCliHost({ cli, bins, waitCapMs: 60_000 });
+  try {
+    const started = await host.start('claude'); assert.equal(started.ok, true);
+    const { lock } = signInLock(folder);
+    assert.ok(existsSync(lock));
+    for (let i = 0; existsSync(lock) && i < 500; i++) await delay(10);
+    assert.equal(existsSync(lock), false, 'the lock frees once the native login has settled');
+    assert.ok(existsSync(join(folder, '.byokit-signin-complete')), 'the exit-0 login wrote its completion marker with no wait');
+    assert.equal((await cli.list())[0]?.state, 'ready');
+    const again = await host.start('claude');
+    assert.equal(again.ok ? 'ok' : again.error, 'already', 'a settled login is not reused as a signing row');
+    assert.equal(native.calls().filter((c) => c.argv[1] === 'login').length, 1, 'no second native login spawned into the same folder');
+  } finally { await host.close(); }
+});
+
 test('managed folders are Claude-only; a Codex folder is refused', () => {
   const root = scratchDir('remote-managed-codex');
   const native = fakeClaude(join(root, 'bins'));

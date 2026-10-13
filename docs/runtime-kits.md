@@ -38,7 +38,7 @@ for that path only, as stated in the next section. CLI sign-in status lives in `
 Out of scope for the build phase: releasing (firstmate/owner runs `release.yml`), muxr adoption (section 10), any
 operated service, and any change to `@byokit/accounts`, `link`, `relay`, `discover`, `seal`, `decide` or `ui`
 source, except `@byokit/accounts/cli` `launch` (MS-S2, 6.6), and, for native CLI sign-in only, the `cliAccounts`
-`managedFolders` option, the `remoteCliHost` `start` signal and `close()`, and the sign-in lock helper `signInLock`.
+`managedFolders` option, the `folderOf(id)` accessor, the `remoteCliHost` `start` signal and `close()`, and the sign-in lock helper `signInLock`.
 The kit's only `@byokit/accounts` dependency is the `@byokit/accounts/cli` import of `cliAccounts` and `remoteCliHost`; no other accounts surface is imported.
 
 ## 2. Decisions
@@ -774,9 +774,11 @@ only successful activation/restart is `done`. Concurrent native logins to one en
 sign-in lock (`signInLock`: the `.byokit-signin-lock` directory the shell command also takes) is free or its holder PID
 (`.byokit-signin-holder`, written by both the shell and remote spawn with the native child's PID) is dead, and no in-host session for the provider is still unexited;
 a live, unreadable or missing holder file is busy (including a legacy shell's holderless lock; no unproven lock is stolen).
-Both paths hold that lock until the native child exits; a shell wrapper's exit alone is not liveness proof.
+A shell wrapper's exit alone is not liveness proof. The remote lock is held from spawn until its managed row is settled, not merely until the child exits:
+the remote driver removes the holder PID when the child exits (so a settling lock reads busy), then settles without any phone `wait`: exit 0 writes the completion marker and reads native status, and only a ready status keeps the login; any other exit or child error settles a failure (cancelling the row) before the lock is released. A remote start never reuses a row whose child exited 0; a pending settlement owns admission, so the next start is busy until it finishes.
 The remote driver attaches supervision before recording that PID. A holder-write failure stops and reaps the child,
 then releases the acquired lock and reports a plain failure; waits share one child-exit promise rather than adding a listener per poll.
+The kit reads a `signing` row's folder through `cliAccounts`' `folderOf(id)` (the managed folder itself, never a launch-env key) when it claims that row's lock.
 The phone uses the existing link start/view/paste/cancel operations; credentials stay on the engine machine.
 For the native Claude route, a link sign-in view reports `ready: false` while its drive is active or its latest
 attempt failed, even if native credential detection already succeeds; other providers keep their signed-in readiness. The drive's successful live activation, not credential presence,
