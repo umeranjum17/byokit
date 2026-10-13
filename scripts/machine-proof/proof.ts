@@ -30,6 +30,8 @@ export type ProofHooks = {
   // Destructive experiment on a separate disposable sandbox; never the app machine.
   noEnvScrub(provider: Provider, ref: MachineRef): Promise<Observation>;
 };
+// Tailnet ingress is plain HTTP inside the tailnet's WireGuard tunnel, on the app's own exposed port.
+export const tailnetRoute = (name: string, port: number): string => `http://${name}:${port}`;
 export type ProofTarget = {
   provider: Provider;
   app: AppRecipe;
@@ -127,7 +129,7 @@ export async function runProof(o: {
       }
       if (provider.id === 'sandbox-api') {
         const tailnet = await m.tailnet();
-        s.url = tailnet.name === null ? null : `https://${tailnet.name}`;
+        s.url = tailnet.name === null ? null : tailnetRoute(tailnet.name, s.app.exposure.port);
       }
       await add(adapter, 'unit-resume', async () => {
         assert.equal(await m.host(), 'running');

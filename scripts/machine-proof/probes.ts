@@ -31,7 +31,7 @@ function relayUrl(s: Session, options: ProbeOptions): URL {
   assert.ok(s.url !== null || s.provider.id === 'ssh-vm', 'sandbox probes need the private tailnet route from prepare');
   const url = new URL(s.url ?? options.vmRelayUrl);
   assert.ok(!url.username && !url.password && !url.search && !url.hash, 'relay URL must not carry a credential');
-  assert.ok(url.protocol === 'https:' || url.protocol === 'wss:', 'live relay requires TLS');
+  assert.equal(url.protocol, s.url === null ? 'https:' : 'http:', 'the VM relay requires TLS; the tailnet route is plain HTTP inside WireGuard');
   return url;
 }
 async function observation(s: Session, argv: readonly string[]): Promise<Observation> {
@@ -48,7 +48,7 @@ export function probes(o: ProbeOptions): ProofHooks {
     observe: async (check, s) => {
       if (o.commands[check]) return observation(s, o.commands[check]!);
       if (['websocket', 'relay-resume', 'route-rehost'].includes(check)) {
-        const url = relayUrl(s, o); url.protocol = 'wss:'; url.pathname = '/relay/v1/host';
+        const url = relayUrl(s, o); url.protocol = url.protocol === 'http:' ? 'ws:' : 'wss:'; url.pathname = '/relay/v1/host';
         await socket(url.href);
         return { status: 'pass', detail: 'relay WebSocket upgraded through the configured TLS ingress' };
       }

@@ -393,6 +393,16 @@ test('a Boat bootstrap joins the private network without opening a public app po
     const bootstrap = server.machine.runs.find(r => r.argv[2]?.includes('tailscale.com/install.sh'));
     assert.ok(bootstrap?.root && bootstrap.inputBytes === 0);
     assert.equal(server.requests.filter(r => r.path.endsWith('/host')).length, 0, 'bootstrap plus host makes no public hosting call');
+    daemon('NeedsMachineAuth');
+    const approvals: string[] = [];
+    assert.deepEqual(await m.joinTailnet({ hostname: 'umer-cloud' }, (s) => {
+      approvals.push(s.step);
+      if (s.step === 'approve') {
+        assert.equal(s.name, 'umer-cloud');
+        daemon('Running', 'umer-cloud.umer.ts.net.'); // the tailnet admin approved the machine
+      }
+    }), { name: 'umer-cloud.umer.ts.net' });
+    assert.deepEqual(approvals, ['approve', 'joined']);
     daemon('NeedsMachineAuth', 'umer-cloud.umer.ts.net.');
     assert.equal((await m.tailnet()).state, 'needs-login');
     daemon('Stopped');

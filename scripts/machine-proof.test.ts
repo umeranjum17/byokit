@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import { createServer } from 'node:http';
+import { WebSocketServer } from 'ws';
 import type { AddressInfo } from 'node:net';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -78,6 +79,28 @@ test('raw-port probe classifies a closed loopback port as refused and an open on
   } finally {
     listener.closeAllConnections();
     await new Promise<void>((resolve, reject) => listener.close(e => e ? reject(e) : resolve()));
+  }
+});
+
+test('websocket probe dials the private tailnet route on the app port over plain ws (checks the probe; the live proof checks the tailnet)', async () => {
+  const http = createServer();
+  const wss = new WebSocketServer({ server: http, path: '/relay/v1/host' });
+  const paths: string[] = [];
+  wss.on('connection', (_socket, request) => { paths.push(request.url ?? ''); });
+  await new Promise<void>(resolve => http.listen(0, '127.0.0.1', resolve));
+  const port = (http.address() as AddressInfo).port;
+  const provider = fakeProvider();
+  const ref = await provider.create!({ name: 'web', size: 'small', keepCopies: false, idempotencyKey: 'ws-route' });
+  const app = { ...studioRecipe(inputs), exposure: { ...studioRecipe(inputs).exposure, port } };
+  const hooks = probes({ apiRoot: 'https://boat.test', key: async () => 'test-key', vmRelayUrl: 'https://boat.test',
+    publicAddress: async () => '127.0.0.1', ask: async () => '', commands: {} });
+  try {
+    const result = await hooks.observe('websocket', { provider, ref, app, url: `http://127.0.0.1:${port}` });
+    assert.equal(result.status, 'pass');
+    assert.deepEqual(paths, ['/relay/v1/host']);
+  } finally {
+    wss.close();
+    await new Promise<void>((resolve, reject) => http.close(e => e ? reject(e) : resolve()));
   }
 });
 

@@ -96,8 +96,8 @@ unchanged ([provider contract](../../docs/cloud-kit.md#6-boat-adapter-srcboatts)
 ## Your own tailnet
 
 `await m.joinTailnet({ hostname: 'umer-cloud' }, showStep)` installs and starts Tailscale as root.
-`showStep` receives `open-page` with the sign-in link (approve it on your phone), then `joined`
-with the MagicDNS name. `await m.tailnet()` reads `joined`, `needs-login`, `starting` or `off` without joining.
+`showStep` receives `open-page` with the sign-in link (approve it on your phone), or `approve` when the
+tailnet must approve the machine and shows no link, then `joined` with the MagicDNS name. `await m.tailnet()` reads `joined`, `needs-login`, `starting` or `off` without joining.
 This slice supports keyless Boat joins only. Passing `authKey` is a typed `unsupported` refusal:
 Boat's emulated stdin writes a temporary file, which must never carry a join key.
 
