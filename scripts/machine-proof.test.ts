@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { createServer } from 'node:http';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { writeFile, readFile, mkdtemp, rm } from 'node:fs/promises';
@@ -46,6 +47,35 @@ for (const id of ['sandbox-api', 'ssh-vm'] as const) {
     });
   }
 }
+
+test('public app-port qualification refuses an exposed port and requires a local positive control', async () => {
+  const listener = createServer((_q, r) => r.end('Umer lab listener'));
+  await new Promise<void>(resolve => listener.listen(0, '127.0.0.1', resolve));
+  const address = listener.address();
+  assert.ok(address && typeof address !== 'string');
+  const provider = fakeProvider();
+  const ref = await provider.create!({ name: 'web', size: 'small', keepCopies: false, idempotencyKey: 'private-port' });
+  provider.fake.machine.script('curl', { code: 0, stdout: 'Umer lab listener', stderr: '', timedOut: false });
+  const app = { ...studioRecipe(inputs), exposure: { ...studioRecipe(inputs).exposure, port: address.port } };
+  const session = { provider, ref, app, url: null };
+  const hooks = (ip: string) => probes({ apiRoot: 'https://boat.test', key: async () => 'test-key',
+    vmRelayUrl: 'https://boat.test', publicAddress: async () => ip, ask: async () => '', commands: {} });
+  try {
+    assert.equal(await (await fetch(`http://127.0.0.1:${address.port}`)).text(), 'Umer lab listener');
+    // Real TCP on loopback proves the criterion, not an actual provider firewall.
+    const refused = await hooks('127.0.0.2').observe('raw-port', session);
+    assert.equal(refused.status, 'pass');
+    assert.match(refused.detail, /ECONNREFUSED/);
+    const exposed = await hooks('127.0.0.1').observe('raw-port', session);
+    assert.equal(exposed.status, 'fail');
+    assert.match(exposed.detail, /accepted/);
+    provider.fake.machine.script('curl', { code: 7, stdout: '', stderr: 'no listener', timedOut: false });
+    await assert.rejects(hooks('127.0.0.2').observe('raw-port', session), /listener must answer locally/);
+  } finally {
+    listener.closeAllConnections();
+    await new Promise<void>((resolve, reject) => listener.close(e => e ? reject(e) : resolve()));
+  }
+});
 
 test('two-process wrapper forwards termination and exits when a child fails', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'm6-wrapper-'));

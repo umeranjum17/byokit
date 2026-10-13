@@ -1,6 +1,7 @@
 // machine() (docs/cloud-kit.md section 5). M1 builds the 5.1 checks of every method
 // and 5.2-5.5 and 5.7; M3 builds install, update, host, logs and deliver (section 8).
 import { MachineError } from './errors.ts';
+import { joinTailnet, tailnet } from './tailnet.ts';
 import { balanceCost, dateOf, enteredCost, monthStartIso, usageCost } from './cost.ts';
 import { archOf, nodeInstallArgv, nodePath } from './node.ts';
 import { checkRecipe, defaultRange, markerPath, satisfiesRange } from './recipe.ts';
@@ -598,6 +599,14 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       const r = await need();
       checkPort(port);
       return o.provider.url?.(r, port) ?? null;
+    },
+
+    async joinTailnet(options, onStep) {
+      return joinTailnet(o.provider, await need(), options, onStep);
+    },
+
+    async tailnet() {
+      return tailnet(o.provider, await need());
     },
 
     async cost() {

@@ -18,32 +18,31 @@ export function trialBudget(l: Record<string, any>, count: number, now = Date.no
   for (const period of ['minute', 'hour', 'day']) if (!(l.starts?.[period]?.remaining > 0)) throw new Error(`No confirmed ${period} start allowance.`);
   return { remaining, rate, budget: Math.min(remaining, 10 * rate), warn: 10 * rate, stop: 15 * rate };
 }
-export const M6_HOST = `import { createServer } from 'node:http';
+export const M6_HOST = `import { WebSocketServer } from 'ws';
 import { hostname, platform } from 'node:os';
 import { writeFileSync } from 'node:fs';
 import { Host, keyPair } from '@byokit/pair';
-import { Relay, RelayClient } from '@byokit/relay';
 let paired = false, turns = 0;
 const host = await Host.open({ keys: keyPair(), name: "Umer's cloud computer",
  confirm: p => { if (paired) return false; paired = true; writeFileSync('paired.json', JSON.stringify({ words: p.words }), { mode: 384 }); return true; },
  handle: r => { if (r.op !== 'get.state' || turns) throw new Error('Only one machine-state tool call is allowed.');
  const result = { machine: hostname(), platform: platform(), toolCalls: ++turns };
  writeFileSync('turn.json', JSON.stringify(result), { mode: 384 }); return result; } });
-const relay = await Relay.open({ trustProxy: false });
-await relay.admit(host.keys.publicKey, "Umer's cloud computer");
-const server = createServer(); relay.attach(server);
-const port = Number(process.argv[3] ?? 7300);
-server.listen(port, '0.0.0.0', () => {
- new RelayClient(host, { url: 'ws://127.0.0.1:' + port + '/relay/v1/host', onStatus: s => {
- if (s === 'online') writeFileSync('offer.json', JSON.stringify(host.offer({ role: 'control', urls: [process.argv[2].replace('https:', 'wss:') + '/link/v1/' + host.id] })), { mode: 384 }); } }); });
+const server = new WebSocketServer({ host: '127.0.0.1', port: 7300 });
+server.on('connection', ws => host.accept(ws));
+server.on('listening', () => writeFileSync('offer.json', JSON.stringify(host.offer({ role: 'control',
+ urls: [process.argv[2].replace('http:', 'ws:')] })), { mode: 384 }));
 process.on('SIGTERM', () => { writeFileSync('stopped.json', JSON.stringify({ turns }), { mode: 384 }); process.exit(0); });
 `;
 export function cloudRecipe(url: string, name: string): HostRecipe {
-  if (new URL(url).protocol !== 'https:') throw new Error('A secure provider relay address is required.');
+  const address = new URL(url);
+  if (address.protocol !== 'http:' || !address.hostname.endsWith('.ts.net') || address.port !== '7300' || address.username || address.password)
+    throw new Error('A private cloud computer name on your own network is required.');
   return { name, workDir: '/home/user/byokit-m6', node: { version: '22.22.3', sha256: {
     'linux-x64': '2e5d13569282d016861fae7c8f935e741693c269101a5bebcf761a5376d1f99f',
     'linux-arm64': '1c4a9933a5e45bc88f54f70b5f91232c127ec49f1a5989d23fb85824c7adf9b7' } },
-    install: [['npm', 'install', '--no-audit', '--no-fund', '--save-exact', '@byokit/pair@0.9.0', '@byokit/relay@0.6.0'],
+    installRoot: [['tailscale', 'serve', '--bg', '--tcp=7300', 'tcp://127.0.0.1:7300']],
+    install: [['npm', 'install', '--no-audit', '--no-fund', '--save-exact', '@byokit/pair@0.9.0', 'ws@8.22.0'],
       ['node', '-e', `require('node:fs').writeFileSync('host.mjs', ${JSON.stringify(M6_HOST)}, {mode:384})`]],
     run: { argv: ['node', '/home/user/byokit-m6/host.mjs', url.replace(/\/$/, '')], env: {} } };
 }
