@@ -733,7 +733,7 @@ choice is `setup-token`, the prompt is the fixed `Sign-in token` label and no ga
 A `keyEntry` choice (a plan key such as `opencode-go`) never starts the wizard, which refuses it: the view asks
 `{ prompt: 'Plan key' }` (`'API key (billed per use)'` for `api` billing), waits for `paste` (15 min) and calls typed
 `openclaw.setup.activate { kind: 'api-key', agentId, authChoice, apiKey }`; the engine live-tests the key and saves
-the agent's model. The key is cut from any error the view carries. Activation (this one and `anthropic-cli`'s) writes
+the agent's model. A failed key-entry sign-in shows only the kit's words (`API key activation failed`, or `This key type is not available on this engine.` when the engine refuses the key type); the engine's text never reaches the view. Activation (this one and `anthropic-cli`'s) writes
 `auth`, which the pin applies by restarting the gateway once its requests drain; when the activation changed config
 `auth` and a spawned engine restarts for it, `done` waits for that restart to begin and the kit to be ready again,
 within 60 s (event-driven, not polled). Past that the sign-in ends `why: 'failed'` with the words that the engine took too long and to try again (cancelled

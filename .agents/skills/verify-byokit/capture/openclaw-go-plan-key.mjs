@@ -51,7 +51,7 @@ try {
   refused.paste('byokit-probe-not-a-key');
   const failed = await refused.done;
   say('refused:', JSON.stringify(failed));
-  assert.match(failed.error ?? '', /not available on this Gateway/);
+  assert.equal(failed.error, 'This key type is not available on this engine.');
 
   // The key path: addKey sets the plan key up on another member's key agent; `auth: 'apiKey'` runs on its saved model.
   const keyed = await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: key });

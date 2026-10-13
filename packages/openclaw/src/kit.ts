@@ -878,8 +878,8 @@ export class OpenClawKit {
   }
 
   private request(): GatewayTransport['request'] {
-    if (!this.transport || this.current.phase !== 'ready') throw new Error('gateway not ready');
     const transport = this.transport;
+    if (!transport || this.current.phase !== 'ready') return () => Promise.reject(new Error('gateway not ready'));
     return (method, params, options) => {
       const changesAuth = /^(models\.authLogout|openclaw\.setup\.(auth\.start|activate)|wizard\.(next|cancel)|config\.(apply|patch|set)|agents\.(create|update|delete)|secrets\.(reload|store\.(set|delete))|byokit\.keys)$/.test(method);
       if (!changesAuth || (method === 'byokit.keys' && (params as { action?: string } | undefined)?.action === 'ready'))
@@ -891,11 +891,11 @@ export class OpenClawKit {
   call<M extends GatewayMethod>(method: M, params: GatewayParams<M>, o?: CallOptions): Promise<GatewayResult<M>> {
     if (this.o.browser && /^(config\.(apply|patch|set)|agents\.(create|update|delete)|plugins\.(install|uninstall|setEnabled|refresh))$/.test(method))
       return Promise.reject(new Error('browser policy changes require guarded patchConfig'));
-    try { return this.request()(method, params, o) as Promise<GatewayResult<M>>; } catch (error) { return Promise.reject(error); }
+    return this.request()(method, params, o) as Promise<GatewayResult<M>>;
   }
   callDynamic(method: string, params?: unknown, o?: CallOptions): Promise<unknown> {
     if (operatorMethods.has(method) || nodeMethods.has(method)) return Promise.reject(new Error(`use typed call for generated method: ${method}`));
-    try { return this.request()(method, params, o); } catch (error) { return Promise.reject(error); }
+    return this.request()(method, params, o);
   }
   get hello(): Hello | undefined { return this.greeting; }
   onEvent<E extends KitEventName>(event: E | '*', fn: (payload: KitEventPayload<E>, event: E) => void): () => void {

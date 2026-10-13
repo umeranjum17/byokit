@@ -31,6 +31,8 @@ const CANCEL_MS = 10_000;
 const RECONFIRM_MS = 60_000;
 const TURNS = 200;
 const PASTE_MS = 15 * 60_000;
+const KEY_UNAVAILABLE = 'This key type is not available on this engine.';
+const KEY_FAILED = 'API key activation failed';
 
 type DeviceCode = { code?: string; expires_in?: number | string; expiresInMinutes?: number; message?: string };
 type Step = { id?: string; type?: string; sensitive?: boolean; message?: string; deviceCode?: DeviceCode; externalUrl?: string };
@@ -129,6 +131,7 @@ export function signIn(
     const text = value instanceof Error ? value.message : String(value);
     return cut(secret ? text.split(secret).join('…') : text);
   };
+  const keyFailed = (status?: string): string => status === 'unavailable' ? KEY_UNAVAILABLE : KEY_FAILED;
 
   const done = new Promise<SignInView>((resolve) => { settle = resolve; });
   const say = (v: Omit<SignInView, 'state' | 'via'>): void => {
@@ -257,7 +260,7 @@ export function signIn(
       }, { timeoutMs: PULL_MS, signal }).finally(() => { activating = false; });
       if (result.late) return signal.aborted ? cancelled() : { state: 'failed', via, why: 'failed', error: LATE_RESTART };
       if (!result.ok) return { state: 'failed', via, why: 'failed',
-        error: clean(result.error ?? (apiKey === undefined ? 'Claude Code activation failed' : 'Key activation failed')) };
+        error: apiKey === undefined ? clean(result.error ?? 'Claude Code activation failed') : keyFailed(result.status) };
       return signal.aborted ? cancelled() : { state: 'done', via };
     }
     // The client chooses the wizard id; cancellation waits for the engine to register it.
@@ -411,7 +414,7 @@ export function signIn(
       if (signal.aborted) view = codeExpired ? expired() : cancelled();
       else if (sawDeviceCode && /expired_token|code.*expired|device.*(?:expired|timed out)/i.test(cut(error))) view = expired();
       else if (BUSY.test(cut(error))) view = { state: 'failed', via, why: 'busy' };
-      else view = { state: 'failed', via, why: 'failed', error: clean(error) };
+      else view = { state: 'failed', via, why: 'failed', error: keyRoute ? KEY_FAILED : clean(error) };
     }
     settleStart();
     if (view.state !== 'done') await release();

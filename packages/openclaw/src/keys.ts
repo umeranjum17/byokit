@@ -34,7 +34,7 @@ export function createKeys(ctx: ActivationCtx & {
     exclusive,
     async add(member: Member, o: { authChoice: string; apiKey: string }): Promise<AddKeyResult> {
       if (!check(member) || !o.apiKey.trim()) return 'invalid';
-      const route = routes().find((r) => r.choice === o.authChoice && r.keyEntry);
+      const route = routes().find((r) => r.choice === o.authChoice && r.keyEntry && r.readiness === 'ready');
       if (!route) return 'not_included';
       return exclusive(member, async () => {
         let sent = false;
