@@ -98,11 +98,25 @@ internal class PlatformAnr(private val automation: UiAutomation, private val our
     println("$app input responsive after its ANR Wait: ${TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)}ms")
   }
 
+  /**
+   * The platform dialog's accessibility root. The window manager can show the dialog before accessibility reports its
+   * root, so a single read races; poll like [awaitResponsive] does, bounded, and never take a Wait from another root.
+   */
+  private fun platformRoot(app: String): AccessibilityNodeInfo {
+    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+    while (true) {
+      val root = automation.rootInActiveWindow
+      if (root?.packageName?.toString() == "android") return root
+      root?.recycle()
+      assertTrue("$app ANR must expose the active platform dialog root", System.nanoTime() < deadline)
+      Thread.sleep(100)
+    }
+  }
+
   private fun waitOnce(window: String, app: String) {
-    val root = automation.rootInActiveWindow ?: error("$app ANR active root absent; left untouched")
+    val root = platformRoot(app)
     val controls = root.findAccessibilityNodeInfosByViewId("android:id/aerr_wait")
     try {
-      assertEquals("$app ANR must expose the active platform dialog root", "android", root.packageName?.toString())
       assertEquals("Exactly one platform ANR Wait control", 1, controls.size)
       val wait = controls.single()
       val clickable = wait.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK }

@@ -1,0 +1,37 @@
+{
+  "note": "Offline API-shape response fixtures, hand-authored against the Anthropic Messages docs; not live model recordings.",
+  "completed": {
+    "id": "msg_fixture",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-opus-4-6",
+    "content": [
+      { "type": "text", "text": "Judging now." },
+      { "type": "tool_use", "id": "toolu_fixture", "name": "decisions", "input": {
+        "intent": {"probabilities": {"task": 0.1, "followup": 0.8, "chat": 0.1}, "pick": "followup", "rationale": "About an earlier job."},
+        "urgent": {"probabilities": {"true": 0.85, "false": 0.15}, "pick": "true", "rationale": "The server room is on fire."},
+        "rating": {"probabilities": {"0": 0.1, "1": 0.2, "2": 0.7}, "pick": "2", "rationale": "Highest severity."}
+      } }
+    ],
+    "stop_reason": "tool_use",
+    "usage": { "input_tokens": 84, "output_tokens": 67 }
+  },
+  "refusal": {
+    "id": "msg_fixture",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-opus-4-6",
+    "content": [{ "type": "text", "text": "I cannot help with that request." }],
+    "stop_reason": "refusal",
+    "usage": { "input_tokens": 84, "output_tokens": 67 }
+  },
+  "no_tool": {
+    "id": "msg_fixture",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-opus-4-6",
+    "content": [{ "type": "text", "text": "Just chatting, no tool call." }],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 84, "output_tokens": 67 }
+  }
+}

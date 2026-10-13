@@ -44,34 +44,35 @@ const browserEvent = (event: string, payload: unknown): payload is { member: Mem
   event === 'byokit.browser' && isRecord(payload) && typeof payload.member === 'string'
     && (payload.kind === 'state' || payload.kind === 'signin');
 
-const memberKey = (member: Member, sessionKey: string): boolean =>
-  sessionKey.startsWith(`agent:${member}:`);
-
-function memberSessions(result: unknown, member: Member): Record<string, unknown>[] {
+function memberSessions(result: unknown, owns: (sessionKey: string) => boolean): Record<string, unknown>[] {
   const rows = Array.isArray(result) ? result : isRecord(result) && Array.isArray(result.sessions) ? result.sessions : [];
   return (rows as unknown[]).filter(
     (row): row is Record<string, unknown> =>
-      isRecord(row) && typeof row.sessionKey === 'string' && memberKey(member, row.sessionKey),
+      isRecord(row) && typeof row.sessionKey === 'string' && owns(row.sessionKey),
   );
 }
 
 /** `oc.run`'s run options, type-checked; the kit's own checks (account, tool names) still apply. */
 function runOptions(args: Record<string, unknown>): Omit<RunSpec, 'member' | 'sessionKey' | 'register' | 'meta'> {
-  const { message, model, auth, system, images, thinking, tools, schema } = args;
+  const { message, model, account, needs, auth, system, images, thinking, tools, schema } = args;
   const ok = typeof message === 'string'
     && (model === undefined || typeof model === 'string')
+    && (account === undefined || typeof account === 'string')
+    && (needs === undefined || (Array.isArray(needs) && needs.every((n) => typeof n === 'string')))
     && (auth === undefined || auth === 'apiKey')
     && (system === undefined || typeof system === 'string')
     && (images === undefined || (Array.isArray(images) && images.every((i) =>
       isRecord(i) && typeof i.data === 'string' && typeof i.mimeType === 'string')))
     && (thinking === undefined || (typeof thinking === 'string' && THINKING.has(thinking)))
     && (tools === undefined || (Array.isArray(tools) && tools.every((t) => typeof t === 'string')));
-  if (!ok) throw new Error('oc.run needs { message, sessionKey?, model?, auth?, system?, images?, thinking?, tools?, schema? }');
+  if (!ok) throw new Error('oc.run needs { message, sessionKey?, model?, account?, needs?, auth?, system?, images?, thinking?, tools?, schema? }');
   if (schema !== undefined) outputSchema(schema);
   return {
     message: message as string,
     ...(schema === undefined ? {} : { schema: schema as RunSpec['schema'] }),
     ...(model === undefined ? {} : { model: model as string }),
+    ...(account === undefined ? {} : { account: account as RunSpec['account'] }),
+    ...(needs === undefined ? {} : { needs: [...(needs as string[])] }),
     ...(auth === undefined ? {} : { auth: 'apiKey' as const }),
     ...(system === undefined ? {} : { system: system as string }),
     ...(images === undefined ? {} : { images: (images as { data: string; mimeType: string }[])
@@ -113,6 +114,7 @@ export function openclawLink(
   o: OpenClawLinkOptions,
 ): OpenClawLinkHost {
   const passThrough = o.passThrough ?? (() => false);
+  const memberKey = (member: Member, sessionKey: string): boolean => kit.memberOf(sessionKey) === member;
   // The host lifecycle extension is supplied by the browser host. Without it control fails closed.
   const browser = (): BrowserHost => {
     if (!kit.browser) throw refused();
@@ -153,8 +155,10 @@ export function openclawLink(
     if (grant.expires !== undefined) {
       const timer = setTimeout(() => {
         const current = seen.get(grant.id);
-        if (current?.expires !== undefined && current.expires > Date.now()) memberOf(current);
-        else void revoke(grant.id).catch(() => {});
+        if (current?.expires !== undefined && current.expires > Date.now()) {
+          try { memberOf(current); return; } catch { /* refused at the boundary: revoke below, never throw from a timer */ }
+        }
+        void revoke(grant.id).catch(() => {});
       }, Math.min(grant.expires - Date.now(), 2 ** 31 - 1));
       timer.unref(); expiry.set(grant.id, timer);
     }
@@ -359,7 +363,7 @@ export function openclawLink(
       }
       case 'oc.sessions': {
         const result = await (kit.call as (method: string, params: unknown) => Promise<unknown>)('sessions.list', {});
-        return memberSessions(result, member);
+        return memberSessions(result, (key) => memberKey(member, key));
       }
       case 'oc.steer': {
         if (typeof args.sessionKey !== 'string' || typeof args.text !== 'string' || (args.auth !== undefined && args.auth !== 'apiKey'))
@@ -532,9 +536,11 @@ export function openclawLink(
             void s.write(`${JSON.stringify({ event: 'byokit.browser', payload: { member, kind: record.kind } })}\n`).catch(() => {});
           return;
         }
+        // Attribution (5.15): an `<member>--<hex6>` account agent's events are the member's.
         const agent = record?.agentId;
         const key = record?.sessionKey;
-        if (agent !== member && !(typeof key === 'string' && memberKey(member, key))) return;
+        if (!(typeof agent === 'string' && kit.memberOf(agent) === member)
+          && !(typeof key === 'string' && memberKey(member, key))) return;
         void s.write(`${JSON.stringify({ event, payload })}\n`).catch(() => {});
       });
       const offApproval = kit.onApproval((approval, change) => {

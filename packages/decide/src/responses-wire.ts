@@ -1,7 +1,9 @@
 // Shared OpenAI Responses wire format for decision backends (OpenAI itself and OpenCode Go subscription
 // plans served over the same Responses shape): prompt assembly, the JSON schema for typed answers, and
 // answer parsing with reported usage. Backends differ only in endpoint, credential, and catalogue handling.
-import type { Question, Raw } from './core.ts';
+// The question schema and the parsed-answer mapping are also reused by the Anthropic Messages backend,
+// whose forced `decisions` tool carries the same answer object.
+import type { Question, Raw, Usage } from './core.ts';
 import { parseUsage } from './http.ts';
 import type { DecisionImage } from './images.ts';
 import { STATE_INSTRUCTIONS } from './prompt.ts';
@@ -71,9 +73,14 @@ export function responsesAnswers(questions: Record<string, Question>, json: unkn
       try { parsed = JSON.parse(text); } catch { /* malformed text abstains, carrying the response */ }
     }
   }
+  return parsedAnswers(questions, parsed, usage, json);
+}
+
+/** Map one already-parsed answers object onto questions; anything off-shape abstains with usage and raw. */
+export function parsedAnswers(questions: Record<string, Question>, parsed: unknown, usage: Usage | undefined, raw: unknown): Record<string, Raw> {
   return Object.fromEntries(Object.entries(questions).map(([k, q]) => {
     const a = isJsonRecord(parsed) && Object.hasOwn(parsed, k) ? parsed[k] : undefined;
-    const carried = { confidenceSource: 'self-reported' as const, ...(usage && { usage }), raw: json,
+    const carried = { confidenceSource: 'self-reported' as const, ...(usage && { usage }), raw,
       ...(typeof a?.rationale === 'string' && { rationale: a.rationale }) };
     if (q.kind === 'rank') return [k, { probabilities: {},
       ...(isJsonRecord(a) && { ranking: a.ranking, confidence: a.confidence,

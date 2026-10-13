@@ -52,7 +52,7 @@ export type { GatewayMethods } from './generated/methods.ts';
 export type { JsonValue } from './output.ts';
 export type { RouteFacts, RouteView } from './routes.ts';
 export { OpenClawKit, type KitOptions, type RetainedLogin } from './kit.ts';
-export type { AddKeyResult } from './keys.ts';
+export type { AddKeyResult, KeyFailureReason } from './keys.ts';
 export { stateWords, toAccountView, words, type AccountView, type WordKey } from './words.ts';
 export { chooseAccount, consider, resolveSelection, type RoomOf } from './pick.ts';
 

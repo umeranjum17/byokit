@@ -332,7 +332,7 @@ Runtime kits' state, from `@byokit/ui/kits` (no React), typed to fit `@byokit/op
 
 - Runs: `runStore(oc)` with `send(message)` and `stop()`; `runView(state, { words, name })` gives the reply so far, the
   tool at work and, for a failed run, the kit's sentence (`words` from `@byokit/openclaw/device`, `name` "ChatGPT").
-  OpenClaw's `started` and `thinking` frames are accepted without changing the reply, tools or rendered state;
+  OpenClaw's `started`, `thinking` and `account` frames are accepted without changing the reply, tools or rendered state;
   the running phase begins at `send`, not Gateway acceptance.
 - Approvals: `approvalsStore(oc)` keeps the waiting list live (each leaves when answered anywhere or when it expires);
   `approvalWords(approval, words, 'Your helper')` asks the question.

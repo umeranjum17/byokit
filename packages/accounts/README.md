@@ -454,6 +454,7 @@ subscription handle for `openai({ auth: 'account', account: handle, model })` in
 It routes requests through `Accounts.respond`, which keeps tokens in the app's store and refreshes them
 before use. The handle contains no credentials, follows sign-out, and needs no additional sign-in or
 API key (billed per use). ChatGPT remains offered by default. Use the handle only where the sign-in lives.
+The handle carries `provider: 'chatgpt'`; decide refuses it on any other route.
 
 ## Official ChatGPT plan token-sharing adapter
 
@@ -477,7 +478,8 @@ After the member's Go plan key is saved through its key route
 `accounts.opencodeGo(member)` returns a member-bound subscription handle for `opencodeGo({ account: handle, model })`
 in `@byokit/decide`. It reads the member's own saved plan key on every request, so the key stays in the app's
 own store and the handle exposes none. Billing is `subscription`, with no API-key fallback; a member with no
-saved Go plan key reads as signed out. Use the handle only where the sign-in lives.
+saved Go plan key reads as signed out. Use the handle only where the sign-in lives. The handle carries
+`provider: 'opencode-go'`; decide refuses it on any other route.
 
 
 ## Desktop credential storage security

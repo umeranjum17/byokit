@@ -49,6 +49,28 @@ The package stays private until the recorded real-provider run (M6).
 
 The library reads no environment variable. Every spawned process gets an env built from nothing.
 
+## Saved copies, reset and disk space
+
+A machine made with `keepCopies: true` keeps saved copies of itself. `snapshot()` saves one and
+keeps only the newest three of the kit's own copies (`snapshot({ keep })` to change it; Boat keeps
+10 for free, then bills each). `scheduleSnapshots({ everyMs, onResult })` saves a copy when the newest is
+older than `everyMs`, on a timer while the app runs, and resolves `{ stop() }` (await it; it rejects at once on a bad
+recipe, a missing machine, or a machine or provider without copies). The kit has no hosted
+scheduler, so nothing saves while the app is closed.
+`restore(id)` rebuilds the machine from a copy; everything changed since is lost, so the app
+confirms first with `words('snapshot.restore', { date })`. A copy that is gone rejects
+`no-snapshot`; a save, reset or remove while another of these runs on the same machine rejects `busy`. `disk()` resolves `{ usedGb, totalGb }` for `words('disk.used', ...)`.
+
+```ts
+import { words, type Machine } from '@byokit/cloud';
+
+export async function reset(m: Machine, confirm: (s: string) => Promise<boolean>) {
+  const [last] = await m.snapshots();
+  if (last === undefined || !(await confirm(words('snapshot.restore', { date: last.at.slice(0, 10) })))) return null;
+  return m.restore(last.id); // the app then calls url(port) again: the machine is new
+}
+```
+
 ## Boat adapter
 
 `boat({ baseUrl, label, prices, key, fetch?, signal? })` returns the Boat `Provider`. The app
