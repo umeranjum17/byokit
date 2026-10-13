@@ -71,6 +71,25 @@ The stored provider id stays `sandbox-api`, so existing machine records continue
 work. Credentials, cost rules and the M6 spending and publication gates are
 unchanged ([provider contract](../../docs/cloud-kit.md#6-boat-adapter-srcboatts)).
 
+## Your own tailnet
+
+`await m.joinTailnet({ hostname: 'umer-cloud' }, showStep)` installs and starts Tailscale as root.
+`showStep` receives `open-page` with the sign-in link (approve it on your phone), then `joined`
+with the MagicDNS name. `await m.tailnet()` reads `joined`, `needs-login` or `off` without joining.
+This slice supports keyless Boat joins only. Passing `authKey` is a typed `unsupported` refusal:
+Boat's emulated stdin writes a temporary file, which must never carry a join key.
+
+When there is no TUN device, the daemon uses userspace networking. The app binds its host to
+loopback and its root recipe configures `tailscale serve --bg --tcp=<port> tcp://127.0.0.1:<port>`;
+joining alone does not expose a service. Advertise the tailnet name, never a provider URL.
+Tailscale state stays under `/etc/tailscale` across Boat wakes and is included in disk copies.
+The phone must be on the same tailnet; encrypted pairing is still required.
+
+**SECURITY: No public app port is opened by default.** Create, install, host and join never call
+`url()` or `/host`. Explicit `m.url(port)` makes that port public, including opening the provider
+firewall. Do not reuse a previously exposed sandbox as a fresh private-only machine: the public
+API has no unhost route. Private tailnet reachability and public-port refusal still need live proof.
+
 ## Recipes
 
 The app supplies its host program and installer as a `HostRecipe`, and the kit writes

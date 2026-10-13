@@ -351,6 +351,62 @@ test('an app rents on Boat and drives the real HTTP machine: no-env, status, exe
   }
 });
 
+test('a Boat bootstrap joins the private network without opening a public app port or carrying a join key', async () => {
+  const server = await startFakeSandboxServer();
+  try {
+    const provider = boat({ baseUrl: server.url, label: 'Boat', prices: prices(), key: async () => 'test-key' });
+    const m = machine({ provider, store: memoryStore() });
+    await rejects(m.tailnet(), 'no-machine');
+    await rejects(m.joinTailnet({ hostname: 'umer-cloud' }), 'no-machine');
+    const ref = await m.create({ name: 'web', size: 'small', keepCopies: false });
+    assert.deepEqual(await m.tailnet(), { state: 'off', name: null });
+    server.machine.script('npm', { code: 0, stdout: '', stderr: '', timedOut: false });
+    await m.install(recipe('web'));
+    assert.equal(await m.host(), 'running');
+
+    const before = server.machine.runs.length;
+    const canary = 'tskey-secret-must-never-leave-the-phone';
+    const refused = await rejects(m.joinTailnet({ hostname: 'umer-cloud', authKey: canary }), 'unsupported');
+    assert.match(refused.message, /sign-in on your phone/);
+    await rejects(m.joinTailnet({ hostname: 'umer-cloud', authKey: '' }), 'unsupported');
+    await rejects(m.joinTailnet({ hostname: 'bad;name' }), 'bad-recipe');
+    assert.equal(server.machine.runs.length, before, 'a refused key or hostname runs nothing');
+    assert.ok(!JSON.stringify(server.requests).includes(canary));
+
+    // The HTTP bench carries the real argv; only the remote installer and daemon are stand-ins.
+    server.machine.script('sh', { code: 0, stdout: '', stderr: '', timedOut: false });
+    const daemon = (BackendState: string, DNSName?: string, stderr = '') => server.machine.script('tailscale', {
+      code: BackendState === 'Running' ? 0 : 1, stdout: JSON.stringify({ BackendState, Self: { DNSName } }), stderr, timedOut: false,
+    });
+    daemon('NeedsLogin', undefined, 'To authenticate, visit: https://login.tailscale.com/a/test-login\n');
+    assert.deepEqual(await m.tailnet(), { state: 'needs-login', name: null });
+    const steps: string[] = [];
+    assert.deepEqual(await m.joinTailnet({ hostname: 'umer-cloud' }, (s) => {
+      steps.push(s.step);
+      if (s.step === 'open-page') {
+        assert.equal(s.url, 'https://login.tailscale.com/a/test-login');
+        daemon('Running', 'umer-cloud.umer.ts.net.'); // the person approved it on their phone
+      }
+    }), { name: 'umer-cloud.umer.ts.net' });
+    assert.deepEqual(steps, ['open-page', 'joined']);
+    assert.deepEqual(await m.tailnet(), { state: 'joined', name: 'umer-cloud.umer.ts.net' });
+    const bootstrap = server.machine.runs.find(r => r.argv[2]?.includes('tailscale.com/install.sh'));
+    assert.ok(bootstrap?.root && bootstrap.inputBytes === 0);
+    assert.match(bootstrap.argv[2], /--tun=userspace-networking/);
+    assert.match(bootstrap.argv[2], /--state=\/etc\/tailscale/);
+    assert.equal(server.requests.filter(r => r.path.endsWith('/host')).length, 0, 'bootstrap plus host makes no public hosting call');
+    daemon('NeedsMachineAuth', 'umer-cloud.umer.ts.net.');
+    assert.equal((await m.tailnet()).state, 'needs-login');
+    daemon('Stopped');
+    assert.equal((await m.tailnet()).state, 'off');
+    daemon('Unexpected');
+    await rejects(m.tailnet(), 'provider');
+    daemon('Running', 'not-a-tailnet-name');
+    await rejects(m.tailnet(), 'provider');
+    await m.remove(ref.id);
+  } finally { await server.close(); }
+});
+
 test('an app cleans up on Boat and every failure stays honest: no key leak, no lying state', async () => {
   const server = await startFakeSandboxServer();
   try {
