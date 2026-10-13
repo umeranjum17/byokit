@@ -66,7 +66,11 @@ export function memberOfAccount(root: string, ref: string): Member | undefined {
   const member = baseMemberOf(ref);
   const agent = /^agent:([^:]+):/.exec(ref)?.[1] ?? ref;
   if (member === undefined || agent === member) return member;
-  return Object.values(readIndex(root, member).accounts).some((e) => e.agent === agent) ? member : undefined;
+  try {
+    return Object.values(readIndex(root, member).accounts).some((e) => e.agent === agent) ? member : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function createAccounts(ctx: {

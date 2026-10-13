@@ -23,6 +23,7 @@ import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { Engine } from '../src/engine.ts';
 import { OpenClawKit } from '../src/kit.ts';
+import { memberOfAccount } from '../src/accounts.ts';
 import { openclawLink } from '../src/link.ts';
 import { openclawDevice } from '../src/device.ts';
 import { words } from '../src/words.ts';
@@ -1530,6 +1531,20 @@ test('move: a run that waited across a move binds again and ends moved; a taken 
   }
 });
 
+// O14m attribution: an unreadable or malformed account index attributes nothing and never throws out of the link filter,
+// approvals or bridge.
+test('attribution: a malformed account index maps nothing and does not throw', () => {
+  const root = scratchDir('o14m-malformed-index');
+  try {
+    mkdirSync(join(root, 'accounts'), { recursive: true });
+    writeFileSync(join(root, 'accounts', 'm1.json'), '{not json');
+    assert.equal(memberOfAccount(root, 'm1--abcdef'), undefined);
+    assert.equal(memberOfAccount(root, 'agent:m1--abcdef:x'), undefined);
+    assert.equal(memberOfAccount(root, 'm1'), 'm1');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 // O14m attribution and link frames: an approval raised on an indexed `<member>--<hex6>` agent lists under the
 // member, link `oc.events`/`oc.sessions` carry the account agent under the member, `oc.run` carries the account
