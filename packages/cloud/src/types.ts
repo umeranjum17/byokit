@@ -1,5 +1,6 @@
-// Public types (docs/cloud-kit.md section 4: 4.1 with the 4.3 consumer additions merged in).
+// Public types (docs/cloud-kit.md section 4: 4.1 with the 4.3 consumer and 4.4 snapshot additions merged in).
 // Frozen at M1 (D-5): a change here is a spec change first — stop and ask.
+import type { MachineError } from './errors.ts';
 export type MachineRef = {
   provider: string                // Provider.id
   account: string                 // provider account id, read once at setup; the kit refuses a ref from another account
@@ -61,6 +62,9 @@ export interface Provider {
   wakeKey?(m: MachineRef, o: { label: string }): Promise<{ id: string; key: string; expires: string | null }>  // G11 (M7)
   stopKey?(m: MachineRef): Promise<{ id: string; key: string; expires: string | null }>                    // M7
   revokeKey?(id: string): Promise<void>                  // G11 (M7)
+  snapshots?(m: MachineRef): Promise<Snapshot[]>         // K3 (4.4): the kit's ready copies of this machine only
+  deleteSnapshot?(m: MachineRef, id: string): Promise<void>  // K3: rejects 'no-snapshot' for any other id
+  restore?(m: MachineRef, id: string, o: { idempotencyKey: string; replaced(next: MachineRef): Promise<void> }): Promise<MachineRef>  // K3
 }
 
 export type HostRecipe = {
@@ -73,6 +77,9 @@ export type HostRecipe = {
   installRoot?: readonly (readonly string[])[]           // G5b: argv lists run as root before `install` and `update` when the 8.3 step 3 marker is missing; must be idempotent
   user?: string                                          // G7: run as this no-sudo user, created by the kit, home inside the machine user's home
 }
+
+export type Snapshot = { id: string; at: string }   // K3: a copy the kit saved of this machine; `at` is ISO
+export type Disk = { usedGb: number; totalGb: number }                     // K3: the root file system, decimal GB (bytes / 1e9) to one decimal
 
 export type AsleepWhy = 'you' | 'out-of-credit' | 'trial-limit' | 'provider' | 'idle'      // G3
 export type Plan = { inTrial: boolean; trialEndsAt: string | null; canStayOn: boolean; checkoutUrl: string | null }  // G2
@@ -100,4 +107,9 @@ export interface Machine {
   plan(): Promise<Plan | null>                           // G2: null when the provider has no plan()
   why(): Promise<AsleepWhy | null>                       // G3 (5.7)
   deliver(r: HostRecipe, file: string, bytes: Uint8Array): Promise<void>  // G9 (5.8)
+  snapshots(): Promise<Snapshot[]>                       // K3 (5.10): newest first
+  snapshot(o?: { keep?: number }): Promise<Snapshot & { pruneError?: MachineError }>  // K3: keep defaults to 3; a failed prune is reported, not thrown
+  scheduleSnapshots(o: { everyMs: number; keep?: number; onResult?(result: Snapshot | null | Error): void }): Promise<{ stop(): void }>  // K3: saves when the newest copy is everyMs old, while the app runs
+  restore(id: string): Promise<void>                     // K3: "Reset Computer"
+  disk(): Promise<Disk>                                  // K3
 }

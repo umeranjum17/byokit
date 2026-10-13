@@ -17,6 +17,6 @@ export { estimate } from './cost.ts';
 export { words, stateWords, hostWords, keyWords, errorWords, WORDS } from './words.ts';
 export type { WordKey } from './words.ts';
 export type {
-  AsleepWhy, Cost, ExecResult, HostRecipe, HostState, KeyInfo, Machine, MachineRecord, MachineRef,
-  MachineState, MachineStore, Plan, Price, Provider, Size, Tailnet, TailnetStep, Usage,
+  AsleepWhy, Cost, Disk, ExecResult, HostRecipe, HostState, KeyInfo, Machine, MachineRecord, MachineRef,
+  MachineState, MachineStore, Plan, Price, Provider, Size, Snapshot, Tailnet, TailnetStep, Usage,
 } from './types.ts';
