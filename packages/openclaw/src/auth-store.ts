@@ -454,6 +454,22 @@ export class AuthStore {
       } finally { this.release(); }
     });
   }
+  /** Re-seal the live tree while the engine runs (removeAccount): the sealed snapshot and the sealed objects
+   *  drop the removed profile at once instead of waiting for stop. Live files stay in place — unlike persist(),
+   *  nothing is removed and no crash-transition recovery runs, so this never deletes the tree a live engine
+   *  is running on. No-op without a seal or while the store is not active. */
+  async reseal(): Promise<void> {
+    return this.serial(async () => {
+      if (!this.o.seal || !this.active) return;
+      const previous = await this.read();
+      const { saved, objects } = this.collect();
+      // Same debris guard as persist(): a running engine always leaves files behind, so an empty live tree
+      // keeps the sealed credentials instead of replacing them with an empty snapshot.
+      if (!saved.files.length && !objects.length && previous) return;
+      this.seal(this.file, JSON.stringify(saved));
+      this.sealObjects(objects);
+    });
+  }
   start(): Promise<void> {
     return this.serial(async () => {
       if (this.active) return;

@@ -146,6 +146,7 @@ export function createAccounts(ctx: {
   signIn: StartSignIn;
   routes: ReadonlyMap<string, { session: string }>; // the runs' map: the caller's key -> the account session its live run uses
   log?: (line: string) => void;
+  reseal?: () => Promise<void>; // re-seal the live credential store after a removal (no-op without a seal or a live engine)
 }): {
   list(member: Member): Promise<Account[]>;
   add(member: Member, o: AddOptions, on: (v: SignInView) => void): Promise<AccountSignIn>;
@@ -575,6 +576,8 @@ export function createAccounts(ctx: {
         const file = read(member);
         dropEntry(file, id);
         write(member, file);
+        // The live store changed: re-seal at once so the sealed copy stops holding the removed profile.
+        await ctx.reseal?.();
       });
       return;
     }
@@ -593,6 +596,8 @@ export function createAccounts(ctx: {
       dropEntry(file, id);
       markGone(file, agent);
       write(member, file);
+      // The live store changed: re-seal at once so the sealed copy stops holding the removed profile.
+      await ctx.reseal?.();
     });
   }
 

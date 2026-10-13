@@ -783,7 +783,7 @@ export class OpenClawKit {
       this.accountsCtl = createAccounts({ request: (method, params, o) => this.request()(method, params, o), root: this.engine.root,
         ensure: (member) => this.ensureMember(member), locks: this.locks,
         signIn: (agentId, o, on, fresh) => startSignIn({ ...this.signInCtx(), ensure: async () => ({ agentId }), fresh }, agentId, o, on),
-        routes: this.routeMap, log: this.o.log });
+        routes: this.routeMap, log: this.o.log, reseal: () => this.engine.authStore.reseal() });
       // The fail-closed tool bridge feeds the kit's single Approval surface (5.9, O5).
       await this.bridge.start();
       this.off.push(transport.onEvent((e) => this.approvalsCtl.handleEvent(e)));
