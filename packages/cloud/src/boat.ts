@@ -456,10 +456,12 @@ export function boat(o: {
 
     snapshot: async (m: MachineRef, name: string) => {
       const full = `byokit-${m.name}-${name}`;
-      const { status: code, text } = await checked('POST', '/named-snapshots', {
-        body: { sandboxId: m.id, name: full },
-      });
-      if (code < 200 || code >= 300) fail(code, text);
+      const posted = await send('POST', '/named-snapshots', { body: { sandboxId: m.id, name: full } });
+      const { text } = await read(posted);
+      // A copy past the free ones with no credit is refused (15.1): the person adds funds.
+      if (posted.status === 402) throw new MachineError('balance', 'the provider needs credit to save another copy');
+      if (posted.status === 401 || posted.status === 403) throw new MachineError('unauthorized', 'the provider did not accept the key');
+      if (posted.status < 200 || posted.status >= 300) fail(posted.status, text);
       const started = Date.now();
       for (;;) {
         const polled = await checked('GET', `/named-snapshots/${encodeURIComponent(full)}`);

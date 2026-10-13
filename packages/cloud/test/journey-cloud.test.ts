@@ -541,6 +541,9 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
     // The kit's own timer: a copy made while it waits is reported null; each later due tick saves one, in a row.
     assert.throws(() => m.scheduleSnapshots({ everyMs: 0, onResult: () => {} }), { code: 'bad-recipe' });
     assert.throws(() => m.scheduleSnapshots({ everyMs: 2_147_483_648, onResult: () => {} }), { code: 'bad-recipe' });
+    // Each check starts everyMs after the previous one finished, so a copy it made is always due by the next check:
+    // no check between two scheduled copies comes back null (a fixed-rate timer skips every other period).
+    let skipped = 0;
     const copies = await new Promise<Snapshot[]>((resolve, reject) => {
       const saved: Snapshot[] = [];
       const handle = m.scheduleSnapshots({
@@ -552,7 +555,10 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
             reject(r);
             return;
           }
-          if (r === null) return;
+          if (r === null) {
+            if (saved.length > 0) skipped += 1;
+            return;
+          }
           saved.push(r);
           if (saved.length < 2) return;
           handle.stop();
@@ -561,6 +567,7 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
       });
     });
     assert.deepEqual((await m.snapshots()).map((c) => c.id), [copies[1].id]);
+    assert.equal(skipped, 0, 'no period is skipped between scheduled copies');
     await new Promise((r) => setTimeout(r, 40));
     assert.deepEqual((await m.snapshots()).map((c) => c.id), [copies[1].id], 'no tick runs after stop()');
     const plain = machine({ provider: fakeProvider(), store: memoryStore() });
@@ -635,6 +642,25 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
   await vm.create({ name: 'web', size: 'small', keepCopies: false });
   await rejects(vm.snapshots(), 'unsupported');
   await rejects(vm.restore('byokit-web-a'), 'unsupported');
+
+  // Boat keeps 10 copies free; an 11th is saved and billed, and with no credit the save is refused as a spent balance.
+  const paid = await startFakeSandboxServer();
+  try {
+    const provider = boat({ baseUrl: paid.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
+    const p = machine({ provider, store: memoryStore() });
+    const ref = await p.create({ name: 'web', size: 'small', keepCopies: true });
+    for (let i = 0; i < 10; i++) await provider.snapshot!(ref, `free${i}`);
+    const eleventh = await p.snapshot({ keep: 20 });
+    assert.equal((await p.snapshots()).length, 11);
+    paid.setBalance(0);
+    const noCredit = await rejects(p.snapshot({ keep: 20 }), 'balance');
+    assert.equal(errorWords(noCredit, { app: 'Umer', label: 'Test' }), 'Your Test balance ran out. Your cloud computer stops in a day unless you add funds.');
+    const kept = await p.snapshots();
+    assert.equal(kept.length, 11, 'a refused save deletes nothing');
+    assert.equal(kept[0].id, eleventh.id);
+  } finally {
+    await paid.close();
+  }
 });
 
 test('an app tells the person what the cloud computer costs and speaks in plain words', async () => {

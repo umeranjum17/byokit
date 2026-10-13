@@ -340,8 +340,9 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
         const sandboxId = str(b['sandboxId']);
         const name = str(b['name']);
         if (sandboxId === null || name === null) return send(res, 400, { error: 'sandboxId and name are required' });
-        if (snapshots.size >= 10 && !snapshots.has(name)) {
-          return send(res, 409, { error: 'at most 10 named snapshots per account' });
+        // 10 are free per wallet; past them a copy is billed, and with no credit the save is refused (15.1).
+        if (snapshots.size >= 10 && !snapshots.has(name) && !unlimited && creditBalanceSeconds + packBalanceSeconds <= 0) {
+          return send(res, 402, { error: 'credit_required' });
         }
         clock = Math.max(Date.now(), clock + 1);
         const files = new Map([...machine.files].map(([k, f]) => [k, { ...f, bytes: f.bytes.slice() }]));
