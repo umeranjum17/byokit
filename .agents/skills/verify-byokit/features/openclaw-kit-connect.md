@@ -10,7 +10,7 @@ Once the engine is ready, the openclaw-kit phone page (`examples/openclaw-kit/we
 - The OpenCode Go row asks for the `Plan key` (a password field, list hidden, `Paste the key from your plan. Your computer keeps it, not this phone.`); `wrong-key` (the fake's refused key) shows only the kit's `API key activation failed`; a good key lands on **Talk to it**, and a reply ends with `<n> tokens used.`. The key never appears in the page or the host's output.
 - A reload while signed in finds the provider from `oc.state().signedIn` (`Sign out of OpenAI`); signing out shows `Sign in with OpenAI to start.` and the list again.
 - A finished run shows its token usage under the reply in `#usage` (`Tokens: N in, N out, N total`, then `, on <model>` when the engine names one, and a closing period). The e2e waits for it after the Allow run and asserts that shape; the line is empty while the run is still streaming.
-- `opencode:plan_key:opencode-go` is listed as a ready key row that reads `Ready, but this page has no form for it yet.`; the plan key is added at the computer with `add opencode-go` (`host.ts`), not on this page.
+- `opencode-go:plan_key:opencode-go` is a startable row (it opens the `Plan key` form above, not the "no form" sentence); the same key can also be added at the computer with `add opencode-go` (`host.ts`).
 
 ## How to get to it (user POV)
 
