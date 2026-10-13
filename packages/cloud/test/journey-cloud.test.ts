@@ -8,13 +8,13 @@
 // half-installed, a rejected key never appears in an error, a delete removes only the kit's own
 // snapshots, and a reset brings back a saved copy while pruning only the kit's own copies. The provider is the kit's own bench (in-memory fake, loopback fake server); no network,
 // key or real machine is used.
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   machine, boat, estimate, status, setup, words, stateWords, hostWords, errorWords, errorKey, keyWords, WORDS, MachineError,
 } from '@byokit/cloud';
 import type {
-  HostRecipe, Status, SetupStep, MachineErrorCode, MachineRef, MachineState, HostState, Price, KeyInfo, Snapshot,
+  HostRecipe, Status, SetupStep, MachineErrorCode, MachineRef, MachineState, HostState, Price, KeyInfo, Snapshot, Provider, ExecResult,
 } from '@byokit/cloud';
 import { fakeProvider, memoryStore, startFakeSandboxServer } from '@byokit/cloud/testing';
 
@@ -433,6 +433,227 @@ test('an app rents on Boat and drives the real HTTP machine: no-env, status, exe
     assert.equal(forks.at(-1)?.headers['idempotency-key'], 'fork-1');
   } finally {
     await trial.close();
+  }
+});
+
+test('a Boat bootstrap joins the private network without opening a public app port or carrying a join key', async () => {
+  const server = await startFakeSandboxServer();
+  try {
+    const provider = boat({ baseUrl: server.url, label: 'Boat', prices: prices(), key: async () => 'test-key' });
+    const m = machine({ provider, store: memoryStore() });
+    await rejects(m.tailnet(), 'no-machine');
+    await rejects(m.joinTailnet({ hostname: 'umer-cloud' }), 'no-machine');
+    const ref = await m.create({ name: 'web', size: 'small', keepCopies: false });
+    assert.deepEqual(await m.tailnet(), { state: 'off', name: null });
+    server.machine.script('npm', { code: 0, stdout: '', stderr: '', timedOut: false });
+    await m.install(recipe('web'));
+    assert.equal(await m.host(), 'running');
+
+    const before = server.machine.runs.length;
+    const canary = ['tskey', 'canary', 'not', 'real'].join('-');
+    const refused = await rejects(m.joinTailnet({ hostname: 'umer-cloud', authKey: canary }), 'unsupported');
+    assert.match(refused.message, /sign-in on your phone/);
+    await rejects(m.joinTailnet({ hostname: 'umer-cloud', authKey: '' }), 'unsupported');
+    await rejects(m.joinTailnet({ hostname: 'bad;name' }), 'bad-recipe');
+    assert.equal(server.machine.runs.length, before, 'a refused key or hostname runs nothing');
+    assert.ok(!JSON.stringify(server.requests).includes(canary));
+
+    // The HTTP bench carries the real argv; only the remote bootstrap and daemon are stand-ins.
+    server.machine.script('sh', { code: 0, stdout: '', stderr: '', timedOut: false });
+    const daemon = (BackendState: string, DNSName?: string, stderr = '') => server.machine.script('tailscale', {
+      code: BackendState === 'Running' ? 0 : 1, stdout: JSON.stringify({ BackendState, Self: { DNSName } }), stderr, timedOut: false,
+    });
+    daemon('NeedsLogin', undefined, 'To authenticate, visit: https://login.tailscale.com/a/test-login\n');
+    assert.deepEqual(await m.tailnet(), { state: 'needs-login', name: null });
+    const steps: string[] = [];
+    assert.deepEqual(await m.joinTailnet({ hostname: 'umer-cloud' }, (s) => {
+      steps.push(s.step);
+      if (s.step === 'open-page') {
+        assert.equal(s.url, 'https://login.tailscale.com/a/test-login');
+        daemon('Running', 'umer-cloud.umer.ts.net.'); // the person approved it on their phone
+      }
+    }), { name: 'umer-cloud.umer.ts.net' });
+    assert.deepEqual(steps, ['open-page', 'joined']);
+    assert.deepEqual(await m.tailnet(), { state: 'joined', name: 'umer-cloud.umer.ts.net' });
+    const bootstrap = server.machine.runs.slice(before).find(r => r.argv[0] === 'sh' && r.argv[1] === '-c');
+    assert.ok(bootstrap?.root && bootstrap.inputBytes === 0);
+    assert.equal(server.requests.filter(r => r.path.endsWith('/host')).length, 0, 'bootstrap plus host makes no public hosting call');
+    daemon('NeedsMachineAuth');
+    const approvals: string[] = [];
+    assert.deepEqual(await m.joinTailnet({ hostname: 'umer-cloud' }, (s) => {
+      approvals.push(s.step);
+      if (s.step === 'approve') {
+        assert.equal(s.name, 'umer-cloud');
+        daemon('Running', 'umer-cloud.umer.ts.net.'); // the tailnet admin approved the machine
+      }
+    }), { name: 'umer-cloud.umer.ts.net' });
+    assert.deepEqual(approvals, ['approve', 'joined']);
+    daemon('NeedsLogin', undefined, 'To authenticate, visit: https://login.tailscale.com/a/test-approve\n');
+    const afterLink: string[] = [];
+    assert.deepEqual(await m.joinTailnet({ hostname: 'umer-cloud' }, (s) => {
+      afterLink.push(s.step);
+      if (s.step === 'open-page') daemon('NeedsMachineAuth', 'umer-cloud.umer.ts.net.'); // signed in; the admin still must approve
+      if (s.step === 'approve') daemon('Running', 'umer-cloud.umer.ts.net.');
+    }), { name: 'umer-cloud.umer.ts.net' });
+    assert.deepEqual(afterLink, ['open-page', 'approve', 'joined']);
+    daemon('NeedsMachineAuth', 'umer-cloud.umer.ts.net.');
+    assert.equal((await m.tailnet()).state, 'needs-approval');
+    daemon('Stopped');
+    assert.equal((await m.tailnet()).state, 'off');
+    daemon('Starting');
+    assert.deepEqual(await m.tailnet(), { state: 'starting', name: null });
+    server.machine.script('tailscale', { code: 1, stdout: '', stderr: 'failed to connect to local tailscaled', timedOut: false });
+    assert.deepEqual(await m.tailnet(), { state: 'starting', name: null });
+    daemon('Unexpected');
+    await rejects(m.tailnet(), 'provider');
+    daemon('Running', 'not-a-tailnet-name');
+    await rejects(m.tailnet(), 'provider');
+    await m.remove(ref.id);
+  } finally { await server.close(); }
+});
+
+test('a sign-in link shown late in the startup wait keeps a full five minutes to sign in', async () => {
+  mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 0 });
+  try {
+    const base = fakeProvider();
+    const signInAfter = 2 * 60_000;
+    let upAt: number | null = null;
+    const provider: Provider = {
+      ...base,
+      exec: async (ref, argv, opts) => {
+        const now = Date.now();
+        if (argv[0] === 'true' || argv[0] === 'sh' || argv[0] === 'systemctl') return { code: 0, stdout: '', stderr: '', timedOut: false };
+        if (argv[0] === 'tailscale' && argv[1] === 'up') {
+          upAt = now;
+          return { code: 1, stdout: '', stderr: 'To authenticate, visit: https://login.tailscale.com/a/fake-clock\n', timedOut: false };
+        }
+        if (argv[0] === 'tailscale' && argv[1] === 'status') {
+          const signedIn = upAt !== null && now >= upAt + signInAfter;
+          const status = now < 299_000 ? { BackendState: 'Starting' }
+            : signedIn ? { BackendState: 'Running', Self: { DNSName: 'umer-cloud.umer.ts.net.' } }
+              : { BackendState: 'NeedsLogin' };
+          return { code: 0, stdout: JSON.stringify(status), stderr: '', timedOut: false };
+        }
+        return base.exec(ref, argv, opts);
+      },
+    };
+    const m = machine({ provider, store: memoryStore() });
+    await m.create({ name: 'web', size: 'small', keepCopies: false });
+    const steps: string[] = [];
+    let outcome: { name: string } | MachineError | undefined;
+    const joined = m.joinTailnet({ hostname: 'umer-cloud' }, (s) => { steps.push(s.step); }).then(
+      (v) => { outcome = v; },
+      (e: MachineError) => { outcome = e; },
+    );
+    for (let ticks = 0; outcome === undefined; ticks += 1) {
+      assert.ok(ticks < 1000, 'the join settles inside the fake clock');
+      await new Promise((resolve) => setImmediate(resolve));
+      if (outcome === undefined) mock.timers.tick(1000);
+    }
+    await joined;
+    assert.deepEqual(outcome, { name: 'umer-cloud.umer.ts.net' });
+    assert.deepEqual(steps, ['open-page', 'joined']);
+    assert.ok(upAt !== null && upAt >= 299_000, 'the link shows only after the startup wait');
+    assert.ok(Date.now() >= upAt + signInAfter, 'the person signed in two minutes after the link');
+  } finally { mock.timers.reset(); }
+});
+
+for (const forever of [false, true]) test(forever
+  ? 'hung sign-in status checks end at the window deadline, not the first check timeout'
+  : 'a hung status check mid-sign-in is retried and a ready machine joins', async () => {
+  mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 0 });
+  try {
+    const base = fakeProvider();
+    let upAt: number | null = null, hung = 0;
+    const provider: Provider = { ...base, exec: async (ref, argv, opts) => {
+      if (argv[0] === 'tailscale' && argv[1] === 'up') {
+        upAt = Date.now();
+        return { code: 1, stdout: 'https://login.tailscale.com/a/hung-check', stderr: '', timedOut: false };
+      }
+      if (argv[0] === 'tailscale' && argv[1] === 'status') {
+        if (upAt !== null && Date.now() >= upAt + 60_000 && (forever || hung === 0)) {
+          hung++;
+          assert.equal(opts.timeoutMs, 30_000);
+          return new Promise<ExecResult>(resolve => setTimeout(() => resolve({ code: 124, stdout: '', stderr: '', timedOut: true }), 30_000));
+        }
+        return { code: 0, stdout: JSON.stringify(hung
+          ? { BackendState: 'Running', Self: { DNSName: 'hung-check.tail.ts.net.' } }
+          : { BackendState: 'NeedsLogin' }), stderr: '', timedOut: false };
+      }
+      if (['true', 'sh', 'systemctl'].includes(argv[0])) return { code: 0, stdout: '', stderr: '', timedOut: false };
+      return base.exec(ref, argv, opts);
+    } };
+    const m = machine({ provider, store: memoryStore() });
+    await m.create({ name: 'hung-check', size: 'small', keepCopies: false });
+    const steps: string[] = [];
+    let settled = false, outcome: unknown;
+    const joined = m.joinTailnet({ hostname: 'hung-check' }, s => steps.push(s.step)).then(
+      v => { outcome = v; settled = true; }, e => { outcome = e; settled = true; },
+    );
+    for (let ticks = 0; !settled; ticks++) {
+      assert.ok(ticks < 340, 'status timeouts never restart the sign-in window');
+      await new Promise(resolve => setImmediate(resolve));
+      if (!settled) mock.timers.tick(1000);
+    }
+    await joined;
+    assert.ok(upAt !== null);
+    if (forever) {
+      assert.ok(outcome instanceof MachineError);
+      assert.equal(outcome.code, 'timeout');
+      assert.equal(outcome.message, 'Starting your private network took too long.');
+      assert.ok(Date.now() >= upAt + 300_000 && Date.now() < upAt + 330_000);
+      assert.ok(hung > 1);
+      assert.deepEqual(steps, ['open-page']);
+    } else {
+      assert.deepEqual(outcome, { name: 'hung-check.tail.ts.net' });
+      assert.equal(hung, 1);
+      assert.ok(Date.now() >= upAt + 90_000 && Date.now() < upAt + 300_000);
+      assert.deepEqual(steps, ['open-page', 'joined']);
+    }
+  } finally { mock.timers.reset(); }
+});
+
+test('private-network deadlines distinguish startup, approval, an unused link and no link', async () => {
+  for (const [state, link, message, expectedSteps] of [
+    ['Starting', false, 'Starting your private network took too long.', []],
+    ['NeedsMachineAuth', true, words('tailnet.approvalNeeded'), ['open-page', 'approve']],
+    ['NeedsLogin', true, words('tailnet.loginExpired'), ['open-page']],
+    ['NeedsLogin', false, 'Starting your private network took too long.', []],
+  ] as const) {
+    mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 0 });
+    try {
+      const base = fakeProvider();
+      let upCalls = 0;
+      const provider: Provider = { ...base, exec: async (ref, argv, opts) => {
+        if (argv[0] === 'tailscale' && argv[1] === 'up') {
+          upCalls++;
+          return { code: 0, stdout: link ? 'https://login.tailscale.com/a/deadline' : '', stderr: '', timedOut: false };
+        }
+        if (argv[0] === 'tailscale' && argv[1] === 'status')
+          return { code: 0, stdout: JSON.stringify({ BackendState: state }), stderr: '', timedOut: false };
+        if (['true', 'sh', 'systemctl'].includes(argv[0])) return { code: 0, stdout: '', stderr: '', timedOut: false };
+        return base.exec(ref, argv, opts);
+      } };
+      const m = machine({ provider, store: memoryStore() });
+      await m.create({ name: 'deadline', size: 'small', keepCopies: false });
+      const steps: string[] = [];
+      let error: unknown;
+      const joined = m.joinTailnet({ hostname: 'deadline' }, s => steps.push(s.step)).then(
+        () => { error = new Error('join unexpectedly succeeded'); }, e => { error = e; },
+      );
+      for (let ticks = 0; error === undefined; ticks++) {
+        assert.ok(ticks < 310, 'deadline must settle in five fake minutes');
+        await new Promise(resolve => setImmediate(resolve));
+        if (error === undefined) mock.timers.tick(1000);
+      }
+      await joined;
+      assert.ok(error instanceof MachineError);
+      assert.equal(error.code, 'timeout');
+      assert.equal(error.message, message);
+      assert.deepEqual(steps, expectedSteps);
+      assert.equal(upCalls, state === 'Starting' ? 0 : 1, 'startup timeout must never run up');
+      assert.ok(Date.now() >= 300_000 && Date.now() <= 301_000);
+    } finally { mock.timers.reset(); }
   }
 });
 

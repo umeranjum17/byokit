@@ -46,11 +46,11 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D-2 | Third-party adapters keep the provider's name: `boat()` is the Boat adapter; `sshVm()` describes the provider-independent SSH transport. Docs name Boat and fixtures use `boat.test`, mapped to loopback. The provider's label still comes from the app at run time. `sandboxApi()` remains a deprecated alias with the same signature; the persisted provider id remains `sandbox-api` for existing records and install behavior. No default provider or URL is added. |
 | D-3 | A capability kit, not a third aggregator. It sits beside `@byokit/openclaw` and `@byokit/herdr`: the app still picks one runtime kit, and that kit runs inside the app's host process on the machine exactly as it does at home. `@byokit/cloud` only decides where that process runs. It imports no other kit and no kit imports it. `@byokit/accounts` is untouched. |
 | D-4 | Adapters behind one `Provider` type (4). **Boat**: create, sleep, wake, snapshot, fork, remove, exec, write and an HTTPS URL per port, over `fetch` with no vendor SDK. **SSH VM**: any rented Linux machine the person already created; exec, write, install and supervise only, through the `ssh` binary the app passes by absolute path. **Hetzner** (first slice, below): Node only; create, status and confirmed delete over the Hetzner Cloud API with the app's own token; no sleep, wake or copies yet. Optional `Provider` methods an adapter cannot do are absent, and the UI hides that action. |
-| D-5 | Types in section 4 are frozen at M1. A change is a spec change first: stop and ask. |
+| D-5 | Types in section 4 are frozen at M1. A change is a spec change first: stop and ask. The approved tailnet amendment (4.6, 9; 2026-10-13) adds `joinTailnet` and `tailnet`; Boat keyed joins remain unsupported until a credential-safe stdin transport exists. |
 | D-6 | Entries. `.` is portable (Node, Electron, React Native): everything 3.1's `index.ts` re-exports (types, `machine()`, `boat()` (and deprecated `sandboxApi()`), `claim()` (M8), `MachineError`, `estimate()`, the words helpers and M7's `wakeResolve()`); no `node:*` import. `./ssh` is Node only (`sshVm()`, `sshHostKey()`). `./hetzner` is Node only (`hetzner()`, first slice below). `./idle` (M7: `idle()`, `stopSelf()`) runs on the machine inside the host process and is portable. `./testing` is Node only: the fake providers and the contract suite. No other entries. The Boat adapter does not run from a web page (15.1), so browsers and PWAs set up from the phone app or a desktop app. |
 | D-7 | One person, one provider account, one machine per app install. The kit refuses a `MachineRef` whose `account` differs from `provider.account()`. An app operator provisioning on its own account for users is pooling and is not supported. |
 | D-8 | Model credentials are signed in on the machine, inside the aggregator (11). They are never copied from the person's computer and never pass through the provider's own credential features. Sandboxes are created with nothing of the person's passed in (`noEnv: true`). |
-| D-9 | Reach: the person's own `@byokit/relay` runs on the machine beside the host (the relay README's "self-hosted, beside one host" model). Phones pair with the unchanged `@byokit/link`, whose Noise IK with a pinned host key is the only gate. No provider access token goes in any URL (9). |
+| D-9 | Reach: the person's own tailnet, with no hosted relay or public app port. The bootstrap advertises the tailnet name, never a provider public URL. Pairing encryption and pinned host keys stay unchanged. Neither the kit nor a host bootstrap automatically calls `url()` or the provider's `/host`; `url()` is an explicit public-exposure escape hatch (9). |
 | D-10 | v1 is always-on. Sleep and wake-on-open are designed here (5.4, 14 M7) and ship only after the real-provider proof (M6). |
 | D-11 | Library code reads no environment variable (capability-kits D-G). Every spawned process gets an env built from nothing; argv is an array. |
 | D-12 | Words. `src/words.json` holds the section 12 sentences, tested against the repo's banned-jargon expression (the one `packages/herdr/test/words.test.ts` uses). UI code shows `words(key, vars)`; it never builds sentences from states or codes. |
@@ -69,7 +69,7 @@ amended (kit-conventions Precedence).
 person's device: app UI ── @byokit/cloud (create, install, wake, cost, words) ── provider REST API | ssh
 the machine:     byokit-<app>.service → the app's host process (unchanged)
                    ├─ its ONE runtime kit: @byokit/openclaw (bots) | @byokit/herdr (terminals)
-                   ├─ @byokit/link host + the person's own @byokit/relay  ← phone / web
+                   ├─ encrypted app host over the person's own tailnet  ← phone / web
                    └─ (M7) @byokit/cloud/idle
 ```
 
@@ -86,10 +86,11 @@ the machine:     byokit-<app>.service → the app's host process (unchanged)
 packages/cloud/
   package.json  tsconfig.json  README.md  CHANGELOG.md  LICENSE
   src/
-    index.ts          # '.' re-exports everything 4.1, 4.2 and 4.3 declare for '.'
+    index.ts          # '.' re-exports everything 4.1, 4.2, 4.3 and 4.5 declare for '.'
     types.ts          # section 4, verbatim
     errors.ts         # MachineError (4.2)
     machine.ts        # machine() (5)
+    tailnet.ts        # joinTailnet(), tailnet() (9.1)
     status.ts         # status(), the one read a phone polls (5.9)
     unit.ts           # renderUnit(), quoting (8.4), pure
     recipe.ts         # recipe checks (8.1), range compare, FNV-1a marker hash, pure
@@ -373,6 +374,27 @@ export function setup(o: {
 `Machine.adopt` gains an optional `onLine` in its options, passed to its install; nothing else in 4.1 changes.
 `src/words.ts` gains `errorKey(e: MachineError): WordKey`, the key `errorWords` shows (12).
 
+### 4.6 Approved tailnet additions (2026-10-13)
+
+```ts
+export type TailnetStep =
+  | { step: 'open-page'; url: string }
+  | { step: 'approve'; name: string }
+  | { step: 'joined'; name: string }
+export type Tailnet = { state: 'joined' | 'needs-login' | 'needs-approval' | 'off' | 'starting'; name: string | null }
+export interface Machine {
+  joinTailnet(o: { hostname: string; authKey?: string }, onStep?: (s: TailnetStep) => void): Promise<{ name: string }>
+  tailnet(): Promise<Tailnet>
+}
+```
+
+Both methods follow 5.1's load/account/ref checks. This slice implements keyless Boat joins only; a Boat
+`authKey` (even an empty string) rejects `MachineError('unsupported')` before any remote exec with the
+`tailnet.signInOnPhone` words (sign in on the phone instead). A join on another adapter rejects the same error
+before any exec with `tailnet.unsupported` ("This cloud computer cannot join your private network yet."). Boat
+emulates exec input using a temporary file (6.4), so it is **not** a credential-safe input path. Never pass a join key into it or embed one in command text.
+Hetzner/SSH joining and a private stdin transport are follow-ups, not weaker implementations of this rule.
+
 ## 5. `Machine` (`src/machine.ts`)
 
 ### 5.1 Store and refs
@@ -431,7 +453,9 @@ No desktop URL, environment, logins or other secret-bearing response fields leav
 
 - `state()`: `provider.status(ref)`.
 - `url(port)`: `provider.url?.(ref, port) ?? null` (a missing method resolves `null`, not an error). `port` is an
-  integer 1-65535.
+  integer 1-65535. **Calling `url()` makes that port public**, including opening the provider firewall. Boat has no
+  unhost route, so the port stays public for that sandbox's life. The kit and the muxr recipes never call it. It is never
+  called automatically by create, install, update, host or join; the default bootstrap uses the tailnet instead.
 - `remove(confirm)`: `confirm !== ref.id` rejects `confirm`. `provider.remove` missing rejects `unsupported`. Otherwise
   `provider.remove(ref, confirm)`, then save `ref: null`. `remove` is irreversible; the app calls it only from a person's
   explicit action on a screen that shows the machine's name.
@@ -540,13 +564,13 @@ land with that provider's adapter, behind the same members (follow-up).
   replacement may still bill. Once `next` is saved, the old machine is deleted, retried the same way. If it still
   fails, the store keeps `next` and the call rejects `provider` with `extra.sandbox` set to the old id, and a message
   that the old machine may still bill.
-  On Boat the ref's `id` changes, so the app calls `url(port)` again for the new address and `update(recipe)`
-  rewrites `installed.json` with the new id (8.3 step 6).
+  On Boat the ref's `id` changes, so the app checks the private route again with `tailnet()` (9.1); it does not call
+  `url(port)`, which would make a port public. `update(recipe)` rewrites `installed.json` with the new id (8.3 step 6).
 - A restore is the same machine, so it keeps its identity (its tailnet node included): the adapter stops the old
   machine before the new one starts, so the two never run at once. A `failed` machine cannot be stopped and is the
   one a person resets, so it is not stopped first; an `asleep` or `gone` one needs no stop. A machine made from a
-  copy or a fork as a *second* machine must clear the tailnet state before its first start (9); this package adds no
-  such path.
+  copy or a fork as a *second* machine keeps its tailnet node identity today; clearing that state before its first start
+  is planned follow-up (9.1 copy policy).
 - `disk()`: one `exec` of `df -P -k /`; `usedGb` and `totalGb` are the second line's used and total 1024-blocks in
   decimal GB (bytes / 1e9), rounded to one decimal. A non-zero exit or an unreadable line rejects `provider`. Like
   every command it needs the machine on. Words: `disk.used`.
@@ -740,7 +764,7 @@ This slice rejects `keepCopies: true`: it enables neither paid backups nor snaps
 
 The app supplies its own host program and installer as a `HostRecipe`. The kit writes and owns exactly one systemd
 unit per app, because Herdr and OpenClaw supervise their engines only while the app's host process lives, and nothing
-else restarts that process.
+else restarts that process. Joining a tailnet (9.1) adds one machine-level `tailscaled` unit; it is not an app unit.
 
 ### 8.1 Recipe checks (`src/recipe.ts`, pure; failures reject `bad-recipe`, message names the rule)
 
@@ -933,35 +957,71 @@ original's (the relay closes one as `replaced`) and scheduled work runs twice.
 
 ## 9. Reach from phone and web
 
-The host process runs link exactly as it does at home. The person's own relay runs in the same host process, or as a
-second process started by the recipe's run wrapper (8.1, G6), listening on `0.0.0.0` so the provider's proxy reaches
-it. Everything else stays on loopback.
+The person's own tailnet replaces the provider-proxy/own-relay route. No public app port is opened by default.
+A new Boat sandbox is expected to start with closed app ingress (live proof pending, 9.2); create/install/host/join never call `/host`. The explicit `url(port)`
+method still makes a port public and is unsuitable for this bootstrap. An app must not reuse a sandbox whose
+ports it previously exposed as though it had this fresh-machine guarantee; the public API has no unhost route.
 
-- **`trustProxy` stays off.** Hosting a port also opens the machine's firewall for it, so the raw port may be reachable
-  without the proxy; with `trustProxy` on, anyone could set their own `X-Forwarded-For` there and dodge the relay's
-  per-source limits. With it off, every client through the proxy shares the proxy's address, so one abuser can use up
-  the per-source allowance for the person's phones. That is accepted for v1. M6 records whether the raw port is
-  reachable and sends a forged `X-Forwarded-For` through the proxy to see whether the proxy overwrites it (the relay
-  takes the leftmost entry). Only if the raw port is unreachable and the proxy overwrites the header may an app turn
-  `trustProxy` on; the relay README says so.
+### 9.1 Join and status
 
-- **No provider access token in any URL.** The relay port is hosted `public: true`; link's Noise IK with a pinned
-  host key and `relay.admit` are the only gates. A token gate would break typed-code lookup (`findHost` rebuilds URLs
-  without the query string, `packages/relay/src/device.ts`) and would copy a provider secret into every QR code and
-  device grant.
-- **Candidates, best first,** in the app's `host.offer({ urls })` (link takes up to 8, tries them in order and saves
-  the winner):
-  1. the person's relay on the machine through the provider URL, `wss://<provider URL host>/link/v1/<hostId>`, with
-     `relay.admit(host.keys.publicKey)`. After the first QR pairing, later devices can pair by typed code through
-     `findHost(relayBase, code)`;
-  2. the person's tailnet through `@byokit/discover`, unchanged. Apps never call `reach` with `auto` or `lan` on a cloud
-     machine: it would advertise an unreachable private address;
-  3. SSH VM with no domain and no tailnet: Node and Electron devices only, through link's `Dial.resolve` hook running
-     an `ssh -L` tunnel. Phones and browsers need candidate 1 or 2.
-- **Package changes:** `@byokit/link` none; `@byokit/discover` none; `@byokit/relay` gains a keepalive (M5), because a
-  half-open host→relay socket is noticed today only when TCP closes.
-- **Unverified until M6:** WebSocket through the provider's HTTPS proxy. If it fails, the fallback is the raw port
-  with the relay's own TLS, or the tailnet.
+- `joinTailnet({ hostname }, onStep)` validates a single DNS label (1–63 letters, digits or hyphens, no edge hyphen),
+  checks root, installs the pinned Tailscale **1.104.1** static release if either binary is absent, then enables and starts its systemd daemon.
+  Download `https://pkgs.tailscale.com/stable/tailscale_1.104.1_<arch>.tgz`, verify SHA256 **before extraction or installation**,
+  and refuse a mismatch without installing anything. Supported archives and pinned SHA256 values:
+  `amd64`: `108d1d96ecf410d305571e173516f27038f870919a9b89c914a167c6d33a4528`;
+  `arm64`: `f60294374967f3dfd8cf57bbbd474d6cfce32d123e3a8ddeab82a87940daa806`.
+  Install `tailscale`, `tailscaled` and a kit-owned systemd unit; never execute a downloaded installer script.
+  A kit-owned systemd drop-in puts state in `/etc/tailscale/` (0700): Boat preserves `/etc`, but not `/var`, on wake.
+  The node identity is sensitive and copied when `keepCopies` is on; the app's copies notice applies to it too.
+- Without `/dev/net/tun`, start `tailscaled --tun=userspace-networking`. This does **not** bind app ports automatically:
+  the app recipe binds its host on loopback and runs private `tailscale serve --bg --tcp=<port> tcp://127.0.0.1:<port>`
+  as root. With a TUN, the app may instead bind the tailnet IP. Never use Funnel or a provider public URL.
+  Host port selection remains the app recipe's responsibility; the kit has no default app port.
+- Run `tailscale up` with the requested hostname, no DNS or route acceptance, and a short command timeout; surface
+  its validated HTTPS Tailscale login URL once as `open-page`. Poll status so the person can sign in on the phone:
+  the startup wait has five minutes, and once `up` returns the sign-in window is a fresh five minutes, so a link shown
+  at the end of the startup wait still gets a full five minutes. When the daemon reports `needs-approval` (`NeedsMachineAuth`: the tailnet must approve the
+  machine), emit `approve` once with the hostname, with or without a sign-in link shown earlier. While the daemon is
+  `starting` or `off` (not yet running after enable), joining keeps polling inside the same five-minute deadline and
+  never runs `up` against it. On `Running` with a MagicDNS name, emit `joined` and resolve `{ name }` (no final dot).
+  A deadline rejects `MachineError('timeout')`: with the approval wording when the daemon reports `needs-approval`; with
+  the expired-link wording only when a sign-in link was shown and the daemon still reports `needs-login`; otherwise with
+  the `Starting your private network took too long.` wording. During the sign-in window, a status check that hits its
+  30-second command timeout is retried without restarting that window; a hung check does not expire a shown link or
+  end the join early. If checks remain hung when the window deadline is reached, reject with
+  `Starting your private network took too long.` Non-timeout command failures retain their real cause; a standalone
+  `tailnet()` call still rejects its own status-check timeout immediately.
+  The private route an app dials is `http://<name>:<app port>` (plain HTTP inside the tailnet's WireGuard tunnel;
+  the app serves it with `tailscale serve --tcp=<port>`), never a provider URL.
+- `tailnet()` never installs or joins. Missing Tailscale or a stopped daemon is `off`; `NeedsLogin` is
+  `needs-login`; `NeedsMachineAuth` is `needs-approval`; `Running` is `joined`. A daemon still starting is `starting`: `Starting`,
+  `NoState`, or a status answer that is not JSON (the daemon has not yet accepted a client). `joinTailnet` waits
+  through `starting` before it runs `tailscale up`, inside the same five-minute deadline. Return a validated MagicDNS
+  name when available, else `null`. Unknown or malformed answers that are JSON reject `provider`, never pretend the
+  machine joined.
+- Copy policy: the node identity in `/etc/tailscale` is a credential. Today a machine made from a copy keeps the
+  same Tailscale node identity. Clearing `/etc/tailscale/tailscaled.state` before the first start of a fork or a
+  snapshot restored onto a new machine, so it joins as a new node, is planned follow-up in the snapshots lane.
+  A restore of the same machine will keep its identity.
+- The app shows `tailnet.joining` while the join runs, then `tailnet.approvalNeeded` when sign-in or approval is needed,
+  and `tailnet.loginExpired` for an unused shown link; the callback remains the
+  union in 4.6 (`open-page`, `approve`, `joined`). This slice's key refusal is specified in 4.6.
+
+### 9.2 Bootstrap and proof
+
+Advertise the tailnet name only. The phone must be on the same tailnet; pairing's encrypted protocol and pinned
+host key remain its own gate. A private-network connection does not waive pairing checks. No kit dependency is added.
+Legacy M6 provider-proxy/relay checks below are superseded for this route; their old harness must not expose a port
+automatically. Its maintainer supplies a private route in `prepare` instead.
+
+The loopback consumer journey must create, install and read `host()`, join, then prove **zero `/host` calls** and
+reject a Boat key without transmitting it. Live Boat proof additionally records no TUN/userspace mode, phone login,
+MagicDNS and private app reachability. Start a disposable listener on `0.0.0.0:<muxr port>` as the negative control:
+verify it locally, then require the provider public IP to refuse or silently drop that port from outside and no hosted app URL.
+A closed-port probe passes on `ECONNREFUSED` or a connection timeout (including `ETIMEDOUT`): label its detail
+`refused` or `dropped`, respectively. A successful connection fails. Other connection errors are unavailable evidence,
+not a fabricated pass. A timeout is not an explicit TCP refusal; retain that distinction and the actual observation. Remove after each
+run, at most two machines, warn at USD 10 and stop at USD 15 shared across lanes. Fake success is not live acceptance.
 
 ## 10. Cost
 
@@ -1075,6 +1135,11 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
 | `plan.trial` | Your first week is a free trial, and {label} switches your cloud computer off every 2 hours during it. Opening {app} turns it back on. After the trial it stays on. |
 | `setup.makeKey` | Make a key on the {label} site, then paste it here. |
 | `setup.typeCode` | Open the {label} page and type this code: {code} |
+| `tailnet.joining` | Connecting your cloud computer to your private network. |
+| `tailnet.signInOnPhone` | This cloud computer needs sign-in on your phone instead of a join key. |
+| `tailnet.unsupported` | This cloud computer cannot join your private network yet. |
+| `tailnet.approvalNeeded` | Approve your cloud computer on the sign-in page on your phone. |
+| `tailnet.loginExpired` | The sign-in link expired. Try connecting your cloud computer again. |
 | `setup.checking-access` | Checking your {label} account. |
 | `setup.listing` | Looking for your existing cloud computers. |
 | `setup.inspecting` | Checking this cloud computer can run {app}. |
@@ -1143,7 +1208,8 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
    or agent-credential endpoints. The contract fails if a create body without `from` lacks `noEnv: true`, if any body
    carries an `env` key, or if a restore (a create with `from`), resume or fork body carries `noEnv`.
 4. **Library code reads no environment variable.** Spawned `ssh` and `ssh-keyscan` get an env built from nothing.
-5. **Only the relay port is exposed** (9). Everything else stays on loopback.
+5. **No public app port by default** (9). The provider's closed ingress is a second guard behind a host's
+   tailnet-only bind (or loopback plus private Tailscale Serve). No automatic `/host` call opens that guard.
 6. **SSH host keys are pinned** in the kit-owned `known_hosts`. A changed key is `host-key-changed`, never silently
    re-accepted.
 7. **No secrets in unit files or `HostRecipe.env`** (8.1), because both are copied into snapshots and readable.
@@ -1458,9 +1524,10 @@ this preparation makes no publishing or real-provider-tested claim.
   `src/testing/fake-sandbox-server.ts` (key routes), `test/{wake,idle}.test.ts`, README section.
 - **Behaviour:**
   - `wakeResolve({ provider, ref, port })` returns a `Dial.resolve` function for link. Before every dial it calls
-    `status()`. Only when `asleep` does it call `wake()` and then `url(port)` (re-hosting the relay port), resolving
-    the new URL's host with the dialled path. When the machine is already `on`, or `unknown`, it resolves the dialled
-    URL unchanged (an unreachable machine then fails the dial on its own).
+    `status()`. Only when `asleep` does it call `wake()`, then waits for the tailnet to report `joined` (9.1) and
+    resolves the dialled URL's host to the machine's tailnet name. It never calls `url()`, which would re-expose a
+    port (4.2, 9). When the machine is already `on`, or `unknown`, it resolves the dialled URL unchanged (an
+    unreachable machine then fails the dial on its own).
   - **Wake keys (G11).** `boat` implements `wakeKey(ref, { label })`: one key per phone, labelled with the
     phone's name, scoped to read, resume and host on `ref.id`; and `revokeKey(id)`. The app mints one when it pairs an
     owner phone, stores it in that phone's secure store with `WHEN_UNLOCKED_THIS_DEVICE_ONLY`

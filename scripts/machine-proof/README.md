@@ -44,8 +44,9 @@ Persist the app machine ids from the `Session` while preparing it. The runner al
 writes contract and app resource ids to `resourcesFile` immediately after creation.
 
 The built-in `probes()` in `probes.ts` supplies WebSocket handshakes, health reachability,
-plan fields, raw public-port reachability, disk and cgroup peak-memory observations,
-the proxy forged-header probe, a second provider-only shutdown to check SIGTERM, and
+plan fields, raw public-port reachability (closed means refused or dropped; see docs/cloud-kit.md 9.2),
+disk and cgroup peak-memory observations, a forged-header probe (`unavailable` on the tailnet route, which
+has no provider proxy), a second provider-only shutdown to check SIGTERM, and
 an isolated `noEnv` canary experiment. It asks the operator to complete real phone
 pairing, the engine device-code sign-in, a representative workload, the provider's
 app-sign-in key scope test, and the VM console power cycle. Those confirmations are

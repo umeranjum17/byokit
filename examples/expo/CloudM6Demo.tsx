@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { DeviceEventEmitter, Pressable, SafeAreaView, ScrollView, StatusBar, Text, TextInput } from 'react-native';
+import { DeviceEventEmitter, Linking, Pressable, SafeAreaView, ScrollView, StatusBar, Text, TextInput } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { useKeepAwake } from 'expo-keep-awake';
-import { boat, machine, type MachineRecord } from '@byokit/cloud';
+import { boat, machine, type MachineRecord, words } from '@byokit/cloud';
 import { DeviceLink, pairWithOffer, secureDeviceStore } from '@byokit/pair';
 import { ClaudePlanExpiredError, ResponseError, type Accounts } from '@byokit/accounts';
 import { claudeToolCall, cloudRecipe, diagnostic, stopAndRemove, M6_API, M6_KEY, pairedTurn, trialBudget } from './cloud-m6.ts';
@@ -99,7 +99,15 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
   const install = async () => {
     say('Installing the cloud host…'); const until = Date.now() + 300000;
     while (await computer.state() !== 'on') { if (Date.now() > until) throw new Error('Cloud creation did not finish within five minutes.'); await new Promise(r => setTimeout(r, 2000)); }
-    const url = await computer.url(7300); if (!url) throw new Error('Boat returned no relay address.'); await computer.install(cloudRecipe(url, computer.ref!.name));
+    say(words('tailnet.joining'));
+    let approvalShown = false;
+    const joined = await computer.joinTailnet({ hostname: 'umer-cloud' }, s => {
+      if ((s.step === 'open-page' || s.step === 'approve') && !approvalShown) {
+        approvalShown = true; say(words('tailnet.approvalNeeded'));
+      }
+      if (s.step === 'open-page') void Linking.openURL(s.url);
+    });
+    await computer.install(cloudRecipe(`http://${joined.name}:7300`, computer.ref!.name));
     if (await computer.host() !== 'running') throw new Error('The installed cloud host is not running.'); say('Host installed and running. Ready to pair.');
   };
   const pair = async () => {
