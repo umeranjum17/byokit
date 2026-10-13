@@ -968,9 +968,9 @@ the engine. External retained sources are touched only when explicitly passed to
 - API keys are opt-in, labelled **API key (billed per use)**, and every API route retains `offer: false`.
   `addKey(member, { authChoice, apiKey })` uses typed `openclaw.setup.activate` with `kind: 'api-key'` only.
   It returns `ok | invalid | not_included | retry`, never engine lines, errors or credentials. `retry`: the engine may have taken the key
-  but the gateway restart ran late, the seal failed, or the activation threw after it was sent (timeout, lost transport); the key agent is cleared, so nothing unsealed is kept. A restart or not-ready gateway before the engine saw the key is also `retry` (nothing was sent). Only routes whose pinned
+  but the gateway restart ran late, the seal failed, or the activation threw after it was sent (timeout, lost transport); the key agent is cleared best-effort, and a clear the engine refuses is swept at the kit's next start (the `byokit.keys` line below). A restart or not-ready gateway before the engine saw the key is also `retry` (nothing was sent). Only routes whose pinned
   manifests allow manual secrets for text inference expose `keyEntry`; every route carries `revision` and `checked`.
-- The `byokit.keys` plugin actions are `prepare`, `seal`, `ready` and `clear` (`clear` drops the unsealed key a failed add left; `plugin/keys.js`).
+- The `byokit.keys` plugin actions are `prepare`, `seal`, `ready` and `clear` (`clear` drops the unsealed key a failed add left; `plugin/keys.js`). The kit's sweep runs at its first ready after start and sweeps each `byokit-key-<member>` agent under that member's lock: it clears a key only when `ready` reports the marker absent (`absent: true`), so a sealed key survives and an add that seals mid-sweep keeps its key. A refused read or clear leaves the sweep incomplete, and the next ready of that kit instance runs it again; a completed sweep never reruns.
 - The engine has no strict per-run auth-profile pin. Key isolation is by agent: a member's normal agent never
   receives a key from `addKey`. A reserved `byokit-key-<member>` agent has its own workspace and credential store;
   the `byokit-key-` prefix is not a member id. Its key is `copyToAgents: false`. The plugin seals the local store
@@ -1669,8 +1669,9 @@ local part is only a suggestion the app offers (`@byokit/ui` `nameSuggestions`),
 `not_included`), writes the index entry, creates a new account agent, calls typed `openclaw.setup.activate { kind:
 'api-key', agentId, authChoice, apiKey }` (180 s), seals it, records its saved model, and returns `'ok' | 'invalid' |
 'not_included' | 'retry'`; any result but `ok` leaves nothing behind. A key the engine accepted that cannot be sealed (a late
-restart or a failed seal) is cleared and returns `retry`, never `invalid`. Every key is a new account (keys add, never
-replace; a key is replaced by `removeAccount` then `addKey`). The key never reaches kit storage, the index, logs,
+restart or a failed seal) is cleared and returns `retry`, never `invalid`; if that clear is refused, the kit's start sweep
+(the `byokit.keys` bullet in §5.8) clears it. Every key is a new account (keys add, never replace; a key is replaced by
+`removeAccount` then `addKey`). The key never reaches kit storage, the index, logs,
 errors or a return value, and is never sent over a link (`oc.account.add` refuses `key`). `RunSpec.auth: 'apiKey'`
 means `account: <the member's newest api account>` and runs its saved model, or a supplied model of the same
 provider (5.8); another provider ends `kind: 'plan'`.

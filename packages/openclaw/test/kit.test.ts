@@ -469,6 +469,220 @@ test('key entry refuses unavailable routes and hides even an engine error that e
   await assert.rejects(kit.ensureMember('byokit-key-m1'), /invalid member/);
 }));
 
+async function until(check: () => boolean, ms = 2000): Promise<void> {
+  const end = Date.now() + ms;
+  while (!check()) {
+    if (Date.now() > end) throw new Error('condition not reached');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+test('kit start clears an unsealed key agent and keeps a ready one', async () => {
+  const stateDir = scratchDir('o4-key-sweep');
+  const fake = fakeGateway();
+  const clears = () => fake.calls.filter((c) => c.method === 'byokit.keys'
+    && (c.params as { action?: string }).action === 'clear');
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+  try {
+    await kit.start();
+    // A failed gateway restart after activation: the engine took the key but the seal never ran, and the abandon
+    // clear was refused while the gateway was down. Drive that state directly: activation without a seal.
+    await kit.ensureMember('m1');
+    await kit.call('openclaw.setup.activate', { kind: 'api-key', agentId: 'byokit-key-m1',
+      authChoice: 'openai-api-key', apiKey: 'CANARY-UNSEALED-KEY-517' });
+    assert.equal(await kit.addKey('m2', { authChoice: 'openai-api-key', apiKey: 'CANARY-SEALED-KEY-642' }), 'ok');
+    await kit.stop();
+    const restarted = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+    try {
+      await restarted.start();
+      await until(() => clears().length === 1);
+      assert.deepEqual(clears().at(-1)?.params, { member: 'm1', action: 'clear' });
+      assert.deepEqual(await restarted.run({ member: 'm1', sessionKey: 'agent:m1:chat', auth: 'apiKey', message: 'Hello' }),
+        { ok: false, kind: 'signed-out', message: 'Add an API key to use this option.' });
+      assert.ok((await restarted.run({ member: 'm2', sessionKey: 'agent:m2:chat', auth: 'apiKey', message: 'Hello' })).ok);
+      assert.equal(JSON.stringify(fake.calls).includes('CANARY-UNSEALED-KEY-517'), false);
+      assert.equal(JSON.stringify(fake.calls).includes('CANARY-SEALED-KEY-642'), false);
+    } finally { await restarted.stop(); }
+  } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('an add that seals during the start sweep keeps its key', async () => {
+  const stateDir = scratchDir('o4-key-sweep-add');
+  const fake = fakeGateway();
+  const first = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+  await first.start();
+  await first.ensureMember('m1');
+  await first.call('openclaw.setup.activate', { kind: 'api-key', agentId: 'byokit-key-m1',
+    authChoice: 'openai-api-key', apiKey: 'CANARY-SWEEP-UNSEALED-771' });
+  await first.stop();
+  // Hold the sweep between its ready read (unsealed) and its clear, the window where a seal would be wiped.
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let held = false;
+  const gated = (ctx: Parameters<typeof fake.factory>[0]) => {
+    const transport = fake.factory(ctx);
+    const request: typeof transport.request = async (method, params, options) => {
+      const reply = await transport.request(method, params, options);
+      const p = params as { member?: string; action?: string } | undefined;
+      if (method === 'byokit.keys' && p?.member === 'm1' && p.action === 'ready' && !held) { held = true; await gate; }
+      return reply;
+    };
+    return { ...transport, request };
+  };
+  const second = new OpenClawKit({ stateDir, spawnEngine: false, transport: gated });
+  try {
+    await second.start();
+    await until(() => held);
+    const added = second.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'CANARY-SWEEP-SEALED-772' });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    release();
+    assert.equal(await added, 'ok');
+    assert.equal((await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }) as { ok: boolean }).ok, true);
+    assert.ok((await second.run({ member: 'm1', sessionKey: 'agent:m1:chat', auth: 'apiKey', message: 'Hello' })).ok);
+  } finally { release(); await second.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('an interrupted start sweep runs again on the next ready and a key with its marker survives', async () => {
+  const stateDir = scratchDir('o4-key-sweep-retry');
+  const fake = fakeGateway();
+  const clears = () => fake.calls.filter((c) => c.method === 'byokit.keys'
+    && (c.params as { action?: string }).action === 'clear');
+  const first = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+  await first.start();
+  await first.ensureMember('m1');
+  await first.call('openclaw.setup.activate', { kind: 'api-key', agentId: 'byokit-key-m1',
+    authChoice: 'openai-api-key', apiKey: 'CANARY-RETRY-UNSEALED-994' });
+  assert.equal(await first.addKey('m2', { authChoice: 'openai-api-key', apiKey: 'CANARY-RETRY-SEALED-995' }), 'ok');
+  await first.stop();
+  // The first sweep reads m1 (absent marker) and is held there while the gateway drops, so its clear is refused.
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let held = false;
+  const gated = (ctx: Parameters<typeof fake.factory>[0]) => {
+    const transport = fake.factory(ctx);
+    const request: typeof transport.request = async (method, params, options) => {
+      const p = params as { member?: string; action?: string } | undefined;
+      // m2's marker is present but its store no longer matches: the engine replies not ready without the absent flag.
+      if (method === 'byokit.keys' && p?.member === 'm2' && p.action === 'ready') return { ok: false };
+      const reply = await transport.request(method, params, options);
+      if (method === 'byokit.keys' && p?.member === 'm1' && p.action === 'ready' && !held) { held = true; await gate; }
+      return reply;
+    };
+    return { ...transport, request };
+  };
+  const second = new OpenClawKit({ stateDir, spawnEngine: false, transport: gated });
+  try {
+    await second.start();
+    await until(() => held);
+    fake.drop('test');
+    assert.equal(second.state.phase, 'failed');
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(clears().length, 0);
+    await second.start();
+    await until(() => clears().length === 1);
+    assert.deepEqual(clears().at(-1)?.params, { member: 'm1', action: 'clear' });
+    assert.equal(second.state.phase, 'ready');
+  } finally { await second.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a start sweep whose clear the engine refuses runs again on the next connect', async () => {
+  const stateDir = scratchDir('o4-key-sweep-refused');
+  const fake = fakeGateway();
+  const clears = () => fake.calls.filter((c) => c.method === 'byokit.keys'
+    && (c.params as { action?: string }).action === 'clear');
+  const first = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+  await first.start();
+  await first.ensureMember('m1');
+  await first.call('openclaw.setup.activate', { kind: 'api-key', agentId: 'byokit-key-m1',
+    authChoice: 'openai-api-key', apiKey: 'CANARY-REFUSED-UNSEALED-436' });
+  await first.stop();
+  let refused = false;
+  const refusing = (ctx: Parameters<typeof fake.factory>[0]) => {
+    const transport = fake.factory(ctx);
+    const request: typeof transport.request = async (method, params, options) => {
+      const reply = await transport.request(method, params, options);
+      const p = params as { member?: string; action?: string } | undefined;
+      if (method === 'byokit.keys' && p?.member === 'm1' && p.action === 'clear' && !refused) {
+        refused = true;
+        return { ok: false };
+      }
+      return reply;
+    };
+    return { ...transport, request };
+  };
+  const second = new OpenClawKit({ stateDir, spawnEngine: false, transport: refusing });
+  try {
+    await second.start();
+    await until(() => refused);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    fake.drop('test');
+    await second.start();
+    await until(() => clears().length === 2);
+    assert.deepEqual(clears().at(-1)?.params, { member: 'm1', action: 'clear' });
+    assert.equal(second.state.phase, 'ready');
+  } finally { await second.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a start sweep that cannot check a key runs again on the next connect', async () => {
+  const stateDir = scratchDir('o4-key-sweep-unchecked');
+  const fake = fakeGateway();
+  const clears = () => fake.calls.filter((c) => c.method === 'byokit.keys'
+    && (c.params as { action?: string }).action === 'clear');
+  const first = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+  await first.start();
+  await first.ensureMember('m1');
+  await first.call('openclaw.setup.activate', { kind: 'api-key', agentId: 'byokit-key-m1',
+    authChoice: 'openai-api-key', apiKey: 'CANARY-UNCHECKED-UNSEALED-518' });
+  await first.stop();
+  let unchecked = false;
+  const failing = (ctx: Parameters<typeof fake.factory>[0]) => {
+    const transport = fake.factory(ctx);
+    const request: typeof transport.request = async (method, params, options) => {
+      const reply = await transport.request(method, params, options);
+      const p = params as { member?: string; action?: string } | undefined;
+      if (method === 'byokit.keys' && p?.member === 'm1' && p.action === 'ready' && !unchecked) {
+        unchecked = true;
+        return { ok: false };
+      }
+      return reply;
+    };
+    return { ...transport, request };
+  };
+  const second = new OpenClawKit({ stateDir, spawnEngine: false, transport: failing });
+  try {
+    await second.start();
+    await until(() => unchecked);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(clears().length, 0);
+    fake.drop('test');
+    await second.start();
+    await until(() => clears().length === 1);
+    assert.deepEqual(clears().at(-1)?.params, { member: 'm1', action: 'clear' });
+    assert.equal(second.state.phase, 'ready');
+  } finally { await second.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a reconnect after a gateway drop does not clear an unsealed key', async () => {
+  const stateDir = scratchDir('o4-key-reconnect');
+  const fake = fakeGateway();
+  const clears = () => fake.calls.filter((c) => c.method === 'byokit.keys'
+    && (c.params as { action?: string }).action === 'clear');
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+  try {
+    await kit.start();
+    await kit.ensureMember('m1');
+    await kit.call('openclaw.setup.activate', { kind: 'api-key', agentId: 'byokit-key-m1',
+      authChoice: 'openai-api-key', apiKey: 'CANARY-RECONNECT-UNSEALED-883' });
+    const before = clears().length;
+    fake.drop('test');
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(clears().length, before);
+  } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 test('schema validation precedes explicit API-key readiness and keeps its snapshot across that await', async () => withKit(async (kit, fake) => {
   const before = fake.calls.length;
   await assert.rejects(kit.run({ member: 'm1', sessionKey: 'agent:m1:json', auth: 'apiKey', message: 'Report',

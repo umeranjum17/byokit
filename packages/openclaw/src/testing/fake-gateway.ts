@@ -459,9 +459,9 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       const id = `byokit-key-${p.member}`;
       if (p.action === 'prepare' || p.action === 'clear') { keys.delete(id); ensureAgent(id).providers = []; return { ok: true }; }
       const key = keys.get(id);
-      if (!key) return { ok: false };
+      if (!key) return { ok: false, absent: true };
       if (p.action === 'seal') { key.sealed = true; return { ok: true }; }
-      return { ok: key.sealed, ...(key.sealed ? { model: key.model } : {}) };
+      return key.sealed ? { ok: true, model: key.model } : { ok: false, absent: true };
     },
     // The provider's live catalog hook (5.6): every live model with its own api, once an agent holds the provider's key.
     'byokit.catalog': (p) => ([...keys.values()].some((key) => key.provider === p.provider) ? { ok: true, models: [

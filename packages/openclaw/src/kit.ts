@@ -526,6 +526,7 @@ export class OpenClawKit {
   private starting?: Promise<void>;
   private stopping = false;
   private failures = 0;
+  private swept = false;
   private catalogs: Promise<void> = Promise.resolve();
   browser?: BrowserHost;
   private browserHost?: BrowserHostController;
@@ -788,6 +789,9 @@ export class OpenClawKit {
       this.failures = 0;
       this.setState({ phase: 'ready' });
       this.syncCatalogs();
+      // A failed key add whose abandon clear never reached the engine leaves an unsealed key with no ready marker;
+      // runs stay closed, so drop it now that the gateway is ready. Ready keys keep their marker and survive.
+      if (!this.swept) void this.keys.sweep().then((done) => { if (done) this.swept = true; }).catch(() => undefined);
       if (this.o.browser) await this.checkBrowserTools();
       // Replays the engine's native approval lists over the now-live transport (N9).
       await this.approvalsCtl.resync();
