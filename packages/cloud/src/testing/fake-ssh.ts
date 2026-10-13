@@ -103,7 +103,9 @@ export function loadMachine(saved: SavedMachine): FakeMachine {
   return m;
 }
 
-const fakeSshSource = fileURLToPath(new URL('./fake-machine.ts', import.meta.url));
+// Generated binaries must work from the built testing entry as well as Node's stripped sources.
+const extension = import.meta.url.endsWith('.ts') ? 'ts' : 'js';
+const fakeSshSource = fileURLToPath(new URL(`./fake-machine.${extension}`, import.meta.url));
 
 function sshScript(statePath: string, logPath: string): string {
   // The adapter spawns with an env built from nothing (`{ LANG: 'C.UTF-8' }`
@@ -115,7 +117,7 @@ function sshScript(statePath: string, logPath: string): string {
     "import { writeSync } from 'node:fs';",
     `const STATE = ${JSON.stringify(statePath)};`,
     `const LOG = ${JSON.stringify(logPath)};`,
-    `const HELPERS = ${JSON.stringify(pathToFileURL(fileURLToPath(new URL('./fake-ssh.ts', import.meta.url))).href)};`,
+    `const HELPERS = ${JSON.stringify(new URL(`./fake-ssh.${extension}`, import.meta.url).href)};`,
     `const MACHINE = ${JSON.stringify(pathToFileURL(fakeSshSource).href)};`,
     'const argv = process.argv.slice(2);',
     'const chunks = [];',
