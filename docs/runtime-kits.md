@@ -409,8 +409,8 @@ and all usage RPCs remain available; no new engine API or patch build seam is cr
 
 ```ts
 import type { Account, AccountId, AccountPick, AccountRef, Defaults, ModelInfo, Room, RunSelection } from '@byokit/accounts';
-import type { Approval, CallOptions, Decision, GatewayEventName, GatewayEventPayload, GatewayMethod, GatewayParams,
-  GatewayResult, GatewayTransport, Hello, KitState, LearningCapture, LearningMode, Member, OutputSchema, Route, RunEnd,
+import type { Approval, ArtifactBytes, ArtifactRefusal, ArtifactsResult, CallOptions, Decision, GatewayEventName,
+  GatewayEventPayload, GatewayMethod, GatewayParams, GatewayResult, GatewayTransport, Hello, KitState, LearningCapture, LearningMode, Member, OutputSchema, Route, RunEnd,
   RunEvent, RunRef, RunSpec, SchemaOutput, SignInView, ToolHost, ToolSpec } from '@byokit/openclaw';
 import type { SealingAdapter } from '@byokit/secrets';
 type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
@@ -479,6 +479,9 @@ export declare class OpenClawKit {
   setDefaults(member: Member, d: Defaults): Promise<void>;
   pick(member: Member, sel: RunSelection, o?: { sessionKey?: string }): Promise<AccountPick>; // what `run` would use now; decides nothing
   move(ref: RunRef, to: AccountId): Promise<MoveResult>;
+  // run artifacts (5.8.2)
+  artifacts(sessionKey: string, o?: { runId?: string }): Promise<ArtifactsResult>;
+  artifact(sessionKey: string, id: string): Promise<ArtifactBytes | ArtifactRefusal>;
   // runs (5.8)
   toolNames(): string[];                                        // KitOptions.tools names: what RunSpec.tools may carry
   run<const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void): Promise<RunEnd<SchemaOutput<S>>>;
@@ -975,6 +978,78 @@ account readiness or the run and limited to 64 KiB and 32 nested schemas. The fa
 snapshot to `createRuns` so an explicit API-key readiness await cannot change its constraints. Validation neither coerces values nor fills defaults.
 App-specific business checks belong in the app after the validated result.
 
+### 5.8.2 Run artifacts (A5)
+
+A run's artifacts are what the pinned engine already lists: no engine patch, no kit-side store. Pin facts
+(`openclaw@2026.8.35`, `dist/artifacts-MAdHWzFI.js`): `artifacts.list`, `artifacts.get` and `artifacts.download`
+(`src/generated/methods.ts:21-23`, `operator.read`, which the kit holds) scan one session's transcript. Each
+image/audio/video/file content block of any message is an artifact with a stable id (`artifact_` + 18 base64url
+characters of sha256 over session key, message seq, block index, type and title; managed outgoing media keeps its
+`artifact_managed_{image,media}_<uuid>` id). Its `download.mode` is `bytes` (inline base64), `url` (an http(s) URL or
+the gateway's own `/api/chat/media/outgoing/...` route) or `unsupported`. A query needs `sessionKey`, `runId` or
+`taskId`; the kit always sends `sessionKey` plus that key's `agentId`, so the engine's own owner and session-sharing
+checks apply. `artifacts.download` returns the whole artifact in one response (`encoding: 'base64', data`, or `url`
+plus a 5-minute `expiresAt` ticket for managed media). It has no offset, range, size cap or hash, so chunking, resume
+and hashing are the kit's, on the host.
+
+How an artifact is produced offline on the pin: the engine's built-in `read` tool on an image file returns an
+`{ type: 'image', data, mimeType }` block (`agent-tools.read-EQRM4v5A.js`, after `sanitizeToolResultImages`, which may
+re-encode it). The tool-result message keeps that block in the transcript, so it lists as `bytes`. A model-stub script
+that calls `read` on a PNG in the member workspace therefore produces one with no network. Images sent as
+`RunSpec.images` are **not** artifacts (the pin stores them as `__openclaw.media` facts, not content blocks), and
+`chat.inject` writes text only. The reference hash is that of the bytes `artifacts.download` returns, never of the
+source file. This is a read of the published pin; O26's engine case is the proof.
+
+```ts
+// src/types.ts, exported from `.` and `./device`
+export type ArtifactInfo = { id: string; type: 'image' | 'audio' | 'video' | 'file'; title: string; mimeType?: string;
+  sizeBytes?: number; runId?: string; messageSeq: number; download: 'bytes' | 'url' | 'unsupported' };
+export type ArtifactRefusal = { ok: false; code: 'unsupported' | 'not_found' | 'not_downloadable' | 'too_large' |
+  'changed' | 'range'; message: string };                    // message = words('artifact.<code>')
+export type ArtifactsResult = { ok: true; artifacts: ArtifactInfo[] } | ArtifactRefusal;
+export type ArtifactBytes = { ok: true; artifact: ArtifactInfo; bytes: Uint8Array; sha256: string };   // host only
+export type ArtifactFrame =                                   // oc.artifact wire frames, one NDJSON line each
+  | { type: 'head'; artifact: ArtifactInfo; size: number; sha256: string; chunk: number }
+  | { type: 'chunk'; offset: number; data: string; sha256: string }   // data: base64 of at most `chunk` bytes
+  | { type: 'end'; end: { ok: true } | ArtifactRefusal };
+export type ArtifactPiece =                                   // what the device yields: chunks verified and decoded
+  | Extract<ArtifactFrame, { type: 'head' | 'end' }> | { type: 'chunk'; offset: number; bytes: Uint8Array };
+export declare const ARTIFACT_MAX_BYTES: number;              // 16 MiB
+export declare const ARTIFACT_CHUNK_BYTES: number;            // 256 KiB
+// ./device only
+export declare class ArtifactHashError extends Error { readonly offset: number }   // name 'ArtifactHashError'
+```
+
+- `artifacts(sessionKey, o?)` → `artifacts.list { sessionKey, agentId, runId? }`, mapped to `ArtifactInfo` (the
+  engine's `sessionKey`, `taskId` and `source` are dropped). `artifact(sessionKey, id)` → `artifacts.download`, then
+  the decoded bytes and their lowercase hex sha256. `bytes` mode decodes `data`. `url` mode is fetched only when it
+  is the gateway's own managed route: GET `http://127.0.0.1:<port><url>` with its ticket, inside the 5-minute window,
+  read up to the cap. Any other URL is `not_downloadable`: the host never fetches a third-party URL for a device,
+  and a URL or ticket never reaches a device.
+- **Size cap**: `ARTIFACT_MAX_BYTES` = 16 MiB decoded (pair's `MAX_MESSAGE`; under the gateway's 25 MiB inbound and
+  50 MiB buffered limits). A summary `sizeBytes` over the cap is `too_large` before any download; so is a decoded
+  length over it (the pin caps no response).
+- **Unsupported**: before each call the kit checks the connected `hello.methods` for the method it needs
+  (`artifacts.list` for `artifacts`, `artifacts.download` for `artifact`). A missing one is `{ ok: false, code:
+  'unsupported' }`; it is never a throw from `call`. Engine errors map by `details.type`: `artifact_not_found` and
+  `artifact_scope_not_found` → `not_found`, `artifact_download_unsupported` → `not_downloadable`. Others throw as
+  `call` does.
+- **Scope**: on the host the key is the app's (full power, D8). Over a link (7.1) the key must be the grant member's
+  (D9: member agent, its account agents, or its key lane), and the engine's session scoping confines ids to that
+  key. An id from another session is `not_found`, never another member's bytes.
+- **Chunk frame and resume**: `oc.artifact { sessionKey, id, offset?, sha256? }` downloads once on the host, then
+  streams one `head` (whole size and hex sha256, `chunk` = `ARTIFACT_CHUNK_BYTES`), then `chunk` frames in order from
+  `offset`. Each frame carries at most 256 KiB, so its base64 line stays under pair's 1 MiB NDJSON line limit, and
+  `sha256` is the hex hash of that chunk's decoded bytes. The stream closes with `end`. `offset` is an integer in
+  `0..size`, else `range`. `sha256`, when given, is the whole hash from an earlier `head`; a different current hash is
+  `changed` before any chunk, so a resume never splices two versions. The pin has no range read, so every request
+  downloads the whole artifact again; that is bounded by the cap.
+- **Device**: `artifact(...)` yields only verified chunks. It checks that each chunk's offset continues the last and
+  that its sha256 matches. On a mismatch it throws `ArtifactHashError` whose `offset` is the first unverified byte,
+  so the app resumes there with the head's `sha256`. A refusal arrives as the `end` frame's `ArtifactRefusal`, not a
+  throw. The whole hash is the app's check once it has reassembled from 0 (`head.sha256`). Hashing uses
+  `@noble/hashes` `sha256` (exact pin, as `@byokit/seal`), keeping `./device` portable.
+
 ### 5.9 Tools, approvals and the bridge
 
 **Plugin** (`plugin/index.js`, written to `<root>/plugin/` at prepare with a generated `openclaw.plugin.json`
@@ -1099,8 +1174,8 @@ change; a stale set fails `before` and blocks release), re-checks that the Gatew
 
 ```ts
 import type { Account, AccountId, AccountPick, Considered, Defaults, ModelInfo, PickWhy, Room, RunSelection } from '@byokit/accounts';
-import type { AccountView, Approval, Decision, GatewayTransport, KitState, KitOptions, Member, OutputSchema,
-  RetainedLogin, Route, RunEnd, RunEvent, RunRef, RunSpec, SchemaOutput, SignInView, ToolHost, ToolSpec,
+import type { AccountView, Approval, ArtifactBytes, ArtifactFrame, ArtifactPiece, ArtifactRefusal, ArtifactsResult,
+  Decision, GatewayTransport, Hello, KitState, KitOptions, Member, OutputSchema, RetainedLogin, Route, RunEnd, RunEvent, RunRef, RunSpec, SchemaOutput, SignInView, ToolHost, ToolSpec,
   WordKey } from '@byokit/openclaw';
 declare function outputSchema(value: unknown): { prompt: string; parse(text: string): { data: unknown } | undefined };
 type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
@@ -1118,6 +1193,8 @@ interface OpenClawKit {   // 5.3 signatures; the built kit has addKey and addAcc
   setDefaults(member: Member, d: Defaults): Promise<void>;
   pick(member: Member, sel: RunSelection, o?: { sessionKey?: string }): Promise<AccountPick>;
   move(ref: RunRef, to: AccountId): Promise<MoveResult>;
+  artifacts(sessionKey: string, o?: { runId?: string }): Promise<ArtifactsResult>;   // 5.8.2 (O26)
+  artifact(sessionKey: string, id: string): Promise<ArtifactBytes | ArtifactRefusal>;
 }
 // engine.ts (O3)
 export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'appOwnedSessions' | 'installPolicy' | 'log' | 'bridge'>
@@ -1201,6 +1278,13 @@ export declare function chooseAccount(candidates: readonly Account[], room: (a: 
   { account: Account; why: PickWhy } | undefined;              // Auto only; resolveSelection builds the AccountPick
 export declare function resolveSelection(accounts: readonly Account[], defaults: Defaults, sel: RunSelection,
   room: RoomOf, nowMs: number, models?: (a: Account) => readonly ModelInfo[], bound?: readonly AccountId[]): AccountPick;
+// artifacts.ts (O26; host). The managed-media fetch goes to the loopback gateway port only.
+export declare function createArtifacts(ctx: { request: GatewayTransport['request']; hello(): Hello | undefined;
+  port(): number | undefined }): { list: OpenClawKit['artifacts']; get: OpenClawKit['artifact'] };
+export declare function artifactFrames(a: ArtifactBytes, o: { offset?: number; sha256?: string }): ArtifactFrame[];  // head, chunks, end
+// artifact-chunks.ts (O26; portable, used by ./device)
+export declare function verifiedChunks(frames: AsyncIterable<ArtifactFrame>, offset: number):
+  AsyncIterable<ArtifactPiece>;                               // throws ArtifactHashError
 // classify.ts (O8)
 export declare function classify(message: string): { kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other'; until?: number };
 // words.ts (O10)
@@ -2578,6 +2662,8 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 | `oc.run` (stream) | `{ sessionKey?, message, model?, account?, needs?, auth?, system?, images?, thinking?, tools?, schema? }` (`account` an id of the member's, `'default'` or `'auto'`; `auth` only `'apiKey'`) | frames `RunEvent` then `{ type: 'end', end: RunEnd }`; key defaults to `agent:<member>:link:<uuid>`; options are type-checked (`thinking` one of `off|low|medium|high`, `images` `{ data, mimeType }[]`, `needs` a `'provider/model'` string array refused like a malformed `model`); a `tools` name outside `kit.toolNames()` → `link.notAllowed` |
 | `oc.steer` | `{ sessionKey, text, auth? }` | `null` (key must be the member's, D9) |
 | `oc.abort` | `{ sessionKey, auth? }` | `null` (key must be the member's, D9) |
+| `oc.artifacts` *view* | `{ sessionKey, runId? }` | `ArtifactsResult` (5.8.2; key must be the member's, D9) |
+| `oc.artifact` (stream) | `{ sessionKey, id, offset?, sha256? }` | `ArtifactFrame` lines: `head`, `chunk`s from `offset`, `end` (5.8.2; key must be the member's, D9; a refusal is the `end` frame) |
 | `oc.accounts` *view* | — | `Account[]` (5.15) |
 | `oc.account.add` | `{ provider, via?, name?, again? }` | `{ id, view: SignInView }` (kit picks `routeFor(provider, via)`; a `key` field → `link.notAllowed`, keys are host-only) |
 | `oc.account.view` *view* | `{ id }` | `{ ready, view: SignInView \| null }` for `toAccountView` |
@@ -2627,8 +2713,8 @@ re-exports them with the frame types below.
 
 ```ts
 import type { Account, AccountId, AccountPick, AccountRef, Defaults, ModelInfo, Room, RunSelection } from '@byokit/accounts';
-import type { AccountView, Approval, Decision, GatewayEventName, GatewayEventPayload, GatewayMethod, GatewayParams,
-  GatewayResult, KitState, OutputSchema, Route, RunEnd, RunEvent, SchemaOutput, SignInView } from '@byokit/openclaw';
+import type { AccountView, Approval, ArtifactPiece, ArtifactsResult, Decision, GatewayEventName, GatewayEventPayload,
+  GatewayMethod, GatewayParams, GatewayResult, KitState, OutputSchema, Route, RunEnd, RunEvent, SchemaOutput, SignInView } from '@byokit/openclaw';
 import type { DeviceLink } from '@byokit/pair';
 import type { AgentRef, AgentStatus, BlockedAgent, HerdrEventName, HerdrEventOf, HerdrMethod, HerdrParams, HerdrResult,
   HerdrSnapshot, HerdrState, HerdrSubscription, PromptReceipt, StartAgent } from '@byokit/herdr';
@@ -2658,6 +2744,8 @@ export declare function openclawDevice(link: DeviceLink): {
   move(sessionKey: string, to: AccountId): Promise<MoveResult>;
   run<const S extends OutputSchema | undefined = undefined>(message: string, o?: DeviceRunOptions<S>): AsyncIterable<RunEvent | { type: 'end'; end: RunEnd<SchemaOutput<S>> }>;
   steer(k: string, t: string, o?: { auth?: 'apiKey' }): Promise<void>; abort(k: string, o?: { auth?: 'apiKey' }): Promise<void>;
+  artifacts(sessionKey: string, o?: { runId?: string }): Promise<ArtifactsResult>;          // oc.artifacts (5.8.2)
+  artifact(sessionKey: string, id: string, o?: { offset?: number; sha256?: string }): AsyncIterable<ArtifactPiece>;   // oc.artifact; throws ArtifactHashError
   approvals(): Promise<Approval[]>; decide(id: string, d: Decision): Promise<void>;
   events(): AsyncIterable<OpenClawLinkEvent>;
   registerNotices(seed: Uint8Array): Promise<void>;         // derives the box key with @byokit/seal
@@ -2855,6 +2943,7 @@ Browser (5.17): O18 ─┬─ O19 ─┐
                      ├─ O20 ─┴─ O21 ─┐
                      ├─ O22 (O20) ───┴─ O25 → with O17, the handoff enable gate
                      └─ O23 ─ O24 (Opus frontend)
+Artifacts (5.8.2): O26 (O11, O8, O9)
 * needs a --herdr-lab brief
 ```
 
@@ -3163,6 +3252,20 @@ its fixture; `@byokit/ui` `AccountsSource` (for `fits`) · version: openclaw nex
   agent-bound broker frames (with a positive control); restart in every state; Chromium crash recovery and engine
   reattach; the `before_agent_run` seam (`ctx.runId === idempotencyKey`, recovery turn blocked, missing `runId`
   blocked). Its result decides the enable gate together with O17.
+
+**O26 — run artifacts (5.8.2)** · Sol · deps: O8, O9, O11
+- Files: `src/artifacts.ts`, `src/artifact-chunks.ts`, `src/kit.ts`, `src/link.ts`, `src/device.ts`, `src/types.ts`,
+  `src/words.json` (`artifact.<code>`), `package.json` (`@noble/hashes` exact, as `@byokit/seal`),
+  `test/engine/artifacts.test.ts`, `changes/openclaw-artifacts.md`.
+- Acceptance: the 5.3, 5.13, 7.1 and 7.2 signatures exactly; portable and React Native import checks still pass for
+  `./device`; on the fake gateway, a hello without `artifacts.download` gives `unsupported`, never a throw from `call`,
+  and a summary `sizeBytes` over 16 MiB gives `too_large` with no `artifacts.download` request.
+- Proof (engine job case, `npm run test:engine`): the real pinned engine plus `src/testing/model-stub.ts` scripts a
+  `read` of a PNG in the member workspace; `kit.artifacts` lists it as `bytes`. A device over a real loopback link
+  downloads it, the socket is dropped after half the chunks, and the download resumes from the last verified
+  offset with the head's `sha256`. Pass: the reassembled sha256 equals the host's `artifact()` hash; a flipped chunk
+  byte throws `ArtifactHashError` at its offset; the second member's grant gets `link.notAllowed` for the first
+  member's key, and an id from another session gets `not_found`.
 
 **O13 — Crewhouse adoption** · Sol · deps: `@byokit/openclaw` published · repo: Crewhouse
 - Files: Crewhouse `package.json`, `src/openclaw/runtime.ts` (thin adapter), `src/openclaw/tools.ts` (schemas and
