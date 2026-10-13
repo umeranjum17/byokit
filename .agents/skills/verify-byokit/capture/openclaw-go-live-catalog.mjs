@@ -94,6 +94,7 @@ try {
   const after = live ? JSON.stringify(await registered(kit)) : patches();
   say('fresh start rewrote the catalog:', before !== after);
   assert.equal(after, before);
+  await turn('saved-key-model-restart', { auth: 'apiKey' }, keyMember);
   say('GO-LIVE-CATALOG OK');
 } finally {
   await kit.stop();

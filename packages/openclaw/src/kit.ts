@@ -19,7 +19,7 @@ import { createLocks } from './locks.ts';
 import { keyAgentId, KEY_PREFIX, MEMBER_ID } from './members.ts';
 import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLogin } from './migrate.ts';
 import { createRuns, signedInProviders } from './runs.ts';
-import { createAuthStatus } from './auth-status.ts';
+import { authStatus, createAuthStatus } from './auth-status.ts';
 import { outputSchema } from './output.ts';
 import { createKeys, type AddKeyResult } from './keys.ts';
 import { routes as routeTable, type RouteView } from './routes.ts';
@@ -697,6 +697,7 @@ export class OpenClawKit {
       onState: (s) => this.setState(s), onExit: () => this.closed('engine exited') });
     this.admission = createAuthStatus(this.engine.root, (method, params, options) => this.request()(method, params, options));
     this.keys = createKeys({ root: this.engine.root,
+      prepareOwner: (agentId) => this.prepareKeyOwner(agentId),
       restarting: () => this.engineRestarting(),
       request: (method, params, options) => this.request()(method, params, options),
       ensure: (member) => this.ensureMember(member),
@@ -1045,7 +1046,13 @@ export class OpenClawKit {
 
   /** Save an explicitly supplied API key (billed per use) in this member's separate key agent. */
   addKey(agentId: Member, o: { authChoice: string; apiKey: string; model?: string }): Promise<AddKeyResult> {
-    return this.keys.add(agentId, o).then((r) => { if (r.status === 'ok') this.syncCatalogs(); return r; });
+    return this.keys.add(agentId, o);
+  }
+
+  private async prepareKeyOwner(agentId: string): Promise<void> {
+    this.syncCatalogs();
+    await this.catalogs;
+    if ((await authStatus(this.request(), agentId, true)).unavailable) throw new Error('Key owner unavailable.');
   }
 
   // Live provider catalogs (5.6): registers each live model with its api from the provider's catalog data, so

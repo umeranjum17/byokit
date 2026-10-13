@@ -979,7 +979,11 @@ the engine. External retained sources are touched only when explicitly passed to
   available, then saved in the key lane's sealed selection. An unknown model clears the attempted replacement and returns
   `{ status: 'invalid', reason: 'model' }`. Absent, the engine's current starter model stays. The public
   `models(member, { authChoice })` exposes the same provider catalog (live when a key is available, otherwise engine discovery),
-  not a second catalog. Catalog or control failures never become a claim that the key is invalid.
+  not a second catalog. Before returning `ok`, `addKey` awaits catalog synchronization, then prepares that key agent's
+  full-catalog owner with `models.authStatus { agentId: 'byokit-key-<member>', refresh: true }`, once under its key lock.
+  A thrown or unavailable preparation reply clears the attempted key best-effort and returns `{ status: 'retry', reason: 'engine' }`
+  without diagnostics. Ordinary runs and their admission policy are unchanged; there is no per-run cold refresh.
+  Catalog or control failures never become a claim that the key is invalid.
 - The `byokit.keys` plugin actions are `prepare`, `seal`, `ready` and `clear` (`clear` drops the unsealed key a failed add left; `plugin/keys.js`). The kit's sweep runs at its first ready after start and sweeps each `byokit-key-<member>` agent under that member's lock: it clears a key only when `ready` reports the marker absent (`absent: true`), so a sealed key survives and an add that seals mid-sweep keeps its key. A refused read or clear leaves the sweep incomplete, and the next ready of that kit instance runs it again; a completed sweep never reruns.
 - The engine has no strict per-run auth-profile pin. Key isolation is by agent: a member's normal agent never
   receives a key from `addKey`. A reserved `byokit-key-<member>` agent has its own workspace and credential store;

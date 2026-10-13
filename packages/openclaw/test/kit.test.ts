@@ -301,7 +301,12 @@ test('a Go plan key registers the live catalog once and runs any Go model', asyn
     ['opencode-go/fake-key-model', 'opencode-go/fake-live-model']);
   assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }),
     { ok: true, model: 'opencode-go/fake-live-model' });
-  await settled(2);
+  const ownerAt = fake.calls.findLastIndex((c) => c.method === 'models.authStatus'
+    && (c.params as { agentId?: string; refresh?: boolean }).agentId === 'byokit-key-m1'
+    && (c.params as { refresh?: boolean }).refresh === true);
+  assert.ok(ownerAt > fake.calls.findLastIndex((c) => c.method === 'config.patch'), 'owner is prepared after catalog registration before addKey returns');
+  assert.equal(fake.calls.slice(0, ownerAt + 1).filter((c) => c.method === 'models.authStatus'
+    && (c.params as { refresh?: boolean }).refresh === true).length, 1, 'prepared once, not on ordinary runs');
   assert.deepEqual((await goModels())?.map((m) => [m.id, m.api]),
     [['fake-key-model', 'openai-completions'], ['fake-live-model', 'openai-responses']]);
   assert.equal(patches(), before + 1);
@@ -354,7 +359,7 @@ test('a catalog failure is logged without the key, no key is silent, and signedI
   }
 });
 
-test('a catalog sync that races a gateway restart is not logged; the ready handler re-syncs', async () => {
+test('a catalog sync that races a restart fails key preparation without logging diagnostics', async () => {
   const stateDir = scratchDir('o4-catalog-restart');
   const fake = fakeGateway();
   const lines: string[] = [];
@@ -363,7 +368,9 @@ test('a catalog sync that races a gateway restart is not logged; the ready handl
   try {
     await kit.start();
     fake.handle('byokit.catalog', () => { raced = true; fake.drop('gateway restarting'); throw new Error('transport closed'); });
-    assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-RACE-KEY' }), { status: 'ok' });
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-RACE-KEY' }), { status: 'retry', reason: 'engine' });
+    assert.equal(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'), false,
+      'a dropped preparation never publishes a ready replacement');
     for (let i = 0; i < 100 && !raced; i++) await delay(10);
     await delay(20);
     assert.equal(raced, true);
@@ -483,6 +490,18 @@ test('key entry refuses unavailable routes and hides even an engine error that e
   const key = 'CANARY-ERROR-KEY-12345';
   assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai', apiKey: key }), { status: 'not_included', reason: 'model' });
   assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: ' ' }), { status: 'invalid', reason: 'auth' });
+  for (const throws of [true, false]) {
+    fake.handle('models.authStatus', () => {
+      if (throws) throw Object.assign(new Error(key), { code: 'ECONNRESET' });
+      return { unavailable: { message: key } };
+    });
+    const prepared = await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: key });
+    assert.deepEqual(prepared, { status: 'retry', reason: 'engine' }, 'owner preparation is an engine failure, never a bad key');
+    assert.equal(JSON.stringify([prepared, fake.calls]).includes(key), false);
+    assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
+    assert.equal((await kit.run({ member: 'm1', sessionKey: 'agent:m1:failed-owner', auth: 'apiKey', message: 'Hello' })).ok, false);
+    assert.equal(fake.calls.some((c) => c.method === 'agent'), false, 'failed prepared replacement cannot fall back');
+  }
   fake.handle('openclaw.setup.activate', () => { throw new Error(key); });
   const end = await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: key });
   // The engine may have taken a key whose activation threw after it was sent: the key is cleared and the add is retry.

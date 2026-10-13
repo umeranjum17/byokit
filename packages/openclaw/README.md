@@ -162,6 +162,8 @@ List the route's models with `kit.models('ana', { authChoice: 'opencode-go' })`;
 catalog when a key is available, engine discovery otherwise. Pass a full catalog id, e.g.
 `model: 'opencode-go/muse-spark-1.3-contributor'`, to `addKey` to save it as the lane's default after activation.
 An unknown model returns `{ status: 'invalid', reason: 'model' }` and clears the replacement.
+Before success, `addKey` waits for catalog registration and prepares the new key agent's full-catalog owner once.
+Preparation failure clears the attempted key and returns `{ status: 'retry', reason: 'engine' }`; ordinary runs stay unchanged.
 With no choice, today's starter stays. Header injection (including `x-opencode-session`) stays engine-owned.
 The saved model is used when a run's `model` is omitted; any other model of the same provider (`provider/model`) runs too,
 and another provider ends `plan`. Key runs have separate history. To steer or stop

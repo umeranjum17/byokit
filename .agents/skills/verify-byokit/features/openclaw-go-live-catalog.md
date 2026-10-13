@@ -10,7 +10,8 @@ Verification recipe for [live provider catalogs](../../../../docs/runtime-kits.m
 - `run({ auth: 'apiKey', model })` takes any model of the key's provider; another provider ends `plan`.
 - `addKey` failures use typed `status` and `reason`, never raw diagnostics: `auth`, `model`, `network`, `engine`, `busy`. The existing public-kit key-entry journey (`packages/openclaw/test/kit.test.ts`) injects typed probe statuses/transport codes carrying a canary and checks each reason and no secret.
 - After `addKey`, `signedIn(member, 'opencode-go')` is true while `providers(member)` stays the member's own sign-ins; live, a second member's key run on Muse streams with usage.
-- A fresh start finds the list unchanged and writes nothing (no gateway restart, no config rewrite).
+- `addKey` awaits catalog synchronization and prepares the new full-catalog owner once before publishing key readiness. Preparation failure returns `retry`/`engine` without secrets and leaves no ready replacement. No per-run cold refresh is added.
+- A fresh start finds the list unchanged and writes nothing (no gateway restart, no config rewrite); a saved-key Muse turn streams again without a model or an app-side refresh.
 
 ## How to get to it (user POV)
 
@@ -34,11 +35,13 @@ For a task explicitly authorized to use an existing desktop Go key, write a scra
 
 Drive, retaining the actual typed results and streamed output:
 
+Do not call `models.authStatus(refresh:true)` or wait for a catalog patch in the consumer: `addKey` owns that barrier.
+
 1. `kit.start()`, then `kit.addKey('umer', { authChoice: 'opencode-go', apiKey: key, model: 'opencode-go/muse-spark-1.3-contributor' })`: require `{ status: 'ok' }`.
 2. `kit.models('umer', { authChoice: 'opencode-go' })`: require Muse present. `kit.run({ member: 'umer', sessionKey: 'agent:umer:proof', auth: 'apiKey', message: 'What is the capital of France?' }, on)`: omit the model to prove the saved choice, require text events and `end.ok`.
 3. Add a deliberate synthetic bad key on a different member and require `reason: 'auth'` (not an inference/schema failure).
 4. `kit.stop()`, construct a new kit on the same root, `start()` and run again without a model. A refusal here is retained as a restart/readiness limitation, never presented as a successful second run; no workaround or re-add qualifies restart persistence.
-5. Verify both probe and run carry `x-opencode-session`. A task-owned observer plugin can subscribe to Node's `undici:request:create` / `undici:request:headers`, restrict to the `opencode.ai` origin, and record **only** phase (`activation`/`first-run`/`restart-run`), header-name presence, and HTTP status. Add its path/id through the app's `plugins.load.paths`/`plugins.allow`; it never changes requests. Require nonzero requests in both phases and header presence on each. Save this structural excerpt beside the transcript; never record header values, bodies or raw engine errors. Stop and remove that observer with the scratch root.
+5. Verify both probe and run carry `x-opencode-session`. A task-owned observer plugin can subscribe to Node's `undici:request:create` / `undici:request:headers`, restrict to the `opencode.ai` origin, and record **only** phase (`activation`/`first-run`/`restart-run`), header-name presence, and HTTP status. Give the observer manifest `activation: { onStartup: true }`; add its path/id through the app's `plugins.load.paths`/`plugins.allow`. It never changes requests. Separate catalog GETs from inference POSTs ending `/responses` or `/chat/completions`; require nonzero inference rows in activation, first-run and restart-run, with header presence on each. Scoped observer registrations can duplicate rows, so do not claim independent request counts. Save this structural excerpt beside the transcript; never record header values, bodies or raw engine errors. Stop and remove that observer with the scratch root.
 
 If a key run refuses a prepared full-catalog owner/config while auth status appears available, a diagnostic-only
 `kit.call('models.authStatus', { agentId: 'byokit-key-umer', refresh: true })` can distinguish owner preparation

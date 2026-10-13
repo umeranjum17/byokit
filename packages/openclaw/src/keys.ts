@@ -27,6 +27,7 @@ export function createKeys(ctx: ActivationCtx & {
   root: string;
   ensure(member: Member): Promise<{ agentId: string }>;
   restarting?(): boolean;
+  prepareOwner(agentId: string): Promise<void>;
 }) {
   // Serialize key replacement and key runs, so an in-flight run never sees a half-installed replacement.
   const tails = new Map<string, Promise<unknown>>();
@@ -101,6 +102,9 @@ export function createKeys(ctx: ActivationCtx & {
           if (result.late) return abandon('busy');
           if (o.model !== undefined && !(await models(member, o)).some((m) => m.id === o.model))
             return abandon('model', 'invalid');
+          // Prepare before publishing the ready marker: failed preparation remains unusable even if clear fails.
+          try { await ctx.prepareOwner(agentId); }
+          catch { return abandon('engine'); }
           if ((await control(member, 'seal', undefined, o.model)).ok) return { status: 'ok' };
           return abandon('engine');
         } catch (error) {
