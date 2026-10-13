@@ -28,6 +28,7 @@ async function socket(url: string): Promise<void> {
   });
 }
 function relayUrl(s: Session, options: ProbeOptions): URL {
+  assert.ok(s.url !== null || s.provider.id === 'ssh-vm', 'sandbox probes need the private tailnet route from prepare');
   const url = new URL(s.url ?? options.vmRelayUrl);
   assert.ok(!url.username && !url.password && !url.search && !url.hash, 'relay URL must not carry a credential');
   assert.ok(url.protocol === 'https:' || url.protocol === 'wss:', 'live relay requires TLS');

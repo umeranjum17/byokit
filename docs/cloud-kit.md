@@ -350,7 +350,7 @@ Where this differs from the first suggested shape, and why:
 export type TailnetStep =
   | { step: 'open-page'; url: string }
   | { step: 'joined'; name: string }
-export type Tailnet = { state: 'joined' | 'needs-login' | 'off'; name: string | null }
+export type Tailnet = { state: 'joined' | 'needs-login' | 'off' | 'starting'; name: string | null }
 export interface Machine {
   joinTailnet(o: { hostname: string; authKey?: string }, onStep?: (s: TailnetStep) => void): Promise<{ name: string }>
   tailnet(): Promise<Tailnet>
@@ -900,8 +900,15 @@ ports it previously exposed as though it had this fresh-machine guarantee; the p
   sign in/approve on the phone. On `Running` with a MagicDNS name, emit `joined` and resolve `{ name }` (no final dot).
   Expired or unfinished login rejects `MachineError('timeout')`; command failures retain their real cause.
 - `tailnet()` never installs or joins. Missing Tailscale or a stopped daemon is `off`; `NeedsLogin` and
-  `NeedsMachineAuth` are `needs-login`; `Running` is `joined`. Return a validated MagicDNS name when available,
-  else `null`. Unknown/malformed daemon answers reject `provider`, never pretend the machine joined.
+  `NeedsMachineAuth` are `needs-login`; `Running` is `joined`. A daemon still starting is `starting`: `Starting`,
+  `NoState`, or a status answer that is not JSON (the daemon has not yet accepted a client). `joinTailnet` waits
+  through `starting` before it runs `tailscale up`, inside the same five-minute deadline. Return a validated MagicDNS
+  name when available, else `null`. Unknown or malformed answers that are JSON reject `provider`, never pretend the
+  machine joined.
+- Copy policy: the node identity in `/etc/tailscale` is a credential. A machine made from a copy (a fork, or a
+  snapshot restored onto a new machine) clears `/etc/tailscale/tailscaled.state` before its first start, so it joins
+  as a new node. A restore of the same machine keeps its identity. The snapshots lane implements this rule; the
+  kit has no copy method today.
 - The app shows `tailnet.joining`, `tailnet.approvalNeeded` and `tailnet.loginExpired`; the callback remains the
   frozen two-step union. This slice's key refusal is specified in 4.4.
 

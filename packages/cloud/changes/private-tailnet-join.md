@@ -1,2 +1,3 @@
 - Add keyless Boat `joinTailnet()` and `tailnet()`, with phone sign-in steps and userspace networking when no TUN device is present. Join keys are refused until a credential-safe transport exists.
 - SECURITY: No public app port by default; bootstrap never calls provider hosting. Explicit `url()` makes a port public. Advertise the person's own tailnet name instead.
+- `tailnet()` reports `starting` while Tailscale is still starting, and `joinTailnet` waits through it inside its five-minute deadline before `tailscale up`.
