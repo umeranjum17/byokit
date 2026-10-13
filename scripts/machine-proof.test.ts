@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { writeFile, readFile, mkdtemp, rm } from 'node:fs/promises';
@@ -48,29 +49,32 @@ for (const id of ['sandbox-api', 'ssh-vm'] as const) {
   }
 }
 
-test('public app-port qualification refuses an exposed port and requires a local positive control', async () => {
+test('raw-port probe classifies a closed loopback port as refused and an open one as accepted (checks the probe; the live proof checks the provider firewall)', async () => {
   const listener = createServer((_q, r) => r.end('Umer lab listener'));
   await new Promise<void>(resolve => listener.listen(0, '127.0.0.1', resolve));
-  const address = listener.address();
-  assert.ok(address && typeof address !== 'string');
+  const open = (listener.address() as AddressInfo).port;
+  const closedServer = createServer();
+  await new Promise<void>(resolve => closedServer.listen(0, '127.0.0.1', resolve));
+  const closed = (closedServer.address() as AddressInfo).port;
+  await new Promise<void>((resolve, reject) => closedServer.close(e => e ? reject(e) : resolve()));
   const provider = fakeProvider();
   const ref = await provider.create!({ name: 'web', size: 'small', keepCopies: false, idempotencyKey: 'private-port' });
-  provider.fake.machine.script('curl', { code: 0, stdout: 'Umer lab listener', stderr: '', timedOut: false });
-  const app = { ...studioRecipe(inputs), exposure: { ...studioRecipe(inputs).exposure, port: address.port } };
-  const session = { provider, ref, app, url: null };
-  const hooks = (ip: string) => probes({ apiRoot: 'https://boat.test', key: async () => 'test-key',
-    vmRelayUrl: 'https://boat.test', publicAddress: async () => ip, ask: async () => '', commands: {} });
+  const probeAt = (port: number) => {
+    const app = { ...studioRecipe(inputs), exposure: { ...studioRecipe(inputs).exposure, port } };
+    return probes({ apiRoot: 'https://boat.test', key: async () => 'test-key', vmRelayUrl: 'https://boat.test',
+      publicAddress: async () => '127.0.0.1', ask: async () => '', commands: {} }).observe('raw-port', { provider, ref, app, url: null });
+  };
   try {
-    assert.equal(await (await fetch(`http://127.0.0.1:${address.port}`)).text(), 'Umer lab listener');
-    // Real TCP on loopback proves the criterion, not an actual provider firewall.
-    const refused = await hooks('127.0.0.2').observe('raw-port', session);
+    assert.equal(await (await fetch(`http://127.0.0.1:${open}`)).text(), 'Umer lab listener');
+    provider.fake.machine.script('curl', { code: 0, stdout: 'Umer lab listener', stderr: '', timedOut: false });
+    const refused = await probeAt(closed);
     assert.equal(refused.status, 'pass');
     assert.match(refused.detail, /ECONNREFUSED/);
-    const exposed = await hooks('127.0.0.1').observe('raw-port', session);
+    const exposed = await probeAt(open);
     assert.equal(exposed.status, 'fail');
     assert.match(exposed.detail, /accepted/);
     provider.fake.machine.script('curl', { code: 7, stdout: '', stderr: 'no listener', timedOut: false });
-    await assert.rejects(hooks('127.0.0.2').observe('raw-port', session), /listener must answer locally/);
+    await assert.rejects(probeAt(closed), /listener must answer locally/);
   } finally {
     listener.closeAllConnections();
     await new Promise<void>((resolve, reject) => listener.close(e => e ? reject(e) : resolve()));
@@ -100,7 +104,7 @@ test('installation failure records missing checks and never qualifies a real rep
   provider.fake.machine.sudo = false;
   const app = crewhouseRecipe(inputs);
   const target = {
-    provider, app, prepare: async () => {}, contractRecipe: () => app.host,
+    provider, app, prepare: async () => null, contractRecipe: () => app.host,
     bench: async () => { throw new Error('fixture deliberately unavailable'); }, cleanupContract: async () => {},
   };
   const report = await runProof({ targets: [target], mode: 'live', record: async () => {}, hooks: {

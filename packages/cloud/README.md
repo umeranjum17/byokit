@@ -75,14 +75,14 @@ unchanged ([provider contract](../../docs/cloud-kit.md#6-boat-adapter-srcboatts)
 
 `await m.joinTailnet({ hostname: 'umer-cloud' }, showStep)` installs and starts Tailscale as root.
 `showStep` receives `open-page` with the sign-in link (approve it on your phone), then `joined`
-with the MagicDNS name. `await m.tailnet()` reads `joined`, `needs-login` or `off` without joining.
+with the MagicDNS name. `await m.tailnet()` reads `joined`, `needs-login`, `starting` or `off` without joining.
 This slice supports keyless Boat joins only. Passing `authKey` is a typed `unsupported` refusal:
 Boat's emulated stdin writes a temporary file, which must never carry a join key.
 
 When there is no TUN device, the daemon uses userspace networking. The app binds its host to
 loopback and its root recipe configures `tailscale serve --bg --tcp=<port> tcp://127.0.0.1:<port>`;
 joining alone does not expose a service. Advertise the tailnet name, never a provider URL.
-Tailscale state stays under `/etc/tailscale` across Boat wakes and is included in disk copies.
+Tailscale state stays under `/etc/tailscale` across Boat wakes and is included in disk copies; a machine made from a copy clears it before its first start, so it joins as a new node.
 The phone must be on the same tailnet; encrypted pairing is still required.
 
 **SECURITY: No public app port is opened by default.** Create, install, host and join never call
