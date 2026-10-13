@@ -721,9 +721,8 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
         throw new MachineError('no-snapshot', 'no ready copy of this machine has that id');
       }
       // The app confirmed; the words say what is lost (`snapshot.restore`). The new ref is
-      // saved before the adapter deletes the old machine.
-      const next = await withKey(r.name, (idempotencyKey) => restore(r, id, { idempotencyKey, replaced: save }));
-      await save(next);
+      // saved (through `replaced`) before the adapter deletes the old machine.
+      await withKey(r.name, (idempotencyKey) => restore(r, id, { idempotencyKey, replaced: save }));
     },
 
     async disk(): Promise<Disk> {
