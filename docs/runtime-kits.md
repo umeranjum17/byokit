@@ -1304,6 +1304,9 @@ export declare function createRuns(ctx: { request: GatewayTransport['request']; 
   ensure(member: Member): Promise<{ agentId: string }>; bridge: Pick<Bridge, 'register' | 'unregister'> }):
   { run<const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void, keyAgent?: string,
       preparedOutput?: ReturnType<typeof outputSchema>): Promise<RunEnd<SchemaOutput<S>>>; steer(k: string, t: string): Promise<void>; abort(k: string): Promise<void> };
+// accounts.ts (O14, O14m): attribution of an agent id or session key, checked against the account index; the kit's
+// memberOf(ref) is this bound to its root, and approvals, bridge and link take it
+export declare function memberOfAccount(root: string, ref: string): Member | undefined;
 // locks.ts (O14)
 export declare function createLocks(): { shared<T>(agentId: string, work: () => Promise<T>): Promise<T>;
   exclusive<T>(agentIds: string[], work: () => Promise<T>): Promise<T>; live(agentId: string): boolean };
@@ -1312,7 +1315,6 @@ export declare function createAccounts(ctx: { request: GatewayTransport['request
   ensure(member: Member): Promise<{ agentId: string; workspace: string }>; signIn: SignInCtx;
   locks: ReturnType<typeof createLocks> }): {
   bind(member: Member, sessionKey: string): Promise<{ agentId: string; id?: AccountId } | undefined>;   // id absent: member agent
-  memberOf(agentId: string): Member | undefined;                // attribution for approvals, bridge, link
   addKey: OpenClawKit['addKey'];
   list(member: Member): Promise<Account[]>; agentOf(member: Member, id: AccountId): Promise<string | undefined>;
   add: OpenClawKit['addAccount']; rename: OpenClawKit['renameAccount']; remove: OpenClawKit['removeAccount'];
@@ -1672,7 +1674,7 @@ local part is only a suggestion the app offers (`@byokit/ui` `nameSuggestions`),
 restart or a failed seal) is cleared and returns `retry`, never `invalid`; if that clear is refused, the kit's start sweep
 (the `byokit.keys` bullet in §5.8) clears it. Every key is a new account (keys add, never replace; a key is replaced by
 `removeAccount` then `addKey`). The key never reaches kit storage, the index, logs,
-errors or a return value, and is never sent over a link (`oc.account.add` refuses `key`). `RunSpec.auth: 'apiKey'`
+errors or a return value, and is never sent over a link (`kit.addAccount` refuses `key`; no link op adds an account yet). `RunSpec.auth: 'apiKey'`
 means `account: <the member's newest api account>` and runs its saved model, or a supplied model of the same
 provider (5.8); another provider ends `kind: 'plan'`.
 If the key lane's `byokit-key-<member>` agent already exists (it shipped before O14): it is indexed as account
@@ -1721,8 +1723,10 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
   overlap), and `room` and `models` hold it for their read, so no kit read of an agent is in flight while it is
   removed; `removeAccount`, `move` (source and target) and sealing are exclusive. Index writes take their own per-member
   lock, so a live run never blocks a rename or a listing.
-- Attribution: every member lookup (approvals' `agentId` and session key, bridge, link `oc.events`/`oc.sessions`
-  filters) maps an indexed `<member>--<hex6>` agent, and `byokit-key-<member>` when present, to `<member>`.
+- Attribution: every member lookup (`memberOf`: approvals' `agentId` and session key, bridge, link `oc.events`/`oc.sessions`
+  filters) is `memberOfAccount` (`src/accounts.ts`, over the pure `src/attribution.ts`). It maps an indexed
+  `<member>--<hex6>` agent, and `byokit-key-<member>` when present, to `<member>`; a legacy member id that ends in
+  `--<hex6>` maps to itself while its workspace exists. An unindexed account-shaped agent maps nowhere.
 
 **Words** (added to `src/words.json`; `words` also fills `{provider}`, `{room}`, `{left}`, `{model}`, `{n}` and
 `{ago}`; the kit renders `{left}` as the number with a percent sign, since `%` is banned in the file, `{room}` from the
@@ -2717,7 +2721,7 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 | `oc.artifacts` *view* | `{ sessionKey, runId? }` | `ArtifactsResult` (5.8.2; key must be the member's, D9) |
 | `oc.artifact` (stream) | `{ sessionKey, id, offset?, sha256? }` | `ArtifactFrame` lines: `head`, `chunk`s from `offset`, `end` (5.8.2; key must be the member's, D9; a refusal is the `end` frame) |
 | `oc.accounts` *view* | — | `Account[]` (5.15) |
-| `oc.account.add` | `{ provider, via?, name?, again? }` | `{ id, view: SignInView }` (kit picks `routeFor(provider, via)`; a `key` field → `link.notAllowed`, keys are host-only) |
+| `oc.account.add` (not shipped) | — | the link refuses it as an unknown op; account adding is `kit.addAccount`, which refuses `key` (keys are host-only) |
 | `oc.account.view` *view* | `{ id }` | `{ ready, view: SignInView \| null }` for `toAccountView` |
 | `oc.account.paste` | `{ id, text }` | `null` |
 | `oc.account.cancel` | `{ id }` | `null` |
@@ -2731,7 +2735,7 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 | `oc.move` | `{ sessionKey, to }` | `MoveResult` (key must be the member's) |
 | `oc.approvals` *view* | — | the member's `Approval[]` |
 | `oc.decide` | `{ id, allow, reason?, answer? }` | `null` (approval must be the member's) |
-| `oc.events` (stream) *view* | — | Gateway events whose `agentId`/`sessionKey` is the member's, plus `approval` add/resolve frames |
+| `oc.events` (stream) *view* | — | Gateway events whose `agentId`/`sessionKey` maps to the member under `memberOf` (its own agents, indexed account agents included), plus `approval` add/resolve frames |
 | `oc.notices.register` | `{ boxPublicKey }` (b64url, 32 bytes) | `null`; stored with `host.setMeta(grant.id, { ...meta, box })` |
 | `oc.call` | `{ method, params }` | pass-through result, only if `passThrough(method, grant)` |
 

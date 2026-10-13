@@ -10,6 +10,7 @@ import { browserToolPolicySafe, browserProfileAcknowledged, browserSessionMayRun
 import { OpenClawKit } from '../src/kit.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import { Bridge } from '../src/bridge.ts';
+import { memberOf } from '../src/attribution.ts';
 import type { NeedSignIn, ResumeState } from '../src/browser.ts';
 import { scratchDir } from '../../test-support.ts';
 import { scanCapabilities, sqliteTranscripts, boundedAwait, emitEvidence, retainImage } from './engine/privacy-evidence.ts';
@@ -212,7 +213,7 @@ test('stock CDP redaction is acknowledged only against stable exact owned and ap
 test('parked/recovery guards require a fresh exact registered run after a definite failed resume', async t => {
   const key = 'agent:ada:fixture:guard';
   const root = scratchDir(); t.after(() => rmSync(root, { recursive: true, force: true }));
-  const bridge = new Bridge({ path: join(root, 'unused.sock'), tools: new Set(), permitted: () => true,
+  const bridge = new Bridge({ path: join(root, 'unused.sock'), tools: new Set(), permitted: () => true, memberOf,
     approvalTimeoutMs: 1000, onAsk: () => {}, onAskGone: () => {} });
   const row = (state: NeedSignIn['state'], resume?: ResumeState['state']) => ({ sessionKey: key, state,
     settled: resume ? { resume: { state: resume } } : undefined }) as NeedSignIn;
