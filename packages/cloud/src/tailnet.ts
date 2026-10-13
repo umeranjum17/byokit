@@ -72,17 +72,18 @@ export async function joinTailnet(provider: Provider, ref: MachineRef, o: { host
   const installed = await provider.exec(ref, ['sh', '-c', BOOTSTRAP], { root: true, timeoutMs: 20 * 60_000 });
   if (installed.timedOut) throw new MachineError('timeout', 'Installing your private network took too long.');
   if (installed.code !== 0) throw new MachineError('provider', `Installing your private network failed: ${installed.stderr.slice(-200)}`);
-  const until = Date.now() + 5 * 60_000;
+  const startupUntil = Date.now() + 5 * 60_000;
   for (;;) {
     const { state } = await tailnet(provider, ref);
     if (state !== 'starting' && state !== 'off') break;
-    if (Date.now() >= until) throw new MachineError('timeout', 'Starting your private network took too long.');
+    if (Date.now() >= startupUntil) throw new MachineError('timeout', 'Starting your private network took too long.');
     await new Promise<void>((resolve) => setTimeout(resolve, 1000));
   }
   const up = await provider.exec(ref, ['tailscale', 'up', '--hostname', o.hostname, '--accept-dns=false', '--accept-routes=false', '--timeout=1s'], { root: true, timeoutMs: 30_000 });
   const link = /https:\/\/login\.tailscale\.com\/[^\s"<>]+/.exec(`${up.stdout}\n${up.stderr}`)?.[0];
   if (link) onStep?.({ step: 'open-page', url: link });
   // A short `up` deadline deliberately returns while the person signs in. Status is authoritative.
+  const signInUntil = Date.now() + 5 * 60_000;
   let approvalShown = false;
   for (;;) {
     const current = await tailnet(provider, ref);
@@ -97,7 +98,7 @@ export async function joinTailnet(provider: Provider, ref: MachineRef, o: { host
     if (up.timedOut || (up.code !== 0 && !link && current.state === 'off')) {
       throw new MachineError('provider', `Connecting your private network failed: ${up.stderr.slice(-200)}`);
     }
-    if (Date.now() >= until) {
+    if (Date.now() >= signInUntil) {
       if (current.state === 'needs-approval') throw new MachineError('timeout', words('tailnet.approvalNeeded'));
       if (link !== undefined && current.state === 'needs-login') throw new MachineError('timeout', words('tailnet.loginExpired'));
       throw new MachineError('timeout', 'Starting your private network took too long.');

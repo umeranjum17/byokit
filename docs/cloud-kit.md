@@ -920,8 +920,9 @@ ports it previously exposed as though it had this fresh-machine guarantee; the p
   as root. With a TUN, the app may instead bind the tailnet IP. Never use Funnel or a provider public URL.
   Host port selection remains the app recipe's responsibility; the kit has no default app port.
 - Run `tailscale up` with the requested hostname, no DNS or route acceptance, and a short command timeout; surface
-  its validated HTTPS Tailscale login URL once as `open-page`. Poll status for up to five minutes so the person can
-  sign in on the phone. When the daemon reports `needs-approval` (`NeedsMachineAuth`: the tailnet must approve the
+  its validated HTTPS Tailscale login URL once as `open-page`. Poll status so the person can sign in on the phone:
+  the startup wait has five minutes, and once `up` returns the sign-in window is a fresh five minutes, so a link shown
+  at the end of the startup wait still gets a full five minutes. When the daemon reports `needs-approval` (`NeedsMachineAuth`: the tailnet must approve the
   machine), emit `approve` once with the hostname, with or without a sign-in link shown earlier. While the daemon is
   `starting` or `off` (not yet running after enable), joining keeps polling inside the same five-minute deadline and
   never runs `up` against it. On `Running` with a MagicDNS name, emit `joined` and resolve `{ name }` (no final dot).
