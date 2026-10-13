@@ -89,9 +89,23 @@ fi
 node e2e-host.mts "$((port + 1))" >"$hostlog" 2>&1 &
 host=$!
 for _ in $(seq 20); do grep -q '^offer ' "$hostlog" && break; sleep 1; done
+offer=$(sed -n 's/^offer //p' "$hostlog")
 tap offer
-a shell input text "$(sed -n 's/^offer //p' "$hostlog")"
-a shell input keyevent 111 # close the keyboard
+# Let the controlled React Native input settle between chunks; closing the keyboard
+# immediately after one long injection can cut off its final characters.
+for chunk in $(printf '%s\n' "$offer" | fold -w 64); do
+  a shell input text "$chunk"
+  sleep 0.2
+done
+# Keep the keyboard open until the native field acknowledges the entire offer.
+held=''
+for _ in $(seq 20); do
+  held=$(value offer)
+  [ "$held" = "$offer" ] && break
+  sleep 1
+done
+[ "$held" = "$offer" ] || { echo "FAILED, pairing offer has ${#held} characters, expected ${#offer}" >&2; exit 1; }
+a shell input keyevent 111 # close the keyboard only after the field has settled
 tap pair
 expect "This device is paired with Kitchen computer."
 expect "Connected to Kitchen computer."
