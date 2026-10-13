@@ -118,7 +118,9 @@ function indexedAgents(root: string): { named: Set<string>; gone: Set<string> } 
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { named, gone }; throw error; }
   for (const file of files) {
     if (!file.endsWith('.json')) continue;
-    const parsed = JSON.parse(readFileSync(join(root, 'accounts', file), 'utf8')) as Partial<IndexFile>;
+    let parsed: Partial<IndexFile>;
+    try { parsed = JSON.parse(readFileSync(join(root, 'accounts', file), 'utf8')) as Partial<IndexFile>; }
+    catch (error) { throw new Error(`account index is unreadable: accounts/${file}`, { cause: error }); }
     for (const entry of Object.values(parsed.accounts ?? {})) if (typeof entry?.agent === 'string') named.add(entry.agent);
     for (const agent of Array.isArray(parsed.gone) ? parsed.gone : []) if (typeof agent === 'string') gone.add(agent);
   }

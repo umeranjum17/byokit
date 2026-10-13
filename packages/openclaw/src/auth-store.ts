@@ -394,10 +394,13 @@ export class AuthStore {
     mkdirSync(this.objects, { recursive: true, mode: 0o700 });
     const keep = new Set<string>();
     for (const { name, file } of objects) {
+      let data: string;
+      try { data = readFileSync(file).toString('base64'); }
+      catch (error) { if (vanished(error)) continue; throw error; }
       const object = objectName(name);
       keep.add(object);
       const target = join(this.objects, object);
-      const payload = JSON.stringify({ path: name, data: readFileSync(file).toString('base64') });
+      const payload = JSON.stringify({ path: name, data });
       // An object this process already sealed (or restored) unchanged is not resealed: its plaintext hash is
       // the same and its sealed file is still on disk, so the encrypt + verify + fsyncs are skipped. A changed
       // file, a new one, or one whose sealed file vanished falls through to the normal seal.

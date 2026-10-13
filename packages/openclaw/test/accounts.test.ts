@@ -1983,6 +1983,39 @@ test('a late write to a removed account dir is swept after a sealed restore, bef
   } finally { rmSync(stateDir, { recursive: true, force: true }); }
 });
 
+test('removing an account while the engine runs survives a SQLite journal that vanishes during the reseal', async () => {
+  const stateDir = scratchDir('o14h-journal-vanish');
+  const fake = fakeGateway();
+  const base = hostKeySeal({ key: new Uint8Array(32).fill(7) });
+  let vanish: string | undefined;
+  const authSeal = {
+    encryptString: (text: string) => {
+      if (vanish) { rmSync(vanish, { force: true }); vanish = undefined; }
+      return base.encryptString(text);
+    },
+    decryptString: (data: Buffer) => base.decryptString(data),
+  };
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const live = join(stateDir, 'openclaw', 'state', 'agents', 'm1', 'agent');
+    mkdirSync(live, { recursive: true });
+    writeFileSync(join(live, 'openclaw-agent.sqlite'), 'live-db');
+    writeFileSync(join(live, 'openclaw-agent.sqlite-journal'), 'live-journal');
+    vanish = join(live, 'openclaw-agent.sqlite-journal');
+    await kit.removeAccount('m1', second.id);
+    assert.equal(vanish, undefined, 'the reseal ran and the journal was deleted before it was read');
+    assert.ok(!(second.id in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts), 'the removal committed');
+    assert.equal(readFileSync(join(live, 'openclaw-agent.sqlite'), 'utf8'), 'live-db');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('a failed member-agent seal says the credential is still there when its clear is refused', async () => {
   const stateDir = scratchDir('o14h-seal-clear-refused');
   const fake = fakeGateway();
