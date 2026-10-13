@@ -116,6 +116,11 @@ function safePath(path: unknown): path is string {
   return typeof path === 'string' && /^(state|home)(\/[^/]+)*$/.test(path)
     && !path.split('/').some((part) => part === '.' || part === '..' || part.includes('\\') || part.includes('\0'));
 }
+// A file the live engine deletes between the directory listing and the read is simply gone: there is nothing to
+// seal, so callers skip it. Every other failure still throws.
+function vanished(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException).code === 'ENOENT';
+}
 function snapshot(text: string): Snapshot {
   const s = JSON.parse(text) as Snapshot;
   if ((s?.v !== 1 && s?.v !== 2) || !Array.isArray(s.dirs) || !Array.isArray(s.files)) throw new Error('invalid sealed credential store');
@@ -292,10 +297,15 @@ export class AuthStore {
     const walk = (path: string) => {
       const name = relative(this.o.root, path).split('\\').join('/');
       if (name.startsWith('home/') && nonCredential(name)) return; // regenerable home caches stay on disk; skipping a directory skips its subtree
-      const stat = lstatSync(path);
+      let stat;
+      try { stat = lstatSync(path); }
+      catch (error) { if (vanished(error)) return; throw error; }
       if (stat.isDirectory()) {
         if (!apart(name)) dirs.push(name);
-        for (const child of readdirSync(path).sort()) walk(join(path, child));
+        let children: string[];
+        try { children = readdirSync(path).sort(); }
+        catch (error) { if (vanished(error)) return; throw error; }
+        for (const child of children) walk(join(path, child));
         return;
       }
       let file = path;
@@ -307,7 +317,8 @@ export class AuthStore {
         }
         const rel = relative(root, file);
         if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) return;
-        target = lstatSync(file);
+        try { target = lstatSync(file); }
+        catch (error) { if (vanished(error)) return; throw error; }
       }
       if (!target.isFile()) return;
       if (apart(name)) {
@@ -325,12 +336,25 @@ export class AuthStore {
   }
   private collect(): { saved: Snapshot; objects: Entry[] } {
     const { dirs, files, objects } = this.inventory();
-    for (const dir of dirs) chmodSync(join(this.o.root, dir), 0o700);
-    // Read the checked target, but save the link's path: restore materializes a regular file there.
-    for (const { file } of [...files, ...objects]) chmodSync(file, 0o600);
+    for (const dir of dirs) {
+      try { chmodSync(join(this.o.root, dir), 0o700); }
+      catch (error) { if (!vanished(error)) throw error; }
+    }
+    // Read the checked target, but save the link's path: restore materializes a regular file there. A file that
+    // vanishes here is skipped by the same rule as in the listing above.
+    const read = ({ name, file }: Entry): [string, string] | undefined => {
+      try {
+        chmodSync(file, 0o600);
+        return [name, readFileSync(file).toString('base64')];
+      } catch (error) { if (vanished(error)) return undefined; throw error; }
+    };
+    const kept = objects.filter(({ file }) => {
+      try { chmodSync(file, 0o600); return true; }
+      catch (error) { if (vanished(error)) return false; throw error; }
+    });
     return {
-      saved: { v: 1, dirs, files: files.map(({ name, file }): [string, string] => [name, readFileSync(file).toString('base64')]) },
-      objects,
+      saved: { v: 1, dirs, files: files.map(read).filter((entry): entry is [string, string] => entry !== undefined) },
+      objects: kept,
     };
   }
   /** Remove the live sealed trees: all of `state` (every file there is sealed, as a blob entry or an object),
