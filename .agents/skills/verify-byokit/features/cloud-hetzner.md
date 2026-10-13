@@ -3,7 +3,7 @@
 The Node-only `@byokit/cloud/hetzner` entry loads shared sizes and dated prices from
 the API, creates one computer with an app-owned token and project identity, delegates
 SSH to the existing pinned adapter, installs the unchanged HostRecipe and confirms
-server, automatically allocated primary-IP and SSH-only firewall deletion. Creation
+server, automatically allocated primary-IP and unused kit-labelled firewall deletion. Creation
 attaches a provider firewall with only SSH 22/tcp inbound on IPv4; recipe
 ports stay closed, and an attachment/setup failure must leave no allocated resources. Copies and start/stop are
 explicitly absent in this first slice. A stopped server still bills.
