@@ -141,7 +141,7 @@ test('OpenAI config and account adapter bundle without runtime SDK, Node or ambi
   assert.equal(urgent.usage.input_tokens, 4);
   assert.equal(sandbox.handle.billing, 'subscription');
   assert.equal(typeof sandbox.handle.respond, 'function');
-  assert.deepEqual(Object.keys(sandbox.handle).sort(), ['billing', 'respond']);
+  assert.deepEqual(Object.keys(sandbox.handle).sort(), ['billing', 'provider', 'respond']);
   assert.equal(await sandbox.account.access(new AbortController().signal), 'host-token');
 });
 

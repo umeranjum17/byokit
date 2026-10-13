@@ -328,6 +328,71 @@ test('an app decides with an OpenAI model, validates its config once, and uses a
   }
 });
 
+test('a host selects an Anthropic or Go plan key through one config, with no other backend', async () => {
+  const responses = JSON.parse(readFileSync(new URL('./fixtures/openai-responses.json', import.meta.url), 'utf8'));
+  const messages = JSON.parse(readFileSync(new URL('./fixtures/anthropic-messages.json', import.meta.url), 'utf8'));
+  const questions: Record<string, Question> = {
+    intent: { kind: 'choice', options: options('A new job', 'About an earlier job', 'Just talk') },
+  };
+  assert.deepEqual(parseConfig({ backend: 'anthropic', auth: 'apiKey', model: 'claude-opus-4-6' }),
+    { backend: 'anthropic', auth: 'apiKey', model: 'claude-opus-4-6' });
+  assert.deepEqual(parseConfig({ backend: 'opencode-go', auth: 'apiKey', model: 'muse-spark-1.3-contributor' }),
+    { backend: 'opencode-go', auth: 'apiKey', model: 'muse-spark-1.3-contributor' });
+  for (const bad of [{ backend: 'anthropic' }, { backend: 'opencode-go' },
+    { backend: 'anthropic', auth: 'apiKey', model: 'm', request: {} },
+    { backend: 'anthropic', auth: 'apiKey', model: 'm', via: 'typesafe' },
+    { backend: 'opencode-go', auth: 'apiKey', model: 'm', request: { model: 'm' } }]) {
+    assert.throws(() => parseConfig(bad), ConfigError);
+  }
+  assert.throws(() => parseConfig({ backend: 'anthropic', auth: 'account', model: 'm' }), UnsupportedAccountError);
+
+  // Each configured backend answers on its own endpoint with the host's key in its header, never another route.
+  const seen: string[] = [];
+  const fetch = async (url: unknown, init?: { headers?: unknown }) => {
+    const headers = init?.headers as Record<string, string>;
+    if (String(url).endsWith('/messages')) {
+      seen.push(`anthropic:${headers['x-api-key']}`);
+      return Response.json(messages.completed);
+    }
+    seen.push(`go:${headers.authorization}`);
+    return Response.json(responses.completed);
+  };
+  const keys = { anthropic: 'anthropic-key', 'opencode-go': 'go-plan-key' };
+  const viaAnthropic = createDecider(parseConfig({ backend: 'anthropic', model: 'claude-opus-4-6' }),
+    { privacy: 'may-leave', host: { keys, fetch: fetch as typeof fetch } });
+  assert.equal((await viaAnthropic({}, { intent: questions.intent })).intent.answer, 'followup');
+  const viaGoKey = createDecider(parseConfig({ backend: 'opencode-go', model: 'muse-spark-1.3-contributor' }),
+    { privacy: 'may-leave', host: { keys, fetch: fetch as typeof fetch } });
+  assert.equal((await viaGoKey({}, { intent: questions.intent })).intent.answer, 'followup');
+  assert.equal((await viaAnthropic({}, { intent: questions.intent },
+    { backend: 'opencode-go', model: 'muse-spark-1.3-contributor' })).intent.by, 'opencode-go');
+  assert.deepEqual(seen, ['anthropic:anthropic-key', 'go:Bearer go-plan-key', 'go:Bearer go-plan-key']);
+
+  // The Go account route reads the member's saved plan key from its own slot; a missing Go account fails before any request.
+  const viaGoAccount = createDecider(parseConfig({ backend: 'opencode-go', auth: 'account', model: 'muse-spark-1.3-contributor' }), {
+    privacy: 'may-leave',
+    host: { accounts: { 'opencode-go': { provider: 'opencode-go' as const, billing: 'subscription' as const, access: async () => 'member-plan-key' } }, fetch: fetch as typeof fetch },
+  });
+  assert.equal((await viaGoAccount({}, { intent: questions.intent })).intent.answer, 'followup');
+  assert.equal(seen.at(-1), 'go:Bearer member-plan-key');
+
+  // A ChatGPT account in the OpenAI slot never reaches the Go endpoint: the Go branch reads only its own slot.
+  const { chatgptPlan } = await import('@byokit/accounts/chatgpt-plan');
+  const chatgpt = chatgptPlan({ session: async () => ({ accessToken: 'chatgpt-token',
+    scopes: ['resource.invoke', 'chatgpt.tokens.use.direct'] }) });
+  const crossed = createDecider(parseConfig({ backend: 'opencode-go', auth: 'account', model: 'muse-spark-1.3-contributor' }), {
+    privacy: 'may-leave',
+    host: { account: chatgpt, fetch: async () => { throw new Error('must not fetch'); } },
+  });
+  assert.throws(() => crossed({}, { intent: questions.intent }), /OpenCode Go plan usage needs a plan account/);
+  const noKey = createDecider(parseConfig({ backend: 'anthropic', model: 'claude-opus-4-6' }),
+    { privacy: 'may-leave', host: { fetch: fetch as typeof fetch } });
+  assert.throws(() => noKey({}, { intent: questions.intent }), /needs a key/);
+  const noAccount = createDecider(parseConfig({ backend: 'opencode-go', auth: 'account', model: 'muse-spark-1.3-contributor' }),
+    { privacy: 'may-leave', host: { fetch: fetch as typeof fetch } });
+  assert.throws(() => noAccount({}, { intent: questions.intent }), UnsupportedAccountError);
+});
+
 test('an operator gates a decision on labelled eval files, offline and from the CLI', async () => {
   const path = new URL('../evals/example-urgent.jsonl', import.meta.url);
   const text = readFileSync(path, 'utf8');
