@@ -1,6 +1,7 @@
 // An OpenCode Go plan key through the built @byokit/openclaw. Offline by default (fakeGateway); `--live` drives the
 // real pinned engine with the key in env BYOKIT_GO_KEY (read once, printed only as a mask, scrubbed from every line).
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -62,5 +63,7 @@ try {
   say('GO-PLAN-KEY OK');
 } finally {
   await kit.stop();
+  // The installed engine tree is read-only (npm), so make it writable before removing the state dir.
+  execFileSync('chmod', ['-R', 'u+w', stateDir]);
   rmSync(stateDir, { recursive: true, force: true });
 }
