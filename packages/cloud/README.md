@@ -119,10 +119,17 @@ phase, `cause` a words key via `errorKey`, `retryable` whether a repeat may pass
 the same arguments and it resumes at install on the saved machine instead of renting another.
 
 ```ts
-import { setup, words } from '@byokit/cloud';
+import { setup, words, type HostRecipe, type MachineRef, type MachineStore, type Provider } from '@byokit/cloud';
 
-for await (const s of setup({ provider, store, recipe, pick, confirmId, pair })) {
-  show(s.step === 'failed' ? words(s.cause, vars) : words(`setup.${s.step}`, vars));
+export async function connect(
+  provider: Provider, store: MachineStore, recipe: HostRecipe,
+  pick: (listed: MachineRef[]) => MachineRef, confirmId: string,
+  pair: (ref: MachineRef) => Promise<void>, show: (s: string) => void,
+) {
+  const vars = { app: 'Tracker', label: 'Boat' };
+  for await (const s of setup({ provider, store, recipe, pick, confirmId, pair })) {
+    show(s.step === 'failed' ? words(s.cause, vars) : words(`setup.${s.step}`, vars));
+  }
 }
 ```
 
