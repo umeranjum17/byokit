@@ -1,8 +1,8 @@
 // The per-member account index (5.15, O14 step S5): `<root>/accounts/<member>.json` (0600, whole-file temp
 // plus rename) is the only kit state: `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?,
 // who? } }, defaults }`. No credential, token, email or engine line. Listing, rename, defaults, models, room,
-// adding with its identity merge (O14 steps S6, S7), the start-of-run pick (S10) and session binding (S11) live here;
-// remove and move arrive in later steps.
+// adding with its identity merge (O14 steps S6, S7), the start-of-run pick (S10), session binding (S11) and moving a
+// conversation (S12) live here; remove arrives in a later step.
 import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -11,7 +11,7 @@ import { providerOf, resolveSelection } from './pick.ts';
 import { KEY_PREFIX, MEMBER_ID, NEW_MEMBER_ID, untilListed } from './members.ts';
 import { routes, routeFor } from './routes.ts';
 import { words } from './words.ts';
-import type { Account, AccountId, AccountPick, Defaults, GatewayTransport, Member, ModelInfo, Room, RoomSpan, RunSelection, SignInOptions, SignInState, SignInView } from './types.ts';
+import type { Account, AccountId, AccountPick, Defaults, GatewayTransport, Member, ModelInfo, MoveResult, Room, RoomSpan, RunSelection, SignInOptions, SignInState, SignInView } from './types.ts';
 
 type IndexEntry = { agent: string; name: string; route: string; addedAt: number; until?: number; model?: string; who?: string };
 type IndexFile = { v: 1; accounts: Record<string, IndexEntry>; defaults: Defaults };
@@ -47,6 +47,7 @@ export function createAccounts(ctx: {
   ensure(member: Member): Promise<{ agentId: string; workspace: string }>;
   locks: ReturnType<typeof createLocks>;
   signIn: StartSignIn;
+  routes: ReadonlyMap<string, { session: string }>; // the runs' map: the caller's key -> the account session its live run uses
   log?: (line: string) => void;
 }): {
   list(member: Member): Promise<Account[]>;
@@ -60,6 +61,7 @@ export function createAccounts(ctx: {
   keyRefusal(member: Member, binding: Binding): Promise<string | undefined>;
   pick(member: Member, sel: RunSelection, skip?: readonly AccountId[], binding?: Binding): Promise<{ pick: AccountPick; agent?: string }>;
   rest(member: Member, id: AccountId, until: number): Promise<void>;
+  move(member: Member, sessionKey: string, to: AccountId): Promise<MoveResult>;
 } {
   const path = (member: Member): string => join(ctx.root, 'accounts', `${member}.json`);
   // Accounts whose sign-in is running, as `<member>\n<id>`, counted per add: listed `signing` until the last one ends.
@@ -427,6 +429,62 @@ export function createAccounts(ctx: {
     return { pick: chosen, ...(chosen.ok ? { agent: file.accounts[chosen.account.id]!.agent } : {}) };
   }
 
+  // Moving a conversation (5.15, O14 step S12): the key binds as a run's does (with no account agent binding asks
+  // nothing, and the member agent holds it if anything does), and its `sessions.list` row decides unsupported and busy
+  // before any lock. Same agent: nothing moves, the next run names the account. Otherwise, under both agents' locks and
+  // on the row read again there, the source's whole transcript forks into `agent:<target>:<tail>` (never `chat.history`
+  // plus `chat.inject`, which drop tool rows), then the source is deleted only if it is still the session read. A
+  // refused fork leaves the source untouched; a refused delete leaves both, the new key live.
+  async function move(member: Member, sessionKey: string, to: AccountId): Promise<MoveResult> {
+    check(member);
+    const failed = (code: Extract<MoveResult, { ok: false }>['code'], message: string, live?: string): MoveResult =>
+      ({ ok: false, code, message, ...(live === undefined ? {} : { live }) });
+    const { agentId: memberAgent } = await ctx.ensure(member);
+    const { agentId: source } = await bind(member, sessionKey) ?? { agentId: memberAgent };
+    const { row, entry } = await entryOf(member, to);
+    const tail = sessionKey.slice(sessionKey.indexOf(':', 'agent:'.length) + 1);
+    const from = `agent:${source}:${tail}`;
+    const into = `agent:${entry.agent}:${tail}`;
+    const read = async (): Promise<{ refused: MoveResult } | { found: Record<string, unknown> }> => {
+      const listed = await ctx.request('sessions.list', { agentId: source, search: from }) as { sessions?: unknown[] };
+      const found = (Array.isArray(listed.sessions) ? listed.sessions : [])
+        .find((r): r is Record<string, unknown> => record(r) && typeof r.key === 'string' && r.key.toLowerCase() === from.toLowerCase());
+      if (!found) return { refused: failed('unsupported', words('move.unsupported')) };
+      const live = found.hasActiveRun === true || [...ctx.routes].some(([key, route]) => key === sessionKey || route.session === from);
+      return live ? { refused: failed('busy', words('move.busy')) } : { found };
+    };
+    const first = await read();
+    if ('refused' in first) return first.refused;
+    if (row.state !== 'ready') return failed('start_failed', words('move.notReady', { name: row.name }));
+    if (entry.agent === source) return { ok: true, session: into };
+    return ctx.locks.exclusive([source, entry.agent], async () => {
+      const again = await read();
+      if ('refused' in again) return again.refused;
+      const session = again.found;
+      // The session's model when the target lists it, else the target's first available; the read takes no shared
+      // hold (this move holds the target exclusively). With no answer the fork keeps the parent's own selection.
+      const models = await ctx.request('models.list', { agentId: entry.agent, view: 'default' })
+        .then((answer) => modelsOf(row.provider, answer), () => []);
+      const current = typeof session.model !== 'string' ? undefined
+        : (typeof session.modelProvider === 'string' && !session.model.includes('/') ? `${session.modelProvider}/${session.model}` : session.model).toLowerCase();
+      const model = models.find((m) => m.id.toLowerCase() === current)?.id ?? models.find((m) => m.available)?.id;
+      try {
+        await ctx.request('sessions.create', { agentId: entry.agent, key: into, parentSessionKey: from, fork: true, ...(model ? { model } : {}) });
+      } catch (error) {
+        return failed('start_failed', (error instanceof Error ? error.message : String(error)).slice(0, 200));
+      }
+      const closed = await ctx.request('sessions.delete', { key: from, agentId: source, deleteTranscript: true,
+        ...(typeof session.sessionId === 'string' ? { expectedSessionId: session.sessionId } : {}),
+        ...(typeof session.updatedAt === 'number' ? { expectedSessionUpdatedAt: session.updatedAt } : {}) })
+        .then((answer) => record(answer) && answer.deleted === true, (error: unknown) => {
+          ctx.log?.(`move: ${from} is kept: ${error instanceof Error ? error.message : String(error)}`);
+          return false;
+        });
+      if (!closed) return failed('close_failed', words('move.closeFailed', { name: row.name }), into);
+      return { ok: true, session: into };
+    });
+  }
+
   // A run on the account ended resting: Auto skips it until `until` (its state reads `resting` until then).
   const rest = (member: Member, id: AccountId, until: number): Promise<void> =>
     edit(member, (file) => { const entry = file.accounts[id]; if (entry) entry.until = until; });
@@ -658,5 +716,5 @@ export function createAccounts(ctx: {
     }
   }
 
-  return { list, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, pick, rest };
+  return { list, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, pick, rest, move };
 }

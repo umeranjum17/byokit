@@ -109,5 +109,9 @@
   "account.paid": "This conversation uses {name}, which is billed per use. Choose {name} to keep going.",
   "account.another": "another account",
   "account.signOutFirst": "To add a different {provider} account, sign out of {provider} in your browser first.",
-  "account.legacyMember": "This person needs a new profile before adding more accounts."
+  "account.legacyMember": "This person needs a new profile before adding more accounts.",
+  "move.unsupported": "This conversation has not started yet, so there is nothing to move.",
+  "move.busy": "Wait for this conversation to finish before moving it.",
+  "move.notReady": "Sign in to {name} first.",
+  "move.closeFailed": "This conversation now continues on {name}, but its earlier copy could not be removed."
 }

@@ -10,6 +10,10 @@
 // account event (unbound, bound to an account agent, bound to the member agent), a bound key refuses another id and an
 // API-key conversation refuses 'auto' with no request but the binding read, an API-key run refuses a subscription- or
 // member-bound conversation, and steer and abort reach the engine key.
+// The S12 move (O14l): kit.move forks the conversation onto the target account's agent and deletes the source. Pass: the
+// user and tool rows are in the target, the source is gone, the next run on the app key continues there; busy while live
+// (the kit's map, or the engine's hasActiveRun), start_failed with the source untouched, close_failed with both kept, and
+// a move within one agent is ok with nothing forked.
 import { mock, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -22,7 +26,7 @@ import { OpenClawKit } from '../src/kit.ts';
 import { createLocks } from '../src/locks.ts';
 import { keyAgentId } from '../src/members.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
-import type { RunEvent, SignInView } from '../src/types.ts';
+import type { RunEvent, RunRef, SignInView } from '../src/types.ts';
 
 const indexOf = (stateDir: string, member: string): string => join(stateDir, 'openclaw', 'accounts', `${member}.json`);
 
@@ -1303,6 +1307,126 @@ test('session binding: a member-bound refusal on a cold index names the member a
     const names = Object.fromEntries((await kit.accounts('m3')).map((a) => [a.id, a.name]));
     assert.deepEqual(end, { ok: false, kind: 'other', message: `This conversation uses ${names.openai}. Move it to switch accounts.` });
   } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('move: the transcript forks onto the target and the source goes; busy, start_failed, close_failed, same agent', async () => {
+  const stateDir = scratchDir('o14l-move');
+  const fake = fakeGateway();
+  // The app tool holds its call open until `release`, so a run stays live for as long as a leg needs.
+  let release: () => void = () => {};
+  let hold = Promise.resolve();
+  let entered: () => void = () => {};
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0,
+    tools: [{ name: 'report', description: 'record progress', parameters: { type: 'object' } }],
+    host: { gate: async () => ({ allow: true }), call: async (_run: RunRef, _tool: string, input: Record<string, unknown>) => {
+      entered();
+      await hold;
+      return `Progress: ${String(input.text)}`;
+    } } });
+  const history = async (sessionKey: string) =>
+    (await kit.call('chat.history', { sessionKey }) as { messages: { role: string; toolName?: string; content: { text?: string }[] }[] }).messages;
+  const resolves = async (agentId: string, tail: string) =>
+    (await kit.call('sessions.resolve', { key: `agent:${agentId}:${tail}`, agentId, allowMissing: true }) as { ok?: boolean }).ok === true;
+  const sent = (from: number, ...methods: string[]) => fake.calls.slice(from).filter((c) => methods.includes(c.method));
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done, { state: 'done', via: 'browser' });
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser', name: 'Personal' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    const ref = { member: 'm1', sessionKey: 'agent:m1:chat:1' };
+
+    // A conversation on the member account with a tool call: its user, tool call, tool result and reply rows.
+    assert.ok((await kit.run({ ...ref, message: '[tool report {"text":"Working"}]', account: 'openai' })).ok);
+    const before = await history('agent:m1:chat:1');
+    assert.deepEqual(before.map((r) => r.role), ['user', 'assistant', 'toolResult', 'assistant']);
+
+    const { sessions: [source] } = await kit.call('sessions.list', { agentId: 'm1', search: 'agent:m1:chat:1' }) as
+      { sessions: { sessionId: string; updatedAt: number }[] };
+    const from = fake.calls.length;
+    assert.deepEqual(await kit.move(ref, second.id), { ok: true, session: `agent:${agent}:chat:1` });
+    // One fork into the target (never chat.history plus chat.inject), then the source's delete if it is still the one read.
+    assert.deepEqual(sent(from, 'chat.history', 'chat.inject', 'sessions.create', 'sessions.delete').map((c) => [c.method, c.params]), [
+      ['sessions.create', { agentId: agent, key: `agent:${agent}:chat:1`, parentSessionKey: 'agent:m1:chat:1', fork: true, model: 'openai/default' }],
+      ['sessions.delete', { key: 'agent:m1:chat:1', agentId: 'm1', deleteTranscript: true,
+        expectedSessionId: source!.sessionId, expectedSessionUpdatedAt: source!.updatedAt }],
+    ]);
+    const target = await history(`agent:${agent}:chat:1`);
+    assert.deepEqual(target, before, 'the user and tool rows are in the target');
+    assert.ok(target.some((r) => r.role === 'toolResult' && r.toolName === 'report' && r.content[0]?.text === 'Progress: Working'));
+    assert.equal(await resolves('m1', 'chat:1'), false, 'the source session is gone');
+
+    // The next run on the app key continues on the target, after the full transcript.
+    const events: RunEvent[] = [];
+    const next = await kit.run({ ...ref, message: 'and then' }, (e) => events.push(e));
+    assert.ok(next.ok && next.account === second.id, JSON.stringify(next));
+    assert.ok(events[0]?.type === 'account' && events[0].sessionKey === `agent:${agent}:chat:1`, JSON.stringify(events[0]));
+    assert.deepEqual((await history(`agent:${agent}:chat:1`)).map((r) => r.role), ['user', 'assistant', 'toolResult', 'assistant', 'user', 'assistant']);
+
+    // Busy while live, before any lock: chat:1 by the kit's own map, chat:2 (a run on the member agent the map does not
+    // hold) by the engine's hasActiveRun. Nothing is forked or deleted.
+    hold = new Promise((resolve) => { release = resolve; });
+    let calls = 0;
+    const both = new Promise<void>((resolve) => { entered = () => { if (++calls === 2) resolve(); }; });
+    const live = [kit.run({ ...ref, message: '[tool report {"text":"a"}]' }),
+      kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:2', message: '[tool report {"text":"b"}]' })];
+    await both;
+    const busy = { ok: false, code: 'busy', message: 'Wait for this conversation to finish before moving it.' };
+    const busyFrom = fake.calls.length;
+    assert.deepEqual(await kit.move(ref, 'openai'), busy);
+    assert.deepEqual(await kit.move({ member: 'm1', sessionKey: 'agent:m1:chat:2' }, second.id), busy);
+    assert.deepEqual(sent(busyFrom, 'sessions.create', 'sessions.delete'), []);
+    release();
+    for (const end of await Promise.all(live)) assert.ok(end.ok, JSON.stringify(end));
+    assert.equal(sent(busyFrom, 'sessions.list').length, 2, 'each busy answer came from the read before any lock');
+
+    // The engine refuses the fork: start_failed with its message cut to 200 characters, the source untouched.
+    fake.failNext('sessions.create', `Parent session is too large to fork ${'x'.repeat(300)}`);
+    const kept = await history(`agent:${agent}:chat:1`);
+    const refusedFrom = fake.calls.length;
+    const refused = await kit.move(ref, 'openai');
+    assert.ok(!refused.ok && refused.code === 'start_failed' && refused.message.length === 200
+      && refused.message.startsWith('Parent session is too large to fork') && refused.live === undefined, JSON.stringify(refused));
+    assert.deepEqual(sent(refusedFrom, 'sessions.delete'), []);
+    assert.deepEqual(await history(`agent:${agent}:chat:1`), kept, 'the source is untouched');
+
+    // The source changed before its delete: close_failed, the new key live and both sessions kept.
+    fake.failNext('sessions.delete', 'Session agent:m1--x:chat:1 changed before deletion. Retry.');
+    assert.deepEqual(await kit.move(ref, 'openai'), { ok: false, code: 'close_failed', live: 'agent:m1:chat:1',
+      message: `This conversation now continues on ${(await kit.accounts('m1')).find((a) => a.id === 'openai')!.name}, but its earlier copy could not be removed.` });
+    assert.deepEqual([await resolves(agent, 'chat:1'), await resolves('m1', 'chat:1')], [true, true]);
+
+    // Within one agent (the member agent's two accounts): ok on its own key, nothing forked or deleted.
+    await kit.call('openclaw.setup.activate', { kind: 'api-key', agentId: 'm1', authChoice: 'apiKey', apiKey: 'sk-test' });
+    assert.ok((await kit.accounts('m1')).some((a) => a.id === 'anthropic' && a.state === 'ready'));
+    const sameFrom = fake.calls.length;
+    assert.deepEqual(await kit.move(ref, 'anthropic'), { ok: true, session: 'agent:m1:chat:1' });
+    assert.deepEqual(sent(sameFrom, 'sessions.create', 'sessions.delete'), []);
+
+    // A target that is not ready: start_failed before any fork, the source untouched.
+    await kit.callDynamic('byokit.accounts', { action: 'clear', agentId: agent });
+    const unready = fake.calls.length;
+    assert.deepEqual(await kit.move(ref, second.id), { ok: false, code: 'start_failed', message: 'Sign in to Personal first.' });
+    assert.deepEqual(sent(unready, 'sessions.create', 'sessions.delete'), []);
+    assert.equal(await resolves('m1', 'chat:1'), true);
+
+    // A conversation never started is unsupported; another member's key and an unknown account are caller bugs.
+    assert.deepEqual(await kit.move({ member: 'm1', sessionKey: 'agent:m1:chat:none' }, 'openai'),
+      { ok: false, code: 'unsupported', message: 'This conversation has not started yet, so there is nothing to move.' });
+    await assert.rejects(kit.move({ member: 'm1', sessionKey: 'agent:m2:chat:1' }, 'openai'), /not a session of member/);
+    await assert.rejects(kit.move(ref, 'openai.ffffff'), /unknown account/);
+
+    // With no account agent the binding asks nothing: the member agent's own conversation still moves within it.
+    assert.deepEqual(await kit.signIn('m2', { authChoice: 'openai' }, () => {}).done, { state: 'done', via: 'browser' });
+    assert.ok((await kit.run({ member: 'm2', sessionKey: 'agent:m2:chat:1', message: 'hello' })).ok);
+    await kit.call('openclaw.setup.activate', { kind: 'api-key', agentId: 'm2', authChoice: 'apiKey', apiKey: 'sk-test' });
+    assert.deepEqual(await kit.move({ member: 'm2', sessionKey: 'agent:m2:chat:1' }, 'anthropic'), { ok: true, session: 'agent:m2:chat:1' });
+    assert.equal((await kit.move({ member: 'm2', sessionKey: 'agent:m2:chat:none' }, 'anthropic') as { code?: string }).code, 'unsupported');
+  } finally {
+    release();
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });
   }
