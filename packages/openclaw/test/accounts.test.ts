@@ -977,7 +977,7 @@ test('a key add whose gateway restarts 10 s after activation is ok, and its key 
     await flush();
     t.mock.timers.tick(1_000);
     await flush();
-    assert.equal(await pending, 'ok');
+    assert.deepEqual(await pending, { status: 'ok' });
     assert.ok(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'));
   } finally {
     await kit.stop();
@@ -996,7 +996,7 @@ test('a key add whose gateway never restarts returns retry and clears the key it
     await flush();
     t.mock.timers.tick(60_000);
     await flush();
-    assert.equal(await pending, 'retry');
+    assert.deepEqual(await pending, { status: 'retry', reason: 'busy' });
     assert.ok(!fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'));
     assert.ok(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'clear'));
   } finally {
@@ -1013,7 +1013,7 @@ test('a key add that finds the gateway restarting before the engine saw the key 
   try {
     await kit.start();
     fake.drop('gateway restart');
-    assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-PRE-ACCEPT' }), 'retry');
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-PRE-ACCEPT' }), { status: 'retry', reason: 'busy' });
     assert.ok(!fake.calls.some((c) => c.method === 'openclaw.setup.activate'));
   } finally {
     await kit.stop();
@@ -1089,7 +1089,7 @@ test('a key add whose gateway restart fails after activation returns retry, not 
     await flush();
     t.mock.timers.tick(1_000);
     await flush();
-    assert.equal(await pending, 'retry');
+    assert.deepEqual(await pending, { status: 'retry', reason: 'busy' });
     assert.ok(!fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'));
     const probe = fake.factory({ port: 0, token: 'test', identityPath: '', bridgeSock: '' });
     assert.deepEqual(await probe.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
@@ -1127,8 +1127,8 @@ test('a key add for a choice the engine cannot set up is not_included and leaves
   const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
   try {
     await kit.start();
-    assert.equal(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-working' }), 'ok');
-    assert.equal(await kit.addKey('m1', { authChoice: 'fal-api-key', apiKey: 'CANARY-KEY-FAL' }), 'not_included');
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-working' }), { status: 'ok' });
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'fal-api-key', apiKey: 'CANARY-KEY-FAL' }), { status: 'not_included', reason: 'model' });
     assert.equal((await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }) as { ok: boolean }).ok, true);
   } finally {
     await kit.stop();
@@ -1143,7 +1143,7 @@ test('a key add whose activation throws clears the key it may have stored and re
   const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
   try {
     await kit.start();
-    assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-THROWS' }), 'retry');
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-THROWS' }), { status: 'retry', reason: 'engine' });
     assert.ok(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'clear'));
     assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
   } finally {
@@ -1254,7 +1254,7 @@ test('session binding: a run stays on the account that holds its session; pick e
     const kept = await run({ sessionKey: 'agent:m1:chat:k', account: 'anthropic.a0a0a0' });
     assert.ok(kept.end.ok && kept.end.account === 'anthropic.a0a0a0', JSON.stringify(kept.end));
     // An API-key run continues only an API-billed conversation: a subscription- or member-bound one is refused, with no agent request.
-    assert.equal(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-test' }), 'ok');
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-test' }), { status: 'ok' });
     const keyRun =(sessionKey: string) => kit.run({ member: 'm1', sessionKey, message: 'hello', auth: 'apiKey' });
     const keyRefusal = (name: string) => ({ ok: false, kind: 'other', message: `This conversation uses ${name}. Move it to switch accounts.` });
     const keyFrom = fake.calls.length;
