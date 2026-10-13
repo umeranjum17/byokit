@@ -2908,8 +2908,8 @@ examples/herdr-kit/     package.json  host.ts  web/index.html  web/app.ts  READM
 - `package.json`: `"private": true`, dependencies on the kit and `@byokit/pair`, `@byokit/discover`, `@byokit/relay`,
   `@byokit/ui`, `@byokit/seal` at exact published versions, `esbuild` (dev) to bundle `web/app.ts`. Scripts: `start` (`node
   host.ts`), `build:web`, `test` (`node --test e2e.test.ts`). Not part of the root workspaces.
-- `host.ts` (OpenClaw): `new OpenClawKit({ stateDir: './.state', tools: [demo_note], host,
-  config: { plugins: { allow: ['openai'] } } })` where `demo_note`
+- `host.ts` (OpenClaw): `new OpenClawKit({ stateDir: './.state', tools: [demo_note], host })` (no plugin pin: sign-in
+  offers the kit's route list) where `demo_note`
   (`{ text: string }`) is gated `{ ask: { summary: 'save a note' } }` and appends to `./.state/notes.txt`;
   `hostKeyFile('./.state/link-key.json')`; link `Host` with `openclawLink(kit, { memberOf: () => 'me' })`, grants
   in `./.state/grants.json`; `serve({ host, port: 7310 })`; also serves `web/` over plain HTTP on the same port;
@@ -2927,21 +2927,20 @@ examples/herdr-kit/     package.json  host.ts  web/index.html  web/app.ts  READM
   `hd.events`, blocked list with key buttons `Enter`, `y`, `n`, `Esc`. Plain DOM, no framework. Works in a phone browser over LAN/Tailscale.
 - `README.md`, minutes to working: prerequisites (Node 22.18; Herdr example: Herdr 0.9.1 installed; OpenClaw example:
   the first start downloads and installs the pinned engine, a few minutes, then runs offline except for the model),
-  `npm i`, `npm start`, open the printed address on the phone, pair, sign in (OpenClaw: the "ChatGPT Device Pairing — sign in with a code" row under Plans;
-  Herdr: log in inside the agent's pane), send a message, approve. Includes a troubleshooting table keyed by the
-  words sentences.
+  `npm i`, `npm start`, open the printed address on the phone, pair, sign in (OpenClaw: the "ChatGPT Device Pairing —
+  sign in with a code" row under Plans, or a plan key added at the computer with `add <choice>`; Herdr: log in inside the agent's pane), send a message, approve. Includes a troubleshooting table keyed by the words sentences.
 - `e2e.test.ts` (CI, `browser` job): packs the workspace packages (`npm pack -w …`), installs the tarballs into a temp
   copy of the example (proving the published shape), starts `host.ts` with the kit's fake (`BYOKIT_EXAMPLE_FAKE=1`
   switches to `fakeGateway()` / `startFakeHerdr()` — the only env read, in example code, not library code), drives
-  headless Chromium through pair → sign in (fake device code) → run with streamed text → approval Allow → result
-  (Herdr: pair → start agent → prompt → receipt → `ask permission` blocked → answer `y` → idle), and asserts the
+  headless Chromium through pair → sign in (fake device code) → run with streamed text and its usage line →
+  approval Allow → result (Herdr: pair → start agent → prompt → receipt → `ask permission` blocked → answer `y` → idle), and asserts the
   person-visible text equals `words.json` sentences. Away from home: a loopback `Relay` whose push `fetch` is a
   recorder, a Node device pairing by `findHost` + `pairWithCode`, registering a notice key and an Expo token; the
   pushed message must carry the generic title, none of the approval's or question's text, and open only with the
   device's own seed (OpenClaw: Allow through `/relay/v1/push/action` saves the note).
 - `LIVE.md`: the manual end-to-end proof, run once per kit release in the isolated lab: real engine (OpenClaw) with a
-  real ChatGPT sign-in in the lab's retained test home, phone pairing over Tailscale, run + approval; real Herdr
-  v0.9.1 in `own` mode (under a `--herdr-lab` brief) with one agent CLI signed in inside the lab home. Record date,
+  real ChatGPT sign-in (or an OpenCode Go plan key) in the lab's retained test home, phone pairing over Tailscale,
+  run + approval; real Herdr v0.9.1 in `own` mode (under a `--herdr-lab` brief) with one agent CLI signed in inside the lab home. Record date,
   versions and screenshots path in the PR.
 
 ## 9. Tests, CI and isolation

@@ -22,7 +22,7 @@ npm install @byokit/openclaw
 
 Node 22.18 or later. The kit brings the engine with it: the first `start()` installs the pinned `openclaw@2026.8.35`
 under your `stateDir` (a few minutes, needs the network once), and later starts run from there. For a whole app, a
-phone page that pairs, signs in with ChatGPT, runs and answers approvals, see
+phone page that pairs, signs in to a plan (ChatGPT or a plan key), runs and answers approvals, see
 [`examples/openclaw-kit`](../../examples/openclaw-kit).
 
 ## Bundled engine provenance
