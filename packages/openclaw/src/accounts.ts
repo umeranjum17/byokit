@@ -400,7 +400,7 @@ export function createAccounts(ctx: {
     const { entry } = await entryOf(member, id);
     const agent = entry.agent;
     const provider = id.split('.')[0]!;
-    if (ctx.locks.live(agent)) throw new Error('removeAccount: busy');
+    if (ctx.locks.live(agent) || signing.has(`${member}\n${id}`)) throw new Error('removeAccount: busy');
     if (agent === memberAgent) {
       await ctx.locks.exclusive([agent, indexLock(member)], async () => {
         const listed = await ctx.request('byokit.accounts', { action: 'list', agentId: agent }) as { ok?: boolean; profiles?: { profileId?: string; provider?: string }[] };

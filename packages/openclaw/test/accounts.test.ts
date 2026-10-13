@@ -988,3 +988,34 @@ test('a failed member-agent seal says the credential is still there when its cle
     rmSync(stateDir, { recursive: true, force: true });
   }
 });
+
+test('removeAccount is refused busy while an account sign-in is pending, and the entry stays', async () => {
+  const stateDir = scratchDir('o14h-remove-pending');
+  const fake = fakeGateway();
+  let holding = false;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const holdingTransport: typeof fake.factory = (ctx) => {
+    const transport = fake.factory(ctx);
+    return { ...transport, request: async (method, params, o) => {
+      if (method === 'openclaw.setup.auth.start' && holding) await gate;
+      return transport.request(method, params, o);
+    } };
+  };
+  const kit = new OpenClawKit({ stateDir, transport: holdingTransport, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done, { state: 'done', via: 'browser' });
+    holding = true;
+    const pending = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    await assert.rejects(kit.removeAccount('m1', pending.id), /busy/);
+    assert.ok((await kit.accounts('m1')).some((a) => a.id === pending.id), 'the entry stays');
+    holding = false;
+    release();
+    assert.equal((await pending.done).view.state, 'done');
+    assert.ok((await kit.accounts('m1')).some((a) => a.id === pending.id), 'the signed-in entry stays');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
