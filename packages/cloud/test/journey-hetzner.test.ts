@@ -1,4 +1,4 @@
-import { after, test } from 'node:test';
+import { after, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { writeFileSync } from 'node:fs';
@@ -20,6 +20,15 @@ async function bench() {
   const create = provider.create!;
   provider.create = async o => { const ref = await create(o); await (await provider.hostKey(ref)).confirm(); return ref; };
   return { provider, store, api, ssh, options, installs: true, keepCopies: false };
+}
+// Advance only the adapter's 2-second polls; HTTP and SSH keep their real event loops.
+function fastPolls(t: TestContext) {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const timer = globalThis.setTimeout;
+  t.mock.method(globalThis, 'setTimeout', (fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+    if (ms === 2000) t.mock.timers.tick(ms);
+    return timer(fn, ms === 2000 ? 0 : ms, ...args);
+  });
 }
 // All applicable shared assertions use the HTTP API and the native fake SSH binary.
 machineContract(bench);
@@ -133,7 +142,8 @@ test('a new create never deletes another operation firewall; remove sweeps the o
   assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0);
 });
 
-test('a 500 after allocation reconciles late listing, while never-listed allocation reports actionable ownership', async () => {
+test('a 500 after allocation reconciles late listing, while never-listed allocation reports actionable ownership', async t => {
+  fastPolls(t);
   const b = await bench(); const m = machine(b); b.api.failNextCreate(2);
   const ref = await m.create({ name: 'late', size: 'small', keepCopies: false });
   assert.equal(ref.id, '1'); assert.equal(m.ref?.id, ref.id);
@@ -143,7 +153,7 @@ test('a 500 after allocation reconciles late listing, while never-listed allocat
   assert.equal(await m.state(), 'on'); await m.remove(ref.id);
   assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0);
 
-  b.api.failNextCreate(Infinity);
+  const unresolvedAt = Date.now(); b.api.failNextCreate(Infinity);
   await assert.rejects(m.create({ name: 'never', size: 'small', keepCopies: false }), e => {
     const error = e as { code: string; extra: Record<string, string> };
     assert.equal(error.code, 'provider'); assert.equal(error.extra['name'], 'never');
@@ -151,19 +161,21 @@ test('a 500 after allocation reconciles late listing, while never-listed allocat
     assert.equal('machine' in error.extra, false, 'unknown id is omitted, never an empty or invented machine id');
     assert.ok(error.extra['operation']); return true;
   });
+  assert.equal(Date.now() - unresolvedAt, 30_000, 'the full reconciliation budget still elapses on the fixture clock');
   assert.equal(m.ref, null); assert.equal((await b.store.load())?.ref ?? null, null);
   assert.equal(b.api.requests.filter(r => r.method === 'POST' && r.path === '/servers').length, 2, 'one POST per attempt, no duplicate allocation');
   assert.equal(b.api.servers.size, 1); assert.equal(b.api.ips.size, 1); assert.equal(b.api.firewalls.size, 1, 'the named allocation remains for manual recovery, not a false cleanup success');
   assert.doesNotMatch(JSON.stringify(b.api.requests), /test-key/);
 });
 
-test('a lost create response reconciles a late-listed server, and one never listed fails naming it', async () => {
+test('a lost create response reconciles a late-listed server, and one never listed fails naming it', async t => {
+  fastPolls(t);
   const b = await bench();
   b.api.dropNextCreate(2);
   const ref = await b.provider.create!({ name: 'web', size: 'small', keepCopies: false, idempotencyKey: 'lagged-op' });
   assert.equal(ref.id, '1'); assert.equal(b.api.requests.filter(r => r.method === 'POST' && r.path === '/servers').length, 1);
   await b.provider.remove!(ref, ref.id);
-  b.api.dropNextCreate(Infinity);
+  const unresolvedAt = Date.now(); b.api.dropNextCreate(Infinity);
   await assert.rejects(b.provider.create!({ name: 'lost', size: 'small', keepCopies: false, idempotencyKey: 'lost-op' }), e => {
     const extra = (e as { code: string; extra: Record<string, string> });
     assert.equal(extra.code, 'provider'); assert.equal(extra.extra['name'], 'lost');
@@ -171,4 +183,5 @@ test('a lost create response reconciles a late-listed server, and one never list
     assert.equal('machine' in extra.extra, false);
     return true;
   });
+  assert.equal(Date.now() - unresolvedAt, 30_000, 'a lost response keeps the same bounded reconciliation budget');
 });
