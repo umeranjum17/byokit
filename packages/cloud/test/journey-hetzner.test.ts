@@ -57,11 +57,11 @@ test('Umer rents, bootstraps, prices and deletes one Hetzner computer without le
   assert.deepEqual((await b.store.load())?.ref, ref); b.api.servers.set(Number(ref.id), original);
   await m.remove(ref.id); assert.equal(m.ref, null); assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0);
   b.api.failNext(503, 'IP setup failed', '/primary_ips/4');
-  await assert.rejects(b.provider.create!({ name: 'recovery', size: 'large', keepCopies: false, idempotencyKey: 'recover-op' }), { code: 'provider' });
+  await assert.rejects(b.provider.create!({ name: 'recovery', size: 'small', keepCopies: false, idempotencyKey: 'recover-op' }), { code: 'provider' });
   assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0, 'failed setup cleans every allocated resource');
-  const recovered = await b.provider.create!({ name: 'recovery', size: 'large', keepCopies: false, idempotencyKey: 'recover-op' });
+  const recovered = await b.provider.create!({ name: 'recovery', size: 'small', keepCopies: false, idempotencyKey: 'recover-op' });
   await b.store.save({ ref: recovered, providerKey: '' });
-  assert.equal((await machine({ provider: await hetzner(b.options), store: b.store }).cost()).perMonth, 6.6);
+  assert.equal((await machine({ provider: await hetzner(b.options), store: b.store }).cost()).perMonth, 3.6);
   await b.provider.remove!(recovered, recovered.id); assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0);
   assert.ok(b.api.requests.some(r => r.method === 'GET' && r.path === `/servers/${ref.id}`));
   assert.doesNotMatch(JSON.stringify(b.api.requests) + JSON.stringify(b.ssh.calls()), /test-key|secret-wrong-key/);
