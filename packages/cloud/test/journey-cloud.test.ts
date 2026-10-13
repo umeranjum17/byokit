@@ -11,10 +11,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  machine, boat, estimate, words, stateWords, hostWords, errorWords, keyWords, WORDS, MachineError,
+  machine, boat, estimate, status, words, stateWords, hostWords, errorWords, keyWords, WORDS, MachineError,
 } from '@byokit/cloud';
 import type {
-  HostRecipe, MachineErrorCode, MachineState, HostState, Price, KeyInfo,
+  HostRecipe, Status, MachineErrorCode, MachineState, HostState, Price, KeyInfo,
 } from '@byokit/cloud';
 import { fakeProvider, memoryStore, startFakeSandboxServer } from '@byokit/cloud/testing';
 
@@ -93,6 +93,62 @@ test('an app rents its own cloud computer, installs its host, and supervises it 
   assert.equal(await m.state(), 'asleep');
   await m.remove(ref.id);
   assert.equal(m.ref, null);
+});
+
+test('a phone polls one status while it creates, installs, stops, starts and deletes its cloud computer', async () => {
+  // Boat's create resolves before the machine is on; the fake reads creating twice, and a command
+  // sent to a machine that is not on fails, so the poll must not ask the host until it is on.
+  const provider = fakeProvider({ createReads: 2 });
+  const store = memoryStore();
+  const m = machine({ provider, store });
+  const vars = { app: 'Muxr', label: 'Boat' };
+  const seen: string[] = [];
+  const poll = async (until: (s: Status) => boolean): Promise<Status> => {
+    for (let i = 0; i < 10; i++) {
+      const s = await status(m, vars);
+      if (seen.at(-1) !== s.words) seen.push(s.words);
+      if (until(s)) return s;
+    }
+    assert.fail(`status never settled: ${seen.join(' | ')}`);
+  };
+
+  const ref = await m.create({ name: 'web', size: 'small', keepCopies: true });
+  await rejects(m.host(), 'unreachable');
+  assert.deepEqual(await poll((s) => s.machine === 'on'), { machine: 'on', host: 'not-installed', words: "Muxr isn't on your cloud computer yet." });
+
+  await m.install(recipe('web'));
+  assert.equal((await poll((s) => s.host === 'running')).words, 'Muxr is running on your cloud computer.');
+
+  await m.sleep();
+  assert.deepEqual(await status(m, vars), { machine: 'asleep', host: null, words: 'Your cloud computer is asleep. Opening Muxr wakes it.' });
+  await m.wake();
+  assert.equal((await poll((s) => s.host === 'running')).words, 'Muxr is running on your cloud computer.', 'the unit comes back with the machine');
+
+  // A machine that sleeps between the state read and the host read reads asleep, not an error.
+  const racing = machine({
+    provider: { ...provider, status: async (r) => { const s = await provider.status(r); provider.fake.setState(r.id, 'asleep'); return s; } },
+    store,
+  });
+  assert.deepEqual(await status(racing, vars), { machine: 'asleep', host: null, words: 'Your cloud computer is asleep. Opening Muxr wakes it.' });
+  await m.wake();
+
+  await m.remove(ref.id);
+  assert.equal(await provider.status(ref), 'gone');
+  await rejects(status(m, vars), 'no-machine');
+
+  // A machine removed while it still reads creating reads gone at once and stays gone.
+  const late = machine({ provider, store: memoryStore() });
+  const lateRef = await late.create({ name: 'late', size: 'small', keepCopies: true });
+  await late.remove(lateRef.id);
+  assert.deepEqual(
+    [await provider.status(lateRef), await provider.status(lateRef), await provider.status(lateRef)],
+    ['gone', 'gone', 'gone'],
+  );
+  assert.deepEqual(seen, [
+    'Setting up your cloud computer. This takes a minute or two.',
+    "Muxr isn't on your cloud computer yet.",
+    'Muxr is running on your cloud computer.',
+  ]);
 });
 
 test('an app installs only when the machine and the recipe are safe, and the root steps run once', async () => {

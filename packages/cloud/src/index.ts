@@ -3,6 +3,8 @@
 // integration (docs/cloud-kit.md). Portable entry: no `node:*` import.
 
 export { machine } from './machine.ts';
+export { status } from './status.ts';
+export type { Status } from './status.ts';
 export { boat } from './boat.ts';
 /** @deprecated Use boat(). */
 export { boat as sandboxApi } from './boat.ts';

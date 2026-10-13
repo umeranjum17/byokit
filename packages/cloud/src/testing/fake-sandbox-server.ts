@@ -49,6 +49,8 @@ export type SandboxServerOptions = {
   unlimited?: boolean;
   /** Resume leaves the machine provisioning for this many status reads (default 0). */
   slowWakeReads?: number;
+  /** Create leaves the machine provisioning for this many status reads less one: the read that counts it down to zero already answers ready (default 0). */
+  slowCreateReads?: number;
 };
 
 export type SandboxServer = {
@@ -207,7 +209,8 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
           return send(res, 422, { error: 'trial_auto_stop_required', message: 'the trial caps auto-stop at 2 hours' });
         }
         const id = `sb-${++seq}`;
-        const sb: Sandbox = { id, raw: 'ready', wakeReads: 0, commands: new Map() };
+        const slow = o.slowCreateReads ?? 0;
+        const sb: Sandbox = { id, raw: slow > 0 ? 'provisioning' : 'ready', wakeReads: slow, commands: new Map() };
         sandboxes.set(id, sb);
         if (idemKey !== '') createdByKey.set(idemKey, id);
         return send(res, 202, { ok: true, type: 'sandbox.created', status: 'provisioning', ttlSeconds: b['ttlSeconds'] ?? null, sandbox: sandboxBody(sb, 'Sandbox') });
@@ -238,6 +241,8 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
           }
           // No `noEnv` is accepted here: a resume is never a conversion (6.3).
           if ('noEnv' in b || 'env' in b) return send(res, 400, { error: 'noEnv and env are create-only' });
+          // Every resume is a cold boot (6.5): enabled units start again.
+          machine.reboot();
           sb.raw = slowWakeReads > 0 ? 'provisioning' : 'ready';
           sb.wakeReads = slowWakeReads;
           return send(res, 202, { ok: true, type: 'sandbox.resuming', id, status: 'resuming', sandbox: sandboxBody(sb, 'Sandbox') });

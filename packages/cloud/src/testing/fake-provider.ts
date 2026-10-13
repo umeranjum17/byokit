@@ -17,6 +17,8 @@ export type FakeProviderOptions = {
   create?: boolean; adopt?: boolean; wake?: boolean; sleep?: boolean; snapshot?: boolean;
   fork?: boolean; remove?: boolean; url?: boolean; usage?: boolean; key?: boolean;
   plan?: boolean; why?: boolean;
+  /** A new machine reads `creating` for this many status reads, then `on` (default 0, as Boat's create resolves before on). */
+  createReads?: number;
 };
 
 export type FakeControl = {
@@ -77,6 +79,7 @@ export function fakeProvider(o: FakeProviderOptions = {}): Provider & { fake: Fa
   machine.sudo = o.root ?? true;
   const calls: FakeCall[] = [];
   const states = new Map<string, MachineState>();
+  const creating = new Map<string, number>();
   let plan: Plan = { inTrial: false, trialEndsAt: null, canStayOn: true, checkoutUrl: null };
   let why: AsleepWhy | null = null;
   let balance: number | null = null;
@@ -94,10 +97,18 @@ export function fakeProvider(o: FakeProviderOptions = {}): Provider & { fake: Fa
     prices: () => o.prices ?? defaultPrices(),
     status: async (m: MachineRef) => {
       calls.push({ op: 'status', args: [m.id] });
+      const left = creating.get(m.id) ?? 0;
+      if (left > 0 && states.get(m.id) === 'creating') {
+        creating.set(m.id, left - 1);
+        if (left === 1) states.set(m.id, 'on');
+        return 'creating';
+      }
       return states.get(m.id) ?? 'on';
     },
     exec: async (m: MachineRef, argv: readonly string[], execOpts: { timeoutMs: number; root?: boolean; input?: Uint8Array }) => {
       calls.push({ op: 'exec', args: [m.id, [...argv], { timeoutMs: execOpts.timeoutMs, root: execOpts.root ?? false }] });
+      const s = states.get(m.id) ?? 'on';
+      if (s !== 'on') throw new MachineError('unreachable', `the machine is ${s}`);
       const r = machine.run(argv, { root: execOpts.root, input: execOpts.input });
       const out: ExecResult = { code: r.code, stdout: r.stdout, stderr: r.stderr, timedOut: r.timedOut };
       return out;
@@ -124,7 +135,8 @@ export function fakeProvider(o: FakeProviderOptions = {}): Provider & { fake: Fa
         provider: id, account: o.account ?? 'acct-test',
         id: `sb-${++seq}`, name: opts.name, keepCopies: opts.keepCopies,
       };
-      states.set(ref.id, 'on');
+      states.set(ref.id, (o.createReads ?? 0) > 0 ? 'creating' : 'on');
+      creating.set(ref.id, o.createReads ?? 0);
       seenKeys.set(opts.idempotencyKey, ref);
       return ref;
     };
@@ -138,6 +150,8 @@ export function fakeProvider(o: FakeProviderOptions = {}): Provider & { fake: Fa
   if (can.wake) {
     full.wake = async (m: MachineRef) => {
       calls.push({ op: 'wake', args: [m.id] });
+      // Every wake is a cold boot (6.5): enabled units start again.
+      machine.reboot();
       states.set(m.id, 'on');
     };
   }
@@ -167,7 +181,7 @@ export function fakeProvider(o: FakeProviderOptions = {}): Provider & { fake: Fa
   if (can.remove) {
     full.remove = async (m: MachineRef, confirm: string) => {
       calls.push({ op: 'remove', args: [m.id, confirm] });
-      states.delete(m.id);
+      states.set(m.id, 'gone');
     };
   }
   if (can.url) {

@@ -55,6 +55,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [ChatGPT refresh refusal](./accounts-refresh-refusal.md) — a phone/browser ChatGPT sign-in kept through a passing 401 at a due or forced refresh, ended only by a revoked grant.
 - [Usage plan view](./usage-planview.md) — `@byokit/usage` selectors over fixture call records via `examples/usage-demo.ts`.
 - [Cloud M6 physical-phone lab](./cloud-m6-phone.md) — explicit native trial-only create/install/pair/one phone-local agent turn/stop; approved USB stdin key import and verified removal, real phone captures, no computer proxy. Not the full two-adapter M6 or a publishing claim.
+- [Cloud status poll](./cloud-status-poll.md) — one `status()` read a phone polls through create (creating, no command sent), install (host running), stop (asleep), start (running again after a cold boot) and delete (`gone`, then typed `no-machine`) on the loopback Boat bench.
 - [Cloud boat adapter](./cloud-boat-v1.md) — the built `@byokit/cloud` `boat()` against the loopback bench speaks the public boat-v1 names: `user.id`, nested `sandbox`/`operation`/`snapshot`, `X-Ascii-Confirm-Delete`, `encoding: 'base64'`, `plan` over `limits.info`, and no guessed `key`/`why`.
 - [Usage preflight](./usage-preflight.md) — `@byokit/usage` reports a call's cost ceiling from the app's own prices and the remaining allowance before it is sent, declining a costly call and refusing to guess on unknown cases.
 - [Usage Claude explicit-file guard](./usage-claude-file-guard.md) — `@byokit/usage` refuses a Claude `credentialsFile`/`configFile`/`statuslineFile` that carries a `.claude`/`.codex`/`.pi` segment, lexically or through a symlink, before any open, while an app-owned file still reads.
@@ -118,6 +119,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [openclaw-install-drift-diagnostics](./openclaw-install-drift-diagnostics.md) — forced fixture-package drift through the built kit's `prepare()` retains every diagnostics field.
 - [accounts-machine-store](./accounts-machine-store.md) — one sign-in reused by a second app through `machineStore`, wrong-seal and no-store refusals.
 - [usage-planview](./usage-planview.md) — plan/quota view rendered from call records.
+- [cloud-status-poll](./cloud-status-poll.md) — the one status read a phone polls through the machine's whole life.
 - [cloud-boat-v1](./cloud-boat-v1.md) — the boat adapter's public boat-v1 names against the loopback bench.
 - [usage-preflight](./usage-preflight.md) — preflight cost ceiling, remaining allowance, declined costly call, and explicit-unknown cases.
 - [usage-claude-file-guard](./usage-claude-file-guard.md) — a default-login `.claude`/`.codex`/`.pi` segment (lexically or via symlink) is refused with `UsageError` before any open; an app-owned file still reads.
