@@ -59,9 +59,12 @@ test('Umer rents, bootstraps, prices and deletes one Hetzner computer without le
   b.api.failNext(503, 'IP setup failed', '/primary_ips/4');
   await assert.rejects(b.provider.create!({ name: 'recovery', size: 'small', keepCopies: false, idempotencyKey: 'recover-op' }), { code: 'provider' });
   assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0, 'failed setup cleans every allocated resource');
-  const recovered = await b.provider.create!({ name: 'recovery', size: 'small', keepCopies: false, idempotencyKey: 'recover-op' });
-  await b.store.save({ ref: recovered, providerKey: '' });
-  assert.equal((await machine({ provider: await hetzner(b.options), store: b.store }).cost()).perMonth, 3.6);
+  const recovered = await b.provider.create!({ name: 'recovery', size: 'large', keepCopies: false, idempotencyKey: 'recover-op' });
+  assert.deepEqual(b.provider.prices().map(p => p.size), ['small', 'large'], 'touching a larger server never reorders the catalogue');
+  const chosen = b.provider.prices().find(p => p.size === 'large'); assert.ok(chosen?.perMonthCap);
+  // Without usage(), the app records its chosen monthly price (cloud-kit 10.1); prices()[0] stays smallest.
+  await b.store.save({ ref: recovered, providerKey: '', monthlyEntered: chosen.perMonthCap });
+  assert.equal((await machine({ provider: await hetzner(b.options), store: b.store }).cost()).perMonth, 6.6);
   await b.provider.remove!(recovered, recovered.id); assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0);
   assert.ok(b.api.requests.some(r => r.method === 'GET' && r.path === `/servers/${ref.id}`));
   assert.doesNotMatch(JSON.stringify(b.api.requests) + JSON.stringify(b.ssh.calls()), /test-key|secret-wrong-key/);
@@ -95,6 +98,30 @@ test('a new create never deletes another operation firewall; remove sweeps the o
   await b.provider.remove!(again, again.id); assert.equal(b.api.firewalls.size, 1);
   await m.remove(ref.id);
   assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0);
+});
+
+test('a 500 after allocation reconciles late listing, while never-listed allocation reports actionable ownership', async () => {
+  const b = await bench(); const m = machine(b); b.api.failNextCreate(2);
+  const ref = await m.create({ name: 'late', size: 'small', keepCopies: false });
+  assert.equal(ref.id, '1'); assert.equal(m.ref?.id, ref.id);
+  assert.equal(b.api.servers.get(Number(ref.id))?.['name'], 'late');
+  assert.equal(b.api.requests.filter(r => r.method === 'POST' && r.path === '/servers').length, 1);
+  assert.ok(b.api.requests.filter(r => r.method === 'GET' && r.path.startsWith('/servers?name=late')).length >= 4, 'preflight plus two hidden lists and a visible reconciliation');
+  assert.equal(await m.state(), 'on'); await m.remove(ref.id);
+  assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0);
+
+  b.api.failNextCreate(Infinity);
+  await assert.rejects(m.create({ name: 'never', size: 'small', keepCopies: false }), e => {
+    const error = e as { code: string; extra: Record<string, string> };
+    assert.equal(error.code, 'provider'); assert.equal(error.extra['name'], 'never');
+    assert.equal(error.extra['firewall'], String([...b.api.firewalls.keys()][0]));
+    assert.equal('machine' in error.extra, false, 'unknown id is omitted, never an empty or invented machine id');
+    assert.ok(error.extra['operation']); return true;
+  });
+  assert.equal(m.ref, null); assert.equal((await b.store.load())?.ref ?? null, null);
+  assert.equal(b.api.requests.filter(r => r.method === 'POST' && r.path === '/servers').length, 2, 'one POST per attempt, no duplicate allocation');
+  assert.equal(b.api.servers.size, 1); assert.equal(b.api.ips.size, 1); assert.equal(b.api.firewalls.size, 1, 'the named allocation remains for manual recovery, not a false cleanup success');
+  assert.doesNotMatch(JSON.stringify(b.api.requests), /test-key/);
 });
 
 test('a lost create response reconciles a late-listed server, and one never listed fails naming it', async () => {

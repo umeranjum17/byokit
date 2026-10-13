@@ -7,7 +7,8 @@ export async function startFakeHetznerServer() {
   const ips = new Map<number, { auto_delete: boolean; labels: Record<string, string> }>();
   const firewalls = new Map<number, Record<string, unknown>>();
   let nextFirewall = 100; let detach = false;
-  let next = 1; let drop = false; let hiddenLists = 0; let failure: { status: number; message: string; path?: string } | null = null;
+  let next = 1; let drop = false; let hiddenLists = 0; let failedCreateHidden: number | null = null;
+  let failure: { status: number; message: string; path?: string } | null = null;
   const rate = (hour: string, month: string) => ({ location: 'fsn1', price_hourly: { net: hour }, price_monthly: { net: month } });
   const http = createServer(async (req, res) => {
     const chunks: Buffer[] = []; for await (const b of req) chunks.push(b as Buffer);
@@ -37,6 +38,7 @@ export async function startFakeHetznerServer() {
       assert.equal(attached.length, 1); assert.ok(firewalls.has(attached[0].firewall), 'firewall must exist before server creation');
       const s = { id, name: body['name'], status: 'running', labels: body['labels'], server_type: { name: body['server_type'] }, public_net: { ipv4: { id: ipv4, ip: '127.0.0.1' }, firewalls: detach ? [] : [{ id: attached[0].firewall, status: 'applied' }] } }; detach = false;
       servers.set(id, s); ips.set(ipv4, { auto_delete: false, labels: {} });
+      if (failedCreateHidden !== null) { hiddenLists = failedCreateHidden; failedCreateHidden = null; return send(500, { error: { message: 'created before gateway failure' } }); }
       if (drop) { drop = false; req.socket.destroy(); return; }
       return send(201, { server: s, action: { id: 10, status: 'running' }, next_actions: [], root_password: 'unused-fixture-password' });
     }
@@ -66,7 +68,7 @@ export async function startFakeHetznerServer() {
   await new Promise<void>(r => http.listen(0, '127.0.0.1', r));
   const address = http.address(); if (!address || typeof address === 'string') throw new Error('no loopback address');
   return { url: `http://127.0.0.1:${address.port}/v1`, requests, servers, ips, firewalls, detachNextCreate: () => { detach = true; },
-    dropNextCreate: (hidden = 0) => { drop = true; hiddenLists = hidden; },failNext: (status: number, message: string, path?: string) => { failure = { status, message, path }; },
+    dropNextCreate: (hidden = 0) => { drop = true; hiddenLists = hidden; }, failNextCreate: (hidden = 0) => { failedCreateHidden = hidden; }, failNext: (status: number, message: string, path?: string) => { failure = { status, message, path }; },
     close: () => new Promise<void>((resolve, reject) => { http.close(e => e ? reject(e) : resolve()); http.closeAllConnections(); }),
   };
 }
