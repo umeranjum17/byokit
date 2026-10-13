@@ -1431,3 +1431,97 @@ test('move: the transcript forks onto the target and the source goes; busy, star
     rmSync(stateDir, { recursive: true, force: true });
   }
 });
+
+test('move: a run that waited across a move binds again and ends moved; a taken target key refuses the move', async () => {
+  const stateDir = scratchDir('o14l-move-race');
+  const fake = fakeGateway();
+  let release: () => void = () => {};
+  let hold = Promise.resolve();
+  let entered: () => void = () => {};
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0,
+    tools: [{ name: 'report', description: 'record progress', parameters: { type: 'object' } }],
+    host: { gate: async () => ({ allow: true }), call: async (_run: RunRef, _tool: string, input: Record<string, unknown>) => {
+      entered();
+      await hold;
+      return `Progress: ${String(input.text)}`;
+    } } });
+  const resolves = async (agentId: string, tail: string) =>
+    (await kit.call('sessions.resolve', { key: `agent:${agentId}:${tail}`, agentId, allowMissing: true }) as { ok?: boolean }).ok === true;
+  const sent = (from: number, ...methods: string[]) => fake.calls.slice(from).filter((c) => methods.includes(c.method));
+  const until = async (done: () => boolean) => {
+    for (let i = 0; i < 2000 && !done(); i++) await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(done());
+  };
+  const resolved = (from: number, key: string) => () =>
+    sent(from, 'sessions.resolve').some((c) => (c.params as { key?: string }).key === key);
+  const moved = { ok: false, kind: 'other', message: 'This conversation just moved to another account. Send it again to continue there.' };
+  // A live tool run on `agent` holds its shared lock, so a move onto it holds its source and waits there.
+  const holdOn = async (account: string) => {
+    hold = new Promise((resolve) => { release = resolve; });
+    const inside = new Promise<void>((resolve) => { entered = resolve; });
+    const run = kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:hold', message: '[tool report {"text":"hold"}]', account });
+    await inside;
+    return { run }; // wrapped: awaiting holdOn must not wait for the run's end
+  };
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done, { state: 'done', via: 'browser' });
+    const added = [];
+    for (const name of ['Personal', 'Work']) {
+      const a = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser', name }, () => {});
+      assert.equal((await a.done).view.state, 'done');
+      added.push({ id: a.id, agent: `m1--${a.id.slice('openai.'.length)}` });
+    }
+    // Locks are taken in id order: the move holds `low` and waits for `high`.
+    const [low, high] = added.sort((a, b) => a.agent.localeCompare(b.agent));
+
+    // Account path: chat:1 lives on `low`; a run on it binds there, then waits for `low` while the move holds it.
+    assert.ok((await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:1', message: 'hi', account: low!.id })).ok);
+    let { run: holder } = await holdOn(high!.id);
+    let mark = fake.calls.length;
+    const accountMove = kit.move({ member: 'm1', sessionKey: 'agent:m1:chat:1' }, high!.id);
+    await until(() => sent(mark, 'sessions.list').length === 1);
+    mark = fake.calls.length;
+    const events: RunEvent[] = [];
+    const waited = kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:1', message: 'again' }, (e) => events.push(e));
+    await until(resolved(mark, `agent:${low!.agent}:chat:1`));
+    release();
+    assert.ok((await holder).ok);
+    assert.deepEqual(await accountMove, { ok: true, session: `agent:${high!.agent}:chat:1` });
+    assert.deepEqual(await waited, moved);
+    assert.deepEqual(events, [], 'no event before the moved end');
+    assert.equal(await resolves(low!.agent, 'chat:1'), false, 'the deleted key is not run on again');
+    const retried = await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:1', message: 'again' });
+    assert.ok(retried.ok && retried.account === high!.id, JSON.stringify(retried));
+
+    // Member path: chat:2 lives on the member agent; a run on it waits for the member agent's lock across the move.
+    assert.ok((await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:2', message: 'hi' })).ok);
+    ({ run: holder } = await holdOn(high!.id));
+    mark = fake.calls.length;
+    const memberMove = kit.move({ member: 'm1', sessionKey: 'agent:m1:chat:2' }, high!.id);
+    await until(() => sent(mark, 'sessions.list').length === 1);
+    mark = fake.calls.length;
+    const memberRun = kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:2', message: 'again' });
+    await until(resolved(mark, 'agent:m1:chat:2'));
+    release();
+    assert.ok((await holder).ok);
+    assert.deepEqual(await memberMove, { ok: true, session: `agent:${high!.agent}:chat:2` });
+    assert.deepEqual(await memberRun, moved);
+    assert.equal(await resolves('m1', 'chat:2'), false, 'the deleted key is not run on again');
+    const memberRetry = await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:2', message: 'again' });
+    assert.ok(memberRetry.ok && memberRetry.account === high!.id, JSON.stringify(memberRetry));
+
+    // A session already under the target key: start_failed, nothing forked or deleted, the source untouched.
+    assert.ok((await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:3', message: 'hi' })).ok);
+    await kit.call('sessions.create', { agentId: low!.agent, key: `agent:${low!.agent}:chat:3` });
+    mark = fake.calls.length;
+    assert.deepEqual(await kit.move({ member: 'm1', sessionKey: 'agent:m1:chat:3' }, low!.id), { ok: false, code: 'start_failed',
+      message: `${(await kit.accounts('m1')).find((a) => a.id === low!.id)!.name} already holds a conversation under this name, so nothing was moved.` });
+    assert.deepEqual(sent(mark, 'sessions.create', 'sessions.delete'), []);
+    assert.equal(await resolves('m1', 'chat:3'), true);
+  } finally {
+    release();
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});

@@ -501,9 +501,10 @@ test('move: the transcript (user and tool rows) carries to the target agent and 
     const moved = await kit.call('chat.history', { sessionKey: 'agent:m1--bbbbbb:o14l:chat' }) as { messages: { role?: string }[] };
     assert.ok(JSON.stringify(moved.messages).includes('[tool report {\\"text\\":\\"Working\\"}]'), 'the user row is in the target');
 
-    // The next run on the app key continues on B: the model sees the user turn, the tool call and its result.
+    // The next run on the app key continues on B (an API-billed conversation names its account, Runs step 2): the
+    // model sees the user turn, the tool call and its result.
     const from = stub.calls.length;
-    const next = await kit.run({ ...ref, message: 'and then' });
+    const next = await kit.run({ ...ref, message: 'and then', account: 'openai.bbbbbb' });
     assert.ok(next.ok && next.account === 'openai.bbbbbb', JSON.stringify(next));
     const sent = stub.calls.slice(from);
     assert.ok(sent.length > 0 && sent.every((c) => c.authorization === `Bearer ${keys.bbbbbb}`), 'billed on the target\'s own key');

@@ -1570,13 +1570,17 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
   `unsupported` when it is bound nowhere (no `sessions.list { agentId, search: <key> }` row); `busy` while a run is live
   on it (kit map, or that row's `hasActiveRun`); `start_failed` (words `move.notReady`) when the target is not `ready`.
   Same agent (two member-agent accounts) → `{ ok: true, session: <its key> }`; the
-  next run names the account. Otherwise, holding both agents' locks: read the row again (the same refusals) and note its `sessionId` and `updatedAt`; `sessions.create { agentId: <target>, key: 'agent:<target>:<tail>',
+  next run names the account. Otherwise, holding both agents' locks: read the row again (the same refusals) and note its `sessionId` and `updatedAt`;
+  a session already under the target key → `start_failed` (words `move.taken`), the source untouched; `sessions.create { agentId: <target>, key: 'agent:<target>:<tail>',
   parentSessionKey: <source key>, fork: true, model: <the session's model when the target lists it, else the target's
   first available> }` copies the full transcript into the target agent (never `chat.history` + `chat.inject`, which
   drop tool rows and rewrite user turns); failure → `start_failed` (engine message cut to 200 chars), the source
   untouched. Then `sessions.delete { key, agentId: <source>, deleteTranscript: true, expectedSessionId,
   expectedSessionUpdatedAt }`; failure or mismatch → `close_failed` with `live` = the new key (both exist). Other
-  refusals carry words `move.unsupported`, `move.busy` and `move.closeFailed`.
+  refusals carry words `move.unsupported`, `move.busy` and `move.closeFailed`. A run that waited for its agent's lock
+  across a move (member-path runs hold the member agent's shared lock too) binds its key again once it holds the lock;
+  a changed binding ends it `{ ok: false, kind: 'other' }` with words `run.moved`, before any event, and the caller's
+  retry lands on the target.
 - Locks (`src/locks.ts`): per agent id; runs take a shared hold from `ready` to their end (runs on one account may
   overlap), and `room` and `models` hold it for their read, so no kit read of an agent is in flight while it is
   removed; `removeAccount`, `move` (source and target) and sealing are exclusive. Index writes take their own per-member
@@ -1629,6 +1633,8 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
 | `move.busy` | Wait for this conversation to finish before moving it. |
 | `move.notReady` | Sign in to {name} first. |
 | `move.closeFailed` | This conversation now continues on {name}, but its earlier copy could not be removed. |
+| `move.taken` | {name} already holds a conversation under this name, so nothing was moved. |
+| `run.moved` | This conversation just moved to another account. Send it again to continue there. |
 
 ### 5.16 Bundled engine patches and engine-started usage (D19)
 

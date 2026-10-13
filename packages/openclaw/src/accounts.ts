@@ -461,6 +461,9 @@ export function createAccounts(ctx: {
       const again = await read();
       if ('refused' in again) return again.refused;
       const session = again.found;
+      // A conversation already under the target key is never overwritten: the move is refused, the source untouched.
+      const taken = await ctx.request('sessions.resolve', { key: into, agentId: entry.agent, allowMissing: true }) as { key?: string };
+      if (taken.key !== undefined) return failed('start_failed', words('move.taken', { name: row.name }));
       // The session's model when the target lists it, else the target's first available; the read takes no shared
       // hold (this move holds the target exclusively). With no answer the fork keeps the parent's own selection.
       const models = await ctx.request('models.list', { agentId: entry.agent, view: 'default' })

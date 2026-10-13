@@ -8,6 +8,7 @@ Verification recipe for [moving a conversation](../../../../docs/runtime-kits.md
 - The target holds the user, tool call, tool result and reply rows; the source session is gone; the next run on the app key continues on the target.
 - `busy` while a run is live on the conversation; `close_failed` with `live` = the new key when the delete is refused (both kept); `unsupported` for a conversation never started; `start_failed` when the target is not signed in (nothing forked); another member's key is refused.
 - A move within one agent (two member-agent accounts) forks nothing and answers its own key.
+- A session already under the target key refuses the move (`start_failed`, `move.taken`). A run that waited for its agent's lock across a move ends `run.moved` before any event; its retry lands on the target (`packages/openclaw/test/accounts.test.ts`, `move: a run that waited across a move`).
 
 ## How to get to it (user POV)
 
