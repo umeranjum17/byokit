@@ -624,41 +624,42 @@ test('a start sweep whose clear the engine refuses runs again on the next connec
   } finally { await second.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
-test('a start sweep that reads an unknown ready reply clears nothing and retries on the next connect', async () => {
-  const stateDir = scratchDir('o4-key-sweep-unknown');
+test('a start sweep that cannot check a key runs again on the next connect', async () => {
+  const stateDir = scratchDir('o4-key-sweep-unchecked');
   const fake = fakeGateway();
-  let readys = 0;
   const clears = () => fake.calls.filter((c) => c.method === 'byokit.keys'
-    && (c.params as { action?: string }).action === 'clear').length;
+    && (c.params as { action?: string }).action === 'clear');
   const first = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
   await first.start();
   await first.ensureMember('m1');
   await first.call('openclaw.setup.activate', { kind: 'api-key', agentId: 'byokit-key-m1',
-    authChoice: 'openai-api-key', apiKey: 'CANARY-UNKNOWN-READY-318' });
+    authChoice: 'openai-api-key', apiKey: 'CANARY-UNCHECKED-UNSEALED-518' });
   await first.stop();
-  // The engine answers ready with neither ok nor absent: a transient plugin-side failure on a markerless key.
-  const unknown = (ctx: Parameters<typeof fake.factory>[0]) => {
+  let unchecked = false;
+  const failing = (ctx: Parameters<typeof fake.factory>[0]) => {
     const transport = fake.factory(ctx);
     const request: typeof transport.request = async (method, params, options) => {
+      const reply = await transport.request(method, params, options);
       const p = params as { member?: string; action?: string } | undefined;
-      if (method === 'byokit.keys' && p?.member === 'm1' && p.action === 'ready') { readys++; return { ok: false }; }
-      return transport.request(method, params, options);
+      if (method === 'byokit.keys' && p?.member === 'm1' && p.action === 'ready' && !unchecked) {
+        unchecked = true;
+        return { ok: false };
+      }
+      return reply;
     };
     return { ...transport, request };
   };
-  const second = new OpenClawKit({ stateDir, spawnEngine: false, transport: unknown });
+  const second = new OpenClawKit({ stateDir, spawnEngine: false, transport: failing });
   try {
     await second.start();
-    await until(() => readys >= 1);
+    await until(() => unchecked);
     await new Promise((resolve) => setTimeout(resolve, 50));
-    assert.equal(clears(), 0);
-    const before = readys;
+    assert.equal(clears().length, 0);
     fake.drop('test');
     await second.start();
-    // The sweep was incomplete, so this connect sweeps again instead of skipping.
-    await until(() => readys > before);
-    assert.equal(clears(), 0);
-    assert.equal(JSON.stringify(fake.calls).includes('CANARY-UNKNOWN-READY-318'), false);
+    await until(() => clears().length === 1);
+    assert.deepEqual(clears().at(-1)?.params, { member: 'm1', action: 'clear' });
+    assert.equal(second.state.phase, 'ready');
   } finally { await second.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 

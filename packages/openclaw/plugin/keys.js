@@ -64,12 +64,12 @@ export function registerKeys(api) {
           },
         });
         if (!normal) { respond(true, { ok: false }); return; }
-        // The marker goes only once the replacement passes its own checks: a refused prepare keeps it.
-        await rm(marker, { force: true });
         // A replacement starts empty. During activation this agent is unavailable to kit.run.
         const cleared = await updateAuthProfileStoreWithLock({ agentDir: keyDir,
           saveOptions: { filterExternalAuthProfiles: false, syncExternalCli: false },
           updater(store) { store.profiles = {}; store.order = {}; return true; } });
+        // The marker goes only once the replacement passes its own checks: a refused prepare keeps it.
+        if (cleared) await rm(marker, { force: true });
         respond(true, { ok: Boolean(cleared) });
         return;
       }
@@ -79,9 +79,8 @@ export function registerKeys(api) {
         const cleared = await updateAuthProfileStoreWithLock({ agentDir: keyDir,
           saveOptions: { filterExternalAuthProfiles: false, syncExternalCli: false },
           updater(store) { store.profiles = {}; store.order = {}; delete store.lastGood; return true; } });
-        if (!cleared) { respond(true, { ok: false }); return; }
-        await rm(marker, { force: true });
-        respond(true, { ok: true });
+        if (cleared) await rm(marker, { force: true });
+        respond(true, { ok: Boolean(cleared) });
         return;
       }
       const ref = config.agents.entries[keyId].model;

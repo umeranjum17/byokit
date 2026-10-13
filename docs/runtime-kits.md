@@ -1669,8 +1669,9 @@ local part is only a suggestion the app offers (`@byokit/ui` `nameSuggestions`),
 `not_included`), writes the index entry, creates a new account agent, calls typed `openclaw.setup.activate { kind:
 'api-key', agentId, authChoice, apiKey }` (180 s), seals it, records its saved model, and returns `'ok' | 'invalid' |
 'not_included' | 'retry'`; any result but `ok` leaves nothing behind. A key the engine accepted that cannot be sealed (a late
-restart or a failed seal) is cleared and returns `retry`, never `invalid`; if that clear is refused, the start sweep above clears it. Every key is a new account (keys add, never
-replace; a key is replaced by `removeAccount` then `addKey`). The key never reaches kit storage, the index, logs,
+restart or a failed seal) is cleared and returns `retry`, never `invalid`; if that clear is refused, the kit's start sweep
+(the `byokit.keys` bullet in §5.8) clears it. Every key is a new account (keys add, never replace; a key is replaced by
+`removeAccount` then `addKey`). The key never reaches kit storage, the index, logs,
 errors or a return value, and is never sent over a link (`oc.account.add` refuses `key`). `RunSpec.auth: 'apiKey'`
 means `account: <the member's newest api account>` and runs its saved model, or a supplied model of the same
 provider (5.8); another provider ends `kind: 'plan'`.
