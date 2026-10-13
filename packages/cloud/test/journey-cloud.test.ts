@@ -546,6 +546,50 @@ test('a sign-in link shown late in the startup wait keeps a full five minutes to
   } finally { mock.timers.reset(); }
 });
 
+test('private-network deadlines distinguish startup, approval, an unused link and no link', async () => {
+  for (const [state, link, message, expectedSteps] of [
+    ['Starting', false, 'Starting your private network took too long.', []],
+    ['NeedsMachineAuth', true, words('tailnet.approvalNeeded'), ['open-page', 'approve']],
+    ['NeedsLogin', true, words('tailnet.loginExpired'), ['open-page']],
+    ['NeedsLogin', false, 'Starting your private network took too long.', []],
+  ] as const) {
+    mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 0 });
+    try {
+      const base = fakeProvider();
+      let upCalls = 0;
+      const provider: Provider = { ...base, exec: async (ref, argv, opts) => {
+        if (argv[0] === 'tailscale' && argv[1] === 'up') {
+          upCalls++;
+          return { code: 0, stdout: link ? 'https://login.tailscale.com/a/deadline' : '', stderr: '', timedOut: false };
+        }
+        if (argv[0] === 'tailscale' && argv[1] === 'status')
+          return { code: 0, stdout: JSON.stringify({ BackendState: state }), stderr: '', timedOut: false };
+        if (['true', 'sh', 'systemctl'].includes(argv[0])) return { code: 0, stdout: '', stderr: '', timedOut: false };
+        return base.exec(ref, argv, opts);
+      } };
+      const m = machine({ provider, store: memoryStore() });
+      await m.create({ name: 'deadline', size: 'small', keepCopies: false });
+      const steps: string[] = [];
+      let error: unknown;
+      const joined = m.joinTailnet({ hostname: 'deadline' }, s => steps.push(s.step)).then(
+        () => { error = new Error('join unexpectedly succeeded'); }, e => { error = e; },
+      );
+      for (let ticks = 0; error === undefined; ticks++) {
+        assert.ok(ticks < 310, 'deadline must settle in five fake minutes');
+        await new Promise(resolve => setImmediate(resolve));
+        if (error === undefined) mock.timers.tick(1000);
+      }
+      await joined;
+      assert.ok(error instanceof MachineError);
+      assert.equal(error.code, 'timeout');
+      assert.equal(error.message, message);
+      assert.deepEqual(steps, expectedSteps);
+      assert.equal(upCalls, state === 'Starting' ? 0 : 1, 'startup timeout must never run up');
+      assert.ok(Date.now() >= 300_000 && Date.now() <= 301_000);
+    } finally { mock.timers.reset(); }
+  }
+});
+
 test('an app cleans up on Boat and every failure stays honest: no key leak, no lying state', async () => {
   const server = await startFakeSandboxServer();
   try {

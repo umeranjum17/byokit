@@ -16,6 +16,7 @@ test('M6 install shows the keyed approval message once, with or without an earli
     const computer = {
       ref: { name: 'fixture' }, state: async () => 'on',
       joinTailnet: async (_o: unknown, onStep: (s: TailnetStep) => void) => {
+        assert.equal(notes.at(-1), words('tailnet.joining'), 'joining is displayed before the join starts');
         steps.forEach(onStep); return { name: 'fixture.tail.ts.net' };
       }, install: async () => {}, host: async () => 'running',
     };
@@ -51,7 +52,7 @@ test('M6 install shows the keyed approval message once, with or without an earli
     assert.equal(button.props.disabled, false);
     button.props.onPress();
     await new Promise<void>(resolve => setImmediate(resolve));
-    assert.deepEqual(notes, ['Installing the cloud host…', words('tailnet.approvalNeeded'), 'Host installed and running. Ready to pair.']);
+    assert.deepEqual(notes, ['Installing the cloud host…', words('tailnet.joining'), words('tailnet.approvalNeeded'), 'Host installed and running. Ready to pair.']);
     assert.deepEqual(links, steps.flatMap(s => s.step === 'open-page' ? [s.url] : []));
   }
 });

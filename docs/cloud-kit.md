@@ -946,7 +946,8 @@ ports it previously exposed as though it had this fresh-machine guarantee; the p
   same Tailscale node identity. Clearing `/etc/tailscale/tailscaled.state` before the first start of a fork or a
   snapshot restored onto a new machine, so it joins as a new node, is planned follow-up in the snapshots lane.
   A restore of the same machine will keep its identity.
-- The app shows `tailnet.approvalNeeded` and `tailnet.loginExpired`; the callback remains the
+- The app shows `tailnet.joining` while the join runs, then `tailnet.approvalNeeded` when sign-in or approval is needed,
+  and `tailnet.loginExpired` for an unused shown link; the callback remains the
   union in 4.5 (`open-page`, `approve`, `joined`). This slice's key refusal is specified in 4.5.
 
 ### 9.2 Bootstrap and proof
@@ -959,8 +960,10 @@ automatically. Its maintainer supplies a private route in `prepare` instead.
 The loopback consumer journey must create, install and read `host()`, join, then prove **zero `/host` calls** and
 reject a Boat key without transmitting it. Live Boat proof additionally records no TUN/userspace mode, phone login,
 MagicDNS and private app reachability. Start a disposable listener on `0.0.0.0:<muxr port>` as the negative control:
-verify it locally, then require the provider public IP to refuse that port from outside and no hosted app URL.
-A timeout means unreachable/filtered, not an explicit TCP refusal; retain the actual observation. Remove after each
+verify it locally, then require the provider public IP to refuse or silently drop that port from outside and no hosted app URL.
+A closed-port probe passes on `ECONNREFUSED` or a connection timeout (including `ETIMEDOUT`): label its detail
+`refused` or `dropped`, respectively. A successful connection fails. Other connection errors are unavailable evidence,
+not a fabricated pass. A timeout is not an explicit TCP refusal; retain that distinction and the actual observation. Remove after each
 run, at most two machines, warn at USD 10 and stop at USD 15 shared across lanes. Fake success is not live acceptance.
 
 ## 10. Cost
