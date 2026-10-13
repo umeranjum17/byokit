@@ -534,13 +534,13 @@ land with that provider's adapter, behind the same members (follow-up).
   replacement may still bill. Once `next` is saved, the old machine is deleted, retried the same way. If it still
   fails, the store keeps `next` and the call rejects `provider` with `extra.sandbox` set to the old id, and a message
   that the old machine may still bill.
-  On Boat the ref's `id` changes, so the app calls `url(port)` again for the new address and `update(recipe)`
-  rewrites `installed.json` with the new id (8.3 step 6).
+  On Boat the ref's `id` changes, so the app checks the private route again with `tailnet()` (9.1); it does not call
+  `url(port)`, which would make a port public. `update(recipe)` rewrites `installed.json` with the new id (8.3 step 6).
 - A restore is the same machine, so it keeps its identity (its tailnet node included): the adapter stops the old
   machine before the new one starts, so the two never run at once. A `failed` machine cannot be stopped and is the
   one a person resets, so it is not stopped first; an `asleep` or `gone` one needs no stop. A machine made from a
-  copy or a fork as a *second* machine must clear the tailnet state before its first start (9); this package adds no
-  such path.
+  copy or a fork as a *second* machine keeps its tailnet node identity today; clearing that state before its first start
+  is planned follow-up (9.1 copy policy).
 - `disk()`: one `exec` of `df -P -k /`; `usedGb` and `totalGb` are the second line's used and total 1024-blocks in
   decimal GB (bytes / 1e9), rounded to one decimal. A non-zero exit or an unreadable line rejects `provider`. Like
   every command it needs the machine on. Words: `disk.used`.

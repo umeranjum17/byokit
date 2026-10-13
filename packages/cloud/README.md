@@ -66,7 +66,7 @@ import { words, type Machine } from '@byokit/cloud';
 export async function reset(m: Machine, confirm: (s: string) => Promise<boolean>) {
   const [last] = await m.snapshots();
   if (last === undefined || !(await confirm(words('snapshot.restore', { date: last.at.slice(0, 10) })))) return null;
-  return m.restore(last.id); // the app then calls url(port) again: the machine is new
+  return m.restore(last.id); // the machine is new: the app checks tailnet() before it dials it
 }
 ```
 
@@ -104,7 +104,7 @@ Boat's emulated stdin writes a temporary file, which must never carry a join key
 When there is no TUN device, the daemon uses userspace networking. The app binds its host to
 loopback and its root recipe configures `tailscale serve --bg --tcp=<port> tcp://127.0.0.1:<port>`;
 joining alone does not expose a service. Advertise the tailnet name, never a provider URL.
-Tailscale state stays under `/etc/tailscale` across Boat wakes and is included in disk copies, so a copy currently carries the source's node identity. Clearing it on copies comes with snapshots.
+Tailscale state stays under `/etc/tailscale` across Boat wakes and is included in disk copies, so a copy currently carries the source's node identity. Clearing it before a copy's first start is planned follow-up ([copy policy](../../docs/cloud-kit.md#91-join-and-status)).
 The phone must be on the same tailnet; encrypted pairing is still required.
 
 **SECURITY: No public app port is opened by default.** Create, install, host and join never call
