@@ -149,6 +149,10 @@ export type FakeGateway = {
   signInAs(fields?: { accountId?: string; email?: string; expires?: number }): void;
   /** A sealed profile already in an agent's store, as a sign-in of another provider leaves it. */
   seedProfile(agentId: string, profileId: string, profile: { provider: string; type: string } & Record<string, unknown>): void;
+  /** A late engine refresh racing a removal (O14 S8): writes one profile of `provider` onto `agentId` whole, as the
+   * pin would under its store lock. With `order: false` it lands with no order entry; `expires` (default: valid)
+   * may name an expired credential. */
+  refresh(agentId: string, provider: string, o?: { order?: boolean; expires?: number }): void;
 } & { transport: GatewayTransport };
 export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number }): FakeGateway {
   const calls: { method: string; params: unknown }[] = [];
@@ -804,6 +808,16 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     },
     signInAs: (fields) => { signInFields = fields && { ...fields }; },
     seedProfile: (agentId, profileId, profile) => { ensureAgent(agentId); storeOf(agentId)[profileId] = profile; },
+    refresh: (agentId, provider, o) => {
+      const agent = ensureAgent(agentId);
+      if (!agent.providers.includes(provider)) agent.providers.push(provider);
+      const profileId = `${provider}:default`;
+      storeOf(agentId)[profileId] = { provider, type: 'oauth', status: 'ok', access: 'fake-access',
+        refresh: 'fake-refresh', expires: o?.expires ?? Date.now() + 30 * 86_400_000,
+        accountId: `fake-refresh-${agentId}` };
+      if (o?.order !== false) orderOf(agentId)[provider] = [profileId];
+      else if (orderOf(agentId)[provider]) delete orderOf(agentId)[provider];
+    },
     transport: factory({ port: 0, token: 'test', identityPath: '', bridgeSock: '' }),
   };
 }

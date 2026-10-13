@@ -514,3 +514,66 @@ test('move: the transcript (user and tool rows) carries to the target agent and 
     assert.ok(messages.some((m) => m.role === 'tool' && text(m).includes('Progress: Working')), JSON.stringify(messages));
   } finally { await kit.stop(); }
 });
+
+// O14h on the real pinned engine: `removeAccount` on an account agent clears it, deletes the agent with
+// `deleteFiles: false`, removes its state dir itself, drops the entry and leaves the member ready. A file the
+// engine lands after removal is swept on the next prepare. Synthetic sign-ins through the kit's own migration,
+// the loopback model stub, never an account or the network.
+test('removeAccount: no file of the removed agent remains', { timeout: 900_000 }, async () => {
+  const dir = scratchDir('o14-remove');
+  const stateDir = join(dir, 'state');
+  const root = join(stateDir, 'openclaw');
+  const hex = 'eeeeee';
+  const agent = `m1--${hex}`;
+  const id = `openai.${hex}`;
+  let kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), callbackPort: 0 });
+  try {
+    await kit.start();
+    await kit.ensureMember('m1');
+    await kit.stop();
+    await seed(kit, dir, 'm1');
+    kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), callbackPort: 0 });
+    await kit.start();
+    await useModelStub(kit, stub);
+    assert.ok((await kit.providers('m1')).includes('openai'), 'the member is signed in');
+    await kit.call('agents.create', { name: agent, workspace: join(root, 'workspaces', 'm1') });
+    await kit.stop();
+    const legacyPath = join(dir, 'people', agent, 'auth.json');
+    mkdirSync(join(legacyPath, '..'), { recursive: true });
+    writeFileSync(legacyPath, JSON.stringify({ 'openai-codex': { type: 'oauth', provider: 'openai-codex',
+      access: `a-${agent}`, refresh: `r-${agent}`, expires: Date.now() + 30 * 86_400_000, accountId: `acct-${hex}` } }));
+    assert.equal(await kit.migrateRetainedLogin(agent, { path: legacyPath }), 'staged');
+    kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), callbackPort: 0 });
+    await kit.start();
+    const store = profilesOf(stateDir, agent);
+    const profileId = Object.keys(store).find((key) => store[key].provider === 'openai');
+    assert.ok(profileId, 'the account agent holds a sealed openai profile');
+    const { hash } = await kit.call('config.get', {}) as { hash: string };
+    await kit.call('config.patch', { baseHash: hash,
+      raw: JSON.stringify({ agents: { entries: { [agent]: { model: { primary: `byokit-stub/test@${profileId}` } } } } }) });
+    assert.deepEqual(await kit.callDynamic('byokit.accounts', { action: 'seal', agentId: agent, provider: 'openai' }) as object,
+      { ok: true, who: identity('openai', `acct-${hex}`) });
+    const index = join(root, 'accounts', 'm1.json');
+    mkdirSync(join(index, '..'), { recursive: true });
+    writeFileSync(index, JSON.stringify({ v: 1, accounts: {
+      openai: { agent: 'm1', name: 'ChatGPT', route: 'openai', addedAt: 0 },
+      [id]: { agent, name: 'Spare', route: 'openai', addedAt: 1 } }, defaults: {} }));
+    chmodSync(index, 0o600);
+    assert.deepEqual((await kit.accounts('m1')).map((a) => a.id).sort(), ['openai', id].sort());
+
+    await kit.removeAccount('m1', id);
+    assert.ok(!(await kit.call('agents.list', {}) as { agents: { id: string }[] }).agents.some((a) => a.id === agent),
+      'the agent is gone');
+    assert.ok(!(id in JSON.parse(readFileSync(index, 'utf8')).accounts), 'and its entry');
+    assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'and its state dir');
+    assert.ok((await kit.providers('m1')).includes('openai'), 'the member agent stays ready');
+    assert.equal((await kit.accounts('m1')).map((a) => a.id).join(), 'openai');
+
+    // A file landed after removal is swept on the next prepare, leaving no file of the removed agent under <root>.
+    const late = join(root, 'state', 'agents', agent, 'agent', 'late.json');
+    mkdirSync(join(late, '..'), { recursive: true });
+    writeFileSync(late, '{}');
+    await kit.prepare();
+    assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'the late file is swept on prepare');
+  } finally { await kit.stop(); }
+});

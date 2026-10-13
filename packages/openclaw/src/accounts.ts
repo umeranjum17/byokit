@@ -2,8 +2,8 @@
 // plus rename) is the only kit state: `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?,
 // who? } }, defaults }`. No credential, token, email or engine line. Listing, rename, defaults, models, room,
 // adding with its identity merge (O14 steps S6, S7), the start-of-run pick (S10), session binding (S11) and moving a
-// conversation (S12) live here; remove arrives in a later step.
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+// conversation (S12) and removal with its orphan sweep (S8) live here.
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { createLocks } from './locks.ts';
@@ -45,7 +45,7 @@ export const modelsOf = (provider: string, answer: unknown): ModelInfo[] => {
 };
 
 type IndexEntry = { agent: string; name: string; route: string; addedAt: number; until?: number; model?: string; who?: string };
-type IndexFile = { v: 1; accounts: Record<string, IndexEntry>; defaults: Defaults };
+type IndexFile = { v: 1; accounts: Record<string, IndexEntry>; defaults: Defaults; gone?: string[] };
 
 type LiveProfile = { provider?: string; profileId?: string; type?: string; status?: string; who?: string };
 const ACCOUNT_AGENT = /^[a-z][a-z0-9-]{0,31}--[0-9a-f]{6}$/;
@@ -86,7 +86,8 @@ const readIndex = (root: string, member: Member): IndexFile => {
   if (typeof raw.account === 'string') defaults.account = raw.account;
   if (typeof raw.model === 'string') defaults.model = raw.model;
   if (typeof raw.auto === 'boolean') defaults.auto = raw.auto;
-  return { v: 1, accounts, defaults };
+  const gone = Array.isArray(file.gone) ? file.gone.filter((a): a is string => typeof a === 'string' && ACCOUNT_AGENT.test(a)) : [];
+  return { v: 1, accounts, defaults, ...(gone.length ? { gone } : {}) };
 };
 
 // Attribution (5.15, O14m): the member an agent id or `agent:<agent>:<tail>` session key belongs to. A member agent is its
@@ -103,6 +104,37 @@ export function memberOfAccount(root: string, ref: string): Member | undefined {
     return Object.values(readIndex(root, member).accounts).some((e) => e.agent === agent) ? member : undefined;
   } catch {
     return undefined;
+  }
+}
+
+// Every agent any member's index names. An index that cannot be read or parsed throws: its accounts are unknown,
+// so no sweep may run.
+function indexedAgents(root: string): { named: Set<string>; gone: Set<string> } {
+  const named = new Set<string>();
+  const gone = new Set<string>();
+  let files: string[];
+  try { files = readdirSync(join(root, 'accounts')); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { named, gone }; throw error; }
+  for (const file of files) {
+    if (!file.endsWith('.json')) continue;
+    const parsed = JSON.parse(readFileSync(join(root, 'accounts', file), 'utf8')) as Partial<IndexFile>;
+    for (const entry of Object.values(parsed.accounts ?? {})) if (typeof entry?.agent === 'string') named.add(entry.agent);
+    for (const agent of Array.isArray(parsed.gone) ? parsed.gone : []) if (typeof agent === 'string') gone.add(agent);
+  }
+  return { named, gone };
+}
+
+// Removes each `<root>/state/agents/<member>--<hex6>` directory that a removal recorded as gone and no index names.
+// Only recorded directories go: a legacy member's own directory is never recorded, so it stays. The directories are
+// listed before the index is read: each listed one was created after its entry was written.
+export function sweepOrphans(root: string): void {
+  let dirs: string[];
+  try { dirs = readdirSync(join(root, 'state', 'agents')); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+  const { named, gone } = indexedAgents(root);
+  for (const dir of dirs) {
+    if (!ACCOUNT_AGENT.test(dir) || !gone.has(dir) || named.has(dir)) continue;
+    rmSync(join(root, 'state', 'agents', dir), { recursive: true, force: true });
   }
 }
 
@@ -127,6 +159,7 @@ export function createAccounts(ctx: {
   pick(member: Member, sel: RunSelection, skip?: readonly AccountId[], binding?: Binding): Promise<{ pick: AccountPick; agent?: string }>;
   rest(member: Member, id: AccountId, until: number): Promise<void>;
   move(member: Member, sessionKey: string, to: AccountId): Promise<MoveResult>;
+  remove(member: Member, id: AccountId): Promise<void>;
 } {
   const path = (member: Member): string => indexPath(ctx.root, member);
   const read = (member: Member): IndexFile => readIndex(ctx.root, member);
@@ -137,6 +170,11 @@ export function createAccounts(ctx: {
   const check = (member: Member): void => {
     if (!MEMBER_ID.test(member) || member.startsWith(KEY_PREFIX)) throw new Error(`invalid member id: ${member}`);
   };
+  const dropEntry = (file: IndexFile, id: AccountId): void => {
+    delete file.accounts[id];
+    if (file.defaults.account === id) delete file.defaults.account;
+  };
+  const markGone = (file: IndexFile, agent: string): void => { if (!file.gone?.includes(agent)) file.gone = [...(file.gone ?? []), agent]; };
   const write = (member: Member, file: IndexFile): void => {
     mkdirSync(join(ctx.root, 'accounts'), { recursive: true, mode: 0o700 });
     const tmp = `${path(member)}.${randomUUID()}.tmp`;
@@ -154,9 +192,9 @@ export function createAccounts(ctx: {
     routeFor(provider, 'browser')?.choice
     ?? routes().find((r) => r.provider === provider && r.billing === 'subscription')?.choice
     ?? provider;
-  const rosterOf = (): Promise<Set<string>> =>
-    (ctx.request('agents.list') as Promise<{ agents: { id: string }[] }>)
-      .then((r) => new Set(r.agents.map((a) => a.id)), () => new Set<string>());
+  const agentRoster = (): Promise<Set<string>> =>
+    (ctx.request('agents.list') as Promise<{ agents: { id: string }[] }>).then((r) => new Set(r.agents.map((a) => a.id)));
+  const rosterOf = (): Promise<Set<string>> => agentRoster().catch(() => new Set<string>());
   const profilesOf = (agentId: string): Promise<LiveProfile[]> =>
     (ctx.request('byokit.accounts', { action: 'list', agentId }) as Promise<{ profiles?: LiveProfile[] }>)
       .then((r) => Array.isArray(r.profiles) ? r.profiles : [], () => []);
@@ -514,6 +552,50 @@ export function createAccounts(ctx: {
   const rest = (member: Member, id: AccountId, until: number): Promise<void> =>
     edit(member, (file) => { const entry = file.accounts[id]; if (entry) entry.until = until; });
 
+  const agentDir = (agent: string): string => join(ctx.root, 'state', 'agents', agent);
+  // Removing (5.15): a member-agent account goes through `models.authLogout` with its sealed profileIds, then its
+  // entry is dropped. An account agent goes through `clear`, an empty `list`, `agents.delete` with
+  // `deleteFiles: false`, removal of its state dir, then the entry is dropped. Refused `busy` while a run holds
+  // the agent; the member agent stays ready (only the named provider is logged out or cleared).
+  async function remove(member: Member, id: AccountId): Promise<void> {
+    check(member);
+    const { agentId: memberAgent } = await ctx.ensure(member);
+    const entry = read(member).accounts[id];
+    if (!entry || (entry.agent !== memberAgent && !(ACCOUNT_AGENT.test(entry.agent) && entry.agent.startsWith(`${member}--`))))
+      throw new Error(`unknown account: ${id}`);
+    const agent = entry.agent;
+    const provider = id.split('.')[0]!;
+    if (ctx.locks.live(agent) || signing.has(`${member}\n${id}`)) throw new Error('removeAccount: busy');
+    if (agent === memberAgent) {
+      await ctx.locks.exclusive([agent, indexLock(member)], async () => {
+        const listed = await ctx.request('byokit.accounts', { action: 'list', agentId: agent }) as { ok?: boolean; profiles?: { profileId?: string; provider?: string }[] };
+        if (listed.ok !== true || !Array.isArray(listed.profiles)) throw new Error('removeAccount: the sign-ins could not be read');
+        const profileIds = listed.profiles.filter((p) => p.provider === provider && typeof p.profileId === 'string' && p.profileId).map((p) => p.profileId!);
+        if (profileIds.length) await ctx.request('models.authLogout', { provider, agentId: agent, profileIds });
+        const file = read(member);
+        dropEntry(file, id);
+        write(member, file);
+      });
+      return;
+    }
+    await ctx.locks.exclusive([agent, indexLock(member)], async () => {
+      const roster = await agentRoster();
+      if (roster.has(agent)) {
+        await ctx.request('byokit.accounts', { action: 'clear', agentId: agent });
+        const listed = await ctx.request('byokit.accounts', { action: 'list', agentId: agent }) as { ok?: boolean; profiles?: unknown[] };
+        if (listed.ok !== true || !Array.isArray(listed.profiles)) throw new Error('removeAccount: the sign-ins could not be read');
+        if (listed.profiles.length) throw new Error('removeAccount: the account is still signing in');
+        await ctx.request('agents.delete', { agentId: agent, deleteFiles: false });
+      }
+      rmSync(agentDir(agent), { recursive: true, force: true });
+      // Already holding the index lock: write directly instead of `edit`, which would wait on itself.
+      const file = read(member);
+      dropEntry(file, id);
+      markGone(file, agent);
+      write(member, file);
+    });
+  }
+
   // Index edits take the index lock, as listing's own write does.
   const edit = (member: Member, fn: (file: IndexFile) => void): Promise<void> =>
     ctx.locks.exclusive([indexLock(member)], async () => { const file = read(member); fn(file); write(member, file); });
@@ -553,8 +635,8 @@ export function createAccounts(ctx: {
       await ctx.request('byokit.accounts', { action: 'clear', agentId: agent });
       await ctx.request('agents.delete', { agentId: agent, deleteFiles: false });
     }
-    rmSync(join(ctx.root, 'state', 'agents', agent), { recursive: true, force: true });
-    await edit(member, (file) => { delete file.accounts[id]; });
+    rmSync(agentDir(agent), { recursive: true, force: true });
+    await edit(member, (file) => { delete file.accounts[id]; markGone(file, agent); });
   })().catch((error: unknown) => ctx.log?.(`addAccount: ${agent} is not removed yet: ${error instanceof Error ? error.message : String(error)}`));
 
   // Member-agent adds of one provider take turns from the sign-in's start to its settle, so a cleanup clears only the
@@ -715,14 +797,26 @@ export function createAccounts(ctx: {
             return { ...(answer.who ? { who: answer.who } : {}), ...(keep ? { keep } : {}), dups };
           }).catch((error: unknown) => route.keyEntry ? 'Sign-in could not be saved. Try again.'
             : (error instanceof Error ? error.message : String(error)).slice(0, 200));
-          if (typeof sealed === 'string') view = { state: 'failed', via: view.via, why: 'failed', error: sealed };
-          else {
-            for (const dup of sealed.dups) await collapse(dup, sealed.keep!, sealed.who!);
-            const into = sealed.keep?.[0] !== id ? sealed.keep : undefined;
-            if (!into || !await adopt(sealed.who!, into[1].agent)) return { view, id };
-            await removeEntry();
-            return { view, id: into[0] };
+          if (typeof sealed === 'string') {
+            let error = sealed;
+            // A seal failure on the member agent (the non-fresh path) leaves its new credential with no index entry,
+            // so listing hides it but runs could use it. Clear only this provider: the bare clear wipes every profile.
+            if (agent === memberAgent) {
+              const cleared = await ctx.request('byokit.accounts', { action: 'clear', agentId: memberAgent, provider })
+                .then((answer) => (answer as { ok?: boolean } | undefined)?.ok === true, () => false);
+              if (!cleared) {
+                ctx.log?.(`addAccount: ${memberAgent} ${provider} is not cleared`);
+                error = `${sealed} Its credential is still on the member agent: remove this account.`;
+              }
+            }
+            await drop();
+            return { view: { state: 'failed', via: view.via, why: 'failed', error }, id };
           }
+          for (const dup of sealed.dups) await collapse(dup, sealed.keep!, sealed.who!);
+          const into = sealed.keep?.[0] !== id ? sealed.keep : undefined;
+          if (!into || !await adopt(sealed.who!, into[1].agent)) return { view, id };
+          await removeEntry();
+          return { view, id: into[0] };
         }
         // A member agent held no profile of this provider before a non-fresh add, so clearing the provider removes only this one.
         if (agent === memberAgent) await ctx.request('byokit.accounts', { action: 'clear', agentId: memberAgent, provider })
@@ -746,5 +840,5 @@ export function createAccounts(ctx: {
     }
   }
 
-  return { list, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, pick, rest, move };
+  return { list, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, pick, rest, move, remove };
 }

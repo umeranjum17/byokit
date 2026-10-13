@@ -1253,7 +1253,7 @@ type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early'
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
 type AddKeyResult = { status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry';
   reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' };   // 5.8, fixed discriminants only
-interface OpenClawKit {   // 5.3 signatures; the built kit has addKey and addAccount, the rest lands with O14
+interface OpenClawKit {   // 5.3 signatures; the built kit has addKey and the account methods through removeAccount, the rest lands with O14
   addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string }): Promise<AddKeyResult>;
   addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId },
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
@@ -1536,8 +1536,7 @@ using the plugin SDK's `resolveAgentDir` and local-only `updateAuthProfileStoreW
   the pin would keep pinning the deleted profile on every run with the agent's default model.
 - Before any sign-in on an existing agent the kit notes that agent's primary model (`config.get`); when the sign-in's
   profile is adopted away or cleared from it, the kit restores that primary model (the pin's sign-in rewrote it).
-- `clear { agentId, provider? }`: removes every profile from the agent's own store; with `provider`, only that provider's
-  profiles, order and last-good entry (a member agent keeps its other providers' sign-ins).
+- `clear { agentId }`: removes every profile from the agent's own store. `clear { agentId, provider }` removes only that provider's profiles, order entry and last-good mark, leaving every other provider's sign-in alone (a failed member-agent sign-in's cleanup uses this; `removeAccount`'s member path uses `models.authLogout` with its sealed profileIds; the bare form is the account-agent path).
 
 `@byokit/accounts`' structural `roomOf(windows, at, resetUnit?)` keeps legacy reset seconds as its default;
 normalized `@byokit/usage` 0.2.0+ windows use epoch milliseconds and must pass `resetUnit: 'milliseconds'`
@@ -1684,7 +1683,9 @@ it never decides which account a sign-in belongs to, and a changed email changes
 - The roster or the member's profiles unreadable when the sign-in is sealed: no merge; the sign-in stays its own row
   (logged, not failed).
 - A signed-out member row (the member agent holds no credential of that `who`; it keeps its index `who`) is not a holder: it is never adopted into, collapsed or removed; the person removes it. Account rows are holders while their agent is on the roster.
-- A new agent whose sign-in fails, expires or is cancelled is removed with its index entry.
+- A new agent whose sign-in fails, expires or is cancelled is removed with its index entry. A member agent whose seal
+  fails on a non-fresh add is cleared of that provider only (`clear { agentId, provider }`); when that clear is refused
+  the add fails, saying the credential is still on the member agent, and nothing retries it.
 
 `addAccount` resolves once the target is known: `Promise<{ id; paste; cancel; done: Promise<{ view: SignInView; id:
 AccountId }> }>`, where `done.id` is the account the sign-in ended in. `name` defaults to `<label> <n>`; the email's
@@ -1709,19 +1710,18 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
 - `renameAccount` writes the index. `defaults`/`setDefaults` read and write it; a default naming a removed account is
   dropped.
 - `removeAccount(member, id)`: a member-agent account is `models.authLogout { provider, agentId: member, profileIds:
-  <its sealed profile> }`, then its entry is dropped. An account agent: refused (`busy`) while a run is live on it;
-  `byokit.accounts clear`, then `byokit.accounts list` must answer no profile of any type, order or expiry (a
-  profile the engine refreshed during `clear` lands whole before or after it, under the same store lock, which O14's
-  engine job confirms: `clear` again, once; still listed → stop with the error, nothing deleted);
-  `agents.delete { agentId, deleteFiles: false }` (with `true` the pin moves files to a trash path it never reports);
-  the kit then removes `<root>/state/agents/<agentId>` (the agent's store and sessions) itself, never the shared
-  workspace, and checks it is gone (recreated by a late write → removed once more; still there → stop with the error,
-  the entry kept). The entry is dropped only when the directory is gone; `removeAccount` on an entry whose agent is
-  already gone removes the directory and then the entry. A write the engine lands even later cannot be ruled out by a
-  bounded check, so on `prepare` and after every removal the kit also removes each
-  `<root>/state/agents/<member>--[0-9a-f]{6}` directory that no index names and no engine agent owns (an entry is
-  written before its agent is created, so an account being added is never swept). The account's
-  sessions go with it; `move` first keeps one.
+  <its sealed profile> }`, then its entry is dropped. An account agent: refused (`busy`) while a run is live on it or
+  its sign-in is pending; `byokit.accounts clear`, then `byokit.accounts list` must answer no profile of any type,
+  order or expiry (a profile the engine refreshed during `clear` lands whole before or after it, under the same store
+  lock; still listed → stop with the error "still signing in", nothing deleted, no retry);
+  `agents.delete { agentId, deleteFiles: false }` (with `true` the pin moves files to a trash path it never reports)
+  when the engine roster names the agent; the kit then removes `<root>/state/agents/<agentId>` (the agent's store and
+  sessions) itself, never the shared workspace, and drops the entry. When the roster does not name the agent, only the
+  directory removal and the entry drop run. A write the engine lands even later cannot be ruled out by a bounded
+  check, so the kit also removes, on every `prepare` and again after the sealed auth store restores (before launch),
+  each `<root>/state/agents/<member>--[0-9a-f]{6}` directory that a removal recorded as `gone` in its member's index
+  file and that no index names. Nothing else is swept: a legacy member's own directory is never recorded, so it stays.
+  The account's sessions go with it; `move` first keeps one.
 - `models(member, id)`: `models.list { agentId, view: 'default' }` rows of the account's provider, mapped `id =
   'provider/model'`, `available`, `unavailableReason` `missing-auth`/`auth-failed` → `why: 'signed_out'`, `cooldown`
   → `why: 'resting'` with `until = unavailableUntil`. The pin reports no per-plan availability, so `why: 'plan'` only
