@@ -28,7 +28,7 @@ const asString = (v: unknown): string | undefined => (typeof v === 'string' && v
 
 /**
  * Member attribution: the request detail's agent first, else the `agent:<member>:` session key (5.9). An
- * `<member>--<hex6>` account agent attributes to `<member>` (5.15). The real
+ * indexed `<member>--<hex6>` account agent attributes to `<member>` (5.15). The real
  * engine nests exec/plugin details under `request` (question events stay flat); unattributed approvals carry ''
  * so they can never match a member id (B2).
  */
