@@ -414,36 +414,83 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       return current();
     },
 
-    async create({ name, size, keepCopies }): Promise<MachineRef> {
-      await load();
-      const existing = current();
-      await checkAccount(existing);
-      if (existing !== null) throw new MachineError('exists', 'the store already holds a machine');
-      if (!/^[a-z][a-z0-9-]{0,31}$/.test(name)) {
-        throw new MachineError('bad-recipe', `name: must match ^[a-z][a-z0-9-]{0,31}$, got ${JSON.stringify(name)}`);
-      }
-      const sizes = o.provider.sizes();
-      if (sizes.length > 0 && !sizes.some((s) => s.id === size)) {
-        throw new MachineError('bad-recipe', `size: must be one of ${sizes.map((s) => s.id).join(', ')}, got ${JSON.stringify(size)}`);
-      }
-      const { create } = o.provider;
-      if (create !== undefined) {
-        const created = await withKey(name, (idempotencyKey) => create({ name, size, keepCopies, idempotencyKey }));
-        await save(created);
-        return created;
-      }
-      // Provider without create (SSH VM): adopt the machine that already exists (5.2 step 4).
-      if (keepCopies !== false) throw new MachineError('bad-recipe', 'keepCopies: must be false when the provider has no create');
-      if (o.provider.adopt === undefined) throw new MachineError('unsupported', 'this provider cannot adopt a machine');
-      const id = await o.provider.adopt();
-      const adopted: MachineRef = { provider: o.provider.id, account: await o.provider.account(), id, name, keepCopies: false };
-      const s = await o.provider.status(adopted);
-      if (s !== 'on') {
-        if (s === 'host-key-changed') throw new MachineError('host-key', 'the pinned host key no longer matches');
-        throw new MachineError('unreachable', `adopted machine is ${s}, not on`);
-      }
-      await save(adopted);
-      return adopted;
+    create({ name, size, keepCopies }): Promise<MachineRef> {
+      return exclusive('a creation', async () => {
+        await load();
+        const existing = current();
+        await checkAccount(existing);
+        if (existing !== null) throw new MachineError('exists', 'the store already holds a machine');
+        if (!/^[a-z][a-z0-9-]{0,31}$/.test(name)) {
+          throw new MachineError('bad-recipe', `name: must match ^[a-z][a-z0-9-]{0,31}$, got ${JSON.stringify(name)}`);
+        }
+        const sizes = o.provider.sizes();
+        if (sizes.length > 0 && !sizes.some((s) => s.id === size)) {
+          throw new MachineError('bad-recipe', `size: must be one of ${sizes.map((s) => s.id).join(', ')}, got ${JSON.stringify(size)}`);
+        }
+        const { create } = o.provider;
+        if (create !== undefined) {
+          const created = await withKey(name, (idempotencyKey) => create({ name, size, keepCopies, idempotencyKey }));
+          await save(created);
+          return created;
+        }
+        // Provider without create (SSH VM): adopt the machine that already exists (5.2 step 4).
+        if (keepCopies !== false) throw new MachineError('bad-recipe', 'keepCopies: must be false when the provider has no create');
+        if (o.provider.adopt === undefined) throw new MachineError('unsupported', 'this provider cannot adopt a machine');
+        const id = await o.provider.adopt();
+        const adopted: MachineRef = { provider: o.provider.id, account: await o.provider.account(), id, name, keepCopies: false };
+        const s = await o.provider.status(adopted);
+        if (s !== 'on') {
+          if (s === 'host-key-changed') throw new MachineError('host-key', 'the pinned host key no longer matches');
+          throw new MachineError('unreachable', `adopted machine is ${s}, not on`);
+        }
+        await save(adopted);
+        return adopted;
+      });
+    },
+
+    adopt(selected, { confirmId, recipe }): Promise<MachineRef> {
+      return exclusive('an adoption', async () => {
+        await load();
+        await checkAccount(current());
+        if (current() !== null) throw new MachineError('exists', 'the store already holds a machine');
+        await checkAccount(selected);
+        if (confirmId !== selected.id) throw new MachineError('confirm', 'confirmId must equal the selected machine id');
+        checkRecipe(recipe, recipe.name);
+        if (o.provider.list === undefined) throw new MachineError('unsupported', 'this provider cannot list existing machines');
+        const live = (await o.provider.list()).find((r) => r.id === selected.id);
+        if (live === undefined) throw new MachineError('no-machine', 'the selected machine is no longer listed');
+        await checkAccount(live);
+        const ref = { ...live, name: recipe.name };
+        const state = await o.provider.status(ref);
+        if (state !== 'on') {
+          if (state === 'host-key-changed') throw new MachineError('host-key', 'the pinned host key no longer matches');
+          throw new MachineError('unreachable', `selected machine is ${state}, not on`);
+        }
+        const { machineHome } = await probeMachine(ref, recipe);
+        const absent = async (path: string, flag = '-e'): Promise<void> => {
+          const probe = await o.provider.exec(ref, ['test', flag, path], { timeoutMs: EXEC_TIMEOUT_MS });
+          if (probe.code === 0) throw new MachineError('exists', 'existing files or a service prevent adoption');
+          if (probe.code !== 1 || probe.timedOut) throw new MachineError('provider', 'could not check existing installation');
+        };
+        for (const path of [recipe.workDir, systemUnitPath(ref.name), userUnitPath(machineHome, ref.name), markerPath(ref.name, recipe)]) {
+          await absent(path);
+          await absent(path, '-L');
+        }
+        for (const args of [['systemctl'], ['systemctl', '--user']]) {
+          const unit = await o.provider.exec(ref, [...args, 'show', `byokit-${ref.name}.service`, '-p', 'LoadState'], { timeoutMs: EXEC_TIMEOUT_MS });
+          if (unit.code !== 0 || unit.timedOut) throw new MachineError('provider', 'could not check existing service');
+          if (!unit.stdout.split('\n').includes('LoadState=not-found')) throw new MachineError('exists', 'an existing service prevents adoption');
+        }
+        for (let path = recipe.workDir; path !== ''; path = path.slice(0, path.lastIndexOf('/'))) await absent(path, '-L');
+        if (recipe.user !== undefined) {
+          const user = await o.provider.exec(ref, ['id', '-u', recipe.user], { timeoutMs: EXEC_TIMEOUT_MS });
+          if (user.code === 0) throw new MachineError('exists', 'the requested run user already exists');
+          if (user.code !== 1 || user.timedOut) throw new MachineError('provider', 'could not check the requested run user');
+        }
+        await save(ref);
+        await self.install(recipe);
+        return ref;
+      });
     },
 
     async state() {

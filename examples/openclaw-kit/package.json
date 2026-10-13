@@ -1,7 +1,7 @@
 {
   "name": "byokit-openclaw-kit-example",
   "private": true,
-  "description": "Your ChatGPT plan working for you on this computer, from a phone browser: pair, sign in, send a message, allow what it asks.",
+  "description": "Your AI plan working for you on this computer, from a phone browser: pair, sign in, send a message, allow what it asks.",
   "license": "Apache-2.0",
   "type": "module",
   "engines": {

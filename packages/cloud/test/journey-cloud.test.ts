@@ -45,6 +45,79 @@ const rejects = async (p: Promise<unknown>, code: string): Promise<MachineError>
 
 const textOf = (bytes: Uint8Array): string => Buffer.from(bytes).toString('utf8');
 
+test('an app picks an existing Boat computer, consents to installation, and retries without another rental', async () => {
+  const server = await startFakeSandboxServer();
+  try {
+    const provider = boat({ baseUrl: server.url, label: 'Boat', prices: prices(), key: async () => 'test-key' });
+    const existing = await provider.create!({ name: 'old', size: 'small', keepCopies: true, idempotencyKey: 'seed' });
+    const [selected] = await provider.list!();
+    assert.deepEqual(selected, { ...existing, name: 'computer' });
+    assert.equal(server.machine.runs.length, 0);
+    const start = server.requests.length;
+    const store = memoryStore();
+    const m = machine({ provider, store });
+    const opts = { confirmId: selected.id, recipe: recipe() };
+    await rejects(m.adopt(selected, { ...opts, confirmId: 'another' }), 'confirm');
+    await rejects(m.adopt({ ...selected, account: 'another' }, opts), 'wrong-account');
+    await rejects(m.adopt({ ...selected, id: 'missing' }, { ...opts, confirmId: 'missing' }), 'no-machine');
+    assert.equal(server.machine.runs.length, 0);
+    assert.equal(await store.load(), null);
+    // Refuse existing files, service ownership, and a redirected parent without writing.
+    for (const path of [recipe().workDir, '/etc/systemd/system/byokit-web.service']) {
+      server.machine.writeFile(path, new TextEncoder().encode('keep'), 0o600);
+      const before = [...server.machine.files];
+      await rejects(m.adopt(selected, opts), 'exists');
+      assert.deepEqual([...server.machine.files], before);
+      assert.equal(await store.load(), null);
+      server.machine.files.delete(path);
+    }
+    server.machine.symlink('/home/user', '/elsewhere');
+    await rejects(m.adopt(selected, opts), 'exists');
+    server.machine.symlinks.clear();
+    // A live status reply for a different id must not authorize installation.
+    const wrong = boat({ baseUrl: server.url, label: 'Boat', prices: prices(), key: async () => 'test-key',
+      fetch: async (url, init) => String(url).endsWith(`/sandboxes/${selected.id}`) && init?.method === 'GET'
+        ? Response.json({ sandbox: { id: 'another', state: 'ready' } }) : fetch(url, init) });
+    await rejects(machine({ provider: wrong, store: memoryStore() }).adopt(selected, opts), 'provider');
+    server.machine.script('npm', { code: 1, stdout: '', stderr: 'install refused', timedOut: false });
+    const adopting = rejects(m.adopt(selected, opts), 'provider');
+    await rejects(m.create({ name: 'extra', size: 'small', keepCopies: true }), 'busy');
+    await adopting;
+    assert.deepEqual(m.ref, { ...selected, name: 'web' });
+    server.machine.script('npm', { code: 0, stdout: '', stderr: '', timedOut: false });
+    await m.install(recipe());
+    assert.equal(await m.host(), 'running');
+    assert.deepEqual(JSON.parse(textOf(server.machine.files.get('/home/user/app/.byokit/installed.json')!.bytes)), { id: selected.id });
+    await rejects(m.adopt(selected, opts), 'exists');
+    assert.equal(server.requests.slice(start).filter((r) => r.method === 'POST' && r.path === '/sandboxes').length, 0);
+    assert.equal(server.requests.slice(start).filter((r) => r.path.endsWith('/resume')).length, 0);
+    // A second app installs under a fresh name and directory on the same existing id.
+    const other = machine({ provider, store: memoryStore() });
+    const adopted = await other.adopt(selected, { confirmId: selected.id, recipe: { ...recipe('other'), workDir: '/home/user/other' } });
+    assert.equal(adopted.id, selected.id);
+    assert.equal(await other.host(), 'running');
+  } finally { await server.close(); }
+});
+
+test('Boat existing-computer listing follows pages and rejects malformed responses', async () => {
+  let bad = false;
+  const calls: string[] = [];
+  const provider = boat({ baseUrl: 'http://boat.test', label: 'Boat', prices: prices(), key: async () => 'test-key',
+    fetch: async (url) => {
+      calls.push(String(url));
+      if (String(url).endsWith('/me')) return Response.json({ user: { id: 'acct' } });
+      if (bad) return Response.json({ pageInfo: { hasMore: true } });
+      const second = String(url).includes('cursor=');
+      return Response.json({ sandboxes: second ? [{ id: 'two', snapshots: false }] : [
+        { id: 'one', snapshots: true, access: 'owner', desktopUrl: 'must-not-escape' }, { id: 'view-only', access: 'view' },
+      ], pageInfo: { hasMore: !second, nextCursor: second ? null : 'next/page' } });
+    } });
+  assert.deepEqual((await provider.list!()).map((r) => [r.id, r.keepCopies]), [['one', true], ['two', false]]);
+  assert.ok(calls.at(-1)?.endsWith('cursor=next%2Fpage'));
+  bad = true;
+  await rejects(provider.list!(), 'provider');
+});
+
 test('an app rents its own cloud computer, installs its host, and supervises it through its life', async () => {
   const provider = fakeProvider();
   const store = memoryStore();

@@ -112,10 +112,26 @@ The phone must be on the same tailnet; encrypted pairing is still required.
 firewall. Do not reuse a previously exposed sandbox as a fresh private-only machine: the public
 API has no unhost route. Private tailnet reachability and public-port refusal still need live proof.
 
+## Connect an existing Boat computer
+
+Call `provider.list!()` to offer existing computers; never rent another as a fallback.
+After the person picks one, show `words('adopt.confirm', { app })`. Only on approval call
+`m.adopt(selected, { confirmId: selected.id, recipe })`. It installs and returns the saved
+ref, using the recipe's name rather than Boat's display name. No direct store edits are needed.
+
+Adoption checks account, live identity and running state, and refuses existing files,
+services, run users or redirected directories rather than taking them over. Choose a fresh
+workDir and app name. It does not wake or convert the computer. Its existing snapshot setting
+is retained; missing snapshot information disables sleep/copies conservatively.
+If installation fails, the selected ref stays saved: retry `m.install(recipe)`, not create
+or adopt. The app must keep the same consented recipe for that retry. Installation can execute
+the recipe's admin steps; adoption is not a sandbox for an untrusted installer.
+
 ## Recipes
 
 The app supplies its host program and installer as a `HostRecipe`, and the kit writes
-and owns exactly one systemd unit per app (`byokit-<name>.service`, `Restart=always`):
+and owns exactly one systemd unit per app (`byokit-<name>.service`, `Restart=always`). Joining a
+tailnet adds the machine's own `tailscaled` unit, which is not an app unit:
 a system unit on Boat (only the home and `/etc` survive sleep), a user unit
 plus `loginctl enable-linger` on an SSH VM (so the kit needs no root there unless the
 recipe asks for it), and a system unit with `User=` when the recipe sets `user`.

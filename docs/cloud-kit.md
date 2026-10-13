@@ -86,10 +86,11 @@ the machine:     byokit-<app>.service → the app's host process (unchanged)
 packages/cloud/
   package.json  tsconfig.json  README.md  CHANGELOG.md  LICENSE
   src/
-    index.ts          # '.' re-exports everything 4.1, 4.2 and 4.3 declare for '.'
+    index.ts          # '.' re-exports everything 4.1, 4.2, 4.3 and 4.5 declare for '.'
     types.ts          # section 4, verbatim
     errors.ts         # MachineError (4.2)
     machine.ts        # machine() (5)
+    tailnet.ts        # joinTailnet(), tailnet() (9.1)
     status.ts         # status(), the one read a phone polls (5.9)
     unit.ts           # renderUnit(), quoting (8.4), pure
     recipe.ts         # recipe checks (8.1), range compare, FNV-1a marker hash, pure
@@ -378,7 +379,7 @@ Hetzner/SSH joining and a private stdin transport are follow-ups, not weaker imp
 - Every method checks in this order: load; `wrong-account`; `no-machine`; the method's own argument checks (a bad
   `port`, `lines`, `file` or recipe rejects `bad-recipe`); then whether the provider has the optional method it needs
   (`unsupported`).
-- `create` and `plan` need no ref. Every other method rejects `MachineError('no-machine')` when `ref` is null:
+- `create`, `adopt` and `plan` need no ref. Every other method rejects `MachineError('no-machine')` when `ref` is null:
   `state`, `wake`, `sleep`, `install`, `update`, `host`, `logs`, `url`, `cost`, `remove`, `why` and `deliver`.
 
 ### 5.2 `create`
@@ -397,6 +398,27 @@ Hetzner/SSH joining and a private stdin transport are follow-ups, not weaker imp
    `provider.status(ref)` must be `'on'` before it is saved (else reject `host-key` for `host-key-changed`,
    `unreachable` otherwise).
 5. The returned ref is saved (5.1), then returned.
+
+### 5.2a Existing computers (K-EXISTING)
+
+`Provider.list?(): Promise<MachineRef[]>` lists existing computers without changing them.
+`Machine.adopt(ref, { confirmId, recipe }): Promise<MachineRef>` works even when the provider
+also has `create`. The app shows `adopt.confirm` and calls it only after installation consent;
+`confirmId` must equal the selected id. No create, wake, conversion or paid fallback is allowed.
+The kit checks the stored and selected account, confirms the id in a fresh provider list,
+uses its live `keepCopies`, and requires status `on`. A missing id rejects `no-machine`;
+a mismatched confirmation rejects `confirm`. The recipe supplies the app's unit name.
+Before saving or installing, probe Linux/home and refuse `exists` for an existing workDir,
+workDir symlink ancestor, either unit path, root marker or requested run user. No existing
+installation is taken over. Probe failures propagate. Save the selected ref, then reuse
+`install(recipe)`. A failed install keeps that ref so the app retries with `install`, never create.
+An occupied store refuses `exists`; adoption shares the existing exclusive-operation lock.
+
+Boat lists `GET /sandboxes`, following `pageInfo.nextCursor` while `hasMore`; malformed
+pages reject `provider`. Only owner access (or omitted access for older personal responses)
+is offered. Each ref uses the authenticated `/me` account, sandbox id, a safe name `computer`
+(replaced by the recipe name at adoption), and `snapshots === true` for `keepCopies`.
+No desktop URL, environment, logins or other secret-bearing response fields leave the adapter.
 
 ### 5.3 `state`, `url`, `remove`
 
@@ -690,7 +712,7 @@ wiping Herdr pane logins. So no request other than `create` carries a `noEnv` ke
 
 The app supplies its own host program and installer as a `HostRecipe`. The kit writes and owns exactly one systemd
 unit per app, because Herdr and OpenClaw supervise their engines only while the app's host process lives, and nothing
-else restarts that process.
+else restarts that process. Joining a tailnet (9.1) adds one machine-level `tailscaled` unit; it is not an app unit.
 
 ### 8.1 Recipe checks (`src/recipe.ts`, pure; failures reject `bad-recipe`, message names the rule)
 
