@@ -53,7 +53,7 @@ const folderVar = (p: CliProvider) => p === 'claude' ? 'CLAUDE_CONFIG_DIR' : p =
 const quote = (v: string) => `'${v.replaceAll("'", "'\\''")}'`;
 const complete = (r: Row) => join(r.folder, '.byokit-signin-complete');
 const pending = (r: Row) => join(r.folder, '.byokit-signin-pending');
-/** Shell and remote sign-in share this lock and record the native child's PID beside it. */
+/** Shared lock: the shell records its native child PID; the remote driver records its host PID. */
 export function signInLock(folder: string): { lock: string; holder: string } {
   return { lock: join(folder, '.byokit-signin-lock'), holder: join(folder, '.byokit-signin-holder') };
 }

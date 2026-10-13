@@ -148,12 +148,15 @@ function claimSignIn(folder: string): (() => void) | undefined {
     if (!take()) return undefined;
   }
   let held = true;
-  return () => {
+  const unlock = () => {
     if (!held) return;
     held = false;
     rmSync(holder, { force: true });
     try { rmdirSync(lock); } catch {}
   };
+  try { writeFileSync(holder, String(process.pid), { mode: 0o600 }); }
+  catch (error) { unlock(); throw error; }
+  return unlock;
 }
 
 export function remoteCliHost(options: RemoteCliHostOptions): {
@@ -241,27 +244,18 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
       unlock?.();
       if (e instanceof CliAccountError && e.code === 'bad-option') return fail(provider, 'missing');
       if (e instanceof CliAccountError && e.code === 'prepare-failed') return fail(provider, 'busy');
-      throw e;
+      return fail(provider, 'failed');
     }
     if (signal?.aborted) { unlock?.(); await cli.cancel(id); return fail(provider, 'cancelled'); }
     const child = spawn(signIn.argv[0], signIn.argv.slice(1), { env: signIn.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
-    const holder = signInLock(dirname(signIn.completion)).holder;
-    // Supervision is attached before the holder is recorded. Once the child exits, the holder names
-    // this host, so a settling lock stays busy while the host lives; holder and lock go together after `settle`.
-    const handOver = () => { try { writeFileSync(holder, String(process.pid)); } catch {} };
+    // The host owns admission from claim until row settlement, with no child-exit holder rewrite.
     const exit = new Promise<void>((resolve) => {
-      child.once('exit', (code) => { session.exited = code; handOver(); resolve(); });
-      child.once('error', () => { session.exited ??= null; handOver(); resolve(); });
+      child.once('exit', (code) => { session.exited = code; resolve(); });
+      child.once('error', () => { session.exited ??= null; resolve(); });
     });
     const settled = exit.then(() => settle(session)).finally(() => { session.done = true; unlock?.(); });
     const session: Session = { id, provider, child, exit, settled, completion: signIn.completion,
       display: { id, provider, verificationUri: '' }, startedAt: now(), late: '' };
-    try {
-      if (child.pid) writeFileSync(holder, String(child.pid));
-    } catch {
-      await stop(session, fail(provider, 'failed'));
-      return fail(provider, 'failed');
-    }
     const abort = () => { void stop(session, fail(provider, 'cancelled')); };
     signal?.addEventListener('abort', abort, { once: true });
     let output = '';
@@ -298,9 +292,8 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
   // Runs once the child has exited, with or without a phone waiter. A stop (cancel, expiry, failed
   // start) sets its result before the kill, so it never writes the completion marker.
   async function settle(session: Session): Promise<RemoteCliResult> {
-    // The kit reads a managed row as ready only after the CLI's own login completed AND the
-    // completion marker exists, so claim it first and let `status` (the CLI's own status read)
-    // verify: a login that did not really sign in keeps nothing.
+    // Completion lifts a pending row's signing gate so status can verify native readiness.
+    // Pre-existing rows with no pending marker already use native status as authoritative.
     if (!session.result && session.exited === 0) {
       try {
         writeFileSync(session.completion, 'complete', { mode: 0o600, flag: 'wx' });
@@ -309,7 +302,7 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
       }
       if (!session.result) {
         const account = await cli.status(session.id).catch(() => undefined);
-        if (account?.state === 'ready') session.result ??= { ok: true, provider: session.provider };
+        if (account?.state === 'ready' && !lifetime.signal.aborted) session.result = { ok: true, provider: session.provider };
         else rmSync(session.completion, { force: true });
       }
     }
@@ -429,7 +422,7 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
   async function close(): Promise<void> {
     lifetime.abort();
     await Promise.allSettled([...pendingStarts]);
-    await Promise.all([...sessions.values()].filter(session => !session.result).map(session => cancel(session.id)));
+    await Promise.all([...sessions.values()].filter(session => !session.done).map(session => cancel(session.id)));
   }
 
   return { state, start, wait, paste, cancel, close, handle };

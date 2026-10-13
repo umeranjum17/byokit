@@ -383,6 +383,7 @@ test('a native holder write failure reaps the child and unlocks before a phone r
     assert.equal(result.ok ? 'ok' : result.error, 'failed');
     assert.equal(existsSync(lock), false, 'failure must release the lock after reaping');
     assert.equal(existsSync(holder), false);
+    assert.equal(native.calls().filter(c => c.argv[1] === 'login').length, 0, 'failed claim metadata must not spawn a child');
     const retry = await host.start('claude'); assert.ok(retry.ok);
     if (retry.ok) await host.cancel(retry.signIn.id);
     assert.equal(readFileSync(canary, 'utf8'), 'keep');
@@ -504,6 +505,34 @@ test('a native login that exits 0 with no phone waiter is settled before its loc
   } finally { await host.close(); }
 });
 
+test('a ready reused row wins over phone cancel during settlement', { timeout: 15_000 }, async () => {
+  const root = scratchDir('remote-ready-cancel');
+  const native = fakeClaude(join(root, 'bins'));
+  const stateDir = join(root, 'runtime');
+  const home = join(stateDir, 'home'); mkdirSync(home, { recursive: true });
+  const folder = join(home, '.claude');
+  const bins = { claude: native.bin };
+  const statusWait = join(root, 'status-wait');
+  const options = { stateDir, bins, env: { HOME: home, PATH: '/unused', STATUS_WAIT_FILE: statusWait }, managedFolders: { claude: folder } };
+  const row = (await cliAccounts(options).add('claude')).account;
+  const cli = cliAccounts(options);
+  const host = remoteCliHost({ cli, bins });
+  try {
+    const started = await host.start('claude'); assert.ok(started.ok);
+    if (!started.ok) return;
+    assert.equal(started.signIn.id, row.id, 'restart reuses the pending row');
+    for (let i = 0; !existsSync(statusWait) && i < 300; i++) await delay(10);
+    assert.ok(existsSync(statusWait), 'exit-0 settlement is reading native status');
+    const cancelling = host.cancel(row.id);
+    writeFileSync(statusWait + '.release', '');
+    const result = await host.wait(row.id);
+    await cancelling;
+    assert.deepEqual(result, { ok: true, provider: 'claude' }, 'ready settlement wins over phone cancel');
+    assert.equal((await cli.status(row.id)).state, 'ready');
+    assert.ok(existsSync(join(folder, '.byokit-signin-complete')));
+  } finally { writeFileSync(statusWait + '.release', ''); await host.close(); }
+});
+
 test('a stalled settlement keeps its holder and lock until the settled row releases them', { timeout: 15_000 }, async () => {
   const root = scratchDir('remote-stalled-settlement');
   const native = fakeClaude(join(root, 'bins'));
@@ -518,6 +547,8 @@ test('a stalled settlement keeps its holder and lock until the settled row relea
   const { lock, holder } = signInLock(folder);
   try {
     assert.equal((await host.start('claude')).ok, true);
+    assert.equal(Number(readFileSync(holder, 'utf8')), process.pid, 'HOST PID owns the lock from claim, before child exit');
+    chmodSync(holder, 0o400); // Any child-exit rewrite would fail: the original owner must remain live.
     for (let i = 0; !existsSync(statusWait) && i < 500; i++) await delay(10);
     assert.ok(existsSync(statusWait), 'the exit-0 settlement is stalled in the native status read');
     assert.ok(existsSync(lock));

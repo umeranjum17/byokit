@@ -84,7 +84,6 @@ export function signIn(
   let sessionId = '';
   let native: ReturnType<typeof remoteCliHost> | undefined;
   let nativeId: string | undefined;
-  let nativeStarting: Promise<unknown> | undefined;
   let starting: Promise<unknown> | undefined;
   let releasing: Promise<void> | undefined;
   let settleStart!: () => void;
@@ -169,7 +168,6 @@ export function signIn(
       // session only as `openclaw.setup.auth.start` settles, so a cancel sent sooner is answered `wizard not found`
       // and leaves the person locked out of signing in. Waiting for that settlement is what frees the admission.
       await startingSettled;
-      await nativeStarting?.catch(() => {});
       if (nativeId) await native?.cancel(nativeId).catch(() => {});
       if (sessionId) await Promise.resolve().then(() => ctx.request('wizard.cancel', { sessionId },
         { timeoutMs: CANCEL_MS })).catch(() => {});
@@ -247,9 +245,7 @@ export function signIn(
         if (!await detected()) {
           native = ctx.nativeClaudeLogin?.();
           if (!native) return { state: 'failed', via, why: 'failed', error: 'Claude Code sign-in is not available on this engine.' };
-          const pending = native.start('claude', { signal });
-          nativeStarting = pending;
-          const started = await pending;
+          const started = await native.start('claude', { signal });
           if (!started.ok) return { state: 'failed', via,
             why: started.error === 'busy' ? 'busy' : started.error === 'cancelled' ? 'declined' : 'failed', error: started.words };
           nativeId = started.signIn.id;
