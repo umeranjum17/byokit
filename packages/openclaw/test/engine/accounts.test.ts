@@ -441,7 +441,7 @@ mock.method(globalThis, 'fetch', (input, options) => {
 
     // The key path too: addKey sets the same plan key up on the member's key agent, and `auth: 'apiKey'` runs on it.
     const key2 = 'byokit-go-stand-in-key-6682';
-    assert.equal(await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: key2 }), 'ok');
+    assert.deepEqual(await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: key2 }), { status: 'ok' });
     await turn('agent:m2:o14:go-key', { member: 'm2', auth: 'apiKey' }, key2);
   } finally { await kit.stop(); mock.restoreAll(); syncBuiltinESMExports(); }
 });
