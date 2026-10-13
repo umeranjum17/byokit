@@ -129,8 +129,8 @@ function openInput(): Interface {
   rl.on('close', () => { if (rl !== input) return; closed = true; asking?.(''); });
   return rl;
 }
-// Undefined only while a hidden secret is read: the line interface is closed then, so it neither echoes the keys nor
-// takes the Enter or Ctrl-C.
+// Undefined only while a plan key sign-in hides the terminal (hideInput): the line interface is closed then, so it
+// neither echoes the keys nor takes the Enter or Ctrl-C.
 let input: Interface | undefined = openInput();
 const ask = (question: string) => new Promise<string>((resolve) => {
   process.stdout.write(question);
@@ -166,7 +166,7 @@ const host = await Host.open({
   name: flags.name,
   grants,
   confirm: async (p) => {
-    if (closed || asking) {
+    if (closed || asking || !input) {
       console.log(`\n${p.name} wants to pair, but ${closed ? 'nobody can answer here' : 'another device is waiting'}: turned away.`);
       return false;
     }
@@ -247,39 +247,53 @@ async function addChoice(choice: string): Promise<void> {
   if (!route || !route.offer) { console.log(`This computer offers no account named ${choice}.`); return; }
   if (!route.keyEntry) { console.log(`Sign in to ${route.label} from the phone page, under Plans.`); return; }
   console.log(`Adding ${route.label}.`);
-  const added = await kit.addAccount(MEMBER, { authChoice: choice }, () => {}).catch((e) => {
-    console.log(e instanceof Error ? e.message : String(e));
-    return undefined;
-  });
-  if (!added) return;
-  const secret = await readSecret(`Paste the ${route.label} key (typed input stays hidden): `);
-  if (!secret) { added.cancel(); console.log('Cancelled.'); return; }
-  added.paste(secret);
-  const { view } = await added.done;
-  // The pasted key is out of scope past this line; the kit never carries one in a view or error.
-  console.log(view.state === 'done' ? `Signed in to ${route.label}.` : (view.error ?? 'Sign-in failed. Try again.'));
+  hideInput();
+  try {
+    const added = await kit.addAccount(MEMBER, { authChoice: choice }, () => {}).catch((e) => {
+      console.log(e instanceof Error ? e.message : String(e));
+      return undefined;
+    });
+    if (!added) return;
+    const secret = await readSecret(`Paste the ${route.label} key (typed input stays hidden): `);
+    if (!secret) { added.cancel(); console.log('Cancelled.'); return; }
+    added.paste(secret);
+    const { view } = await added.done;
+    // The pasted key is out of scope past this line; the kit never carries one in a view or error.
+    console.log(view.state === 'done' ? `Signed in to ${route.label}.` : (view.error ?? 'Sign-in failed. Try again.'));
+  } finally {
+    showInput();
+  }
 }
 
-// One hidden line: raw mode switches the terminal's own echo off while it is typed, then restores it. Without a
-// terminal there is nothing to hide from, so the line is read echoed instead.
+// From the start of a plan-key sign-in until showInput: the line interface is closed and raw mode switches the
+// terminal's echo off, so keys typed meanwhile are queued for readSecret and never echoed or taken as commands.
+// Without a terminal there is nothing to hide from, and the line is read echoed through `asking` instead.
+function hideInput(): void {
+  if (!process.stdin.isTTY) return;
+  const rl = input;
+  input = undefined;
+  rl?.close();
+  process.stdin.setRawMode(true);
+}
+
+function showInput(): void {
+  if (!process.stdin.isTTY) return;
+  process.stdin.setRawMode(false);
+  input ??= openInput();
+}
+
 function readSecret(prompt: string): Promise<string> {
   process.stdout.write(prompt);
   const stdin = process.stdin;
-  if (!stdin.isTTY || typeof stdin.setRawMode !== 'function') {
+  if (!stdin.isTTY) {
     return new Promise((resolve) => { asking = (line) => { resolve(line.trim()); }; });
   }
   return new Promise((resolve) => {
-    const rl = input!;
-    input = undefined;
-    rl.close();
-    stdin.setRawMode(true);
     stdin.resume();
     let text = '';
     const finish = (value: string) => {
       stdin.removeListener('data', onData);
-      stdin.setRawMode(false);
       stdin.pause();
-      input = openInput();
       process.stdout.write('\n');
       resolve(value);
     };
