@@ -40,8 +40,8 @@ Options: `--port` (default 7310), `--via` (`auto`: Tailscale when it is installe
 
 Try it without the engine or an account: `BYOKIT_EXAMPLE_FAKE=1 npm start` runs the kit's stand-in Gateway. Its
 sign-in shows the code `CREW-2026` and says yes by itself a few seconds later; its helper answers
-`fake: <your message>`, its OpenCode Go row takes any key but `wrong-key`, and a message containing `[tool demo_note {"text":"buy milk"}]` asks to save that note.
-It also shows the helper's browser sign-in with a synthetic fixture (the kit's offline browser fake, no Chromium,
+`fake: <your message>`, its OpenCode Go row takes any key but `wrong-key`, and a message containing
+`[tool demo_note {"text":"buy milk"}]` asks to save that note. It also shows the helper's browser sign-in with a synthetic fixture (the kit's offline browser fake, no Chromium,
 no real site): a "Sign in to 127.0.0.1" card waits on `http://127.0.0.1:2820`, takeover shows a labelled stand-in
 page live, and Done puts "Signed in to 127.0.0.1 ✓" under the chat. It shows the screens only; it is not browser
 protection.
