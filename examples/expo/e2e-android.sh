@@ -36,7 +36,8 @@ scroll() {
   size=$(a shell wm size | tail -1 | grep -oE '[0-9]+x[0-9]+')
   w=${size%x*}; h=${size#*x}
   if [ "$1" = down ]; then from=$((h * 3 / 4)); to=$((h / 4)); else from=$((h / 4)); to=$((h * 3 / 4)); fi
-  a shell input swipe "$((w / 2))" "$from" "$((w / 2))" "$to" 300
+  # Swipe in the screen's side margin: a drag that starts on a text field scrolls the field, not the page.
+  a shell input swipe "$((w / 20))" "$from" "$((w / 20))" "$to" 300
 }
 seek() {
   for direction in up down; do
