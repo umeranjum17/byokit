@@ -625,7 +625,7 @@ provider's live models (the Go plan's `muse-spark-1.3-contributor`, served over 
 see them with no model setup in the app:
 
 - Providers: `opencode-go` only (`LIVE_CATALOGS` in `src/kit.ts`). Registering a list fixes that provider's catalog
-  membership (12), so adding a provider is a spec change.
+  membership, so adding a provider is a spec change.
 - Source: the plugin's `byokit.catalog { provider }` runs the provider plugin's own `catalog.run` hook
   (`resolvePluginProviders`) with the key of the first agent holding one (`resolveApiKeyForProvider`). It answers
   `{ ok: true, models }`: the hook's live model rows, each with the `api` the provider's live catalog data gives it (Muse:
@@ -644,8 +644,8 @@ see them with no model setup in the app:
   live list is never dropped). Nothing is written when that equals the
   registered list. The engine hot-reloads `models.*` without a restart, so a live run goes on. A write that lands
   while an activation's auth restart is pending answers `config.patch ... a recovery restart is required` although
-  it persisted; the sync logs the fixed `failed` line (no engine text), and the sync at the next `ready` finds the list unchanged.
-  A sync that only raced a gateway restart (its request rejects while the kit is not `ready`) is silent: the next `ready` re-syncs.
+  it persisted. A sync that fails while the kit is not `ready` (a restart, or that recovery answer) is silent, and the next
+  `ready` re-syncs: the list is unchanged when the write persisted.
 - App config wins: when `KitOptions.config.models.providers[provider].models` is set, the kit never syncs that
   provider.
 - A failure (`reason: 'failed'`) is logged (`catalog sync <provider>: failed`), never thrown; the registered list stays.
