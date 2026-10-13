@@ -50,13 +50,6 @@ The key override already enters `createRuns`' explicit-model admission (`picked 
 not a key-agent override). The existing public-kit key journey asserts the unavailable → refresh sequence on the key
 agent. Do not add an app-side refresh or retry and report the unassisted API as qualified.
 
-If a key run refuses a prepared full-catalog owner/config while auth status appears available, a diagnostic-only
-`kit.call('models.authStatus', { agentId: 'byokit-key-umer', refresh: true })` can distinguish owner preparation
-from bad credentials. Retain that reply and label any following run **manual owner refresh, not public-API acceptance**.
-The key override already enters `createRuns`' explicit-model admission (`picked && !chosen`; `chosen` is an AccountPick,
-not a key-agent override). The existing public-kit key journey asserts the unavailable → refresh sequence on the key
-agent. Do not add an app-side refresh or retry and report the unassisted API as qualified.
-
 This is nonvisual SDK behavior; no screenshots or provider OAuth/browser sign-in are involved. The offline consumer above proves the saved-model API path but does **not** prove HTTP headers or restart readiness.
 
 ## Gotchas
