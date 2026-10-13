@@ -92,12 +92,11 @@ export function createKeys(ctx: ActivationCtx & {
         if (!agent.id.startsWith(KEY_PREFIX)) continue;
         const member = agent.id.slice(KEY_PREFIX.length) as Member;
         if (!check(member)) continue;
-        let ready: { ok: boolean; model?: string };
-        try {
-          ready = await ctx.request('byokit.keys', { member, action: 'ready' }) as { ok: boolean; model?: string };
-        } catch { continue; }
-        if (ready.ok && ready.model) continue;
-        await ctx.request('byokit.keys', { member, action: 'clear' }).catch(() => undefined);
+        await exclusive(member, async () => {
+          const ready = await control(member, 'ready').catch(() => undefined);
+          if (!ready || (ready.ok && ready.model)) return;
+          await control(member, 'clear').catch(() => undefined);
+        });
       }
     },
   };
