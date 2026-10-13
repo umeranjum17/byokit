@@ -99,7 +99,8 @@ test('a phone polls one status while it creates, installs, stops, starts and del
   // Boat's create resolves before the machine is on; the fake reads creating twice, and a command
   // sent to a machine that is not on fails, so the poll must not ask the host until it is on.
   const provider = fakeProvider({ createReads: 2 });
-  const m = machine({ provider, store: memoryStore() });
+  const store = memoryStore();
+  const m = machine({ provider, store });
   const vars = { app: 'Muxr', label: 'Boat' };
   const seen: string[] = [];
   const poll = async (until: (s: Status) => boolean): Promise<Status> => {
@@ -123,9 +124,26 @@ test('a phone polls one status while it creates, installs, stops, starts and del
   await m.wake();
   assert.equal((await poll((s) => s.host === 'running')).words, 'Muxr is running on your cloud computer.', 'the unit comes back with the machine');
 
+  // A machine that sleeps between the state read and the host read reads asleep, not an error.
+  const racing = machine({
+    provider: { ...provider, status: async (r) => { const s = await provider.status(r); provider.fake.setState(r.id, 'asleep'); return s; } },
+    store,
+  });
+  assert.deepEqual(await status(racing, vars), { machine: 'asleep', host: null, words: 'Your cloud computer is asleep. Opening Muxr wakes it.' });
+  await m.wake();
+
   await m.remove(ref.id);
   assert.equal(await provider.status(ref), 'gone');
   await rejects(status(m, vars), 'no-machine');
+
+  // A machine removed while it still reads creating reads gone at once and stays gone.
+  const late = machine({ provider, store: memoryStore() });
+  const lateRef = await late.create({ name: 'late', size: 'small', keepCopies: true });
+  await late.remove(lateRef.id);
+  assert.deepEqual(
+    [await provider.status(lateRef), await provider.status(lateRef), await provider.status(lateRef)],
+    ['gone', 'gone', 'gone'],
+  );
   assert.deepEqual(seen, [
     'Setting up your cloud computer. This takes a minute or two.',
     "Muxr isn't on your cloud computer yet.",

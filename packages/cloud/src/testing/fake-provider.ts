@@ -98,7 +98,7 @@ export function fakeProvider(o: FakeProviderOptions = {}): Provider & { fake: Fa
     status: async (m: MachineRef) => {
       calls.push({ op: 'status', args: [m.id] });
       const left = creating.get(m.id) ?? 0;
-      if (left > 0) {
+      if (left > 0 && states.get(m.id) === 'creating') {
         creating.set(m.id, left - 1);
         if (left === 1) states.set(m.id, 'on');
         return 'creating';

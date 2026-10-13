@@ -16,6 +16,7 @@ export async function start(provider: Provider, store: MachineStore, recipe: Hos
   // Boat's create resolves before the machine is on; poll the one status a phone shows.
   for (let s = await status(m, vars); s.machine !== 'on'; s = await status(m, vars)) {
     show(s.words); // "Setting up your cloud computer. This takes a minute or two."
+    if (['failed', 'host-key-changed', 'gone'].includes(s.machine)) return ref;
     await new Promise((r) => setTimeout(r, 3000));
   }
   await m.install(recipe);
