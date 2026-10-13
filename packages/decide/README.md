@@ -9,7 +9,8 @@
 
 <p align="center"><strong>Typed questions in, a typed answer with confidence out.</strong><br/>
 Below a floor it abstains, so your app takes its safe default (ask the person) instead of guessing. Backends are your
-own <code>rules</code>, any model you can send a prompt to (on a phone, the person's own ChatGPT), OpenAI general models with Structured Outputs, and
+own <code>rules</code>, any model you can send a prompt to (on a phone, the person's own ChatGPT), OpenAI and Anthropic general models with structured answers,
+OpenCode Go plan models on the captain's plan key, and
 <a href="https://openrouter.ai/docs/guides/community/jev">Jev</a> (API-billed) over TypeSafe's API or OpenRouter. Labelled eval files
 set the floors.</p>
 
@@ -24,11 +25,12 @@ run on plain `fetch` and install no further packages. Import them from `@byokit/
 (`import { decide, rules, answerer, jev } from '@byokit/decide/slim'`) and bundlers resolve zero peers.
 
 The remaining backends are optional peers npm skips unless the app installs them: `@byokit/accounts`
-for ChatGPT plan billing (`openai({ auth: 'account', ... })`, subscription) and OpenCode Go plan billing
-(`opencodeGo({ account, ... })`, subscription), and `@byokit/pair` for the
+for ChatGPT plan billing (`openai({ auth: 'account', ... })`, subscription) and the OpenCode Go plan
+account (`opencodeGo({ account, ... })`, subscription), and `@byokit/pair` for the
 paired Jev route (the host app keeps its API key (billed per use) in its own store). Account billing
-without the accounts peer throws `UnsupportedAccountError` naming `@byokit/accounts`. API-key OpenAI
-needs no peer at runtime. The main entry keeps every export and works either way.
+without the accounts peer throws `UnsupportedAccountError` naming `@byokit/accounts`. API-key OpenAI,
+API-key Anthropic and plain-key OpenCode Go need no peer at runtime. The main entry keeps every export
+and works either way.
 
 [![npm](https://img.shields.io/npm/v/@byokit/decide?style=flat&label=)](https://www.npmjs.com/package/@byokit/decide) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=decide-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
 
@@ -99,9 +101,10 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
 | `answerer({ name, leaves, supportsImages?, ask, text?, maxRetries?, retryBaseMs?, retryMaxMs? })` | A host-owned model: `(prompt, signal, images, request) => text` or `{ text, usage?, rationale?, raw? }`; typed text options and bounded 429 retries |
 | `jev({ key, via?, fetch?, maxRetries?, retryBaseMs?, retryMaxMs? })` | Jev as a backend, over TypeSafe's API (default) or OpenRouter (`via: 'openrouter'`). API-billed; retries 429s with backoff |
 | `openai({ model, key, request?, ... })` / `openai({ model, auth: 'account', account, request?, ... })` | OpenAI general models used for decisions; explicit API key or consented ChatGPT plan session |
-| `opencodeGo({ model, account, request?, ... })` | OpenCode Go plan models used for decisions; the member's Go plan account only, never an API key |
+| `anthropic({ model, key, maxTokens?, instructions?, ... })` | Anthropic general models used for decisions; explicit API key (billed per use), never a plan sign-in |
+| `opencodeGo({ model, key, request?, ... })` / `opencodeGo({ model, account, request?, ... })` | OpenCode Go plan models used for decisions; the member's Go plan key itself or its saved plan account, never an API-billed route |
 | `parseConfig(objectOrJSON)`, `createDecider(config, options)` | Validate portable config and set it once, with optional per-call overrides |
-| `ConfigError`, `UnsupportedAccountError`, `UnsupportedImagesError`, `InvalidImageError`, `OPENAI_ROUTES` | Typed config/account errors and billing labels (API key is never offered by default) |
+| `ConfigError`, `UnsupportedAccountError`, `UnsupportedImagesError`, `InvalidImageError`, `OPENAI_ROUTES`, `ANTHROPIC_ROUTES`, `OPENCODE_GO_ROUTES` | Typed config/account errors and billing labels (API keys are never offered by default; the Go plan key bills subscription) |
 | `RateLimitError` | An answerer callback exhausted its 429 retries (`status: 429`, `retries`); `decide()` abstains on this failure |
 | `MemoryCache`, `cacheKey(state, questions, images?)` | In-memory reference cache for `decide({ cache })`, and the stable request key it uses |
 | `resolve(question, raw)` | The floors on one raw answer, for an app that holds a recorded answer |
@@ -151,6 +154,7 @@ may be negative, and are never invented from list positions. Explicit orders may
 |---|---|---|
 | `rules` | Return a `string[]`, or `{ answer: string[], scores?, personReason? }`; confidence is 1 | Return `{ answer, personReason }` for any question kind |
 | `openai` | Structured output with ranking, self-reported confidence, and scores or null | Requested in the schema only for opted-in questions |
+| `anthropic` | One forced `decisions` tool with ranking, self-reported confidence, and scores or null | Requested in the schema only for opted-in questions |
 | `opencodeGo` | Structured output with ranking, self-reported confidence, and scores or null | Requested in the schema only for opted-in questions |
 | `answerer` | JSON `{ ranking: string[], confidence: number, scores?: {...}, personReason?: string }` per rank question | Opted-in non-rank questions use `{ probabilities: {...}, personReason?: string }`; legacy probability maps still work |
 | `jev` | Fallback: send a Choice, order its probabilities descending, retain them as scores and use provider confidence; ties keep candidate declaration order | Not supported by the documented API; field remains absent |
@@ -353,6 +357,31 @@ unavailable chosen models or unsupported account requests, including from `decid
 Ordinary transport/429 failures follow decide's existing failed-backend abstention behavior.
 `OPENAI_ROUTES.apiKey` labels billing `'api'` with `offer: false`; the account route labels `'subscription'` with consent required.
 
+### Anthropic models used for decisions
+
+Anthropic publishes no dedicated decision model either; this backend uses a general model with a forced
+`decisions` tool, rather than claiming native decision confidence or abstention. `model` is required;
+there is no hidden default.
+
+```ts
+import { decide, anthropic } from '@byokit/decide';
+
+const backend = anthropic({
+  model: 'claude-opus-4-6', key: hostConfig.anthropicKey, // API key (billed per use), explicit opt-in
+  maxTokens: 1024, // reply cap the Messages API requires; instructions: '...' appends host instructions
+});
+const answers = await decide(state, questions, { privacy: 'may-leave', backends: [backend] });
+```
+
+The backend POSTs to `https://api.anthropic.com/v1/messages` with the shared question schema as the
+tool's `input_schema` and `tool_choice` forcing that tool. It parses the tool input with the same
+mapping as the Responses backends: self-reported probabilities with the same floors, plus reported
+usage and the raw response on answered and abstained answers alike. A refusal, a reply without the
+tool use and malformed input abstain; only 429s retry. `ANTHROPIC_ROUTES.apiKey` labels billing
+`'api'` with `offer: false`. There is no plan sign-in here; fixtures in
+`test/fixtures/anthropic-messages.json` are hand-authored saved API-shape responses, not live model
+recordings. Tests never call a real model.
+
 ### The person's OpenCode Go plan
 
 For an app already using Accounts, bind the same person's OpenCode Go plan directly:
@@ -367,14 +396,27 @@ const accounts = new Accounts({ store: () => memoryStore() }); // use protected 
 const backend = opencodeGo({ account: accounts.opencodeGo('Umer'), model: 'muse-spark-1.3-contributor' });
 ```
 
+A host that already holds the plain plan key (for example done-done's judge) passes it directly
+instead, with no accounts peer at runtime:
+
+```ts
+import { opencodeGo } from '@byokit/decide';
+
+const backend = opencodeGo({ key: hostConfig.opencodeGoPlanKey, model: 'muse-spark-1.3-contributor' });
+```
+
+Either input bills the member's Go plan (`subscription`); a key and an account together are refused.
+
 The handle reads the member's own saved plan key on every request; keys stay in the app's own store
 and the handle exposes none. Requests go to `https://opencode.ai/zen/go/v1/responses` with the plan key
 as Bearer and one `x-opencode-session` id per decide call: the Go endpoint routes on that header, and the
 pinned upstream (`@earendil-works/pi-ai`, provider `opencode-go`) maps its `sessionId` option to it. The
 wire format is the same Responses JSON schema as `openai()`: self-reported probabilities with the same
 floors, plus reported usage and the raw response on answered and abstained answers alike.
-`OPENCODE_GO_ROUTES.account` labels billing `'subscription'` with consent required. A plan that cannot
-serve the request (http 400/401/403/404) throws `UnsupportedAccountError`; there is no API-key fallback.
+`OPENCODE_GO_ROUTES.apiKey` labels the plain plan key billing `'subscription'` with `offer: false`;
+the account route labels `'subscription'` with consent required. A plan that cannot
+serve the request (http 400/401/403/404) throws `UnsupportedAccountError`; there is no API-billed
+fallback and no fallback between the key and account inputs.
 
 ## Set configuration once
 
@@ -386,21 +428,30 @@ const config = parseConfig({ backend: 'openai', auth: 'apiKey', model: 'gpt-6.1-
   request: { reasoning: { effort: 'low' } }, maxRetries: 2 });
 const decideForApp = createDecider(config, {
   privacy: 'may-leave', cache: new MemoryCache(),
-  host: { keys: { jev: hostConfig.jevKey, openai: hostConfig.openaiKey }, account,
-    cacheScope: `${me}:${hostConfig.selectedAccountId}` }, // required for account caches
+  host: { keys: { jev: hostConfig.jevKey, openai: hostConfig.openaiKey,
+      anthropic: hostConfig.anthropicKey, 'opencode-go': hostConfig.opencodeGoPlanKey },
+    account, cacheScope: `${me}:${hostConfig.selectedAccountId}` }, // required for account caches
 });
 const answers = await decideForApp(state, questions);
 const viaJev = await decideForApp(state, questions, { backend: 'jev', auth: 'apiKey' });
 const viaPlan = await decideForApp(state, questions, { auth: 'account' });
+const viaGoKey = await decideForApp(state, questions,
+  { backend: 'opencode-go', auth: 'apiKey', model: 'muse-spark-1.3-contributor' });
 ```
 
 Or call `decide(state, questions, { config, host, privacy, images?, timeoutMs?, cache? })` directly.
 `parseConfig` accepts a plain object or JSON string and defaults to `{ backend: 'jev', auth: 'apiKey' }`, preserving
-Jev's `jev-latest` model and TypeSafe route. OpenAI requires an explicit `model`. Fields are `backend`, `auth`, `model`,
-`via` (Jev only), `request` and `supportsImages` (OpenAI only), `maxRetries`, `retryBaseMs`, `retryMaxMs`. Unknown fields, invalid JSON,
-wrong types and invalid retry values throw `ConfigError` (`code: 'invalid_config'`); Jev account auth throws
-`UnsupportedAccountError`. API-key credentials must be explicitly supplied by the host. A backend switch clears
-provider-specific model/route/request settings; an OpenAI switch must specify its model.
+Jev's `jev-latest` model and TypeSafe route. OpenAI, Anthropic and OpenCode Go require an explicit `model`.
+`backend` is `jev`, `openai`, `anthropic` or `opencode-go`; `auth` is `apiKey` or `account` (Jev and Anthropic
+take `apiKey` only). Fields are `backend`, `auth`, `model`,
+`via` (Jev only), `request` and `supportsImages` (OpenAI and OpenCode Go only; Anthropic takes
+`supportsImages` but no `request`), `maxRetries`, `retryBaseMs`, `retryMaxMs`. Unknown fields, invalid JSON,
+wrong types and invalid retry values throw `ConfigError` (`code: 'invalid_config'`); Jev or Anthropic
+account auth throws `UnsupportedAccountError`. API-key credentials must be explicitly supplied by the host:
+`host.keys.anthropic` for Anthropic, `host.keys['opencode-go']` for the Go plan key, and `host.account`
+for the Go plan account (an OpenAI account there is refused with no fallback). A backend switch clears
+provider-specific model/route/request settings; a switch to OpenAI, Anthropic or OpenCode Go must specify
+its model.
 
 Configured cache keys include backend, auth, model, request options and host credential/namespace in the hash,
 so switching provider, billing route, model or person cannot return another configuration's answer. When using the
@@ -439,7 +490,7 @@ web; `test/react-native.test.ts` runs it where there is no Node.
 
 ## Keys
 
-`jev()` and API-key `openai()` take the key your host read from its own environment or config. The kit never reads an environment variable,
+`jev()`, API-key `openai()`, `anthropic()` and plain-key `opencodeGo()` take the key your host read from its own environment or config. The kit never reads an environment variable,
 and the key goes only into the one request header. Never ship a key inside an app: keep it on the home computer and let
 paired devices ask it.
 

@@ -21,7 +21,8 @@ const questions: Record<string, Question> = {
 const account = (token = 'plan-token') => ({ billing: 'subscription' as const, access: async () => token });
 
 test('an app decides on an OpenCode Go plan account over the Responses endpoint, plan-billed only', async () => {
-  assert.deepEqual(OPENCODE_GO_ROUTES, { account: { billing: 'subscription', offer: true, consentRequired: true } });
+  assert.deepEqual(OPENCODE_GO_ROUTES, { apiKey: { billing: 'subscription', offer: false },
+    account: { billing: 'subscription', offer: true, consentRequired: true } });
   let calls = 0;
   let sent: any;
   const backend = opencodeGo({ model: 'muse-spark-1.3-contributor', account: account(), fetch: async (url, init) => {
@@ -74,6 +75,31 @@ test('an app decides on an OpenCode Go plan account over the Responses endpoint,
   assert.equal(sessions.size, 1, 'retries keep one conversation session');
   await assert.rejects(decide({}, { intent: questions.intent }, { privacy: 'may-leave', backends: [opencodeGo({
     model: 'muse-spark-1.3-contributor', account: account(), fetch: async () => new Response('', { status: 401 }),
+  })] }), UnsupportedAccountError);
+});
+
+test('a host holding the plain Go plan key decides without the accounts peer, still plan-billed', async () => {
+  let sent: any;
+  const backend = opencodeGo({ model: 'muse-spark-1.3-contributor', key: 'plan-key', fetch: async (url, init) => {
+    assert.equal(url, 'https://opencode.ai/zen/go/v1/responses');
+    assert.equal((init!.headers as any).authorization, 'Bearer plan-key');
+    assert.ok(typeof (init!.headers as any)['x-opencode-session'] === 'string', 'the key path keeps the conversation session');
+    sent = JSON.parse(init!.body as string);
+    return Response.json(fixture.completed);
+  } });
+  const result = await decide({}, { intent: questions.intent }, { privacy: 'may-leave', backends: [backend] });
+  assert.equal(result.intent.answer, 'followup');
+  assert.equal(result.intent.by, 'opencode-go');
+  assert.equal(result.intent.confidenceSource, 'self-reported');
+  assert.deepEqual(result.intent.usage, { input_tokens: 84, output_tokens: 67 });
+  assert.ok(!JSON.stringify(result).includes('plan-key'), 'the plan key never lands in an answer');
+  assert.equal(sent.model, 'muse-spark-1.3-contributor');
+
+  // A key and an account together are refused; a refused plan status never bills another route.
+  assert.throws(() => opencodeGo({ model: 'm', key: 'k', account: account() } as any), /not both/);
+  for (const bad of ['', '  ', 42] as any[]) assert.throws(() => opencodeGo({ model: 'm', key: bad }), /needs a key/);
+  await assert.rejects(decide({}, { intent: questions.intent }, { privacy: 'may-leave', backends: [opencodeGo({
+    model: 'muse-spark-1.3-contributor', key: 'plan-key', fetch: async () => new Response('', { status: 401 }),
   })] }), UnsupportedAccountError);
 });
 
