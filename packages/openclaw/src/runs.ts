@@ -140,11 +140,19 @@ export function createRuns(ctx: {
       const message = await ctx.accounts.keyRefusal(spec.member, binding);
       if (message !== undefined) return { ok: false, kind: 'other', message };
     }
+    // A run that waited for its agent's lock across a move (5.15) binds again under it: a changed binding means its
+    // session went to another account, so it ends before any event and the caller's retry lands there.
+    const moved = async (): Promise<boolean> =>
+      !!binding && (await ctx.accounts!.bind(spec.member, spec.sessionKey))?.agentId !== binding.agentId;
+    const movedEnd = { ok: false as const, kind: 'other' as const, message: words('run.moved') };
     // Step 3: with `account` and `needs` both absent, on a key no account agent holds (or an API-key run, whose
-    // binding is API-billed), exactly the run on the agent it always was.
+    // binding is API-billed), exactly the run on the agent it always was (a bound key under its shared lock).
     if ((keyAgent || binding?.id === undefined) && spec.account === undefined && !spec.needs?.length) {
-      const agentId = keyAgent ?? (await ctx.ensure(spec.member)).agentId;
-      return start(spec, on, { agentId, sessionKey: keyAgent ? `agent:${keyAgent}:${tail}` : spec.sessionKey, idempotencyKey, system, picked, output });
+      if (keyAgent) return start(spec, on, { agentId: keyAgent, sessionKey: `agent:${keyAgent}:${tail}`, idempotencyKey, system, picked, output });
+      const { agentId } = await ctx.ensure(spec.member);
+      const member = () => start(spec, on, { agentId, sessionKey: spec.sessionKey, idempotencyKey, system, picked, output });
+      if (!binding || !ctx.locks) return member();
+      return ctx.locks.shared(agentId, async () => await moved() ? movedEnd : member());
     }
     if (keyAgent) throw new Error('refused: an API-key run uses its own account');
     if (!ctx.accounts || !ctx.locks) throw new Error('gateway not ready');
@@ -174,6 +182,7 @@ export function createRuns(ctx: {
       // lock from its ready check to its end. An automatic pick not signed in is skipped before any event; an explicit
       // one announces itself, then ends signed-out.
       const end = await locks.shared(agent!, async (): Promise<RunEnd<SchemaOutput<S>> | undefined> => {
+        if (await moved()) return movedEnd;
         let ready: boolean;
         try {
           ready = await signedIn(agent!, pick.account.provider);

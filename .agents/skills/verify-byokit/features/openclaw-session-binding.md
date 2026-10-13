@@ -28,4 +28,4 @@ Use SKILL.md's Evidence capture block. The consumer imports only the built `@byo
 
 ## Gotchas
 
-The API-key account is written into the index by hand (an account agent signed in through the fake's `openclaw.setup.activate`), because `addKey` as an account arrives in a later O14 step. The fake records a session when a run's `agent` request lands, so a chosen account that ends `signed-out` before any request leaves its key unbound. `move` (switching a bound conversation) is a later step. No provider, credential or network is involved.
+The API-key account is written into the index by hand (an account agent signed in through the fake's `openclaw.setup.activate`), because `addKey` as an account arrives in a later O14 step. The fake records a session when a run's `agent` request lands, so a chosen account that ends `signed-out` before any request leaves its key unbound. Switching a bound conversation is `move`: [OpenClaw move](./openclaw-move.md). No provider, credential or network is involved.

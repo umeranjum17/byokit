@@ -52,10 +52,12 @@ import type {
   LearningMode,
   Member,
   ModelInfo,
+  MoveResult,
   Room,
   Route,
   RunEnd,
   RunEvent,
+  RunRef,
   RunSelection,
   RunSpec,
   OutputSchema,
@@ -779,7 +781,7 @@ export class OpenClawKit {
       this.accountsCtl = createAccounts({ request: (method, params, o) => this.request()(method, params, o), root: this.engine.root,
         ensure: (member) => this.ensureMember(member), locks: this.locks,
         signIn: (agentId, o, on, fresh) => startSignIn({ ...this.signInCtx(), ensure: async () => ({ agentId }), fresh }, agentId, o, on),
-        log: this.o.log });
+        routes: this.routeMap, log: this.o.log });
       // The fail-closed tool bridge feeds the kit's single Approval surface (5.9, O5).
       await this.bridge.start();
       this.off.push(transport.onEvent((e) => this.approvalsCtl.handleEvent(e)));
@@ -974,9 +976,9 @@ export class OpenClawKit {
     return engineSignOut(this.signInCtx(), member, provider);
   }
 
-  // accounts (5.15, O14 steps S5, S6 and S9-S11): the per-member index with listing, adding, defaults, rename, models
-  // and room; `run({ account })` and `pick` choose among them, held to the account a session is bound to. Removing and
-  // move arrive in later steps.
+  // accounts (5.15, O14 steps S5, S6 and S9-S12): the per-member index with listing, adding, defaults, rename, models
+  // and room; `run({ account })` and `pick` choose among them, held to the account a session is bound to, and `move`
+  // carries a conversation to another account. Removing arrives in a later step.
   accounts(member: Member): Promise<Account[]> {
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.accountsCtl.list(member);
@@ -998,6 +1000,12 @@ export class OpenClawKit {
     if (!accounts) throw new Error('gateway not ready');
     const binding = o?.sessionKey === undefined ? undefined : await accounts.bind(member, o.sessionKey);
     return (await accounts.pick(member, sel, [], binding)).pick;
+  }
+
+  /** Carry a conversation to another account: its whole transcript forks onto that account, then the old session goes. */
+  move(ref: RunRef, to: AccountId): Promise<MoveResult> {
+    if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
+    return this.accountsCtl.move(ref.member, ref.sessionKey, to);
   }
 
   /** Sign in one more account: on the member agent while it holds none of the provider, else on a new sealed agent. */

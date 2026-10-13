@@ -445,3 +445,72 @@ mock.method(globalThis, 'fetch', (input, options) => {
     await turn('agent:m2:o14:go-key', { member: 'm2', auth: 'apiKey' }, key2);
   } finally { await kit.stop(); mock.restoreAll(); syncBuiltinESMExports(); }
 });
+
+// O14l on the real pinned engine: `move` forks a conversation from one account agent to another with
+// `sessions.create { fork: true }` and deletes the source. The next run on the app key continues on the target with the
+// full transcript: the stub sees the earlier user turn and the tool call and result, billed on the target's own key.
+// Stub keys and the loopback model stub only, never an account or the network.
+test('move: the transcript (user and tool rows) carries to the target agent and the source session is gone', { timeout: 900_000 }, async () => {
+  const dir = scratchDir('o14l-move');
+  const stateDir = join(dir, 'state');
+  const root = join(stateDir, 'openclaw');
+  const config = { plugins: { allow: ['openai'] }, models: { providers: { openai: { baseUrl: stub.url, api: 'openai-completions',
+    models: [{ id: 'gpt-5.6-sol', name: 'Test', api: 'openai-completions', reasoning: false, input: ['text'],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 2048 }] } } } };
+  const tools = [{ name: 'report', description: 'record progress', parameters: { type: 'object' } }];
+  const host = { gate: async () => ({ allow: true as const }),
+    call: async (_run: unknown, _tool: string, input: Record<string, unknown>) => `Progress: ${String(input.text)}` };
+  let kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), config, tools, host });
+  try {
+    await kit.start();
+    await kit.ensureMember('m1');
+    const keys = { aaaaaa: 'stub-key-move-a', bbbbbb: 'stub-key-move-b' };
+    const accounts: Record<string, unknown> = {};
+    for (const [hex, apiKey] of Object.entries(keys)) {
+      const agent = `m1--${hex}`;
+      await kit.call('agents.create', { name: agent, workspace: join(root, 'workspaces', 'm1') });
+      const activated = await kit.call('openclaw.setup.activate', { kind: 'api-key', agentId: agent, authChoice: 'openai-api-key', apiKey },
+        { timeoutMs: 180_000 }) as { ok: boolean };
+      assert.equal(activated.ok, true, agent);
+      let ready = false;
+      for (const deadline = Date.now() + 60_000; !ready && Date.now() < deadline;) {
+        try {
+          const sealed = await kit.callDynamic('byokit.accounts', { action: 'seal', agentId: agent, provider: 'openai' }) as { ok: boolean };
+          ready = sealed.ok && (await kit.callDynamic('byokit.accounts', { action: 'ready', agentId: agent, provider: 'openai' }) as { ok: boolean }).ok;
+        } catch { /* restarting */ }
+        if (!ready) await delay(250);
+      }
+      assert.ok(ready, `${agent} holds its sealed key`);
+      accounts[`openai.${hex}`] = { agent, name: `Key ${hex}`, route: 'openai-api-key', addedAt: Number.parseInt(hex, 16) };
+    }
+    const index = join(root, 'accounts', 'm1.json');
+    mkdirSync(join(index, '..'), { recursive: true });
+    writeFileSync(index, JSON.stringify({ v: 1, accounts, defaults: {} }));
+    chmodSync(index, 0o600);
+    await kit.stop();
+    kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), config, tools, host });
+    await kit.start();
+
+    // A conversation on A with a tool call, then moved to B.
+    const ref = { member: 'm1', sessionKey: 'agent:m1:o14l:chat' };
+    const first = await kit.run({ ...ref, message: '[tool report {"text":"Working"}]', account: 'openai.aaaaaa', model: 'openai/gpt-5.6-sol' });
+    assert.ok(first.ok && first.account === 'openai.aaaaaa', JSON.stringify(first));
+    assert.deepEqual(await kit.move(ref, 'openai.bbbbbb'), { ok: true, session: 'agent:m1--bbbbbb:o14l:chat' });
+    const gone = await kit.call('sessions.resolve', { key: 'agent:m1--aaaaaa:o14l:chat', agentId: 'm1--aaaaaa', allowMissing: true });
+    assert.deepEqual(gone, { ok: false }, 'the source session is gone');
+    const moved = await kit.call('chat.history', { sessionKey: 'agent:m1--bbbbbb:o14l:chat' }) as { messages: { role?: string }[] };
+    assert.ok(JSON.stringify(moved.messages).includes('[tool report {\\"text\\":\\"Working\\"}]'), 'the user row is in the target');
+
+    // The next run on the app key continues on B (an API-billed conversation names its account, Runs step 2): the
+    // model sees the user turn, the tool call and its result.
+    const from = stub.calls.length;
+    const next = await kit.run({ ...ref, message: 'and then', account: 'openai.bbbbbb' });
+    assert.ok(next.ok && next.account === 'openai.bbbbbb', JSON.stringify(next));
+    const sent = stub.calls.slice(from);
+    assert.ok(sent.length > 0 && sent.every((c) => c.authorization === `Bearer ${keys.bbbbbb}`), 'billed on the target\'s own key');
+    const messages = sent[0]!.body.messages ?? [];
+    const text = (m: { content?: unknown }) => JSON.stringify(m.content ?? '');
+    assert.ok(messages.some((m) => m.role === 'user' && text(m).includes('[tool report')), JSON.stringify(messages));
+    assert.ok(messages.some((m) => m.role === 'tool' && text(m).includes('Progress: Working')), JSON.stringify(messages));
+  } finally { await kit.stop(); }
+});

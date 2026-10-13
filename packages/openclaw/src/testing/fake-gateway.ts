@@ -58,6 +58,7 @@ const AGENT_ID = /^[a-z][a-z0-9-]{0,31}$/;
 
 type Run = {
   runId: string;
+  agentId: string;
   sessionKey: string;
   seq: number;
   provider: string;
@@ -180,8 +181,21 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       ...(content === undefined ? {} : { size: Buffer.byteLength(content), content }) } };
   };
   const runs = new Map<string, Run>();
-  // Every session a run has used, as `<agentId>\n<key>`: what `sessions.resolve` finds.
-  const sessions = new Set<string>();
+  // Every session, as `<agentId>\n<key>`: what `sessions.resolve`, `sessions.list` and `chat.history` find. A run appends
+  // its user, tool call, tool result and assistant rows, as the pin's transcript stores them; `updatedAt` moves on each.
+  type Session = { sessionId: string; updatedAt: number; rows: Record<string, unknown>[]; provider?: string; model?: string };
+  const sessions = new Map<string, Session>();
+  const sessionOf = (agentId: string, key: string): Session => {
+    let session = sessions.get(`${agentId}\n${key}`);
+    if (!session) { session = { sessionId: randomUUID(), updatedAt: 0, rows: [] }; sessions.set(`${agentId}\n${key}`, session); }
+    return session;
+  };
+  const append = (session: Session, row: Record<string, unknown>): void => {
+    session.rows.push(row);
+    session.updatedAt = Math.max(Date.now(), session.updatedAt + 1);
+  };
+  const activeOn = (agentId: string, key: string): boolean =>
+    [...runs.values()].some((run) => !run.result && run.agentId === agentId && run.sessionKey === key);
   // The engine's own cached read of each provider's usage endpoint (O14): cold until a `models.authStatus`
   // answer has carried the provider once (no `usage` on that first answer), then whatever `setUsage` stored.
   // A pre-sign-in read names no provider, so it warms nothing: the journey's first room read stays cold.
@@ -297,11 +311,14 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
   const startRun = (params: Record<string, unknown>, bridgeSock: string): { runId: string; status: 'accepted' } => {
     if (params.agentId != null && !agents.has(String(params.agentId))) throw new Error(`unknown agent: ${params.agentId}`);
     // Like the engine: the provider/model the run is called on, its own override or the member's (here openai).
-    const run: Run = { runId: randomUUID(), sessionKey: String(params.sessionKey ?? ''), seq: 0,
+    const run: Run = { runId: randomUUID(), agentId: String(params.agentId ?? 'main'), sessionKey: String(params.sessionKey ?? ''), seq: 0,
       provider: String(params.provider ?? 'openai'), model: String(params.model ?? 'gpt-5.1'), waiters: [] };
     runs.set(run.runId, run);
-    sessions.add(`${String(params.agentId ?? 'main')}\n${run.sessionKey}`);
+    const session = sessionOf(run.agentId, run.sessionKey);
+    session.provider = run.provider;
+    session.model = run.model;
     const message = String(params.message ?? '');
+    append(session, { role: 'user', content: [{ type: 'text', text: message }] });
     const text = `fake: ${message}`;
     setTimeout(() => {
       void (async () => {
@@ -330,8 +347,11 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
           // Completion rides `phase: 'result'` like the real engine (O11), not `'end'`, with its result.
           emitRun(run, 'tool', { phase: 'result', name: call.name, toolCallId, isError,
             result: { content: [{ type: 'text', text: output }] } });
+          append(session, { role: 'assistant', content: [{ type: 'toolCall', id: toolCallId, name: call.name, arguments: call.input }] });
+          append(session, { role: 'toolResult', toolCallId, toolName: call.name, isError, content: [{ type: 'text', text: output }] });
         }
         emitRun(run, 'assistant', { text });
+        append(session, { role: 'assistant', content: [{ type: 'text', text }] });
         // The engine sums the run's usage (zero buckets omitted); the fake counts characters.
         run.usage = { input: message.length, output: text.length, total: message.length + text.length };
         setTimeout(() => finish(run, { status: 'ok', terminalReply: { text } }), ABORT_WINDOW_MS);
@@ -582,6 +602,52 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       if (sessions.has(`${agentId}\n${key}`)) return { ok: true, key, agentId };
       if (p.allowMissing === true) return { ok: false };
       throw new Error(`No session found: ${key}`);
+    },
+    // The pin's rows for one agent (`search` matches a key substring), `hasActiveRun` while a run on it is live.
+    'sessions.list': (p) => {
+      const agentId = String(p.agentId ?? 'main'), search = String(p.search ?? '').toLowerCase();
+      const rows = [...sessions].filter(([id]) => id.startsWith(`${agentId}\n`)).map(([id, s]) => ({ key: id.slice(agentId.length + 1), s }))
+        .filter(({ key }) => key.toLowerCase().includes(search))
+        .map(({ key, s }) => ({ key, sessionId: s.sessionId, updatedAt: s.updatedAt, hasActiveRun: activeOn(agentId, key),
+          ...(s.provider ? { modelProvider: s.provider } : {}), ...(s.model ? { model: s.model } : {}) }));
+      return { count: rows.length, sessions: rows };
+    },
+    // `fork` copies the parent's whole transcript, from any agent, into a new session id; refused while the parent runs.
+    'sessions.create': (p) => {
+      const agentId = String(p.agentId ?? 'main'), key = String(p.key ?? '');
+      if (!agents.has(agentId)) throw new Error(`unknown agent id "${agentId}"`);
+      const rows: Record<string, unknown>[] = [];
+      let model: { provider?: string; model?: string } = {};
+      if (p.fork === true) {
+        const parentKey = String(p.parentSessionKey ?? '');
+        const parentAgent = /^agent:([^:]+):/.exec(parentKey)?.[1] ?? 'main';
+        const parent = sessions.get(`${parentAgent}\n${parentKey}`);
+        if (!parent) throw new Error(`No session found: ${parentKey}`);
+        if (activeOn(parentAgent, parentKey)) throw new Error(`Parent session ${parentKey} is still active; try again in a moment.`);
+        rows.push(...structuredClone(parent.rows));
+        model = { provider: parent.provider, model: parent.model };
+      }
+      const ref = typeof p.model === 'string' ? p.model : undefined;
+      if (ref) model = ref.includes('/') ? { provider: ref.slice(0, ref.indexOf('/')), model: ref.slice(ref.indexOf('/') + 1) } : { ...model, model: ref };
+      const session: Session = { sessionId: randomUUID(), updatedAt: Date.now(), rows, ...model };
+      sessions.set(`${agentId}\n${key}`, session);
+      return { ok: true, key, sessionId: session.sessionId, runStarted: false };
+    },
+    // A changed session (id or `updatedAt` other than expected) is refused before anything goes, as the pin does.
+    'sessions.delete': (p) => {
+      const agentId = String(p.agentId ?? 'main'), key = String(p.key ?? '');
+      const session = sessions.get(`${agentId}\n${key}`);
+      if ((p.expectedSessionId !== undefined && session?.sessionId !== p.expectedSessionId)
+        || (p.expectedSessionUpdatedAt !== undefined && session?.updatedAt !== p.expectedSessionUpdatedAt))
+        throw new Error(`Session ${key} changed before deletion. Retry.`);
+      if (session && activeOn(agentId, key)) throw new Error(`Session ${key} is still active; try again.`);
+      return { ok: true, key, deleted: sessions.delete(`${agentId}\n${key}`), archived: [] };
+    },
+    'chat.history': (p) => {
+      const key = String(p.sessionKey ?? '');
+      const agentId = String(p.agentId ?? /^agent:([^:]+):/.exec(key)?.[1] ?? 'main');
+      const session = sessions.get(`${agentId}\n${key}`);
+      return { sessionKey: key, ...(session ? { sessionId: session.sessionId } : {}), messages: structuredClone(session?.rows ?? []) };
     },
     'chat.abort': (p) => {
       for (const run of runs.values()) {
