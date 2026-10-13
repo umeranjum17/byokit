@@ -36,6 +36,11 @@ const TRIAL_TTL_SECONDS = 7200;
 const DELETE_CONFIRM_HEADER = 'X-Ascii-Confirm-Delete';
 
 const RETRY_WAITS_MS = [1000, 2000, 4000];
+// One deadline per request: the backoff waits and the start of each new attempt
+// are bounded by it, so slow 429/5xx answers cannot stretch the retries to ~47 s.
+// A request already in flight is never cut by it, because a non-detached exec
+// POST legitimately stays open up to its timeoutSeconds.
+const REQUEST_TIMEOUT_MS = 10_000;
 const POLL_EVERY_MS = 2000;
 const EXEC_POLL_EVERY_MS = 1000;
 const WAKE_TIMEOUT_MS = 5 * 60 * 1000;
@@ -68,14 +73,33 @@ const toBase64 = (bytes: Uint8Array): string => {
   return btoa(s);
 };
 
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+  new Promise((resolve, reject) => {
+    // Only the 429/5xx retry backoff passes a signal; the poll loops wait out
+    // their full interval. An aborted wait fails the way an aborted fetch
+    // does, so the caller keeps reading `unreachable` and its own aborted
+    // signal keeps reading cancelled, exactly as before.
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      reject(new MachineError('unreachable', 'the provider could not be reached'));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    if (signal?.aborted) onAbort();
+    else signal?.addEventListener('abort', onAbort, { once: true });
+  });
 
 type FetchFn = typeof fetch;
 
 type WireBody = { body?: unknown; headers?: Record<string, string> };
 
 export function boat(o: {
-  baseUrl: string; label: string; prices: readonly Price[]; key: () => Promise<string>; fetch?: typeof fetch
+  baseUrl: string; label: string; prices: readonly Price[]; key: () => Promise<string>; fetch?: typeof fetch;
+  // Cancels this provider for good: build a new boat() for the next operation.
+  signal?: AbortSignal;
 }): Provider {
   const fetchFn: FetchFn = o.fetch ?? globalThis.fetch;
   const lastRaw = new Map<string, string>();
@@ -90,7 +114,12 @@ export function boat(o: {
       ...wire?.headers,
     };
     const init: RequestInit = { method, headers };
+    // The caller's abort ends an in-flight attempt for fetch users that honor
+    // init.signal (a caller wrapper that injects its own signal keeps working:
+    // it carries the same abort).
+    if (o.signal !== undefined) init.signal = o.signal;
     if (wire?.body !== undefined) init.body = JSON.stringify(wire.body);
+    const started = Date.now();
     for (let attempt = 0; ; attempt++) {
       let res: Response;
       try {
@@ -100,7 +129,11 @@ export function boat(o: {
         throw new MachineError('unreachable', 'the provider could not be reached');
       }
       if ((res.status === 429 || res.status >= 500) && attempt < RETRY_WAITS_MS.length) {
-        await sleep(RETRY_WAITS_MS[attempt]);
+        // Past the one overall deadline the last answer stands, exactly as
+        // when the retries run out; the wait itself is capped at what is left.
+        const remaining = REQUEST_TIMEOUT_MS - (Date.now() - started);
+        await sleep(Math.min(RETRY_WAITS_MS[attempt], remaining), o.signal);
+        if (Date.now() - started >= REQUEST_TIMEOUT_MS) return res;
         continue;
       }
       return res;
@@ -108,7 +141,9 @@ export function boat(o: {
   };
 
   const read = async (res: Response): Promise<{ text: string; json: unknown }> => {
-    const text = await res.text();
+    const text = await res.text().catch(() => {
+      throw new MachineError('unreachable', 'the provider could not be reached');
+    });
     let json: unknown = null;
     try {
       json = text.length > 0 ? JSON.parse(text) : null;
