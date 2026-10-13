@@ -97,7 +97,8 @@ export function createKeys(ctx: ActivationCtx & {
         await exclusive(member, async () => {
           const ready = await control(member, 'ready').catch(() => { complete = false; return undefined; });
           if (!ready?.absent) return;
-          await control(member, 'clear').catch(() => { complete = false; });
+          const cleared = await control(member, 'clear').catch(() => undefined);
+          if (cleared?.ok !== true) complete = false;
         });
       }
       return complete;
