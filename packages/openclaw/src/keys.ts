@@ -55,10 +55,10 @@ export function createKeys(ctx: ActivationCtx & {
       { config?: { models?: { providers?: Record<string, { models?: { id: string }[] }> } } };
     return Boolean(config?.models?.providers?.[provider]?.models?.some((m) => `${provider}/${m.id}` === model));
   };
-  const errorReason = (error: unknown): KeyFailureReason => {
+  const errorReason = (error: unknown, sent: boolean): KeyFailureReason => {
     if (transient(error)) return 'busy';
     const e = error as { code?: string; name?: string } | null;
-    if (e?.code === 'INVALID_REQUEST') return 'inference';
+    if (sent && e?.code === 'INVALID_REQUEST') return 'inference';
     return ['ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'ETIMEDOUT', 'CLIENT_TIMEOUT', 'NETWORK_ERROR'].includes(e?.code ?? '')
       || e?.name === 'TimeoutError' ? 'network' : 'engine';
   };
@@ -115,7 +115,7 @@ export function createKeys(ctx: ActivationCtx & {
           if ((await control(member, 'seal', undefined, o.model)).ok) return { status: 'ok' };
           return abandon(failure('retry', 'engine'));
         } catch (error) {
-          const reason = errorReason(error);
+          const reason = errorReason(error, sent);
           if (sent) return abandon(failure('retry', reason));
           return failure('retry', reason);
         }

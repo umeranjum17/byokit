@@ -545,6 +545,15 @@ test('key entry refuses unavailable routes and hides even an engine error that e
   await assert.rejects(kit.ensureMember('byokit-key-m1'), /invalid member/);
 }));
 
+test('a refusal before the key is sent is an engine failure, not an inference one', async () => withKit(async (kit, fake) => {
+  const key = 'CANARY-PRESEND-KEY-511';
+  fake.handle('agents.create', () => { throw Object.assign(new Error(key), { code: 'INVALID_REQUEST' }); });
+  const result = await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: key });
+  assert.deepEqual(result, { status: 'retry', reason: 'engine' });
+  assert.equal(JSON.stringify([result, fake.calls]).includes(key), false);
+  assert.equal(fake.calls.some((c) => c.method === 'openclaw.setup.activate'), false, 'nothing was sent to the provider');
+}));
+
 test('a chosen live model the engine did not register is a retry and nothing is sealed', async () => withKit(async (kit, fake) => {
   const key = 'CANARY-UNREGISTERED-KEY-306';
   fake.handle('config.patch', () => { throw new Error('config write refused'); });
