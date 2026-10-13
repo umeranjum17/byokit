@@ -35,8 +35,9 @@ Model sign-in happens on the machine, inside the aggregator — credentials are 
 the person's computer. One person, one provider account, one machine per app install.
 
 Entries: `.` is portable (Node, Electron, React Native); `./ssh` is Node only (an already-rented
-Linux machine over the `ssh` binary the app passes by absolute path); `./idle` runs on the machine
-inside the host process; `./testing` is Node only (the fake provider and the contract suite).
+Linux machine over the `ssh` binary the app passes by absolute path); `./hetzner` is Node only
+(the Hetzner Cloud first slice below); `./idle` runs on the machine inside the host process;
+`./testing` is Node only (the fake providers and the contract suite).
 
 **Status: in development.** This is the M3 build ([spec](../../docs/cloud-kit.md) §14):
 frozen types, words, pure parts (`renderUnit`, recipe checks, node argv, cost), `machine()`
@@ -106,9 +107,9 @@ token through `/servers/{id}`. A 404 is treated as a server deleted in the conso
 while `status()` and `state()` keep rejecting `wrong-account` until then. Known limit:
 Hetzner answers 404 for a server outside the current token's project too, so a token
 from another project under the same app project id makes a live server look deleted;
-keep the app project id in step with the token. Create retries
-reconcile by unique name plus operation label. Create makes a dedicated Hetzner Cloud
-Firewall **before** the server and attaches it in the server-create request: its only
+keep the app project id in step with the token. An unreachable or 5xx create response
+is reconciled by unique name plus operation label before cleanup. Create makes a dedicated
+Hetzner Cloud Firewall **before** the server and attaches it in the server-create request: its only
 inbound rule is **SSH 22/tcp on IPv4**. Every app port stays closed publicly; recipe
 installation never adds a rule. SSH-only firewall ownership/rules are checked before
 SSH operations. Tailnet-only SSH is a later step; public SSH 22 remains for bootstrap.

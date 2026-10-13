@@ -53,8 +53,8 @@ export function machineContract(make: () => Promise<MachineBench>, o?: { test?: 
   const createMachine = async (bench: MachineBench): Promise<Machine> => machine({ provider: bench.provider, store: bench.store });
 
   // A provider without `create` (the SSH VM) adopts the machine that already
-  // exists, which needs `keepCopies: false` (5.2 step 4); every other bench
-  // creates with copies on.
+  // exists, which needs `keepCopies: false` (5.2 step 4); a bench may set
+  // `keepCopies` itself, and every other bench creates with copies on.
   const keepCopiesFor = (bench: MachineBench): boolean => bench.keepCopies ?? bench.provider.create !== undefined;
 
   const rejectCode = async (p: Promise<unknown>, code: string): Promise<MachineError> => {
