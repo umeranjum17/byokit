@@ -81,6 +81,7 @@ type Sandbox = {
   id: string;
   raw: string;
   wakeReads: number;
+  snapshots?: boolean;
   commands: Map<string, { stdout: string; stderr: string; exitCode: number }>;
 };
 
@@ -121,7 +122,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
     res.end(text);
   };
 
-  const sandboxBody = (sb: Sandbox, name: string): Record<string, unknown> => ({ id: sb.id, name, state: sb.raw });
+  const sandboxBody = (sb: Sandbox, name: string): Record<string, unknown> => ({ id: sb.id, name, state: sb.raw, snapshots: sb.snapshots === true });
 
   // The 6.4 stdin wrapper verbatim (`<command> < <path>; r=$?; rm -f <path>; exit $r`):
   // the shell keeps `;` glued to the path token, so this is recognised here and the
@@ -204,6 +205,10 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
 
       if (route === 'GET /me') return send(res, 200, { ok: true, type: 'user.info', user: { id: accountId } });
 
+      if (route === 'GET /sandboxes') return send(res, 200, {
+        ok: true, type: 'sandbox.list', sandboxes: [...sandboxes.values()].map((sb) => sandboxBody(sb, 'Sandbox')),
+      });
+
       if (route === 'POST /sandboxes') {
         const from = str(b['from']);
         // A sandbox made from a named snapshot inherits no-env from its source; an explicit
@@ -224,7 +229,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
         const saved = from === null ? undefined : snapshots.get(from);
         if (saved !== undefined) machine.files = new Map([...saved.files].map(([k, f]) => [k, { ...f, bytes: f.bytes.slice() }]));
         const slow = o.slowCreateReads ?? 0;
-        const sb: Sandbox = { id, raw: nextCreateRaw ?? (slow > 0 ? 'provisioning' : 'ready'), wakeReads: slow, commands: new Map() };
+        const sb: Sandbox = { id, raw: nextCreateRaw ?? (slow > 0 ? 'provisioning' : 'ready'), wakeReads: slow, snapshots: b['snapshots'] === true, commands: new Map() };
         nextCreateRaw = null;
         sandboxes.set(id, sb);
         if (idemKey !== '') createdByKey.set(idemKey, id);

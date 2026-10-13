@@ -123,7 +123,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [usage-planview](./usage-planview.md) — plan/quota view rendered from call records.
 - [cloud-status-poll](./cloud-status-poll.md) — the one status read a phone polls through the machine's whole life.
 - [cloud-snapshots](./cloud-snapshots.md) — save, prune, auto-save, reset and disk space on the cloud computer.
-- [cloud-boat-v1](./cloud-boat-v1.md) — the boat adapter's public boat-v1 names against the loopback bench.
+- [cloud-boat-v1](./cloud-boat-v1.md) — public boat-v1 wire names plus existing-computer list/adopt, consent/collision refusals and install retry without another rental.
 - [cloud-hetzner](./cloud-hetzner.md) — API-loaded Hetzner create/status/delete and pinned SSH HostRecipe through the built Node entry; offline native bench and token-gated live proof.
 - [usage-preflight](./usage-preflight.md) — preflight cost ceiling, remaining allowance, declined costly call, and explicit-unknown cases.
 - [usage-claude-file-guard](./usage-claude-file-guard.md) — a default-login `.claude`/`.codex`/`.pi` segment (lexically or via symlink) is refused with `UsageError` before any open; an app-owned file still reads.

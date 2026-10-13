@@ -345,6 +345,34 @@ Where this differs from the first suggested shape, and why:
   pointing at a deleted machine.
 - The auto-snapshot policy is a call the app makes, `scheduleSnapshots({ everyMs, keep, onResult })`, not stored state (5.10).
 
+### 4.5 Setup step stream (K-PROGRESS)
+
+The connect screen never infers success from log prose or elapsed time. `setup()` reports one step per real result
+over the 5.2a paths, for the app to show with `words()` (5.11).
+
+```ts
+// src/setup.ts, exported from '.'
+export type SetupStepName = 'checking-access' | 'listing' | 'inspecting' | 'installing' | 'pairing';
+export type SetupStep =
+  | { step: 'checking-access'; account: string }   // provider.account() returned
+  | { step: 'listing'; machines: MachineRef[] }    // provider.list() returned
+  | { step: 'inspecting'; ref: MachineRef }        // the picked machine passed the 5.2a guards and is saved
+  | { step: 'installing'; ref: MachineRef }        // install(recipe) resolved
+  | { step: 'pairing' }                            // the app's pair gate resolved
+  | { step: 'ready'; ref: MachineRef }
+  | { step: 'failed'; at: SetupStepName; cause: WordKey; retryable: boolean };
+export function setup(o: {
+  provider: Provider; store: MachineStore; recipe: HostRecipe;
+  pick: (listed: MachineRef[]) => MachineRef;      // the app's choice from the listing event
+  confirmId: string;                               // must equal the picked id (5.2a)
+  onLine?: (line: string) => void;                 // install lines, in order
+  pair?: (ref: MachineRef) => Promise<void>;       // the app's Pair-ready gate; absent skips pairing
+}): AsyncGenerator<SetupStep>
+```
+
+`Machine.adopt` gains an optional `onLine` in its options, passed to its install; nothing else in 4.1 changes.
+`src/words.ts` gains `errorKey(e: MachineError): WordKey`, the key `errorWords` shows (12).
+
 ## 5. `Machine` (`src/machine.ts`)
 
 ### 5.1 Store and refs
@@ -358,7 +386,7 @@ Where this differs from the first suggested shape, and why:
 - Every method checks in this order: load; `wrong-account`; `no-machine`; the method's own argument checks (a bad
   `port`, `lines`, `file` or recipe rejects `bad-recipe`); then whether the provider has the optional method it needs
   (`unsupported`).
-- `create` and `plan` need no ref. Every other method rejects `MachineError('no-machine')` when `ref` is null:
+- `create`, `adopt` and `plan` need no ref. Every other method rejects `MachineError('no-machine')` when `ref` is null:
   `state`, `wake`, `sleep`, `install`, `update`, `host`, `logs`, `url`, `cost`, `remove`, `why` and `deliver`.
 
 ### 5.2 `create`
@@ -377,6 +405,27 @@ Where this differs from the first suggested shape, and why:
    `provider.status(ref)` must be `'on'` before it is saved (else reject `host-key` for `host-key-changed`,
    `unreachable` otherwise).
 5. The returned ref is saved (5.1), then returned.
+
+### 5.2a Existing computers (K-EXISTING)
+
+`Provider.list?(): Promise<MachineRef[]>` lists existing computers without changing them.
+`Machine.adopt(ref, { confirmId, recipe }): Promise<MachineRef>` works even when the provider
+also has `create`. The app shows `adopt.confirm` and calls it only after installation consent;
+`confirmId` must equal the selected id. No create, wake, conversion or paid fallback is allowed.
+The kit checks the stored and selected account, confirms the id in a fresh provider list,
+uses its live `keepCopies`, and requires status `on`. A missing id rejects `no-machine`;
+a mismatched confirmation rejects `confirm`. The recipe supplies the app's unit name.
+Before saving or installing, probe Linux/home and refuse `exists` for an existing workDir,
+workDir symlink ancestor, either unit path, root marker or requested run user. No existing
+installation is taken over. Probe failures propagate. Save the selected ref, then reuse
+`install(recipe)`. A failed install keeps that ref so the app retries with `install`, never create.
+An occupied store refuses `exists`; adoption shares the existing exclusive-operation lock.
+
+Boat lists `GET /sandboxes`, following `pageInfo.nextCursor` while `hasMore`; malformed
+pages reject `provider`. Only owner access (or omitted access for older personal responses)
+is offered. Each ref uses the authenticated `/me` account, sandbox id, a safe name `computer`
+(replaced by the recipe name at adoption), and `snapshots === true` for `keepCopies`.
+No desktop URL, environment, logins or other secret-bearing response fields leave the adapter.
 
 ### 5.3 `state`, `url`, `remove`
 
@@ -502,6 +551,21 @@ land with that provider's adapter, behind the same members (follow-up).
   decimal GB (bytes / 1e9), rounded to one decimal. A non-zero exit or an unreadable line rejects `provider`. Like
   every command it needs the machine on. Words: `disk.used`.
 - The bill: the free copies and their price are 15.1's. `keep` defaults to 3 so the kit stays inside the free ones.
+
+### 5.11 Setup step stream (K-PROGRESS)
+
+`setup()` drives one existing-computer connect (5.2a) as an async iterable: checking-access
+(`provider.account()`), listing (`provider.list()`; absent reads as a non-retryable listing failure), the
+app's `pick`, inspecting plus installing (`Machine.adopt` with the consented recipe; `onLine` carries the
+install lines), the `pair` gate, then ready. No step is emitted before its result: no timer percentages and
+no log-text inference. Phone-key enrol, claim/publish, the public route and console setup are out of scope.
+- A rejection yields one `failed` step and ends the stream: `at` is the phase whose call failed, `cause` is
+  `errorKey` of the error (a non-`MachineError` reads `error.app`), and `retryable` is true only for
+  `unreachable`, `timeout`, `provider`, `balance` and `busy`. An adopt failure after the ref was saved reads
+  `installing`; before that it reads `inspecting`; `busy` always reads `inspecting`.
+- A retry calls `setup()` again with the same arguments: when the store already holds the picked machine
+  (`exists`), the stream resumes at install on that ref. Install stays idempotent, so a re-run on an installed
+  machine reinstalls rather than reporting work it did not do.
 
 ## 6. Boat adapter (`src/boat.ts`)
 
@@ -1011,6 +1075,12 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
 | `plan.trial` | Your first week is a free trial, and {label} switches your cloud computer off every 2 hours during it. Opening {app} turns it back on. After the trial it stays on. |
 | `setup.makeKey` | Make a key on the {label} site, then paste it here. |
 | `setup.typeCode` | Open the {label} page and type this code: {code} |
+| `setup.checking-access` | Checking your {label} account. |
+| `setup.listing` | Looking for your existing cloud computers. |
+| `setup.inspecting` | Checking this cloud computer can run {app}. |
+| `setup.installing` | Putting {app} on your cloud computer. |
+| `setup.pairing` | Connecting this device to {app}. |
+| `setup.ready` | {app} is running on your cloud computer. |
 | `host.not-installed` | {app} isn't on your cloud computer yet. |
 | `host.installing` | Putting {app} on your cloud computer… |
 | `host.running` | {app} is running on your cloud computer. |

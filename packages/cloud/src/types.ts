@@ -44,6 +44,7 @@ export interface Provider {
   exec(m: MachineRef, argv: readonly string[], o: { timeoutMs: number; root?: boolean; input?: Uint8Array }): Promise<ExecResult>
   write(m: MachineRef, path: string, bytes: Uint8Array, mode: number): Promise<void>
   // Optional. Absent means the adapter can't, and the UI hides the action.
+  list?(): Promise<MachineRef[]>                         // existing computers; read-only
   create?(o: { name: string; size: string; keepCopies: boolean; idempotencyKey: string }): Promise<MachineRef>
   wake?(m: MachineRef): Promise<void>                 // resolves at 'on'
   sleep?(m: MachineRef): Promise<void>
@@ -90,6 +91,7 @@ export type MachineStore = { load(): Promise<MachineRecord | null>; save(r: Mach
 export interface Machine {
   readonly ref: MachineRef | null
   create(o: { name: string; size: string; keepCopies: boolean }): Promise<MachineRef>
+  adopt(ref: MachineRef, o: { confirmId: string; recipe: HostRecipe; onLine?: (line: string) => void }): Promise<MachineRef>
   state(): Promise<MachineState>
   wake(): Promise<void>; sleep(): Promise<void>
   install(r: HostRecipe, onLine?: (line: string) => void): Promise<void>

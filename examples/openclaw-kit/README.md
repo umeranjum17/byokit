@@ -1,10 +1,11 @@
 # OpenClaw kit example
 
-Your ChatGPT plan working for you on this computer, from your phone: pair the phone with this computer, sign in with
-ChatGPT, send the helper a message, and allow or deny what it asks before it acts. The computer runs `host.ts`
+Your AI plan working for you on this computer, from your phone: pair the phone with this computer, sign in to a plan,
+send the helper a message, and allow or deny what it asks before it acts. The computer runs `host.ts`
 (`@byokit/openclaw`, with its own OpenClaw engine in `./.state`); the phone opens a plain web page this computer
-serves, over your home network or Tailscale. The ChatGPT sign-in is kept by the engine on this computer; this app
-never sees it.
+serves, over your home network or Tailscale. Sign-ins are kept by the engine on this computer; this app
+never sees them. Every way in is the kit's own route list: the phone page groups `oc.routes()`, and the terminal's
+`add <choice>` takes the same choices.
 
 ## Minutes to working
 
@@ -26,10 +27,14 @@ npm start
    there and type the code. The phone moves on by itself once ChatGPT says yes. With an OpenCode Go plan, tap
    **OpenCode Go catalog — paste the key from your plan** instead and paste the key from your OpenCode Go dashboard:
    it goes to this computer over the paired link, which keeps it and checks it; the phone keeps nothing.
-5. Type a message and tap **Send**. The reply streams in under it, then how many tokens it used.
+5. Type a message and tap **Send**. The reply streams in under it, with its token usage (`Tokens: …`) underneath.
 6. Ask it to save a note (for example "save a note that says buy milk"). Before it does, the phone shows **Your
    helper wants to save a note. Allow it?** Tap **Allow** and the note lands in `.state/notes.txt`, or **Deny** and
    nothing is saved. Everything else the helper would do on this computer (searching the web, say) asks the same way.
+
+A plan key (OpenCode Go) can also be added at the computer: type `add opencode-go` in the terminal, then paste the key
+there (typed input stays hidden). Either way the key is stored only on this computer. Once it is in, the phone talks on
+that account too, and its streamed reply shows usage the same way.
 
 Over Tailscale the page is https and the phone keeps its pairing sealed in the browser. Over your home network it is
 plain http, which browsers don't let a page seal with, so the pairing is kept in the browser's ordinary storage
@@ -82,16 +87,18 @@ only. This web page takes no push notices itself; a phone app does.
 
 ## What's where
 
-- `host.ts`: `new OpenClawKit({ stateDir: './.state', tools: [demo_note], host, config: { plugins: { allow:
-  ['openai'] } } })`. `demo_note` (`{ text }`) is gated `{ ask: { summary: 'save a note' } }` and appends to
-  `.state/notes.txt`; the engine's own tools ask too. A `@byokit/pair` host (key in `.state/link-key.json`, paired
+- `host.ts`: `new OpenClawKit({ stateDir: './.state', tools: [demo_note], host })`; sign-in stays on the kit's route list
+  (no plugin pin, so every default route is offered). `demo_note` (`{ text }`) is gated `{ ask: { summary: 'save a note' } }`
+  and appends to `.state/notes.txt`; the engine's own tools ask too. The terminal takes `add <choice>` (a plan key pasted
+  hidden at this computer); anything else shows fresh pairing codes. A `@byokit/pair` host (key in `.state/link-key.json`, paired
   phones in `.state/grants.json`) answers the phone with `openclawLink(kit, { memberOf: () => 'me' })`: every paired
   phone acts for this app's one member. `serve` finds the address (`@byokit/discover`) and serves the page on the same
   port. With `--relay`, a `RelayClient` made once the host is open carries the kit's sealed notices and brings
   their buttons back (`onAction`), and `example.push` hands a phone's push address to it.
 - `web/app.ts`: plain DOM. Pairs with `pairWithCode`/`pairWithOffer` and keeps the pairing in this browser
-  (`browserDeviceStore`); then `openclawDevice(link)`: `signIn.start('openai', 'code')` and `signIn.view` through
-  `@byokit/ui`'s `phaseOf` for the sign-in card, `run` for the streamed reply, `approvals`/`events`/`decide` for
+  (`browserDeviceStore`); then `openclawDevice(link)`: the kit's routes grouped for the sign-in list,
+  `signIn.start` with a code and `signIn.view` through `@byokit/ui`'s `phaseOf` for the sign-in card, `run` for the
+  streamed reply with its `usage` underneath, `approvals`/`events`/`decide` for
   what waits for a yes. Every status is a sentence from the kit (`words`, `oc.state().words`) or `@byokit/ui`
   (`pairingView`, `linkWords`). Sign-ins for the helper's browser: `@byokit/ui/kits`' `signInsStore` over
   `oc.browser.signIns` and `oc.events`, each request drawn from `signInSheetView`, takeover into
@@ -102,7 +109,8 @@ only. This web page takes no push notices itself; a phone app does.
   phone in plain Node gets an approval sealed and allows it from the notice. From the repo:
   `npm run build && sh scripts/test.sh examples/openclaw-kit/e2e.test.ts` (`BYOKIT_EXAMPLE_SHOTS=<folder>` keeps
   the screenshots and `relay-wire.json`, what the push service got).
-- `LIVE.md`: the check with the real engine, a real ChatGPT sign-in and a real phone, run once per kit release.
+- `LIVE.md`: the check with the real engine, a real sign-in (ChatGPT, or an OpenCode Go plan key) and a real phone,
+  run once per kit release.
 
 ## Troubleshooting
 

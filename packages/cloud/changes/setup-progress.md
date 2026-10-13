@@ -1,0 +1,1 @@
+- Report one existing-computer connect as a step stream (checking-access, listing, inspecting, installing, pairing, ready, or failed with the step, a words cause and retryable), each step emitted after its real result; a retry resumes at install on the saved machine, and adopt forwards install lines.
