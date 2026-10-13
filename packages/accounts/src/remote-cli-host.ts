@@ -182,7 +182,7 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
   const sweep = () => {
     if (sessions.size < 50) return;
     for (const [id, s] of sessions) {
-      if (s.result && now() - s.startedAt > 3600_000) sessions.delete(id);
+      if (s.done && now() - s.startedAt > 3600_000) sessions.delete(id);
       if (sessions.size < 50) return;
     }
   };
@@ -226,6 +226,7 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     let id: string;
     let signIn: { argv: string[]; env: Record<string, string>; completion: string };
     let unlock: (() => void) | undefined;
+    let freshId: string | undefined;
     try {
       const reuse = rows.find((r) => r.provider === provider && (r.state === 'signed_out' || r.state === 'signing'));
       if (reuse) {
@@ -236,12 +237,14 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
       } else {
         const added = provider === 'claude' ? await cli.add('claude') : await cli.add('codex');
         id = added.account.id;
+        freshId = id;
         signIn = added.signIn;
         unlock = claimSignIn(dirname(signIn.completion));
         if (!unlock) { await cli.cancel(id); return fail(provider, 'busy'); }
       }
     } catch (e) {
       unlock?.();
+      if (freshId) await cli.cancel(freshId).catch(() => {});
       if (e instanceof CliAccountError && e.code === 'bad-option') return fail(provider, 'missing');
       if (e instanceof CliAccountError && e.code === 'prepare-failed') return fail(provider, 'busy');
       return fail(provider, 'failed');
@@ -253,7 +256,14 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
       child.once('exit', (code) => { session.exited = code; resolve(); });
       child.once('error', () => { session.exited ??= null; resolve(); });
     });
-    const settled = exit.then(() => settle(session)).finally(() => { session.done = true; unlock?.(); });
+    const settled = exit.then(async () => {
+      try { await settle(session); }
+      catch { session.result = fail(provider, 'failed'); await cli.cancel(id).catch(() => {}); }
+      try { unlock?.(); }
+      catch { session.result = fail(provider, 'failed'); }
+      session.done = true;
+      return session.result!;
+    });
     const session: Session = { id, provider, child, exit, settled, completion: signIn.completion,
       display: { id, provider, verificationUri: '' }, startedAt: now(), late: '' };
     const abort = () => { void stop(session, fail(provider, 'cancelled')); };

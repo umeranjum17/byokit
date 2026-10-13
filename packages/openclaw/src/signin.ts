@@ -84,6 +84,7 @@ export function signIn(
   let sessionId = '';
   let native: ReturnType<typeof remoteCliHost> | undefined;
   let nativeId: string | undefined;
+  let nativeReady = false;
   let starting: Promise<unknown> | undefined;
   let releasing: Promise<void> | undefined;
   let settleStart!: () => void;
@@ -185,7 +186,8 @@ export function signIn(
     // flight is not finished here: the drive returns once the engine answers, so cleanup follows the engine's answer.
     if (signal.aborted) return;
     owner.abort();
-    void (async () => { await release(); if (!activating) await finish(cancelled()); })();
+    // A registered native drive publishes its own settled answer; a ready row wins this phone cancel.
+    void (async () => { await release(); if (!activating && !nativeId) await finish(cancelled()); })();
   };
 
   o.signal?.addEventListener('abort', cancel, { once: true });
@@ -258,8 +260,9 @@ export function signIn(
           say({ url: started.signIn.verificationUri, prompt: 'Paste the code from the sign-in page' });
           if (returned !== undefined) { pasteIn(returned); returned = undefined; }
           const result = await native.wait(nativeId);
+          nativeReady = result.ok;
           pasteIn = undefined;
-          if (signal.aborted) return cancelled();
+          if (signal.aborted && !nativeReady) return cancelled();
           if (pasteFailed) return { state: 'failed', via, why: 'failed', error: 'The sign-in code could not be sent. Try again.' };
           if (!result.ok) return { state: 'failed', via,
             why: result.error === 'expired' ? 'expired' : result.error === 'cancelled' ? 'declined' : 'failed', error: result.words };
@@ -279,18 +282,18 @@ export function signIn(
         if (!apiKey) return { state: 'failed', via, why: signal.aborted ? 'declined' : 'expired' };
         secret = apiKey.trim() || undefined;
       }
-      if (signal.aborted) return { state: 'failed', via, why: 'declined' };
+      if (signal.aborted && !nativeReady) return { state: 'failed', via, why: 'declined' };
       // Done waits for the gateway restart an `auth` change causes (activation.ts); a run started before it runs on the
       // old config. A restart that runs late or is cancelled ends failed, and the account is cleaned up by the caller.
       activating = true;
       const result = await activate(ctx, {
         agentId, kind: apiKey === undefined ? 'claude-cli' : 'api-key',
         ...(apiKey === undefined ? {} : { authChoice: o.authChoice, apiKey }),
-      }, { timeoutMs: PULL_MS, signal }).finally(() => { activating = false; });
-      if (result.late) return signal.aborted ? cancelled() : { state: 'failed', via, why: 'failed', error: LATE_RESTART };
+      }, { timeoutMs: PULL_MS, signal: nativeReady ? driveOwner.signal : signal }).finally(() => { activating = false; });
+      if (result.late) return signal.aborted && !nativeReady ? cancelled() : { state: 'failed', via, why: 'failed', error: LATE_RESTART };
       if (!result.ok) return { state: 'failed', via, why: 'failed',
         error: apiKey === undefined ? clean(result.error ?? 'Claude Code activation failed') : keyFailed(result.status) };
-      return signal.aborted ? cancelled() : { state: 'done', via };
+      return signal.aborted && !nativeReady ? cancelled() : { state: 'done', via };
     }
     // The client chooses the wizard id; cancellation waits for the engine to register it.
     sessionId = `byokit-${randomUUID()}`;
@@ -437,10 +440,10 @@ export function signIn(
     try {
       const driven = await Promise.race([drive(), disconnected]);
       view = driven ?? await recover();
-      if (signal.aborted) view = codeExpired ? expired() : cancelled();
+      if (signal.aborted && !nativeReady) view = codeExpired ? expired() : cancelled();
     }
     catch (error) {
-      if (signal.aborted) view = codeExpired ? expired() : cancelled();
+      if (signal.aborted && !nativeReady) view = codeExpired ? expired() : cancelled();
       else if (sawDeviceCode && /expired_token|code.*expired|device.*(?:expired|timed out)/i.test(cut(error))) view = expired();
       else if (BUSY.test(cut(error))) view = { state: 'failed', via, why: 'busy' };
       else view = { state: 'failed', via, why: 'failed', error: keyRoute ? KEY_FAILED : clean(error) };

@@ -765,7 +765,7 @@ the kit starts unmodified `claude auth login --claudeai` in the exact engine HOM
 using Accounts' remote CLI driver and a narrow `cliAccounts.managedFolders` option, restricted to explicit
 app-owned folders inside its state directory. Its roster references that exact folder, never a second grant.
 Cancellation removes only roster/marker bookkeeping, never the engine folder. During settlement a ready native
-status wins over a phone cancel: the result and row stay ready. Host shutdown still wins over late status, and a stopped drive cannot proceed into activation after shutdown. The engine verifies readiness
+status wins over a phone cancel: the result and row stay ready. The kit also waits for that native result instead of publishing a declined view early; a ready result still requires successful engine detection and activation/restart before done, even if phone cancel landed. Host shutdown still wins over late status, and a stopped engine cannot proceed into activation after shutdown. The engine verifies readiness
 again after the native login finishes. The waiting view carries the native verification address and a plain paste-code
 prompt. `paste` writes one returned code to that CLI's stdin; cancel/expiry stop only that login. CLI output
 and credentials are never forwarded, logged, copied or read by the kit. A successful native exit is checked
@@ -776,8 +776,8 @@ sign-in lock (`signInLock`: the `.byokit-signin-lock` directory the shell comman
 a live, unreadable or missing holder file is busy (including a legacy shell's holderless lock; no unproven lock is stolen).
 A shell wrapper's exit alone is not liveness proof. The remote lock is held from claim until its managed row is settled, not merely until the child exits:
 the remote driver writes the host's PID before spawning and keeps it unchanged from claim through settlement (a lock stays busy while the host lives, and reads reclaimable if the host dies), then settles without any phone `wait`: exit 0 writes the completion marker and reads native status, and only a ready status keeps the login; any other exit or child error settles a failure (cancelling the row). The holder file and the lock are removed together, only after settlement. A remote start never reuses a row whose child exited 0 AND produced a ready sign-in; an exit 0 without ready status is a settled failure whose row MAY be reused. A pending settlement owns admission, so the next start is busy until it finishes.
-A failed holder write releases the newly acquired lock and reports a plain failure without spawning a native child.
-The remote driver attaches child supervision at spawn; waits share one child-exit promise rather than adding a listener per poll.
+A failed holder write releases the newly acquired lock and reports a plain failure without spawning a native child; a freshly added row is cancelled, while an existing row is retained for retry.
+The remote driver attaches child supervision at spawn; waits share one child-exit promise rather than adding a listener per poll. Settlement and unlock failures are total, sanitized failed results even without a phone waiter: no detached rejection may crash the host. Unremoved locks remain busy. Session eviction uses completed settlement, never an early result, so shutdown still owns unfinished cleanup.
 The kit reads a `signing` row's folder through `cliAccounts`' `folderOf(id)` (the managed folder itself, never a launch-env key) when it claims that row's lock.
 The phone uses the existing link start/view/paste/cancel operations; credentials stay on the engine machine.
 For the native Claude route, a link sign-in view reports `ready: false` while its drive is active or its latest

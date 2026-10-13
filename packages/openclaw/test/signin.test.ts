@@ -680,7 +680,7 @@ else { process.stdin.setEncoding('utf8'); process.stdin.once('data', code => {
 });
 
 
-test('a phone paste that lands after the native Claude login exited does not cancel its finished sign-in', { timeout: 30_000 }, async () => {
+for (const action of ['paste', 'cancel', 'shutdown']) test(`native Claude settlement: ${action} after exit`, { timeout: 30_000 }, async () => {
   const root = scratchDir('native-paste-after-exit');
   const bin = join(root, 'bin'); mkdirSync(bin);
   const folder = join(root, 'openclaw/home/.claude');
@@ -703,9 +703,12 @@ if (process.argv[3] === 'status') {
 }
 `, { mode: 0o700 });
   let activated = false;
+  let releaseActivation!: () => void;
+  const activation = new Promise<void>(resolve => { releaseActivation = resolve; });
   const gateway = fakeGateway({
     'openclaw.setup.detect': () => ({ candidates: [{ kind: 'claude-cli', credentials: existsSync(granted) }] }),
-    'openclaw.setup.activate': async () => { activated = true; return { ok: true }; },
+    'openclaw.setup.activate': async () => { activated = true; await activation; return { ok: true }; },
+    'models.authStatus': () => ({ providers: existsSync(granted) ? ['claude-cli'] : [] }),
   });
   const kit = new OpenClawKit({ stateDir: root, enginePath: [bin], spawnEngine: false, transport: gateway.factory });
   try {
@@ -722,13 +725,26 @@ if (process.argv[3] === 'status') {
     await call('oc.signin.paste', { text: 'synthetic-returned-code' });
     for (let i = 0; !existsSync(statusFlag) && i < 300; i++) await delay(10);
     assert.ok(existsSync(statusFlag), 'the CLI exited and its status read is in flight');
-    await call('oc.signin.paste', { text: 'late-code' });
+    const stopping = action === 'shutdown' ? kit.stop() : undefined;
+    if (!stopping) await call(action === 'paste' ? 'oc.signin.paste' : 'oc.signin.cancel', action === 'paste' ? { text: 'late-code' } : {});
     writeFileSync(release, '');
+    if (stopping) {
+      await stopping;
+      assert.equal((await until(v => v?.state === 'failed')).state, 'failed', 'shutdown still wins over late native readiness');
+      assert.equal(activated, false, 'a stopped engine is never activated');
+      return;
+    }
+    const held = await until(v => activated || v?.state === 'failed');
+    assert.equal(held.state, 'waiting', 'a ready native row must not produce a declined view');
+    assert.equal(activated, true, 'ready settlement continues into activation despite phone cancel');
+    assert.equal((await call('oc.signin.view', {}) as { ready: boolean }).ready, false, 'activation still owns completion');
+    releaseActivation();
     const end = await until(v => v?.state === 'done' || v?.state === 'failed');
     assert.equal(end.state, 'done');
     assert.equal(activated, true);
     assert.ok(!JSON.stringify(end).includes('late-code'));
-  } finally { writeFileSync(release, ''); await kit.stop(); rmSync(root, { recursive: true, force: true }); }
+    assert.equal((await call('oc.signin.view', {}) as { ready: boolean }).ready, true);
+  } finally { writeFileSync(release, ''); releaseActivation(); await kit.stop(); rmSync(root, { recursive: true, force: true }); }
 });
 
 test('a sealed engine creates its own home for a phone Claude sign-in instead of failing it', { timeout: 30_000 }, async () => {
