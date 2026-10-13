@@ -373,7 +373,7 @@ test('a Boat bootstrap joins the private network without opening a public app po
     assert.equal(server.machine.runs.length, before, 'a refused key or hostname runs nothing');
     assert.ok(!JSON.stringify(server.requests).includes(canary));
 
-    // The HTTP bench carries the real argv; only the remote installer and daemon are stand-ins.
+    // The HTTP bench carries the real argv; only the remote bootstrap and daemon are stand-ins.
     server.machine.script('sh', { code: 0, stdout: '', stderr: '', timedOut: false });
     const daemon = (BackendState: string, DNSName?: string, stderr = '') => server.machine.script('tailscale', {
       code: BackendState === 'Running' ? 0 : 1, stdout: JSON.stringify({ BackendState, Self: { DNSName } }), stderr, timedOut: false,
@@ -390,7 +390,7 @@ test('a Boat bootstrap joins the private network without opening a public app po
     }), { name: 'umer-cloud.umer.ts.net' });
     assert.deepEqual(steps, ['open-page', 'joined']);
     assert.deepEqual(await m.tailnet(), { state: 'joined', name: 'umer-cloud.umer.ts.net' });
-    const bootstrap = server.machine.runs.find(r => r.argv[2]?.includes('tailscale.com/install.sh'));
+    const bootstrap = server.machine.runs.slice(before).find(r => r.argv[0] === 'sh' && r.argv[1] === '-c');
     assert.ok(bootstrap?.root && bootstrap.inputBytes === 0);
     assert.equal(server.requests.filter(r => r.path.endsWith('/host')).length, 0, 'bootstrap plus host makes no public hosting call');
     daemon('NeedsMachineAuth');
