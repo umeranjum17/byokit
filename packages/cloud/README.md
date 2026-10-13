@@ -7,15 +7,26 @@ their own bill. The person-facing words say "your cloud computer". The Boat adap
 ([spec](../../docs/cloud-kit.md)).
 
 ```ts
-import { machine, type Provider, type MachineStore, type HostRecipe } from '@byokit/cloud';
+import { machine, status, type Provider, type MachineStore, type HostRecipe } from '@byokit/cloud';
 
-export async function start(provider: Provider, store: MachineStore, recipe: HostRecipe) {
+export async function start(provider: Provider, store: MachineStore, recipe: HostRecipe, show: (s: string) => void) {
   const m = machine({ provider, store });
   const ref = await m.create({ name: 'tracker', size: 'small', keepCopies: true });
+  const vars = { app: 'Tracker', label: 'Boat' };
+  // Boat's create resolves before the machine is on; poll the one status a phone shows.
+  for (let s = await status(m, vars); s.machine !== 'on'; s = await status(m, vars)) {
+    show(s.words); // "Setting up your cloud computer. This takes a minute or two."
+    await new Promise((r) => setTimeout(r, 3000));
+  }
   await m.install(recipe);
-  return { ref, state: await m.state() }; // 'on'
+  show((await status(m, vars)).words); // "Tracker is running on your cloud computer."
+  return ref;
 }
 ```
+
+`status(m, { app, label })` resolves `{ machine, host, words }`: the host is asked only while
+the machine is on, and `words` is the one plain sentence to show. Start and stop are
+`wake()` and `sleep()`; delete is `remove(ref.id)`.
 
 `machine()` decides where the app's host process runs; the app's one runtime kit
 (`@byokit/openclaw` or `@byokit/herdr`) runs inside that process exactly as it does at home.

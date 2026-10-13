@@ -90,6 +90,7 @@ packages/cloud/
     types.ts          # section 4, verbatim
     errors.ts         # MachineError (4.2)
     machine.ts        # machine() (5)
+    status.ts         # status(), the one read a phone polls (5.9)
     unit.ts           # renderUnit(), quoting (8.4), pure
     recipe.ts         # recipe checks (8.1), range compare, FNV-1a marker hash, pure
     node.ts           # node check and install argv (8.3 step 4), pure
@@ -401,6 +402,15 @@ recovery. It is the only write `Machine` offers; anything else goes in the recip
   The file ends at mode 0600 in a 0700 directory, owned by the run user. Root never writes there, so a symlink the
   run user plants can only redirect a write the run user could make anyway.
 - The app's host watches that directory.
+
+### 5.9 `status` (K1)
+
+`status(m, { app, label })` (portable, in `.`) is the one read a phone polls through create, install, sleep, wake
+and remove. It resolves `{ machine, host, words }`: `machine` is `m.state()`; while it is `on`, `host` is `m.host()`
+and `words` is `hostWords(host)`; otherwise `host` is `null` (no command is sent to a machine that is not on) and
+`words` is `stateWords(machine)`. Rejections are `state()`'s and `host()`'s (`no-machine` after `remove`); the app
+shows `errorWords`. Boat's `create` resolves before the machine is on, so an app polls `status` until `on` before
+`install`.
 
 ## 6. Boat adapter (`src/boat.ts`)
 
@@ -997,7 +1007,7 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
   units with their `show` fields, a journal, a passwordless-sudo flag and a Node version. Its `run(argv, { root, input, asUser })`
   answers exactly the argv that sections 5.4, 5.8 and 8 produce (the fixed shell templates are matched as whole
   strings), plus anything registered with `script(argv0, result)`. Any other argv exits 127 and is recorded. Enabled
-  units restart on `reboot()`. It answers `true` (exit 0) and the 7.1 write shell too. M2's fake `ssh` and M4's fake
+  units restart on `reboot()`; both fakes reboot it on every wake (6.5). It answers `true` (exit 0) and the 7.1 write shell too. M2's fake `ssh` and M4's fake
   server delegate `exec` to it, so all three benches run the same machine. They turn the adapters' command string back
   into a call with `parseCommand(s)` (in `src/testing/fake-machine.ts`): POSIX single-quote unquoting, then a leading
   `sudo -n` sets `root`, a leading `timeout -k 10 <s>` sets the timeout, and the 6.4 stdin wrapper is recognised
@@ -1006,7 +1016,9 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
   `ssh-vm` also turns off `create`, `wake`, `sleep`, `snapshot`, `fork`, `remove`, `url`, `usage`, `key` and turns on
   `adopt`), `account?: string`, `sizes?`, `prices?`, `root?: boolean` (passwordless sudo on the fake machine, default
   `true`), and a switch per optional method (`create`, `adopt`, `wake`, `sleep`, `snapshot`, `fork`, `remove`, `url`,
-  `usage`, `key`, `plan`, `why`), each default `true` except `adopt`; `false` leaves the method absent. `fake` exposes `machine` (the `fakeMachine`), `calls` (every
+  `usage`, `key`, `plan`, `why`), each default `true` except `adopt`; `false` leaves the method absent;
+  `createReads?: number` (a new machine reads `creating` for that many status reads, then `on`; default 0). A command
+  sent to a machine that is not `on` rejects `unreachable`, and a removed machine reads `gone`. `fake` exposes `machine` (the `fakeMachine`), `calls` (every
   `Provider` call in order), `setState(id, s)`, `setPlan(p)`, `setWhy(w | null)` and `setBalance(n)` (at or below 0,
   `usage` rejects `balance`).
 - `machineContract(make, o)` has the herdr shape: `make` returns a bench `{ provider, store, fake?, installs? }`; `o`
