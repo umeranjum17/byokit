@@ -1,4 +1,4 @@
 - Add keyless Boat `joinTailnet()` and `tailnet()`, with phone sign-in steps and userspace networking when no TUN device is present. Join keys are refused until a credential-safe transport exists.
 - SECURITY: No public app port by default; bootstrap never calls provider hosting. Explicit `url()` makes a port public. Advertise the person's own tailnet name instead.
-- `joinTailnet` emits an `approve` step when the tailnet must approve the machine (`needs-approval`), with or without a sign-in link; its timeout says approval is needed unless a sign-in link was shown and approval is not the block.
+- `joinTailnet` emits an `approve` step when the tailnet must approve the machine (`needs-approval`), with or without a sign-in link; its timeout says approval is needed when approval is the block, says the sign-in link expired only when one was shown and the daemon still needs login, and otherwise says it took too long.
 - `tailnet()` reports `starting` while Tailscale is still starting, and `joinTailnet` waits through it inside its five-minute deadline before `tailscale up`.

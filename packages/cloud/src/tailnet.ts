@@ -98,7 +98,11 @@ export async function joinTailnet(provider: Provider, ref: MachineRef, o: { host
     if (up.timedOut || (up.code !== 0 && !link && current.state === 'off')) {
       throw new MachineError('provider', `Connecting your private network failed: ${up.stderr.slice(-200)}`);
     }
-    if (Date.now() >= until) throw new MachineError('timeout', words(link !== undefined && current.state !== 'needs-approval' ? 'tailnet.loginExpired' : 'tailnet.approvalNeeded'));
+    if (Date.now() >= until) {
+      if (current.state === 'needs-approval') throw new MachineError('timeout', words('tailnet.approvalNeeded'));
+      if (link !== undefined && current.state === 'needs-login') throw new MachineError('timeout', words('tailnet.loginExpired'));
+      throw new MachineError('timeout', 'Starting your private network took too long.');
+    }
     await new Promise<void>((resolve) => setTimeout(resolve, 1000));
   }
 }
