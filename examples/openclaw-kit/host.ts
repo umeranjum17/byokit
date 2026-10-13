@@ -231,7 +231,8 @@ function showCodes() {
 }
 
 // Sign-ins at this computer, from the kit's own route list. A code or browser choice signs in from the phone page;
-// a plan key (OpenCode Go) is pasted here, typed hidden, and never leaves this computer.
+// a plan key (OpenCode Go) is pasted here, typed hidden, or on the phone (over the sealed link); either way the key
+// is stored only on this computer.
 async function command(line: string): Promise<void> {
   const [cmd, arg] = line.trim().split(/\s+/, 2);
   if (cmd === 'add' && arg) {
