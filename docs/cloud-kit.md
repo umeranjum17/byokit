@@ -408,9 +408,10 @@ recovery. It is the only write `Machine` offers; anything else goes in the recip
 `status(m, { app, label })` (portable, in `.`) is the one read a phone polls through create, install, sleep, wake
 and remove. It resolves `{ machine, host, words }`: `machine` is `m.state()`; while it is `on`, `host` is `m.host()`
 and `words` is `hostWords(host)`; otherwise `host` is `null` (no command is sent to a machine that is not on) and
-`words` is `stateWords(machine)`. If `host()` rejects and a second `state()` read is no longer `on` (the machine left `on` between the two reads), `status` resolves that state with `host` `null`; otherwise it rethrows. Rejections are `state()`'s and `host()`'s (`no-machine` after `remove`); the app
-shows `errorWords`. Boat's `create` resolves before the machine is on, so an app polls `status` until `on` before
-`install`.
+`words` is `stateWords(machine)`. If `host()` rejects with any error and a second `state()` read is no longer `on` (the
+machine left `on` between the two reads), `status` resolves that state with `host` `null`; otherwise it rethrows.
+Rejections are `state()`'s and `host()`'s (`no-machine` after `remove`); the app shows `errorWords`. Boat's `create` resolves before the machine is on, so an app polls `status` until `on`
+before `install`.
 
 ## 6. Boat adapter (`src/boat.ts`)
 
@@ -1018,8 +1019,8 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
   `true`), and a switch per optional method (`create`, `adopt`, `wake`, `sleep`, `snapshot`, `fork`, `remove`, `url`,
   `usage`, `key`, `plan`, `why`), each default `true` except `adopt`; `false` leaves the method absent;
   `createReads?: number` (a new machine reads `creating` for that many status reads, then `on`; default 0). A command
-  sent to a machine that is not `on` rejects `unreachable`, and a removed machine reads `gone`. `fake` exposes `machine` (the `fakeMachine`), `calls` (every
-  `Provider` call in order), `setState(id, s)`, `setPlan(p)`, `setWhy(w | null)` and `setBalance(n)` (at or below 0,
+  sent to a machine that is not `on` rejects `unreachable`, and a removed machine reads `gone`. `fake` exposes
+  `machine` (the `fakeMachine`), `calls` (every `Provider` call in order), `setState(id, s)`, `setPlan(p)`, `setWhy(w | null)` and `setBalance(n)` (at or below 0,
   `usage` rejects `balance`).
 - `machineContract(make, o)` has the herdr shape: `make` returns a bench `{ provider, store, fake?, installs? }`; `o`
   is `{ test? } | TestFn`. `installs: false` skips the install-family cases (5, 7, 8, 13, 14, 17-19) until M3; case 6
