@@ -980,8 +980,8 @@ the engine. External retained sources are touched only when explicitly passed to
   available, then saved in the key lane's sealed selection. A `model` on any other route returns `{ status: 'not_included', reason: 'model' }` before activation. An unknown model clears the attempted replacement and returns
   `{ status: 'not_included', reason: 'model' }`. Absent, the engine's current starter model stays. For a live-catalog provider, the chosen
   full id must also be in the engine's registered `models.providers[provider].models` list, checked after preparation and before anything is sealed; otherwise the add clears the attempt and returns `{ status: 'retry', reason: 'model' }`. The public
-  `models(member, { authChoice })` exposes the Go live provider catalog (live when a key is available, otherwise engine discovery for `byokit-key-<member>`),
-  not a second catalog; other routes list no models. A chosen model must be available in that key lane's catalog, never borrowed from the ordinary member. Before returning `ok`, `addKey` awaits catalog synchronization, then prepares that key agent's
+  `models(member, { authChoice })` exposes the Go live provider catalog once a key is saved, not a second catalog; before a key exists it
+  returns `[]` and queries no agent (no engine discovery). Other routes list no models. A chosen model must be available in that key lane's catalog, never borrowed from the ordinary member. Before returning `ok`, `addKey` awaits catalog synchronization, then prepares that key agent's
   full-catalog owner with `models.authStatus { agentId: 'byokit-key-<member>', refresh: true }`, once under its key lock.
   A thrown or unavailable preparation reply clears the attempted key best-effort and returns `{ status: 'retry', reason: 'engine' }`
   without diagnostics. Ordinary runs and their admission policy are unchanged; there is no per-run cold refresh.

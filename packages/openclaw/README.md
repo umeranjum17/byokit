@@ -163,8 +163,8 @@ for entry, checking, success and failure states, using the kit's `key.*` words.
 
 To use the saved key for one run, pass `auth: 'apiKey'`. The key lives in the member's separate
 `byokit-key-<member>` agent and workspace, with `copyToAgents: false` and only that key in its local auth order.
-List the route's models with `kit.models('ana', { authChoice: 'opencode-go' })`; this uses the existing live
-catalog when a key is available, engine discovery for the isolated key agent otherwise. Only available key-lane
+List the route's models with `kit.models('ana', { authChoice: 'opencode-go' })` after a key is saved; this reads the
+live catalog. Before a key exists it returns `[]` and queries no agent. Only available key-lane
 models can be saved; the ordinary member's sign-ins never supply the list. Pass a full catalog id, e.g.
 `model: 'opencode-go/muse-spark-1.3-contributor'`, to `addKey` to save it as the lane's default after activation.
 Model listing and selection are Go-only: other key routes list no models, and a `model` on them returns `not_included`/`model`

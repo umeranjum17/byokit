@@ -71,7 +71,7 @@ export function createKeys(ctx: ActivationCtx & {
       { ok: boolean; reason?: string; models?: Record<string, unknown>[] };
     if (catalog.ok) return modelsOf(route.provider, { models: catalog.models?.map((m) => ({ ...m, provider: route.provider })) });
     if (catalog.reason !== 'no-key') throw new Error('Model catalog is unavailable.');
-    return modelsOf(route.provider, await ctx.request('models.list', { agentId: keyAgentId(member), view: 'all' }));
+    return [];
   };
   return {
     models,

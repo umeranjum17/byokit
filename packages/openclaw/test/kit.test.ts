@@ -324,22 +324,20 @@ test('a Go plan key registers the live catalog once and runs any Go model', asyn
   assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
 }));
 
-test('Go discovery without a live catalog uses only the key agent and refuses its unavailable models', async () => withKit(async (kit, fake) => {
+test('Go listing before a key is saved is empty and queries no agent', async () => withKit(async (kit, fake) => {
+  assert.deepEqual(await kit.models('m1', { authChoice: 'opencode-go' }), []);
+  assert.ok(!fake.calls.some((c) => c.method === 'models.list'), 'no engine model list before a key exists');
+  assert.ok(!((await kit.call('agents.list', {})) as { agents: { id: string }[] }).agents.some((a) => a.id === 'byokit-key-m1'),
+    'the key agent is not created by listing');
+}));
+
+test('a chosen Go model is refused when the key catalog does not list it, and nothing is saved', async () => withKit(async (kit, fake) => {
   fake.handle('byokit.catalog', () => ({ ok: false, reason: 'no-key' }));
-  await kit.patchConfig({ models: { providers: { 'opencode-go': { models: [{ id: 'default' }] } } } });
-  assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-FALLBACK',
-    model: 'opencode-go/default' }), { status: 'ok' });
-  assert.deepEqual(await kit.models('m1', { authChoice: 'opencode-go' }),
-    [{ id: 'opencode-go/default', name: 'Default', available: true }]);
-  assert.ok(fake.calls.filter((c) => c.method === 'models.list').every((c) =>
-    (c.params as { agentId?: string }).agentId === 'byokit-key-m1'), 'the ordinary member cannot supply key models');
-  fake.handle('models.list', () => ({ models: [{ id: 'opencode-go/default', provider: 'opencode-go',
-    name: 'Default', available: false, unavailableReason: 'missing-auth' }] }));
   const before = fake.calls.length;
   assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-FALLBACK',
     model: 'opencode-go/default' }), { status: 'not_included', reason: 'model' });
   assert.ok(!fake.calls.slice(before).some((c) => c.method === 'byokit.keys'
-    && (c.params as { action?: string }).action === 'seal'), 'an unavailable discovery row is never saved');
+    && (c.params as { action?: string }).action === 'seal'), 'an unlisted model is never saved');
   assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
 }));
 
