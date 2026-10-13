@@ -53,7 +53,7 @@ const folderVar = (p: CliProvider) => p === 'claude' ? 'CLAUDE_CONFIG_DIR' : p =
 const quote = (v: string) => `'${v.replaceAll("'", "'\\''")}'`;
 const complete = (r: Row) => join(r.folder, '.byokit-signin-complete');
 const pending = (r: Row) => join(r.folder, '.byokit-signin-pending');
-/** The cross-process sign-in lock both the shell command and a remote spawn take; the holder PID sits beside it so `rmdir` still works. */
+/** The cross-process sign-in lock both the shell command and a remote spawn take; a remote spawn records its PID in the holder file beside it, removed before `rmdir`. */
 export function signInLock(folder: string): { lock: string; holder: string } {
   return { lock: join(folder, '.byokit-signin-lock'), holder: join(folder, '.byokit-signin-holder') };
 }
