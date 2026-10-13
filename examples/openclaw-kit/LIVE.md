@@ -3,7 +3,7 @@
 The e2e test proves the flow against the kit's fake Gateway. This is the same flow once per `@byokit/openclaw`
 release with the real thing (docs/runtime-kits.md section 8), run in the isolated lab: the pinned engine installed
 into this folder's `.state`, a ChatGPT sign-in kept in the lab's retained test home, never a person's own HOME,
-`~/.openclaw`, `~/.codex` or sign-ins.
+`~/.openclaw`, `~/.codex` or sign-ins. The OpenCode Go variant below uses a plan key pasted at the computer instead.
 
 ## Procedure
 
@@ -26,6 +26,14 @@ into this folder's `.state`, a ChatGPT sign-in kept in the lab's retained test h
 9. Check the lab HOME's canaries (`~/.pi`, `~/.openclaw`, `~/.codex`, `~/.claude`) are untouched: everything this
    app wrote is under this folder's `.state`.
 10. Screenshot each step on the phone; record the results below and in the PR.
+
+## OpenCode Go variant
+
+At the computer, with the engine ready: type `accounts` (the kit's offered routes list), then `add opencode-go` and
+paste the plan key (typed input stays hidden; the key never leaves this computer). `model
+opencode-go/muse-spark-1.3-contributor` makes Muse the default. On the phone, send `Say hello in five words.`: the
+reply streams in, ends, and shows its token usage (`Tokens: …`) underneath. The key appears in no view, log or
+capture: record the phone and the streamed turn only.
 
 ## Results
 
