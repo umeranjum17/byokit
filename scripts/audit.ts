@@ -14,10 +14,13 @@ const bracesException = {
 type Advisory = { url: string; severity: Severity; name: string; dependency: string; range: string };
 
 export async function loadBracesAdvisory(fetcher: typeof fetch = fetch): Promise<unknown> {
+  // Unauthenticated API calls share a low rate limit per runner IP; CI passes its token.
+  const token = process.env.GITHUB_TOKEN;
   const response = await fetcher(`https://api.github.com/advisories/${bracesException.ghsa}`, {
-    headers: { Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(30_000),
+    headers: { Accept: 'application/vnd.github+json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    signal: AbortSignal.timeout(30_000),
   });
-  if (!response.ok) throw new Error('Braces advisory metadata unavailable');
+  if (!response.ok) throw new Error(`Braces advisory metadata unavailable (HTTP ${response.status})`);
   return response.json();
 }
 
