@@ -184,7 +184,7 @@ function ProviderAccounts({ k, connected }: { k: string; connected: boolean }) {
             <Text style={s.small}>{r.selected && m.selected ? '✓ ' : ''}{m.name}{m.available ? '' : ` · ${r.detail || 'Unavailable'}`}</Text>
           </Pressable>)}
         </View>)}
-        {!!chosen?.detail && <Text testID={tid(k, 'pick-reason')} style={s.small}>{chosen.detail}</Text>}
+        {!open && !!chosen?.detail && <Text testID={tid(k, 'pick-reason')} style={s.small}>{chosen.detail}</Text>}
       </>}
       {connected && (k === 'chatgpt' || k === 'claude') && <Ask k={k} picker={pick} />}
     </View>

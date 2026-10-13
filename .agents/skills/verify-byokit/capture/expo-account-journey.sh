@@ -69,6 +69,7 @@ if [ "$stage" = after ]; then
     seek picker
     tap picker
     tap pick-1
+    tap picker # closed, the chosen account's reason stays under it
     seek pick-reason
     expect 'Sign in first'
     shot "after__${theme}__signed-out-pick"
