@@ -70,7 +70,8 @@ export function registerKeys(api) {
         return;
       }
       if (params.action === 'clear') {
-        // A failed add drops the key it activated, so nothing unsealed stays in the key agent.
+        // A failed add drops the key it activated; if this clear never reaches the engine, the unsealed key stays but is
+        // unusable until the next add's prepare.
         const cleared = await updateAuthProfileStoreWithLock({ agentDir: keyDir,
           saveOptions: { filterExternalAuthProfiles: false, syncExternalCli: false },
           updater(store) { store.profiles = {}; store.order = {}; delete store.lastGood; return true; } });

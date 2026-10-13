@@ -625,7 +625,8 @@ export function createAccounts(ctx: {
             const dups = sharing.slice(1).filter(([other]) => other !== id);
             if (!(keep && keep[0] !== id) && own) { if (answer.who) own.who = answer.who; else delete own.who; write(member, file); }
             return { ...(answer.who ? { who: answer.who } : {}), ...(keep ? { keep } : {}), dups };
-          }).catch((error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 200));
+          }).catch((error: unknown) => route.keyEntry ? 'Sign-in could not be saved. Try again.'
+            : (error instanceof Error ? error.message : String(error)).slice(0, 200));
           if (typeof sealed === 'string') view = { state: 'failed', via: view.via, why: 'failed', error: sealed };
           else {
             for (const dup of sealed.dups) await collapse(dup, sealed.keep!, sealed.who!);

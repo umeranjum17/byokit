@@ -4,8 +4,8 @@ import { keyAgentId, MEMBER_ID, KEY_PREFIX } from './members.ts';
 import { routes } from './routes.ts';
 import type { Member } from './types.ts';
 
-// retry: the engine may have taken the key but it was not kept; the unsealed key is cleared best-effort, and if that
-// clear fails the next prepare empties it, with runs failing closed meanwhile.
+// retry: the engine may have taken the key but it was not kept; the unsealed key is cleared best-effort. If that clear
+// does not reach the engine, the key stays unsealed and unusable until the next key add, and runs fail closed meanwhile.
 export type AddKeyResult = 'ok' | 'invalid' | 'not_included' | 'retry';
 
 export function createKeys(ctx: ActivationCtx & {
@@ -39,7 +39,7 @@ export function createKeys(ctx: ActivationCtx & {
       return exclusive(member, async () => {
         let sent = false;
         // A key the engine may have taken but not sealed is cleared (prepare already emptied the agent); if the clear
-        // fails, the next prepare empties it, and the key stays unsealed, so runs fail closed meanwhile.
+        // does not reach the engine, the key stays unsealed and unusable until the next key add, so runs fail closed.
         const abandon = async (): Promise<AddKeyResult> => {
           await control(member, 'clear').catch(() => undefined);
           return 'retry';

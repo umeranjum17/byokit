@@ -1082,6 +1082,30 @@ test('a key add whose gateway restart fails after activation returns retry, not 
     await flush();
     assert.equal(await pending, 'retry');
     assert.ok(!fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'));
+    const probe = fake.factory({ port: 0, token: 'test', identityPath: '', bridgeSock: '' });
+    assert.deepEqual(await probe.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false });
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a plan key add whose seal is refused shows the kit sentence, never the engine text', async () => {
+  const stateDir = scratchDir('go-seal-refused');
+  const fake = fakeGateway();
+  const transport = (ctx: Parameters<typeof fake.factory>[0]) => {
+    const inner = fake.factory(ctx);
+    return { ...inner, request: async (method: string, params?: Record<string, unknown>, options?: unknown) => {
+      if (method === 'byokit.accounts' && params?.action === 'seal') throw new Error('CANARY-SEAL-ENGINE-TEXT');
+      return inner.request(method, params, options);
+    } };
+  };
+  const kit = new OpenClawKit({ stateDir, transport, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    const added = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
+    added.paste('CANARY-GO-SEAL-REFUSED');
+    assert.deepEqual((await added.done).view, { state: 'failed', via: 'browser', why: 'failed', error: 'Sign-in could not be saved. Try again.' });
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });
