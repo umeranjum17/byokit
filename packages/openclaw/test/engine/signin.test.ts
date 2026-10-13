@@ -82,7 +82,9 @@ mock.method(globalThis, 'fetch', (input, options) => {
   const spawn = childProcess.spawn;
   mock.method(childProcess, 'spawn', (...args: Parameters<typeof spawn>) => {
     const [file, argv, options] = args;
-    if (file === process.execPath && Array.isArray(argv) && argv.includes(engine.doctorContext().entry)) {
+    // The gateway is spawned as [entry, 'gateway', ...]. Install-time node children (the lifecycle script) run before the
+    // engine has a set, so the entry is matched by its path, not by doctorContext(), which throws until the set exists.
+    if (file === process.execPath && Array.isArray(argv) && argv[0]?.endsWith(join('node_modules', 'openclaw', 'openclaw.mjs'))) {
       return spawn(file, ['--import', pathToFileURL(preload).href, ...argv], options);
     }
     return spawn(...args);
@@ -120,6 +122,8 @@ const signInCtx = () => {
       return { agentId: member };
     },
     callbackPort: 0,
+    authConfig: () => '',
+    restarted: async () => true,
   };
 };
 
@@ -145,7 +149,7 @@ async function withGateway<T>(plugins: string[], fn: (ctx: SignInCtx, request: G
     const list = await request('agents.list') as { agents: { id: string }[] };
     if (!list.agents.some((agent) => agent.id === 'm1'))
       await request('agents.create', { name: 'm1', workspace: join(state, 'openclaw', 'workspaces', 'm1') });
-    return await fn({ request, ensure: async (member: string) => ({ agentId: member }), callbackPort: 0 }, request, state);
+    return await fn({ request, ensure: async (member: string) => ({ agentId: member }), callbackPort: 0, authConfig: () => '', restarted: async () => true }, request, state);
   } finally {
     await probeTransport?.stop().catch(() => {});
     await probe.stop().catch(() => {});
@@ -169,6 +173,49 @@ test('every offered app-guided route starts without a caller allowlist (5.7, B6)
       await request('wizard.cancel', { sessionId }, { timeoutMs: 10_000 }).catch(() => {});
     });
   }
+});
+
+test('discovery matches the pinned gateway: every ready choice is set up, every no_upstream_flow choice is refused', { timeout: 900_000 }, async () => {
+  const { choices } = pinnedChoices();
+  // CLI routes are detected, not set up; a choice outside the tarball needs an external plugin.
+  const table = routes().filter((route) => route.via !== 'cli' && choices.has(route.choice)
+    && (route.readiness === 'ready' || route.readiness === 'no_upstream_flow'));
+  assert.ok(['opencode-go', 'fal-api-key', 'openai'].every((choice) => table.some((route) => route.choice === choice)));
+  const refused = /not available on this Gateway/i;
+  await withGateway([...new Set(table.map((route) => route.plugin).filter((id): id is string => !!id))], async (_ctx, request) => {
+    // One setup admission at a time; a cancelled session frees it shortly after (N5): retry busy, bounded.
+    const said = (failure: unknown) => String(failure instanceof Error ? failure.message : failure);
+    const busy = /already in progress|SETUP_ADMISSION_BUSY/i;
+    const settled = async (probe: () => Promise<string>): Promise<string> => {
+      let error = '';
+      for (let tries = 0; tries < 50; tries++) {
+        error = await probe().catch(said);
+        if (!busy.test(error)) return error;
+        await delay(200);
+      }
+      return assert.fail(`the setup admission never freed: ${error}`);
+    };
+    for (const route of table) {
+      const sessionId = `byokit-discovery-${route.choice}`;
+      // A key is refused before any request leaves; a stand-in key then fails its live test offline and writes
+      // nothing. A login session opens either way; the gateway refuses the choice on the first pulled step.
+      const error = await settled(async () => {
+        if (route.keyEntry) {
+          const result = await request('openclaw.setup.activate', { kind: 'api-key', agentId: 'm1', authChoice: route.choice,
+            apiKey: 'byokit-probe-not-a-key' }, { timeoutMs: 120_000 }) as { ok?: boolean; error?: string };
+          assert.ok(!result.ok, `${route.choice}: a stand-in key activated`);
+          return String(result.error ?? '');
+        }
+        const started = await request('openclaw.setup.auth.start', { sessionId, agentId: 'm1', authChoice: route.choice },
+          { timeoutMs: 60_000 }) as { error?: string };
+        return String(started.error ?? '')
+          || String((await request('wizard.next', { sessionId }, { timeoutMs: 120_000 }) as { error?: string }).error ?? '');
+      });
+      if (!route.keyEntry) await request('wizard.cancel', { sessionId }, { timeoutMs: 10_000 }).catch(() => {});
+      if (route.readiness === 'ready') assert.doesNotMatch(error, refused, `${route.choice} is ready but the gateway refuses it: ${error}`);
+      else assert.match(error, refused, `${route.choice} is no_upstream_flow but the gateway sets it up: ${error || 'no error'}`);
+    }
+  });
 });
 
 test('real gateway: wizard.status carries no step, wizard.next pulls one, cancel frees admission (Crewhouse port)', { timeout: 300_000 }, async () => {

@@ -1,13 +1,15 @@
 import { join } from 'node:path';
+import { activate, type ActivationCtx } from './activation.ts';
 import { keyAgentId, MEMBER_ID, KEY_PREFIX } from './members.ts';
 import { routes } from './routes.ts';
-import type { GatewayParams, GatewayResult, GatewayTransport, Member } from './types.ts';
+import type { Member } from './types.ts';
 
-export type AddKeyResult = 'ok' | 'invalid' | 'not_included';
+// retry: the engine may have taken the key but it was not kept; the unsealed key is cleared best-effort. If that clear
+// does not reach the engine, the key stays unsealed and unusable until the next key add, and runs fail closed meanwhile.
+export type AddKeyResult = 'ok' | 'invalid' | 'not_included' | 'retry';
 
-export function createKeys(ctx: {
+export function createKeys(ctx: ActivationCtx & {
   root: string;
-  request: GatewayTransport['request'];
   ensure(member: Member): Promise<{ agentId: string }>;
   restarting?(): boolean;
 }) {
@@ -21,15 +23,27 @@ export function createKeys(ctx: {
     finally { if (tails.get(member) === next) tails.delete(member); }
   };
   const check = (member: Member) => MEMBER_ID.test(member) && !member.startsWith(KEY_PREFIX);
-  const control = (member: Member, action: 'prepare' | 'seal' | 'ready', provider?: string) =>
+  // Config writes may drain/restart the gateway: a restart, or a retryable refusal, means the call may simply run again.
+  const transient = (error: unknown): boolean => {
+    const refusal = error as { code?: string; retryable?: boolean } | null;
+    return Boolean(ctx.restarting?.() || (refusal?.code === 'UNAVAILABLE' && refusal.retryable === true));
+  };
+  const control = (member: Member, action: 'prepare' | 'seal' | 'ready' | 'clear', provider?: string) =>
     ctx.request('byokit.keys', { member, action, ...(provider ? { provider } : {}) }) as Promise<{ ok: boolean; model?: string }>;
   return {
     exclusive,
     async add(member: Member, o: { authChoice: string; apiKey: string }): Promise<AddKeyResult> {
       if (!check(member) || !o.apiKey.trim()) return 'invalid';
-      const route = routes().find((r) => r.choice === o.authChoice && r.keyEntry);
+      const route = routes().find((r) => r.choice === o.authChoice && r.keyEntry && r.readiness === 'ready');
       if (!route) return 'not_included';
       return exclusive(member, async () => {
+        let sent = false;
+        // A key the engine may have taken but not sealed is cleared (prepare already emptied the agent); if the clear
+        // does not reach the engine, the key stays unsealed and unusable until the next key add, so runs fail closed.
+        const abandon = async (): Promise<AddKeyResult> => {
+          await control(member, 'clear').catch(() => undefined);
+          return 'retry';
+        };
         try {
           await ctx.ensure(member);
           const agentId = keyAgentId(member);
@@ -38,13 +52,16 @@ export function createKeys(ctx: {
             await ctx.request('agents.create', { name: agentId, workspace: join(ctx.root, 'key-workspaces', member) });
           if (!(await control(member, 'prepare', route.provider)).ok) return 'invalid';
           // The public pin's typed API-key path, never a CLI-login import. Discard the engine's lines/errors.
-          const params: GatewayParams<'openclaw.setup.activate'> = {
-            kind: 'api-key', agentId, authChoice: o.authChoice, apiKey: o.apiKey,
-          };
-          const result = (await ctx.request('openclaw.setup.activate', params, { timeoutMs: 180_000 })) as GatewayResult<'openclaw.setup.activate'>;
-          if (!result.ok) return result.status === 'unavailable' ? 'not_included' : 'invalid';
-          return (await control(member, 'seal')).ok ? 'ok' : 'invalid';
-        } catch { return 'invalid'; }
+          sent = true;
+          const result = await activate(ctx, { kind: 'api-key', agentId, authChoice: o.authChoice, apiKey: o.apiKey },
+            { timeoutMs: 180_000 });
+          if (!result.ok && !result.late) return result.status === 'unavailable' ? 'not_included' : 'invalid';
+          if (!result.late && (await control(member, 'seal')).ok) return 'ok';
+          return abandon();
+        } catch (error) {
+          if (sent) return abandon();
+          return transient(error) ? 'retry' : 'invalid';
+        }
       });
     },
     async ready(member: Member): Promise<{ agentId: string; model: string } | undefined> {
@@ -55,11 +72,8 @@ export function createKeys(ctx: {
           const ready = await control(member, 'ready');
           return ready.ok && ready.model ? { agentId: keyAgentId(member), model: ready.model } : undefined;
         } catch (error) {
-          // Config writes may drain/restart the gateway after activation. This read is safe to retry;
-          // an absent profile or a terminal refusal still fails closed immediately.
-          const refusal = error as { code?: string; retryable?: boolean } | null;
-          const transient = ctx.restarting?.() || (refusal?.code === 'UNAVAILABLE' && refusal.retryable === true);
-          if (!transient || Date.now() >= deadline) return undefined;
+          // This read is safe to retry; an absent profile or a terminal refusal still fails closed immediately.
+          if (!transient(error) || Date.now() >= deadline) return undefined;
           await new Promise((resolve) => setTimeout(resolve, 250));
         }
       }

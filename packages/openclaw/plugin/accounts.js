@@ -124,8 +124,10 @@ async function handle(params) {
     let sealed = false;
     const store = await updateAuthProfileStoreWithLock({ agentDir, saveOptions: LOCAL, updater(s) {
       const credential = s.profiles?.[profileId];
-      // No such profile, or the named profile belongs to another provider; on a member agent an api_key is refused.
-      if (!credential || credential.provider !== provider || (!account && credential.type === 'api_key')) return false;
+      // No such profile, or the named profile belongs to another provider; on a member agent an api_key is refused
+      // unless it is a plan key (subscription billing, never billed per use).
+      if (!credential || credential.provider !== provider
+        || (!account && credential.type === 'api_key' && params.planKey !== true)) return false;
       who = whoOf(credential);
       s.profiles = sealProfiles(s.profiles, provider, profileId, account);
       s.order = account ? { [provider]: [profileId] } : { ...(s.order ?? {}), [provider]: [profileId] };
@@ -137,8 +139,15 @@ async function handle(params) {
   }
 
   if (params.action === 'clear') {
+    // With a provider only that provider's profiles go: a member agent keeps its other providers' sign-ins.
+    const provider = params.provider;
+    const scoped = typeof provider === 'string' && provider.length > 0;
     const cleared = await updateAuthProfileStoreWithLock({ agentDir, saveOptions: LOCAL, updater(s) {
-      s.profiles = {}; s.order = {}; delete s.lastGood; return true;
+      if (!scoped) { s.profiles = {}; s.order = {}; delete s.lastGood; return true; }
+      s.profiles = Object.fromEntries(Object.entries(s.profiles ?? {}).filter(([, p]) => p.provider !== provider));
+      if (s.order) delete s.order[provider];
+      if (object(s.lastGood)) delete s.lastGood[provider];
+      return true;
     } });
     return cleared ? { ok: true } : { ok: false };
   }

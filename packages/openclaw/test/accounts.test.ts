@@ -10,13 +10,14 @@
 // account event (unbound, bound to an account agent, bound to the member agent), a bound key refuses another id and an
 // API-key conversation refuses 'auto' with no request but the binding read, an API-key run refuses a subscription- or
 // member-bound conversation, and steer and abort reach the engine key.
-import { mock, test } from 'node:test';
+import { mock, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { chmodSync, mkdirSync, readFileSync, statSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
+import { Engine } from '../src/engine.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { createLocks } from '../src/locks.ts';
 import { keyAgentId } from '../src/members.ts';
@@ -776,6 +777,366 @@ test('identity: same who refreshes, again with another who adds, no who never me
       assert.ok(!out.includes(`canary-acct-${id}`), `account id ${id} leaks`);
     }
     assert.ok(!readFileSync(indexOf(stateDir, 'm1'), 'utf8').includes('example.com'), 'the index holds no email');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a plan key: addAccount pastes the OpenCode Go key into typed activation and a run answers on it', async () => {
+  const stateDir = scratchDir('go-plan-key');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  const secret = 'CANARY-GO-PLAN-KEY-5571';
+  try {
+    await kit.start();
+    // Discovery offers the route as ready, and the engine sets it up only from a pasted key, never auth.start.
+    assert.equal(kit.routes().find((r) => r.choice === 'opencode-go')?.readiness, 'ready');
+    const views: SignInView[] = [];
+    const added = await kit.addAccount('m1', { authChoice: 'opencode-go' }, (v) => views.push(v));
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(views[0], { state: 'waiting', via: 'browser', prompt: 'Plan key' });
+    added.paste(secret);
+    const { view, id } = await added.done;
+    assert.deepEqual(view, { state: 'done', via: 'browser' });
+    assert.equal(id, 'opencode-go');
+    assert.ok(!fake.calls.some((c) => c.method === 'openclaw.setup.auth.start'));
+    assert.deepEqual(fake.calls.find((c) => c.method === 'openclaw.setup.activate')?.params,
+      { agentId: 'm1', kind: 'api-key', authChoice: 'opencode-go', apiKey: '[redacted]' });
+    const [row] = await kit.accounts('m1');
+    assert.deepEqual({ id: row?.id, provider: row?.provider, billing: row?.billing, state: row?.state },
+      { id: 'opencode-go', provider: 'opencode-go', billing: 'subscription', state: 'ready' });
+
+    const texts: string[] = [];
+    const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:go', message: 'Hello', model: 'opencode-go/fake-key-model' },
+      (e) => { if (e.type === 'text') texts.push(e.text); });
+    assert.ok(end.ok, JSON.stringify(end));
+    assert.equal(texts.at(-1), 'fake: Hello');
+    assert.ok(end.ok && end.usage?.total, 'the run reports usage');
+    assert.ok(!JSON.stringify([views, end, fake.calls]).includes(secret));
+    assert.ok(!readFileSync(indexOf(stateDir, 'm1'), 'utf8').includes(secret));
+
+    // A choice the engine cannot set up is never ready, and the kit's sign-in for it fails with the engine's words.
+    const refused = kit.routes().find((r) => r.choice === 'fal-api-key');
+    assert.equal(refused?.readiness, 'no_upstream_flow');
+    const failed = await kit.signIn('m1', { authChoice: 'fal-api-key' }, () => {});
+    failed.paste(secret);
+    assert.deepEqual(await failed.done, { state: 'failed', via: 'browser', why: 'failed',
+      error: 'This key type is not available on this engine.' });
+    const broken = await kit.signIn('m1', { authChoice: 'opencode-go' }, () => {});
+    fake.failNext('openclaw.setup.activate', 'CANARY-ENGINE-ECHO');
+    broken.paste('CANARY-GO-BROKEN');
+    const brokenView = await broken.done;
+    assert.deepEqual(brokenView, { state: 'failed', via: 'browser', why: 'failed', error: 'API key activation failed' });
+    assert.ok(!JSON.stringify(brokenView).includes('CANARY-ENGINE-ECHO'));
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+// The pin writes config `auth` on a plan-key activation and restarts the gateway for it: the fake records the write
+// and, when dropAfterMs is given, drops its connection then, so the kit's own closed() and reconnect run.
+function activatingGateway(fake: ReturnType<typeof fakeGateway>, root: () => string, dropAfterMs?: number): typeof fake.factory {
+  return (ctx) => {
+    const inner = fake.factory(ctx);
+    return { ...inner, request: async (method, params, options) => {
+      const answer = await inner.request(method, params, options);
+      if (method === 'openclaw.setup.activate') {
+        const path = join(root(), 'openclaw.json');
+        const config = JSON.parse(readFileSync(path, 'utf8'));
+        writeFileSync(path, JSON.stringify({ ...config, auth: { profiles: { 'opencode-go:default': { provider: 'opencode-go', mode: 'api_key' } } } }, null, 2));
+        if (dropAfterMs !== undefined) setTimeout(() => fake.drop('gateway restart'), dropAfterMs);
+      }
+      return answer;
+    } };
+  };
+}
+
+test('a plan key add whose gateway restarts 11 s after activation is done, and its key is sealed', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  t.mock.method(Engine.prototype, 'start', async function (this: unknown) {
+    const root = (this as { root: string }).root;
+    mkdirSync(root, { recursive: true });
+    if (!existsSync(join(root, 'openclaw.json'))) writeFileSync(join(root, 'openclaw.json'), '{}');
+    return { port: 0, token: 'test', identityPath: '' };
+  });
+  t.mock.method(Engine.prototype, 'stop', async () => {});
+  const stateDir = scratchDir('go-late-restart');
+  const fake = fakeGateway();
+  const kit: OpenClawKit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root, 11_000), spawnEngine: true, callbackPort: 0 });
+  try {
+    await kit.start();
+    const added = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
+    await flush();
+    added.paste('CANARY-GO-LATE-RESTART');
+    await flush();
+    t.mock.timers.tick(11_000);
+    await flush();
+    t.mock.timers.tick(1_000);
+    await flush();
+    const { view, id } = await added.done;
+    assert.deepEqual(view, { state: 'done', via: 'browser' });
+    assert.equal(id, 'opencode-go');
+    assert.ok(fake.calls.some((c) => c.method === 'byokit.accounts' && (c.params as { action?: string }).action === 'seal'));
+    assert.equal(kit.state.phase, 'ready');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+function spawnedEngine(t: TestContext): void {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  t.mock.method(Engine.prototype, 'start', async function (this: unknown) {
+    const root = (this as { root: string }).root;
+    mkdirSync(root, { recursive: true });
+    if (!existsSync(join(root, 'openclaw.json'))) writeFileSync(join(root, 'openclaw.json'), '{}');
+    return { port: 0, token: 'test', identityPath: '' };
+  });
+  t.mock.method(Engine.prototype, 'stop', async () => {});
+}
+
+const clears = (fake: ReturnType<typeof fakeGateway>, agentId: string) => fake.calls.filter((c) =>
+  c.method === 'byokit.accounts' && (c.params as { action?: string; agentId?: string }).action === 'clear'
+  && (c.params as { agentId?: string }).agentId === agentId).map((c) => (c.params as { provider?: string }).provider);
+
+test('a plan key add whose gateway never restarts fails, is cleaned up, and keeps no row', async (t) => {
+  spawnedEngine(t);
+  const stateDir = scratchDir('go-no-restart');
+  const fake = fakeGateway();
+  const kit: OpenClawKit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
+  try {
+    await kit.start();
+    const added = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
+    await flush();
+    added.paste('CANARY-GO-NO-RESTART');
+    await flush();
+    t.mock.timers.tick(60_000);
+    await flush();
+    const { view } = await added.done;
+    assert.deepEqual(view, { state: 'failed', via: 'browser', why: 'failed',
+      error: 'The engine took too long to restart after this sign-in. Nothing was kept; try again.' });
+    assert.deepEqual(clears(fake, 'm1'), ['opencode-go']);
+    assert.ok(!(await kit.accounts('m1')).some((row) => row.id === 'opencode-go'));
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a plan key add cancelled after its activation is cancelled, cleaned up, and keeps the member\'s other sign-in', async (t) => {
+  spawnedEngine(t);
+  const stateDir = scratchDir('go-cancel-after-ok');
+  const fake = fakeGateway();
+  const kit: OpenClawKit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
+  try {
+    await kit.start();
+    fake.seedProfile('m1', 'anthropic:default', { provider: 'anthropic', type: 'api_key' });
+    const added = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
+    await flush();
+    added.paste('CANARY-GO-CANCEL');
+    await flush();
+    t.mock.timers.tick(1_000);
+    await flush();
+    added.cancel();
+    const { view } = await added.done;
+    assert.equal(view.state, 'failed');
+    assert.equal(view.why, 'declined');
+    assert.deepEqual(clears(fake, 'm1'), ['opencode-go']);
+    assert.ok(!(await kit.accounts('m1')).some((row) => row.id === 'opencode-go'));
+    const left = await fake.transport.request('byokit.accounts', { action: 'list', agentId: 'm1' }) as { profiles: { provider: string }[] };
+    assert.deepEqual(left.profiles.map((p) => p.provider), ['anthropic']);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a key add whose gateway restarts 10 s after activation is ok, and its key is sealed', async (t) => {
+  spawnedEngine(t);
+  const stateDir = scratchDir('key-late-restart');
+  const fake = fakeGateway();
+  const kit: OpenClawKit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root, 10_000), spawnEngine: true, callbackPort: 0 });
+  try {
+    await kit.start();
+    const pending = kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-LATE-RESTART' });
+    await flush();
+    t.mock.timers.tick(10_000);
+    await flush();
+    t.mock.timers.tick(1_000);
+    await flush();
+    assert.equal(await pending, 'ok');
+    assert.ok(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'));
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a key add whose gateway never restarts returns retry and clears the key it activated', async (t) => {
+  spawnedEngine(t);
+  const stateDir = scratchDir('key-no-restart');
+  const fake = fakeGateway();
+  const kit: OpenClawKit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
+  try {
+    await kit.start();
+    const pending = kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-NO-RESTART' });
+    await flush();
+    t.mock.timers.tick(60_000);
+    await flush();
+    assert.equal(await pending, 'retry');
+    assert.ok(!fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'));
+    assert.ok(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'clear'));
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a key add that finds the gateway restarting before the engine saw the key returns retry and activates nothing', async (t) => {
+  spawnedEngine(t);
+  const stateDir = scratchDir('key-pre-accept');
+  const fake = fakeGateway();
+  const kit: OpenClawKit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
+  try {
+    await kit.start();
+    fake.drop('gateway restart');
+    assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-PRE-ACCEPT' }), 'retry');
+    assert.ok(!fake.calls.some((c) => c.method === 'openclaw.setup.activate'));
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a plan key add cancelled while its activation is in flight is cleaned up only after the engine answers', async (t) => {
+  spawnedEngine(t);
+  const stateDir = scratchDir('go-cancel-in-flight');
+  const fake = fakeGateway();
+  let answer!: (value: object) => void;
+  fake.handle('openclaw.setup.activate', () => new Promise((resolve) => { answer = resolve; }));
+  const kit: OpenClawKit = new OpenClawKit({ stateDir, transport: activatingGateway(fake, () => kit['engine'].root), spawnEngine: true, callbackPort: 0 });
+  try {
+    await kit.start();
+    const added = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
+    await flush();
+    added.paste('CANARY-GO-IN-FLIGHT');
+    await flush();
+    added.cancel();
+    await flush();
+    assert.deepEqual(clears(fake, 'm1'), []);
+    answer({ ok: true });
+    const { view } = await added.done;
+    assert.equal(view.why, 'declined');
+    assert.deepEqual(clears(fake, 'm1'), ['opencode-go']);
+    assert.ok(!(await kit.accounts('m1')).some((row) => row.id === 'opencode-go'));
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('overlapping plan key adds for one member take turns: a cancelled second add leaves the first sealed sign-in', async () => {
+  const stateDir = scratchDir('go-overlap');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    const first = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
+    const second = kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
+    first.paste('CANARY-GO-FIRST');
+    assert.deepEqual((await first.done).view, { state: 'done', via: 'browser' });
+    const later = await second;
+    later.paste('CANARY-GO-SECOND');
+    later.cancel();
+    assert.equal((await later.done).view.why, 'declined');
+    assert.deepEqual((await kit.accounts('m1')).map((row) => row.id), ['opencode-go']);
+    const left = await fake.transport.request('byokit.accounts', { action: 'list', agentId: 'm1' }) as { profiles: { provider: string }[] };
+    assert.deepEqual(left.profiles.map((p) => p.provider), ['opencode-go']);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a key add whose gateway restart fails after activation returns retry, not a rejection', async (t) => {
+  spawnedEngine(t);
+  const stateDir = scratchDir('key-restart-fails');
+  const fake = fakeGateway();
+  let connects = 0;
+  const transport = (ctx: Parameters<typeof fake.factory>[0]) => {
+    if (connects++ > 0) throw new Error('restart refused');
+    return activatingGateway(fake, () => kit['engine'].root, 1_000)(ctx);
+  };
+  const kit: OpenClawKit = new OpenClawKit({ stateDir, transport, spawnEngine: true, callbackPort: 0 });
+  try {
+    await kit.start();
+    const pending = kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-RESTART-FAILS' });
+    await flush();
+    t.mock.timers.tick(1_000);
+    await flush();
+    t.mock.timers.tick(1_000);
+    await flush();
+    assert.equal(await pending, 'retry');
+    assert.ok(!fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'));
+    const probe = fake.factory({ port: 0, token: 'test', identityPath: '', bridgeSock: '' });
+    assert.deepEqual(await probe.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false });
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a plan key add whose seal is refused shows the kit sentence, never the engine text', async () => {
+  const stateDir = scratchDir('go-seal-refused');
+  const fake = fakeGateway();
+  const transport = (ctx: Parameters<typeof fake.factory>[0]) => {
+    const inner = fake.factory(ctx);
+    return { ...inner, request: async (method: string, params?: Record<string, unknown>, options?: Parameters<typeof inner.request>[2]) => {
+      if (method === 'byokit.accounts' && params?.action === 'seal') throw new Error('CANARY-SEAL-ENGINE-TEXT');
+      return inner.request(method, params, options);
+    } };
+  };
+  const kit = new OpenClawKit({ stateDir, transport, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    const added = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
+    added.paste('CANARY-GO-SEAL-REFUSED');
+    assert.deepEqual((await added.done).view, { state: 'failed', via: 'browser', why: 'failed', error: 'Sign-in could not be saved. Try again.' });
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a key add for a choice the engine cannot set up is not_included and leaves the working key in place', async () => {
+  const stateDir = scratchDir('key-not-included');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.equal(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-working' }), 'ok');
+    assert.equal(await kit.addKey('m1', { authChoice: 'fal-api-key', apiKey: 'CANARY-KEY-FAL' }), 'not_included');
+    assert.equal((await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }) as { ok: boolean }).ok, true);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a key add whose activation throws clears the key it may have stored and reports retry', async () => {
+  const stateDir = scratchDir('key-activate-throws');
+  const fake = fakeGateway();
+  fake.failNext('openclaw.setup.activate', 'activation timed out');
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-THROWS' }), 'retry');
+    assert.ok(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'clear'));
+    assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false });
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });

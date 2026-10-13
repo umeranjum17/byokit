@@ -2,7 +2,9 @@
 // sign-in; OAuth credentials stay in the engine/CLI. Explicit API keys go only to engine activation (D11).
 import { randomUUID } from 'node:crypto';
 import { createServer, type Server } from 'node:http';
+import { activate, LATE_RESTART } from './activation.ts';
 import { authStatus } from './auth-status.ts';
+import { routes } from './routes.ts';
 import { signedInProviders } from './runs.ts';
 import { words } from './words.ts';
 import type { GatewayTransport, Member, SignInOptions, SignInView } from './types.ts';
@@ -13,6 +15,8 @@ export type SignInCtx = {
   ensure(member: Member): Promise<{ agentId: string }>;
   callbackPort: number;
   onDisconnect?(fn: () => void): () => void;
+  authConfig(): string;
+  restarted(authBefore: string | undefined, signal?: AbortSignal): Promise<boolean>;
   // A further account of a provider the member already holds (5.15): its sign-in must not reuse the browser's session.
   fresh?: boolean;
 };
@@ -27,6 +31,8 @@ const CANCEL_MS = 10_000;
 const RECONFIRM_MS = 60_000;
 const TURNS = 200;
 const PASTE_MS = 15 * 60_000;
+const KEY_UNAVAILABLE = 'This key type is not available on this engine.';
+const KEY_FAILED = 'API key activation failed';
 
 type DeviceCode = { code?: string; expires_in?: number | string; expiresInMinutes?: number; message?: string };
 type Step = { id?: string; type?: string; sensitive?: boolean; message?: string; deviceCode?: DeviceCode; externalUrl?: string };
@@ -79,6 +85,7 @@ export function signIn(
   let settleStart!: () => void;
   const startingSettled = new Promise<void>((resolve) => { settleStart = resolve; });
   let over = false;
+  let activating = false;
   let recovering = false;
   let offDisconnect: (() => void) | undefined;
   let agentId: string | undefined;
@@ -115,13 +122,21 @@ export function signIn(
   let pasteIn: ((text: string) => void) | undefined;
   let returned: string | undefined;
   // Once a secret step is seen, no later gateway prose, link or code is safe to display.
-  let sensitive = o.authChoice === 'setup-token' || o.authChoice === 'apiKey';
-  const secretFailure = () => o.authChoice === 'apiKey' ? 'API key activation failed' : 'Sign-in failed. Try again.';
+  let sensitive = o.authChoice === 'setup-token';
+  const secretFailure = 'Sign-in failed. Try again.';
+  // A pasted key is scrubbed from every failure on top of the engine's own redaction.
+  const keyRoute = routes().find((r) => r.choice === o.authChoice && r.keyEntry);
+  let secret: string | undefined;
+  const clean = (value: unknown): string => {
+    const text = value instanceof Error ? value.message : String(value);
+    return cut(secret ? text.split(secret).join('…') : text);
+  };
+  const keyFailed = (status?: string): string => status === 'unavailable' ? KEY_UNAVAILABLE : KEY_FAILED;
 
   const done = new Promise<SignInView>((resolve) => { settle = resolve; });
   const say = (v: Omit<SignInView, 'state' | 'via'>): void => {
     if (!over && !recovering && !signal.aborted) on({ state: 'waiting', via, ...(sensitive
-      ? { ...(v.prompt ? { prompt: v.prompt } : {}), ...(v.error ? { error: secretFailure() } : {}) }
+      ? { ...(v.prompt ? { prompt: v.prompt } : {}), ...(v.error ? { error: secretFailure } : {}) }
       : v) });
   };
   const closeCallback = async (): Promise<void> => {
@@ -139,7 +154,7 @@ export function signIn(
     returned = undefined;
     pasteIn = undefined;
     await closeCallback();
-    if (sensitive && view.state === 'failed' && view.why === 'failed') view = { ...view, error: secretFailure() };
+    if (sensitive && view.state === 'failed' && view.why === 'failed') view = { ...view, error: secretFailure };
     on(view);
     settle(view);
   };
@@ -161,10 +176,11 @@ export function signIn(
   };
   const cancel = (): void => {
     // Stop the drive now; the start itself is never aborted, and release waits for it to settle before cancelling,
-    // so the gateway's one setup admission is freed by a cancel that the engine can actually find.
+    // so the gateway's one setup admission is freed by a cancel that the engine can actually find. An activation in
+    // flight is not finished here: the drive returns once the engine answers, so cleanup follows the engine's answer.
     if (signal.aborted) return;
     owner.abort();
-    void (async () => { await release(); await finish(cancelled()); })();
+    void (async () => { await release(); if (!activating) await finish(cancelled()); })();
   };
 
   o.signal?.addEventListener('abort', cancel, { once: true });
@@ -209,7 +225,9 @@ export function signIn(
     }
     // Native login is completed by the person in unmodified Claude Code. The pin does not expose this
     // choice via auth.start; activation verifies the CLI route and persists it only after a live test succeeds.
-    if (o.authChoice === 'anthropic-cli' || o.authChoice === 'apiKey') {
+    // A key-entry choice (API key or plan key) is not an auth.start login either: the pin's Gateway sets it up only
+    // from the pasted key through typed activation, and refuses it there ("provider setup is not available").
+    if (o.authChoice === 'anthropic-cli' || keyRoute) {
       settleStart();
       let apiKey: string | undefined;
       if (o.authChoice === 'anthropic-cli') {
@@ -219,7 +237,7 @@ export function signIn(
         if (!detected.candidates?.some((candidate) => candidate.kind === 'claude-cli' && candidate.credentials === true))
           return { state: 'failed', via, why: 'failed', error: 'Sign in with Claude Code on this machine in the kit’s isolated HOME, then try again. The login stays in Claude Code.' };
       } else {
-        say({ prompt: 'API key (billed per use)' });
+        say({ prompt: keyRoute?.billing === 'api' ? 'API key (billed per use)' : 'Plan key' });
         apiKey = returned ?? await new Promise<string | undefined>((resolve) => {
           const stop = (value?: string) => { clearTimeout(timer); signal.removeEventListener('abort', abort); pasteIn = undefined; resolve(value); };
           const abort = () => stop();
@@ -230,15 +248,20 @@ export function signIn(
         });
         returned = undefined;
         if (!apiKey) return { state: 'failed', via, why: signal.aborted ? 'declined' : 'expired' };
+        secret = apiKey.trim() || undefined;
       }
       if (signal.aborted) return { state: 'failed', via, why: 'declined' };
-      const result = await ctx.request('openclaw.setup.activate', {
+      // Done waits for the gateway restart an `auth` change causes (activation.ts); a run started before it runs on the
+      // old config. A restart that runs late or is cancelled ends failed, and the account is cleaned up by the caller.
+      activating = true;
+      const result = await activate(ctx, {
         agentId, kind: apiKey === undefined ? 'claude-cli' : 'api-key',
-        ...(apiKey === undefined ? {} : { authChoice: 'apiKey', apiKey }),
-      }, { timeoutMs: PULL_MS, signal }) as { ok?: boolean; error?: string };
-      // API secrets must never be echoed in a view, even if the gateway returns an error containing one.
-      return result.ok ? { state: 'done', via } : { state: 'failed', via, why: 'failed',
-        error: apiKey === undefined ? cut(result.error ?? 'Claude Code activation failed') : 'API key activation failed' };
+        ...(apiKey === undefined ? {} : { authChoice: o.authChoice, apiKey }),
+      }, { timeoutMs: PULL_MS, signal }).finally(() => { activating = false; });
+      if (result.late) return signal.aborted ? cancelled() : { state: 'failed', via, why: 'failed', error: LATE_RESTART };
+      if (!result.ok) return { state: 'failed', via, why: 'failed',
+        error: apiKey === undefined ? clean(result.error ?? 'Claude Code activation failed') : keyFailed(result.status) };
+      return signal.aborted ? cancelled() : { state: 'done', via };
     }
     // The client chooses the wizard id; cancellation waits for the engine to register it.
     sessionId = `byokit-${randomUUID()}`;
@@ -391,7 +414,7 @@ export function signIn(
       if (signal.aborted) view = codeExpired ? expired() : cancelled();
       else if (sawDeviceCode && /expired_token|code.*expired|device.*(?:expired|timed out)/i.test(cut(error))) view = expired();
       else if (BUSY.test(cut(error))) view = { state: 'failed', via, why: 'busy' };
-      else view = { state: 'failed', via, why: 'failed', error: o.authChoice === 'apiKey' ? 'API key activation failed' : cut(error) };
+      else view = { state: 'failed', via, why: 'failed', error: keyRoute ? KEY_FAILED : clean(error) };
     }
     settleStart();
     if (view.state !== 'done') await release();

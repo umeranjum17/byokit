@@ -146,6 +146,8 @@ export type FakeGateway = {
   /** Profile fields every later wizard sign-in stores (O14 identity): `accountId: undefined` signs in with no account
    * id, so no `who`. With no call, or `signInAs()`, the account id is `fake-<agentId>`. */
   signInAs(fields?: { accountId?: string; email?: string; expires?: number }): void;
+  /** A sealed profile already in an agent's store, as a sign-in of another provider leaves it. */
+  seedProfile(agentId: string, profileId: string, profile: { provider: string; type: string } & Record<string, unknown>): void;
 } & { transport: GatewayTransport };
 export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number }): FakeGateway {
   const calls: { method: string; params: unknown }[] = [];
@@ -435,7 +437,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     },
     'byokit.keys': (p) => {
       const id = `byokit-key-${p.member}`;
-      if (p.action === 'prepare') { keys.delete(id); ensureAgent(id).providers = []; return { ok: true }; }
+      if (p.action === 'prepare' || p.action === 'clear') { keys.delete(id); ensureAgent(id).providers = []; return { ok: true }; }
       const key = keys.get(id);
       if (!key) return { ok: false };
       if (p.action === 'seal') { key.sealed = true; return { ok: true }; }
@@ -476,9 +478,16 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       if (action === 'list')
         return { ok: true, profiles: Object.entries(store).map(([profileId, credential]) => ({ provider: credential.provider,
           profileId, type: credential.type, status: statusOf(credential, Date.now()), ...(whoOf(credential) ? { who: whoOf(credential) } : {}) })) };
-      if (action === 'clear') { profiles.set(id, {}); orders.set(id, {});
+      if (action === 'clear') {
+        // Mirrors the plugin: a provider scope drops only that provider's profiles, order and lastGood.
+        const scope = typeof p.provider === 'string' && p.provider ? String(p.provider) : undefined;
+        if (!scope) { profiles.set(id, {}); orders.set(id, {}); }
+        else {
+          for (const [profileId, credential] of Object.entries(store)) if (credential.provider === scope) delete store[profileId];
+          delete order[scope];
+        }
         const cleared = agents.get(id);
-        if (cleared) cleared.providers = [];
+        if (cleared) cleared.providers = scope ? cleared.providers.filter((x) => x !== scope) : [];
         return { ok: true }; }
       if (action === 'ready') {
         const provider = String(p.provider ?? '');
@@ -497,7 +506,8 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
         const profileId = primary.slice(at + 1);
         const credential = store[profileId];
         const account = ACCOUNT_AGENT.test(id);
-        if (!credential || credential.provider !== p.provider || (!account && credential.type === 'api_key')) return { ok: false };
+        if (!credential || credential.provider !== p.provider
+          || (!account && credential.type === 'api_key' && p.planKey !== true)) return { ok: false };
         for (const [otherId, other] of Object.entries(store))
           if (account ? otherId !== profileId : other.provider === p.provider && otherId !== profileId) delete store[otherId];
         // An account agent's whole order is replaced; a member's keeps its other providers, as plugin/accounts.js does.
@@ -515,14 +525,21 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     },
     'openclaw.setup.activate': (p) => {
       if (p.kind !== 'api-key') throw new Error('only the API-key setup path is simulated');
+      // The pin takes a pasted key only for a choice whose manifest allows one (`appGuidedSecret`).
       const route = routes().find((r) => r.choice === String(p.authChoice) && r.keyEntry);
-      if (!route) return { ok: false, status: 'unavailable' };
+      if (!route || route.upstream?.flow === 'absent')
+        return { ok: false, status: 'unavailable', error: 'That key-based provider is not available on this Gateway.' };
       const model = `${route.provider}/fake-key-model`;
       keys.set(String(p.agentId), { provider: route.provider, key: String(p.apiKey), model, sealed: false });
-      signInAgent(String(p.agentId), route.provider);
+      signInAgent(String(p.agentId), route.provider, { type: 'api_key', key: String(p.apiKey) });
+      setPrimaryOfId(String(p.agentId), `${model}@${route.provider}:default`);
       return { ok: true, status: 'ok', modelRef: model };
     },
     'openclaw.setup.auth.start': (p) => {
+      // The pin starts only an app-guided login; a key-entry choice is set up from its pasted key instead.
+      const route = routes().find((r) => r.choice === String(p.authChoice ?? ''));
+      if (!route || route.keyEntry || route.via === 'cli' || route.upstream?.flow === 'absent')
+        throw new Error('That provider setup is not available on this Gateway.');
       // The pin's single setup admission: a second start while a session runs is refused.
       if (wizards.size) throw new Error('setup is already in progress');
       const sessionId = String(p.sessionId ?? `fake-${randomUUID()}`);
@@ -716,6 +733,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       perAgent.set(provider, windows);
     },
     signInAs: (fields) => { signInFields = fields && { ...fields }; },
+    seedProfile: (agentId, profileId, profile) => { ensureAgent(agentId); storeOf(agentId)[profileId] = profile; },
     transport: factory({ port: 0, token: 'test', identityPath: '', bridgeSock: '' }),
   };
 }

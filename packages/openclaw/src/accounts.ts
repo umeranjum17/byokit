@@ -470,6 +470,12 @@ export function createAccounts(ctx: {
     await edit(member, (file) => { delete file.accounts[id]; });
   })().catch((error: unknown) => ctx.log?.(`addAccount: ${agent} is not removed yet: ${error instanceof Error ? error.message : String(error)}`));
 
+  // Member-agent adds of one provider take turns from the sign-in's start to its settle, so a cleanup clears only the
+  // profile its own add activated, and the next add's read sees what the earlier one left.
+  const holdAdd = (member: Member, provider: string): Promise<() => void> => new Promise((held) => {
+    void ctx.locks.exclusive([`add:${member}:${provider}`], () => new Promise<void>((release) => held(release)));
+  });
+
   async function add(member: Member, o: AddOptions, on: (v: SignInView) => void): Promise<AccountSignIn> {
     check(member);
     if (!NEW_MEMBER_ID.test(member)) throw new Error(words('account.legacyMember'));
@@ -481,152 +487,175 @@ export function createAccounts(ctx: {
     const { agentId: memberAgent, workspace } = await ctx.ensure(member);
     if (o.again !== undefined && (!read(member).accounts[o.again] || o.again.split('.')[0] !== provider))
       throw new Error(`unknown account: ${o.again}`);
-    // The member agent is the target only while it holds no local profile of the provider (5.15).
-    const own = await ctx.request('byokit.accounts', { action: 'list', agentId: memberAgent }) as { ok?: boolean; profiles?: LiveProfile[] };
-    if (!own.ok || !Array.isArray(own.profiles)) throw new Error('addAccount: the member\'s sign-ins could not be read');
-    const fresh = o.again !== undefined || own.profiles.some((p) => p.provider === provider);
-    // The member agent's primary model before this sign-in or any merge on it: restored when its profile moves away.
-    const memberModel = await readModel(memberAgent);
-    const entryOf = (file: IndexFile, agent: string): IndexEntry => ({ agent, route: route.choice, addedAt: Date.now(),
-      name: name ?? `${route.label} ${Object.values(file.accounts).filter((e) => e.route === route.choice).length + 1}` });
-    let id: AccountId = provider;
-    let agent = memberAgent;
-    let added = false;
-    if (!fresh) {
-      await edit(member, (file) => { if (!file.accounts[id]) { file.accounts[id] = entryOf(file, agent); added = true; } });
-    } else {
-      // `<member>--<hex6>`, drawn again while that agent exists; its entry is written before the agent.
-      const roster = new Set((await ctx.request('agents.list') as { agents: { id: string }[] }).agents.map((a) => a.id));
-      await edit(member, (file) => {
-        const taken = new Set([...roster, ...Object.values(file.accounts).map((e) => e.agent)]);
-        do { const hex = randomBytes(3).toString('hex'); id = `${provider}.${hex}`; agent = `${member}--${hex}`; }
-        while (taken.has(agent) || file.accounts[id]);
-        file.accounts[id] = entryOf(file, agent);
-      });
-      added = true;
-      let created = false;
-      // The pin rewrites the shared workspace's IDENTITY.md Name line on create, so the create window is one lock per member.
-      await ctx.locks.exclusive([`${member}#identity`], async () => {
-        let before: string | undefined;
-        try {
-          before = await identityOf(memberAgent);
-          const made = await ctx.request('agents.create', { name: agent, workspace }) as { agentId?: string };
-          created = true;
-          if (made.agentId !== agent) throw new Error(`addAccount: agents.create answered ${String(made.agentId)}, not ${agent}`);
-          await untilListed(ctx.request, agent);
-          await restoreIdentity(memberAgent, before);
-        } catch (error) {
-          await restoreIdentity(memberAgent, before)
-            .catch((restoreError: unknown) => ctx.log?.(`addAccount: IDENTITY.md is not restored: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`));
-          const exists = created || await onGateway(agent).catch((listError: unknown) => {
-            ctx.log?.(`addAccount: ${agent} is not removed yet: ${listError instanceof Error ? listError.message : String(listError)}`);
-            return undefined;
-          });
-          if (exists !== undefined) await discard(member, id, agent, exists);
-          throw error;
-        }
-      });
-    }
-
-    const key = `${member}\n${id}`;
-    signing.set(key, (signing.get(key) ?? 0) + 1);
-    const handle = ctx.signIn(agent, { authChoice: route.choice, ...(o.via ? { via: o.via } : {}) },
-      (v) => { if (v.state === 'waiting') on(v); }, fresh);
-    // Moves the profile `who` names from `from` into `to`, under both agents' locks; refused, nothing changes.
-    const profilesOf = (agent: string): Promise<LiveProfile[] | undefined> => (ctx.request('byokit.accounts', { action: 'list', agentId: agent }) as Promise<{ ok?: boolean; profiles?: LiveProfile[] }>)
-      .then((r) => (r.ok === true && Array.isArray(r.profiles) ? r.profiles : undefined), () => undefined);
-    const profileIdOf = (profiles: LiveProfile[] | undefined, who: string): string | undefined =>
-      profiles?.find((p) => p.provider === provider && p.who === who)?.profileId;
-    const moveTo = (from: string, to: string, who: string): Promise<boolean> => ctx.locks.exclusive([memberAgent, from, to], async () => {
-      const sent = profileIdOf(await profilesOf(from), who);
-      const answer = await (ctx.request('byokit.accounts', { action: 'adopt', from, to, provider, who }) as Promise<{ ok?: boolean }>)
-        .catch(async (error: unknown) => {
-          ctx.log?.(`addAccount: adopt has no answer: ${error instanceof Error ? error.message : String(error)}`);
-          // A lost reply can follow a committed move: the destination holding the sign-in's own profile means it moved.
-          const landed = sent !== undefined && profileIdOf(await profilesOf(to), who) === sent;
-          return { ok: landed };
+    let releaseAdd = (): void => {};
+    try {
+      // The member agent is the target only while it holds no local profile of the provider (5.15).
+      const holdsProvider = async (): Promise<boolean> => {
+        const own = await ctx.request('byokit.accounts', { action: 'list', agentId: memberAgent }) as { ok?: boolean; profiles?: LiveProfile[] };
+        if (!own.ok || !Array.isArray(own.profiles)) throw new Error('addAccount: the member\'s sign-ins could not be read');
+        return own.profiles.some((p) => p.provider === provider);
+      };
+      let fresh = o.again !== undefined || await holdsProvider();
+      // Only the member-agent path clears a profile it did not create, so only it takes the provider's add lock, held to
+      // settle. The read repeats under the lock: the add that held it may have sealed its sign-in on the member agent.
+      if (!fresh) {
+        releaseAdd = await holdAdd(member, provider);
+        fresh = await holdsProvider();
+        if (fresh) releaseAdd();
+      }
+      // The member agent's primary model before this sign-in or any merge on it: restored when its profile moves away.
+      const memberModel = await readModel(memberAgent);
+      const entryOf = (file: IndexFile, agent: string): IndexEntry => ({ agent, route: route.choice, addedAt: Date.now(),
+        name: name ?? `${route.label} ${Object.values(file.accounts).filter((e) => e.route === route.choice).length + 1}` });
+      let id: AccountId = provider;
+      let agent = memberAgent;
+      let added = false;
+      if (!fresh) {
+        await edit(member, (file) => { if (!file.accounts[id]) { file.accounts[id] = entryOf(file, agent); added = true; } });
+      } else {
+        // `<member>--<hex6>`, drawn again while that agent exists; its entry is written before the agent.
+        const roster = new Set((await ctx.request('agents.list') as { agents: { id: string }[] }).agents.map((a) => a.id));
+        await edit(member, (file) => {
+          const taken = new Set([...roster, ...Object.values(file.accounts).map((e) => e.agent)]);
+          do { const hex = randomBytes(3).toString('hex'); id = `${provider}.${hex}`; agent = `${member}--${hex}`; }
+          while (taken.has(agent) || file.accounts[id]);
+          file.accounts[id] = entryOf(file, agent);
         });
-      if (!answer.ok) return false;
-      if (from === memberAgent) await restoreModel(memberAgent, memberModel);
-      return true;
-    }).catch(() => false);
-    // `adopt` moves the sign-in into X's agent and clears it from the target; refused, the sign-in stays a new
-    // account and keeps its `who`.
-    const adopt = (who: string, to: string): Promise<boolean> => moveTo(agent, to, who).then(async (ok) => {
-      if (ok) return true;
-      await edit(member, (file) => { const own = file.accounts[id]; if (own) own.who = who; });
-      return false;
-    }).catch(() => false);
-    const removeEntry = (): Promise<void> => agent !== memberAgent ? discard(member, id, agent, true)
-      : edit(member, (file) => { delete file.accounts[id]; })
-        .catch((error: unknown) => ctx.log?.(`addAccount: ${id} entry is kept: ${error instanceof Error ? error.message : String(error)}`));
-    const drop = (): Promise<void> => agent !== memberAgent || added ? removeEntry() : Promise.resolve();
-    // A live account holding the same `who` merges into the earliest one before the sign-in does. When the earliest is
-    // the sign-in's own row, the duplicate is discarded so the sign-in's credential survives; otherwise its profile is
-    // moved into the earliest one, then an account agent is removed and the member agent's entry dropped. A refused
-    // move keeps that duplicate, logged.
-    const collapse = async (dup: [AccountId, IndexEntry], keep: [AccountId, IndexEntry], who: string): Promise<void> => {
-      if (keep[0] === id) {
-        if (dup[1].agent !== memberAgent) { await discard(member, dup[0], dup[1].agent, true); return; }
-        ctx.log?.(`addAccount: ${dup[0]} is kept: the member agent's profile is not cleared alone`);
-        return;
+        added = true;
+        let created = false;
+        // The pin rewrites the shared workspace's IDENTITY.md Name line on create, so the create window is one lock per member.
+        await ctx.locks.exclusive([`${member}#identity`], async () => {
+          let before: string | undefined;
+          try {
+            before = await identityOf(memberAgent);
+            const made = await ctx.request('agents.create', { name: agent, workspace }) as { agentId?: string };
+            created = true;
+            if (made.agentId !== agent) throw new Error(`addAccount: agents.create answered ${String(made.agentId)}, not ${agent}`);
+            await untilListed(ctx.request, agent);
+            await restoreIdentity(memberAgent, before);
+          } catch (error) {
+            await restoreIdentity(memberAgent, before)
+              .catch((restoreError: unknown) => ctx.log?.(`addAccount: IDENTITY.md is not restored: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`));
+            const exists = created || await onGateway(agent).catch((listError: unknown) => {
+              ctx.log?.(`addAccount: ${agent} is not removed yet: ${listError instanceof Error ? listError.message : String(listError)}`);
+              return undefined;
+            });
+            if (exists !== undefined) await discard(member, id, agent, exists);
+            throw error;
+          }
+        });
       }
-      if (!await moveTo(dup[1].agent, keep[1].agent, who)) { ctx.log?.(`addAccount: ${dup[0]} is kept: its sign-in is not moved`); return; }
-      if (dup[1].agent !== memberAgent) { await discard(member, dup[0], dup[1].agent, true); return; }
-      await edit(member, (file) => { delete file.accounts[dup[0]]; })
-        .catch((error: unknown) => ctx.log?.(`addAccount: ${dup[0]} entry is kept: ${error instanceof Error ? error.message : String(error)}`));
-    };
-    // A row holds the identity only while its agent holds it: the member's row while the member holds that `who`, an
-    // account while its agent is on the roster (a removal that stopped partway leaves an entry whose agent is gone).
-    const liveEntry = (roster: Set<string>, memberHolds: boolean, e: IndexEntry): boolean => e.agent === memberAgent ? memberHolds
-      : ACCOUNT_AGENT.test(e.agent) && e.agent.startsWith(`${member}--`) && roster.has(e.agent);
-    // Sealed before the person sees done: the agent keeps only this sign-in. Identity is its `who`, compared only
-    // within this member and provider: the live accounts holding it (the target's own included; several only from
-    // before O14) merge into the earliest `addedAt`, whatever `again` names; no `who` never merges. The email never decides.
-    const settle = async (view: SignInView): Promise<{ view: SignInView; id: AccountId }> => {
-      if (view.state === 'done') {
-        const sealed = await ctx.locks.exclusive([memberAgent, agent, indexLock(member)], async (): Promise<{ who?: string; keep?: [AccountId, IndexEntry]; dups: [AccountId, IndexEntry][] } | string> => {
-          const answer = await ctx.request('byokit.accounts', { action: 'seal', agentId: agent, provider }) as { ok?: boolean; who?: string };
-          if (!answer.ok) return 'Sign-in could not be saved. Try again.';
-          const roster = await (ctx.request('agents.list') as Promise<{ agents: { id: string }[] }>)
-            .then((r) => new Set(r.agents.map((a) => a.id)), () => undefined);
-          const held = await (ctx.request('byokit.accounts', { action: 'list', agentId: memberAgent }) as Promise<{ ok?: boolean; profiles?: LiveProfile[] }>)
-            .catch(() => undefined);
-          const mergeable = roster !== undefined && held?.ok === true && Array.isArray(held.profiles);
-          if (!mergeable) ctx.log?.(`addAccount: the roster or ${memberAgent} profiles are unreadable; the sign-in is kept as its own row`);
-          const memberHolds = (held?.profiles ?? []).some((p) => p.provider === provider && p.who === answer.who);
-          const file = read(member);
-          if (roster && mergeable && (await build(member, memberAgent, file, roster, held?.profiles ?? [])).dirty) write(member, file);
-          const own = file.accounts[id];
-          const sharing = answer.who && roster && mergeable ? Object.entries(file.accounts)
-            .filter(([other, e]) => other.split('.')[0] === provider && e.who === answer.who && liveEntry(roster, memberHolds, e))
-            .sort(([, a], [, b]) => a.addedAt - b.addedAt) : [];
-          const keep = sharing[0];
-          const dups = sharing.slice(1).filter(([other]) => other !== id);
-          if (!(keep && keep[0] !== id) && own) { if (answer.who) own.who = answer.who; else delete own.who; write(member, file); }
-          return { ...(answer.who ? { who: answer.who } : {}), ...(keep ? { keep } : {}), dups };
-        }).catch((error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 200));
-        if (typeof sealed === 'string') view = { state: 'failed', via: view.via, why: 'failed', error: sealed };
-        else {
-          for (const dup of sealed.dups) await collapse(dup, sealed.keep!, sealed.who!);
-          const into = sealed.keep?.[0] !== id ? sealed.keep : undefined;
-          if (!into || !await adopt(sealed.who!, into[1].agent)) return { view, id };
-          await removeEntry();
-          return { view, id: into[0] };
+
+      const key = `${member}\n${id}`;
+      signing.set(key, (signing.get(key) ?? 0) + 1);
+      const handle = ctx.signIn(agent, { authChoice: route.choice, ...(o.via ? { via: o.via } : {}) },
+        (v) => { if (v.state === 'waiting') on(v); }, fresh);
+      // Moves the profile `who` names from `from` into `to`, under both agents' locks; refused, nothing changes.
+      const profilesOf = (agent: string): Promise<LiveProfile[] | undefined> => (ctx.request('byokit.accounts', { action: 'list', agentId: agent }) as Promise<{ ok?: boolean; profiles?: LiveProfile[] }>)
+        .then((r) => (r.ok === true && Array.isArray(r.profiles) ? r.profiles : undefined), () => undefined);
+      const profileIdOf = (profiles: LiveProfile[] | undefined, who: string): string | undefined =>
+        profiles?.find((p) => p.provider === provider && p.who === who)?.profileId;
+      const moveTo = (from: string, to: string, who: string): Promise<boolean> => ctx.locks.exclusive([memberAgent, from, to], async () => {
+        const sent = profileIdOf(await profilesOf(from), who);
+        const answer = await (ctx.request('byokit.accounts', { action: 'adopt', from, to, provider, who }) as Promise<{ ok?: boolean }>)
+          .catch(async (error: unknown) => {
+            ctx.log?.(`addAccount: adopt has no answer: ${error instanceof Error ? error.message : String(error)}`);
+            // A lost reply can follow a committed move: the destination holding the sign-in's own profile means it moved.
+            const landed = sent !== undefined && profileIdOf(await profilesOf(to), who) === sent;
+            return { ok: landed };
+          });
+        if (!answer.ok) return false;
+        if (from === memberAgent) await restoreModel(memberAgent, memberModel);
+        return true;
+      }).catch(() => false);
+      // `adopt` moves the sign-in into X's agent and clears it from the target; refused, the sign-in stays a new
+      // account and keeps its `who`.
+      const adopt = (who: string, to: string): Promise<boolean> => moveTo(agent, to, who).then(async (ok) => {
+        if (ok) return true;
+        await edit(member, (file) => { const own = file.accounts[id]; if (own) own.who = who; });
+        return false;
+      }).catch(() => false);
+      const removeEntry = (): Promise<void> => agent !== memberAgent ? discard(member, id, agent, true)
+        : edit(member, (file) => { delete file.accounts[id]; })
+          .catch((error: unknown) => ctx.log?.(`addAccount: ${id} entry is kept: ${error instanceof Error ? error.message : String(error)}`));
+      const drop = (): Promise<void> => agent !== memberAgent || added ? removeEntry() : Promise.resolve();
+      // A live account holding the same `who` merges into the earliest one before the sign-in does. When the earliest is
+      // the sign-in's own row, the duplicate is discarded so the sign-in's credential survives; otherwise its profile is
+      // moved into the earliest one, then an account agent is removed and the member agent's entry dropped. A refused
+      // move keeps that duplicate, logged.
+      const collapse = async (dup: [AccountId, IndexEntry], keep: [AccountId, IndexEntry], who: string): Promise<void> => {
+        if (keep[0] === id) {
+          if (dup[1].agent !== memberAgent) { await discard(member, dup[0], dup[1].agent, true); return; }
+          ctx.log?.(`addAccount: ${dup[0]} is kept: the member agent's profile is not cleared alone`);
+          return;
         }
-      }
-      await drop();
-      return { view, id };
-    };
-    const done = handle.done.then(settle).finally(() => {
-      const left = signing.get(key)! - 1;
-      if (left) signing.set(key, left);
-      else signing.delete(key);
-    }).then((result) => {
-      on(result.view);
-      return result;
-    });
-    return { id, paste: handle.paste, cancel: handle.cancel, done };
+        if (!await moveTo(dup[1].agent, keep[1].agent, who)) { ctx.log?.(`addAccount: ${dup[0]} is kept: its sign-in is not moved`); return; }
+        if (dup[1].agent !== memberAgent) { await discard(member, dup[0], dup[1].agent, true); return; }
+        await edit(member, (file) => { delete file.accounts[dup[0]]; })
+          .catch((error: unknown) => ctx.log?.(`addAccount: ${dup[0]} entry is kept: ${error instanceof Error ? error.message : String(error)}`));
+      };
+      // A row holds the identity only while its agent holds it: the member's row while the member holds that `who`, an
+      // account while its agent is on the roster (a removal that stopped partway leaves an entry whose agent is gone).
+      const liveEntry = (roster: Set<string>, memberHolds: boolean, e: IndexEntry): boolean => e.agent === memberAgent ? memberHolds
+        : ACCOUNT_AGENT.test(e.agent) && e.agent.startsWith(`${member}--`) && roster.has(e.agent);
+      // Sealed before the person sees done: the agent keeps only this sign-in. Done only when sealed; anything else leaves
+      // nothing behind. Identity is its `who`, compared only
+      // within this member and provider: the live accounts holding it (the target's own included; several only from
+      // before O14) merge into the earliest `addedAt`, whatever `again` names; no `who` never merges. The email never decides.
+      const settle = async (view: SignInView): Promise<{ view: SignInView; id: AccountId }> => {
+        if (view.state === 'done') {
+          const sealed = await ctx.locks.exclusive([memberAgent, agent, indexLock(member)], async (): Promise<{ who?: string; keep?: [AccountId, IndexEntry]; dups: [AccountId, IndexEntry][] } | string> => {
+            const answer = await ctx.request('byokit.accounts', { action: 'seal', agentId: agent, provider,
+              ...(route.keyEntry ? { planKey: true } : {}) }) as { ok?: boolean; who?: string };
+            if (!answer.ok) return 'Sign-in could not be saved. Try again.';
+            const roster = await (ctx.request('agents.list') as Promise<{ agents: { id: string }[] }>)
+              .then((r) => new Set(r.agents.map((a) => a.id)), () => undefined);
+            const held = await (ctx.request('byokit.accounts', { action: 'list', agentId: memberAgent }) as Promise<{ ok?: boolean; profiles?: LiveProfile[] }>)
+              .catch(() => undefined);
+            const mergeable = roster !== undefined && held?.ok === true && Array.isArray(held.profiles);
+            if (!mergeable) ctx.log?.(`addAccount: the roster or ${memberAgent} profiles are unreadable; the sign-in is kept as its own row`);
+            const memberHolds = (held?.profiles ?? []).some((p) => p.provider === provider && p.who === answer.who);
+            const file = read(member);
+            if (roster && mergeable && (await build(member, memberAgent, file, roster, held?.profiles ?? [])).dirty) write(member, file);
+            const own = file.accounts[id];
+            const sharing = answer.who && roster && mergeable ? Object.entries(file.accounts)
+              .filter(([other, e]) => other.split('.')[0] === provider && e.who === answer.who && liveEntry(roster, memberHolds, e))
+              .sort(([, a], [, b]) => a.addedAt - b.addedAt) : [];
+            const keep = sharing[0];
+            const dups = sharing.slice(1).filter(([other]) => other !== id);
+            if (!(keep && keep[0] !== id) && own) { if (answer.who) own.who = answer.who; else delete own.who; write(member, file); }
+            return { ...(answer.who ? { who: answer.who } : {}), ...(keep ? { keep } : {}), dups };
+          }).catch((error: unknown) => route.keyEntry ? 'Sign-in could not be saved. Try again.'
+            : (error instanceof Error ? error.message : String(error)).slice(0, 200));
+          if (typeof sealed === 'string') view = { state: 'failed', via: view.via, why: 'failed', error: sealed };
+          else {
+            for (const dup of sealed.dups) await collapse(dup, sealed.keep!, sealed.who!);
+            const into = sealed.keep?.[0] !== id ? sealed.keep : undefined;
+            if (!into || !await adopt(sealed.who!, into[1].agent)) return { view, id };
+            await removeEntry();
+            return { view, id: into[0] };
+          }
+        }
+        // A member agent held no profile of this provider before a non-fresh add, so clearing the provider removes only this one.
+        if (agent === memberAgent) await ctx.request('byokit.accounts', { action: 'clear', agentId: memberAgent, provider })
+          .catch((error: unknown) => ctx.log?.(`addAccount: ${provider} is not cleared yet: ${error instanceof Error ? error.message : String(error)}`));
+        await drop();
+        return { view, id };
+      };
+      const done = handle.done.then(settle).finally(() => {
+        releaseAdd();
+        const left = signing.get(key)! - 1;
+        if (left) signing.set(key, left);
+        else signing.delete(key);
+      }).then((result) => {
+        on(result.view);
+        return result;
+      });
+      return { id, paste: handle.paste, cancel: handle.cancel, done };
+    } catch (error) {
+      releaseAdd();
+      throw error;
+    }
   }
 
   return { list, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, pick, rest };

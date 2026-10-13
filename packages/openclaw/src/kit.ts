@@ -96,6 +96,7 @@ export type RetainedLogin = { path: string } | { record: Record<string, unknown>
 
 /** The engine's learning-mode config key (5.6 "Engine learning state"). */
 const LEARNING_KEY = 'skills.workshop.autonomous.mode';
+const RESTART_MS = 60_000;
 
 const operatorMethods = new Set<string>([
   'agent',
@@ -515,6 +516,7 @@ export class OpenClawKit {
   private listeners = new Set<(e: { event: string; payload?: unknown }) => void>();
   private off: (() => void)[] = [];
   private signInDisconnects = new Set<() => void>();
+  private readonly phaseListeners = new Set<() => void>();
   private starting?: Promise<void>;
   private stopping = false;
   private failures = 0;
@@ -689,9 +691,11 @@ export class OpenClawKit {
       onState: (s) => this.setState(s), onExit: () => this.closed('engine exited') });
     this.admission = createAuthStatus(this.engine.root, (method, params, options) => this.request()(method, params, options));
     this.keys = createKeys({ root: this.engine.root,
-      restarting: () => this.current.phase === 'restarting' || this.current.phase === 'starting',
+      restarting: () => this.engineRestarting(),
       request: (method, params, options) => this.request()(method, params, options),
-      ensure: (member) => this.ensureMember(member) });
+      ensure: (member) => this.ensureMember(member),
+      authConfig: () => this.authSnapshot(),
+      restarted: (authBefore, signal) => this.restarted(authBefore, signal) });
     const slot: { bridge?: Pick<Bridge, 'resolveAsk'> } = {};
     this.approvalsCtl = new Approvals({
       request: (method, params, co) => this.request()(method, params, co),
@@ -728,6 +732,7 @@ export class OpenClawKit {
     if (s.phase !== 'ready') this.admission?.invalidate();
     this.current = { ...s, ...(this.engine.patchSet !== undefined ? { patchSet: this.engine.patchSet } : {}) };
     this.o.onState?.(this.current);
+    for (const fn of this.phaseListeners) fn();
   }
   get state(): KitState { return this.current; }
   async prepare(): Promise<void> {
@@ -765,7 +770,8 @@ export class OpenClawKit {
       for (const name of operatorMethods) if (!hello.methods.includes(name)) this.o.log?.(`gateway missing generated method: ${name}`);
       for (const name of hello.methods) if (!operatorMethods.has(name) && !nodeMethods.has(name)) this.o.log?.(`gateway has unknown method: ${name}`);
       this.members = createMembers({ request: transport.request.bind(transport), root: this.engine.root });
-      this.accountsCtl = createAccounts({ request: transport.request.bind(transport), root: this.engine.root,
+      // An add outlives a restart (activation restarts the gateway before it settles): requests use the kit's current transport.
+      this.accountsCtl = createAccounts({ request: (method, params, o) => this.request()(method, params, o), root: this.engine.root,
         ensure: (member) => this.ensureMember(member), locks: this.locks,
         signIn: (agentId, o, on, fresh) => startSignIn({ ...this.signInCtx(), ensure: async () => ({ agentId }), fresh }, agentId, o, on),
         log: this.o.log });
@@ -813,6 +819,38 @@ export class OpenClawKit {
     await transport?.stop();
   }
 
+  private engineRestarting(): boolean {
+    return this.current.phase === 'restarting' || this.current.phase === 'starting';
+  }
+
+  private authSnapshot(): string {
+    return JSON.stringify(this.getConfigKey('auth')) ?? '';
+  }
+
+  // An activation that changed config `auth` makes the pin restart the gateway; then this resolves true once that
+  // restart has begun and the kit is ready again, false if it fails, is aborted or runs past RESTART_MS. No change: true.
+  private restarted(authBefore: string | undefined, signal?: AbortSignal): Promise<boolean> {
+    if (this.o.spawnEngine === false || this.authSnapshot() === authBefore) return Promise.resolve(true);
+    if (signal?.aborted) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      let began = this.engineRestarting();
+      const end = (ok: boolean) => {
+        clearTimeout(timer);
+        this.phaseListeners.delete(check);
+        signal?.removeEventListener('abort', abort);
+        resolve(ok);
+      };
+      const abort = () => end(false);
+      const check = () => {
+        if (this.engineRestarting()) began = true;
+        else if (began) end(this.current.phase === 'ready');
+      };
+      const timer = setTimeout(() => end(false), RESTART_MS);
+      this.phaseListeners.add(check);
+      signal?.addEventListener('abort', abort, { once: true });
+    });
+  }
+
   private closed(_why: string): void {
     const engineFailed = _why === 'engine exited' && this.current.phase === 'failed' && this.current.why === 'exited';
     if (this.stopping || (this.current.phase !== 'ready' && !engineFailed)) return;
@@ -840,8 +878,8 @@ export class OpenClawKit {
   }
 
   private request(): GatewayTransport['request'] {
-    if (!this.transport || this.current.phase !== 'ready') throw new Error('gateway not ready');
     const transport = this.transport;
+    if (!transport || this.current.phase !== 'ready') return () => Promise.reject(new Error('gateway not ready'));
     return (method, params, options) => {
       const changesAuth = /^(models\.authLogout|openclaw\.setup\.(auth\.start|activate)|wizard\.(next|cancel)|config\.(apply|patch|set)|agents\.(create|update|delete)|secrets\.(reload|store\.(set|delete))|byokit\.keys)$/.test(method);
       if (!changesAuth || (method === 'byokit.keys' && (params as { action?: string } | undefined)?.action === 'ready'))
@@ -853,11 +891,11 @@ export class OpenClawKit {
   call<M extends GatewayMethod>(method: M, params: GatewayParams<M>, o?: CallOptions): Promise<GatewayResult<M>> {
     if (this.o.browser && /^(config\.(apply|patch|set)|agents\.(create|update|delete)|plugins\.(install|uninstall|setEnabled|refresh))$/.test(method))
       return Promise.reject(new Error('browser policy changes require guarded patchConfig'));
-    try { return this.request()(method, params, o) as Promise<GatewayResult<M>>; } catch (error) { return Promise.reject(error); }
+    return this.request()(method, params, o) as Promise<GatewayResult<M>>;
   }
   callDynamic(method: string, params?: unknown, o?: CallOptions): Promise<unknown> {
     if (operatorMethods.has(method) || nodeMethods.has(method)) return Promise.reject(new Error(`use typed call for generated method: ${method}`));
-    try { return this.request()(method, params, o); } catch (error) { return Promise.reject(error); }
+    return this.request()(method, params, o);
   }
   get hello(): Hello | undefined { return this.greeting; }
   onEvent<E extends KitEventName>(event: E | '*', fn: (payload: KitEventPayload<E>, event: E) => void): () => void {
@@ -894,7 +932,9 @@ export class OpenClawKit {
       // Public readiness/sign-in reads stay live; their fresh result can prepare the next run's admission.
       authStatus: (agentId, refresh, native) => this.admission.read(agentId, refresh, native, false),
       ensure: (member) => this.ensureMember(member), callbackPort: this.o.callbackPort ?? 1455,
-      onDisconnect: (fn) => { this.signInDisconnects.add(fn); return () => { this.signInDisconnects.delete(fn); }; } };
+      onDisconnect: (fn) => { this.signInDisconnects.add(fn); return () => { this.signInDisconnects.delete(fn); }; },
+      authConfig: () => this.authSnapshot(),
+      restarted: (authBefore, signal) => this.restarted(authBefore, signal) };
   }
 
   routes(): RouteView[] {

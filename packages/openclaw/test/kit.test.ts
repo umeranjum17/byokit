@@ -379,7 +379,8 @@ test('key entry refuses unavailable routes and hides even an engine error that e
   assert.equal(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: ' ' }), 'invalid');
   fake.handle('openclaw.setup.activate', () => { throw new Error(key); });
   const end = await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: key });
-  assert.equal(end, 'invalid');
+  // The engine may have taken a key whose activation threw after it was sent: the key is cleared and the add is retry.
+  assert.equal(end, 'retry');
   assert.equal(JSON.stringify([end, fake.calls]).includes(key), false);
   await assert.rejects(kit.ensureMember('byokit-key-m1'), /invalid member/);
 }));

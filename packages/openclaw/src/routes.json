@@ -8,7 +8,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "Alibaba Model Studio: API key (billed per use).",
+    "reason": "The pinned Gateway has no app-guided setup for this choice.",
     "source": "extensions/alibaba/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
     "checked": "2026-10-02",
@@ -33,7 +33,7 @@
       "id": "alibaba",
       "method": "api-key",
       "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
-      "flow": "present"
+      "flow": "absent"
     }
   },
   {
@@ -176,7 +176,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "The pinned Gateway has no app-guided sign-in for this choice.",
+    "reason": "The pinned Gateway has no app-guided setup for this choice.",
     "source": "extensions/anthropic/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
     "checked": "2026-10-02",
@@ -610,7 +610,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "ClawRouter: API key (billed per use).",
+    "reason": "The pinned Gateway has no app-guided setup for this choice.",
     "source": "extensions/clawrouter/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
     "checked": "2026-10-02",
@@ -635,7 +635,7 @@
       "id": "clawrouter",
       "method": "api-key",
       "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
-      "flow": "present"
+      "flow": "absent"
     }
   },
   {
@@ -647,7 +647,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "Cloudflare AI Gateway: API key (billed per use).",
+    "reason": "The pinned Gateway has no app-guided setup for this choice.",
     "source": "extensions/cloudflare-ai-gateway/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
     "checked": "2026-10-02",
@@ -681,7 +681,7 @@
       "id": "cloudflare-ai-gateway",
       "method": "api-key",
       "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
-      "flow": "present"
+      "flow": "absent"
     }
   },
   {
@@ -739,7 +739,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "ComfyUI: API key (billed per use).",
+    "reason": "The pinned Gateway has no app-guided setup for this choice.",
     "source": "extensions/comfy/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
     "checked": "2026-10-02",
@@ -773,7 +773,7 @@
       "id": "comfy",
       "method": "cloud-api-key",
       "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
-      "flow": "present"
+      "flow": "absent"
     }
   },
   {
@@ -785,7 +785,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "Billing must be supplied by the host; a server address does not determine billing.",
+    "reason": "The pinned Gateway has no app-guided setup for this choice.",
     "source": "extensions/copilot-proxy/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
     "checked": "2026-10-02",
@@ -807,7 +807,7 @@
       "id": "copilot-proxy",
       "method": "local",
       "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
-      "flow": "present"
+      "flow": "absent"
     }
   },
   {
@@ -911,7 +911,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "fal: API key (billed per use).",
+    "reason": "The pinned Gateway has no app-guided setup for this choice.",
     "source": "extensions/fal/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
     "checked": "2026-10-02",
@@ -936,7 +936,7 @@
       "id": "fal",
       "method": "api-key",
       "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
-      "flow": "present"
+      "flow": "absent"
     }
   },
   {
@@ -1585,7 +1585,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "LongCat: API key (billed per use).",
+    "reason": "The pinned Gateway has no app-guided setup for this choice.",
     "source": "extensions/longcat/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
     "checked": "2026-10-02",
@@ -1619,7 +1619,7 @@
       "id": "longcat",
       "method": "api-key",
       "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
-      "flow": "present"
+      "flow": "absent"
     }
   },
   {
@@ -1677,7 +1677,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "Microsoft Foundry: Cloud credentials (billed per use).",
+    "reason": "The pinned Gateway has no app-guided setup for this choice.",
     "source": "extensions/microsoft-foundry/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
     "checked": "2026-10-02",
@@ -1699,7 +1699,7 @@
       "id": "microsoft-foundry",
       "method": "entra-id",
       "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
-      "flow": "present"
+      "flow": "absent"
     }
   },
   {
@@ -1711,7 +1711,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "Microsoft Foundry: API key (billed per use).",
+    "reason": "The pinned Gateway has no app-guided setup for this choice.",
     "source": "extensions/microsoft-foundry/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
     "checked": "2026-10-02",
@@ -1736,7 +1736,7 @@
       "id": "microsoft-foundry",
       "method": "api-key",
       "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
-      "flow": "present"
+      "flow": "absent"
     }
   },
   {
@@ -2458,7 +2458,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "PixVerse: API key (billed per use).",
+    "reason": "The pinned Gateway has no app-guided setup for this choice.",
     "source": "extensions/pixverse/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
     "checked": "2026-10-02",
@@ -2492,7 +2492,7 @@
       "id": "pixverse",
       "method": "api-key",
       "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
-      "flow": "present"
+      "flow": "absent"
     }
   },
   {
@@ -2838,7 +2838,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "Runway: API key (billed per use).",
+    "reason": "The pinned Gateway has no app-guided setup for this choice.",
     "source": "extensions/runway/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
     "checked": "2026-10-02",
@@ -2863,7 +2863,7 @@
       "id": "runway",
       "method": "api-key",
       "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
-      "flow": "present"
+      "flow": "absent"
     }
   },
   {
@@ -2875,7 +2875,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "Local runtime; explicitly select this route.",
+    "reason": "The pinned Gateway has no app-guided setup for this choice.",
     "source": "extensions/sglang/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
     "checked": "2026-10-02",
@@ -2897,7 +2897,7 @@
       "id": "sglang",
       "method": "custom",
       "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
-      "flow": "present"
+      "flow": "absent"
     }
   },
   {
@@ -3360,7 +3360,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "Local runtime; explicitly select this route.",
+    "reason": "The pinned Gateway has no app-guided setup for this choice.",
     "source": "extensions/vllm/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
     "checked": "2026-10-02",
@@ -3382,7 +3382,7 @@
       "id": "vllm",
       "method": "custom",
       "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
-      "flow": "present"
+      "flow": "absent"
     }
   },
   {
@@ -3440,7 +3440,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "Vydra: API key (billed per use).",
+    "reason": "The pinned Gateway has no app-guided setup for this choice.",
     "source": "extensions/vydra/openclaw.plugin.json (2026.8.1)",
     "revision": "2026.8.1",
     "checked": "2026-10-02",
@@ -3474,7 +3474,7 @@
       "id": "vydra",
       "method": "api-key",
       "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
-      "flow": "present"
+      "flow": "absent"
     }
   },
   {
@@ -4005,7 +4005,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "Billing must be supplied by the host; a server address does not determine billing.",
+    "reason": "The pinned Gateway has no app-guided setup for this choice.",
     "source": "src/commands/auth-choice-options.static.ts (2026.8.1)",
     "revision": "2026.8.1",
     "checked": "2026-10-02",
@@ -4030,7 +4030,7 @@
       "id": "custom",
       "method": "custom",
       "revision": "ea806575e6450e4d1efdfc72c19f04be982a1b9b",
-      "flow": "present"
+      "flow": "absent"
     }
   }
 ]

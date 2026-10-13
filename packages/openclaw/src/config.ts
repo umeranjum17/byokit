@@ -56,6 +56,14 @@ export function reconcileConfig(saved: object | undefined, o: {
   c.agents.defaults.authInheritance = { agentId: BASE_AGENT };
   c.agents.defaults.models ??= {};
   c.agents.defaults.models['openai/*'] = { ...c.agents.defaults.models['openai/*'], agentRuntime: { id: 'openclaw' } };
+  // With no policy record the pin reads the `models` keys above as a legacy allowlist and materializes
+  // `modelPolicy.allow: ['openai/*']` on boot, so a member's OpenCode Go (any non-OpenAI) model fell back to
+  // openai. An empty record restricts nothing; the exact list that migration wrote is dropped unless the app sets one.
+  if (!(o.app as Obj | undefined)?.agents?.defaults?.modelPolicy) {
+    const policy = c.agents.defaults.modelPolicy;
+    if (!object(policy)) c.agents.defaults.modelPolicy = {};
+    else if (Array.isArray(policy.allow) && policy.allow.length === 1 && policy.allow[0] === 'openai/*') delete policy.allow;
+  }
   const allow = c.agents.defaults.modelPolicy?.allow;
   if (Array.isArray(allow) && allow.length && !allow.includes('openai/*')) allow.push('openai/*');
   c.memory ??= {};

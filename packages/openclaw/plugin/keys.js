@@ -4,7 +4,7 @@ export function registerKeys(api) {
   api.registerGatewayMethod('byokit.keys', async ({ params, respond }) => {
     const member = params?.member;
     if (typeof member !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(member) || member.startsWith('byokit-key-')
-      || !['prepare', 'seal', 'ready'].includes(params.action)) {
+      || !['prepare', 'seal', 'ready', 'clear'].includes(params.action)) {
       respond(true, { ok: false });
       return;
     }
@@ -66,6 +66,15 @@ export function registerKeys(api) {
         const cleared = await updateAuthProfileStoreWithLock({ agentDir: keyDir,
           saveOptions: { filterExternalAuthProfiles: false, syncExternalCli: false },
           updater(store) { store.profiles = {}; store.order = {}; return true; } });
+        respond(true, { ok: Boolean(cleared) });
+        return;
+      }
+      if (params.action === 'clear') {
+        // A failed add drops the key it activated; if this clear never reaches the engine, the unsealed key stays but is
+        // unusable until the next add's prepare.
+        const cleared = await updateAuthProfileStoreWithLock({ agentDir: keyDir,
+          saveOptions: { filterExternalAuthProfiles: false, syncExternalCli: false },
+          updater(store) { store.profiles = {}; store.order = {}; delete store.lastGood; return true; } });
         respond(true, { ok: Boolean(cleared) });
         return;
       }
