@@ -5,7 +5,8 @@ import { routes } from './routes.ts';
 import type { Member } from './types.ts';
 
 // retry: the engine may have taken the key but it was not kept; the unsealed key is cleared best-effort. If that clear
-// does not reach the engine, the key stays unsealed and unusable until the next key add, and runs fail closed meanwhile.
+// does not reach the engine, the key stays unsealed and unusable until the next key add or kit start, and runs fail
+// closed meanwhile.
 export type AddKeyResult = 'ok' | 'invalid' | 'not_included' | 'retry';
 
 export function createKeys(ctx: ActivationCtx & {
@@ -39,7 +40,8 @@ export function createKeys(ctx: ActivationCtx & {
       return exclusive(member, async () => {
         let sent = false;
         // A key the engine may have taken but not sealed is cleared (prepare already emptied the agent); if the clear
-        // does not reach the engine, the key stays unsealed and unusable until the next key add, so runs fail closed.
+        // does not reach the engine, the key stays unsealed and unusable until the next key add or kit start, so runs
+        // fail closed.
         const abandon = async (): Promise<AddKeyResult> => {
           await control(member, 'clear').catch(() => undefined);
           return 'retry';
@@ -76,6 +78,26 @@ export function createKeys(ctx: ActivationCtx & {
           if (o.once || !transient(error) || Date.now() >= deadline) return undefined;
           await new Promise((resolve) => setTimeout(resolve, 250));
         }
+      }
+    },
+    // Kit start calls this once the gateway is ready: a failed add whose abandon clear never reached the engine
+    // leaves an unsealed key with no ready marker, so drop it. A single ready read per key agent, no retries or
+    // waits; an unreadable key is left alone, never cleared, so a ready key always survives.
+    async sweep(): Promise<void> {
+      let agents: { id: string }[];
+      try {
+        agents = ((await ctx.request('agents.list')) as { agents: { id: string }[] }).agents;
+      } catch { return; }
+      for (const agent of agents) {
+        if (!agent.id.startsWith(KEY_PREFIX)) continue;
+        const member = agent.id.slice(KEY_PREFIX.length) as Member;
+        if (!check(member)) continue;
+        let ready: { ok: boolean; model?: string };
+        try {
+          ready = await ctx.request('byokit.keys', { member, action: 'ready' }) as { ok: boolean; model?: string };
+        } catch { continue; }
+        if (ready.ok && ready.model) continue;
+        await ctx.request('byokit.keys', { member, action: 'clear' }).catch(() => undefined);
       }
     },
   };
