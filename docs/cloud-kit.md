@@ -811,12 +811,13 @@ ports it previously exposed as though it had this fresh-machine guarantee; the p
   machine), emit `approve` once with the hostname, with or without a sign-in link shown earlier. While the daemon is
   `starting` or `off` (not yet running after enable), joining keeps polling inside the same five-minute deadline and
   never runs `up` against it. On `Running` with a MagicDNS name, emit `joined` and resolve `{ name }` (no final dot).
-  A deadline rejects `MachineError('timeout')`: with the expired-link wording only when a sign-in link was shown and
-  approval is not the block; otherwise with the approval wording. Command failures retain their real cause.
+  A deadline rejects `MachineError('timeout')`: with the approval wording when the daemon reports `needs-approval`; with
+  the expired-link wording only when a sign-in link was shown and the daemon still reports `needs-login`; otherwise with
+  the `Starting your private network took too long.` wording. Command failures retain their real cause.
   The private route an app dials is `http://<name>:<app port>` (plain HTTP inside the tailnet's WireGuard tunnel;
   the app serves it with `tailscale serve --tcp=<port>`), never a provider URL.
-- `tailnet()` never installs or joins. Missing Tailscale or a stopped daemon is `off`; `NeedsLogin` and
-  `NeedsMachineAuth` is `needs-approval`; `Running` is `joined`. A daemon still starting is `starting`: `Starting`,
+- `tailnet()` never installs or joins. Missing Tailscale or a stopped daemon is `off`; `NeedsLogin` is
+  `needs-login`; `NeedsMachineAuth` is `needs-approval`; `Running` is `joined`. A daemon still starting is `starting`: `Starting`,
   `NoState`, or a status answer that is not JSON (the daemon has not yet accepted a client). `joinTailnet` waits
   through `starting` before it runs `tailscale up`, inside the same five-minute deadline. Return a validated MagicDNS
   name when available, else `null`. Unknown or malformed answers that are JSON reject `provider`, never pretend the

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { DeviceEventEmitter, Linking, Pressable, SafeAreaView, ScrollView, StatusBar, Text, TextInput } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { useKeepAwake } from 'expo-keep-awake';
-import { boat, machine, type MachineRecord } from '@byokit/cloud';
+import { boat, machine, type MachineRecord, words } from '@byokit/cloud';
 import { DeviceLink, pairWithOffer, secureDeviceStore } from '@byokit/pair';
 import { ClaudePlanExpiredError, ResponseError, type Accounts } from '@byokit/accounts';
 import { claudeToolCall, cloudRecipe, diagnostic, stopAndRemove, M6_API, M6_KEY, pairedTurn, trialBudget } from './cloud-m6.ts';
@@ -101,6 +101,7 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
     while (await computer.state() !== 'on') { if (Date.now() > until) throw new Error('Cloud creation did not finish within five minutes.'); await new Promise(r => setTimeout(r, 2000)); }
     const joined = await computer.joinTailnet({ hostname: 'umer-cloud' }, s => {
       if (s.step === 'open-page') { say('Approve your cloud computer on your phone.'); void Linking.openURL(s.url); }
+      if (s.step === 'approve') say(words('tailnet.approvalNeeded'));
     });
     await computer.install(cloudRecipe(`http://${joined.name}:7300`, computer.ref!.name));
     if (await computer.host() !== 'running') throw new Error('The installed cloud host is not running.'); say('Host installed and running. Ready to pair.');
