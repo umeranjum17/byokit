@@ -4,9 +4,9 @@ Verification recipe for [removing an account](../../../../docs/runtime-kits.md#5
 
 ## Sub-features
 
-- A member-agent account goes through `models.authLogout` with its sealed `profileIds`, then its entry is dropped.
+- A member-agent account goes through `models.authLogout` with its sealed `profileIds`, then a provider `list` (still listed → "still signing in", nothing dropped), then its entry is dropped.
 - An account agent goes through `byokit.accounts clear`, an empty `list`, `agents.delete` with `deleteFiles: false` (only when the engine roster names the agent), removal of its `<root>/state/agents/<agent>` dir, then the entry is dropped.
-- Removal is refused `busy` while a run holds the agent; the member agent stays `ready`.
+- Removal is refused `busy` while a run holds the agent or a sign-in is pending; the member agent stays `ready`.
 - Removal re-seals the live credential store at once while the engine runs, so `auth-store.sealed` and `auth-store.objects/` stop holding the removed profile without waiting for stop.
 - A file the engine lands after removal is swept on the next `prepare` (and after a sealed restore, before launch). Only `<member>--<hex6>` dirs a removal recorded as gone and no index names are swept; a legacy member dir stays.
 - A late refresh after removal's reseal is excluded at stop from both the credential blob and native SQLite objects. The next `prepare` also prunes removed-agent entries and objects in an older sealed store; restarting keeps the member's sign-in and cannot restore the removed agent.
