@@ -384,7 +384,7 @@ test('a host selects an Anthropic or Go plan key through one config, with no oth
     privacy: 'may-leave',
     host: { account: chatgpt, fetch: async () => { throw new Error('must not fetch'); } },
   });
-  assert.throws(() => crossed({}, { intent: questions.intent }), UnsupportedAccountError);
+  assert.throws(() => crossed({}, { intent: questions.intent }), /OpenCode Go plan usage needs a plan account/);
   const noKey = createDecider(parseConfig({ backend: 'anthropic', model: 'claude-opus-4-6' }),
     { privacy: 'may-leave', host: { fetch: fetch as typeof fetch } });
   assert.throws(() => noKey({}, { intent: questions.intent }), /needs a key/);

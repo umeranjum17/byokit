@@ -45,10 +45,8 @@ export function openai(o: OpenAIOptions): Backend {
       (typeof responder?.respond !== 'function' && typeof shared?.access !== 'function'))) {
     throw new UnsupportedAccountError('ChatGPT plan usage needs an account session from the @byokit/accounts peer (install it to use auth: "account").');
   }
-  // A tagged handle only reaches its own provider; an untagged one predates tags and is still accepted.
-  const tag = (account as { provider?: unknown } | undefined)?.provider;
-  if (o.auth === 'account' && tag !== undefined && tag !== 'chatgpt') {
-    throw new UnsupportedAccountError('ChatGPT plan usage needs a ChatGPT plan account.');
+  if (shared && shared.provider !== 'chatgpt') {
+    throw new UnsupportedAccountError('ChatGPT plan usage needs a ChatGPT plan account; update @byokit/accounts if this account has no provider tag.');
   }
   if (!account && (typeof o.key !== 'string' || !o.key.trim())) throw new Error('openai needs a key');
   const request = o.request ?? {};

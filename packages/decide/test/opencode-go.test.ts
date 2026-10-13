@@ -125,10 +125,13 @@ test('a misplaced plan handle is refused on both providers, naming the provider,
   assert.throws(() => openai({ auth: 'account', account: go as any, model: 'gpt-6.1-sol' }),
     /ChatGPT plan usage needs a ChatGPT plan account/);
 
-  // An untagged handle predates tags and is still accepted on the ChatGPT side, never forwarded elsewhere.
-  const legacy = { billing: 'subscription', access: async () => 'legacy-token' };
-  assert.equal(openai({ auth: 'account', account: legacy as any, model: 'gpt-6.1-sol',
-    fetch: async () => { throw new Error('must not fetch'); } }).name, 'openai');
+  // Untagged token handles from an older @byokit/accounts are refused on both routes and never sent anywhere.
+  const legacyChatGPT = { billing: 'subscription', access: async () => 'legacy-token' };
+  assert.throws(() => openai({ auth: 'account', account: legacyChatGPT as any, model: 'gpt-6.1-sol' }),
+    /update @byokit\/accounts/);
+  const legacyGo = { billing: 'subscription', access: async () => 'legacy-token' };
+  assert.throws(() => opencodeGo({ model: 'muse-spark-1.3-contributor', account: legacyGo as any }),
+    /update @byokit\/accounts/);
 });
 
 test('the Go backend needs a subscription plan account and surfaces a signed-out plan without a key fallback', async () => {

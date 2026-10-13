@@ -453,8 +453,9 @@ account auth throws `UnsupportedAccountError`. API-key credentials must be expli
 an OpenAI account in `host.account` never reaches the Go endpoint, and a Go plan account in
 `host.accounts['opencode-go']` never reaches the OpenAI endpoint. Plan handles also carry a readonly provider
 tag (`'chatgpt'`, `'opencode-go'`), so a misplaced handle is refused with plain words even outside the config
-path: `openai({ auth: 'account', account })` refuses any tag other than `'chatgpt'` (untagged handles predate
-tags and still work), and `opencodeGo()` requires `'opencode-go'`. Pass each handle to its own provider;
+path: `openai({ auth: 'account', account })` refuses a token-bearing handle unless its tag is `'chatgpt'`, and
+`opencodeGo()` requires `'opencode-go'`. An untagged handle from an older `@byokit/accounts` is refused with a
+message to update `@byokit/accounts`; `accounts.chatgpt(member)` (Codex sign-in, no token exposed) is ChatGPT-only by construction. Pass each handle to its own provider;
 nothing falls back. A backend switch clears
 provider-specific model/route/request settings; a switch to OpenAI, Anthropic or OpenCode Go must specify
 its model.
