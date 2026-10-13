@@ -45,7 +45,7 @@ writes contract and app resource ids to `resourcesFile` immediately after creati
 
 The built-in `probes()` in `probes.ts` supplies WebSocket handshakes, health reachability,
 plan fields, raw public-port reachability, disk and cgroup peak-memory observations,
-the proxy forged-header probe, a second provider-only shutdown to check SIGTERM, and
+a forged-header probe (now reports `unavailable` on the tailnet route, which has no provider proxy), a second provider-only shutdown to check SIGTERM, and
 an isolated `noEnv` canary experiment. It asks the operator to complete real phone
 pairing, the engine device-code sign-in, a representative workload, the provider's
 app-sign-in key scope test, and the VM console power cycle. Those confirmations are
