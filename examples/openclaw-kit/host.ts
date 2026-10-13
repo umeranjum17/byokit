@@ -251,13 +251,15 @@ async function addChoice(choice: string): Promise<void> {
     // The pasted key is out of scope past this line; the kit never carries one in a view or error.
     console.log(view.state === 'done' ? `Signed in to ${route.label}.` : (view.error ?? 'Sign-in failed. Try again.'));
   } finally {
-    showInput();
+    await showInput();
   }
 }
 
 // From the start of a plan-key sign-in until showInput: the line interface is closed and raw mode switches the
-// terminal's echo off, so keys typed meanwhile are queued for readSecret and never echoed or taken as commands.
-// Without a terminal there is nothing to hide from, and the line is read echoed through `asking` instead.
+// terminal's echo off, so keys typed meanwhile stay queued where nothing reads them. showInput drops that queue
+// while the terminal still echoes nothing, so a pasted key is never echoed back or run as a command, on success,
+// on failure, or on cancel. Without a terminal there is nothing to hide from, and the line is read echoed through
+// `asking` instead.
 function hideInput(): void {
   if (!process.stdin.isTTY) return;
   const rl = input;
@@ -266,9 +268,21 @@ function hideInput(): void {
   process.stdin.setRawMode(true);
 }
 
-function showInput(): void {
+async function showInput(): Promise<void> {
   if (!process.stdin.isTTY) return;
-  process.stdin.setRawMode(false);
+  const stdin = process.stdin;
+  await new Promise<void>((resolve) => {
+    const drop = () => {};
+    stdin.on('data', drop);
+    stdin.resume();
+    // Queued bytes arrive on the next turns; raw mode is still on, so nothing echoes.
+    setImmediate(() => setImmediate(() => {
+      stdin.removeListener('data', drop);
+      stdin.pause();
+      resolve();
+    }));
+  });
+  stdin.setRawMode(false);
   input ??= openInput();
 }
 
