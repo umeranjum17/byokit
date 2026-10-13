@@ -6,6 +6,7 @@ import { readFileSync } from 'node:fs';
 import { registerKeys } from './keys.js';
 import { registerUsage } from './usage.js';
 import { registerAccounts } from './accounts.js';
+import { registerCatalog } from './catalog.js';
 
 /** TypeBox's Kind is a global symbol, so these schemas are valid TypeBox without importing typebox. */
 const Kind = Symbol.for('TypeBox.Kind');
@@ -147,7 +148,7 @@ export default {
     jsonSchema: { type: 'object', additionalProperties: false, properties: {} },
   },
   register(api) {
-    if (api.registerGatewayMethod) { registerKeys(api); registerUsage(api); registerAccounts(api); }
+    if (api.registerGatewayMethod) { registerKeys(api); registerUsage(api); registerAccounts(api); registerCatalog(api); }
     if (BROWSER) {
       if (typeof api.registerAgentToolResultMiddleware !== 'function') throw new Error('browser result protection unavailable');
       api.registerAgentToolResultMiddleware(async (event, ctx) => {

@@ -1,7 +1,8 @@
 // The example as someone gets it: the workspace packages packed (`npm pack`) and laid into a copy of this folder's
 // node_modules, the page built with its own script, host.ts started against the kit's fake Gateway (the only OpenClaw
 // this test ever runs), and a phone-sized headless Chromium going pair → the kit's routes, grouped → sign in from the
-// ChatGPT plan row with a device code → a message that uses the helper's tool → Allow → the reply, then one more → Deny.
+// ChatGPT plan row with a device code → a message that uses the helper's tool → Allow → the reply, then one more → Deny,
+// then the OpenCode Go plan's key pasted on the phone → a reply with its usage.
 // Every status a person reads must be the kit's own sentence from its words.json. Third-party dependencies are linked
 // from the repo's installed tree, so the run stays offline. Away from home, a loopback relay with a recording push
 // service stands in for the real ones, and a phone app (plain Node here) pairs through it and gets an approval sealed:
@@ -216,6 +217,32 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   await page.click('#signout');
   await text(page, '#signin-title', fill('member.signedOut', { name: 'OpenAI' }));
   await chatgpt.waitFor();
+
+  // The OpenCode Go plan: the phone pastes the key from the plan into the kit's `Plan key` prompt, and the computer
+  // keeps and checks it. A refused key shows only the kit's sentence; the key is never shown back or said.
+  const go = row('opencode-go:plan_key:opencode-go');
+  assert.equal(await go.getAttribute('aria-disabled'), null);
+  await go.click();
+  await text(page, '#signin-key-label', 'Plan key');
+  await text(page, '#signin-title', 'Paste the key from your plan. Your computer keeps it, not this phone.');
+  assert.equal(await page.getAttribute('#signin-key-input', 'type'), 'password');
+  assert.equal(await page.locator('#routes').isHidden(), true);
+  await shot(page, '9-plan-key');
+  await page.fill('#signin-key-input', 'wrong-key');
+  await page.click('#signin-key-go');
+  await text(page, '#signin-title', 'API key activation failed');
+  const KEY = 'sk-go-CANARY-PHONE-PASTE-7731';
+  await go.click();
+  await page.fill('#signin-key-input', KEY);
+  await page.click('#signin-key-go');
+  await page.locator('#talk').waitFor();
+  await page.fill('#message', 'Hello Go');
+  await page.click('#send');
+  await text(page, '#reply', 'fake: Hello Go');
+  await page.locator('#usage').filter({ hasText: /^\d+ tokens used\.$/ }).waitFor(); // with the end, after the text
+  await shot(page, '10-plan-key-answered');
+  assert.equal((await page.content()).includes(KEY), false, 'the page keeps no key');
+  assert.equal(said.includes(KEY), false, 'the computer never says the key');
 
   assert.deepEqual(errors, []);
   await context.close();

@@ -68,11 +68,13 @@ const gateway = fake ? await fakeSignIn() : undefined;
 if (gateway) Object.assign(options, { spawnEngine: false, transport: gateway.factory });
 const kit = new OpenClawKit(options);
 
-// The fake's ChatGPT sign-in, held a few seconds on its code so a person (or the e2e test) can read it.
+// The fake's ChatGPT sign-in, held a few seconds on its code so a person (or the e2e test) can read it, and its
+// OpenCode Go plan: any pasted key but `wrong-key` is the plan's.
 async function fakeSignIn() {
   const { fakeGateway } = await import('@byokit/openclaw/testing');
   const answered = new Set<string>();
   let signedIn = false;
+  let planKey = false;
   return fakeGateway({
     'wizard.next': async (p: { sessionId: string; answer?: unknown }) => {
       if (p.answer) { answered.add(p.sessionId); return { done: false, step: { id: 'step-wait', type: 'progress', executor: 'gateway' } }; }
@@ -86,10 +88,18 @@ async function fakeSignIn() {
       return { done: true, status: 'done' };
     },
     'wizard.cancel': (p: { sessionId: string }) => { answered.delete(p.sessionId); return { status: 'cancelled' }; },
+    'openclaw.setup.activate': (p: { authChoice?: string; apiKey?: string }) => {
+      if (p.authChoice !== 'opencode-go') return { ok: false, status: 'unavailable' };
+      if (p.apiKey === 'wrong-key') return { ok: false, status: 'invalid' };
+      planKey = true;
+      return { ok: true, status: 'ok', modelRef: 'opencode-go/fake-key-model' };
+    },
     // The pin lists each signed-in provider with its profiles (5.15): signOut passes those profileIds.
-    'models.authStatus': () => ({ providers: signedIn ? [{ provider: 'openai',
-      profiles: [{ profileId: 'openai:default', type: 'oauth', status: 'ok' }] }] : [] }),
-    'models.authLogout': () => { signedIn = false; return {}; },
+    'models.authStatus': () => ({ providers: [
+      ...(signedIn ? [{ provider: 'openai', profiles: [{ profileId: 'openai:default', type: 'oauth', status: 'ok' }] }] : []),
+      ...(planKey ? [{ provider: 'opencode-go', profiles: [{ profileId: 'opencode-go:default', type: 'api_key', status: 'static' }] }] : []),
+    ] }),
+    'models.authLogout': (p: { provider?: string }) => { if (p.provider === 'opencode-go') planKey = false; else signedIn = false; return {}; },
   });
 }
 

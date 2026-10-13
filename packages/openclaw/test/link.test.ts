@@ -47,16 +47,19 @@ type World = {
   host: Host;
   url: string;
   relayCalls: { n: Record<string, unknown>; o: { includeContent?: boolean } }[];
+  activations: unknown[]; // what the engine was asked to activate, unredacted (the fake's own record redacts keys)
   stop(): void;
 };
 
 async function world(o: { passThrough?: (method: string, grant: Grant) => boolean; relay?: boolean; tools?: boolean; reply?: () => string } = {}): Promise<World> {
   const fake = fakeGateway();
   const stateDir = scratchDir('o9');
+  const activations: unknown[] = [];
   // tools: two app tools, every call allowed and answered with its own name.
   const kit = new OpenClawKit({ stateDir, transport: (ctx) => {
     const t = fake.factory(ctx);
     return { ...t, request: async (method, params, options) => {
+      if (method === 'openclaw.setup.activate') activations.push(params);
       const result = await t.request(method, params, options);
       if (method === 'agent' && o.reply) return { ...(result as object),
         result: { ...(result as { result: object }).result, payloads: [{ text: o.reply() }] } };
@@ -98,7 +101,7 @@ async function world(o: { passThrough?: (method: string, grant: Grant) => boolea
     void kit.stop().then(() => rmSync(stateDir, { recursive: true, force: true }));
   };
   closers.push(stop);
-  return { kit, fake, api, host, url, relayCalls, stop };
+  return { kit, fake, api, host, url, relayCalls, activations, stop };
 }
 
 async function device(w: World, member: string | undefined, role: 'control' | 'view' = 'control') {
@@ -409,6 +412,40 @@ test('sign-in over the link: device code to done', async () => {
   // Signed out anywhere (here: on the computer, not over the link): no finished sign-in is left to show.
   authed = false;
   assert.deepEqual(await a.oc.signIn.view('openai'), { ready: false, signIn: null }, 'signed out: no finished sign-in left to show');
+});
+
+test('sign-in over the link: an OpenCode Go plan key pasted on the device, kept on the host, then a run with usage', async () => {
+  const w = await world();
+  const a = await device(w, 'a');
+  const KEY = 'sk-go-CANARY-LINK-PASTE-0042';
+  const view = () => a.oc.signIn.view('opencode-go');
+  // A key the engine refuses, with the key in its words: the device sees only the kit's sentence.
+  w.fake.failNext('openclaw.setup.activate', `rejected ${KEY}`);
+  await a.oc.signIn.start('opencode-go', 'code');
+  await until(async () => ((await view()).signIn?.prompt ? true : undefined));
+  await a.oc.signIn.paste('opencode-go', KEY);
+  const refused = await until(async () => { const v = await view(); return v.signIn?.state === 'failed' ? v : undefined; });
+  assert.deepEqual(refused, { ready: false, signIn: { state: 'failed', via: 'code', why: 'failed', error: 'API key activation failed' } });
+
+  // The plan key route starts whichever way the device asks; the device pastes into the kit's `Plan key` prompt.
+  const first = await a.oc.signIn.start('opencode-go', 'browser');
+  assert.equal(first.state, 'waiting');
+  const asked = await until(async () => { const v = await view(); return v.signIn?.prompt ? v : undefined; });
+  assert.deepEqual(asked, { ready: false, signIn: { state: 'waiting', via: 'browser', prompt: 'Plan key' } });
+  await a.oc.signIn.paste('opencode-go', KEY);
+  const done = await until(async () => { const v = await view(); return v.signIn?.state === 'done' ? v : undefined; });
+  assert.equal(done.ready, true);
+  assert.equal(phaseOf(done), 'done');
+  assert.deepEqual((await a.oc.state()).signedIn, ['opencode-go']);
+  // The key reached the host's engine whole, on the device member's agent, through typed activation.
+  assert.deepEqual(w.activations.at(-1), { agentId: 'a', kind: 'api-key', authChoice: 'opencode-go', apiKey: KEY });
+
+  const frames = [];
+  for await (const frame of a.oc.run('Hello', { model: 'opencode-go/fake-key-model' })) frames.push(frame);
+  const end = frames.at(-1);
+  assert.ok(end?.type === 'end' && end.end.ok && end.end.usage?.total, JSON.stringify(end));
+  assert.ok(!JSON.stringify([refused, first, asked, done, frames, await a.oc.state()]).includes(KEY),
+    'the key never comes back to a device');
 });
 
 test('serve binds per reach and pairs over its urls', async () => {
