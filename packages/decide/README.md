@@ -416,9 +416,9 @@ pinned upstream (`@earendil-works/pi-ai`, provider `opencode-go`) maps its `sess
 wire format is the same Responses JSON schema as `openai()`: self-reported probabilities with the same
 floors, plus reported usage and the raw response on answered and abstained answers alike.
 `OPENCODE_GO_ROUTES.apiKey` labels the plain plan key billing `'subscription'` with `offer: false`;
-the account route labels `'subscription'` with consent required. A plan that cannot
-serve the request (http 400/401/403/404) throws `UnsupportedAccountError`; there is no API-billed
-fallback and no fallback between the key and account inputs.
+the account route labels `'subscription'` with consent required. A plan account that cannot
+serve the request (http 400/401/403/404) throws `UnsupportedAccountError`; a refused plain key abstains with
+its http status. There is no API-billed fallback and no fallback between the key and account inputs.
 
 ## Set configuration once
 

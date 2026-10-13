@@ -98,9 +98,11 @@ test('a host holding the plain Go plan key decides without the accounts peer, st
   // A key and an account together are refused; a refused plan status never bills another route.
   assert.throws(() => opencodeGo({ model: 'm', key: 'k', account: account() } as any), /not both/);
   for (const bad of ['', '  ', 42] as any[]) assert.throws(() => opencodeGo({ model: 'm', key: bad }), /needs a key/);
-  await assert.rejects(decide({}, { intent: questions.intent }, { privacy: 'may-leave', backends: [opencodeGo({
+  const refusedKey = await decide({}, { intent: questions.intent }, { privacy: 'may-leave', backends: [opencodeGo({
     model: 'muse-spark-1.3-contributor', key: 'plan-key', fetch: async () => new Response('', { status: 401 }),
-  })] }), UnsupportedAccountError);
+  })] });
+  assert.equal(refusedKey.intent.abstained, true);
+  assert.equal(refusedKey.intent.reason, 'opencode-go failed: http 401');
 });
 
 test('a misplaced plan handle is refused on both providers, naming the provider, with no fallback', async () => {

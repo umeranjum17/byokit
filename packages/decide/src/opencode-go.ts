@@ -67,7 +67,7 @@ export function opencodeGo(o: OpenCodeGoOptions): Backend {
       const body = { ...request, model: o.model, instructions, input, text };
       const res = await send(`${BASE}/responses`, { method: 'POST', signal, headers, body: JSON.stringify(body) });
       if (!res.ok) {
-        if ([400, 401, 403, 404].includes(res.status)) {
+        if (o.account && [400, 401, 403, 404].includes(res.status)) {
           throw new UnsupportedAccountError(`OpenCode Go plan request unsupported (http ${res.status}).`);
         }
         throw new Error(`http ${res.status}`);
