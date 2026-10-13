@@ -8,6 +8,8 @@ Once the engine is ready, the openclaw-kit phone page (`examples/openclaw-kit/we
 - The ChatGPT plan row starts the device code (`CREW-2026` from the fake Gateway), hides the list while it waits, and lands on **Talk to it**.
 - `openai:browser:openai` reads `Ready, but this page has no form for it yet.`, `github-copilot:code:github-copilot-enterprise` reads the one-code-per-provider sentence, `anthropic:cli:anthropic-cli` reads `Install its app on this computer first.`; a force-clicked unavailable row starts nothing.
 - A reload while signed in finds the provider from `oc.state().signedIn` (`Sign out of OpenAI`); signing out shows `Sign in with OpenAI to start.` and the list again.
+- A finished run shows its token usage under the reply in `#usage` (`Tokens: N in, N out, N total.`, with `, on <model>` when the engine names one). The e2e waits for it after the Allow run and asserts that shape; the line is empty while the run is still streaming.
+- `opencode:plan_key:opencode-go` is listed as a ready key row that reads `Ready, but this page has no form for it yet.`; the plan key is added at the computer with `add opencode-go` (`host.ts`), not on this page.
 
 ## How to get to it (user POV)
 

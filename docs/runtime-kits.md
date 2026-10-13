@@ -2900,8 +2900,7 @@ examples/herdr-kit/     package.json  host.ts  web/index.html  web/app.ts  READM
 - `README.md`, minutes to working: prerequisites (Node 22.18; Herdr example: Herdr 0.9.1 installed; OpenClaw example:
   the first start downloads and installs the pinned engine, a few minutes, then runs offline except for the model),
   `npm i`, `npm start`, open the printed address on the phone, pair, sign in (OpenClaw: the "ChatGPT Device Pairing —
-  sign in with a code" row under Plans, or a plan key pasted on the phone under Plans or at the computer with
-  `add <choice>`; Herdr: log in inside the agent's pane), send a message, approve. Includes a troubleshooting table keyed by the words sentences.
+  sign in with a code" row under Plans, or a plan key added at the computer with `add <choice>`; Herdr: log in inside the agent's pane), send a message, approve. Includes a troubleshooting table keyed by the words sentences.
 - `e2e.test.ts` (CI, `browser` job): packs the workspace packages (`npm pack -w …`), installs the tarballs into a temp
   copy of the example (proving the published shape), starts `host.ts` with the kit's fake (`BYOKIT_EXAMPLE_FAKE=1`
   switches to `fakeGateway()` / `startFakeHerdr()` — the only env read, in example code, not library code), drives
