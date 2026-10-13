@@ -32,10 +32,9 @@ npm start
    helper wants to save a note. Allow it?** Tap **Allow** and the note lands in `.state/notes.txt`, or **Deny** and
    nothing is saved. Everything else the helper would do on this computer (searching the web, say) asks the same way.
 
-A plan key (OpenCode Go) is signed in at the computer: type `add opencode-go` in the terminal, then paste the key there
-(typed input stays hidden). The key is stored only on this computer. The phone's OpenCode Go row under **Plans** says
-this page has no form for a key yet, so it can't add one. Once the key is in, the phone talks on that account too, and
-its streamed reply shows usage the same way.
+A plan key (OpenCode Go) can also be added at the computer: type `add opencode-go` in the terminal, then paste the key
+there (typed input stays hidden). Either way the key is stored only on this computer. Once it is in, the phone talks on
+that account too, and its streamed reply shows usage the same way.
 
 Over Tailscale the page is https and the phone keeps its pairing sealed in the browser. Over your home network it is
 plain http, which browsers don't let a page seal with, so the pairing is kept in the browser's ordinary storage
