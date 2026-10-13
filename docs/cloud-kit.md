@@ -357,7 +357,7 @@ Where this differs from the first suggested shape, and why:
 - Every method checks in this order: load; `wrong-account`; `no-machine`; the method's own argument checks (a bad
   `port`, `lines`, `file` or recipe rejects `bad-recipe`); then whether the provider has the optional method it needs
   (`unsupported`).
-- `create` and `plan` need no ref. Every other method rejects `MachineError('no-machine')` when `ref` is null:
+- `create`, `adopt` and `plan` need no ref. Every other method rejects `MachineError('no-machine')` when `ref` is null:
   `state`, `wake`, `sleep`, `install`, `update`, `host`, `logs`, `url`, `cost`, `remove`, `why` and `deliver`.
 
 ### 5.2 `create`
@@ -376,6 +376,27 @@ Where this differs from the first suggested shape, and why:
    `provider.status(ref)` must be `'on'` before it is saved (else reject `host-key` for `host-key-changed`,
    `unreachable` otherwise).
 5. The returned ref is saved (5.1), then returned.
+
+### 5.2a Existing computers (K-EXISTING)
+
+`Provider.list?(): Promise<MachineRef[]>` lists existing computers without changing them.
+`Machine.adopt(ref, { confirmId, recipe }): Promise<MachineRef>` works even when the provider
+also has `create`. The app shows `adopt.confirm` and calls it only after installation consent;
+`confirmId` must equal the selected id. No create, wake, conversion or paid fallback is allowed.
+The kit checks the stored and selected account, confirms the id in a fresh provider list,
+uses its live `keepCopies`, and requires status `on`. A missing id rejects `no-machine`;
+a mismatched confirmation rejects `confirm`. The recipe supplies the app's unit name.
+Before saving or installing, probe Linux/home and refuse `exists` for an existing workDir,
+workDir symlink ancestor, either unit path, root marker or requested run user. No existing
+installation is taken over. Probe failures propagate. Save the selected ref, then reuse
+`install(recipe)`. A failed install keeps that ref so the app retries with `install`, never create.
+An occupied store refuses `exists`; adoption shares the existing exclusive-operation lock.
+
+Boat lists `GET /sandboxes`, following `pageInfo.nextCursor` while `hasMore`; malformed
+pages reject `provider`. Only owner access (or omitted access for older personal responses)
+is offered. Each ref uses the authenticated `/me` account, sandbox id, a safe name `computer`
+(replaced by the recipe name at adoption), and `snapshots === true` for `keepCopies`.
+No desktop URL, environment, logins or other secret-bearing response fields leave the adapter.
 
 ### 5.3 `state`, `url`, `remove`
 

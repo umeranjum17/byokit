@@ -263,6 +263,7 @@ export function boat(o: {
     // A request that failed after retries leaves the state unknown, never failed (6.2).
     if (res.status === 429 || res.status >= 500) return 'unknown';
     if (res.status < 200 || res.status >= 300) fail(res.status, text);
+    if (sandboxField(json, 'id') !== m.id) throw new MachineError('provider', 'the provider answered for another machine');
     return mapState(m.id, sandboxField(json, 'state'));
   };
 
@@ -422,6 +423,33 @@ export function boat(o: {
     status,
     exec,
     write,
+
+    list: async () => {
+      const acct = await account();
+      const refs: MachineRef[] = [];
+      const seen = new Set<string>();
+      let cursor = '';
+      for (;;) {
+        const { json } = await checked('GET', `/sandboxes${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`);
+        const rows = field(json, 'sandboxes');
+        if (!Array.isArray(rows)) throw new MachineError('provider', 'the provider answered without sandboxes');
+        for (const row of rows) {
+          const id = field(row, 'id');
+          if (typeof id !== 'string' || !id) throw new MachineError('provider', 'the provider answered without a sandbox id');
+          const access = field(row, 'access');
+          if (access !== undefined && access !== 'owner') continue;
+          refs.push({ provider: 'sandbox-api', account: acct, id, name: 'computer', keepCopies: field(row, 'snapshots') === true });
+        }
+        const page = field(json, 'pageInfo');
+        if (page === undefined || field(page, 'hasMore') === false) return refs;
+        const next = field(page, 'nextCursor');
+        if (field(page, 'hasMore') !== true || typeof next !== 'string' || !next || seen.has(next)) {
+          throw new MachineError('provider', 'the provider answered with invalid pagination');
+        }
+        seen.add(next);
+        cursor = next;
+      }
+    },
 
     create: async ({ name, size, keepCopies, idempotencyKey }) => {
       const acct = await account();

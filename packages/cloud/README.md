@@ -93,6 +93,21 @@ The stored provider id stays `sandbox-api`, so existing machine records continue
 work. Credentials, cost rules and the M6 spending and publication gates are
 unchanged ([provider contract](../../docs/cloud-kit.md#6-boat-adapter-srcboatts)).
 
+## Connect an existing Boat computer
+
+Call `provider.list!()` to offer existing computers; never rent another as a fallback.
+After the person picks one, show `words('adopt.confirm', { app })`. Only on approval call
+`m.adopt(selected, { confirmId: selected.id, recipe })`. It installs and returns the saved
+ref, using the recipe's name rather than Boat's display name. No direct store edits are needed.
+
+Adoption checks account, live identity and running state, and refuses existing files,
+services, run users or redirected directories rather than taking them over. Choose a fresh
+workDir and app name. It does not wake or convert the computer. Its existing snapshot setting
+is retained; missing snapshot information disables sleep/copies conservatively.
+If installation fails, the selected ref stays saved: retry `m.install(recipe)`, not create
+or adopt. The app must keep the same consented recipe for that retry. Installation can execute
+the recipe's admin steps; adoption is not a sandbox for an untrusted installer.
+
 ## Recipes
 
 The app supplies its host program and installer as a `HostRecipe`, and the kit writes
