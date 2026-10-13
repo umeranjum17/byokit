@@ -128,7 +128,13 @@ export async function runProof(o: {
         await o.hooks.cycleVm(s);
       }
       if (provider.id === 'sandbox-api') {
-        const tailnet = await m.tailnet();
+        const settles = Date.now() + 300_000;
+        let tailnet = await m.tailnet();
+        while (tailnet.state === 'starting') {
+          assert.ok(Date.now() < settles, 'tailnet daemon did not settle after wake');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          tailnet = await m.tailnet();
+        }
         s.url = tailnet.name === null ? null : tailnetRoute(tailnet.name, s.app.exposure.port);
       }
       await add(adapter, 'unit-resume', async () => {

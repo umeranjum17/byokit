@@ -17,7 +17,7 @@ export type MachineState =
 
 export type HostState = 'not-installed' | 'installing' | 'running' | 'restarting' | 'stopped' | 'failed'
 export type TailnetStep = { step: 'open-page'; url: string } | { step: 'approve'; name: string } | { step: 'joined'; name: string }
-export type Tailnet = { state: 'joined' | 'needs-login' | 'off' | 'starting'; name: string | null }
+export type Tailnet = { state: 'joined' | 'needs-login' | 'needs-approval' | 'off' | 'starting'; name: string | null }
 
 export type Size = { id: string; cpus: number; memoryGb: number; diskGb: number }
 export type Price = {
