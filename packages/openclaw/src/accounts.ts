@@ -449,9 +449,13 @@ export function createAccounts(ctx: {
   // ponytail: a merge patch cannot delete a key, so a member with no model entry before its sign-in keeps the pinned one.
   const restoreModel = async (memberAgent: string, model: unknown): Promise<void> => {
     if (model === undefined) { ctx.log?.(`addAccount: ${memberAgent} had no model entry to restore`); return; }
-    try {
+    // A config write that lands between the read and the patch moves the hash: read and patch once more.
+    const patch = async (): Promise<void> => {
       const { hash } = await ctx.request('config.get') as { hash: string };
       await ctx.request('config.patch', { raw: JSON.stringify({ agents: { entries: { [memberAgent]: { model } } } }), baseHash: hash });
+    };
+    try {
+      await patch().catch(() => patch());
     } catch (error) {
       ctx.log?.(`addAccount: ${memberAgent} model is not restored: ${error instanceof Error ? error.message : String(error)}`);
     }

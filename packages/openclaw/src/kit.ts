@@ -959,7 +959,7 @@ export class OpenClawKit {
   /** A member sign-in to `provider`, or a ready key (5.8) whose saved model is that provider's. */
   signedIn(member: Member, provider: string): Promise<boolean> {
     return this.providers(member).then(async (names) => names.includes(provider)
-      || providerOf((await this.keys.ready(member))?.model ?? '') === provider).catch(() => false);
+      || providerOf((await this.keys.ready(member, { once: true }))?.model ?? '') === provider).catch(() => false);
   }
 
   signIn(
@@ -1036,12 +1036,15 @@ export class OpenClawKit {
     for (const provider of LIVE_CATALOGS) {
       if ((this.o.config as Providers | undefined)?.models?.providers?.[provider]?.models !== undefined) continue;
       this.catalogs = this.catalogs.then(async () => {
-        const answer = await this.request()('byokit.catalog', { provider }) as { ok?: boolean; models?: { id: string }[] };
-        if (!answer.ok || !answer.models?.length) return;
+        const answer = await this.request()('byokit.catalog', { provider }) as { ok?: boolean; reason?: string; models?: { id: string }[] };
+        if (!answer.ok) {
+          if (answer.reason !== 'no-key') this.o.log?.(`catalog sync ${provider}: ${answer.reason ?? 'failed'}`);
+          return;
+        }
         const { config } = await this.request()('config.get') as { config?: Providers };
         const registered = config?.models?.providers?.[provider]?.models ?? [];
         const byId = new Map(registered.map((m) => [m.id, m]));
-        for (const m of answer.models) byId.set(m.id, m);
+        for (const m of answer.models ?? []) byId.set(m.id, m);
         const models = [...byId.values()];
         if (!isDeepStrictEqual(models, registered)) await this.patchConfig({ models: { providers: { [provider]: { models } } } });
       }).catch((error: unknown) => this.o.log?.(`catalog sync ${provider}: ${error instanceof Error ? error.message : String(error)}`));

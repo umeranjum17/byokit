@@ -446,7 +446,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     // The provider's live catalog hook (5.6): every live model with its own api, once an agent holds the provider's key.
     'byokit.catalog': (p) => ([...keys.values()].some((key) => key.provider === p.provider) ? { ok: true, models: [
       { id: 'fake-key-model', name: 'Fake Key Model', api: 'openai-completions' },
-      { id: 'fake-live-model', name: 'Fake Live Model', api: 'openai-responses' }] } : { ok: false }),
+      { id: 'fake-live-model', name: 'Fake Live Model', api: 'openai-responses' }] } : { ok: false, reason: 'no-key' }),
     // Account sealing (5.15): the same five actions, branches and refusals the shipped plugin method serves.
     'byokit.accounts': (p) => {
       const action = String(p.action ?? '');

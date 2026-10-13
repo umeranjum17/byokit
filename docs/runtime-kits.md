@@ -628,24 +628,27 @@ see them with no model setup in the app:
   membership (12), so adding a provider is a spec change.
 - Source: the plugin's `byokit.catalog { provider }` runs the provider plugin's own `catalog.run` hook
   (`resolvePluginProviders`) with the key of the first agent holding one (`resolveApiKeyForProvider`). It answers
-  `{ ok: true, models }`: the hook's model rows, each with the `api` the provider's live catalog data gives it (Muse:
-  `openai-responses`), without `provider`, `apiKey` or `headers`. Each row's `baseUrl` is the endpoint the hook's
-  pinned catalog (run without a discovery key) uses for that `api`: upstream now names `opencode.ai/inference/go/v1`,
-  and the pinned engine sends Go's `x-opencode-session` routing header only to endpoints it knows, so a run there
-  ends `400 Request is missing x-opencode-session`. No hook, no key or a failure answers `{ ok: false }`, never a
-  key or engine text. No model is special-cased.
+  `{ ok: true, models }`: the hook's live model rows, each with the `api` the provider's live catalog data gives it (Muse:
+  `openai-responses`), plus each pinned row (the hook run without a discovery key) whose id the live list lacks; live
+  wins by id. Rows carry no `provider`, `apiKey` or `headers`. Each row's `baseUrl` is the endpoint the pinned catalog
+  uses for that `api`: upstream now names `opencode.ai/inference/go/v1`, and the pinned engine sends Go's
+  `x-opencode-session` routing header only to endpoints it knows, so a run there ends `400 Request is missing
+  x-opencode-session`. No agent holds the provider's key answers `{ ok: false, reason: 'no-key' }`; a missing hook, a
+  throwing live fetch or a live list with no rows answers `{ ok: false, reason: 'failed' }`. Neither carries a key or
+  engine text. No model is special-cased.
 - Triggers: each time the kit reaches `ready` (start, and every restart, including the one an activation's auth
   write causes), and after `addKey` or `addAccount` ends `ok` for that provider. Syncs are serialized and run in the
   background; `start()` and the add result never wait for one.
 - Write: `patchConfig({ models: { providers: { [provider]: { models } } } })`, where `models` is the answer merged
-  by id over the registered list (the answer wins; a registered id the answer lacks stays, so a failed live fetch,
-  which the hook answers with its static seed, never drops a model). Nothing is written when that equals the
+  by id over the registered list (the answer wins; a registered id the answer lacks stays, so a model that leaves the
+  live list is never dropped). Nothing is written when that equals the
   registered list. The engine hot-reloads `models.*` without a restart, so a live run goes on. A write that lands
   while an activation's auth restart is pending answers `config.patch ... a recovery restart is required` although
   it persisted; it is logged, and the sync at the next `ready` finds the list unchanged.
 - App config wins: when `KitOptions.config.models.providers[provider].models` is set, the kit never syncs that
   provider.
-- A failure is logged (`catalog sync <provider>: <reason>`), never thrown; the registered list stays.
+- A failure (`reason: 'failed'`) is logged (`catalog sync <provider>: failed`), never thrown; the registered list stays.
+  `no-key` is not logged: a member without the provider's key is the normal state, and it is never a failure.
 
 #### One key, not the whole config (`getConfigKey` / `setConfigKey`)
 
@@ -793,8 +796,9 @@ Mapping to `SignInView.why`: setup-admission-busy error → `busy`; person cance
 **providerStatus / signedIn / providers**: live readiness reads; see 5.8 for the usable-provider rule,
 native Claude detection, unknown-status mapping and admission snapshots. `signedIn(member, provider)` is also true
 when the member's key agent holds a ready key (`byokit.keys ready`) whose saved model is that provider's (5.8 API
-keys), so an app that added only a key sees it. `providers` stays the member agent's sign-ins, the ones a run
-without `auth: 'apiKey'` uses.
+keys), so an app that added only a key sees it. That probe is a single `byokit.keys ready` read with no transient retry,
+so during a gateway restart `signedIn` answers `false` at once rather than waiting out the 60 s retry that runs use.
+`providers` stays the member agent's sign-ins, the ones a run without `auth: 'apiKey'` uses.
 **signOut**: `models.authLogout { provider, agentId, profileIds }` with the agent's own profiles of that provider
 (`byokit.accounts list`; from O14, 5.15). `signIn`, `signedIn`, `providers` and `signOut` address the
 member agent, whose sign-in to a provider is that provider's first account (5.15); `addAccount` adds any further one.

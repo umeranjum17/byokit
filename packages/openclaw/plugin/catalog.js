@@ -11,7 +11,7 @@ export function registerCatalog(api) {
       const { resolveApiKeyForProvider } = await import('openclaw/plugin-sdk/provider-auth-runtime');
       const config = getRuntimeConfig();
       const hook = resolvePluginProviders({ config, env: process.env }).find((p) => p.id === provider)?.catalog;
-      if (!provider || typeof hook?.run !== 'function') return respond(true, { ok: false });
+      if (!provider || typeof hook?.run !== 'function') return respond(true, { ok: false, reason: 'failed' });
       // The first agent holding the provider's key; every account of one provider sees the same catalog.
       for (const agentId of new Set([...Object.keys(config.agents?.entries ?? {}), 'main'])) {
         const agentDir = resolveAgentDir(config, agentId);
@@ -30,13 +30,17 @@ export function registerCatalog(api) {
           const api = m.api ?? pinned.api;
           if (!endpoint.has(api) && (m.baseUrl ?? pinned.baseUrl)) endpoint.set(api, m.baseUrl ?? pinned.baseUrl);
         }
-        const models = (live?.models ?? []).map(({ provider: _p, apiKey: _k, headers: _h, ...model }) =>
-          (endpoint.has(model.api) ? { ...model, baseUrl: endpoint.get(model.api) } : model));
-        return respond(true, models.length ? { ok: true, models } : { ok: false });
+        if (!live?.models?.length) return respond(true, { ok: false, reason: 'failed' });
+        // A pinned model the live list omits stays in the catalog; live wins by id.
+        const liveIds = new Set(live.models.map((m) => m.id));
+        const models = [...live.models, ...(pinned?.models ?? []).filter((m) => !liveIds.has(m.id))]
+          .map(({ provider: _p, apiKey: _k, headers: _h, ...model }) =>
+            (endpoint.has(model.api) ? { ...model, baseUrl: endpoint.get(model.api) } : model));
+        return respond(true, { ok: true, models });
       }
-      respond(true, { ok: false });
+      respond(true, { ok: false, reason: 'no-key' });
     } catch {
-      respond(true, { ok: false }); // never engine text: a hook error could carry the key
+      respond(true, { ok: false, reason: 'failed' }); // never engine text: a hook error could carry the key
     }
   }, { scope: 'operator.admin' });
 }

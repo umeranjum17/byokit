@@ -297,6 +297,36 @@ test('a Go plan key registers the live catalog once and runs any Go model', asyn
     { ok: false, kind: 'plan', message: 'Choose a model of the provider saved with this key.' });
 }));
 
+test('a catalog failure is logged without the key, no key is silent, and signedIn probes the key once', async () => {
+  const stateDir = scratchDir('o4-catalog-log');
+  const fake = fakeGateway();
+  const lines: string[] = [];
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, log: (line) => lines.push(line) });
+  const catalogLines = () => lines.filter((line) => line.startsWith('catalog sync'));
+  const until = async (ok: () => boolean) => { for (let i = 0; i < 100 && !ok(); i++) await delay(10); await delay(20); };
+  const calls = (method: string) => fake.calls.filter((c) => c.method === method).length;
+  try {
+    await kit.start();
+    await until(() => calls('byokit.catalog') >= 1);
+    assert.deepEqual(catalogLines(), [], 'no key is not a failure');
+    fake.handle('byokit.catalog', () => ({ ok: false, reason: 'failed' }));
+    assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-LOG-KEY' }), 'ok');
+    await until(() => catalogLines().length > 0);
+    assert.deepEqual(catalogLines(), ['catalog sync opencode-go: failed']);
+    assert.equal(lines.join('\n').includes('CANARY-LOG-KEY'), false);
+    fake.handle('byokit.keys', (p) => {
+      if (p.action === 'ready') throw Object.assign(new Error('gateway restarting'), { code: 'UNAVAILABLE', retryable: true });
+      return { ok: false };
+    });
+    const before = calls('byokit.keys');
+    assert.equal(await kit.signedIn('m2', 'opencode-go'), false);
+    assert.equal(calls('byokit.keys') - before, 1, 'one ready probe, no retry while the gateway restarts');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('ready runs reuse only witnessed, bounded member auth; mutations, expiry and disconnect recheck', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   const stateDir = scratchDir('run-admission');
