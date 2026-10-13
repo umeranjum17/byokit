@@ -42,7 +42,7 @@ inside the host process; `./testing` is Node only (the fake provider and the con
 frozen types, words, pure parts (`renderUnit`, recipe checks, node argv, cost), `machine()`
 for §5.1–5.5 and §5.7 plus install and supervise (§8: `install`, `update`, `host`,
 `logs`, `deliver`), `status()` (§5.9), the fake provider and the contract suite, the Boat adapter
-(M4), and the SSH VM adapter (M2). Idle sleep and wake-on-open land in M7 (manual `sleep()` and
+(M4), the keyless Boat tailnet join (§9.1), and the SSH VM adapter (M2). Idle sleep and wake-on-open land in M7 (manual `sleep()` and
 `wake()` are already here), account link in M8.
 The package stays private until the recorded real-provider run (M6).
 
@@ -95,7 +95,7 @@ unchanged ([provider contract](../../docs/cloud-kit.md#6-boat-adapter-srcboatts)
 
 ## Your own tailnet
 
-`await m.joinTailnet({ hostname: 'umer-cloud' }, showStep)` installs and starts Tailscale as root.
+`await m.joinTailnet({ hostname: 'umer-cloud' }, showStep)` installs the pinned, SHA256-checked Tailscale release as root and starts it.
 `showStep` receives `open-page` with the sign-in link (approve it on your phone), or `approve` when the
 tailnet must approve the machine (with or without a sign-in link), then `joined` with the MagicDNS name. `await m.tailnet()` reads `joined`, `needs-login`, `needs-approval`, `starting` or `off` without joining.
 This slice supports keyless Boat joins only. Passing `authKey` is a typed `unsupported` refusal:
