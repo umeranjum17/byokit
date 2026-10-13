@@ -30,7 +30,7 @@ export function createKeys(ctx: ActivationCtx & {
     return Boolean(ctx.restarting?.() || (refusal?.code === 'UNAVAILABLE' && refusal.retryable === true));
   };
   const control = (member: Member, action: 'prepare' | 'seal' | 'ready' | 'clear', provider?: string) =>
-    ctx.request('byokit.keys', { member, action, ...(provider ? { provider } : {}) }) as Promise<{ ok: boolean; model?: string }>;
+    ctx.request('byokit.keys', { member, action, ...(provider ? { provider } : {}) }) as Promise<{ ok: boolean; model?: string; absent?: boolean }>;
   return {
     exclusive,
     async add(member: Member, o: { authChoice: string; apiKey: string }): Promise<AddKeyResult> {
@@ -81,23 +81,26 @@ export function createKeys(ctx: ActivationCtx & {
       }
     },
     // Kit start calls this once the gateway is ready: a failed add whose abandon clear never reached the engine
-    // leaves an unsealed key with no ready marker, so drop it. A single ready read per key agent, no retries or
-    // waits; an unreadable key is left alone, never cleared, so a ready key always survives.
-    async sweep(): Promise<void> {
+    // leaves an unsealed key with no ready marker, so drop it. A single ready read per key agent, no retries; an add
+    // in flight for that member is waited for. Only an absent marker is cleared; a refused read or clear (the gateway
+    // left ready) makes the sweep incomplete. Resolves true once every key agent was read.
+    async sweep(): Promise<boolean> {
       let agents: { id: string }[];
       try {
         agents = ((await ctx.request('agents.list')) as { agents: { id: string }[] }).agents;
-      } catch { return; }
+      } catch { return false; }
+      let complete = true;
       for (const agent of agents) {
         if (!agent.id.startsWith(KEY_PREFIX)) continue;
         const member = agent.id.slice(KEY_PREFIX.length) as Member;
         if (!check(member)) continue;
         await exclusive(member, async () => {
-          const ready = await control(member, 'ready').catch(() => undefined);
-          if (!ready || (ready.ok && ready.model)) return;
-          await control(member, 'clear').catch(() => undefined);
+          const ready = await control(member, 'ready').catch(() => { complete = false; return undefined; });
+          if (!ready?.absent) return;
+          await control(member, 'clear').catch(() => { complete = false; });
         });
       }
+      return complete;
     },
   };
 }

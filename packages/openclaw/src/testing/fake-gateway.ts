@@ -459,9 +459,9 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       const id = `byokit-key-${p.member}`;
       if (p.action === 'prepare' || p.action === 'clear') { keys.delete(id); ensureAgent(id).providers = []; return { ok: true }; }
       const key = keys.get(id);
-      if (!key) return { ok: false };
+      if (!key) return { ok: false, absent: true };
       if (p.action === 'seal') { key.sealed = true; return { ok: true }; }
-      return { ok: key.sealed, ...(key.sealed ? { model: key.model } : {}) };
+      return key.sealed ? { ok: true, model: key.model } : { ok: false, absent: true };
     },
     // Account sealing (5.15): the same five actions, branches and refusals the shipped plugin method serves.
     'byokit.accounts': (p) => {

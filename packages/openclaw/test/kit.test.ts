@@ -458,6 +458,50 @@ test('an add that seals during the start sweep keeps its key', async () => {
   } finally { release(); await second.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
+test('an interrupted start sweep runs again on the next ready and a key with its marker survives', async () => {
+  const stateDir = scratchDir('o4-key-sweep-retry');
+  const fake = fakeGateway();
+  const clears = () => fake.calls.filter((c) => c.method === 'byokit.keys'
+    && (c.params as { action?: string }).action === 'clear');
+  const first = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+  await first.start();
+  await first.ensureMember('m1');
+  await first.call('openclaw.setup.activate', { kind: 'api-key', agentId: 'byokit-key-m1',
+    authChoice: 'openai-api-key', apiKey: 'CANARY-RETRY-UNSEALED-994' });
+  assert.equal(await first.addKey('m2', { authChoice: 'openai-api-key', apiKey: 'CANARY-RETRY-SEALED-995' }), 'ok');
+  await first.stop();
+  // The first sweep reads m1 (absent marker) and is held there while the gateway drops, so its clear is refused.
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let held = false;
+  const gated = (ctx: Parameters<typeof fake.factory>[0]) => {
+    const transport = fake.factory(ctx);
+    const request: typeof transport.request = async (method, params, options) => {
+      const p = params as { member?: string; action?: string } | undefined;
+      // m2's marker is present but its store no longer matches: the engine replies not ready without the absent flag.
+      if (method === 'byokit.keys' && p?.member === 'm2' && p.action === 'ready') return { ok: false };
+      const reply = await transport.request(method, params, options);
+      if (method === 'byokit.keys' && p?.member === 'm1' && p.action === 'ready' && !held) { held = true; await gate; }
+      return reply;
+    };
+    return { ...transport, request };
+  };
+  const second = new OpenClawKit({ stateDir, spawnEngine: false, transport: gated });
+  try {
+    await second.start();
+    await until(() => held);
+    fake.drop('test');
+    assert.equal(second.state.phase, 'failed');
+    release();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(clears().length, 0);
+    await second.start();
+    await until(() => clears().length === 1);
+    assert.deepEqual(clears().at(-1)?.params, { member: 'm1', action: 'clear' });
+    assert.equal(second.state.phase, 'ready');
+  } finally { await second.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 test('a reconnect after a gateway drop does not clear an unsealed key', async () => {
   const stateDir = scratchDir('o4-key-reconnect');
   const fake = fakeGateway();

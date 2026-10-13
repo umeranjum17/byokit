@@ -27,7 +27,10 @@ export function registerKeys(api) {
       const marker = join(keyDir, 'byokit-key-ready.json');
       if (params.action === 'ready') {
         if (diagnostics) diagnostics.stage = 'marker';
-        const selected = JSON.parse(await readFile(marker, 'utf8'));
+        let text;
+        try { text = await readFile(marker, 'utf8'); }
+        catch (error) { if (error?.code !== 'ENOENT') throw error; reply({ ok: false, absent: true }); return; }
+        const selected = JSON.parse(text);
         let ready = false;
         if (diagnostics) diagnostics.stage = 'store';
         await updateAuthProfileStoreWithLock({ agentDir: keyDir, updater(store) {
