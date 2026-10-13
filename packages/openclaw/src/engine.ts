@@ -305,10 +305,10 @@ export class Engine {
     if (pidAlive(pid)) throw occupied();
     // The new store owner now seals crash leftovers under its lock before restoring them.
   }
-  // The account orphan sweep (5.15): a late engine write after a removal cannot be ruled out by a bounded check,
-  // so `prepare` removes each `<root>/state/agents/<member>--<hex6>` directory that no index names. No roster here:
-  // the gateway is down, and no add is in flight while preparing (an entry is written before its agent is created,
-  // so an account being added is named).
+  // The account orphan sweep (5.15): a late engine write after a removal cannot be ruled out by a bounded check, so
+  // prepare and the sealed restore remove each `<root>/state/agents/<member>--<hex6>` directory a removal recorded as
+  // gone and no index names. No roster here: the gateway is down, and no add is in flight while preparing (an entry
+  // is written before its agent is created, so an account being added is named).
   private sweepAccountOrphans(): void {
     try { sweepOrphans(this.root); }
     catch (error) { this.o.log?.(`prepare: orphans are not swept: ${String((error as Error).message).slice(0, 200)}`); }
@@ -336,6 +336,7 @@ export class Engine {
         if (error instanceof AuthStoreUnreadableError) this.state('failed', 'auth-store-unreadable');
         throw error;
       }
+      this.sweepAccountOrphans();
       try { return this.launch(); }
       catch (error) {
         // A launch failure after spawn still has a writer; the caller's stop must await its exit.

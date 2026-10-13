@@ -6,6 +6,7 @@
 // Add an account lists every route the kit has, grouped by @byokit/ui's connectView: Plans first, then Pay per use
 // and the rest, each with how it is paid for, how you sign in and whether it works here.
 import { Accounts, billingWords, browserStore, planLabel, resolveSelection, roomOf, say, signInError, PROVIDERS, type Account, type ModelInfo, type Room, type RouteView } from '@byokit/accounts';
+import { webStore } from '@byokit/secrets/web';
 import { accountRows, bestMoveTarget, modelPicker, moveWords, type AccountRow, type Pick, type PickerView } from '@byokit/ui/accounts';
 import { connectView, type ConnectRow } from '@byokit/ui/connect';
 import { phaseOf } from '@byokit/ui/phase';
@@ -27,6 +28,7 @@ const ME = 1;
 const accounts = new Accounts<any, number>({
   app: 'byokit example',
   store: (member) => browserStore(`person-${member}`),
+  keyStore: (member) => webStore({ database: `person-${member}-keys` }),
   authBase: __BYOKIT_AUTH_BASE__,
   deviceBase: __BYOKIT_DEVICE_BASE__,
   fetch: forwarded,
@@ -83,10 +85,36 @@ async function readReadings(rows: Account[]): Promise<Map<string, Reading | unde
   return readings;
 }
 
+/** The card a route signs in on, when this page has one: the provider with that route's upstream id. */
+const cardFor = (row: ConnectRow, routes: RouteView[]) => accounts.providers.find((p) => p.pi === routes.find((r) => r.id === row.id)?.upstream.id)?.key;
+const KEY_VIA = ['key', 'plan_key'];
+const SIGNIN_VIA = ['browser', 'code', 'paste', 'session', 'cli'];
+/** Ready routes here for one provider, by its catalogue pi. */
+const providerRoutes = (pi: string, routes: RouteView[]) => routes.filter((r) => r.upstream.id === pi && r.readiness === 'ready');
+/** A provider's card connects through a pasted key: a ready key route here and no ready sign-in route of its own. */
+const isKeyCard = (pi: string, routes: RouteView[]) => {
+  const mine = providerRoutes(pi, routes);
+  return mine.some((r) => (KEY_VIA as string[]).includes(r.via)) && !mine.some((r) => (SIGNIN_VIA as string[]).includes(r.via));
+};
+/** The card a key row starts, when this page has its paste-key form: the provider's card, only for key cards. */
+const keyCardFor = (row: ConnectRow, routes: RouteView[]) => {
+  const found = cardFor(row, routes);
+  return found && isKeyCard(PROVIDERS[found].pi, routes) ? found : undefined;
+};
+/** The card a row starts, when this page has a form for it: sign-in rows use their provider's card, key rows
+ *  only when that card connects through a pasted key. Anything else stays listed and cannot be tapped. */
+const starterFor = (row: ConnectRow, routes: RouteView[]) =>
+  row.does === 'signin' ? cardFor(row, routes) : row.does === 'key' ? keyCardFor(row, routes) : undefined;
+
 function card(key: string) {
   const { name, company } = PROVIDERS[key];
   // Only the two providers this page can ask have a question box; every provider in the catalogue gets a sign-in card.
   const answers = key === 'chatgpt' || key === 'claude';
+  // A card with a ready key route and no ready sign-in route of its own connects through a pasted plan key,
+  // on the same paste box a code is pasted back on: no second form type for keys.
+  const mine = providerRoutes(PROVIDERS[key].pi, accounts.routes());
+  const keyRoute = mine.find((r) => (KEY_VIA as string[]).includes(r.via));
+  const keyMode = !!keyRoute && !mine.some((r) => (SIGNIN_VIA as string[]).includes(r.via));
   const el = ($('card') as HTMLTemplateElement).content.firstElementChild!.cloneNode(true) as HTMLElement;
   el.id = key;
   $('cards').append(el);
@@ -111,7 +139,7 @@ function card(key: string) {
   q('add').textContent = `Add another ${name}`;
   q('open').textContent = `Open ${name}`;
   q('connect').textContent = 'Connect';
-  q<HTMLInputElement>('pasted').placeholder = `Paste the code from the ${name} page`;
+  q<HTMLInputElement>('pasted').placeholder = keyMode ? 'Paste the key from your plan' : `Paste the code from the ${name} page`;
   q<HTMLTextAreaElement>('question').placeholder = `Ask ${name} something`;
   q('question').hidden = q('ask').hidden = !answers;
 
@@ -183,7 +211,8 @@ function card(key: string) {
       email.className = 'acc-email';
       email.dataset.email = '';
       const addr = addrOf(a, self);
-      email.textContent = addr === v.title ? v.title : `${v.title} · ${addr}`;
+      // A key row's title already names its account: then it stands alone, never repeated beside itself.
+      email.textContent = addr === v.title || v.title.endsWith(` · ${addr}`) ? v.title : `${v.title} · ${addr}`;
       head.append(email);
       row.append(head);
       const room = rooms.get(a.id) ?? { left: 'unknown' as const };
@@ -266,6 +295,8 @@ function card(key: string) {
 
   let drawing = 0;
   let pendingAdd: string | undefined;
+  // A key card's paste box, open without any sign-in flow behind it.
+  let keyOpen = false;
   let cancelledHere = false;
   let signedIn = false;
   type Said = { tone: '' | 'error' | 'expired' | 'info'; words: string };
@@ -308,8 +339,10 @@ function card(key: string) {
     q('who').textContent = plan?.email ? `Signed in as ${plan.email}` : '';
     show('who', !!plan?.email);
     // The sheet opens only while a sign-in is actually waiting; idle 'opening' shows the signed-out card alone.
+    // A key card's sheet is its paste box instead, open from the Add sheet or its own buttons.
     const sheet = waiting && (phase === 'code' || phase === 'opening' || phase === 'waiting');
-    show('sheet', sheet);
+    const keyForm = keyMode && keyOpen;
+    show('sheet', sheet || keyForm);
     countdown(waiting ? shown?.expiresAt : undefined);
     if (phase === 'code') {
       banner('', '');
@@ -331,6 +364,13 @@ function card(key: string) {
       open.textContent = `Reopen the ${name} page`; open.setAttribute('data-quiet', '');
       show('open', !!shown?.url && shown.state === 'waiting');
       show('paste', key === 'claude');
+    } else if (keyForm) {
+      // The paste box is the whole form: a failed save keeps its words here, under the box it came from.
+      banner(failure?.tone ?? '', failure?.words ?? '');
+      q('words').textContent = 'Paste the key from your plan.';
+      show('codewell', false);
+      show('open', false);
+      show('paste', true);
     } else if (phase === 'opening') {
       banner('', '');
       q('words').textContent = say('signIn.opening', { name });
@@ -347,8 +387,8 @@ function card(key: string) {
       cancelledHere = false;
     } else banner(failure?.tone ?? '', failure?.words ?? '');
     if (shown?.state === 'failed') void 0; // banner above already said it, in this card's own words
-    show('signin', !ready && !waiting && !pendingAdd);
-    show('add', ready && !waiting && !pendingAdd);
+    show('signin', !ready && !waiting && !pendingAdd && !keyForm);
+    show('add', ready && !waiting && !pendingAdd && !keyForm);
     show('ready', ready);
   }
 
@@ -364,6 +404,8 @@ function card(key: string) {
   };
   const signIn = () => { failure = undefined; banner('', ''); return accounts.login(ME, key).then(draw); };
   const addAnother = async () => {
+    // Another key account is another pasted key on the same box.
+    if (keyMode) { keyOpen = true; failure = undefined; banner('', ''); draw(); return; }
     failure = undefined;
     note('');
     try {
@@ -375,8 +417,17 @@ function card(key: string) {
   q('signin').onclick = signIn;
   q('add').onclick = addAnother;
   // A row in the Add sheet starts this card's own way in. A sign-in already waiting here is shown, never doubled.
-  const start = () => (pendingAdd || accounts.view(ME, key)?.state === 'waiting' ? draw() : signedIn ? addAnother() : signIn());
+  // A key row opens the paste box instead, whether or not an account is already connected.
+  const start = () => {
+    if (keyMode && keyRoute && accounts.view(ME, key)?.state !== 'waiting' && !pendingAdd) {
+      if (!keyOpen) { keyOpen = true; failure = undefined; banner('', ''); }
+      return draw();
+    }
+    return (pendingAdd || accounts.view(ME, key)?.state === 'waiting' ? draw() : signedIn ? addAnother() : signIn());
+  };
   q('cancel').onclick = () => {
+    // Closing the paste box keeps nothing and says nothing: there was no sign-in to stop.
+    if (keyMode && keyOpen) { keyOpen = false; failure = undefined; banner('', ''); draw(); return; }
     cancelledHere = true;
     accounts.cancel(ME, pendingAdd ?? key);
     pendingAdd = undefined;
@@ -384,6 +435,16 @@ function card(key: string) {
   q('connect').onclick = () => {
     const pasted = q<HTMLInputElement>('pasted');
     if (!pasted.value.trim()) return pasted.focus();
+    // A key card saves the pasted plan key straight onto its key route; the save's own words stay on the box.
+    if (keyMode && keyOpen && keyRoute) {
+      const btn = q<HTMLButtonElement>('connect');
+      btn.disabled = true;
+      accounts.add(ME, keyRoute.id, { key: pasted.value.trim() }).then(
+        () => { pasted.value = ''; keyOpen = false; failure = undefined; },
+        (e: any) => { failure = { tone: 'error', words: e.message }; },
+      ).finally(() => { btn.disabled = false; draw(); });
+      return;
+    }
     try { accounts.paste(ME, pendingAdd ?? key, pasted.value); pasted.value = ''; } catch { note(say('signIn.failed', { name })); }
   };
   // One question at a time per card: Ask waits while an answer is coming, Stop ends it, and only the newest question's
@@ -458,9 +519,8 @@ accounts.onChange = (_member, key) => { const c = cards[key]; if (c) c.draw(); e
 Promise.all(accounts.providers.map((p) => accounts.signedIn(ME, p.key)))
   .then(() => accounts.keepFresh([ME])).then(() => Object.values(cards).forEach((c) => c.draw()));
 
-/** The card a route signs in on, when this page has one: the provider with that route's upstream id. */
-const cardFor = (row: ConnectRow, routes: RouteView[]) => accounts.providers.find((p) => p.pi === routes.find((r) => r.id === row.id)?.upstream.id)?.key;
-/** Every route, grouped. A row is a button only when this page can start it: a ready sign-in with its card here.
+/** Every route, grouped. A row is a button only when this page can start it: a ready sign-in with its card here,
+ *  or a ready key route whose card takes a pasted key.
  *  Anything else stays listed and cannot be tapped, saying why: its readiness words, or that this page has no form for it.
  *  Rows this page has no form for leave their group for one collapsed "Coming soon" group at the end. */
 function addSheet() {
@@ -495,7 +555,7 @@ function addSheet() {
   const soon: ConnectRow[] = [];
   for (const g of connectView(routes).groups) {
     const keep = g.rows.filter((r) => {
-      const key = r.does === 'signin' ? cardFor(r, routes) : undefined;
+      const key = starterFor(r, routes);
       if (r.ready && !key) { soon.push(r); return false; }
       return true;
     });
@@ -511,7 +571,7 @@ function addSheet() {
     group.append(title, note);
     // Ready ways in first, then the ones that cannot be used here; each keeps the kit's order within its kind.
     for (const r of [...keep].sort((a, b) => Number(b.ready) - Number(a.ready))) {
-      group.append(paintRow(r, r.does === 'signin' ? cardFor(r, routes) : undefined));
+      group.append(paintRow(r, starterFor(r, routes)));
     }
     box.append(group);
   }

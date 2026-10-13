@@ -1,11 +1,12 @@
 // The example as someone gets it: the workspace packages packed (`npm pack`) and laid into a copy of this folder's
 // node_modules, the page built with its own script, host.ts started against the kit's fake Gateway (the only OpenClaw
-// this test ever runs), and a phone-sized headless Chromium going pair → sign in with a device code → a message that
-// uses the helper's tool → Allow → the reply, then one more → Deny. Every status a person reads must be the kit's own
-// sentence from its words.json. Third-party dependencies are linked from the repo's installed tree, so the run stays
-// offline. Away from home, a loopback relay with a recording push service stands in for the real ones, and a phone app
-// (plain Node here) pairs through it and gets an approval sealed: nothing is sent anywhere real.
-// BYOKIT_EXAMPLE_SHOTS=<folder> keeps a screenshot of each step.
+// this test ever runs), and a phone-sized headless Chromium going pair → the kit's routes, grouped → sign in from the
+// ChatGPT plan row with a device code → a message that uses the helper's tool → Allow → the reply, then one more → Deny.
+// Every status a person reads must be the kit's own sentence from its words.json. Third-party dependencies are linked
+// from the repo's installed tree, so the run stays offline. Away from home, a loopback relay with a recording push
+// service stands in for the real ones, and a phone app (plain Node here) pairs through it and gets an approval sealed:
+// nothing is sent anywhere real.
+// BYOKIT_EXAMPLE_SHOTS=<folder> keeps a light and a dark screenshot of each step.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
@@ -90,7 +91,14 @@ const heard = async (pattern: RegExp, from = 0) => {
 const CODE = /type ([2-9A-Z]{4}-[2-9A-Z]{4}-[2-9A-Z]{4})/;
 const notes = () => { try { return readFileSync(join(app, '.state/notes.txt'), 'utf8'); } catch { return ''; } };
 
-const shot = async (page: Page, name: string) => { if (shots) await page.screenshot({ path: join(shots, `${name}.png`), fullPage: true }); };
+const shot = async (page: Page, name: string) => {
+  if (!shots) return;
+  await page.screenshot({ path: join(shots, `${name}.png`), fullPage: true });
+  // Reduced motion too, so no colour transition is caught half way.
+  await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
+  await page.screenshot({ path: join(shots, `${name}.dark.png`), fullPage: true });
+  await page.emulateMedia({ colorScheme: null, reducedMotion: null });
+};
 const text = async (page: Page, selector: string, want: string) => {
   const found = page.locator(selector).filter({ hasText: want }).first();
   await found.waitFor();
@@ -120,13 +128,38 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
 
   await text(page, '#link', `Connected to ${NAME}.`);
   await text(page, '#engine', WORDS['engine.ready']);
-  await text(page, '#signin-title', fill('member.signedOut', { name: 'ChatGPT' }));
+
+  // Every route the kit lists, grouped by @byokit/ui's connectView: Plans first and open, the rest folded. Only a ready
+  // code sign-in is a button here; a page sign-in (it returns to the computer), a key and an app the computer lacks
+  // stay listed with why.
+  await page.locator('#routes details').first().waitFor(); // drawn all at once
+  const groups = await page.locator('#routes details').evaluateAll((ds) => ds.map((d) => [d.dataset.group, (d as HTMLDetailsElement).open]));
+  assert.deepEqual(groups[0], ['plans', true]);
+  assert.ok(groups.length > 2 && groups.slice(1).every(([, open]) => !open), JSON.stringify(groups));
+  const row = (id: string) => page.locator(`#routes [data-route="${id}"]`);
+  const chatgpt = row('openai:code:openai-device-code');
+  assert.deepEqual(await chatgpt.locator('span').allTextContents(), ['ChatGPT Device Pairing — sign in with a code', 'Uses your OpenAI plan', 'Ready']);
+  assert.equal(await chatgpt.getAttribute('aria-disabled'), null);
+  for (const [id, why] of [['openai:browser:openai', 'Ready, but this page has no form for it yet.'],
+    ['github-copilot:code:github-copilot-enterprise', 'Ready. This computer starts only the first sign-in for this provider.'],
+    ['anthropic:cli:anthropic-cli', 'Install its app on this computer first.']]) {
+    assert.equal(await row(id).getAttribute('aria-disabled'), 'true', id);
+    assert.equal(await row(id).locator('.status').textContent(), why, id);
+  }
+  assert.equal(await row('openai:key:openai-api-key').locator('xpath=ancestor::details').getAttribute('data-group'), 'perUse');
+  // Listed, not startable: nothing happens. A start would name its account in the card within a refresh (1s).
+  await row('openai:browser:openai').click({ force: true });
+  await page.waitForTimeout(1500);
+  assert.equal(await page.locator('#signin-title').textContent(), '');
+  assert.equal(await page.locator('#signin-code').isHidden(), true);
   await shot(page, '2-signed-out');
 
-  // Sign in with ChatGPT: the phone shows the device code and ChatGPT's page; the fake says yes a few seconds later.
-  await page.click('#signin-go');
+  // Sign in from the ChatGPT plan row: the phone shows the device code and the provider's page; the fake says yes a few
+  // seconds later.
+  await chatgpt.click();
   await text(page, '#signin-code', 'CREW-2026');
-  await text(page, '#signin-title', 'On the ChatGPT page, type this code:');
+  await text(page, '#signin-title', 'On the ChatGPT Device Pairing page, type this code:');
+  assert.equal(await page.locator('#routes').isHidden(), true);
   assert.equal(await page.getAttribute('#signin-url', 'href'), 'https://auth.openai.com/codex/device');
   await shot(page, '3-code');
   await page.locator('#talk').waitFor();
@@ -176,9 +209,13 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   assert.equal(await page.locator('#signins-box').isHidden(), true);
   await shot(page, 'fixture-8-signed-in-chip');
 
-  // Signing out brings the sign-in card back with the kit's sentence.
+  // A reload names the provider it is signed in to, and signing out brings the ways in back with that provider's sentence.
+  await page.reload();
+  await page.locator('#talk').waitFor();
+  await text(page, '#signout', 'Sign out of OpenAI');
   await page.click('#signout');
-  await text(page, '#signin-title', fill('member.signedOut', { name: 'ChatGPT' }));
+  await text(page, '#signin-title', fill('member.signedOut', { name: 'OpenAI' }));
+  await chatgpt.waitFor();
 
   assert.deepEqual(errors, []);
   await context.close();

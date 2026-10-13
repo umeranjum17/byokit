@@ -7,7 +7,7 @@ Verification recipe for [removing an account](../../../../docs/runtime-kits.md#5
 - A member-agent account goes through `models.authLogout` with its sealed `profileIds`, then its entry is dropped.
 - An account agent goes through `byokit.accounts clear`, an empty `list`, `agents.delete` with `deleteFiles: false`, removal of its `<root>/state/agents/<agent>` dir, then the entry is dropped.
 - Removal is refused `busy` while a run holds the agent; the member agent stays `ready`.
-- A file the engine lands after removal is swept on the next `prepare`; every prepare also sweeps each `<member>--<hex6>` state dir no index names.
+- A file the engine lands after removal is swept on the next `prepare` (and after a sealed restore, before launch). Only `<member>--<hex6>` dirs a removal recorded as gone and no index names are swept; a legacy member dir stays.
 
 ## How to get to it (user POV)
 

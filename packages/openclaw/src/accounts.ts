@@ -1,8 +1,8 @@
 // The per-member account index (5.15, O14 step S5): `<root>/accounts/<member>.json` (0600, whole-file temp
 // plus rename) is the only kit state: `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?,
 // who? } }, defaults }`. No credential, token, email or engine line. Listing, rename, defaults, models, room,
-// adding with its identity merge (O14 steps S6, S7), the start-of-run pick (S10) and removal with its orphan
-// sweep (O14 step S8) live here.
+// adding with its identity merge (O14 steps S6, S7), the start-of-run pick (S10), session binding (S11) and removal with
+// its orphan sweep (O14 step S8) live here; move arrives in a later step.
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -14,13 +14,15 @@ import { words } from './words.ts';
 import type { Account, AccountId, AccountPick, Defaults, GatewayTransport, Member, ModelInfo, Room, RoomSpan, RunSelection, SignInOptions, SignInState, SignInView } from './types.ts';
 
 type IndexEntry = { agent: string; name: string; route: string; addedAt: number; until?: number; model?: string; who?: string };
-type IndexFile = { v: 1; accounts: Record<string, IndexEntry>; defaults: Defaults };
+type IndexFile = { v: 1; accounts: Record<string, IndexEntry>; defaults: Defaults; gone?: string[] };
 
 type LiveProfile = { provider?: string; profileId?: string; type?: string; status?: string; who?: string };
 const ACCOUNT_AGENT = /^[a-z][a-z0-9-]{0,31}--[0-9a-f]{6}$/;
 const usable = (status: string | undefined): boolean => status === 'ok' || status === 'expiring' || status === 'static';
 const IDENTITY = 'IDENTITY.md';
 
+/** The agent a session lives on (5.15 Runs step 1); `id` absent: the member agent, which may hold several accounts. */
+export type Binding = { agentId: string; id?: AccountId };
 type AddOptions = { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId };
 type AccountSignIn = { id: AccountId; paste(text: string): void; cancel(): void; done: Promise<{ view: SignInView; id: AccountId }> };
 type StartSignIn = (agentId: string, o: SignInOptions, on: (v: SignInView) => void, fresh: boolean) =>
@@ -41,30 +43,31 @@ const validEntry = (v: unknown): v is IndexEntry => !!v && typeof v === 'object'
 
 // Every agent any member's index names. An index that cannot be read or parsed throws: its accounts are unknown,
 // so no sweep may run.
-function indexedAgents(root: string): Set<string> {
+function indexedAgents(root: string): { named: Set<string>; gone: Set<string> } {
   const named = new Set<string>();
+  const gone = new Set<string>();
   let files: string[];
   try { files = readdirSync(join(root, 'accounts')); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return named; throw error; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { named, gone }; throw error; }
   for (const file of files) {
     if (!file.endsWith('.json')) continue;
     const parsed = JSON.parse(readFileSync(join(root, 'accounts', file), 'utf8')) as Partial<IndexFile>;
     for (const entry of Object.values(parsed.accounts ?? {})) if (typeof entry?.agent === 'string') named.add(entry.agent);
+    for (const agent of Array.isArray(parsed.gone) ? parsed.gone : []) if (typeof agent === 'string') gone.add(agent);
   }
-  return named;
+  return { named, gone };
 }
 
-// Removes each `<root>/state/agents/<member>--<hex6>` directory that no index names. The directories are listed
-// before the index is read: each listed one was created after its entry was written.
+// Removes each `<root>/state/agents/<member>--<hex6>` directory that a removal recorded as gone and no index names.
+// Only recorded directories go: a legacy member's own directory is never recorded, so it stays. The directories are
+// listed before the index is read: each listed one was created after its entry was written.
 export function sweepOrphans(root: string): void {
   let dirs: string[];
   try { dirs = readdirSync(join(root, 'state', 'agents')); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
-  const named = indexedAgents(root);
+  const { named, gone } = indexedAgents(root);
   for (const dir of dirs) {
-    if (!ACCOUNT_AGENT.test(dir) || named.has(dir)) continue;
-    const owner = dir.slice(0, -8);
-    if (existsSync(join(root, 'accounts', `${dir}.json`)) || !existsSync(join(root, 'accounts', `${owner}.json`))) continue;
+    if (!ACCOUNT_AGENT.test(dir) || !gone.has(dir) || named.has(dir)) continue;
     rmSync(join(root, 'state', 'agents', dir), { recursive: true, force: true });
   }
 }
@@ -84,7 +87,9 @@ export function createAccounts(ctx: {
   setDefaults(member: Member, d: Defaults): Promise<void>;
   models(member: Member, id: AccountId): Promise<ModelInfo[]>;
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;
-  pick(member: Member, sel: RunSelection, skip?: readonly AccountId[]): Promise<{ pick: AccountPick; agent?: string }>;
+  bind(member: Member, sessionKey: string): Promise<Binding | undefined>;
+  keyRefusal(member: Member, binding: Binding): Promise<string | undefined>;
+  pick(member: Member, sel: RunSelection, skip?: readonly AccountId[], binding?: Binding): Promise<{ pick: AccountPick; agent?: string }>;
   rest(member: Member, id: AccountId, until: number): Promise<void>;
   remove(member: Member, id: AccountId): Promise<void>;
 } {
@@ -109,12 +114,14 @@ export function createAccounts(ctx: {
     if (typeof raw.account === 'string') defaults.account = raw.account;
     if (typeof raw.model === 'string') defaults.model = raw.model;
     if (typeof raw.auto === 'boolean') defaults.auto = raw.auto;
-    return { v: 1, accounts, defaults };
+    const gone = Array.isArray(file.gone) ? file.gone.filter((a): a is string => typeof a === 'string' && ACCOUNT_AGENT.test(a)) : [];
+    return { v: 1, accounts, defaults, ...(gone.length ? { gone } : {}) };
   };
   const dropEntry = (file: IndexFile, id: AccountId): void => {
     delete file.accounts[id];
     if (file.defaults.account === id) delete file.defaults.account;
   };
+  const markGone = (file: IndexFile, agent: string): void => { if (!file.gone?.includes(agent)) file.gone = [...(file.gone ?? []), agent]; };
   const write = (member: Member, file: IndexFile): void => {
     mkdirSync(join(ctx.root, 'accounts'), { recursive: true, mode: 0o700 });
     const tmp = `${path(member)}.${randomUUID()}.tmp`;
@@ -367,21 +374,94 @@ export function createAccounts(ctx: {
       return roomOf(row.provider, answer);
     });
 
-  // Choosing (5.15) for an unbound key: every listed account's room and models are read live once, then the pure
-  // `resolveSelection` decides. `agent` is the picked account's engine agent. A model unavailable only because the
-  // account is signed out or resting is still in its plan: the account's state and the run's ready check judge that.
+  // Runs step 2 reads the index alone: the index-only refusal makes no request, and a cold index adds one account
+  // listing (the pick's late check after `list`; `keyRefusal` lists when the held account is not API-billed). This
+  // gives the accounts a binding holds, in list order, and the name a refusal shows (`account.another` when it holds none).
+  const boundOf = (file: IndexFile, binding: Binding): AccountId[] => binding.id !== undefined ? [binding.id]
+    : Object.entries(file.accounts).filter(([, e]) => e.agent === binding.agentId)
+      .sort(([a, x], [b, y]) => x.addedAt - y.addedAt || (a < b ? -1 : 1)).map(([id]) => id);
+  const nameOf = (file: IndexFile, ids: AccountId[]): string => {
+    const first = ids[0] === undefined ? undefined : file.accounts[ids[0]];
+    return first?.name ?? words('account.another');
+  };
+  // A pick's refusal: `bound` names an id outside the binding's accounts, `paid` an id other than an API-billed
+  // binding's own. A named id the index does not hold is left to the pick, which reports it as unknown.
+  const refusalOf = (file: IndexFile, binding: Binding, sel: RunSelection): { code: 'bound' | 'paid'; name: string } | undefined => {
+    const named = sel.account === 'auto' || sel.account === 'default' ? undefined : sel.account;
+    if (named !== undefined && file.accounts[named] === undefined) return undefined;
+    const ids = boundOf(file, binding);
+    const held = binding.id === undefined ? undefined : file.accounts[binding.id];
+    if (held && metaOf(held.route).billing === 'api' && named !== binding.id) return { code: 'paid', name: held.name };
+    if (named !== undefined && !ids.includes(named)) return { code: 'bound', name: nameOf(file, ids) };
+    return undefined;
+  };
+  // An API-key run (Runs step 2): its key continues only an API-billed binding; any other binding is refused.
+  const keyRefusal = async (member: Member, binding: Binding): Promise<string | undefined> => {
+    const held = binding.id === undefined ? undefined : read(member).accounts[binding.id];
+    if (held && metaOf(held.route).billing === 'api') return undefined;
+    await list(member);
+    const file = read(member);
+    return words('account.bound', { name: nameOf(file, boundOf(file, binding)) });
+  };
+
+  // Runs step 1 (5.15): a key `agent:<member>--<hex6>:<tail>` of an indexed account agent is bound to that account; a
+  // key `agent:<member>:<tail>` to whichever of the member's agents holds `agent:<that agent>:<tail>` (member agent
+  // first), else unbound. Any other key is not the member's. With no account agent, the member agent and an unbound
+  // key run alike, so nothing is asked.
+  async function bind(member: Member, sessionKey: string): Promise<Binding | undefined> {
+    check(member);
+    const agents = new Map(Object.entries(read(member).accounts)
+      .filter(([, e]) => ACCOUNT_AGENT.test(e.agent) && e.agent.startsWith(`${member}--`)).map(([id, e]) => [e.agent, id]));
+    if (!sessionKey.startsWith(`agent:${member}:`)) {
+      const agent = /^agent:([^:]+):/.exec(sessionKey)?.[1];
+      const id = agent === undefined ? undefined : agents.get(agent);
+      if (id === undefined) throw new Error(`refused: "${sessionKey}" is not a session of member "${member}"`);
+      return { agentId: agent!, id };
+    }
+    if (!agents.size) return undefined;
+    const tail = sessionKey.slice(`agent:${member}:`.length);
+    const { agentId } = await ctx.ensure(member);
+    const roster = new Set((await ctx.request('agents.list') as { agents: { id: string }[] }).agents.map((a) => a.id));
+    for (const [agent, id] of [[agentId, undefined] as const, ...agents]) {
+      if (agent !== agentId && !roster.has(agent)) continue;
+      // The pin answers a found session with its canonical `key` and a missing one with `{ ok: false }`.
+      const found = await ctx.request('sessions.resolve', { key: `agent:${agent}:${tail}`, agentId: agent, allowMissing: true }) as { key?: string };
+      if (found.key !== undefined) return id === undefined ? { agentId: agent } : { agentId: agent, id };
+    }
+    return undefined;
+  }
+
+  // Choosing (5.15): every listed account's room and models are read live once, then the pure `resolveSelection`
+  // decides. A binding narrows it (Runs step 2): a key bound to an account agent resolves 'auto', 'default' and no id to
+  // that account; a key bound to the member agent chooses only among its own accounts. A refusal (`bound`, `paid`) is
+  // decided from the index, after the account listing when the index is cold, and so has no `considered` rows.
+  // An unknown id stays the caller bug it always was. `agent` is the picked account's engine agent. A model unavailable
+  // only because the account is signed out or resting is still in its plan: the account's state and the run's ready
+  // check judge that.
   // The pinned engine may hold no prepared model catalog for an agent added since it started, and refuses its models; that
   // row's models are then unknown (`undefined`), and `resolveSelection` host-validates its membership by provider.
-  async function pick(member: Member, sel: RunSelection, skip: readonly AccountId[] = []): Promise<{ pick: AccountPick; agent?: string }> {
-    const rows = (await list(member)).filter((r) => !skip.includes(r.id));
+  async function pick(member: Member, sel: RunSelection, skip: readonly AccountId[] = [], binding?: Binding): Promise<{ pick: AccountPick; agent?: string }> {
+    check(member);
+    const refused = (refusal: { code: 'bound' | 'paid'; name: string }): { pick: AccountPick } => ({ pick: { ok: false, code: refusal.code,
+      reason: words(`account.${refusal.code}`, { name: refusal.name }), considered: [] } });
+    const early = binding?.id !== undefined ? refusalOf(read(member), binding, sel) : undefined;
+    if (early) return refused(early);
+    const listed = await list(member);
     const file = read(member);
+    const late = binding && refusalOf(file, binding, sel);
+    if (late) return refused(late);
+    const rows = listed.filter((r) => !skip.includes(r.id));
+    const named = sel.account === 'auto' || sel.account === 'default' ? undefined : sel.account;
+    const known = named === undefined || listed.some((r) => r.id === named);
+    if (binding?.id !== undefined && known) sel = { ...sel, account: binding.id };
+    const bound = binding && known ? boundOf(file, binding) : undefined;
     const reads = new Map(await Promise.all(rows.map(async (row) => {
       const entry = file.accounts[row.id]!;
       const models = await readModels(row, entry).then((ms) => ms.map((m) => (m.why ? { ...m, available: true } : m)), () => undefined);
       return [row.id, { room: await readRoom(row, entry), models }] as const;
     })));
     const chosen = resolveSelection(rows, file.defaults, sel, (a) => reads.get(a.id)!.room, Date.now(),
-      (a) => reads.get(a.id)!.models);
+      (a) => reads.get(a.id)!.models, bound);
     return { pick: chosen, ...(chosen.ok ? { agent: file.accounts[chosen.account.id]!.agent } : {}) };
   }
 
@@ -426,6 +506,7 @@ export function createAccounts(ctx: {
       // Already holding the index lock: write directly instead of `edit`, which would wait on itself.
       const file = read(member);
       dropEntry(file, id);
+      markGone(file, agent);
       write(member, file);
     });
   }
@@ -466,7 +547,7 @@ export function createAccounts(ctx: {
       await ctx.request('agents.delete', { agentId: agent, deleteFiles: false });
     }
     rmSync(agentDir(agent), { recursive: true, force: true });
-    await edit(member, (file) => { delete file.accounts[id]; });
+    await edit(member, (file) => { delete file.accounts[id]; markGone(file, agent); });
   })().catch((error: unknown) => ctx.log?.(`addAccount: ${agent} is not removed yet: ${error instanceof Error ? error.message : String(error)}`));
 
   async function add(member: Member, o: AddOptions, on: (v: SignInView) => void): Promise<AccountSignIn> {
@@ -640,5 +721,5 @@ export function createAccounts(ctx: {
     return { id, paste: handle.paste, cancel: handle.cancel, done };
   }
 
-  return { list, add, rename, defaults, setDefaults, models, room, pick, rest, remove };
+  return { list, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, pick, rest, remove };
 }

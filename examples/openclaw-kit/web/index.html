@@ -60,6 +60,12 @@
   .chip.verified { background: var(--accent); color: var(--on-accent); }
   .live { display: block; width: 100%; aspect-ratio: 16 / 10; background: var(--reply); border-radius: 10px; touch-action: none; }
   .live.dim { opacity: .35; }
+  fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+  .group + .group { margin-top: .75rem; }
+  summary { font-weight: 700; padding: .6rem 0; cursor: pointer; }
+  .route { display: flex; flex-direction: column; align-items: flex-start; gap: .1rem; width: 100%; margin-top: .5rem; text-align: left; font-weight: 400; }
+  .route-name { font-weight: 600; }
+  .route[aria-disabled] { color: var(--soft); cursor: default; }
   [hidden] { display: none !important; }
   @media (prefers-reduced-motion: no-preference) { button { transition: background-color .15s, border-color .15s; } }
 </style>
@@ -88,12 +94,12 @@
     <p id="engine" class="status" role="status"></p>
 
     <section id="signin" hidden aria-labelledby="signin-heading">
-      <h2 id="signin-heading">Your plan</h2>
+      <h2 id="signin-heading">Connect an AI account</h2>
       <div class="card">
         <p id="signin-title"></p>
         <p id="signin-code" class="code" hidden></p>
         <p id="signin-where" hidden><a id="signin-url" target="_blank" rel="noopener noreferrer"></a></p>
-        <button class="primary" id="signin-go">Sign in with ChatGPT</button>
+        <fieldset id="routes"></fieldset>
         <button id="signin-cancel" hidden style="width:100%;margin-top:.5rem">Cancel</button>
       </div>
     </section>
@@ -129,7 +135,7 @@
         <div id="chips"></div>
         <p id="run-said" class="error" role="alert"></p>
       </div>
-      <button id="signout" class="quiet" style="margin-top:1rem">Sign out of ChatGPT</button>
+      <button id="signout" class="quiet" style="margin-top:1rem"></button>
     </section>
   </section>
 </main>

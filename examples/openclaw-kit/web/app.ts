@@ -1,9 +1,10 @@
-// The phone side: pair with the computer, sign in with ChatGPT there (a device code typed on ChatGPT's own page), send
+// The phone side: pair with the computer, sign in to a plan there (a device code typed on the provider's own page), send
 // the helper a message and watch its reply arrive, and allow or deny what it asks first. Plain DOM; every status a
 // person reads is a sentence from @byokit/openclaw's or @byokit/ui's words.
 import { DeviceLink, browserDeviceStore, normalizeCode, pairWithCode, pairWithOffer, type DeviceGrant, type KeptDevice } from '@byokit/pair';
 import { openclawDevice, words, type AccountView, type Approval, type RunEnd } from '@byokit/openclaw/device';
 import { phaseOf } from '@byokit/ui';
+import { connectView, type ConnectGroup, type ConnectRow } from '@byokit/ui/connect';
 import { livePanelView, signInSheetView, signInsStore, type SignInAction, type SignInRequest } from '@byokit/ui/kits';
 import type { TakeoverLease } from '@byokit/openclaw/device';
 import { livePanel, signInCard, signInChip, type Say } from './browser.ts';
@@ -27,9 +28,12 @@ const store: KeptDevice = globalThis.isSecureContext ? browserDeviceStore('openc
   save: (g) => localStorage.setItem('openclaw-kit', JSON.stringify(g)),
   clear: () => localStorage.removeItem('openclaw-kit'),
 };
-// Who answers, as a person knows it, and the account this app signs in with.
-const NAME = 'ChatGPT';
-const PROVIDER = 'openai';
+// The kit's ways in, grouped by connectView while the engine is ready, and the account the person signs in with: the
+// row they tapped (named by its kit label), or after a reload the provider they are signed in to (named by provider).
+let groups: ConnectGroup[] | undefined;
+let labels = new Map<string | undefined, string>();
+let account: { provider: string; name: string } | undefined;
+const labelOf = (r: ConnectRow) => labels.get(r.id) ?? r.name;
 // This phone's conversation. The computer runs everything for its one member, `me` (host.ts), and a device may only
 // use that member's sessions, so the key starts `agent:me:`.
 const SESSION = 'agent:me:phone';
@@ -85,6 +89,7 @@ function connect(grant: DeviceGrant) {
   $('home').hidden = false;
   $('forget').hidden = false;
   const mine = ++paired;
+  groups = account = undefined;
   link = new DeviceLink(grant, {
     store,
     onStatus: (s) => {
@@ -99,7 +104,7 @@ function connect(grant: DeviceGrant) {
   followSignIns(mine);
 }
 
-// The engine's own sentence, then (once it is ready) whether this plan is signed in. One ask at a time, asked again
+// The engine's own sentence, then (once it is ready) whether the account is signed in. One ask at a time, asked again
 // every second while the engine is still getting ready or a sign-in is under way, and every few seconds after that
 // (the engine can restart, or the account be signed out on the computer).
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -112,51 +117,93 @@ async function refresh() {
   const mine = paired;
   let poll = true;
   try {
-    const { state, words: now } = await oc.state();
+    const { state, words: now, signedIn = [] } = await oc.state();
     $('engine').textContent = now;
-    if (state.phase === 'ready') poll = drawAccount(await oc.signIn.view(PROVIDER));
+    if (state.phase !== 'ready') groups = undefined;
+    else {
+      if (!groups) {
+        const routes = await oc.routes();
+        labels = new Map(routes.map((r) => [r.id, r.label] as const));
+        drawRoutes(groups = connectView(routes).groups);
+      }
+      const signed = groups.flatMap((g) => g.rows).find((r) => signedIn.includes(r.provider));
+      account ??= signed && { provider: signed.provider, name: signed.name };
+      poll = drawAccount(account && await oc.signIn.view(account.provider));
+    }
   } catch { /* the link line says why */ }
   asking = false;
   if (mine !== paired) return;
   if (askAgain) { askAgain = false; void refresh(); } else timer = setTimeout(() => void refresh(), poll ? 1000 : 5000);
 }
 
-/** Draws the sign-in card or the message box; true while the sign-in is still moving. */
-function drawAccount(view: AccountView): boolean {
-  const phase = phaseOf(view);
-  const moving = view.signIn?.state === 'waiting';
+// A row is a button only when this page can start it: a ready plan that signs in with a code, which the phone shows
+// (a sign-in on the provider's page returns to the computer, and this page has no key or setup form). The computer
+// starts a code sign-in by provider alone, so only the first such row of a provider (the kit's order, as it picks) can
+// be started. Every other row stays listed, saying why. Plans are open; every other group starts folded.
+function drawRoutes(list: ConnectGroup[]) {
+  const first = new Map<string, string>();
+  for (const r of list.flatMap((g) => g.rows)) if (r.offered && r.via === 'code' && !first.has(r.provider)) first.set(r.provider, r.key);
+  const canStart = (r: ConnectRow) => first.get(r.provider) === r.key;
+  $('routes').replaceChildren(...list.map((g) => {
+    const box = el('details', { className: 'group', open: g.id === 'plans' }, el('summary', { textContent: g.title }),
+      el('p', { className: 'status', textContent: g.note }), ...g.rows.map((r) => {
+        const row = el('button', { type: 'button', className: 'route', onclick: () => { if (canStart(r)) void pick(r); } },
+          el('span', { className: 'route-name', textContent: `${labelOf(r)} — ${r.method[0].toLowerCase()}${r.method.slice(1)}` }),
+          el('span', { textContent: r.billingWords }),
+          el('span', { className: 'status', textContent: !r.ready || canStart(r) ? r.status
+            : r.via === 'code' ? 'Ready. This computer starts only the first sign-in for this provider.'
+            : 'Ready, but this page has no form for it yet.' }));
+        row.dataset.route = r.id;
+        // aria-disabled, not disabled: the row stays focusable, so its reason is still read out.
+        if (!canStart(r)) row.setAttribute('aria-disabled', 'true');
+        return row;
+      }));
+    box.dataset.group = g.id;
+    return box;
+  }));
+}
+
+async function pick(row: ConnectRow) {
+  account = { provider: row.provider, name: labelOf(row) };
+  $<HTMLFieldSetElement>('routes').disabled = true;
+  try { await oc.signIn.start(row.provider, 'code'); } catch (err) { $('signin-title').textContent = said(err); }
+  $<HTMLFieldSetElement>('routes').disabled = false;
+  void refresh();
+}
+
+/** Draws the ways in and the sign-in card, or the message box; true while the sign-in is still moving. */
+function drawAccount(view: AccountView | undefined): boolean {
+  const phase = view && phaseOf(view);
+  const moving = view?.signIn?.state === 'waiting';
   $('signin').hidden = phase === 'done';
   $('talk').hidden = phase !== 'done';
+  const name = account?.name ?? '';
+  $('signout').textContent = `Sign out of ${name}`;
   if (phase === 'done') return false;
   $('signin-code').hidden = phase !== 'code';
-  $('signin-code').textContent = view.signIn?.code ?? '';
-  $('signin-where').hidden = !view.signIn?.url;
-  $<HTMLAnchorElement>('signin-url').href = view.signIn?.url ?? '';
-  $('signin-url').textContent = view.signIn?.url ? `Open the ${NAME} page` : '';
-  $('signin-go').hidden = moving;
+  $('signin-code').textContent = view?.signIn?.code ?? '';
+  $('signin-where').hidden = !view?.signIn?.url;
+  $<HTMLAnchorElement>('signin-url').href = view?.signIn?.url ?? '';
+  $('signin-url').textContent = view?.signIn?.url ? `Open the ${name} page` : '';
+  $('routes').hidden = moving;
   $('signin-cancel').hidden = !moving;
-  $('signin-title').textContent = !view.signIn ? words('member.signedOut', { name: NAME })
-    : phase === 'code' ? `On the ${NAME} page, type this code:`
+  $('signin-title').textContent = !view ? ''
+    : !view.signIn ? words('member.signedOut', { name })
+    : phase === 'code' ? `On the ${name} page, type this code:`
     : phase === 'busy' ? words('signin.busy')
     : phase === 'expired' ? words('signin.expired')
-    : phase === 'failed' ? view.signIn.error ?? words('member.signedOut', { name: NAME })
-    : phase === 'cancelled' ? words('member.signedOut', { name: NAME })
-    : `Opening ${NAME}…`;
+    : phase === 'failed' ? view.signIn.error ?? words('member.signedOut', { name })
+    : phase === 'cancelled' ? words('member.signedOut', { name })
+    : `Opening ${name}…`;
   return moving;
 }
 
-$('signin-go').onclick = async () => {
-  $<HTMLButtonElement>('signin-go').disabled = true;
-  try { await oc.signIn.start(PROVIDER, 'code'); } catch (err) { $('signin-title').textContent = said(err); }
-  $<HTMLButtonElement>('signin-go').disabled = false;
-  void refresh();
-};
 $('signin-cancel').onclick = async () => {
-  try { await oc.signIn.cancel(PROVIDER); } catch { /* the link line says why */ }
+  try { if (account) await oc.signIn.cancel(account.provider); } catch { /* the link line says why */ }
   void refresh();
 };
 $('signout').onclick = async () => {
-  try { await oc.signOut(PROVIDER); } catch (err) { $('run-said').textContent = said(err); }
+  try { if (account) await oc.signOut(account.provider); } catch (err) { $('run-said').textContent = said(err); }
   void refresh();
 };
 
@@ -168,7 +215,7 @@ function endWords(end: RunEnd): string {
   if ('aborted' in end) return 'Stopped.';
   if (end.kind === 'other') return end.message;
   const time = end.until === undefined ? 'later' : new Date(end.until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  return words(END_WORDS[end.kind], { name: NAME, time });
+  return words(END_WORDS[end.kind], { name: account?.name ?? '', time });
 }
 
 $('run-form').onsubmit = async (e) => {
