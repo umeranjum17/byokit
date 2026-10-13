@@ -14,6 +14,7 @@
   "asleep.provider": "{label} switched your cloud computer off. Opening {app} turns it back on.",
   "asleep.idle": "Your cloud computer went to sleep because nobody was using it. Opening {app} wakes it.",
   "plan.trial": "Your first week is a free trial, and {label} switches your cloud computer off every 2 hours during it. Opening {app} turns it back on. After the trial it stays on.",
+  "adopt.confirm": "Put {app} on this existing cloud computer and let it start automatically? This installs its files and may run setup with admin rights. No new computer will be rented.",
   "setup.makeKey": "Make a key on the {label} site, then paste it here.",
   "setup.typeCode": "Open the {label} page and type this code: {code}",
   "host.not-installed": "{app} isn't on your cloud computer yet.",
