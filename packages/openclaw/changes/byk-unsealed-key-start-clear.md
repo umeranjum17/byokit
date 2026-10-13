@@ -1,1 +1,0 @@
-- FIX: an unsealed API key that a failed `addKey` could not clear (the gateway refused the clear after a restart ran late) is now dropped at the kit's first ready after start, so it no longer stays in the member's `byokit-key-<member>` store until the next add. A key whose ready marker exists is never cleared, and a sweep the gateway interrupts runs again on the next ready.
