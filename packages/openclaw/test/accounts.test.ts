@@ -1546,6 +1546,19 @@ test('attribution: a malformed account index maps nothing and does not throw', (
   }
 });
 
+test('attribution: a legacy member with its own workspace attributes to itself, an orphan account agent does not', () => {
+  const root = scratchDir('o14m-legacy-member');
+  try {
+    mkdirSync(join(root, 'workspaces', 'work--c0ffee'), { recursive: true });
+    assert.equal(memberOfAccount(root, 'work--c0ffee'), 'work--c0ffee');
+    assert.equal(memberOfAccount(root, 'agent:work--c0ffee:x'), 'work--c0ffee');
+    assert.equal(memberOfAccount(root, 'work--ffffff'), undefined);
+    assert.equal(memberOfAccount(root, 'agent:work--ffffff:x'), undefined);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 // O14m attribution and link frames: an approval raised on an indexed `<member>--<hex6>` agent lists under the
 // member, link `oc.events`/`oc.sessions` carry the account agent under the member, `oc.run` carries the account
 // selection with the account frame first on the host and on a stub device link, an unindexed account-shaped agent
@@ -1696,7 +1709,10 @@ test('attribution and link frames: account agent under the member, unindexed unr
     snap(await oc.sessions());
     await assert.rejects(async () => { for await (const frame of oc.run('hi', { sessionKey: 'not-a-key' })) snap(frame); }, /Invalid session key/);
 
-    // The canary held by two accounts never appears in a link frame.
+    // The canary held by two accounts never appears in a link frame, including the state, approval and sign-in views.
+    snap(await api.handle({ op: 'oc.state' }, grant));
+    snap(await api.handle({ op: 'oc.approvals' }, grant));
+    snap(await api.handle({ op: 'oc.signin.view', args: { provider: 'openai' } }, grant));
     const text = frames.join('\n');
     for (const canary of [canaryWho, 'canary-o14m-shared', 'canary-o14m-other'])
       assert.ok(!text.includes(canary), `link frame leaks ${canary}`);

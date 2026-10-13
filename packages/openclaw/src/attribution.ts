@@ -9,15 +9,14 @@ const MEMBER = /^[a-z][a-z0-9-]{0,31}$/;
 const HEX6 = /^[0-9a-f]{6}$/;
 const KEY_PREFIX = 'byokit-key-';
 
+export function agentOf(ref: string): string | undefined {
+  if (!ref.startsWith('agent:')) return ref;
+  return /^agent:([^:]+):/.exec(ref)?.[1];
+}
+
 export function memberOf(ref: string): Member | undefined {
-  let agent: string;
-  if (ref.startsWith('agent:')) {
-    const m = /^agent:([^:]+):/.exec(ref);
-    if (!m) return undefined;
-    agent = m[1]!;
-  } else {
-    agent = ref;
-  }
+  const agent = agentOf(ref);
+  if (agent === undefined) return undefined;
   if (agent.startsWith(KEY_PREFIX)) {
     const inner = agent.slice(KEY_PREFIX.length);
     return MEMBER.test(inner) ? inner : undefined;

@@ -3,12 +3,12 @@
 // who? } }, defaults }`. No credential, token, email or engine line. Listing, rename, defaults, models, room,
 // adding with its identity merge (O14 steps S6, S7), the start-of-run pick (S10), session binding (S11) and moving a
 // conversation (S12) live here; remove arrives in a later step.
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { createLocks } from './locks.ts';
 import { providerOf, resolveSelection } from './pick.ts';
-import { memberOf as baseMemberOf } from './attribution.ts';
+import { agentOf, memberOf as baseMemberOf } from './attribution.ts';
 import { KEY_PREFIX, MEMBER_ID, NEW_MEMBER_ID, untilListed } from './members.ts';
 import { routes, routeFor } from './routes.ts';
 import { words } from './words.ts';
@@ -59,13 +59,16 @@ const readIndex = (root: string, member: Member): IndexFile => {
   return { v: 1, accounts, defaults };
 };
 
-// Attribution (5.15, O14m): the member an agent id or `agent:<agent>:<tail>` session key belongs to. The member agent is
-// its own; any other agent, an `<member>--<hex6>` account agent included, maps only while the index names it under that
-// member. So an unindexed account-shaped agent maps nowhere and stays unreachable whatever the file holds.
+// Attribution (5.15, O14m): the member an agent id or `agent:<agent>:<tail>` session key belongs to. A member agent is its
+// own, and so is an agent whose workspace the kit created for it (a legacy member id may end in `--<hex6>`); any other
+// agent, an `<member>--<hex6>` account agent included, maps only while the index names it under that member. Account
+// agents share their member's workspace, so an unindexed account-shaped agent maps nowhere and stays unreachable.
 export function memberOfAccount(root: string, ref: string): Member | undefined {
-  const member = baseMemberOf(ref);
-  const agent = /^agent:([^:]+):/.exec(ref)?.[1] ?? ref;
+  const agent = agentOf(ref);
+  if (agent === undefined) return undefined;
+  const member = baseMemberOf(agent);
   if (member === undefined || agent === member) return member;
+  if (MEMBER_ID.test(agent) && existsSync(join(root, 'workspaces', agent))) return agent;
   try {
     return Object.values(readIndex(root, member).accounts).some((e) => e.agent === agent) ? member : undefined;
   } catch {
