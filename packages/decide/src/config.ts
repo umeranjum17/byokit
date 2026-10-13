@@ -93,7 +93,7 @@ export function configuredBackend(o: ConfigOptions): { backend: Backend; config:
   if (config.auth === 'apiKey') return { config, backend: openai({ ...config, auth: 'apiKey', key: o.host.keys?.openai ?? '', fetch: o.host.fetch }) };
   if (!o.host.account) throw new UnsupportedAccountError('ChatGPT plan usage needs an account session from the @byokit/accounts peer (install it to use auth: "account").');
   if (o.cache && !o.host.cacheScope?.trim()) throw new ConfigError('Account caches require a per-person cacheScope.');
-  return { config, backend: openai({ ...config, auth: 'account', account: o.host.account, fetch: o.host.fetch }) };
+  return { config, backend: openai({ ...config, auth: 'account', account: o.host.account as OpenAIAccount, fetch: o.host.fetch }) };
 }
 
 /** Same cache hook as decide, separated by backend/model/request options, billing route and host identity. */
