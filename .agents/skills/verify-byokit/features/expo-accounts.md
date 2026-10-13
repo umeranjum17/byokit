@@ -29,5 +29,5 @@ With the base argument it builds the base App for connected before frames and re
 
 - The capture temporarily replaces only App.tsx for the baseline build; do not edit it concurrently.
 - The baseline has no account picker, so only its real connected card is captured; `manifest.json` names that absence and the unavailable non-phone surfaces.
-- `e2e-android.sh` types pairing offers in settled chunks and checks the native field equals the whole offer before dismissing the keyboard. A length mismatch is a failure, not a usable pairing code.
+- `e2e-android.sh` types pairing offers in settled chunks and checks the native field equals the whole offer before dismissing the keyboard. A length mismatch is a failure, not a usable pairing code. Its shared selector rejects inverted/empty native bounds and taps from the same dump; every sign-in endpoint override points at the fixture so a mistaken tap cannot start a real device flow.
 - Evidence stays outside the repository. Screenshots and recording do not prove live provider credentials, billing, quantitative room readings or native iOS behavior.

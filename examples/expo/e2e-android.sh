@@ -20,7 +20,8 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 [ -d android ] || CI=1 npx expo prebuild --platform android --no-install
-(cd android && EXPO_PUBLIC_OPENAI_BASE="http://10.0.2.2:$port" NODE_ENV=production ./gradlew assembleRelease --rerun-tasks -q)
+(cd android && EXPO_PUBLIC_OPENAI_BASE="http://10.0.2.2:$port" EXPO_PUBLIC_DEVICE_BASE="http://10.0.2.2:$port" \
+  EXPO_PUBLIC_CLAUDE_BASE="http://10.0.2.2:$port" NODE_ENV=production ./gradlew assembleRelease --rerun-tasks -q)
 
 node ../../packages/accounts/src/testing/mock-openai.ts "$port" >"$log" 2>&1 &
 mock=$!
@@ -40,7 +41,11 @@ scroll() {
 seek() {
   for direction in up down; do
     for _ in $(seq 16); do
-      screen | grep -q "resource-id=\"$1\"" && return
+      # RN may expose off-screen nodes with inverted clipped bounds. Only use a
+      # positive on-screen rectangle, and tap the coordinates from this same dump.
+      xy=$(screen | tr '>' '\n' | grep "resource-id=\"$1\"" | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p' |
+        awk '$3 > $1 && $4 > $2 { print int(($1+$3)/2), int(($2+$4)/2); exit }')
+      [ -n "$xy" ] && return
       scroll "$direction"
     done
   done
@@ -48,8 +53,6 @@ seek() {
 }
 tap() {
   seek "$1"
-  xy=$(screen | grep -o "resource-id=\"$1\"[^>]*bounds=\"[^\"]*\"" | sed 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]"/\1 \2 \3 \4/' | awk '{print int(($1+$3)/2), int(($2+$4)/2)}')
-  [ -n "$xy" ] || { echo "no $1 on screen: $(words)" >&2; exit 1; }
   a shell input tap $xy
 }
 expect() {

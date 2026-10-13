@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import type { AddressInfo } from 'node:net';
 import ws from 'ws';
 import { Host, keyPair, type DeviceGrant } from '@byokit/pair';
@@ -23,6 +25,32 @@ test('typed code and offer both pair with the computer', async () => {
     assert.equal((await pairInput(`  ${code.toLowerCase()}  `, url, options)).hostName, 'Kitchen computer');
     assert.equal((await pairInput(`  ${host.offer({ role: 'control', urls: [url] }).text}  `, '', options)).hostName, 'Kitchen computer');
   } finally { host.close(); wss.close(); server.close(); }
+});
+
+// Lead-requested offline regression for the actual shell selector, not native acceptance proof.
+test('the native journey scrolls past clipped nodes before tapping', () => {
+  const script = readFileSync(new URL('./e2e-android.sh', import.meta.url), 'utf8');
+  const selectors = script.slice(script.indexOf('seek() {'), script.indexOf('expect() {'));
+  for (const bounds of ['[219,1884][741,1848]', '[219,1848][741,1848]']) {
+    const run = spawnSync('sh', ['-c', `
+      set -eu
+      step=0
+      screen() {
+        if [ "$step" = 0 ]; then
+          printf '%s\\n' '<node resource-id="question" bounds="${bounds}"/>'
+        else
+          printf '%s\\n' '<node resource-id="question" bounds="[219,1400][741,1600]"/>'
+        fi
+      }
+      scroll() { step=1; echo "scroll $1" >&2; }
+      a() { printf '%s\\n' "$*"; }
+      ${selectors}
+      tap question
+    `], { encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(run.stderr, 'scroll up\n', bounds);
+    assert.equal(run.stdout, 'shell input tap 480 1500\n', bounds);
+  }
 });
 
 test('forget waits for an in-flight save and suppresses queued reconnect saves', async () => {
