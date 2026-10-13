@@ -1499,7 +1499,9 @@ it never decides which account a sign-in belongs to, and a changed email changes
 - The roster or the member's profiles unreadable when the sign-in is sealed: no merge; the sign-in stays its own row
   (logged, not failed).
 - A signed-out member row (the member agent holds no credential of that `who`; it keeps its index `who`) is not a holder: it is never adopted into, collapsed or removed; the person removes it. Account rows are holders while their agent is on the roster.
-- A new agent whose sign-in fails, expires or is cancelled is removed with its index entry.
+- A new agent whose sign-in fails, expires or is cancelled is removed with its index entry. A member agent whose seal
+  fails on a non-fresh add is cleared of that provider only (`clear { agentId, provider }`); when that clear is refused
+  the add fails, saying the credential is still on the member agent, and nothing retries it.
 
 `addAccount` resolves once the target is known: `Promise<{ id; paste; cancel; done: Promise<{ view: SignInView; id:
 AccountId }> }>`, where `done.id` is the account the sign-in ended in. `name` defaults to `<label> <n>`; the email's
@@ -1522,18 +1524,18 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
 - `renameAccount` writes the index. `defaults`/`setDefaults` read and write it; a default naming a removed account is
   dropped.
 - `removeAccount(member, id)`: a member-agent account is `models.authLogout { provider, agentId: member, profileIds:
-  <its sealed profile> }`, then its entry is dropped. An account agent: refused (`busy`) while a run is live on it;
-  `byokit.accounts clear`, then `byokit.accounts list` must answer no profile of any type, order or expiry (a
-  profile the engine refreshed during `clear` lands whole before or after it, under the same store lock, which O14's
-  engine job confirms: `clear` again, once; still listed → stop with the error, nothing deleted);
-  `agents.delete { agentId, deleteFiles: false }` (with `true` the pin moves files to a trash path it never reports);
-  the kit then removes `<root>/state/agents/<agentId>` (the agent's store and sessions) itself, never the shared
-  workspace, and checks it is gone (recreated by a late write → removed once more; still there → stop with the error,
-  the entry kept). The entry is dropped only when the directory is gone; `removeAccount` on an entry whose agent is
-  already gone removes the directory and then the entry. A write the engine lands even later cannot be ruled out by a
-  bounded check, so on `prepare` and after every removal the kit also removes each
-  `<root>/state/agents/<member>--[0-9a-f]{6}` directory that no index names and no engine agent owns (an entry is
-  written before its agent is created, so an account being added is never swept). The account's
+  <its sealed profile> }`, then its entry is dropped. An account agent: refused (`busy`) while a run is live on it or
+  its sign-in is pending; `byokit.accounts clear`, then `byokit.accounts list` must answer no profile of any type,
+  order or expiry (a profile the engine refreshed during `clear` lands whole before or after it, under the same store
+  lock; still listed → stop with the error "still signing in", nothing deleted, no retry);
+  `agents.delete { agentId, deleteFiles: false }` (with `true` the pin moves files to a trash path it never reports)
+  when the engine roster names the agent; the kit then removes `<root>/state/agents/<agentId>` (the agent's store and
+  sessions) itself, never the shared workspace, and drops the entry. When the roster does not name the agent, only the
+  directory removal and the entry drop run. A write the engine lands even later cannot be ruled out by a bounded
+  check, so on every `prepare` (before the auth store prepares, with no roster) the kit also removes each
+  `<root>/state/agents/<member>--[0-9a-f]{6}` directory that no index names (an entry is written before its agent is
+  created, so an account being added is never swept). A directory is swept only when its owner member's index file
+  exists and the directory has no index file of its own. The account's
   sessions go with it; `move` first keeps one.
 - `models(member, id)`: `models.list { agentId, view: 'default' }` rows of the account's provider, mapped `id =
   'provider/model'`, `available`, `unavailableReason` `missing-auth`/`auth-failed` → `why: 'signed_out'`, `cooldown`

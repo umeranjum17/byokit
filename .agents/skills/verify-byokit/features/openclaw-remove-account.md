@@ -23,7 +23,7 @@ entry=.agents/skills/verify-byokit/capture/openclaw-remove-account.mjs
 drive=(node "$entry")
 ```
 
-Use SKILL.md's Evidence capture block. The consumer imports only the built `@byokit/openclaw` and `@byokit/openclaw/testing` entries, removes an account agent (busy leg first, then the removal, then a late-file prepare sweep) and the member-agent account through `fakeGateway()`, printing the roster, index and authLogout shape. A refresh racing `clear` (cleared again, still listed means stop with nothing deleted) and the real pinned engine's no-file proof are in `packages/openclaw/test/accounts.test.ts` and `packages/openclaw/test/engine/accounts.test.ts` (`npm run test:engine`). No provider, credential or network is involved.
+Use SKILL.md's Evidence capture block. The consumer imports only the built `@byokit/openclaw` and `@byokit/openclaw/testing` entries, removes an account agent (busy leg first, then the removal, then a late-file prepare sweep) and the member-agent account through `fakeGateway()`, printing the roster, index and authLogout shape. A refresh racing `clear` (still listed after it means stop with "still signing in" and nothing deleted) and the real pinned engine's no-file proof are in `packages/openclaw/test/accounts.test.ts` and `packages/openclaw/test/engine/accounts.test.ts` (`npm run test:engine`). No provider, credential or network is involved.
 
 ## Gotchas
 
