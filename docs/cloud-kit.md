@@ -481,9 +481,10 @@ land with that provider's adapter, behind the same members (follow-up).
   confirms first, showing `snapshot.restore` with the copy's date, which says that everything changed since then is
   lost. Then `provider.restore(ref, id, { idempotencyKey, replaced })` with a new `byokit-<name>-<16 base36>` key,
   retried up to 3 times with the same key on `unreachable` only (as `create`); `replaced(next)` saves `next` (5.1).
-  Once `next` is saved, the old machine is deleted, retried up to 3 times on any error after the 1, 2 and 4 s waits.
-  If it still fails, the store keeps `next` and the call rejects `provider` with `extra.sandbox` set to the old id,
-  and a message that the old machine may still bill.
+  A replacement that does not come on, or is not saved, is deleted and the old machine is kept, so nothing unreferenced
+  keeps billing. Once `next` is saved, the old machine is deleted, retried up to 3 times on any error after the 1, 2
+  and 4 s waits. If it still fails, the store keeps `next` and the call rejects `provider` with `extra.sandbox` set to
+  the old id, and a message that the old machine may still bill.
   On Boat the ref's `id` changes, so the app calls `url(port)` again for the new address and `update(recipe)`
   rewrites `installed.json` with the new id (8.3 step 6).
 - A restore is the same machine, so it keeps its identity (its tailnet node included): the adapter stops the old
@@ -492,8 +493,7 @@ land with that provider's adapter, behind the same members (follow-up).
 - `disk()`: one `exec` of `df -P -k /`; `usedGb` and `totalGb` are the second line's used and total 1024-blocks in
   GiB, rounded to one decimal. A non-zero exit or an unreadable line rejects `provider`. Like every command it needs
   the machine on. Words: `disk.used`.
-- The bill: Boat keeps 10 named snapshots free per wallet, shared with anything else the person keeps there, then
-  $1.70 a month each (15.1). `keep` defaults to 3 so the kit stays well inside the free ones.
+- The bill: the free copies and their price are 15.1's. `keep` defaults to 3 so the kit stays inside the free ones.
 
 ## 6. Boat adapter (`src/boat.ts`)
 
