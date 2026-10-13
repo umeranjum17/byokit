@@ -182,7 +182,7 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   // The run's end carries the engine's totals, and the page shows them under the reply.
   const usage = page.locator('#usage').filter({ hasText: /^Tokens:/ });
   await usage.waitFor();
-  assert.match(await usage.textContent() ?? '', /^Tokens: \d+ in, \d+ out, \d+ total\.(, on \S+)?$/);
+  assert.match(await usage.textContent() ?? '', /^Tokens: \d+ in, \d+ out, \d+ total(, on \S+)?\.$/);
   assert.equal(await page.locator('#approvals-box').isHidden(), true);
   assert.equal(notes(), 'buy milk\n');
   await shot(page, '5-allowed');
@@ -243,7 +243,7 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   await page.fill('#message', 'Hello Go');
   await page.click('#send');
   await text(page, '#reply', 'fake: Hello Go');
-  await page.locator('#usage').filter({ hasText: /^\d+ tokens used\.$/ }).waitFor(); // with the end, after the text
+  await page.locator('#usage').filter({ hasText: /^Tokens: \d+ in, \d+ out, \d+ total(, on \S+)?\.$/ }).waitFor(); // with the end, after the text
   await shot(page, '10-plan-key-answered');
   assert.equal((await page.content()).includes(KEY), false, 'the page keeps no key');
   assert.equal(said.includes(KEY), false, 'the computer never says the key');
