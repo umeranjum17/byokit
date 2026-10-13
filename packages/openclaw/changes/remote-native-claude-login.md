@@ -1,0 +1,1 @@
+- Start native Claude Code plan sign-in in the engine-owned folder through the existing paste/cancel handle and phone link adapter, then verify engine readiness and live activation before reporting done. Phone sign-in readiness waits for the active drive and never hides a failed attempt behind native credential detection. ChatGPT device-code sign-in remains callback-free.

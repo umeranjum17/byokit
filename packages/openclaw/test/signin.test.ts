@@ -632,10 +632,12 @@ else { process.stdin.setEncoding('utf8'); process.stdin.once('data', code => {
 }); }
 `, { mode: 0o700 });
   let activated = false;
+  let releaseActivation!: () => void;
+  const activation = new Promise<void>(resolve => { releaseActivation = resolve; });
   const gateway = fakeGateway({
     'openclaw.setup.detect': () => ({ candidates: [{ kind: 'claude-cli', credentials: existsSync(granted) }] }),
-    'openclaw.setup.activate': (p) => { assert.equal(p.kind, 'claude-cli'); assert.ok(existsSync(granted)); activated = true; return { ok: true }; },
-    'models.authStatus': () => ({ providers: activated ? ['claude-cli'] : [] }),
+    'openclaw.setup.activate': async (p) => { assert.equal(p.kind, 'claude-cli'); assert.ok(existsSync(granted)); await activation; activated = true; return { ok: true }; },
+    'models.authStatus': () => ({ providers: existsSync(granted) ? ['claude-cli'] : [] }),
   });
   const kit = new OpenClawKit({ stateDir: root, enginePath: [bin], spawnEngine: false, transport: gateway.factory });
   try {
@@ -656,6 +658,12 @@ else { process.stdin.setEncoding('utf8'); process.stdin.once('data', code => {
       assert.match(waiting.view.prompt!, /Paste the code/);
       if (mode === 'cancel') await call('oc.signin.cancel', {});
       else if (mode !== 'expired') await call('oc.signin.paste', { text: mode === 'wrong' ? 'wrong-code' : 'synthetic-returned-code' });
+      if (mode === 'success') {
+        for (let i = 0; !existsSync(granted) && i < 300; i++) await delay(10);
+        assert.ok(existsSync(granted));
+        assert.equal((await read()).ready, false, 'native credentials are not a completed activation');
+        releaseActivation();
+      }
       const end = await until(v => v?.state === 'done' || v?.state === 'failed');
       assert.equal(end.view.state, mode === 'success' ? 'done' : 'failed');
       assert.equal(activated, mode === 'success');
@@ -666,6 +674,6 @@ else { process.stdin.setEncoding('utf8'); process.stdin.once('data', code => {
     }
     assert.equal((await read()).ready, true, 'readiness is read back through the engine');
     assert.deepEqual(await kit.providers('umer'), ['claude-cli']);
-  } finally { await kit.stop(); rmSync(root, { recursive: true, force: true }); }
+  } finally { releaseActivation(); await kit.stop(); rmSync(root, { recursive: true, force: true }); }
 });
 

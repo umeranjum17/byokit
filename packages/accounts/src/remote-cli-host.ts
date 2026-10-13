@@ -261,6 +261,7 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
         }
       }
       const account = await cli.status(session.id).catch(() => undefined);
+      if (session.result) return session.result;
       if (account?.state === 'ready') {
         session.result = { ok: true, provider: session.provider };
         return session.result;
@@ -274,8 +275,8 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     else if (/expir|timed out/i.test(late)) result = fail(session.provider, 'expired');
     else result = fail(session.provider, 'failed');
     await cli.cancel(session.id).catch(() => {});
-    session.result = result;
-    return result;
+    session.result ??= result;
+    return session.result;
   }
 
   async function wait(id: string, opts?: { timeoutMs?: number }): Promise<RemoteCliResult> {

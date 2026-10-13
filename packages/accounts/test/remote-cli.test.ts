@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { cliAccounts, remoteCliHost } from '../src/cli.ts';
 import { REMOTE_CLI_OPS, remoteCliDevice, type RemoteCliLink, type RemoteCliProvider } from '../src/remote-cli.ts';
 import { scratchDir } from '../../test-support.ts';
@@ -77,6 +78,10 @@ const granted = home ? require('node:path').join(home, 'granted') : '';
   const mode = process.env.LOGIN_MODE || 'success';
   if (process.argv[2] === 'auth' && process.argv[3] === 'status') {
     const on = granted && fs.existsSync(granted);
+    if (process.env.STATUS_WAIT_FILE) {
+      fs.writeFileSync(process.env.STATUS_WAIT_FILE, '');
+      while (!fs.existsSync(process.env.STATUS_WAIT_FILE + '.release')) await sleep(10);
+    }
     console.log(JSON.stringify(on
       ? { loggedIn: true, email: ${JSON.stringify(EMAIL)}, planType: 'plus', subscriptionType: 'pro', access_token: ${JSON.stringify(TOKEN)} }
       : { loggedIn: false }));
@@ -296,7 +301,7 @@ test('cancel stops a hanging login; unknown ids and bad ops fail plainly', async
   repliesClean(seen);
 });
 
-test('a runtime-owned folder survives timeout and close without a grant or a roster row', async () => {
+test('a runtime-owned folder survives timeout and close; closing wins over late native status', async () => {
   const root = scratchDir('remote-runtime');
   const native = fakeClaude(join(root, 'bins'));
   const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
@@ -319,6 +324,21 @@ test('a runtime-owned folder survives timeout and close without a grant or a ros
     assert.deepEqual(await cli.list(), []);
     assert.equal(readFileSync(canary, 'utf8'), 'keep');
     assert.ok(!existsSync(join(folder, 'granted')));
+    const readFlag = join(root, 'status-inflight');
+    const race = remoteCliHost({ bins, cli: cliAccounts({ stateDir, bins,
+      env: { HOME: home, PATH: '/unused', STATUS_WAIT_FILE: readFlag }, managedFolders: { claude: folder } }) });
+    const signed = await race.start('claude'); assert.ok(signed.ok);
+    if (!signed.ok) return;
+    const waiting = race.wait(signed.signIn.id);
+    for (let i = 0; !existsSync(readFlag) && i < 300; i++) await delay(10);
+    assert.ok(existsSync(readFlag), 'native status read is in flight');
+    const closing = race.close();
+    writeFileSync(readFlag + '.release', '');
+    const result = await waiting;
+    await closing;
+    assert.equal(result.ok, false, 'closing the host wins over a late successful native status read');
+    if (!result.ok) assert.equal(result.error, 'cancelled');
+    assert.equal(readFileSync(canary, 'utf8'), 'keep');
   } finally { await host.close(); }
 });
 

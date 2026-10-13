@@ -337,7 +337,9 @@ export function openclawLink(
         if (typeof args.provider !== 'string') throw new Error('oc.signin.view needs { provider }');
         // `ready` is the member's account (signed in to this provider), not the engine: `phaseOf` reads it as done.
         const key = `${member}:${args.provider}`;
-        const ready = kit.state.phase === 'ready' && await kit.signedIn(member, args.provider);
+        // Native credentials can appear before the route's live activation finishes; that is not this attempt's done.
+        const ready = !drives.has(key) && latest.get(key)?.state !== 'failed'
+          && kit.state.phase === 'ready' && await kit.signedIn(member, args.provider);
         // A finished sign-in whose account is gone since (signed out anywhere, or dropped by the engine) is no
         // sign-in to show: without this the view says done while `ready` says no, which phaseOf reads as opening.
         if (!ready && !drives.has(key) && latest.get(key)?.state === 'done') latest.delete(key);

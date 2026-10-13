@@ -1,0 +1,1 @@
+- Let native runtime hosts reference explicit app-owned Claude/Codex folders with `cliAccounts.managedFolders`, without deleting those folders on cancelled or failed sign-in. Remote CLI starts support cancellation during URL parsing and an orderly `close()`; cancellation wins over a late successful native status readback.
