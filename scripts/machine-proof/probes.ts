@@ -69,7 +69,9 @@ export function probes(o: ProbeOptions): ProofHooks {
           client.once('connect', () => finish('accepted'));
           client.once('error', (e: NodeJS.ErrnoException) => finish(e.code ?? 'unknown'));
         });
-        return { status: result === 'ECONNREFUSED' ? 'pass' : 'fail', detail: `public app port: ${result}; local listener answered; timeout is not an explicit refusal` };
+        const refused = result === 'ECONNREFUSED', dropped = result === 'timeout' || result === 'ETIMEDOUT';
+        return { status: refused || dropped ? 'pass' : result === 'accepted' ? 'fail' : 'unavailable',
+          detail: `public app port: ${refused ? 'refused' : dropped ? 'dropped' : result} (${result}); local listener answered` };
       }
       if (['phone-pairing', 'device-code', 'signin-resume', 'claimed-key'].includes(check)) {
         const prompts: Partial<Record<Check, string>> = {

@@ -99,6 +99,7 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
   const install = async () => {
     say('Installing the cloud host…'); const until = Date.now() + 300000;
     while (await computer.state() !== 'on') { if (Date.now() > until) throw new Error('Cloud creation did not finish within five minutes.'); await new Promise(r => setTimeout(r, 2000)); }
+    say(words('tailnet.joining'));
     let approvalShown = false;
     const joined = await computer.joinTailnet({ hostname: 'umer-cloud' }, s => {
       if ((s.step === 'open-page' || s.step === 'approve') && !approvalShown) {

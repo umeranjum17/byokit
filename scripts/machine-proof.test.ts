@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import { createServer } from 'node:http';
 import { WebSocketServer } from 'ws';
-import type { AddressInfo } from 'node:net';
+import { Socket, type AddressInfo } from 'node:net';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { writeFile, readFile, mkdtemp, rm } from 'node:fs/promises';
@@ -50,7 +50,7 @@ for (const id of ['sandbox-api', 'ssh-vm'] as const) {
   }
 }
 
-test('raw-port probe classifies a closed loopback port as refused and an open one as accepted (checks the probe; the live proof checks the provider firewall)', async () => {
+test('raw-port probe accepts refusal or a timeout and rejects a connection (loopback/forced-timer controls, not live provider proof)', async t => {
   const listener = createServer((_q, r) => r.end('Umer lab listener'));
   await new Promise<void>(resolve => listener.listen(0, '127.0.0.1', resolve));
   const open = (listener.address() as AddressInfo).port;
@@ -70,10 +70,21 @@ test('raw-port probe classifies a closed loopback port as refused and an open on
     provider.fake.machine.script('curl', { code: 0, stdout: 'Umer lab listener', stderr: '', timedOut: false });
     const refused = await probeAt(closed);
     assert.equal(refused.status, 'pass');
-    assert.match(refused.detail, /ECONNREFUSED/);
+    assert.match(refused.detail, /refused \(ECONNREFUSED\)/);
     const exposed = await probeAt(open);
     assert.equal(exposed.status, 'fail');
     assert.match(exposed.detail, /accepted/);
+    // Force only this probe's owned socket deadline; do not change host networking or claim a provider drop.
+    const deadline = t.mock.method(Socket.prototype, 'setTimeout', function (this: Socket, ms: number, callback?: () => void) {
+      assert.equal(ms, 10_000);
+      queueMicrotask(() => callback?.call(this));
+      return this;
+    });
+    try {
+      const dropped = await probeAt(open);
+      assert.equal(dropped.status, 'pass');
+      assert.match(dropped.detail, /dropped \(timeout\)/);
+    } finally { deadline.mock.restore(); }
     provider.fake.machine.script('curl', { code: 7, stdout: '', stderr: 'no listener', timedOut: false });
     await assert.rejects(probeAt(closed), /listener must answer locally/);
   } finally {
