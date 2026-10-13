@@ -324,9 +324,10 @@ export interface Machine {
 ```
 
 Both methods follow 5.1's load/account/ref checks. This slice implements keyless Boat joins only; a Boat
-`authKey` (even an empty string), or a join on another adapter, rejects `MachineError('unsupported')` before
-any remote exec. The message says to sign in on the phone instead. Boat emulates exec input using a temporary
-file (6.4), so it is **not** a credential-safe input path. Never pass a join key into it or embed one in command text.
+`authKey` (even an empty string) rejects `MachineError('unsupported')` before any remote exec with the
+`tailnet.signInOnPhone` words (sign in on the phone instead). A join on another adapter rejects the same error
+before any exec with `tailnet.unsupported` ("This cloud computer cannot join your private network yet."). Boat
+emulates exec input using a temporary file (6.4), so it is **not** a credential-safe input path. Never pass a join key into it or embed one in command text.
 Hetzner/SSH joining and a private stdin transport are follow-ups, not weaker implementations of this rule.
 
 ## 5. `Machine` (`src/machine.ts`)
@@ -826,7 +827,7 @@ ports it previously exposed as though it had this fresh-machine guarantee; the p
   snapshot restored onto a new machine) clears `/etc/tailscale/tailscaled.state` before its first start, so it joins
   as a new node. A restore of the same machine keeps its identity. The snapshots lane implements this rule; the
   kit has no copy method today.
-- The app shows `tailnet.joining`, `tailnet.approvalNeeded` and `tailnet.loginExpired`; the callback remains the
+- The app shows `tailnet.approvalNeeded` and `tailnet.loginExpired`; the callback remains the
   union in 4.4 (`open-page`, `approve`, `joined`). This slice's key refusal is specified in 4.4.
 
 ### 9.2 Bootstrap and proof
