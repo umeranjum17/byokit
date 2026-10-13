@@ -132,7 +132,6 @@ export function boat(o: {
         // Past the one overall deadline the last answer stands, exactly as
         // when the retries run out; the wait itself is capped at what is left.
         const remaining = REQUEST_TIMEOUT_MS - (Date.now() - started);
-        if (remaining <= 0) return res;
         await sleep(Math.min(RETRY_WAITS_MS[attempt], remaining), o.signal);
         if (Date.now() - started >= REQUEST_TIMEOUT_MS) return res;
         continue;
