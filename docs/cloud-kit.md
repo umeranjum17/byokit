@@ -325,8 +325,7 @@ export interface Provider { /* 4.1 and 4.3 members */
 }
 export interface Machine { /* 4.1 and 4.3 members */
   snapshots(): Promise<Snapshot[]>                                        // newest first
-  snapshot(o?: { keep?: number }): Promise<Snapshot>                      // keep defaults to 3
-  autoSnapshot(o: { everyMs: number; keep?: number }): Promise<Snapshot | null>  // null while the newest copy is younger than everyMs
+  snapshot(o?: { keep?: number }): Promise<Snapshot & { pruneError?: MachineError }>  // keep defaults to 3
   scheduleSnapshots(o: { everyMs: number; keep?: number; onResult?(result: Snapshot | null | Error): void }): { stop(): void }
   restore(id: string): Promise<void>                                      // "Reset Computer"
   disk(): Promise<Disk>
@@ -343,7 +342,7 @@ Where this differs from the first suggested shape, and why:
 - `Provider.restore` takes a `replaced` callback. On Boat a restore is a new machine with a new id; the callback lets
   `Machine` save the new ref before the old machine is deleted, so a failure after that point never leaves the store
   pointing at a deleted machine.
-- The auto-snapshot policy is a call the app makes, `autoSnapshot({ everyMs, keep })`, not stored state (5.10).
+- The auto-snapshot policy is a call the app makes, `scheduleSnapshots({ everyMs, keep, onResult })`, not stored state (5.10).
 
 ## 5. `Machine` (`src/machine.ts`)
 
@@ -451,9 +450,9 @@ Boat's `create` resolves before the machine is on, so an app polls `status` unti
 
 ### 5.10 Snapshots, reset and disk (K3)
 
-Checks run in 5.1 order; every method needs a ref. `snapshots`, `snapshot`, `autoSnapshot` and `scheduleSnapshots` reject `unsupported`
+Checks run in 5.1 order; every method needs a ref. `snapshots`, `snapshot` and `scheduleSnapshots` reject `unsupported`
 when the provider lacks `snapshot`, `snapshots` or `deleteSnapshot`, and `restore` when it lacks `snapshots` or
-`restore`. `snapshot`, `autoSnapshot` and `restore` also reject `unsupported` when `ref.keepCopies` is false: the
+`restore`. `snapshot`, `scheduleSnapshots` and `restore` also reject `unsupported` when `ref.keepCopies` is false: the
 provider keeps no copy of such a machine. The SSH VM has none of these members. A VM provider's server snapshots
 land with that provider's adapter, behind the same members (follow-up).
 
@@ -462,15 +461,16 @@ land with that provider's adapter, behind the same members (follow-up).
   random base36>)` resolves once the copy is ready; `snapshots()` must then list it (else reject `provider`). Only
   after that, every listed copy past the newest `keep` is deleted with `provider.deleteSnapshot`, never the new one.
   Pruning touches only what `provider.snapshots` lists, the kit's own copies of this machine (6.1 names them), so a
-  copy the kit did not make is never deleted. Resolves the new copy.
-- `autoSnapshot({ everyMs, keep = 3 })`: `everyMs` is a positive integer, else `bad-recipe`. Resolves `null` while
-  the newest copy is younger than `everyMs`; otherwise `snapshot({ keep })`. A call before it is due costs one list
-  request.
-- `scheduleSnapshots({ everyMs, keep = 3, onResult })`: `everyMs` and `keep` are checked as `autoSnapshot` checks
-  them (`bad-recipe` synchronously). It runs `autoSnapshot({ everyMs, keep })` from the app's own process every
-  `everyMs` and returns `{ stop() }`. Ticks never overlap: a tick starts only after the previous one settles. Each
-  tick's outcome goes to `onResult`: the saved copy, `null` while the newest is fresh, or the `Error` it rejected
-  with. The timer never throws or rejects out of itself, and it is unref'd where the platform has `unref`. **Still
+  copy the kit did not make is never deleted. Resolves the new copy. A prune that fails does not fail the save: the
+  copy is still resolved, with `pruneError` set to the provider's error, and the next save prunes again.
+- `scheduleSnapshots({ everyMs, keep = 3, onResult })`: `everyMs` is an integer from 1 to 2147483647 (the timer's
+  limit, about 24.8 days), else `bad-recipe`; `keep` is an integer of at least 1. Both are checked synchronously.
+  It returns `{ stop() }` and runs a check from the app's own process. The first check is `everyMs` after the call;
+  each later check is `everyMs` after the previous one has finished, so a copy is never judged before it is
+  `everyMs` old and a daily schedule saves daily. A check resolves `null` while the newest copy is younger than
+  `everyMs`; otherwise it saves a copy with `snapshot({ keep })` and then reports that copy. Each outcome goes to
+  `onResult`: the saved copy (with any `pruneError`), `null`, or the `Error` the check rejected with. Checks never
+  overlap, the timer never throws or rejects out of itself, and it is unref'd where the platform has `unref`. **Still
   no hosted scheduler:** the kit runs only while the app runs, nothing runs on the machine (a timer there would need
   a provider key on the machine, inside the very copies it makes; M7's scoped keys are not built), and a machine
   nobody opens gets no new copies and keeps its last ones.
@@ -478,6 +478,9 @@ land with that provider's adapter, behind the same members (follow-up).
   confirms first, showing `snapshot.restore` with the copy's date, which says that everything changed since then is
   lost. Then `provider.restore(ref, id, { idempotencyKey, replaced })` with a new `byokit-<name>-<16 base36>` key,
   retried up to 3 times with the same key on `unreachable` only (as `create`); `replaced(next)` saves `next` (5.1).
+  Once `next` is saved, the old machine is deleted, retried up to 3 times on any error after the 1, 2 and 4 s waits.
+  If it still fails, the store keeps `next` and the call rejects `provider` with `extra.sandbox` set to the old id,
+  and a message that the old machine may still bill.
   On Boat the ref's `id` changes, so the app calls `url(port)` again for the new address and `update(recipe)`
   rewrites `installed.json` with the new id (8.3 step 6).
 - A restore is the same machine, so it keeps its identity (its tailnet node included): the adapter stops the old
@@ -509,7 +512,7 @@ land with that provider's adapter, behind the same members (follow-up).
 | `remove` | `DELETE /sandboxes/{id}` + header `X-Ascii-Confirm-Delete: <id>`; poll `GET /deletion-operations/{op}` every 2 s until `operation.status` is `completed` or `blocked`, or 5 minutes (reject `timeout`); then `GET /named-snapshots` and `DELETE /named-snapshots/{name}` for every name the `snapshots` rule keeps for this machine (`byokit-<ref.name>-` plus one dashless word, so `web` never deletes `web-two`'s copies) | Named snapshots survive a sandbox delete; without the second step the sign-ins inside them outlive it. A 404 on the sandbox counts as already deleted and the snapshot step still runs. `blocked` is terminal for the adapter: the operation is accepted and the sandbox is gone from every list, while a blocked stage can persist by design. |
 | `snapshots` (K3) | `GET /named-snapshots` | Keeps the entries with `status: 'ready'` whose name is `byokit-<ref.name>-` followed by `[a-z0-9]+` with no further dash, so a machine never lists another machine's copies when one name starts with the other (`web` never lists `web-two`'s). `id` is the name and `at` is `createdAt`. |
 | `deleteSnapshot` (K3) | `DELETE /named-snapshots/{id}` | An id that fails the `snapshots` name rule rejects `no-snapshot` before any request; a 404 counts as deleted. |
-| `restore` (K3) | stop the old machine as `sleep` does unless it is already `asleep`; `POST /sandboxes` `{from: id, ttlSeconds: null, snapshots: ref.keepCopies}` + `Idempotency-Key`; poll `status` until `on` as `wake` does; `replaced(next)`; then `DELETE /sandboxes/{old id}` and its deletion poll as `remove` does, **without** the named-snapshot step | Boat has no in-place restore (a resume always uses the latest capture), so a restore is a new machine made from the named snapshot, and the copies stay with the machine's name. The body has no `noEnv` and no `type`: both inherit from the snapshot's source, which the kit created no-env, and an explicit `noEnv` could scrub sign-ins as a resume conversion does (6.3). Stopping first means the old and new machines never run at once, and the old one is still there, asleep, if the new one fails to start. Trial retry as `create`. |
+| `restore` (K3) | stop the old machine as `sleep` does unless it is already `asleep`; `POST /sandboxes` `{from: id, ttlSeconds: null, snapshots: ref.keepCopies}` + `Idempotency-Key`; poll `status` until `on` as `wake` does; `replaced(next)`; then `DELETE /sandboxes/{old id}` and its deletion poll as `remove` does (retried 3 times on any error, after the 1, 2 and 4 s waits; a final failure rejects `provider` with the old id in `extra.sandbox`), **without** the named-snapshot step | Boat has no in-place restore (a resume always uses the latest capture), so a restore is a new machine made from the named snapshot, and the copies stay with the machine's name. The body has no `noEnv` and no `type`: both inherit from the snapshot's source, which the kit created no-env, and an explicit `noEnv` could scrub sign-ins as a resume conversion does (6.3). Stopping first means the old and new machines never run at once, and the old one is still there, asleep, if the new one fails to start. Trial retry as `create`. |
 | `exec` | `POST /sandboxes/{id}/commands` `{command, timeoutSeconds, detached}`, and for a detached command poll `GET /sandboxes/{id}/commands/{processId}` every 1 s until `running` is false; a non-detached POST's `command.finished` response carries `stdout`, `stderr` and `exitCode` | 6.4. |
 | `write` | `PUT /sandboxes/{id}/files` `{path, content, encoding: 'base64'}` | The public file API defaults `encoding` to `utf8`, so the adapter sends `base64` explicitly. Only paths under `/home/user/` or `/tmp/`; anything else rejects `bad-recipe` before any request. After the PUT, `exec` `chmod <mode, octal> <path>`. Only 6.4's `input` uses it; `Machine` writes files through `exec` with `input` (8.3), so root never reads a staged path. |
 | `url` | `POST /sandboxes/{id}/host` `{port, public: true}` → the returned HTTPS URL | The app's process must bind `0.0.0.0`. Hosting also opens the machine firewall for that port. Re-hosting the same port returns the same URL. |

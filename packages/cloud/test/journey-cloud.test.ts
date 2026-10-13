@@ -471,7 +471,10 @@ test('an app cleans up on Boat and every failure stays honest: no key leak, no l
 test('a person saves copies of their cloud computer, resets it from one, and only the newest few are kept', async () => {
   const server = await startFakeSandboxServer();
   try {
-    const provider = boat({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
+    // A request the test refuses on purpose fails as a dropped connection, before it reaches the server.
+    let refuse: (method: string, url: string) => boolean = () => false;
+    const flaky: typeof fetch = (url, init) => (refuse(init?.method ?? 'GET', String(url)) ? Promise.reject(new TypeError('connection reset')) : fetch(url, init));
+    const provider = boat({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key', fetch: flaky });
     const m = machine({ provider, store: memoryStore() });
     const listedNames = async (): Promise<string[]> => ((await (await fetch(`${server.url}/named-snapshots`, { headers: { Authorization: 'Bearer test-key' } })).json()) as { snapshots: { name: string }[] }).snapshots.map((s) => s.name);
     const old = await m.create({ name: 'web', size: 'small', keepCopies: true });
@@ -523,33 +526,43 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
     const latest = await m.snapshot({ keep: 1 });
     assert.deepEqual((await m.snapshots()).map((c) => c.id), [latest.id]);
     assert.deepEqual((await listedNames()).sort(), [latest.id, 'byokit-web-two-x'].sort());
+
+    // A prune that fails does not fail the save: the made copy comes back with the error, and the next save prunes.
+    refuse = (method, url) => method === 'DELETE' && url.includes('/named-snapshots/');
+    const unpruned = await m.snapshot({ keep: 1 });
+    refuse = () => false;
+    assert.equal(unpruned.pruneError?.code, 'unreachable');
+    assert.deepEqual((await m.snapshots()).map((c) => c.id).sort(), [latest.id, unpruned.id].sort());
+    const pruned = await m.snapshot({ keep: 1 });
+    assert.equal(pruned.pruneError, undefined);
+    assert.deepEqual((await m.snapshots()).map((c) => c.id), [pruned.id]);
     await rejects(m.snapshot({ keep: 0 }), 'bad-recipe');
 
-    // The app's own timer calls autoSnapshot: nothing while the newest copy is fresh, one when due.
-    assert.equal(await m.autoSnapshot({ everyMs: 3_600_000 }), null);
-    await new Promise((r) => setTimeout(r, 5));
-    const due = await m.autoSnapshot({ everyMs: 1, keep: 1 });
-    assert.ok(due !== null && due.id !== latest.id);
-    assert.deepEqual((await m.snapshots()).map((c) => c.id), [due.id]);
-
-    // The kit's own timer: each saved copy is reported, a rejected tick is reported as its error, and stop() ends it.
+    // The kit's own timer: a copy made while it waits is reported null; each later due tick saves one, in a row.
     assert.throws(() => m.scheduleSnapshots({ everyMs: 0, onResult: () => {} }), { code: 'bad-recipe' });
-    const copy = await new Promise<Snapshot>((resolve, reject) => {
+    assert.throws(() => m.scheduleSnapshots({ everyMs: 2_147_483_648, onResult: () => {} }), { code: 'bad-recipe' });
+    const copies = await new Promise<Snapshot[]>((resolve, reject) => {
+      const saved: Snapshot[] = [];
       const handle = m.scheduleSnapshots({
-        everyMs: 5,
+        everyMs: 300,
         keep: 1,
         onResult: (r) => {
+          if (r instanceof Error) {
+            handle.stop();
+            reject(r);
+            return;
+          }
           if (r === null) return;
+          saved.push(r);
+          if (saved.length < 2) return;
           handle.stop();
-          if (r instanceof Error) reject(r);
-          else resolve(r);
+          resolve(saved);
         },
       });
     });
-    const settled = (await m.snapshots()).map((c) => c.id);
-    assert.deepEqual(settled, [copy.id]);
+    assert.deepEqual((await m.snapshots()).map((c) => c.id), [copies[1].id]);
     await new Promise((r) => setTimeout(r, 40));
-    assert.deepEqual((await m.snapshots()).map((c) => c.id), settled, 'no tick runs after stop()');
+    assert.deepEqual((await m.snapshots()).map((c) => c.id), [copies[1].id], 'no tick runs after stop()');
     const plain = machine({ provider: fakeProvider(), store: memoryStore() });
     await plain.create({ name: 'web', size: 'small', keepCopies: false });
     const failure = await new Promise<MachineError>((resolve) => {
@@ -586,9 +599,29 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
     assert.notEqual(deleted[0], oldRef.id);
     assert.equal(server.getState(deleted[0]), null, 'the replacement is gone');
 
+    // The replacement is saved before the old machine is deleted; when that delete keeps failing, the store
+    // already points at the replacement and the error names the old machine, which may still bill.
+    const [copyToRestore] = await m.snapshots();
+    let refused = 0;
+    refuse = (method, url) => {
+      if (method !== 'DELETE' || !url.endsWith(`/sandboxes/${oldRef.id}`)) return false;
+      refused += 1;
+      return true;
+    };
+    const stuck = await m.restore(copyToRestore.id).then(() => null, (e: MachineError) => e);
+    refuse = () => false;
+    assert.equal(refused, 4, 'the old delete is tried once and retried three times');
+    assert.equal(stuck?.code, 'provider');
+    assert.equal(stuck?.extra.sandbox, oldRef.id);
+    assert.ok(stuck?.message.includes(oldRef.id) && stuck.message.includes('may still bill'));
+    assert.notEqual(m.ref?.id, oldRef.id, 'the store keeps the replacement');
+    assert.notEqual(server.getState(oldRef.id), null, 'the old machine is still there');
+
     // Removing this machine deletes its own copies and keeps another machine's copy whose name starts with its name.
     assert.ok((await m.snapshots()).length > 0);
-    await m.remove(oldRef.id);
+    const live = m.ref;
+    assert.ok(live !== null);
+    await m.remove(live.id);
     assert.deepEqual(await listedNames(), ['byokit-web-two-x']);
   } finally {
     await server.close();

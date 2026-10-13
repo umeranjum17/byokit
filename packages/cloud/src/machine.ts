@@ -22,6 +22,8 @@ const DELIVER_LIMIT = 64 * 1024;
 const STEP_TAIL = 2048;
 /** 5.10: copies kept by default, well inside Boat's 10 free per wallet. */
 const KEEP = 3;
+/** The longest delay a timer accepts; a longer one would fire at once. */
+const TIMER_MAX_MS = 2_147_483_647;
 const GIB_IN_KB = 1024 * 1024;
 
 const randomBase36 = (n: number): string => {
@@ -112,8 +114,9 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
     }
   };
 
-  // 5.10: save one copy, confirm it is listed ready, and only then prune past `keep`.
-  const saveCopy = async (r: MachineRef, keep: number): Promise<Snapshot> => {
+  // 5.10: save one copy, confirm it is listed ready, and only then prune past `keep`. A failed
+  // prune does not fail the save: the made copy comes back with the error, and the next save prunes again.
+  const saveCopy = async (r: MachineRef, keep: number): Promise<Snapshot & { pruneError?: MachineError }> => {
     const { snapshot, snapshots, deleteSnapshot } = o.provider;
     if (snapshot === undefined || snapshots === undefined || deleteSnapshot === undefined) {
       throw new MachineError('unsupported', 'this provider cannot save copies');
@@ -122,8 +125,22 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
     const copies = await listCopies(r);
     const made = copies.find((c) => c.id === name);
     if (made === undefined) throw new MachineError('provider', 'the saved copy is not listed as ready');
-    for (const old of copies.filter((c) => c.id !== made.id).slice(keep - 1)) await deleteSnapshot(r, old.id);
-    return made;
+    let pruneError: MachineError | undefined;
+    try {
+      for (const old of copies.filter((c) => c.id !== made.id).slice(keep - 1)) await deleteSnapshot(r, old.id);
+    } catch (e) {
+      pruneError = e as MachineError;
+    }
+    return pruneError === undefined ? made : { ...made, pruneError };
+  };
+
+  // 5.10: the scheduler's tick. Due when the newest copy is at least everyMs old; otherwise null.
+  const autoCopy = async (everyMs: number, keep: number): Promise<Snapshot | null> => {
+    const r = await need();
+    needCopies(r);
+    const [newest] = await listCopies(r);
+    if (newest !== undefined && Date.now() - Date.parse(newest.at) < everyMs) return null;
+    return saveCopy(r, keep);
   };
 
   // 8.2 without a recipe: probe for a system unit; exit 0 means a system unit.
@@ -655,7 +672,7 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       return listCopies(await need());
     },
 
-    async snapshot(so?: { keep?: number }): Promise<Snapshot> {
+    async snapshot(so?: { keep?: number }): Promise<Snapshot & { pruneError?: MachineError }> {
       const r = await need();
       const keep = so?.keep ?? KEEP;
       checkCount('keep', keep, 1);
@@ -663,38 +680,36 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       return saveCopy(r, keep);
     },
 
-    async autoSnapshot({ everyMs, keep = KEEP }): Promise<Snapshot | null> {
-      const r = await need();
-      checkCount('everyMs', everyMs, 1);
-      checkCount('keep', keep, 1);
-      needCopies(r);
-      const [newest] = await listCopies(r);
-      if (newest !== undefined && Date.now() - Date.parse(newest.at) < everyMs) return null;
-      return saveCopy(r, keep);
-    },
-
     scheduleSnapshots({ everyMs, keep = KEEP, onResult }): { stop(): void } {
       checkCount('everyMs', everyMs, 1);
+      if (everyMs > TIMER_MAX_MS) throw new MachineError('bad-recipe', `everyMs: must be at most ${TIMER_MAX_MS}, got ${everyMs}`);
       checkCount('keep', keep, 1);
-      let running = false;
+      let stopped = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const arm = (): void => {
+        timer = setTimeout(() => {
+          tick().catch(() => {});
+        }, everyMs);
+        (timer as unknown as { unref?: () => void }).unref?.();
+      };
+      // The next check starts once this copy is made, so a copy is never judged before it is everyMs old.
       const tick = async (): Promise<void> => {
-        if (running) return;
-        running = true;
         let result: Snapshot | null | Error;
         try {
-          result = await self.autoSnapshot({ everyMs, keep });
+          result = await autoCopy(everyMs, keep);
         } catch (e) {
           result = e instanceof Error ? e : new Error(String(e));
-        } finally {
-          running = false;
         }
+        if (!stopped) arm();
         onResult?.(result);
       };
-      const timer = setInterval(() => {
-        tick().catch(() => {});
-      }, everyMs);
-      (timer as unknown as { unref?: () => void }).unref?.();
-      return { stop: () => clearInterval(timer) };
+      arm();
+      return {
+        stop: () => {
+          stopped = true;
+          clearTimeout(timer);
+        },
+      };
     },
 
     async restore(id: string): Promise<void> {

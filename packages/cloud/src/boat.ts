@@ -554,8 +554,17 @@ export function boat(o: {
         await deleteSandbox(next, next.id).catch(() => {});
         throw e;
       }
-      await deleteSandbox(m, m.id);
-      return next;
+      for (let attempt = 0; ; attempt++) {
+        try {
+          await deleteSandbox(m, m.id);
+          return next;
+        } catch {
+          if (attempt === RETRY_WAITS_MS.length) {
+            throw new MachineError('provider', `the replacement is saved, but the old machine ${m.id} could not be deleted and may still bill`, { sandbox: m.id });
+          }
+          await sleep(RETRY_WAITS_MS[attempt]);
+        }
+      }
     },
 
     url: async (m: MachineRef, port: number) => {

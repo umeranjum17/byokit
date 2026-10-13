@@ -5,8 +5,7 @@ A person's cloud computer keeps saved copies of itself. The app lists them, save
 ## Sub-features
 
 - `snapshot-save-prune`: `snapshot()` returns a `byokit-<name>-<12 base36>` copy; past `keep` (default 3) the oldest of this machine's copies are deleted, and only after the new copy is listed ready. Another machine's copy is never listed or deleted.
-- `snapshot-auto`: `autoSnapshot({ everyMs })` resolves `null` while the newest copy is fresh and saves one when it is due.
-- `snapshot-schedule`: `scheduleSnapshots({ everyMs, onResult })` reports each tick's copy, `null` or error, and `stop()` ends the timer.
+- `snapshot-schedule`: `scheduleSnapshots({ everyMs, keep, onResult })` reports each check's copy, `null` or error, saves again one `everyMs` after the previous check, and `stop()` ends it.
 - `snapshot-restore`: `restore(id)` brings back the files as they were in the copy, as a new machine (new id, same name) that is on; the old machine is gone. A missing copy rejects `no-snapshot` with `error.noSnapshot` words; `words('snapshot.restore', { date })` says what a reset loses.
 - `disk`: `disk()` resolves `{ usedGb, totalGb }` from `df` on the machine.
 
@@ -21,7 +20,7 @@ Preconditions: baseline (features/README.md).
 
 - **Write the consumer.** `"$scratch_dir/verify-cloud-snapshots.mjs"` (below). Import public entries only.
 - **Run and capture.** `feature=cloud-snapshots; entry=@byokit/cloud; drive=(node "$scratch_dir/verify-cloud-snapshots.mjs")`, then run SKILL.md Evidence's capture block. Exit code `0`.
-- **What it proves.** `marker-after-restore: "saved"`, `new-id: true`, `old-gone: "gone"`, `state: "on"`, `kept` has 3 ids newest first then 1 after `keep: 1`, `other-copy-kept: true`, `auto-fresh: null`, `missing: "no-snapshot"` with its words, and `disk` `{"usedGb":3.1,"totalGb":12}` with its words.
+- **What it proves.** `marker-after-restore: "saved"`, `new-id: true`, `old-gone: "gone"`, `state: "on"`, `kept` has 3 ids newest first then 1 after `keep: 1`, `other-copy-kept: true`, `scheduled: true`, `missing: "no-snapshot"` with its words, and `disk` `{"usedGb":3.1,"totalGb":12}` with its words.
 
 ```js
 import { boat, machine, words, errorWords } from '@byokit/cloud';
@@ -53,7 +52,14 @@ try {
   out('kept-after-keep-1', (await m.snapshots()).map((s) => s.id));
   const names = (await (await fetch(`${server.url}/named-snapshots`, { headers: { Authorization: 'Bearer test-key' } })).json()).snapshots.map((x) => x.name);
   out('other-copy-kept', names.includes('byokit-web-two-x'));
-  out('auto-fresh', await m.autoSnapshot({ everyMs: 60_000 }));
+  const first = await new Promise((resolve, reject) => {
+    const handle = m.scheduleSnapshots({ everyMs: 300, keep: 1, onResult: (r) => {
+      if (r === null) return;
+      handle.stop();
+      if (r instanceof Error) reject(r); else resolve(r);
+    } });
+  });
+  out('scheduled', first.id.startsWith('byokit-web-'));
   const missing = await m.restore('byokit-web-000000000000').then(() => null, (e) => e);
   out('missing', missing?.code);
   out('missing-words', errorWords(missing, { app: 'Umer', label: 'Boat' }));

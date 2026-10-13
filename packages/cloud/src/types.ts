@@ -1,5 +1,6 @@
 // Public types (docs/cloud-kit.md section 4: 4.1 with the 4.3 consumer and 4.4 snapshot additions merged in).
 // Frozen at M1 (D-5): a change here is a spec change first — stop and ask.
+import type { MachineError } from './errors.ts';
 export type MachineRef = {
   provider: string                // Provider.id
   account: string                 // provider account id, read once at setup; the kit refuses a ref from another account
@@ -102,9 +103,8 @@ export interface Machine {
   why(): Promise<AsleepWhy | null>                       // G3 (5.7)
   deliver(r: HostRecipe, file: string, bytes: Uint8Array): Promise<void>  // G9 (5.8)
   snapshots(): Promise<Snapshot[]>                       // K3 (5.10): newest first
-  snapshot(o?: { keep?: number }): Promise<Snapshot>     // K3: keep defaults to 3
-  autoSnapshot(o: { everyMs: number; keep?: number }): Promise<Snapshot | null>  // K3: null while the newest copy is younger than everyMs
-  scheduleSnapshots(o: { everyMs: number; keep?: number; onResult?(result: Snapshot | null | Error): void }): { stop(): void }  // K3: the kit's timer runs autoSnapshot while the app runs
+  snapshot(o?: { keep?: number }): Promise<Snapshot & { pruneError?: MachineError }>  // K3: keep defaults to 3; a failed prune is reported, not thrown
+  scheduleSnapshots(o: { everyMs: number; keep?: number; onResult?(result: Snapshot | null | Error): void }): { stop(): void }  // K3: saves when the newest copy is everyMs old, while the app runs
   restore(id: string): Promise<void>                     // K3: "Reset Computer"
   disk(): Promise<Disk>                                  // K3
 }
