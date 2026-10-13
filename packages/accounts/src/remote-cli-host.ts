@@ -160,6 +160,8 @@ function claimSignIn(folder: string): (() => void) | undefined {
 }
 
 export function remoteCliHost(options: RemoteCliHostOptions): {
+  /** Aborted as soon as close begins, independently of phone cancellation or completed sessions. */
+  readonly signal: AbortSignal;
   state(): Promise<RemoteCliState[]>;
   close(): Promise<void>;
   start(provider: RemoteCliProvider, opts?: { signal?: AbortSignal }): Promise<RemoteCliStart>;
@@ -435,5 +437,5 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     await Promise.all([...sessions.values()].filter(session => !session.done).map(session => cancel(session.id)));
   }
 
-  return { state, start, wait, paste, cancel, close, handle };
+  return { signal: lifetime.signal, state, start, wait, paste, cancel, close, handle };
 }

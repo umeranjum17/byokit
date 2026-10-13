@@ -84,6 +84,8 @@ export class Engine {
   readonly authStore: AuthStore;
   private stopping = false;
   private claudeLogin?: ReturnType<typeof remoteCliHost>;
+  private claudeAccounts?: ReturnType<typeof cliAccounts>;
+  private claudeReset?: Promise<void>;
   private credentialsLocked = false;
   private repaired = false;
   private prepared?: Promise<void>;
@@ -269,8 +271,22 @@ export class Engine {
       PATH: env.PATH, HOME: env.HOME, LANG: env.LANG, TMPDIR: env.TMPDIR, XDG_CONFIG_HOME: env.XDG_CONFIG_HOME,
       XDG_CACHE_HOME: env.XDG_CACHE_HOME, XDG_DATA_HOME: env.XDG_DATA_HOME, XDG_STATE_HOME: env.XDG_STATE_HOME,
     }, managedFolders: { claude: env.CLAUDE_CONFIG_DIR } });
+    this.claudeAccounts = cli;
     this.claudeLogin = remoteCliHost({ cli, bins });
     return this.claudeLogin;
+  }
+  resetNativeClaudeLogin(): Promise<void> {
+    if (this.claudeReset) return this.claudeReset;
+    const cli = this.claudeAccounts, host = this.claudeLogin;
+    if (!cli || !host || host.signal.aborted) return Promise.resolve();
+    this.claudeReset = (async () => {
+      for (const row of await cli.list()) {
+        if (host.signal.aborted) return;
+        if (row.provider === 'claude' && row.state === 'ready' && cli.folderOf(row.id) === join(this.root, 'home', '.claude'))
+          await cli.remove(row.id);
+      }
+    })().finally(() => { this.claudeReset = undefined; });
+    return this.claudeReset;
   }
   doctor(timeoutMs: number): { status: number | null } {
     const { entry, env } = this.doctorContext();
@@ -422,7 +438,9 @@ export class Engine {
   withAuthStore<T>(task: () => Promise<T>): Promise<T> { return this.authStore.offline(task); }
   async stop(): Promise<void> {
     await this.claudeLogin?.close();
+    await this.claudeReset;
     this.claudeLogin = undefined;
+    this.claudeAccounts = undefined;
     this.stopping = true;
     await this.starting?.catch(() => {});
     const child = this.child;

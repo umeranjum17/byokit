@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { setImmediate as turn, setTimeout as delay } from 'node:timers/promises';
 import { providers, signIn, type SignInCtx } from '../src/signin.ts';
 import { OpenClawKit } from '../src/kit.ts';
+import { Engine } from '../src/engine.ts';
 import { openclawLink } from '../src/link.ts';
 import { scratchDir } from '../../test-support.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
@@ -745,6 +746,76 @@ if (process.argv[3] === 'status') {
     assert.ok(!JSON.stringify(end).includes('late-code'));
     assert.equal((await call('oc.signin.view', {}) as { ready: boolean }).ready, true);
   } finally { writeFileSync(release, ''); releaseActivation(); await kit.stop(); rmSync(root, { recursive: true, force: true }); }
+});
+
+for (const action of ['shutdown-ready', 'stale-ready']) test(`native Claude recovery: ${action}`, { timeout: 15_000 }, async () => {
+  const root = scratchDir('native-ready-recovery');
+  const bin = join(root, 'bin'); mkdirSync(bin);
+  const folder = join(root, 'openclaw/home/.claude');
+  const granted = join(folder, 'granted');
+  const log = join(root, 'logins');
+  writeFileSync(join(bin, 'claude'), `#!${process.execPath}
+const fs = require('node:fs'), path = require('node:path');
+if (process.env.CLAUDE_CONFIG_DIR !== ${JSON.stringify(folder)}) process.exit(3);
+if (process.argv[3] === 'status') { console.log(JSON.stringify({ loggedIn: fs.existsSync(${JSON.stringify(granted)}) })); process.exit(); }
+fs.appendFileSync(${JSON.stringify(log)}, 'login\\n');
+console.log('If the browser did not open, visit: https://claude.example.test/authorize');
+process.stdin.once('data', () => { fs.writeFileSync(${JSON.stringify(granted)}, 'signed in'); process.exit(0); });
+`, { mode: 0o700 });
+  const engine = new Engine({ stateDir: root, enginePath: [bin], spawnEngine: false,
+    pluginId: 'byokit', tools: [], onState: () => {}, onExit: () => {} });
+  let seenReady!: () => void, releaseDetect!: () => void;
+  const ready = new Promise<void>(resolve => { seenReady = resolve; });
+  const detection = new Promise<void>(resolve => { releaseDetect = resolve; });
+  const logins = () => existsSync(log) ? readFileSync(log, 'utf8').trim().split('\n').length : 0;
+  let missOnce = false;
+  const fake = scripted({
+    'openclaw.setup.detect': async () => {
+      if (missOnce) { missOnce = false; return { candidates: [] }; }
+      if (action === 'shutdown-ready' && existsSync(granted)) { seenReady(); await detection; }
+      return { candidates: [{ kind: 'claude-cli', credentials: existsSync(granted) && (action !== 'stale-ready' || logins() === 2) }] };
+    },
+    'openclaw.setup.activate': () => { assert.ok(existsSync(granted)); return { ok: true }; },
+  });
+  try {
+    await engine.prepare();
+    const context = ctx(fake, { nativeClaudeLogin: () => engine.nativeClaudeLogin(),
+      resetNativeClaudeLogin: () => engine.resetNativeClaudeLogin(),
+      restarted: async (_, signal) => { assert.ok(signal); assert.equal(signal.aborted, false); return true; } });
+    const launch = () => {
+      let shown!: (v: SignInView) => void;
+      const waiting = new Promise<SignInView>(resolve => { shown = resolve; });
+      const handle = signIn(context, 'm1', { authChoice: 'anthropic-cli' }, v => { if (v.url) shown(v); });
+      return { handle, waiting: Promise.race([waiting, handle.done]) };
+    };
+    const first = launch();
+    assert.equal((await first.waiting).state, 'waiting');
+    first.handle.paste('synthetic-code');
+    if (action === 'shutdown-ready') {
+      await ready; // Native wait settled ready; only the independent engine detection is held.
+      const native = engine.nativeClaudeLogin();
+      const stopping = engine.stop(); // Real engine lifecycle, while the scripted gateway is still reachable.
+      releaseDetect();
+      assert.equal((await first.handle.done).state, 'failed');
+      await stopping;
+      assert.equal(native.signal.aborted, true);
+      assert.ok(!fake.methods().includes('openclaw.setup.activate'), 'shutdown beginning prevents activation after readiness');
+    } else {
+      assert.equal((await first.handle.done).state, 'failed', 'engine and native readiness disagree');
+      assert.equal(logins(), 1);
+      const second = launch();
+      assert.equal((await second.waiting).state, 'waiting', 'stale ready bookkeeping must not trap the phone at already');
+      assert.equal(readFileSync(granted, 'utf8'), 'signed in', 'reset preserves the native folder and grant');
+      second.handle.paste('synthetic-code');
+      assert.equal((await second.handle.done).state, 'done');
+      assert.equal(logins(), 2, 'one fresh login, never an automatic loop');
+      assert.equal(fake.methods().filter(m => m === 'openclaw.setup.activate').length, 1);
+      missOnce = true; // start sees already, then the independent engine detection succeeds.
+      const reuse = launch();
+      assert.equal((await reuse.handle.done).state, 'done', 'a usable already row activates without logging in again');
+      assert.equal(logins(), 2);
+    }
+  } finally { releaseDetect(); await engine.stop(); rmSync(root, { recursive: true, force: true }); }
 });
 
 test('a sealed engine creates its own home for a phone Claude sign-in instead of failing it', { timeout: 30_000 }, async () => {

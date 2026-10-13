@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
+import { setImmediate as turn, setTimeout as delay } from 'node:timers/promises';
 import { cliAccounts, remoteCliHost, signInLock } from '../src/cli.ts';
 import { REMOTE_CLI_OPS, remoteCliDevice, type RemoteCliLink, type RemoteCliProvider } from '../src/remote-cli.ts';
 import { scratchDir } from '../../test-support.ts';
@@ -130,12 +130,12 @@ if (process.argv[2] === 'auth' && process.argv[3] === 'check') {
   return { bin, calls };
 }
 
-function kitAndHost(root: string, bins: Partial<Record<RemoteCliProvider, string>>, extraEnv: Record<string, string> = {}) {
+function kitAndHost(root: string, bins: Partial<Record<RemoteCliProvider, string>>, extraEnv: Record<string, string> = {}, now?: () => number) {
   const stateDir = join(root, 'plans');
   mkdirSync(stateDir, { recursive: true });
   const env = { HOME: join(root, 'home'), PATH: '/unused', ...extraEnv };
   const cli = cliAccounts({ stateDir, bins, env });
-  const host = remoteCliHost({ cli, bins });
+  const host = remoteCliHost({ cli, bins, now });
   const seen: unknown[] = [];
   const link: RemoteCliLink = {
     status: 'online',
@@ -344,10 +344,11 @@ test('a runtime-owned folder survives timeout and close; closing wins over late 
   } finally { await host.close(); }
 });
 
-test('a long phone wait does not accumulate native-child exit listeners', { timeout: 10_000 }, async () => {
+test('a long phone wait does not accumulate native-child exit listeners', { timeout: 10_000 }, async (t) => {
   const root = scratchDir('remote-wait-listeners');
   const native = fakeClaude(join(root, 'bins'));
-  const { host } = kitAndHost(root, { claude: native.bin }, { LOGIN_MODE: 'paste' });
+  let now = 0;
+  const { host } = kitAndHost(root, { claude: native.bin }, { LOGIN_MODE: 'paste' }, () => now);
   const warnings: string[] = [];
   const onWarning = (warning: Error) => {
     if (warning.name === 'MaxListenersExceededWarning') warnings.push(warning.message);
@@ -356,10 +357,13 @@ test('a long phone wait does not accumulate native-child exit listeners', { time
   try {
     const started = await host.start('claude'); assert.ok(started.ok);
     if (!started.ok) return;
-    const result = await host.wait(started.signIn.id, { timeoutMs: 3300 });
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const waiting = host.wait(started.signIn.id, { timeoutMs: 3300 });
+    for (let i = 0; i < 14; i++) { now += 250; t.mock.timers.tick(250); await turn(); }
+    const result = await waiting;
     assert.equal(result.ok ? 'ok' : result.error, 'expired');
     assert.deepEqual(warnings, [], 'polling a live native login must not attach another exit listener');
-  } finally { process.off('warning', onWarning); await host.close(); }
+  } finally { process.off('warning', onWarning); await host.close(); await turn(); t.mock.timers.reset(); }
 });
 
 test('a native holder write failure reaps the child and unlocks before a phone retry', { timeout: 10_000 }, async () => {
@@ -426,7 +430,10 @@ try {
   assert.ok(existsSync(flag), 'the native child exited and status is settling');
   chmodSync(folder, 0o500);
   writeFileSync(flag + '.release', '');
-  await delay(250); // No phone waiter during cleanup: an unhandled rejection terminates this process.
+  // A serialized status probe and an event-loop turn let cleanup finish without observing host.wait.
+  // No unhandledRejection handler: the broken host still terminates this process.
+  await cli.status(started.signIn.id).catch(() => {});
+  await new Promise(resolve => setImmediate(resolve));
   const result = await host.wait(started.signIn.id);
   assert.equal(result.ok ? 'ok' : result.error, 'failed');
   console.log('cleanup failure reported without crashing');

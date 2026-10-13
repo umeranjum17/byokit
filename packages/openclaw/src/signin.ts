@@ -16,6 +16,7 @@ export type SignInCtx = {
   ensure(member: Member): Promise<{ agentId: string }>;
   callbackPort: number;
   nativeClaudeLogin?(): ReturnType<typeof remoteCliHost>;
+  resetNativeClaudeLogin?(): Promise<void>;
   onDisconnect?(fn: () => void): () => void;
   authConfig(): string;
   restarted(authBefore: string | undefined, signal?: AbortSignal): Promise<boolean>;
@@ -187,7 +188,7 @@ export function signIn(
     if (signal.aborted) return;
     owner.abort();
     // A registered native drive publishes its own settled answer; a ready row wins this phone cancel.
-    void (async () => { await release(); if (!activating && !nativeId) await finish(cancelled()); })();
+    void (async () => { await release(); if (!activating && !nativeId && !nativeReady) await finish(cancelled()); })();
   };
 
   o.signal?.addEventListener('abort', cancel, { once: true });
@@ -244,29 +245,39 @@ export function signIn(
           };
           return value.candidates?.some(candidate => candidate.kind === 'claude-cli' && candidate.credentials === true);
         };
+        native = ctx.nativeClaudeLogin?.();
         if (!await detected()) {
-          native = ctx.nativeClaudeLogin?.();
           if (!native) return { state: 'failed', via, why: 'failed', error: 'Claude Code sign-in is not available on this engine.' };
-          const started = await native.start('claude', { signal });
-          if (!started.ok) return { state: 'failed', via,
-            why: started.error === 'busy' ? 'busy' : started.error === 'cancelled' ? 'declined' : 'failed', error: started.words };
-          nativeId = started.signIn.id;
-          if (signal.aborted) { await native.cancel(nativeId); return cancelled(); }
-          let pasteFailed = false;
-          pasteIn = text => { void native!.paste(nativeId!, text).catch((error: unknown) => {
-            if ((error as { remoteCliProblem?: unknown }).remoteCliProblem === 'unknown') return;
-            pasteFailed = true; void native!.cancel(nativeId!).catch(() => {});
-          }); };
-          say({ url: started.signIn.verificationUri, prompt: 'Paste the code from the sign-in page' });
-          if (returned !== undefined) { pasteIn(returned); returned = undefined; }
-          const result = await native.wait(nativeId);
-          nativeReady = result.ok;
-          pasteIn = undefined;
-          if (signal.aborted && !nativeReady) return cancelled();
-          if (pasteFailed) return { state: 'failed', via, why: 'failed', error: 'The sign-in code could not be sent. Try again.' };
-          if (!result.ok) return { state: 'failed', via,
-            why: result.error === 'expired' ? 'expired' : result.error === 'cancelled' ? 'declined' : 'failed', error: result.words };
-          if (!await detected()) return { state: 'failed', via, why: 'failed', error: 'Claude Code is still signed out on this engine. Try again.' };
+          let started = await native.start('claude', { signal });
+          if (!started.ok && started.error === 'already') {
+            nativeReady = Boolean(await detected());
+            if (!nativeReady && ctx.resetNativeClaudeLogin) {
+              if (signal.aborted || native.signal.aborted) return cancelled();
+              await ctx.resetNativeClaudeLogin();
+              started = await native.start('claude', { signal });
+            }
+          }
+          if (!nativeReady) {
+            if (!started.ok) return { state: 'failed', via,
+              why: started.error === 'busy' ? 'busy' : started.error === 'cancelled' ? 'declined' : 'failed', error: started.words };
+            nativeId = started.signIn.id;
+            if (signal.aborted) { await native.cancel(nativeId); return cancelled(); }
+            let pasteFailed = false;
+            pasteIn = text => { void native!.paste(nativeId!, text).catch((error: unknown) => {
+              if ((error as { remoteCliProblem?: unknown }).remoteCliProblem === 'unknown') return;
+              pasteFailed = true; void native!.cancel(nativeId!).catch(() => {});
+            }); };
+            say({ url: started.signIn.verificationUri, prompt: 'Paste the code from the sign-in page' });
+            if (returned !== undefined) { pasteIn(returned); returned = undefined; }
+            const result = await native.wait(nativeId);
+            nativeReady = result.ok;
+            pasteIn = undefined;
+            if (signal.aborted && !nativeReady) return cancelled();
+            if (pasteFailed) return { state: 'failed', via, why: 'failed', error: 'The sign-in code could not be sent. Try again.' };
+            if (!result.ok) return { state: 'failed', via,
+              why: result.error === 'expired' ? 'expired' : result.error === 'cancelled' ? 'declined' : 'failed', error: result.words };
+            if (!await detected()) return { state: 'failed', via, why: 'failed', error: 'Claude Code is still signed out on this engine. Try again.' };
+          }
         }
       } else {
         say({ prompt: keyRoute?.billing === 'api' ? 'API key (billed per use)' : 'Plan key' });
@@ -285,11 +296,13 @@ export function signIn(
       if (signal.aborted && !nativeReady) return { state: 'failed', via, why: 'declined' };
       // Done waits for the gateway restart an `auth` change causes (activation.ts); a run started before it runs on the
       // old config. A restart that runs late or is cancelled ends failed, and the account is cleaned up by the caller.
+      const activationSignal = native ? AbortSignal.any([native.signal, nativeReady ? driveOwner.signal : signal]) : signal;
+      if (activationSignal.aborted) return cancelled();
       activating = true;
       const result = await activate(ctx, {
         agentId, kind: apiKey === undefined ? 'claude-cli' : 'api-key',
         ...(apiKey === undefined ? {} : { authChoice: o.authChoice, apiKey }),
-      }, { timeoutMs: PULL_MS, signal: nativeReady ? driveOwner.signal : signal }).finally(() => { activating = false; });
+      }, { timeoutMs: PULL_MS, signal: activationSignal }).finally(() => { activating = false; });
       if (result.late) return signal.aborted && !nativeReady ? cancelled() : { state: 'failed', via, why: 'failed', error: LATE_RESTART };
       if (!result.ok) return { state: 'failed', via, why: 'failed',
         error: apiKey === undefined ? clean(result.error ?? 'Claude Code activation failed') : keyFailed(result.status) };
@@ -440,10 +453,10 @@ export function signIn(
     try {
       const driven = await Promise.race([drive(), disconnected]);
       view = driven ?? await recover();
-      if (signal.aborted && !nativeReady) view = codeExpired ? expired() : cancelled();
+      if (native?.signal.aborted || (signal.aborted && !nativeReady)) view = codeExpired ? expired() : cancelled();
     }
     catch (error) {
-      if (signal.aborted && !nativeReady) view = codeExpired ? expired() : cancelled();
+      if (native?.signal.aborted || (signal.aborted && !nativeReady)) view = codeExpired ? expired() : cancelled();
       else if (sawDeviceCode && /expired_token|code.*expired|device.*(?:expired|timed out)/i.test(cut(error))) view = expired();
       else if (BUSY.test(cut(error))) view = { state: 'failed', via, why: 'busy' };
       else view = { state: 'failed', via, why: 'failed', error: keyRoute ? KEY_FAILED : clean(error) };
