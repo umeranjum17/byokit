@@ -353,9 +353,63 @@ test('an app cleans up on Boat and every failure stays honest: no key leak, no l
     failing.failNext([{ status: 429 }, { status: 429 }, { status: 429 }, { status: 429 }]);
     const exhausted = boat({ baseUrl: failing.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
     assert.equal((await exhausted.account().then(() => null, (e) => e as MachineError))?.code, 'provider');
+
+    // Cancel during a retry backoff ends the call at once with the same typed
+    // error an aborted fetch gives; the caller's own aborted signal keeps
+    // reading cancelled, exactly as before.
+    const abort = new AbortController();
+    const cancellable = boat({
+      baseUrl: failing.url, label: 'Test', prices: prices(), key: async () => 'test-key', signal: abort.signal,
+    });
+    failing.failNext([{ status: 500 }]);
+    const cancelStarted = Date.now();
+    const cancelled = cancellable.account();
+    setTimeout(() => abort.abort(), 50);
+    assert.equal((await cancelled.then(() => null, (e) => e as MachineError))?.code, 'unreachable');
+    assert.ok(abort.signal.aborted, 'the caller still distinguishes cancel from a dead provider');
+    const cancelElapsed = Date.now() - cancelStarted;
+    assert.ok(cancelElapsed < 500, `cancel returned in ${cancelElapsed} ms, not after the 1 s backoff`);
+
+    const alreadyCancelled = new AbortController();
+    alreadyCancelled.abort();
+    const preCancelled = boat({
+      baseUrl: failing.url, label: 'Test', prices: prices(), key: async () => 'test-key', signal: alreadyCancelled.signal,
+    });
+    failing.failNext([{ status: 500 }]);
+    const preStarted = Date.now();
+    assert.equal((await preCancelled.account().then(() => null, (e) => e as MachineError))?.code, 'unreachable');
+    const preElapsed = Date.now() - preStarted;
+    assert.ok(preElapsed < 500, `an already-cancelled call returned in ${preElapsed} ms, not after the 1 s backoff`);
   } finally {
     await failing.close();
   }
+
+  const bodyAbort = new AbortController();
+  const stalledBody: typeof fetch = async (_url, init) => new Response(new ReadableStream({
+    start(controller) {
+      init?.signal?.addEventListener('abort', () => controller.error(new DOMException('aborted', 'AbortError')));
+    },
+  }), { status: 200 });
+  const midBody = boat({
+    baseUrl: 'http://127.0.0.1:1', label: 'Test', prices: prices(), key: async () => 'k', fetch: stalledBody, signal: bodyAbort.signal,
+  });
+  const midBodyCall = midBody.account().then(() => null, (e) => e as MachineError);
+  setTimeout(() => bodyAbort.abort(), 50);
+  assert.equal((await midBodyCall)?.code, 'unreachable', 'an abort during the body read is the typed unreachable, not a raw AbortError');
+
+  // Slow 429/5xx answers cannot stretch one call past the one overall
+  // deadline: the last answer stands, with the same typed error as exhausted
+  // retries. Three-second 500s used to cost 4 x 3 s attempts + 1+2+4 s waits.
+  const slow500: typeof fetch = async () => {
+    await new Promise((r) => setTimeout(r, 3000));
+    return new Response('{}', { status: 500 });
+  };
+  const slow = boat({ baseUrl: 'http://127.0.0.1:1', label: 'Test', prices: prices(), key: async () => 'k', fetch: slow500 });
+  const slowStarted = Date.now();
+  assert.equal((await slow.account().then(() => null, (e) => e as MachineError))?.code, 'provider');
+  const slowElapsed = Date.now() - slowStarted;
+  assert.ok(slowElapsed >= 10_000, `the deadline, not the first waits, stopped the retries (${slowElapsed} ms)`);
+  assert.ok(slowElapsed < 15_000, `one call stays near the 10 s deadline (${slowElapsed} ms)`);
 });
 
 test('an app tells the person what the cloud computer costs and speaks in plain words', async () => {

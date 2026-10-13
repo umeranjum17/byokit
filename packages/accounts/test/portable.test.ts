@@ -513,3 +513,28 @@ test('official token-sharing adapter checks consent on every use and keeps sessi
   await assert.rejects(one.access(signal), (e: Error) => e instanceof UnsupportedAccountError &&
     e.code === 'unsupported_account' && !e.message.includes(session.accessToken));
 });
+
+test('a GitHub Enterprise domain given to the engine is the sign-in gate\'s domain: anything else is refused before any request', async () => {
+  const original = globalThis.fetch;
+  const sent: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => { sent.push(String(input)); return new Response('{}', { status: 500 }); }) as typeof fetch;
+  try {
+    const engine = portableEngine(memoryStore());
+    for (const domain of ['https://user:secret@company.ghe.com/path', 'https://company.ghe.com', 'company.ghe.com/path']) {
+      await assert.rejects(engine.login('github-copilot', 'oauth', { notify: () => {}, prompt: async () => domain } as any), /without a path or credentials/, domain);
+    }
+    assert.deepEqual(sent, [], 'no request for a refused domain');
+  } finally { globalThis.fetch = original; }
+});
+
+test('a kept GitHub Enterprise domain that is not a bare domain ends the sign-in and never sends the token', async () => {
+  const original = globalThis.fetch;
+  const sent: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => { sent.push(String(input)); return new Response('{}', { status: 500 }); }) as typeof fetch;
+  try {
+    const store = memoryStore();
+    await store.modify('github-copilot', async () => ({ type: 'oauth', access: 'STALE', refresh: 'FIXTURE-GITHUB-TOKEN', expires: 0, enterpriseUrl: 'https://user:secret@evil.example/path' }));
+    await assert.rejects(portableEngine(store).getAuth('github-copilot'), RefreshRequiredError);
+    assert.deepEqual(sent, [], 'no request carrying the token');
+  } finally { globalThis.fetch = original; }
+});
