@@ -947,7 +947,7 @@ ports it previously exposed as though it had this fresh-machine guarantee; the p
   snapshot restored onto a new machine, so it joins as a new node, is planned follow-up in the snapshots lane.
   A restore of the same machine will keep its identity. The kit has no copy method today.
 - The app shows `tailnet.approvalNeeded` and `tailnet.loginExpired`; the callback remains the
-  union in 4.4 (`open-page`, `approve`, `joined`). This slice's key refusal is specified in 4.4.
+  union in 4.5 (`open-page`, `approve`, `joined`). This slice's key refusal is specified in 4.5.
 
 ### 9.2 Bootstrap and proof
 
