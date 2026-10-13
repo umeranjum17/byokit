@@ -1092,6 +1092,8 @@ user code and the expiry to the phone, the phone shows them, and the host report
 failure. The credential is written only by the CLI on the computer; it never reaches the phone and is
 never logged. Read-only state names each CLI's subscription sign-in without secrets. Pi has no headless
 login, so it reports "not supported here" while its state still reads. Each CLI's own terms apply.
+`start(provider, { signal })` cancels its attempt when the signal aborts, and `close()` cancels every
+unfinished attempt and waits for its native child to exit; a host stops with `close()`.
 
 ```ts
 import { remoteCliDevice } from '@byokit/accounts';
