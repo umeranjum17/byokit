@@ -70,7 +70,6 @@ export async function hetzner(o: HetznerOptions): Promise<HetznerProvider> {
     prices.push({ size: t.name, perHour, perMonthCap, asleepPerHour: perHour, currency: pricing.currency as 'EUR' | 'USD', basis: 'incl. IPv4, excl. VAT; bills while off', source: `${o.baseUrl}/pricing`, checked: new Date().toISOString().slice(0, 10) });
   }
   if (!sizes.length) throw new MachineError('unsupported', 'no available shared server type in this location');
-  let selected = sizes[0].id;
   const serverOrNull = async (m: MachineRef): Promise<Server | null> => {
     if (m.provider !== 'hetzner' || m.account !== o.project || !/^[1-9]\d*$/.test(m.id)) throw new MachineError('wrong-account', 'the ref belongs to another provider or project');
     return (await request<{ server: Server }>('GET', `/servers/${m.id}`, undefined, true))?.server ?? null;
@@ -78,7 +77,6 @@ export async function hetzner(o: HetznerOptions): Promise<HetznerProvider> {
   const checkServer = (m: MachineRef, s: Server | null): Server => {
     if (!s || String(s.id) !== m.id || s.name !== m.name || !s.labels?.['byokit-create']) throw new MachineError('wrong-account', 'the server is not visible as this app machine in this project');
     if (!s.server_type?.name || !s.public_net?.ipv4) throw new MachineError('provider', 'Hetzner returned incomplete server details');
-    selected = s.server_type.name;
     return s;
   };
   const server = async (m: MachineRef): Promise<Server> => checkServer(m, await serverOrNull(m));
@@ -122,7 +120,7 @@ export async function hetzner(o: HetznerOptions): Promise<HetznerProvider> {
   };
   return {
     id: 'hetzner', label: o.label, account, sizes: () => sizes,
-    prices: () => [...prices].sort((a, b) => Number(b.size === selected) - Number(a.size === selected)),
+    prices: () => [...prices],
     status: async m => {
       try {
         const s = await server(m);
@@ -154,7 +152,8 @@ export async function hetzner(o: HetznerOptions): Promise<HetznerProvider> {
           let created: Server | undefined;
           try { created = (await request<{ server: Server }>('POST', '/servers', { name: c.name, server_type: c.size, location: o.location, image: o.image, labels: { 'byokit-create': c.idempotencyKey }, user_data, firewalls: [{ firewall: f.id }], public_net: { enable_ipv4: true, enable_ipv6: false } }))?.server; }
           catch (e) {
-            if (!(e instanceof MachineError) || e.code !== 'unreachable' || o.signal?.aborted) throw e;
+            const ambiguous = e instanceof MachineError && (e.code === 'unreachable' || Number(e.extra['status']) >= 500);
+            if (!ambiguous || o.signal?.aborted) throw e;
             const until = Date.now() + 30_000;
             do {
               created = (await list<Server>(`/servers?name=${c.name}`, 'servers')).find(owned);
@@ -178,7 +177,6 @@ export async function hetzner(o: HetznerOptions): Promise<HetznerProvider> {
         const ip = s.public_net?.ipv4;
         if (!ip || !Number.isSafeInteger(ip.id) || ip.id <= 0) throw new MachineError('provider', 'Hetzner returned no primary IP id');
         await request('PUT', `/primary_ips/${ip.id}`, { auto_delete: true, labels: { 'byokit-create': c.idempotencyKey } });
-        selected = c.size;
         return { provider: 'hetzner', account: o.project, id: String(s.id), name: c.name, keepCopies: false };
       } catch (e) {
         const reason = e instanceof MachineError ? e.message : 'invalid Hetzner response';

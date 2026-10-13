@@ -101,10 +101,12 @@ export async function connectHetzner(options: HetznerOptions) {
 
 The token is project-scoped, but Hetzner has no account-read endpoint: `project` is
 an app-supplied identity, not API-verified. Saved refs are also checked with this
-token through `/servers/{id}`; an invisible server rejects `wrong-account`, without
-overwriting the record. The one exception is a server deleted in the console:
+token through `/servers/{id}`. A 404 is treated as a server deleted in the console:
 `account()` accepts its ref so `remove()` can forget it and sweep its unused firewalls,
-while `status()` and `state()` keep rejecting `wrong-account` until then. Create retries
+while `status()` and `state()` keep rejecting `wrong-account` until then. Known limit:
+Hetzner answers 404 for a server outside the current token's project too, so a token
+from another project under the same app project id makes a live server look deleted;
+keep the app project id in step with the token. Create retries
 reconcile by unique name plus operation label. Create makes a dedicated Hetzner Cloud
 Firewall **before** the server and attaches it in the server-create request: its only
 inbound rule is **SSH 22/tcp on IPv4**. Every app port stays closed publicly; recipe
