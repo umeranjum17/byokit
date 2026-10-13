@@ -3280,11 +3280,10 @@ Acceptance for every package: its fixture rows, mocks and fakes in `npm test`; n
   `/models/{id}/policy {state:'enabled'}` for `unconfigured` models (`github-copilot.js:289-334`). That is a model-catalog
   step, not a sign-in step, and it is best-effort (a refused policy enable still leaves a usable credential). The portable
   path stops at the credential and makes no policy call; the catalogue's model list stays `pi-ai`'s static table.
-- *GHE host templating.* Copilot's `authorization`, `token` and `exchange` URLs carry `{host}`, but the portable runtime
-  is github.com-only for now: it hardcodes `github.com` and refuses an enterprise domain on browser and rn before any
-  store read, so one data row does not serve both public and enterprise. Copilot Enterprise plumbing (persist through
-  public sign-in, account metadata reload, and refresh-engine construction) is follow-up task
-  `byk-copilot-enterprise-domain`, not this lane.
+- *GHE host templating.* Copilot's `authorization`, `token` and `exchange` URLs carry `{host}`. The portable runtime
+  fills it with the person's Enterprise domain per account (`login(member, 'copilot', { enterpriseDomain })`), kept on
+  the credential as `enterpriseUrl` so a reloaded account re-mints on the same host; github.com is the default. The
+  rule lives in `packages/accounts/src/engine.ts` (`validEnterpriseDomain`).
 
 ## 12. Known facts builders must not re-derive
 

@@ -99,7 +99,8 @@ The same `Accounts` signs in by device code with `fetch` alone (Pi's flows need 
 secure storage or the browser's IndexedDB. The person approves the sign-in on their own phone; ChatGPT has its own
 device flow, and every other provider joins from its catalogue `device` row (RFC 8628 device authorization, the
 client id and endpoints its own pinned client uses; Copilot's row adds the exchange that turns its intermediate
-GitHub token into the credential, re-minted the same way on refresh):
+GitHub token into the credential, re-minted the same way on refresh, on github.com or on the account's own
+GitHub Enterprise host):
 
 ```ts
 import * as SecureStore from 'expo-secure-store';
@@ -154,7 +155,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | Gemini Code Assist (subscription) | Google's own page, back to this computer's port 8085, or paste the address it lands on | Not yet | Not yet |
 | Antigravity (subscription) | Google's own page, back to this computer's port 51121, or paste the address it lands on | Not yet | Not yet |
 | Grok, Kimi | Pi's device flows; the same RFC 8628 flow from their catalogue `device` rows | Device code | Device code |
-| Copilot | Pi's device flow, plus the token exchange; accepts an Enterprise domain on a computer | Device code through the app's host side | Device code on github.com; Enterprise is not supported yet |
+| Copilot | Pi's device flow, plus the token exchange; accepts an Enterprise domain on a computer | Device code through the app's host side | Device code on github.com, or on the account's Enterprise host (`enterpriseDomain`) |
 | Meta | Pi's device flow | No | No |
 | Where sign-ins are kept | `machineStore(member, seal)`, shared by every app on the computer; or `fileStore(path, seal)` | `browserStore(name)` (IndexedDB) | `secureStore(SecureStore, name)` (Keychain, Keystore) |
 
@@ -789,7 +790,7 @@ its directory return value but no longer changes global environment variables.
 
 ### Native Pi and found-row boundaries
 
-Managed Pi accounts require stock published Pi 0.87.1 and an explicit subscription OAuth provider: `openai-codex`, `anthropic`, `github-copilot`, `xai`, `kimi-coding` or `meta`. On React Native, `login(member, 'copilot')` uses GitHub device sign-in on github.com; a GitHub Enterprise domain is refused there, before anything is stored. Unsupported providers are refused; Claude subscription routes must be offered only where the provider's terms allow their use.
+Managed Pi accounts require stock published Pi 0.87.1 and an explicit subscription OAuth provider: `openai-codex`, `anthropic`, `github-copilot`, `xai`, `kimi-coding` or `meta`. On React Native, `login(member, 'copilot')` uses GitHub device sign-in on github.com; passing `enterpriseDomain` signs in on that host instead and keeps it on the account, so refresh re-mints there too. A malformed domain is refused there, before anything is stored. Unsupported providers are refused; Claude subscription routes must be offered only where the provider's terms allow their use.
 
 ```ts
 import { cliAccounts } from '@byokit/accounts/cli';
