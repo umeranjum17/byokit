@@ -450,8 +450,10 @@ wrong types and invalid retry values throw `ConfigError` (`code: 'invalid_config
 account auth throws `UnsupportedAccountError`. API-key credentials must be explicitly supplied by the host:
 `host.keys.anthropic` for Anthropic, `host.keys['opencode-go']` for the Go plan key, and
 `host.accounts['opencode-go']` for the Go plan account. Each account slot reaches only its own provider:
-an OpenAI account in `host.account` never reaches the Go endpoint, and a Go plan account never reaches
-the OpenAI endpoint. A backend switch clears
+an OpenAI account in `host.account` never reaches the Go endpoint, and a Go plan account in
+`host.accounts['opencode-go']` never reaches the OpenAI endpoint. The slot decides, not the object: a Go plan
+handle and a ChatGPT plan handle have the same shape, so `openai({ auth: 'account', account })` given a Go handle
+sends it to OpenAI. Pass each handle to its own provider. A backend switch clears
 provider-specific model/route/request settings; a switch to OpenAI, Anthropic or OpenCode Go must specify
 its model.
 
