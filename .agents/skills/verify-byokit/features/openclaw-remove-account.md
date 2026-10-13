@@ -7,6 +7,7 @@ Verification recipe for [removing an account](../../../../docs/runtime-kits.md#5
 - A member-agent account goes through `models.authLogout` with its sealed `profileIds`, then its entry is dropped.
 - An account agent goes through `byokit.accounts clear`, an empty `list`, `agents.delete` with `deleteFiles: false` (only when the engine roster names the agent), removal of its `<root>/state/agents/<agent>` dir, then the entry is dropped.
 - Removal is refused `busy` while a run holds the agent; the member agent stays `ready`.
+- Removal re-seals the live credential store at once while the engine runs, so `auth-store.sealed` and `auth-store.objects/` stop holding the removed profile without waiting for stop.
 - A file the engine lands after removal is swept on the next `prepare` (and after a sealed restore, before launch). Only `<member>--<hex6>` dirs a removal recorded as gone and no index names are swept; a legacy member dir stays.
 
 ## How to get to it (user POV)
@@ -27,4 +28,4 @@ Use SKILL.md's Evidence capture block. The consumer imports only the built `@byo
 
 ## Gotchas
 
-The fake gateway holds profile stores in memory: the "late file" leg writes a real file under the removed agent's state dir to stand in for the engine landing one after removal. The real engine's sqlite store, delete semantics and prepare sweep are covered by `removeAccount` in `packages/openclaw/test/engine/accounts.test.ts`.
+The fake gateway holds profile stores in memory, so its `refresh` hook (a late refresh racing a removal) never writes to disk: the "late file" leg writes a real file under the removed agent's state dir to stand in for the engine landing one after removal. The real engine's sqlite store, delete semantics and prepare sweep are covered by `removeAccount` in `packages/openclaw/test/engine/accounts.test.ts`.
