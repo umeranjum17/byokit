@@ -1465,7 +1465,9 @@ test('removeAccount and the orphan sweep', async () => {
     const pending = kit.run({ member: 'm1', sessionKey: 'agent:m1:remove-busy', message: 'hello', account: second.id },
       (e) => { if (e.type === 'started') started(); });
     await running;
-    await assert.rejects(kit.removeAccount('m1', second.id), /busy/);
+    await assert.rejects(kit.removeAccount('m1', second.id), /removeAccount: busy/);
+    assert.ok(second.id in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts, 'a busy refusal keeps the entry');
+    assert.ok((await kit.call('agents.list', {})).agents.some((a) => a.id === agent), 'and the account agent');
     assert.equal((await kit.accounts('m1')).find((a) => a.id === 'openai')?.state, 'ready', 'the member stays ready');
     assert.ok((await pending).ok, 'the live run finishes');
 
