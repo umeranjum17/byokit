@@ -57,7 +57,11 @@ const options: KitOptions = {
   stateDir: state,
   tools: [demoNote],
   host: tools,
-  config: { plugins: { allow: ['openai'] } }, // the plugin of the one route this app signs in with (ChatGPT)
+  // Sign-in stays driven by the kit's own route list (kit.routes()): no plugin pin here, so every default
+  // subscription route (ChatGPT, OpenCode Go, …) is offered. A live-only Go model the pinned engine's static
+  // catalog does not carry is registered with its API, so a run can name it (@byokit/openclaw's README).
+  config: { models: { providers: { 'opencode-go': { baseUrl: 'https://opencode.ai/zen/go/v1', api: 'openai-responses',
+    models: [{ id: 'muse-spark-1.3-contributor', name: 'Muse Spark 1.3 Contributor' }] } } } },
   onState: (s) => {
     const now = stateWords(s);
     if (now && now !== said) console.log(now);
@@ -108,11 +112,13 @@ const grants: GrantStore = grantFile;
 const ingress = jsonFile<ServeIngress | null>(join(state, 'ingress.json'), null);
 
 // Pairing asks the person here, one device at a time: a second one asking meanwhile is turned away, and a question
-// nobody answers ends with the pairing window. An Enter with no question open shows fresh codes.
+// nobody answers ends with the pairing window. An Enter with no question open shows fresh codes; `accounts` lists
+// the accounts signed in on this computer, `add <choice>` signs one in here (a plan key is typed hidden, and stays
+// on this computer), and `model <provider/model>` sets the default model. Every choice is the kit's own route list.
 const input = createInterface({ input: process.stdin });
 let asking: ((line: string) => void) | undefined;
 let closed = false;
-input.on('line', (line) => { const answer = asking; asking = undefined; if (answer) answer(line); else showCodes(); });
+input.on('line', (line) => { const answer = asking; asking = undefined; if (answer) answer(line); else void command(line); });
 input.on('close', () => { closed = true; asking?.(''); });
 const ask = (question: string) => new Promise<string>((resolve) => {
   process.stdout.write(question);
@@ -212,6 +218,87 @@ function showCodes() {
   console.log('Codes last five minutes. Press Enter for new ones.');
 }
 
+// Accounts at this computer, from the kit's own route list. A code or browser choice signs in from the phone page;
+// a plan key (OpenCode Go) is pasted here, typed hidden, and never leaves this computer.
+async function command(line: string): Promise<void> {
+  const [cmd, arg] = line.trim().split(/\s+/, 2);
+  if (cmd === 'accounts') {
+    const rows = await kit.accounts(MEMBER).catch(() => undefined);
+    if (!rows) { console.log(stateWords(kit.state)); return; }
+    if (!rows.length) console.log('No accounts yet.');
+    for (const row of rows) console.log(`${row.label} (${row.provider}), ${row.state}.`);
+    const offered = kit.routes().filter((r) => r.offer).map((r) => r.choice);
+    console.log(`Offered: ${offered.join(', ')}. Type \`add <choice>\` to sign one in here.`);
+    return;
+  }
+  if (cmd === 'model' && arg) {
+    if (!arg.includes('/')) { console.log('Name a model as provider/model.'); return; }
+    try {
+      await kit.setDefaults(MEMBER, { ...(await kit.defaults(MEMBER)), model: arg });
+      console.log(`Default model: ${arg}.`);
+    } catch (e) { console.log(e instanceof Error ? e.message : String(e)); }
+    return;
+  }
+  if (cmd === 'add' && arg) {
+    await addChoice(arg);
+    return;
+  }
+  showCodes();
+}
+
+async function addChoice(choice: string): Promise<void> {
+  if (kit.state.phase !== 'ready') { console.log(stateWords(kit.state)); return; }
+  const route = kit.routes().find((r) => r.choice === choice);
+  if (!route || !route.offer) { console.log(`This computer offers no account named ${choice}.`); return; }
+  if (!route.keyEntry) { console.log(`Sign in to ${route.label} from the phone page, under Plans.`); return; }
+  console.log(`Adding ${route.label}.`);
+  const added = await kit.addAccount(MEMBER, { authChoice: choice }, () => {}).catch((e) => {
+    console.log(e instanceof Error ? e.message : String(e));
+    return undefined;
+  });
+  if (!added) return;
+  const secret = await readSecret(`Paste the ${route.label} key (typed input stays hidden): `);
+  if (!secret) { added.cancel(); console.log('Cancelled.'); return; }
+  added.paste(secret);
+  const { view } = await added.done;
+  // The pasted key is out of scope past this line; the kit never carries one in a view or error.
+  console.log(view.state === 'done' ? `Signed in to ${route.label}.` : (view.error ?? 'Sign-in failed. Try again.'));
+}
+
+// One hidden line: raw mode switches the terminal's own echo off while it is typed, then restores it. Without a
+// terminal there is nothing to hide from, so the line is read echoed instead.
+function readSecret(prompt: string): Promise<string> {
+  process.stdout.write(prompt);
+  const stdin = process.stdin;
+  if (!stdin.isTTY || typeof stdin.setRawMode !== 'function') {
+    return new Promise((resolve) => { asking = (line) => { resolve(line.trim()); }; });
+  }
+  return new Promise((resolve) => {
+    input.pause();
+    stdin.setRawMode(true);
+    stdin.resume();
+    let text = '';
+    const finish = (value: string) => {
+      stdin.removeListener('data', onData);
+      stdin.setRawMode(false);
+      stdin.pause();
+      input.resume();
+      process.stdout.write('\n');
+      resolve(value);
+    };
+    const onData = (chunk: Buffer) => {
+      for (const ch of chunk.toString('utf8')) {
+        if (ch === '\n' || ch === '\r') { finish(text); return; }
+        if (ch === '\u0003') { finish(''); return; } // Ctrl-C cancels the paste, like an empty answer
+        if (ch === '\u007f' || ch === '\b') { text = text.slice(0, -1); continue; }
+        if (ch >= ' ' && ch !== '\u007f') text += ch;
+      }
+    };
+    stdin.on('data', onData);
+  });
+}
+
+console.log('Type `accounts` to list signed-in accounts, `add <choice>` to sign in at this computer, `model <provider/model>` for the default model, Enter for fresh codes.');
 showCodes();
 kit.start().catch(() => {}); // a failed start is already said in words above; the page shows it too
 
