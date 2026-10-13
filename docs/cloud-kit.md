@@ -333,7 +333,7 @@ export interface Machine { /* 4.1 and 4.3 members */
 ```
 
 `MachineErrorCode` (4.2) gains `'no-snapshot'`: a restore or delete of an id that is not one of this machine's ready
-copies.
+copies; and `'busy'`: a restore while another restore of the same machine is running (it creates nothing).
 
 Where this differs from the first suggested shape, and why:
 - `snapshot()` takes `keep`, not a `label`. The provider's named snapshots carry no free-text field, and a name is
@@ -470,11 +470,14 @@ land with that provider's adapter, behind the same members (follow-up).
   `everyMs` old and a daily schedule saves daily. A check resolves `null` while the newest copy is younger than
   `everyMs`; otherwise it saves a copy with `snapshot({ keep })` and then reports that copy. Each outcome goes to
   `onResult`: the saved copy (with any `pruneError`), `null`, or the `Error` the check rejected with. Checks never
-  overlap, the timer never throws or rejects out of itself, and it is unref'd where the platform has `unref`. **Still
+  overlap, the timer never throws or rejects out of itself, and it is unref'd where the platform has `unref`. A check
+  that finds no machine (it was removed) reports its `no-machine` error once and the schedule stops itself. A device
+  clock behind the provider's delays copies until it catches up and never makes an extra one. **Still
   no hosted scheduler:** the kit runs only while the app runs, nothing runs on the machine (a timer there would need
   a provider key on the machine, inside the very copies it makes; M7's scoped keys are not built), and a machine
   nobody opens gets no new copies and keeps its last ones.
-- `restore(id)`: `id` must be one of `snapshots()`, else reject `no-snapshot`. The kit asks no question: the app
+- `restore(id)`: `id` must be one of `snapshots()`, else reject `no-snapshot`. One restore runs at a time per machine:
+  a call while another is running rejects `busy` before it creates anything. The kit asks no question: the app
   confirms first, showing `snapshot.restore` with the copy's date, which says that everything changed since then is
   lost. Then `provider.restore(ref, id, { idempotencyKey, replaced })` with a new `byokit-<name>-<16 base36>` key,
   retried up to 3 times with the same key on `unreachable` only (as `create`); `replaced(next)` saves `next` (5.1).
@@ -1039,7 +1042,7 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
   | `needs-root` | `host.needsRoot` with `extra.command`, else `host.needsAdmin` |
   | `no-snapshot` | `error.noSnapshot` |
   | `wrong-account` | `error.wrongAccount` |
-  | `no-machine`, `exists`, `unsupported`, `confirm`, `bad-recipe` | `error.app` (these are the app's own mistakes) |
+  | `no-machine`, `exists`, `unsupported`, `confirm`, `bad-recipe`, `busy` | `error.app` (these are the app's own mistakes) |
 - Jargon: every sentence, with `{…}` slots replaced by `X`, must not match the herdr expression
   (`packages/herdr/test/words.test.ts`). `host.linger` refers to "the line below": the app shows
   `MachineError.extra.command` under it as code, outside the sentence; `host.needsRoot` likewise.

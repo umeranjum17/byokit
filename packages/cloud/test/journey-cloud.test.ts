@@ -517,6 +517,14 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
       `Resetting brings your cloud computer back to how it was on ${saved.at.slice(0, 10)}. Everything changed on it since then is lost.`,
     );
 
+    // A second Reset tapped while the first runs is refused before it creates anything.
+    const beforeTap = server.requests.length;
+    const tapped = m.restore(saved.id);
+    await rejects(m.restore(saved.id), 'busy');
+    await tapped;
+    const tapCreates = server.requests.slice(beforeTap).filter((r) => r.method === 'POST' && r.path === '/sandboxes');
+    assert.equal(tapCreates.length, 1, 'only the first reset creates a machine');
+
     // Keep 3 by default: a fourth copy deletes the oldest only after it is ready, and never another machine's.
     for (let i = 0; i < 3; i++) await m.snapshot();
     const kept = await m.snapshots();
@@ -630,6 +638,11 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
     assert.ok(live !== null);
     await m.remove(live.id);
     assert.deepEqual(await listedNames(), ['byokit-web-two-x']);
+    const orphaned: unknown[] = [];
+    m.scheduleSnapshots({ everyMs: 10, onResult: (r) => orphaned.push(r) });
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(orphaned.length, 1, 'a schedule whose machine is gone reports once and stops');
+    assert.equal((orphaned[0] as MachineError).code, 'no-machine');
   } finally {
     await server.close();
   }

@@ -57,7 +57,7 @@ older than `everyMs`, on a timer while the app runs, and returns `{ stop() }`. T
 scheduler, so nothing saves while the app is closed.
 `restore(id)` rebuilds the machine from a copy; everything changed since is lost, so the app
 confirms first with `words('snapshot.restore', { date })`. A copy that is gone rejects
-`no-snapshot`. `disk()` resolves `{ usedGb, totalGb }` for `words('disk.used', ...)`.
+`no-snapshot`; a restore while another runs on the same machine rejects `busy`. `disk()` resolves `{ usedGb, totalGb }` for `words('disk.used', ...)`.
 
 ```ts
 import { words, type Machine } from '@byokit/cloud';

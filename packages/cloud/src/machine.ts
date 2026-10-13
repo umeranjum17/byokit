@@ -48,6 +48,7 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
   let record: MachineRecord | null = null;
   // host() resolves 'installing' while an install or update of this object is in flight (5.6).
   let installing = false;
+  let restoring = false;
 
   const load = (): Promise<void> => {
     loading ??= o.store.load().then((r) => {
@@ -700,7 +701,8 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
         } catch (e) {
           result = e instanceof Error ? e : new Error(String(e));
         }
-        if (!stopped) arm();
+        const gone = result instanceof MachineError && result.code === 'no-machine';
+        if (!stopped && !gone) arm();
         onResult?.(result);
       };
       arm();
@@ -713,16 +715,22 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
     },
 
     async restore(id: string): Promise<void> {
-      const r = await need();
-      const { restore } = o.provider;
-      if (restore === undefined) throw new MachineError('unsupported', 'this provider cannot reset a machine from a copy');
-      needCopies(r);
-      if (!(await listCopies(r)).some((c) => c.id === id)) {
-        throw new MachineError('no-snapshot', 'no ready copy of this machine has that id');
+      if (restoring) throw new MachineError('busy', 'a reset of this machine is already running');
+      restoring = true;
+      try {
+        const r = await need();
+        const { restore } = o.provider;
+        if (restore === undefined) throw new MachineError('unsupported', 'this provider cannot reset a machine from a copy');
+        needCopies(r);
+        if (!(await listCopies(r)).some((c) => c.id === id)) {
+          throw new MachineError('no-snapshot', 'no ready copy of this machine has that id');
+        }
+        // The app confirmed; the words say what is lost (`snapshot.restore`). The new ref is
+        // saved (through `replaced`) before the adapter deletes the old machine.
+        await withKey(r.name, (idempotencyKey) => restore(r, id, { idempotencyKey, replaced: save }));
+      } finally {
+        restoring = false;
       }
-      // The app confirmed; the words say what is lost (`snapshot.restore`). The new ref is
-      // saved (through `replaced`) before the adapter deletes the old machine.
-      await withKey(r.name, (idempotencyKey) => restore(r, id, { idempotencyKey, replaced: save }));
     },
 
     async disk(): Promise<Disk> {

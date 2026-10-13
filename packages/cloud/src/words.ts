@@ -60,6 +60,7 @@ const ERROR_KEY: Record<MachineErrorCode, WordKey> = {
   confirm: 'error.app',
   'bad-recipe': 'error.app',
   'no-snapshot': 'error.noSnapshot',
+  busy: 'error.app',
 };
 
 /** The sentence to show for a kit failure (section 12 table). */
