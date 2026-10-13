@@ -29,9 +29,8 @@ into this folder's `.state`, a ChatGPT sign-in kept in the lab's retained test h
 
 ## OpenCode Go variant
 
-At the computer, with the engine ready: type `accounts` (the kit's offered routes list), then `add opencode-go` and
-paste the plan key (typed input stays hidden; the key never leaves this computer). `model
-opencode-go/muse-spark-1.3-contributor` makes Muse the default. On the phone, send `Say hello in five words.`: the
+At the computer, with the engine ready: type `add opencode-go` and paste the plan key (typed input stays hidden; the
+key never leaves this computer). On the phone, send `Say hello in five words.`: the
 reply streams in, ends, and shows its token usage (`Tokens: …`) underneath. The key appears in no view, log or
 capture: record the phone and the streamed turn only.
 

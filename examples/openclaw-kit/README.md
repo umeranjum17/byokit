@@ -5,7 +5,7 @@ send the helper a message, and allow or deny what it asks before it acts. The co
 (`@byokit/openclaw`, with its own OpenClaw engine in `./.state`); the phone opens a plain web page this computer
 serves, over your home network or Tailscale. Sign-ins are kept by the engine on this computer; this app
 never sees them. Every way in is the kit's own route list: the phone page groups `oc.routes()`, and the terminal's
-`accounts` command lists the same list.
+`add <choice>` takes the same choices.
 
 ## Minutes to working
 
@@ -30,11 +30,9 @@ npm start
    helper wants to save a note. Allow it?** Tap **Allow** and the note lands in `.state/notes.txt`, or **Deny** and
    nothing is saved. Everything else the helper would do on this computer (searching the web, say) asks the same way.
 
-A plan key (OpenCode Go) is signed in at the computer, never on the phone: in the terminal type `accounts` to see the
-kit's offered routes, then `add opencode-go` and paste the key from your plan (typed input stays hidden; the key is
-kept by the engine on this computer). The phone then talks on that account too. `model
-opencode-go/muse-spark-1.3-contributor` makes Muse the default model (registered in `host.ts` with its API,
-as `@byokit/openclaw`'s README documents for a live-only Go model); its streamed reply shows usage the same way.
+A plan key (OpenCode Go) is signed in at the computer, never on the phone: in the terminal type `add opencode-go`, then
+paste the key from your plan (typed input stays hidden; the key is kept by the engine on this computer). The phone then
+talks on that account too, and its streamed reply shows usage the same way.
 
 Over Tailscale the page is https and the phone keeps its pairing sealed in the browser. Over your home network it is
 plain http, which browsers don't let a page seal with, so the pairing is kept in the browser's ordinary storage
@@ -87,12 +85,10 @@ only. This web page takes no push notices itself; a phone app does.
 
 ## What's where
 
-- `host.ts`: `new OpenClawKit({ stateDir: './.state', tools: [demo_note], host })`, with the live-only Go model
-  (`opencode-go/muse-spark-1.3-contributor`) registered under `config.models.providers` so a run can name it;
-  sign-in stays on the kit's route list (no plugin pin, so every default route is offered). `demo_note` (`{ text }`)
-  is gated `{ ask: { summary: 'save a note' } }` and appends to   `.state/notes.txt`; the engine's own tools ask too. The terminal takes `accounts` (the signed-in accounts plus the
-  kit's offered choices), `add <choice>` (a plan key pasted hidden at this computer) and `model <provider/model>`
-  (the default model); anything else shows fresh pairing codes. A `@byokit/pair` host (key in `.state/link-key.json`, paired
+- `host.ts`: `new OpenClawKit({ stateDir: './.state', tools: [demo_note], host })`; sign-in stays on the kit's route list
+  (no plugin pin, so every default route is offered). `demo_note` (`{ text }`) is gated `{ ask: { summary: 'save a note' } }`
+  and appends to `.state/notes.txt`; the engine's own tools ask too. The terminal takes `add <choice>` (a plan key pasted
+  hidden at this computer); anything else shows fresh pairing codes. A `@byokit/pair` host (key in `.state/link-key.json`, paired
   phones in `.state/grants.json`) answers the phone with `openclawLink(kit, { memberOf: () => 'me' })`: every paired
   phone acts for this app's one member. `serve` finds the address (`@byokit/discover`) and serves the page on the same
   port. With `--relay`, a `RelayClient` made once the host is open carries the kit's sealed notices and brings
