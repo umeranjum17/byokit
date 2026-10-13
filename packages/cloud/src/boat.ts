@@ -396,6 +396,18 @@ export function boat(o: {
     }
   };
 
+  const deleteRetrying = async (m: MachineRef): Promise<void> => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await deleteSandbox(m, m.id);
+        return;
+      } catch (e) {
+        if (attempt === RETRY_WAITS_MS.length) throw e;
+        await sleep(RETRY_WAITS_MS[attempt]);
+      }
+    }
+  };
+
   // K3 (6.1 snapshots): only `byokit-<name>-` plus one dashless word is this machine's own
   // copy, so `web` never claims `web-two`'s copies.
   const ownCopy = (m: MachineRef, name: string): boolean =>
@@ -549,25 +561,25 @@ export function boat(o: {
       // No `noEnv` and no `type`: both inherit from the kit's no-env source (6.3).
       const nextId = await createSandbox({ from: id, snapshots: m.keepCopies }, idempotencyKey);
       const next: MachineRef = { provider: 'sandbox-api', account: acct, id: nextId, name: m.name, keepCopies: m.keepCopies };
-      // A replacement that never comes on, or is not saved, is deleted so no unreferenced machine keeps billing.
       try {
         await untilOn(next, 'start');
         await replaced(next);
       } catch (e) {
-        await deleteSandbox(next, next.id).catch(() => {});
+        try {
+          await deleteRetrying(next);
+        } catch {
+          const message = e instanceof Error ? e.message : String(e);
+          const code = e instanceof MachineError ? e.code : 'provider';
+          throw new MachineError(code, `${message}; the replacement ${next.id} could not be deleted and may still bill`, { sandbox: next.id });
+        }
         throw e;
       }
-      for (let attempt = 0; ; attempt++) {
-        try {
-          await deleteSandbox(m, m.id);
-          return next;
-        } catch {
-          if (attempt === RETRY_WAITS_MS.length) {
-            throw new MachineError('provider', `the replacement is saved, but the old machine ${m.id} could not be deleted and may still bill`, { sandbox: m.id });
-          }
-          await sleep(RETRY_WAITS_MS[attempt]);
-        }
+      try {
+        await deleteRetrying(m);
+      } catch {
+        throw new MachineError('provider', `the replacement is saved, but the old machine ${m.id} could not be deleted and may still bill`, { sandbox: m.id });
       }
+      return next;
     },
 
     url: async (m: MachineRef, port: number) => {

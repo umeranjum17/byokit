@@ -696,6 +696,70 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
   }
 });
 
+test('a replacement that never comes on is deleted with retries, and a delete that keeps failing names it', async () => {
+  const server = await startFakeSandboxServer();
+  try {
+    let refuse: (method: string, url: string) => boolean = () => false;
+    const flaky: typeof fetch = (url, init) => (refuse(init?.method ?? 'GET', String(url)) ? Promise.reject(new TypeError('connection reset')) : fetch(url, init));
+    const provider = boat({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key', fetch: flaky });
+    const m = machine({ provider, store: memoryStore() });
+    await m.create({ name: 'web', size: 'small', keepCopies: true });
+    const saved = await m.snapshot();
+    const oldRef = m.ref!;
+    server.nextCreateState('error');
+    const refused: string[] = [];
+    refuse = (method, url) => {
+      if (method !== 'DELETE' || !url.includes('/sandboxes/')) return false;
+      refused.push(new URL(url).pathname);
+      return true;
+    };
+    const stuck = await rejects(m.restore(saved.id), 'provider');
+    refuse = () => false;
+    const replacement = refused[0].split('/').pop()!;
+    assert.equal(refused.length, 4, 'the replacement delete is tried once and retried three times');
+    assert.ok(refused.every((p) => p === refused[0]), 'every try deletes the replacement');
+    assert.equal(stuck.extra.sandbox, replacement);
+    assert.ok(stuck.message.includes(replacement) && stuck.message.includes('may still bill'));
+    assert.equal(m.ref?.id, oldRef.id, 'the store keeps the old machine');
+    assert.notEqual(server.getState(replacement), null, 'the replacement is still there, and it is named');
+    assert.equal(await provider.status(oldRef), 'asleep');
+  } finally {
+    await server.close();
+  }
+});
+
+test('two machine objects on one store share its one-at-a-time guard and its record', async () => {
+  const server = await startFakeSandboxServer();
+  try {
+    const provider = boat({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
+    const store = memoryStore();
+    const first = machine({ provider, store });
+    const second = machine({ provider, store });
+    await first.create({ name: 'web', size: 'small', keepCopies: true });
+    const saved = await first.snapshot();
+    const oldRef = first.ref!;
+    assert.equal(second.ref?.id, oldRef.id, 'the second object reads the same machine');
+
+    const saving = first.snapshot();
+    await rejects(second.remove(oldRef.id), 'busy');
+    await saving;
+    assert.notEqual(server.getState(oldRef.id), null, 'the busy remove deleted nothing');
+
+    const reset = first.restore(saved.id);
+    await rejects(second.remove(oldRef.id), 'busy');
+    await reset;
+    assert.notEqual(first.ref?.id, oldRef.id);
+    assert.equal(second.ref?.id, first.ref?.id, 'the second object sees the new ref');
+    assert.equal(await second.state(), 'on');
+    assert.equal(await provider.status(oldRef), 'gone');
+
+    await second.remove(first.ref!.id);
+    assert.equal(first.ref, null);
+  } finally {
+    await server.close();
+  }
+});
+
 test('an app tells the person what the cloud computer costs and speaks in plain words', async () => {
   const today = new Date().toISOString().slice(0, 10);
   const small: Price = { size: 'small', perHour: 0.018, planFloorPerMonth: 20, asleepPerHour: 0, currency: 'USD', basis: 'incl. IPv4, excl. VAT', source: 'http://boat.test/prices', checked: today };

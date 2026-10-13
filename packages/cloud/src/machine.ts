@@ -42,26 +42,27 @@ const feedLines = (text: string, onLine: (line: string) => void): void => {
 
 type ExecOpts = { timeoutMs: number; root?: boolean; input?: Uint8Array };
 
+type StoreState = { loading: Promise<void> | null; record: MachineRecord | null; busyWith: string | null };
+const stores = new WeakMap<MachineStore, StoreState>();
+
 export function machine(o: { provider: Provider; store: MachineStore }): Machine {
-  let loading: Promise<void> | null = null;
-  let record: MachineRecord | null = null;
+  const shared = stores.get(o.store) ?? { loading: null, record: null, busyWith: null };
+  stores.set(o.store, shared);
   // host() resolves 'installing' while an install or update of this object is in flight (5.6).
   let installing = false;
-  // 5.10: one save, reset or remove of this machine at a time; another rejects `busy` and changes nothing.
-  let busyWith: string | null = null;
 
   const load = (): Promise<void> => {
-    loading ??= o.store.load().then((r) => {
-      record = r;
+    shared.loading ??= o.store.load().then((r) => {
+      shared.record = r;
     });
-    return loading;
+    return shared.loading;
   };
-  const current = (): MachineRef | null => record?.ref ?? null;
+  const current = (): MachineRef | null => shared.record?.ref ?? null;
 
   const save = async (next: MachineRef | null): Promise<void> => {
-    const saved: MachineRecord = { ...(record ?? { providerKey: '' }), ref: next };
+    const saved: MachineRecord = { ...(shared.record ?? { providerKey: '' }), ref: next };
     await o.store.save(saved);
-    record = saved;
+    shared.record = saved;
   };
 
   const checkAccount = async (r: MachineRef | null): Promise<void> => {
@@ -137,12 +138,12 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
 
   // The check and claim run before the first await, so two calls in one tick cannot both pass.
   const exclusive = async <T>(what: string, run: () => Promise<T>): Promise<T> => {
-    if (busyWith !== null) throw new MachineError('busy', `${busyWith} of this machine is already running`);
-    busyWith = what;
+    if (shared.busyWith !== null) throw new MachineError('busy', `${shared.busyWith} of this machine is already running`);
+    shared.busyWith = what;
     try {
       return await run();
     } finally {
-      busyWith = null;
+      shared.busyWith = null;
     }
   };
 
@@ -612,7 +613,7 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
         }
         return usageCost(u, o.provider.prices(), { label: o.provider.label, today });
       }
-      const entered = enteredCost(record?.monthlyEntered, o.provider.prices(), { label: o.provider.label, today });
+      const entered = enteredCost(shared.record?.monthlyEntered, o.provider.prices(), { label: o.provider.label, today });
       if (entered === null) throw new MachineError('unsupported', 'no usage and no entered price for this machine');
       return entered;
     },

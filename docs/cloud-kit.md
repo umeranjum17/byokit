@@ -483,10 +483,12 @@ land with that provider's adapter, behind the same members (follow-up).
   confirms first, showing `snapshot.restore` with the copy's date, which says that everything changed since then is
   lost. Then `provider.restore(ref, id, { idempotencyKey, replaced })` with a new `byokit-<name>-<16 base36>` key,
   retried up to 3 times with the same key on `unreachable` only (as `create`); `replaced(next)` saves `next` (5.1).
-  A replacement that does not come on, or is not saved, is deleted and the old machine is kept, so nothing unreferenced
-  keeps billing. Once `next` is saved, the old machine is deleted, retried up to 3 times on any error after the 1, 2
-  and 4 s waits. If it still fails, the store keeps `next` and the call rejects `provider` with `extra.sandbox` set to
-  the old id, and a message that the old machine may still bill.
+  A replacement that does not come on, or is not saved, is deleted, retried up to 3 times on any error after the 1, 2
+  and 4 s waits, and the old machine is kept, so nothing unreferenced keeps billing. If that still fails, the call
+  rejects with the original error's code, `extra.sandbox` set to the replacement's id, and a message that the
+  replacement may still bill. Once `next` is saved, the old machine is deleted, retried the same way. If it still
+  fails, the store keeps `next` and the call rejects `provider` with `extra.sandbox` set to the old id, and a message
+  that the old machine may still bill.
   On Boat the ref's `id` changes, so the app calls `url(port)` again for the new address and `update(recipe)`
   rewrites `installed.json` with the new id (8.3 step 6).
 - A restore is the same machine, so it keeps its identity (its tailnet node included): the adapter stops the old
