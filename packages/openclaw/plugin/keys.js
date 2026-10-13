@@ -48,7 +48,6 @@ export function registerKeys(api) {
         reply({ ok: ready, ...(ready ? { model: selected.model } : {}) });
         return;
       }
-      await rm(marker, { force: true });
       if (params.action === 'prepare') {
         // Only local profiles are loaded by this transaction: no shared-store read-through or CLI sync.
         const normal = await updateAuthProfileStoreWithLock({
@@ -69,6 +68,7 @@ export function registerKeys(api) {
         const cleared = await updateAuthProfileStoreWithLock({ agentDir: keyDir,
           saveOptions: { filterExternalAuthProfiles: false, syncExternalCli: false },
           updater(store) { store.profiles = {}; store.order = {}; return true; } });
+        if (cleared) await rm(marker, { force: true });
         respond(true, { ok: Boolean(cleared) });
         return;
       }
@@ -78,6 +78,7 @@ export function registerKeys(api) {
         const cleared = await updateAuthProfileStoreWithLock({ agentDir: keyDir,
           saveOptions: { filterExternalAuthProfiles: false, syncExternalCli: false },
           updater(store) { store.profiles = {}; store.order = {}; delete store.lastGood; return true; } });
+        if (cleared) await rm(marker, { force: true });
         respond(true, { ok: Boolean(cleared) });
         return;
       }
