@@ -30,6 +30,10 @@
       "types": "./dist/ssh.d.ts",
       "default": "./dist/ssh.js"
     },
+    "./hetzner": {
+      "types": "./dist/hetzner.d.ts",
+      "default": "./dist/hetzner.js"
+    },
     "./idle": {
       "react-native": {
         "types": "./dist/idle.d.ts",

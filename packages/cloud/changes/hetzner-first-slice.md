@@ -1,0 +1,1 @@
+- Add the Node-only Hetzner Cloud first slice: API-loaded shared sizes and prices, the app's own project/token, create/status/confirmed deletion, an SSH-22-only IPv4/IPv6 provider firewall with failed-setup cleanup, pinned SSH and unchanged HostRecipe bootstrap. Copies and start/stop remain follow-up work; stopped servers still bill.

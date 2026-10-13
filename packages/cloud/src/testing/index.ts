@@ -6,4 +6,6 @@ export type { FakeCall, FakeControl, FakeProviderOptions } from './fake-provider
 export { machineContract } from './contract.ts';
 export type { MachineBench, MachineContractTestContext, TestFn } from './contract.ts';
 export { startFakeSandboxServer } from './fake-sandbox-server.ts';
+export { startFakeHetznerServer } from './fake-hetzner-server.ts';
+export { setupFakeSsh } from './fake-ssh.ts';
 export type { SandboxRequest, SandboxServer, SandboxServerOptions } from './fake-sandbox-server.ts';
