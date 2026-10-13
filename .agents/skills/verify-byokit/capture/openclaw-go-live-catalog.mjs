@@ -52,9 +52,9 @@ try {
     assert.equal(listed?.available, true);
   }
 
-  const turn = async (label, spec) => {
+  const turn = async (label, spec, member = 'm1') => {
     let chunks = 0;
-    const end = await kit.run({ member: 'm1', sessionKey: `agent:m1:verify-go-${label}`, message: 'In one short sentence, what is the capital of France?', ...spec },
+    const end = await kit.run({ member, sessionKey: `agent:${member}:verify-go-${label}`, message: 'In one short sentence, what is the capital of France?', ...spec },
       (e) => { if (e.type === 'text') chunks++; });
     say(`run (${label}):`, JSON.stringify(spec), `text events: ${chunks}`, 'end:', JSON.stringify(end));
     assert.ok(end.ok && chunks > 0, 'a streamed answer');
@@ -62,6 +62,13 @@ try {
     return end;
   };
   await turn('model', { model: MODEL, ...(live ? {} : { auth: 'apiKey' }) });
+  // The key path: a member with only a Go key reads signedIn and runs Muse on it (live: a second member).
+  const keyMember = live ? 'm2' : 'm1';
+  if (live) say('addKey:', await kit.addKey(keyMember, { authChoice: 'opencode-go', apiKey: key }));
+  const signed = await kit.signedIn(keyMember, 'opencode-go');
+  say('signedIn after addKey:', signed);
+  assert.equal(signed, true);
+  if (live) await turn('key', { model: MODEL, auth: 'apiKey' }, keyMember);
   if (!live) {
     const other = await kit.run({ member: 'm1', sessionKey: 'agent:m1:verify-go-other', auth: 'apiKey', model: 'openai/gpt-5.1', message: 'Hi' });
     say('key run on another provider:', JSON.stringify(other));

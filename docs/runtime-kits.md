@@ -791,7 +791,10 @@ Mapping to `SignInView.why`: setup-admission-busy error → `busy`; person cance
 `declined`; 200 turns or 15 min → `expired`; else `failed`. Errors are cut to 200 chars.
 
 **providerStatus / signedIn / providers**: live readiness reads; see 5.8 for the usable-provider rule,
-native Claude detection, unknown-status mapping and admission snapshots.
+native Claude detection, unknown-status mapping and admission snapshots. `signedIn(member, provider)` is also true
+when the member's key agent holds a ready key (`byokit.keys ready`) whose saved model is that provider's (5.8 API
+keys), so an app that added only a key sees it. `providers` stays the member agent's sign-ins, the ones a run
+without `auth: 'apiKey'` uses.
 **signOut**: `models.authLogout { provider, agentId, profileIds }` with the agent's own profiles of that provider
 (`byokit.accounts list`; from O14, 5.15). `signIn`, `signedIn`, `providers` and `signOut` address the
 member agent, whose sign-in to a provider is that provider's first account (5.15); `addAccount` adds any further one.

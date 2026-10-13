@@ -956,8 +956,10 @@ export class OpenClawKit {
     return this.providerStatus(member).then((names) => names ?? []);
   }
 
+  /** A member sign-in to `provider`, or a ready key (5.8) whose saved model is that provider's. */
   signedIn(member: Member, provider: string): Promise<boolean> {
-    return this.providers(member).then((names) => names.includes(provider)).catch(() => false);
+    return this.providers(member).then(async (names) => names.includes(provider)
+      || providerOf((await this.keys.ready(member))?.model ?? '') === provider).catch(() => false);
   }
 
   signIn(

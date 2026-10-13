@@ -242,9 +242,13 @@ test('API key is explicit, member-local, secret-free, and removed without fallba
   const canary = 'CANARY-PAID-KEY-928374';
   const views: unknown[] = [];
   const off = kit.onEvent('*', (e) => views.push(e));
+  assert.equal(await kit.signedIn('m1', 'openai'), false);
   assert.equal(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: canary }), 'ok');
-  assert.deepEqual(await kit.providers('m1'), []);
+  assert.deepEqual(await kit.providers('m1'), [], 'providers stays the member sign-ins');
   assert.deepEqual(await kit.providers('m2'), []);
+  assert.equal(await kit.signedIn('m1', 'openai'), true, 'a ready key counts for its provider');
+  assert.equal(await kit.signedIn('m1', 'anthropic'), false);
+  assert.equal(await kit.signedIn('m2', 'openai'), false);
   const activation = fake.calls.find((c) => c.method === 'openclaw.setup.activate')?.params as Record<string, unknown>;
   assert.equal(activation.kind, 'api-key');
   assert.equal(activation.agentId, 'byokit-key-m1');
@@ -260,6 +264,7 @@ test('API key is explicit, member-local, secret-free, and removed without fallba
   assert.deepEqual(other, { ok: false, kind: 'signed-out', message: 'Add an API key to use this option.' });
   await kit.call('models.authLogout', { agentId: 'byokit-key-m1', provider: 'openai' });
   assert.deepEqual(await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat', auth: 'apiKey', message: 'Hello' }), other);
+  assert.equal(await kit.signedIn('m1', 'openai'), false, 'a cleared key no longer counts');
   assert.equal(fake.calls.filter((c) => c.method === 'agent').length, count);
   fake.failNext('agent', '429 rate limit: Try again in 30 minutes');
   const resting = await kit.run({ member: 'm1', sessionKey: 'agent:m1:normal', message: 'Hello' });

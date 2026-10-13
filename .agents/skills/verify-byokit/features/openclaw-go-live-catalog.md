@@ -7,6 +7,7 @@ Verification recipe for [live provider catalogs](../../../../docs/runtime-kits.m
 - Before a key nothing is registered; after `addAccount`/`addKey` for `opencode-go`, `models.providers['opencode-go'].models` holds the live list, Muse as `openai-responses` on `https://opencode.ai/zen/go/v1`.
 - `kit.models(member, account)` lists Muse `available`; a run on it streams text and ends `ok` with `usage`.
 - `run({ auth: 'apiKey', model })` takes any model of the key's provider; another provider ends `plan`.
+- After `addKey`, `signedIn(member, 'opencode-go')` is true while `providers(member)` stays the member's own sign-ins; live, a second member's key run on Muse streams with usage.
 - A fresh start finds the list unchanged and writes nothing (no gateway restart, no config rewrite).
 
 ## How to get to it (user POV)

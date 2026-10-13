@@ -176,7 +176,9 @@ without a new accepted frame emit no `started`. Handle these frames explicitly r
 non-text/tool frame as an end.
 Live readiness reads (`providers`, `signedIn`, or device `state()`) prepare admission for the next run, avoiding
 redundant checks while authority remains reusable. `providerStatus(member)` returns `undefined` for unknown
-status rather than `[]`; `providers` maps unknown to `[]`, and `signedIn` to `false`.
+status rather than `[]`; `providers` maps unknown to `[]`, and `signedIn` to `false`. `signedIn(member, provider)`
+is also true when the member holds a ready API key for that provider (`addKey`), while `providers` lists only the
+member's own sign-ins, the ones a run without `auth: 'apiKey'` uses; a key run passes `auth: 'apiKey'`.
 See [the admission contract](../../docs/runtime-kits.md#58-runs-members-and-streams) for lifetime, expiry,
 file witnesses, invalidation and remote-revocation limits.
 Tool events carry the engine's call `id`, the `input` on `start` and the `output` and `error` on `end`. A run that
