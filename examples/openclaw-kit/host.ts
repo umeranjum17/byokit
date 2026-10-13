@@ -89,10 +89,12 @@ async function fakeSignIn() {
       return { done: true, status: 'done' };
     },
     'wizard.cancel': (p: { sessionId: string }) => { answered.delete(p.sessionId); return { status: 'cancelled' }; },
-    'openclaw.setup.activate': (p: { authChoice?: string; apiKey?: string }) => {
+    'openclaw.setup.activate': (p: { agentId?: string; authChoice?: string; apiKey?: string }) => {
       if (p.authChoice !== 'opencode-go') return { ok: false, status: 'unavailable' };
       if (p.apiKey === 'wrong-key') return { ok: false, status: 'invalid' };
       planKey = true;
+      // The engine stores the key as the agent's profile and points its model at it; the sign-in's seal reads that.
+      gateway!.seedProfile(String(p.agentId), 'opencode-go:default', { provider: 'opencode-go', type: 'api_key', key: String(p.apiKey) });
       return { ok: true, status: 'ok', modelRef: 'opencode-go/fake-key-model' };
     },
     // The pin lists each signed-in provider with its profiles (5.15): signOut passes those profileIds.
