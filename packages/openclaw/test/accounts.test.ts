@@ -1064,6 +1064,52 @@ test('removeAccount and the orphan sweep', async () => {
   }
 });
 
+// A removal that dies right after agents.delete (off the roster, entry and state dir still on disk) finishes on retry.
+test('a removal that dies after agents.delete finishes on retry', async () => {
+  const stateDir = scratchDir('o14h-retry');
+  const fake = fakeGateway();
+  const root = join(stateDir, 'openclaw');
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done, { state: 'done', via: 'browser' });
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    await kit.stop();
+    const agentDir = join(root, 'state', 'agents', agent);
+    mkdirSync(join(agentDir, 'agent'), { recursive: true });
+    writeFileSync(join(agentDir, 'agent', 'auth.json'), '{}');
+
+    let crashed = false;
+    const dying: typeof fake.factory = (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, request: async (method, params, o) => {
+        const answer = await transport.request(method, params, o);
+        if (method === 'agents.delete' && !crashed) { crashed = true; throw new Error('process died after agents.delete'); }
+        return answer;
+      } };
+    };
+    const kit2 = new OpenClawKit({ stateDir, transport: dying, spawnEngine: false, callbackPort: 0 });
+    try {
+      await kit2.start();
+      await assert.rejects(kit2.removeAccount('m1', second.id), /process died after agents.delete/);
+    } finally { await kit2.stop(); }
+    assert.ok(second.id in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts, 'the entry remains');
+    assert.ok(existsSync(agentDir), 'the state dir remains');
+
+    const kit3 = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+    try {
+      await kit3.start();
+      await kit3.removeAccount('m1', second.id);
+      assert.ok(!(second.id in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts), 'the retry drops the entry');
+      assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'and removes the state dir');
+    } finally { await kit3.stop(); }
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 // Fail closed (O14h): an index that cannot be parsed sweeps nothing, and a member-agent removal whose sign-in list
 // cannot be read deletes no entry and logs out nothing.
 test('an unreadable index sweeps nothing, and a removal whose list fails deletes nothing', async () => {

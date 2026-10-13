@@ -477,7 +477,9 @@ export function createAccounts(ctx: {
   async function remove(member: Member, id: AccountId): Promise<void> {
     check(member);
     const { agentId: memberAgent } = await ctx.ensure(member);
-    const { entry } = await entryOf(member, id);
+    const entry = read(member).accounts[id];
+    if (!entry || (entry.agent !== memberAgent && !(ACCOUNT_AGENT.test(entry.agent) && entry.agent.startsWith(`${member}--`))))
+      throw new Error(`unknown account: ${id}`);
     const agent = entry.agent;
     const provider = id.split('.')[0]!;
     if (ctx.locks.live(agent) || signing.has(`${member}\n${id}`)) throw new Error('removeAccount: busy');
