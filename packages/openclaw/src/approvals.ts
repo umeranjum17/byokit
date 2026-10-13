@@ -2,6 +2,7 @@
 import { randomBytes } from 'node:crypto';
 import type { Bridge } from './bridge.ts';
 import { MEMBER_ID } from './members.ts';
+import { memberOf } from './attribution.ts';
 import type { Approval, Decision, GatewayTransport, Member } from './types.ts';
 
 type NativeSource = 'exec' | 'plugin' | 'question';
@@ -26,13 +27,9 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 const asString = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined);
 
-const memberOfKey = (key: string): Member | undefined => {
-  const m = /^agent:([a-z][a-z0-9-]{0,31}):/.exec(key);
-  return m?.[1];
-};
-
 /**
- * Member attribution: the request detail's agent first, else the `agent:<member>:` session key (5.9). The real
+ * Member attribution: the request detail's agent first, else the `agent:<member>:` session key (5.9). An
+ * `<member>--<hex6>` account agent attributes to `<member>` (5.15). The real
  * engine nests exec/plugin details under `request` (question events stay flat); unattributed approvals carry ''
  * so they can never match a member id (B2).
  */
@@ -40,8 +37,9 @@ function attribute(payload: Record<string, unknown>): { member: Member; sessionK
   const detail = isRecord(payload.request) ? payload.request : payload;
   const agent = asString(detail.agentId);
   const key = asString(detail.sessionKey);
-  const fromKey = key ? memberOfKey(key) : undefined;
-  const member = agent ?? fromKey ?? asString(detail.member) ?? '';
+  const fromAgent = agent ? memberOf(agent) : undefined;
+  const fromKey = key ? memberOf(key) : undefined;
+  const member = fromAgent ?? fromKey ?? asString(detail.member) ?? '';
   return { member, ...(key ? { sessionKey: key } : {}) };
 }
 

@@ -18,6 +18,7 @@ import { reach, type ServeIngress, type Via } from '@byokit/discover';
 import type { PushAction, RelayClient } from '@byokit/relay';
 import { ENGINE_VERSION } from './constants.ts';
 import type { OpenClawKit } from './kit.ts';
+import { memberOf as memberOfRef } from './attribution.ts';
 import { b64urlDecode, b64urlEncode, sealNotice } from './notices.ts';
 import { routeFor } from './routes.ts';
 import { outputSchema } from './output.ts';
@@ -45,7 +46,7 @@ const browserEvent = (event: string, payload: unknown): payload is { member: Mem
     && (payload.kind === 'state' || payload.kind === 'signin');
 
 const memberKey = (member: Member, sessionKey: string): boolean =>
-  sessionKey.startsWith(`agent:${member}:`);
+  memberOfRef(sessionKey) === member;
 
 function memberSessions(result: unknown, member: Member): Record<string, unknown>[] {
   const rows = Array.isArray(result) ? result : isRecord(result) && Array.isArray(result.sessions) ? result.sessions : [];
@@ -57,21 +58,25 @@ function memberSessions(result: unknown, member: Member): Record<string, unknown
 
 /** `oc.run`'s run options, type-checked; the kit's own checks (account, tool names) still apply. */
 function runOptions(args: Record<string, unknown>): Omit<RunSpec, 'member' | 'sessionKey' | 'register' | 'meta'> {
-  const { message, model, auth, system, images, thinking, tools, schema } = args;
+  const { message, model, account, needs, auth, system, images, thinking, tools, schema } = args;
   const ok = typeof message === 'string'
     && (model === undefined || typeof model === 'string')
+    && (account === undefined || typeof account === 'string')
+    && (needs === undefined || (Array.isArray(needs) && needs.every((n) => typeof n === 'string')))
     && (auth === undefined || auth === 'apiKey')
     && (system === undefined || typeof system === 'string')
     && (images === undefined || (Array.isArray(images) && images.every((i) =>
       isRecord(i) && typeof i.data === 'string' && typeof i.mimeType === 'string')))
     && (thinking === undefined || (typeof thinking === 'string' && THINKING.has(thinking)))
     && (tools === undefined || (Array.isArray(tools) && tools.every((t) => typeof t === 'string')));
-  if (!ok) throw new Error('oc.run needs { message, sessionKey?, model?, auth?, system?, images?, thinking?, tools?, schema? }');
+  if (!ok) throw new Error('oc.run needs { message, sessionKey?, model?, account?, needs?, auth?, system?, images?, thinking?, tools?, schema? }');
   if (schema !== undefined) outputSchema(schema);
   return {
     message: message as string,
     ...(schema === undefined ? {} : { schema: schema as RunSpec['schema'] }),
     ...(model === undefined ? {} : { model: model as string }),
+    ...(account === undefined ? {} : { account: account as RunSpec['account'] }),
+    ...(needs === undefined ? {} : { needs: [...(needs as string[])] }),
     ...(auth === undefined ? {} : { auth: 'apiKey' as const }),
     ...(system === undefined ? {} : { system: system as string }),
     ...(images === undefined ? {} : { images: (images as { data: string; mimeType: string }[])
@@ -532,9 +537,11 @@ export function openclawLink(
             void s.write(`${JSON.stringify({ event: 'byokit.browser', payload: { member, kind: record.kind } })}\n`).catch(() => {});
           return;
         }
+        // Attribution (5.15): an `<member>--<hex6>` account agent's events are the member's.
         const agent = record?.agentId;
         const key = record?.sessionKey;
-        if (agent !== member && !(typeof key === 'string' && memberKey(member, key))) return;
+        if (!(typeof agent === 'string' && memberOfRef(agent) === member)
+          && !(typeof key === 'string' && memberKey(member, key))) return;
         void s.write(`${JSON.stringify({ event, payload })}\n`).catch(() => {});
       });
       const offApproval = kit.onApproval((approval, change) => {

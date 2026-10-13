@@ -4,7 +4,8 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server, type Socket } from 'node:net';
 import { rm } from 'node:fs/promises';
 import { words } from './words.ts';
-import type { Approval, Decision, Member, RunRef, ToolHost, ToolSpec } from './types.ts';
+import { memberOf } from './attribution.ts';
+import type { Approval, Decision, RunRef, ToolHost, ToolSpec } from './types.ts';
 
 /** Newline-framed JSON, one request per connection; anything larger is not a gate request. */
 const FRAME_CAP = 1_000_000;
@@ -17,11 +18,6 @@ export const MAX_APPROVAL_TIMEOUT_MS = 190_000;
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
-
-const memberOfKey = (key: string): Member | undefined => {
-  const m = /^agent:([a-z][a-z0-9-]{0,31}):/.exec(key);
-  return m?.[1];
-};
 
 export const DEFAULT_SOCKET_NAME = 'bridge.sock';
 export const DEFAULT_PARAM_PREFIX = '__byokit';
@@ -311,7 +307,7 @@ export class Bridge {
     ) {
       this.armed = undefined;
       // '' when unattributable: never a member id (B2).
-      const member = memberOfKey(key) ?? '';
+      const member = memberOf(key) ?? '';
       const runRef: RunRef = { sessionKey: key, member };
       return void this.gateRun(socket, runRef, tool, input);
     }
@@ -401,7 +397,7 @@ export class Bridge {
       this.tickets.splice(ticket, 1);
     }
     if (!this.host) return this.reply(socket, { ok: false, reason: "can't run this action right now" });
-    const run = this.runs.get(key) ?? { sessionKey: key, member: memberOfKey(key) ?? '' };
+    const run = this.runs.get(key) ?? { sessionKey: key, member: memberOf(key) ?? '' };
     // The plugin destroys its socket when the run aborts (run abort, hook timeout); without this the host's
     // sandboxed command keeps running after the tool is gone.
     const controller = new AbortController();

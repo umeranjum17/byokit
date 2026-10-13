@@ -8,6 +8,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { createLocks } from './locks.ts';
 import { providerOf, resolveSelection } from './pick.ts';
+import { memberOf as baseMemberOf } from './attribution.ts';
 import { KEY_PREFIX, MEMBER_ID, NEW_MEMBER_ID, untilListed } from './members.ts';
 import { routes, routeFor } from './routes.ts';
 import { words } from './words.ts';
@@ -58,6 +59,7 @@ export function createAccounts(ctx: {
   models(member: Member, id: AccountId): Promise<ModelInfo[]>;
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;
   bind(member: Member, sessionKey: string): Promise<Binding | undefined>;
+  memberOf(agentId: string): Member | undefined;
   keyRefusal(member: Member, binding: Binding): Promise<string | undefined>;
   pick(member: Member, sel: RunSelection, skip?: readonly AccountId[], binding?: Binding): Promise<{ pick: AccountPick; agent?: string }>;
   rest(member: Member, id: AccountId, until: number): Promise<void>;
@@ -338,6 +340,16 @@ export function createAccounts(ctx: {
       return roomOf(row.provider, answer);
     });
 
+  // Attribution (5.15, O14m): the member an agent belongs to. The member agent is its own; an
+  // `<member>--<hex6>` account agent maps only while the index names it under that member, and
+  // `byokit-key-<member>` only while its entry names it. An unindexed agent of that shape maps nowhere,
+  // so it stays unreachable (entryOf lists first) whatever the file holds.
+  const memberOf = (agentId: string): Member | undefined => {
+    const base = baseMemberOf(agentId);
+    if (base === undefined || agentId === base) return base;
+    return Object.values(read(base).accounts).some((e) => e.agent === agentId) ? base : undefined;
+  };
+
   // Runs step 2 reads the index alone: the index-only refusal makes no request, and a cold index adds one account
   // listing (the pick's late check after `list`; `keyRefusal` lists when the held account is not API-billed). This
   // gives the accounts a binding holds, in list order, and the name a refusal shows (`account.another` when it holds none).
@@ -543,6 +555,7 @@ export function createAccounts(ctx: {
 
   async function add(member: Member, o: AddOptions, on: (v: SignInView) => void): Promise<AccountSignIn> {
     check(member);
+    if (o && typeof o === 'object' && 'key' in o) throw new Error('addAccount: keys are host-only');
     if (!NEW_MEMBER_ID.test(member)) throw new Error(words('account.legacyMember'));
     const choice = o?.authChoice === 'openai-codex' ? 'openai' : o?.authChoice;
     const route = routes().find((r) => r.choice === choice && r.billing === 'subscription');
@@ -723,5 +736,5 @@ export function createAccounts(ctx: {
     }
   }
 
-  return { list, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, pick, rest, move };
+  return { list, add, rename, defaults, setDefaults, models, room, bind, memberOf, keyRefusal, pick, rest, move };
 }

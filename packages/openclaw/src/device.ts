@@ -4,6 +4,7 @@ import type { BrowserDevice, BrowserState, NeedSignIn, TakeoverLease, LiveSource
 import { openBoxFromSeed, boxKeyPairFromSeed } from '@byokit/seal';
 import type { DeviceLink, LinkStream } from '@byokit/pair';
 import type { RouteView } from './routes.ts';
+import { memberOf } from './attribution.ts';
 import { toAccountView, type AccountView } from './words.ts';
 import { b64urlDecode, b64urlEncode, openNotice } from './notices.ts';
 import type {
@@ -21,6 +22,7 @@ import type {
   SchemaOutput,
   RunEvent,
   SignInView,
+  AccountRef,
 } from './types.ts';
 
 export type { GatewayEventName, GatewayEventPayload, GatewayMethod, GatewayParams, GatewayResult } from './types.ts';
@@ -42,6 +44,8 @@ export type DeviceEndFrame<T = unknown> = { type: 'end'; end: RunEnd<T> };
 export type DeviceRunOptions<S extends OutputSchema | undefined = OutputSchema | undefined> = {
   schema?: S;
   sessionKey?: string;
+  account?: AccountRef | 'default' | 'auto';
+  needs?: string[];
   model?: string; // 'provider/model'
   auth?: 'apiKey';
   system?: string;
@@ -80,6 +84,14 @@ export class BrowserRefused extends LinkRefused {
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
+
+// A session key this device sends must be shaped like one: `agent:<member>:` or an
+// `<member>--<hex6>` account agent's key (5.15). Anything else is refused before it reaches the computer.
+const checkKey = (sessionKey: string): string => {
+  if (typeof sessionKey !== 'string' || !sessionKey.startsWith('agent:') || memberOf(sessionKey) === undefined)
+    throw new LinkRefused('Invalid session key');
+  return sessionKey;
+};
 
 /**
  * Newline-delimited JSON frames off a link stream, in order. A host end with an error becomes a
@@ -332,8 +344,9 @@ export function browserDevice(link: DeviceLink): BrowserDevice {
   };
 }
 
-// `oc.run` carries no account selection yet (O14m adds the account frame), so the link never streams an `account` event.
-type DeviceRunEvent = Exclude<RunEvent, { type: 'account' }>;
+// `oc.run` carries the account selection (O14m): `account`/`needs` ride the stream args and the `account`
+// event arrives first, like on the computer.
+type DeviceRunEvent = RunEvent;
 
 /** `openclawDevice`'s device surface: every `oc.*` op the computer answers, typed. */
 export type OpenClawDevice = {
@@ -387,7 +400,9 @@ export function openclawDevice(link: DeviceLink): OpenClawDevice {
     sessions: () => link.request('oc.sessions') as Promise<SessionRow[]>,
     run: <const S extends OutputSchema | undefined = undefined>(message: string, o?: DeviceRunOptions<S>) => {
       const inner = liveStream(() =>
-        link.stream('oc.run', { message, ...(o?.sessionKey ? { sessionKey: o.sessionKey } : {}),
+        link.stream('oc.run', { message, ...(o?.sessionKey ? { sessionKey: checkKey(o.sessionKey) } : {}),
+          ...(o?.account !== undefined ? { account: o.account } : {}),
+          ...(o?.needs !== undefined ? { needs: o.needs } : {}),
           ...(o?.model !== undefined ? { model: o.model } : {}), ...(o?.system !== undefined ? { system: o.system } : {}),
           ...(o?.auth !== undefined ? { auth: o.auth } : {}),
           ...(o?.images !== undefined ? { images: o.images } : {}), ...(o?.thinking !== undefined ? { thinking: o.thinking } : {}),
@@ -418,10 +433,10 @@ export function openclawDevice(link: DeviceLink): OpenClawDevice {
       };
     },
     steer: async (k, t, o) => {
-      await link.request('oc.steer', { sessionKey: k, text: t, ...(o?.auth ? { auth: o.auth } : {}) });
+      await link.request('oc.steer', { sessionKey: checkKey(k), text: t, ...(o?.auth ? { auth: o.auth } : {}) });
     },
     abort: async (k, o) => {
-      await link.request('oc.abort', { sessionKey: k, ...(o?.auth ? { auth: o.auth } : {}) });
+      await link.request('oc.abort', { sessionKey: checkKey(k), ...(o?.auth ? { auth: o.auth } : {}) });
     },
     approvals: () => link.request('oc.approvals') as Promise<Approval[]>,
     decide: async (id, d) => {
