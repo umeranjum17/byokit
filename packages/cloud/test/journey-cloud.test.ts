@@ -546,6 +546,61 @@ test('a sign-in link shown late in the startup wait keeps a full five minutes to
   } finally { mock.timers.reset(); }
 });
 
+for (const forever of [false, true]) test(forever
+  ? 'hung sign-in status checks end at the window deadline, not the first check timeout'
+  : 'a hung status check mid-sign-in is retried and a ready machine joins', async () => {
+  mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 0 });
+  try {
+    const base = fakeProvider();
+    let upAt: number | null = null, hung = 0;
+    const provider: Provider = { ...base, exec: async (ref, argv, opts) => {
+      if (argv[0] === 'tailscale' && argv[1] === 'up') {
+        upAt = Date.now();
+        return { code: 1, stdout: 'https://login.tailscale.com/a/hung-check', stderr: '', timedOut: false };
+      }
+      if (argv[0] === 'tailscale' && argv[1] === 'status') {
+        if (upAt !== null && Date.now() >= upAt + 60_000 && (forever || hung === 0)) {
+          hung++;
+          assert.equal(opts.timeoutMs, 30_000);
+          return new Promise(resolve => setTimeout(() => resolve({ code: 124, stdout: '', stderr: '', timedOut: true }), 30_000));
+        }
+        return { code: 0, stdout: JSON.stringify(hung
+          ? { BackendState: 'Running', Self: { DNSName: 'hung-check.tail.ts.net.' } }
+          : { BackendState: 'NeedsLogin' }), stderr: '', timedOut: false };
+      }
+      if (['true', 'sh', 'systemctl'].includes(argv[0])) return { code: 0, stdout: '', stderr: '', timedOut: false };
+      return base.exec(ref, argv, opts);
+    } };
+    const m = machine({ provider, store: memoryStore() });
+    await m.create({ name: 'hung-check', size: 'small', keepCopies: false });
+    const steps: string[] = [];
+    let settled = false, outcome: unknown;
+    const joined = m.joinTailnet({ hostname: 'hung-check' }, s => steps.push(s.step)).then(
+      v => { outcome = v; settled = true; }, e => { outcome = e; settled = true; },
+    );
+    for (let ticks = 0; !settled; ticks++) {
+      assert.ok(ticks < 340, 'status timeouts never restart the sign-in window');
+      await new Promise(resolve => setImmediate(resolve));
+      if (!settled) mock.timers.tick(1000);
+    }
+    await joined;
+    assert.ok(upAt !== null);
+    if (forever) {
+      assert.ok(outcome instanceof MachineError);
+      assert.equal(outcome.code, 'timeout');
+      assert.equal(outcome.message, 'Starting your private network took too long.');
+      assert.ok(Date.now() >= upAt + 300_000 && Date.now() < upAt + 330_000);
+      assert.ok(hung > 1);
+      assert.deepEqual(steps, ['open-page']);
+    } else {
+      assert.deepEqual(outcome, { name: 'hung-check.tail.ts.net' });
+      assert.equal(hung, 1);
+      assert.ok(Date.now() >= upAt + 90_000 && Date.now() < upAt + 300_000);
+      assert.deepEqual(steps, ['open-page', 'joined']);
+    }
+  } finally { mock.timers.reset(); }
+});
+
 test('private-network deadlines distinguish startup, approval, an unused link and no link', async () => {
   for (const [state, link, message, expectedSteps] of [
     ['Starting', false, 'Starting your private network took too long.', []],

@@ -934,7 +934,11 @@ ports it previously exposed as though it had this fresh-machine guarantee; the p
   never runs `up` against it. On `Running` with a MagicDNS name, emit `joined` and resolve `{ name }` (no final dot).
   A deadline rejects `MachineError('timeout')`: with the approval wording when the daemon reports `needs-approval`; with
   the expired-link wording only when a sign-in link was shown and the daemon still reports `needs-login`; otherwise with
-  the `Starting your private network took too long.` wording. Command failures retain their real cause.
+  the `Starting your private network took too long.` wording. During the sign-in window, a status check that hits its
+  30-second command timeout is retried without restarting that window; a hung check does not expire a shown link or
+  end the join early. If checks remain hung when the window deadline is reached, reject with
+  `Starting your private network took too long.` Non-timeout command failures retain their real cause; a standalone
+  `tailnet()` call still rejects its own status-check timeout immediately.
   The private route an app dials is `http://<name>:<app port>` (plain HTTP inside the tailnet's WireGuard tunnel;
   the app serves it with `tailscale serve --tcp=<port>`), never a provider URL.
 - `tailnet()` never installs or joins. Missing Tailscale or a stopped daemon is `off`; `NeedsLogin` is

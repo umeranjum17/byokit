@@ -106,21 +106,24 @@ export async function joinTailnet(provider: Provider, ref: MachineRef, o: { host
   const signInUntil = Date.now() + 5 * 60_000;
   let approvalShown = false;
   for (;;) {
-    const current = await tailnet(provider, ref);
-    if (current.state === 'joined' && current.name !== null) {
+    const current = await tailnet(provider, ref).catch((error: unknown) => {
+      if (error instanceof MachineError && error.code === 'timeout') return null;
+      throw error;
+    });
+    if (current?.state === 'joined' && current.name !== null) {
       onStep?.({ step: 'joined', name: current.name });
       return { name: current.name };
     }
-    if (current.state === 'needs-approval' && !approvalShown) {
+    if (current?.state === 'needs-approval' && !approvalShown) {
       approvalShown = true;
       onStep?.({ step: 'approve', name: o.hostname });
     }
-    if (up.timedOut || (up.code !== 0 && !link && current.state === 'off')) {
+    if (up.timedOut || (up.code !== 0 && !link && current?.state === 'off')) {
       throw new MachineError('provider', `Connecting your private network failed: ${up.stderr.slice(-200)}`);
     }
     if (Date.now() >= signInUntil) {
-      if (current.state === 'needs-approval') throw new MachineError('timeout', words('tailnet.approvalNeeded'));
-      if (link !== undefined && current.state === 'needs-login') throw new MachineError('timeout', words('tailnet.loginExpired'));
+      if (current?.state === 'needs-approval') throw new MachineError('timeout', words('tailnet.approvalNeeded'));
+      if (link !== undefined && current?.state === 'needs-login') throw new MachineError('timeout', words('tailnet.loginExpired'));
       throw new MachineError('timeout', 'Starting your private network took too long.');
     }
     await new Promise<void>((resolve) => setTimeout(resolve, 1000));
