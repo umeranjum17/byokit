@@ -349,6 +349,7 @@ Where this differs from the first suggested shape, and why:
 ```ts
 export type TailnetStep =
   | { step: 'open-page'; url: string }
+  | { step: 'approve'; name: string }
   | { step: 'joined'; name: string }
 export type Tailnet = { state: 'joined' | 'needs-login' | 'off' | 'starting'; name: string | null }
 export interface Machine {
@@ -421,7 +422,8 @@ No desktop URL, environment, logins or other secret-bearing response fields leav
 
 - `state()`: `provider.status(ref)`.
 - `url(port)`: `provider.url?.(ref, port) ?? null` (a missing method resolves `null`, not an error). `port` is an
-  integer 1-65535. **Calling `url()` makes that port public**, including opening the provider firewall. It is never
+  integer 1-65535. **Calling `url()` makes that port public**, including opening the provider firewall. Boat has no
+  unhost route, so the port stays public for that sandbox's life. The kit and the muxr recipes never call it. It is never
   called automatically by create, install, update, host or join; the default bootstrap uses the tailnet instead.
 - `remove(confirm)`: `confirm !== ref.id` rejects `confirm`. `provider.remove` missing rejects `unsupported`. Otherwise
   `provider.remove(ref, confirm)`, then save `ref: null`. `remove` is irreversible; the app calls it only from a person's
@@ -918,8 +920,12 @@ ports it previously exposed as though it had this fresh-machine guarantee; the p
   Host port selection remains the app recipe's responsibility; the kit has no default app port.
 - Run `tailscale up` with the requested hostname, no DNS or route acceptance, and a short command timeout; surface
   its validated HTTPS Tailscale login URL once as `open-page`. Poll status for up to five minutes so the person can
-  sign in/approve on the phone. On `Running` with a MagicDNS name, emit `joined` and resolve `{ name }` (no final dot).
-  Expired or unfinished login rejects `MachineError('timeout')`; command failures retain their real cause.
+  sign in on the phone. When `up` prints no sign-in link, or the daemon reports `NeedsMachineAuth` (the tailnet must
+  approve the machine), emit `approve` once with the hostname instead. On `Running` with a MagicDNS name, emit `joined`
+  and resolve `{ name }` (no final dot). A deadline with no sign-in link ever shown rejects `MachineError('timeout')`
+  with the approval wording; with a link shown, it uses the expired-link wording. Command failures retain their real cause.
+  The private route an app dials is `http://<name>:<app port>` (plain HTTP inside the tailnet's WireGuard tunnel;
+  the app serves it with `tailscale serve --tcp=<port>`), never a provider URL.
 - `tailnet()` never installs or joins. Missing Tailscale or a stopped daemon is `off`; `NeedsLogin` and
   `NeedsMachineAuth` are `needs-login`; `Running` is `joined`. A daemon still starting is `starting`: `Starting`,
   `NoState`, or a status answer that is not JSON (the daemon has not yet accepted a client). `joinTailnet` waits
@@ -931,7 +937,7 @@ ports it previously exposed as though it had this fresh-machine guarantee; the p
   as a new node. A restore of the same machine keeps its identity. The snapshots lane implements this rule; the
   kit has no copy method today.
 - The app shows `tailnet.joining`, `tailnet.approvalNeeded` and `tailnet.loginExpired`; the callback remains the
-  frozen two-step union. This slice's key refusal is specified in 4.4.
+  union in 4.4 (`open-page`, `approve`, `joined`). This slice's key refusal is specified in 4.4.
 
 ### 9.2 Bootstrap and proof
 
