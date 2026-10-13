@@ -1721,6 +1721,8 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
   check, so the kit also removes, on every `prepare` and again after the sealed auth store restores (before launch),
   each `<root>/state/agents/<member>--[0-9a-f]{6}` directory that a removal recorded as `gone` in its member's index
   file and that no index names. Nothing else is swept: a legacy member's own directory is never recorded, so it stays.
+  Either path then re-seals the live auth store at once while the engine runs (`AuthStore.reseal`), so
+  `auth-store.sealed` and `auth-store.objects/` stop holding the removed profile without waiting for stop.
   The account's sessions go with it; `move` first keeps one.
 - `models(member, id)`: `models.list { agentId, view: 'default' }` rows of the account's provider, mapped `id =
   'provider/model'`, `available`, `unavailableReason` `missing-auth`/`auth-failed` → `why: 'signed_out'`, `cooldown`
