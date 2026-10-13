@@ -1304,6 +1304,9 @@ export declare function createRuns(ctx: { request: GatewayTransport['request']; 
   ensure(member: Member): Promise<{ agentId: string }>; bridge: Pick<Bridge, 'register' | 'unregister'> }):
   { run<const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void, keyAgent?: string,
       preparedOutput?: ReturnType<typeof outputSchema>): Promise<RunEnd<SchemaOutput<S>>>; steer(k: string, t: string): Promise<void>; abort(k: string): Promise<void> };
+// accounts.ts (O14, O14m): attribution of an agent id or session key, checked against the account index; the kit's
+// memberOf(ref) is this bound to its root, and approvals, bridge and link take it
+export declare function memberOfAccount(root: string, ref: string): Member | undefined;
 // locks.ts (O14)
 export declare function createLocks(): { shared<T>(agentId: string, work: () => Promise<T>): Promise<T>;
   exclusive<T>(agentIds: string[], work: () => Promise<T>): Promise<T>; live(agentId: string): boolean };
@@ -1312,7 +1315,6 @@ export declare function createAccounts(ctx: { request: GatewayTransport['request
   ensure(member: Member): Promise<{ agentId: string; workspace: string }>; signIn: SignInCtx;
   locks: ReturnType<typeof createLocks> }): {
   bind(member: Member, sessionKey: string): Promise<{ agentId: string; id?: AccountId } | undefined>;   // id absent: member agent
-  memberOf(agentId: string): Member | undefined;                // attribution for approvals, bridge, link
   addKey: OpenClawKit['addKey'];
   list(member: Member): Promise<Account[]>; agentOf(member: Member, id: AccountId): Promise<string | undefined>;
   add: OpenClawKit['addAccount']; rename: OpenClawKit['renameAccount']; remove: OpenClawKit['removeAccount'];

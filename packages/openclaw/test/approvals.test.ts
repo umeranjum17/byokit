@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { test } from 'node:test';
 import { Approvals } from '../src/approvals.ts';
+import { memberOf } from '../src/attribution.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 
@@ -15,7 +16,7 @@ async function withApprovals(
   fn: (approvals: Approvals, fake: ReturnType<typeof fakeGateway>) => Promise<void>,
 ): Promise<void> {
   const fake = fakeGateway();
-  const approvals = new Approvals({ request: fake.transport.request, bridge: stubBridge });
+  const approvals = new Approvals({ request: fake.transport.request, bridge: stubBridge, memberOf });
   const off = fake.transport.onEvent((e) => approvals.handleEvent(e));
   try {
     return await fn(approvals, fake);

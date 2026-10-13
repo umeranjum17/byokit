@@ -4,8 +4,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server, type Socket } from 'node:net';
 import { rm } from 'node:fs/promises';
 import { words } from './words.ts';
-import { memberOf } from './attribution.ts';
-import type { Approval, Decision, RunRef, ToolHost, ToolSpec } from './types.ts';
+import type { Approval, Decision, Member, RunRef, ToolHost, ToolSpec } from './types.ts';
 
 /** Newline-framed JSON, one request per connection; anything larger is not a gate request. */
 const FRAME_CAP = 1_000_000;
@@ -83,6 +82,7 @@ export class Bridge {
   private readonly tools: ReadonlySet<string>;
   private readonly permitted: (tool: string) => boolean;
   private readonly approvalTimeoutMs: number;
+  private readonly memberOf: (ref: string) => Member | undefined;
   private readonly onAsk: (a: Approval) => void;
   private readonly onAskGone: (id: string) => void;
   private readonly beforeAgentRun?: (key: string, runId?: string) => Promise<boolean>;
@@ -106,6 +106,7 @@ export class Bridge {
     tools: ReadonlySet<string>; // the app's registered tool names; any other name is an engine builtin
     permitted: (tool: string) => boolean;
     approvalTimeoutMs: number;
+    memberOf(ref: string): Member | undefined; // the member a session key or agent id belongs to (accounts index)
     onAsk(a: Approval): void;
     onAskGone(id: string): void;
     beforeAgentRun?: (key: string, runId?: string) => Promise<boolean>;
@@ -116,6 +117,7 @@ export class Bridge {
     this.tools = o.tools;
     this.permitted = o.permitted;
     this.approvalTimeoutMs = Math.min(o.approvalTimeoutMs, MAX_APPROVAL_TIMEOUT_MS);
+    this.memberOf = o.memberOf;
     this.onAsk = o.onAsk;
     this.onAskGone = o.onAskGone;
     this.beforeAgentRun = o.beforeAgentRun;
@@ -307,7 +309,7 @@ export class Bridge {
     ) {
       this.armed = undefined;
       // '' when unattributable: never a member id (B2).
-      const member = memberOf(key) ?? '';
+      const member = this.memberOf(key) ?? '';
       const runRef: RunRef = { sessionKey: key, member };
       return void this.gateRun(socket, runRef, tool, input);
     }
@@ -397,7 +399,7 @@ export class Bridge {
       this.tickets.splice(ticket, 1);
     }
     if (!this.host) return this.reply(socket, { ok: false, reason: "can't run this action right now" });
-    const run = this.runs.get(key) ?? { sessionKey: key, member: memberOf(key) ?? '' };
+    const run = this.runs.get(key) ?? { sessionKey: key, member: this.memberOf(key) ?? '' };
     // The plugin destroys its socket when the run aborts (run abort, hook timeout); without this the host's
     // sandboxed command keeps running after the tool is gone.
     const controller = new AbortController();

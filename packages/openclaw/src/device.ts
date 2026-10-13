@@ -433,10 +433,10 @@ export function openclawDevice(link: DeviceLink): OpenClawDevice {
       };
     },
     steer: async (k, t, o) => {
-      await link.request('oc.steer', { sessionKey: checkKey(k), text: t, ...(o?.auth ? { auth: o.auth } : {}) });
+      await link.request('oc.steer', { sessionKey: k, text: t, ...(o?.auth ? { auth: o.auth } : {}) });
     },
     abort: async (k, o) => {
-      await link.request('oc.abort', { sessionKey: checkKey(k), ...(o?.auth ? { auth: o.auth } : {}) });
+      await link.request('oc.abort', { sessionKey: k, ...(o?.auth ? { auth: o.auth } : {}) });
     },
     approvals: () => link.request('oc.approvals') as Promise<Approval[]>,
     decide: async (id, d) => {

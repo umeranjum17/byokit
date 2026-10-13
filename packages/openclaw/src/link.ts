@@ -18,7 +18,6 @@ import { reach, type ServeIngress, type Via } from '@byokit/discover';
 import type { PushAction, RelayClient } from '@byokit/relay';
 import { ENGINE_VERSION } from './constants.ts';
 import type { OpenClawKit } from './kit.ts';
-import { memberOf as memberOfRef } from './attribution.ts';
 import { b64urlDecode, b64urlEncode, sealNotice } from './notices.ts';
 import { routeFor } from './routes.ts';
 import { outputSchema } from './output.ts';
@@ -45,14 +44,11 @@ const browserEvent = (event: string, payload: unknown): payload is { member: Mem
   event === 'byokit.browser' && isRecord(payload) && typeof payload.member === 'string'
     && (payload.kind === 'state' || payload.kind === 'signin');
 
-const memberKey = (member: Member, sessionKey: string): boolean =>
-  memberOfRef(sessionKey) === member;
-
-function memberSessions(result: unknown, member: Member): Record<string, unknown>[] {
+function memberSessions(result: unknown, owns: (sessionKey: string) => boolean): Record<string, unknown>[] {
   const rows = Array.isArray(result) ? result : isRecord(result) && Array.isArray(result.sessions) ? result.sessions : [];
   return (rows as unknown[]).filter(
     (row): row is Record<string, unknown> =>
-      isRecord(row) && typeof row.sessionKey === 'string' && memberKey(member, row.sessionKey),
+      isRecord(row) && typeof row.sessionKey === 'string' && owns(row.sessionKey),
   );
 }
 
@@ -118,6 +114,7 @@ export function openclawLink(
   o: OpenClawLinkOptions,
 ): OpenClawLinkHost {
   const passThrough = o.passThrough ?? (() => false);
+  const memberKey = (member: Member, sessionKey: string): boolean => kit.memberOf(sessionKey) === member;
   // The host lifecycle extension is supplied by the browser host. Without it control fails closed.
   const browser = (): BrowserHost => {
     if (!kit.browser) throw refused();
@@ -364,7 +361,7 @@ export function openclawLink(
       }
       case 'oc.sessions': {
         const result = await (kit.call as (method: string, params: unknown) => Promise<unknown>)('sessions.list', {});
-        return memberSessions(result, member);
+        return memberSessions(result, (key) => memberKey(member, key));
       }
       case 'oc.steer': {
         if (typeof args.sessionKey !== 'string' || typeof args.text !== 'string' || (args.auth !== undefined && args.auth !== 'apiKey'))
@@ -540,7 +537,7 @@ export function openclawLink(
         // Attribution (5.15): an `<member>--<hex6>` account agent's events are the member's.
         const agent = record?.agentId;
         const key = record?.sessionKey;
-        if (!(typeof agent === 'string' && memberOfRef(agent) === member)
+        if (!(typeof agent === 'string' && kit.memberOf(agent) === member)
           && !(typeof key === 'string' && memberKey(member, key))) return;
         void s.write(`${JSON.stringify({ event, payload })}\n`).catch(() => {});
       });

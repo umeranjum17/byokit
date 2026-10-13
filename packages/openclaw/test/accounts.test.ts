@@ -1534,7 +1534,7 @@ test('move: a run that waited across a move binds again and ends moved; a taken 
 // O14m attribution and link frames: an approval raised on an indexed `<member>--<hex6>` agent lists under the
 // member, link `oc.events`/`oc.sessions` carry the account agent under the member, `oc.run` carries the account
 // selection with the account frame first on the host and on a stub device link, an unindexed account-shaped agent
-// stays unreachable, `addAccount` and `oc.account.add` refuse key material, and a canary held by two accounts never
+// stays unreachable across events, sessions, approvals and steer/abort, `addAccount` refuses key material, and a canary held by two accounts never
 // appears in a link frame.
 test('attribution and link frames: account agent under the member, unindexed unreachable, key refused, canary scan', async () => {
   const stateDir = scratchDir('o14m-attribution');
@@ -1594,12 +1594,10 @@ test('attribution and link frames: account agent under the member, unindexed unr
     // A stub device link through the built kit.
     const api = openclawLink(kit, { memberOf: (grant) => (grant.meta as { member?: string } | undefined)?.member });
     const grant = { id: 'o14m-g1', key: 'k', name: 'phone', role: 'control', created: Date.now(), meta: { member: 'm1' } } as Grant;
-    await assert.rejects(Promise.resolve().then(() => api.handle({ op: 'oc.account.add', args: { provider: 'openai', key: 'sk-test' } }, grant)),
-      new RegExp(words('link.notAllowed').slice(0, 20)));
 
-    // oc.sessions shows the member key and the account agent's, never another member's.
+    // oc.sessions shows the member key and the account agent's, never another member's or an unindexed agent's.
     fake.handle('sessions.list', () => ({ sessions: [{ sessionKey: 'agent:m1:x' },
-      { sessionKey: `agent:${agent}:y` }, { sessionKey: 'agent:b:z' }] }));
+      { sessionKey: `agent:${agent}:y` }, { sessionKey: 'agent:m1--ffffff:ghost' }, { sessionKey: 'agent:b:z' }] }));
     const sessions = await api.handle({ op: 'oc.sessions' }, grant) as { sessionKey: string }[];
     snap(sessions);
     assert.deepEqual(sessions.map((s) => s.sessionKey).sort(), ['agent:m1:x', `agent:${agent}:y`].sort());
@@ -1613,12 +1611,21 @@ test('attribution and link frames: account agent under the member, unindexed unr
     await api.stream!(server as unknown as LinkStream, { op: 'oc.events' }, grant);
     fake.emit('agent', { agentId: agent, runId: 'r-o14m', stream: 'assistant', data: { text: 'mine' } });
     fake.emit('agent', { agentId: 'b', runId: 'r-foreign', stream: 'assistant', data: { text: 'nope' } });
+    fake.emit('agent', { agentId: 'm1--ffffff', runId: 'r-ghost', stream: 'assistant', data: { text: 'ghost' } });
     await kit.call('exec.approval.request', { id: 'o14m-a2', command: 'oil antenna', agentId: 'm1', sessionKey: 'agent:m1:x' });
+    await kit.call('exec.approval.request', { id: 'o14m-a3', command: 'ghost', agentId: 'm1--ffffff', sessionKey: 'agent:m1--ffffff:ghost' });
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(lines.length, 2);
     assert.equal((JSON.parse(lines[0]!) as { event: string }).event, 'agent');
     assert.equal((JSON.parse(lines[1]!) as { event: string }).event, 'approval');
+    assert.ok(!kit.approvals('m1').some((a) => a.id === 'o14m-a3'));
     server.onEnd?.();
+
+    // An unindexed account-shaped agent is unreachable through steer and abort as well.
+    await assert.rejects(Promise.resolve().then(() => api.handle({ op: 'oc.steer', args: { sessionKey: 'agent:m1--ffffff:ghost', text: 'hi' } }, grant)),
+      new RegExp(words('link.notAllowed').slice(0, 20)));
+    await assert.rejects(Promise.resolve().then(() => api.handle({ op: 'oc.abort', args: { sessionKey: 'agent:m1--ffffff:ghost' } }, grant)),
+      new RegExp(words('link.notAllowed').slice(0, 20)));
 
     // oc.run carries the account selection: the account frame comes first.
     fake.setUsage('m1', 'openai', [{ label: 'session', usedPercent: 80 }]);
@@ -1672,7 +1679,7 @@ test('attribution and link frames: account agent under the member, unindexed unr
     assert.equal((deviceFrames[0] as { type: string }).type, 'account');
     assert.equal((deviceFrames[0] as { account: string }).account, second.id);
     snap(await oc.sessions());
-    await assert.rejects(oc.steer('not-a-key', 'hi'), /Invalid session key/);
+    await assert.rejects(async () => { for await (const frame of oc.run('hi', { sessionKey: 'not-a-key' })) snap(frame); }, /Invalid session key/);
 
     // The canary held by two accounts never appears in a link frame.
     const text = frames.join('\n');

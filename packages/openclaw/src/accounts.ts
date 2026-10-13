@@ -42,6 +42,33 @@ const validEntry = (v: unknown): v is IndexEntry => !!v && typeof v === 'object'
   && ((v as IndexEntry).model === undefined || typeof (v as IndexEntry).model === 'string')
   && ((v as IndexEntry).who === undefined || typeof (v as IndexEntry).who === 'string');
 
+const indexPath = (root: string, member: Member): string => join(root, 'accounts', `${member}.json`);
+const readIndex = (root: string, member: Member): IndexFile => {
+  let text: string;
+  try { text = readFileSync(indexPath(root, member), 'utf8'); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return empty(); throw error; }
+  const file = JSON.parse(text) as Partial<IndexFile>;
+  if (!file || typeof file !== 'object' || file.v !== 1) return empty();
+  const accounts: Record<string, IndexEntry> = {};
+  for (const [id, entry] of Object.entries(file.accounts ?? {})) if (validEntry(entry)) accounts[id] = entry;
+  const raw = file.defaults && typeof file.defaults === 'object' ? file.defaults as Defaults : {};
+  const defaults: Defaults = {};
+  if (typeof raw.account === 'string') defaults.account = raw.account;
+  if (typeof raw.model === 'string') defaults.model = raw.model;
+  if (typeof raw.auto === 'boolean') defaults.auto = raw.auto;
+  return { v: 1, accounts, defaults };
+};
+
+// Attribution (5.15, O14m): the member an agent id or `agent:<agent>:<tail>` session key belongs to. The member agent is
+// its own; any other agent, an `<member>--<hex6>` account agent included, maps only while the index names it under that
+// member. So an unindexed account-shaped agent maps nowhere and stays unreachable whatever the file holds.
+export function memberOfAccount(root: string, ref: string): Member | undefined {
+  const member = baseMemberOf(ref);
+  const agent = /^agent:([^:]+):/.exec(ref)?.[1] ?? ref;
+  if (member === undefined || agent === member) return member;
+  return Object.values(readIndex(root, member).accounts).some((e) => e.agent === agent) ? member : undefined;
+}
+
 export function createAccounts(ctx: {
   request: GatewayTransport['request'];
   root: string;
@@ -59,34 +86,19 @@ export function createAccounts(ctx: {
   models(member: Member, id: AccountId): Promise<ModelInfo[]>;
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;
   bind(member: Member, sessionKey: string): Promise<Binding | undefined>;
-  memberOf(agentId: string): Member | undefined;
   keyRefusal(member: Member, binding: Binding): Promise<string | undefined>;
   pick(member: Member, sel: RunSelection, skip?: readonly AccountId[], binding?: Binding): Promise<{ pick: AccountPick; agent?: string }>;
   rest(member: Member, id: AccountId, until: number): Promise<void>;
   move(member: Member, sessionKey: string, to: AccountId): Promise<MoveResult>;
 } {
-  const path = (member: Member): string => join(ctx.root, 'accounts', `${member}.json`);
+  const path = (member: Member): string => indexPath(ctx.root, member);
+  const read = (member: Member): IndexFile => readIndex(ctx.root, member);
   // Accounts whose sign-in is running, as `<member>\n<id>`, counted per add: listed `signing` until the last one ends.
   const signing = new Map<string, number>();
   // The index file's own lock, apart from any agent's: a run's shared hold on the member agent never blocks an edit.
   const indexLock = (member: Member): string => `${member}#index`;
   const check = (member: Member): void => {
     if (!MEMBER_ID.test(member) || member.startsWith(KEY_PREFIX)) throw new Error(`invalid member id: ${member}`);
-  };
-  const read = (member: Member): IndexFile => {
-    let text: string;
-    try { text = readFileSync(path(member), 'utf8'); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return empty(); throw error; }
-    const file = JSON.parse(text) as Partial<IndexFile>;
-    if (!file || typeof file !== 'object' || file.v !== 1) return empty();
-    const accounts: Record<string, IndexEntry> = {};
-    for (const [id, entry] of Object.entries(file.accounts ?? {})) if (validEntry(entry)) accounts[id] = entry;
-    const raw = file.defaults && typeof file.defaults === 'object' ? file.defaults as Defaults : {};
-    const defaults: Defaults = {};
-    if (typeof raw.account === 'string') defaults.account = raw.account;
-    if (typeof raw.model === 'string') defaults.model = raw.model;
-    if (typeof raw.auto === 'boolean') defaults.auto = raw.auto;
-    return { v: 1, accounts, defaults };
   };
   const write = (member: Member, file: IndexFile): void => {
     mkdirSync(join(ctx.root, 'accounts'), { recursive: true, mode: 0o700 });
@@ -339,16 +351,6 @@ export function createAccounts(ctx: {
       }
       return roomOf(row.provider, answer);
     });
-
-  // Attribution (5.15, O14m): the member an agent belongs to. The member agent is its own; an
-  // `<member>--<hex6>` account agent maps only while the index names it under that member, and
-  // `byokit-key-<member>` only while its entry names it. An unindexed agent of that shape maps nowhere,
-  // so it stays unreachable (entryOf lists first) whatever the file holds.
-  const memberOf = (agentId: string): Member | undefined => {
-    const base = baseMemberOf(agentId);
-    if (base === undefined || agentId === base) return base;
-    return Object.values(read(base).accounts).some((e) => e.agent === agentId) ? base : undefined;
-  };
 
   // Runs step 2 reads the index alone: the index-only refusal makes no request, and a cold index adds one account
   // listing (the pick's late check after `list`; `keyRefusal` lists when the held account is not API-billed). This
@@ -736,5 +738,5 @@ export function createAccounts(ctx: {
     }
   }
 
-  return { list, add, rename, defaults, setDefaults, models, room, bind, memberOf, keyRefusal, pick, rest, move };
+  return { list, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, pick, rest, move };
 }

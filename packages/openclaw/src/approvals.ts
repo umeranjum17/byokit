@@ -2,7 +2,6 @@
 import { randomBytes } from 'node:crypto';
 import type { Bridge } from './bridge.ts';
 import { MEMBER_ID } from './members.ts';
-import { memberOf } from './attribution.ts';
 import type { Approval, Decision, GatewayTransport, Member } from './types.ts';
 
 type NativeSource = 'exec' | 'plugin' | 'question';
@@ -33,7 +32,7 @@ const asString = (v: unknown): string | undefined => (typeof v === 'string' && v
  * engine nests exec/plugin details under `request` (question events stay flat); unattributed approvals carry ''
  * so they can never match a member id (B2).
  */
-function attribute(payload: Record<string, unknown>): { member: Member; sessionKey?: string } {
+function attribute(payload: Record<string, unknown>, memberOf: (ref: string) => Member | undefined): { member: Member; sessionKey?: string } {
   const detail = isRecord(payload.request) ? payload.request : payload;
   const agent = asString(detail.agentId);
   const key = asString(detail.sessionKey);
@@ -71,12 +70,14 @@ function expiresOf(payload: Record<string, unknown>, fallbackMs: number): number
 export class Approvals {
   private readonly request: GatewayTransport['request'];
   private readonly bridge: Pick<Bridge, 'resolveAsk'>;
+  private readonly memberOf: (ref: string) => Member | undefined;
   private readonly approvals = new Map<string, Stored>();
   private readonly listeners = new Set<(a: Approval, change: 'added' | 'resolved') => void>();
 
-  constructor(o: { request: GatewayTransport['request']; bridge: Pick<Bridge, 'resolveAsk'> }) {
+  constructor(o: { request: GatewayTransport['request']; bridge: Pick<Bridge, 'resolveAsk'>; memberOf: (ref: string) => Member | undefined }) {
     this.request = o.request;
     this.bridge = o.bridge;
+    this.memberOf = o.memberOf;
   }
 
   handleEvent(e: { event: string; payload?: unknown }): void {
@@ -85,7 +86,7 @@ export class Approvals {
     if (source) {
       const id = asString(payload.id) ?? randomBytes(12).toString('base64url');
       if (this.approvals.has(id)) return;
-      const { member, sessionKey } = attribute(payload);
+      const { member, sessionKey } = attribute(payload, this.memberOf);
       const detail = isRecord(payload.request) ? payload.request : payload;
       const now = Date.now();
       const approval: Stored = {
