@@ -385,6 +385,37 @@ test('key entry refuses unavailable routes and hides even an engine error that e
   await assert.rejects(kit.ensureMember('byokit-key-m1'), /invalid member/);
 }));
 
+test('kit start clears an unsealed key agent and keeps a ready one', async () => {
+  const stateDir = scratchDir('o4-key-sweep');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+  const clears = () => fake.calls.filter((c) => c.method === 'byokit.keys'
+    && (c.params as { action?: string }).action === 'clear');
+  try {
+    await kit.start();
+    // A failed gateway restart after activation: the engine took the key but the seal never ran, and the abandon
+    // clear was refused while the gateway was down. Drive that state directly: activation without a seal.
+    await kit.ensureMember('m1');
+    await kit.call('openclaw.setup.activate', { kind: 'api-key', agentId: 'byokit-key-m1',
+      authChoice: 'openai-api-key', apiKey: 'CANARY-UNSEALED-KEY-517' });
+    assert.equal((await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }) as { ok: boolean }).ok, false);
+    assert.equal(await kit.addKey('m2', { authChoice: 'openai-api-key', apiKey: 'CANARY-SEALED-KEY-642' }), 'ok');
+    assert.equal((await fake.transport.request('byokit.keys', { member: 'm2', action: 'ready' }) as { ok: boolean }).ok, true);
+    const before = clears().length;
+    await kit.stop();
+    await kit.start();
+    // The next start cleared the unsealed key but never touched the ready one.
+    assert.equal(clears().length, before + 1);
+    assert.deepEqual(clears().at(-1)?.params, { member: 'm1', action: 'clear' });
+    assert.equal((await fake.transport.request('byokit.keys', { member: 'm2', action: 'ready' }) as { ok: boolean }).ok, true);
+    assert.deepEqual(await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat', auth: 'apiKey', message: 'Hello' }),
+      { ok: false, kind: 'signed-out', message: 'Add an API key to use this option.' });
+    assert.ok((await kit.run({ member: 'm2', sessionKey: 'agent:m2:chat', auth: 'apiKey', message: 'Hello' })).ok);
+    assert.equal(JSON.stringify(fake.calls).includes('CANARY-UNSEALED-KEY-517'), false);
+    assert.equal(JSON.stringify(fake.calls).includes('CANARY-SEALED-KEY-642'), false);
+  } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 test('schema validation precedes explicit API-key readiness and keeps its snapshot across that await', async () => withKit(async (kit, fake) => {
   const before = fake.calls.length;
   await assert.rejects(kit.run({ member: 'm1', sessionKey: 'agent:m1:json', auth: 'apiKey', message: 'Report',

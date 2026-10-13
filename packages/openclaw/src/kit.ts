@@ -782,6 +782,9 @@ export class OpenClawKit {
       this.off.push(transport.onEvent((e) => this.approvalsCtl.handleEvent(e)));
       this.failures = 0;
       this.setState({ phase: 'ready' });
+      // A failed key add whose abandon clear never reached the engine leaves an unsealed key with no ready marker;
+      // runs stay closed, so drop it now that the gateway is ready. Ready keys keep their marker and survive.
+      await this.keys.sweep().catch(() => undefined);
       if (this.o.browser) await this.checkBrowserTools();
       // Replays the engine's native approval lists over the now-live transport (N9).
       await this.approvalsCtl.resync();
