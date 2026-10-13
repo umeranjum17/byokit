@@ -167,7 +167,7 @@ const host = await Host.open({
   grants,
   confirm: async (p) => {
     if (closed || asking || !input) {
-      console.log(`\n${p.name} wants to pair, but ${closed ? 'nobody can answer here' : 'another device is waiting'}: turned away.`);
+      console.log(`\n${p.name} wants to pair, but ${closed ? 'nobody can answer here' : 'this computer is busy with a sign-in, try again in a minute'}: turned away.`);
       return false;
     }
     console.log(`\n${p.name} wants to pair. Check it shows these two words: ${p.words}`);
@@ -268,7 +268,8 @@ async function addChoice(choice: string): Promise<void> {
 // From the start of a plan-key sign-in until showInput: the line interface is closed and raw mode switches the
 // terminal's echo off, so keys typed meanwhile stay queued where nothing reads them. showInput drops that queue
 // while the terminal still echoes nothing, so a pasted key is never echoed back or run as a command, on success,
-// on failure, or on cancel. Without a terminal there is nothing to hide from, and the line is read echoed through
+// on failure, or on cancel. Ctrl-C anywhere in the window quits through quitOnCancel, like SIGINT outside it.
+// Without a terminal there is nothing to hide from, and the line is read echoed through
 // `asking` instead.
 function hideInput(): void {
   if (!process.stdin.isTTY) return;
@@ -276,11 +277,20 @@ function hideInput(): void {
   input = undefined;
   rl?.close();
   process.stdin.setRawMode(true);
+  // While raw mode is on, Ctrl-C arrives as a byte, not SIGINT: quit like the SIGINT handler does.
+  process.stdin.on('data', quitOnCancel);
+  process.stdin.resume();
+}
+
+// A 0x03 byte anywhere in the hidden window stops the app, the same as SIGINT outside it.
+function quitOnCancel(chunk: Buffer): void {
+  if (chunk.toString('utf8').includes('\u0003')) void stop();
 }
 
 async function showInput(): Promise<void> {
   if (!process.stdin.isTTY) return;
   const stdin = process.stdin;
+  stdin.removeListener('data', quitOnCancel);
   await new Promise<void>((resolve) => {
     const drop = () => {};
     stdin.on('data', drop);
@@ -314,7 +324,7 @@ function readSecret(prompt: string): Promise<string> {
     const onData = (chunk: Buffer) => {
       for (const ch of chunk.toString('utf8')) {
         if (ch === '\n' || ch === '\r') { finish(text); return; }
-        if (ch === '\u0003') { finish(''); return; } // Ctrl-C cancels the paste, like an empty answer
+        // A 0x03 byte never reaches this loop: quitOnCancel stops the app first.
         if (ch === '\u007f' || ch === '\b') { text = text.slice(0, -1); continue; }
         if (ch >= ' ' && ch !== '\u007f') text += ch;
       }

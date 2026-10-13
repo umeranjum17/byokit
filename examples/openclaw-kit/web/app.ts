@@ -1,6 +1,7 @@
 // The phone side: pair with the computer, sign in to a plan there (a device code typed on the provider's own page), send
 // the helper a message and watch its reply arrive, and allow or deny what it asks first. Plain DOM; every status a
-// person reads is a sentence from @byokit/openclaw's or @byokit/ui's words.
+// person reads is a sentence from @byokit/openclaw's or @byokit/ui's words, except the run's token usage line under
+// the reply, which is this example's own text.
 import { DeviceLink, browserDeviceStore, normalizeCode, pairWithCode, pairWithOffer, type DeviceGrant, type KeptDevice } from '@byokit/pair';
 import { openclawDevice, words, type AccountView, type Approval, type RunEnd, type RunUsage } from '@byokit/openclaw/device';
 import { phaseOf } from '@byokit/ui';

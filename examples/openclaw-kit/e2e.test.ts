@@ -383,3 +383,35 @@ test('a key typed while the terminal is hidden is neither echoed nor run', async
     pty.kill('SIGTERM');
   }
 });
+
+test('Ctrl-C during a hidden plan-key sign-in quits', async () => {
+  // While raw mode hides the terminal, Ctrl-C arrives as a byte, not SIGINT: the host stops like it does outside.
+  const app3 = join(dir, 'pty-quit');
+  cpSync(app, app3, { recursive: true, filter: (f) => !/[/\\]\.state$/.test(f) });
+  const port3 = await new Promise<number>((resolve) => {
+    const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address() as { port: number }; s.close(() => resolve(port)); });
+  });
+  const pty = trackChild(spawn('script', ['-qec', `node host.ts --via lan --port ${port3} --name PtyQuit`, '/dev/null'],
+    { cwd: app3, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
+  try {
+    let said3 = '';
+    pty.stdout.on('data', (b: Buffer) => { said3 += b.toString(); });
+    const heard3 = async (pattern: RegExp, from = 0) => {
+      for (let i = 0; i < 300 && !pattern.test(said3.slice(from)); i++) await new Promise((r) => setTimeout(r, 50));
+      const m = said3.slice(from).match(pattern);
+      assert.ok(m, `pty host never said ${pattern}; it said:\n${said3}`);
+      return m;
+    };
+    await heard3(new RegExp(WORDS['engine.ready'].replace('.', '\\.')));
+    pty.stdin.write('add opencode-go\n');
+    await heard3(/Paste the/);
+    pty.stdin.write(String.fromCharCode(3)); // Ctrl-C while hidden: quit, the same as SIGINT
+    const code = await new Promise<number | null>((resolve) => {
+      const timer = setTimeout(() => resolve(null), 15000);
+      pty.once('exit', (c) => { clearTimeout(timer); resolve(c); });
+    });
+    assert.equal(code, 0, 'the host quits on Ctrl-C during a hidden sign-in');
+  } finally {
+    pty.kill('SIGTERM');
+  }
+});
