@@ -5,8 +5,8 @@
 // fake-provider cases held survives as an assertion inside a journey: a deliver can never escape into
 // a root-owned path, a staged write is 0600, a recipe with a secret or an unsafe path is refused, an
 // installRoot step runs once behind its marker, a machine without root is refused rather than
-// half-installed, a rejected key never appears in an error, and a delete removes only the kit's own
-// snapshots. The provider is the kit's own bench (in-memory fake, loopback fake server); no network,
+// half-installed, a rejected key never appears in an error, a delete removes only the kit's own
+// snapshots, and a reset brings back a saved copy while pruning only the kit's own copies. The provider is the kit's own bench (in-memory fake, loopback fake server); no network,
 // key or real machine is used.
 import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,7 +14,7 @@ import {
   machine, boat, estimate, status, words, stateWords, hostWords, errorWords, keyWords, WORDS, MachineError,
 } from '@byokit/cloud';
 import type {
-  HostRecipe, Status, MachineErrorCode, MachineState, HostState, Price, KeyInfo, Provider,
+  HostRecipe, Status, MachineErrorCode, MachineState, HostState, Price, KeyInfo, Provider, Snapshot,
 } from '@byokit/cloud';
 import { fakeProvider, memoryStore, startFakeSandboxServer } from '@byokit/cloud/testing';
 
@@ -44,6 +44,79 @@ const rejects = async (p: Promise<unknown>, code: string): Promise<MachineError>
 };
 
 const textOf = (bytes: Uint8Array): string => Buffer.from(bytes).toString('utf8');
+
+test('an app picks an existing Boat computer, consents to installation, and retries without another rental', async () => {
+  const server = await startFakeSandboxServer();
+  try {
+    const provider = boat({ baseUrl: server.url, label: 'Boat', prices: prices(), key: async () => 'test-key' });
+    const existing = await provider.create!({ name: 'old', size: 'small', keepCopies: true, idempotencyKey: 'seed' });
+    const [selected] = await provider.list!();
+    assert.deepEqual(selected, { ...existing, name: 'computer' });
+    assert.equal(server.machine.runs.length, 0);
+    const start = server.requests.length;
+    const store = memoryStore();
+    const m = machine({ provider, store });
+    const opts = { confirmId: selected.id, recipe: recipe() };
+    await rejects(m.adopt(selected, { ...opts, confirmId: 'another' }), 'confirm');
+    await rejects(m.adopt({ ...selected, account: 'another' }, opts), 'wrong-account');
+    await rejects(m.adopt({ ...selected, id: 'missing' }, { ...opts, confirmId: 'missing' }), 'no-machine');
+    assert.equal(server.machine.runs.length, 0);
+    assert.equal(await store.load(), null);
+    // Refuse existing files, service ownership, and a redirected parent without writing.
+    for (const path of [recipe().workDir, '/etc/systemd/system/byokit-web.service']) {
+      server.machine.writeFile(path, new TextEncoder().encode('keep'), 0o600);
+      const before = [...server.machine.files];
+      await rejects(m.adopt(selected, opts), 'exists');
+      assert.deepEqual([...server.machine.files], before);
+      assert.equal(await store.load(), null);
+      server.machine.files.delete(path);
+    }
+    server.machine.symlink('/home/user', '/elsewhere');
+    await rejects(m.adopt(selected, opts), 'exists');
+    server.machine.symlinks.clear();
+    // A live status reply for a different id must not authorize installation.
+    const wrong = boat({ baseUrl: server.url, label: 'Boat', prices: prices(), key: async () => 'test-key',
+      fetch: async (url, init) => String(url).endsWith(`/sandboxes/${selected.id}`) && init?.method === 'GET'
+        ? Response.json({ sandbox: { id: 'another', state: 'ready' } }) : fetch(url, init) });
+    await rejects(machine({ provider: wrong, store: memoryStore() }).adopt(selected, opts), 'provider');
+    server.machine.script('npm', { code: 1, stdout: '', stderr: 'install refused', timedOut: false });
+    const adopting = rejects(m.adopt(selected, opts), 'provider');
+    await rejects(m.create({ name: 'extra', size: 'small', keepCopies: true }), 'busy');
+    await adopting;
+    assert.deepEqual(m.ref, { ...selected, name: 'web' });
+    server.machine.script('npm', { code: 0, stdout: '', stderr: '', timedOut: false });
+    await m.install(recipe());
+    assert.equal(await m.host(), 'running');
+    assert.deepEqual(JSON.parse(textOf(server.machine.files.get('/home/user/app/.byokit/installed.json')!.bytes)), { id: selected.id });
+    await rejects(m.adopt(selected, opts), 'exists');
+    assert.equal(server.requests.slice(start).filter((r) => r.method === 'POST' && r.path === '/sandboxes').length, 0);
+    assert.equal(server.requests.slice(start).filter((r) => r.path.endsWith('/resume')).length, 0);
+    // A second app installs under a fresh name and directory on the same existing id.
+    const other = machine({ provider, store: memoryStore() });
+    const adopted = await other.adopt(selected, { confirmId: selected.id, recipe: { ...recipe('other'), workDir: '/home/user/other' } });
+    assert.equal(adopted.id, selected.id);
+    assert.equal(await other.host(), 'running');
+  } finally { await server.close(); }
+});
+
+test('Boat existing-computer listing follows pages and rejects malformed responses', async () => {
+  let bad = false;
+  const calls: string[] = [];
+  const provider = boat({ baseUrl: 'http://boat.test', label: 'Boat', prices: prices(), key: async () => 'test-key',
+    fetch: async (url) => {
+      calls.push(String(url));
+      if (String(url).endsWith('/me')) return Response.json({ user: { id: 'acct' } });
+      if (bad) return Response.json({ pageInfo: { hasMore: true } });
+      const second = String(url).includes('cursor=');
+      return Response.json({ sandboxes: second ? [{ id: 'two', snapshots: false }] : [
+        { id: 'one', snapshots: true, access: 'owner', desktopUrl: 'must-not-escape' }, { id: 'view-only', access: 'view' },
+      ], pageInfo: { hasMore: !second, nextCursor: second ? null : 'next/page' } });
+    } });
+  assert.deepEqual((await provider.list!()).map((r) => [r.id, r.keepCopies]), [['one', true], ['two', false]]);
+  assert.ok(calls.at(-1)?.endsWith('cursor=next%2Fpage'));
+  bad = true;
+  await rejects(provider.list!(), 'provider');
+});
 
 test('an app rents its own cloud computer, installs its host, and supervises it through its life', async () => {
   const provider = fakeProvider();
@@ -590,6 +663,298 @@ test('an app cleans up on Boat and every failure stays honest: no key leak, no l
   assert.ok(slowElapsed < 15_000, `one call stays near the 10 s deadline (${slowElapsed} ms)`);
 });
 
+test('a person saves copies of their cloud computer, resets it from one, and only the newest few are kept', async () => {
+  const server = await startFakeSandboxServer();
+  try {
+    // A request the test refuses on purpose fails as a dropped connection, before it reaches the server.
+    let refuse: (method: string, url: string) => boolean = () => false;
+    const flaky: typeof fetch = (url, init) => (refuse(init?.method ?? 'GET', String(url)) ? Promise.reject(new TypeError('connection reset')) : fetch(url, init));
+    const provider = boat({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key', fetch: flaky });
+    const m = machine({ provider, store: memoryStore() });
+    const listedNames = async (): Promise<string[]> => ((await (await fetch(`${server.url}/named-snapshots`, { headers: { Authorization: 'Bearer test-key' } })).json()) as { snapshots: { name: string }[] }).snapshots.map((s) => s.name);
+    const old = await m.create({ name: 'web', size: 'small', keepCopies: true });
+    // Another machine on the same account whose name starts with this one's: its copy is never this one's.
+    const other = await provider.create!({ name: 'web-two', size: 'small', keepCopies: true, idempotencyKey: 'other-1' });
+    await provider.snapshot!(other, 'x');
+
+    const marker = '/home/user/marker.txt';
+    const tailnet = '/etc/tailscale/tailscaled.state';
+    await provider.write(old, marker, new TextEncoder().encode('Umer v1'), 0o600);
+    server.machine.writeFile(tailnet, new TextEncoder().encode('node-key-1'), 0o600, 'root');
+    const saved = await m.snapshot();
+    assert.match(saved.id, /^byokit-web-[0-9a-z]{12}$/);
+    assert.deepEqual((await m.snapshots()).map((c) => c.id), [saved.id], 'only this machine\'s ready copies are listed');
+
+    // Reset: the old machine stops before the new one starts from the copy, the marker is back,
+    // the tailnet identity is kept (same machine), and the old machine is deleted with its copies kept.
+    await provider.write(old, marker, new TextEncoder().encode('Umer v2'), 0o600);
+    const before = server.requests.length;
+    await m.restore(saved.id);
+    assert.equal(textOf(server.machine.readFile(marker)!), 'Umer v1');
+    assert.equal(textOf(server.machine.readFile(tailnet)!), 'node-key-1');
+    assert.notEqual(m.ref?.id, old.id);
+    assert.equal(await m.state(), 'on');
+    assert.equal(await provider.status(old), 'gone');
+    const during = server.requests.slice(before);
+    const stopAt = during.findIndex((r) => r.method === 'POST' && r.path === `/sandboxes/${old.id}/stop`);
+    const fromAt = during.findIndex((r) => r.method === 'POST' && r.path === '/sandboxes');
+    assert.ok(stopAt >= 0 && stopAt < fromAt, 'the old machine stops before the new one is made');
+    assert.deepEqual(during[fromAt].body, { from: saved.id, snapshots: true, ttlSeconds: null }, 'a restore carries no noEnv');
+    assert.ok(!during.some((r) => r.method === 'DELETE' && r.path.startsWith('/named-snapshots/')));
+    assert.deepEqual((await m.snapshots()).map((c) => c.id), [saved.id]);
+
+    // A copy that is gone, or another machine's, is a typed refusal with its own sentence.
+    const gone = await rejects(m.restore('byokit-web-nope'), 'no-snapshot');
+    await rejects(m.restore('byokit-web-two-x'), 'no-snapshot');
+    assert.equal(errorWords(gone, { app: 'Umer', label: 'Test' }), 'That saved copy of your cloud computer is gone. Choose another one.');
+    assert.equal(
+      words('snapshot.restore', { date: saved.at.slice(0, 10) }),
+      `Resetting brings your cloud computer back to how it was on ${saved.at.slice(0, 10)}. Everything changed on it since then is lost.`,
+    );
+
+    // A second Reset tapped while the first runs is refused before it creates anything.
+    const beforeTap = server.requests.length;
+    const tapped = m.restore(saved.id);
+    await rejects(m.restore(saved.id), 'busy');
+    await tapped;
+    const tapCreates = server.requests.slice(beforeTap).filter((r) => r.method === 'POST' && r.path === '/sandboxes');
+    assert.equal(tapCreates.length, 1, 'only the first reset creates a machine');
+
+    // One save, reset or remove at a time: a remove tapped during a save is refused and changes nothing.
+    const savedRef = m.ref;
+    const saving = m.snapshot();
+    await rejects(m.remove(savedRef!.id), 'busy');
+    await saving;
+    assert.deepEqual(m.ref, savedRef, 'the store still has the machine');
+    assert.equal(await m.state(), 'on');
+
+    // Keep 3 by default: a fourth copy deletes the oldest only after it is ready, and never another machine's.
+    for (let i = 0; i < 3; i++) await m.snapshot();
+    const kept = await m.snapshots();
+    assert.equal(kept.length, 3);
+    assert.ok(!kept.some((c) => c.id === saved.id), 'the oldest copy was pruned');
+    assert.ok(kept.every((c, i) => i === 0 || Date.parse(kept[i - 1].at) >= Date.parse(c.at)), 'newest first');
+    const latest = await m.snapshot({ keep: 1 });
+    assert.deepEqual((await m.snapshots()).map((c) => c.id), [latest.id]);
+    assert.deepEqual((await listedNames()).sort(), [latest.id, 'byokit-web-two-x'].sort());
+
+    // A prune that fails does not fail the save: the made copy comes back with the error, and the next save prunes.
+    refuse = (method, url) => method === 'DELETE' && url.includes('/named-snapshots/');
+    const unpruned = await m.snapshot({ keep: 1 });
+    refuse = () => false;
+    assert.equal(unpruned.pruneError?.code, 'unreachable');
+    assert.deepEqual((await m.snapshots()).map((c) => c.id).sort(), [latest.id, unpruned.id].sort());
+    const pruned = await m.snapshot({ keep: 1 });
+    assert.equal(pruned.pruneError, undefined);
+    assert.deepEqual((await m.snapshots()).map((c) => c.id), [pruned.id]);
+    await rejects(m.snapshot({ keep: 0 }), 'bad-recipe');
+
+    // The kit's own timer: a copy made while it waits is reported null; each later due tick saves one, in a row.
+    await rejects(m.scheduleSnapshots({ everyMs: 0, onResult: () => {} }), 'bad-recipe');
+    await rejects(m.scheduleSnapshots({ everyMs: 2_147_483_648, onResult: () => {} }), 'bad-recipe');
+    // Each check starts everyMs after the previous one finished, so a copy it made is always due by the next check:
+    // no check between two scheduled copies comes back null (a fixed-rate timer skips every other period).
+    let skipped = 0;
+    const copies = await new Promise<Snapshot[]>((resolve, reject) => {
+      const saved: Snapshot[] = [];
+      let handle: { stop(): void };
+      m.scheduleSnapshots({
+        everyMs: 300,
+        keep: 1,
+        onResult: (r) => {
+          if (r instanceof Error) {
+            handle.stop();
+            reject(r);
+            return;
+          }
+          if (r === null) {
+            if (saved.length > 0) skipped += 1;
+            return;
+          }
+          saved.push(r);
+          if (saved.length < 2) return;
+          handle.stop();
+          resolve(saved);
+        },
+      }).then((h) => { handle = h; }, reject);
+    });
+    assert.deepEqual((await m.snapshots()).map((c) => c.id), [copies[1].id]);
+    assert.equal(skipped, 0, 'no period is skipped between scheduled copies');
+    await new Promise((r) => setTimeout(r, 40));
+    assert.deepEqual((await m.snapshots()).map((c) => c.id), [copies[1].id], 'no tick runs after stop()');
+    const plain = machine({ provider: fakeProvider(), store: memoryStore() });
+    await plain.create({ name: 'web', size: 'small', keepCopies: false });
+    await rejects(plain.scheduleSnapshots({ everyMs: 5 }), 'unsupported');
+
+    // Disk space from the machine itself, in plain words; a failed read says so.
+    server.machine.script('df', { code: 0, stdout: 'Filesystem 1024-blocks Used Available Capacity Mounted on\n/dev/vda 12582912 3250586 9332326 26% /\n', stderr: '', timedOut: false });
+    const disk = await m.disk();
+    assert.deepEqual(disk, { usedGb: 3.3, totalGb: 12.9 });
+    assert.equal(words('disk.used', { used: String(disk.usedGb), total: String(disk.totalGb) }), '3.3 GB of 12.9 GB used on your cloud computer.');
+    server.machine.script('df', { code: 1, stdout: '', stderr: 'df: /: No such file', timedOut: false });
+    await rejects(m.disk(), 'provider');
+
+    // A replacement that never comes on is deleted, and the store keeps the machine the person had.
+    const oldRef = m.ref;
+    assert.ok(oldRef !== null);
+    server.nextCreateState('error');
+    const beforeFailure = server.requests.length;
+    const [latestCopy] = await m.snapshots();
+    await rejects(m.restore(latestCopy.id), 'provider');
+    assert.equal(m.ref?.id, oldRef.id, 'the store still points at the old machine');
+    assert.equal(await provider.status(oldRef), 'asleep', 'the old machine is not deleted');
+    const deleted = server.requests.slice(beforeFailure).filter((r) => r.method === 'DELETE' && r.path.startsWith('/sandboxes/')).map((r) => r.path.slice('/sandboxes/'.length));
+    assert.equal(deleted.length, 1, 'only the replacement is deleted');
+    assert.notEqual(deleted[0], oldRef.id);
+    assert.equal(server.getState(deleted[0]), null, 'the replacement is gone');
+
+    // The replacement is saved before the old machine is deleted; when that delete keeps failing, the store
+    // already points at the replacement and the error names the old machine, which may still bill.
+    const [copyToRestore] = await m.snapshots();
+    let refused = 0;
+    refuse = (method, url) => {
+      if (method !== 'DELETE' || !url.endsWith(`/sandboxes/${oldRef.id}`)) return false;
+      refused += 1;
+      return true;
+    };
+    const stuck = await m.restore(copyToRestore.id).then(() => null, (e: MachineError) => e);
+    refuse = () => false;
+    assert.equal(refused, 4, 'the old delete is tried once and retried three times');
+    assert.equal(stuck?.code, 'provider');
+    assert.equal(stuck?.extra.sandbox, oldRef.id);
+    assert.ok(stuck?.message.includes(oldRef.id) && stuck.message.includes('may still bill'));
+    assert.notEqual(m.ref?.id, oldRef.id, 'the store keeps the replacement');
+    assert.notEqual(server.getState(oldRef.id), null, 'the old machine is still there');
+
+    // A broken machine cannot be stopped; resetting it skips the stop and builds from the copy.
+    const broken = m.ref;
+    assert.ok(broken !== null);
+    server.setState(broken.id, 'error');
+    assert.equal(await m.state(), 'failed');
+    const beforeBroken = server.requests.length;
+    await m.restore(copyToRestore.id);
+    assert.ok(!server.requests.slice(beforeBroken).some((r) => r.path.endsWith('/stop')), 'no stop for a failed machine');
+    assert.notEqual(m.ref?.id, broken.id);
+    assert.equal(await m.state(), 'on');
+    assert.equal(await provider.status(broken), 'gone');
+
+    // Removing this machine deletes its own copies and keeps another machine's copy whose name starts with its name.
+    assert.ok((await m.snapshots()).length > 0);
+    const live = m.ref;
+    assert.ok(live !== null);
+    // A schedule running when its machine is removed reports no-machine once and stops itself.
+    const orphaned: unknown[] = [];
+    let orphanGone: () => void = () => {};
+    const orphanStopped = new Promise<void>((r) => { orphanGone = r; });
+    await m.scheduleSnapshots({ everyMs: 100, onResult: (r) => {
+      orphaned.push(r);
+      if (r instanceof MachineError && r.code === 'no-machine') orphanGone();
+    } });
+    await m.remove(live.id);
+    assert.deepEqual(await listedNames(), ['byokit-web-two-x']);
+    await orphanStopped;
+    const reports = orphaned.length;
+    await new Promise((r) => setTimeout(r, 250));
+    assert.equal(orphaned.length, reports, 'no check runs after the machine is gone');
+    assert.equal(orphaned.filter((r) => r instanceof MachineError && r.code === 'no-machine').length, 1);
+    await rejects(m.scheduleSnapshots({ everyMs: 10 }), 'no-machine');
+  } finally {
+    await server.close();
+  }
+
+  // A machine without copies, or a provider that keeps none, cannot save or reset.
+  const noCopies = machine({ provider: fakeProvider(), store: memoryStore() });
+  await noCopies.create({ name: 'web', size: 'small', keepCopies: false });
+  await rejects(noCopies.snapshot(), 'unsupported');
+  const vm = machine({ provider: fakeProvider({ id: 'ssh-vm' }), store: memoryStore() });
+  await vm.create({ name: 'web', size: 'small', keepCopies: false });
+  await rejects(vm.snapshots(), 'unsupported');
+  await rejects(vm.restore('byokit-web-a'), 'unsupported');
+
+  // Boat keeps 10 copies free; an 11th is saved and billed, and with no credit the save is refused as a spent balance.
+  const paid = await startFakeSandboxServer();
+  try {
+    const provider = boat({ baseUrl: paid.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
+    const p = machine({ provider, store: memoryStore() });
+    const ref = await p.create({ name: 'web', size: 'small', keepCopies: true });
+    for (let i = 0; i < 10; i++) await provider.snapshot!(ref, `free${i}`);
+    const eleventh = await p.snapshot({ keep: 20 });
+    assert.equal((await p.snapshots()).length, 11);
+    paid.setBalance(0);
+    const noCredit = await rejects(p.snapshot({ keep: 20 }), 'balance');
+    assert.equal(errorWords(noCredit, { app: 'Umer', label: 'Test' }), 'Your Test balance ran out. Your cloud computer stops in a day unless you add funds.');
+    const kept = await p.snapshots();
+    assert.equal(kept.length, 11, 'a refused save deletes nothing');
+    assert.equal(kept[0].id, eleventh.id);
+  } finally {
+    await paid.close();
+  }
+});
+
+test('a replacement that never comes on is deleted with retries, and a delete that keeps failing names it', async () => {
+  const server = await startFakeSandboxServer();
+  try {
+    let refuse: (method: string, url: string) => boolean = () => false;
+    const flaky: typeof fetch = (url, init) => (refuse(init?.method ?? 'GET', String(url)) ? Promise.reject(new TypeError('connection reset')) : fetch(url, init));
+    const provider = boat({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key', fetch: flaky });
+    const m = machine({ provider, store: memoryStore() });
+    await m.create({ name: 'web', size: 'small', keepCopies: true });
+    const saved = await m.snapshot();
+    const oldRef = m.ref!;
+    server.nextCreateState('error');
+    const refused: string[] = [];
+    refuse = (method, url) => {
+      if (method !== 'DELETE' || !url.includes('/sandboxes/')) return false;
+      refused.push(new URL(url).pathname);
+      return true;
+    };
+    const stuck = await rejects(m.restore(saved.id), 'provider');
+    refuse = () => false;
+    const replacement = refused[0].split('/').pop()!;
+    assert.equal(refused.length, 4, 'the replacement delete is tried once and retried three times');
+    assert.ok(refused.every((p) => p === refused[0]), 'every try deletes the replacement');
+    assert.equal(stuck.extra.sandbox, replacement);
+    assert.ok(stuck.message.includes(replacement) && stuck.message.includes('may still bill'));
+    assert.equal(m.ref?.id, oldRef.id, 'the store keeps the old machine');
+    assert.notEqual(server.getState(replacement), null, 'the replacement is still there, and it is named');
+    assert.equal(await provider.status(oldRef), 'asleep');
+  } finally {
+    await server.close();
+  }
+});
+
+test('two machine objects on one store share its one-at-a-time guard and its record', async () => {
+  const server = await startFakeSandboxServer();
+  try {
+    const provider = boat({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
+    const store = memoryStore();
+    const first = machine({ provider, store });
+    const second = machine({ provider, store });
+    await first.create({ name: 'web', size: 'small', keepCopies: true });
+    const saved = await first.snapshot();
+    const oldRef = first.ref!;
+    assert.equal(second.ref?.id, oldRef.id, 'the second object reads the same machine');
+
+    const saving = first.snapshot();
+    await rejects(second.remove(oldRef.id), 'busy');
+    await saving;
+    assert.notEqual(server.getState(oldRef.id), null, 'the busy remove deleted nothing');
+
+    const reset = first.restore(saved.id);
+    await rejects(second.remove(oldRef.id), 'busy');
+    await reset;
+    assert.notEqual(first.ref?.id, oldRef.id);
+    assert.equal(second.ref?.id, first.ref?.id, 'the second object sees the new ref');
+    assert.equal(await second.state(), 'on');
+    assert.equal(await provider.status(oldRef), 'gone');
+
+    await second.remove(first.ref!.id);
+    assert.equal(first.ref, null);
+  } finally {
+    await server.close();
+  }
+});
+
 test('an app tells the person what the cloud computer costs and speaks in plain words', async () => {
   const today = new Date().toISOString().slice(0, 10);
   const small: Price = { size: 'small', perHour: 0.018, planFloorPerMonth: 20, asleepPerHour: 0, currency: 'USD', basis: 'incl. IPv4, excl. VAT', source: 'http://boat.test/prices', checked: today };
@@ -655,7 +1020,7 @@ test('an app tells the person what the cloud computer costs and speaks in plain 
 
   const codes: readonly MachineErrorCode[] = [
     'no-machine', 'exists', 'wrong-account', 'unsupported', 'confirm', 'bad-recipe', 'not-linux', 'linger',
-    'host-key', 'unauthorized', 'balance', 'unreachable', 'provider', 'needs-root', 'timeout',
+    'host-key', 'unauthorized', 'balance', 'unreachable', 'provider', 'needs-root', 'timeout', 'no-snapshot',
   ];
   for (const code of codes) {
     const w = errorWords(new MachineError(code, 'detail'), vars);

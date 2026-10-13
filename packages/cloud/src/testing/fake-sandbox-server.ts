@@ -8,6 +8,7 @@
 // nests its sandbox/operation/snapshot object and uses the document's field names. Routes:
 //   GET /me -> { ok, type: user.info, user: { id } }
 //   POST /sandboxes { type, ttlSeconds, noEnv, snapshots } + Idempotency-Key -> { ok, type, status, ttlSeconds, sandbox: { id, state } }
+//   POST /sandboxes { from, ttlSeconds, snapshots } (no noEnv) -> the same, with the machine's files back as the named snapshot saved them
 //   GET /sandboxes/{id} -> { ok, type: sandbox.info, sandbox: { id, state } }
 //   POST /sandboxes/{id}/resume { ttlSeconds } -> { ok, type, id, status, sandbox: { id, state } }
 //   POST /sandboxes/{id}/stop -> { ok, type, id, status, sandbox: { id, state } }
@@ -16,7 +17,7 @@
 //   POST /sandboxes/{id}/fork { ttlSeconds } + Idempotency-Key -> { ok, type, id, status, sandbox: { id, state } }
 //   DELETE /sandboxes/{id} + X-Ascii-Confirm-Delete: <id> -> { ok, type, operation: { id, status } }
 //   GET /deletion-operations/{op} -> { ok, type, operation: { id, status } }
-//   GET /named-snapshots -> { ok, type, snapshots: [{ name }] }
+//   GET /named-snapshots -> { ok, type, snapshots: [{ name, status, createdAt }] }
 //   DELETE /named-snapshots/{name} -> { ok, type, name, status }
 //   POST /sandboxes/{id}/commands { command, timeoutSeconds, detached } -> { ok, type, exitCode, stdout, stderr, timedOut } | { ok, type, processId, pid, ... }
 //   GET /sandboxes/{id}/commands/{processId} -> { ok, type, processId, running, status, exitCode, stdout, stderr }
@@ -27,6 +28,7 @@
 // Sandbox states are the document's enum; there is no stop-reason field, so `why` is absent.
 import http from 'node:http';
 import { FakeMachine, fakeMachine, parseCommand } from './fake-machine.ts';
+import type { FakeFile } from './fake-machine.ts';
 
 export type SandboxRequest = {
   method: string;
@@ -70,6 +72,8 @@ export type SandboxServer = {
   failNext(failures: readonly { status: number; body?: unknown }[]): void;
   /** Make the next detached command's status read report a lost command. */
   loseNextCommand(): void;
+  /** Give the next created sandbox this raw state (6.2), so a machine that never comes on can be simulated. */
+  nextCreateState(raw: string): void;
   close(): Promise<void>;
 };
 
@@ -77,6 +81,7 @@ type Sandbox = {
   id: string;
   raw: string;
   wakeReads: number;
+  snapshots?: boolean;
   commands: Map<string, { stdout: string; stderr: string; exitCode: number }>;
 };
 
@@ -88,7 +93,10 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
   const machine = fakeMachine();
   const requests: SandboxRequest[] = [];
   const sandboxes = new Map<string, Sandbox>();
-  const snapshots = new Map<string, string>();
+  // Every sandbox shares the one fake machine, so a named snapshot keeps a copy of its files and
+  // a sandbox made `from` it puts them back. createdAt is now, and at least 1 ms after the last save.
+  const snapshots = new Map<string, { sandboxId: string; createdAt: string; files: Map<string, FakeFile> }>();
+  let clock = 0;
   const createdByKey = new Map<string, string>();
   const forkedByKey = new Map<string, string>();
   const deletions = new Map<string, 'processing' | 'completed'>();
@@ -105,6 +113,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
   let slowWakeReads = o.slowWakeReads ?? 0;
   let drop = 0;
   let loseCommand = false;
+  let nextCreateRaw: string | null = null;
   const failures: { status: number; body?: unknown }[] = [];
 
   const send = (res: http.ServerResponse, status: number, body: unknown): void => {
@@ -113,7 +122,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
     res.end(text);
   };
 
-  const sandboxBody = (sb: Sandbox, name: string): Record<string, unknown> => ({ id: sb.id, name, state: sb.raw });
+  const sandboxBody = (sb: Sandbox, name: string): Record<string, unknown> => ({ id: sb.id, name, state: sb.raw, snapshots: sb.snapshots === true });
 
   // The 6.4 stdin wrapper verbatim (`<command> < <path>; r=$?; rm -f <path>; exit $r`):
   // the shell keeps `;` glued to the path token, so this is recognised here and the
@@ -196,8 +205,16 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
 
       if (route === 'GET /me') return send(res, 200, { ok: true, type: 'user.info', user: { id: accountId } });
 
+      if (route === 'GET /sandboxes') return send(res, 200, {
+        ok: true, type: 'sandbox.list', sandboxes: [...sandboxes.values()].map((sb) => sandboxBody(sb, 'Sandbox')),
+      });
+
       if (route === 'POST /sandboxes') {
-        if (b['noEnv'] !== true) return send(res, 400, { error: 'noEnv must be true' });
+        const from = str(b['from']);
+        // A sandbox made from a named snapshot inherits no-env from its source; an explicit
+        // `noEnv` would be a conversion (6.3), so the bench refuses it.
+        if (from === null ? b['noEnv'] !== true : 'noEnv' in b) return send(res, 400, { error: 'noEnv must be true on a plain create and absent with from' });
+        if (from !== null && snapshots.get(from) === undefined) return send(res, 404, { error: 'snapshot_not_found' });
         const idem = req.headers['idempotency-key'];
         const idemKey = typeof idem === 'string' ? idem : '';
         if (idemKey !== '' && createdByKey.has(idemKey)) {
@@ -209,8 +226,11 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
           return send(res, 422, { error: 'trial_auto_stop_required', message: 'the trial caps auto-stop at 2 hours' });
         }
         const id = `sb-${++seq}`;
+        const saved = from === null ? undefined : snapshots.get(from);
+        if (saved !== undefined) machine.files = new Map([...saved.files].map(([k, f]) => [k, { ...f, bytes: f.bytes.slice() }]));
         const slow = o.slowCreateReads ?? 0;
-        const sb: Sandbox = { id, raw: slow > 0 ? 'provisioning' : 'ready', wakeReads: slow, commands: new Map() };
+        const sb: Sandbox = { id, raw: nextCreateRaw ?? (slow > 0 ? 'provisioning' : 'ready'), wakeReads: slow, snapshots: b['snapshots'] === true, commands: new Map() };
+        nextCreateRaw = null;
         sandboxes.set(id, sb);
         if (idemKey !== '') createdByKey.set(idemKey, id);
         return send(res, 202, { ok: true, type: 'sandbox.created', status: 'provisioning', ttlSeconds: b['ttlSeconds'] ?? null, sandbox: sandboxBody(sb, 'Sandbox') });
@@ -325,17 +345,21 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
         const sandboxId = str(b['sandboxId']);
         const name = str(b['name']);
         if (sandboxId === null || name === null) return send(res, 400, { error: 'sandboxId and name are required' });
-        if (snapshots.size >= 10 && !snapshots.has(name)) {
-          return send(res, 409, { error: 'at most 10 named snapshots per account' });
+        // 10 are free per wallet; past them a copy is billed, and with no credit the save is refused (15.1).
+        if (snapshots.size >= 10 && !snapshots.has(name) && !unlimited && creditBalanceSeconds + packBalanceSeconds <= 0) {
+          return send(res, 402, { error: 'credit_required' });
         }
-        snapshots.set(name, sandboxId);
-        return send(res, 202, { ok: true, type: 'snapshot.named.saving', status: 'saving', snapshot: { name, status: 'saving', sourceSandboxId: sandboxId, createdAt: new Date().toISOString() } });
+        clock = Math.max(Date.now(), clock + 1);
+        const files = new Map([...machine.files].map(([k, f]) => [k, { ...f, bytes: f.bytes.slice() }]));
+        snapshots.set(name, { sandboxId, createdAt: new Date(clock).toISOString(), files });
+        return send(res, 202, { ok: true, type: 'snapshot.named.saving', status: 'saving', snapshot: { name, status: 'saving', sourceSandboxId: sandboxId, createdAt: new Date(clock).toISOString() } });
       }
       const namedGet = /^\/named-snapshots\/([^/]+)$/.exec(path);
       if (namedGet !== null && req.method === 'GET') {
         const name = decodeURIComponent(namedGet[1]);
         if (!snapshots.has(name)) return send(res, 404, { error: 'not found' });
-        return send(res, 200, { ok: true, type: 'snapshot.named.info', snapshot: { name, status: 'ready', sourceSandboxId: snapshots.get(name), createdAt: new Date().toISOString() } });
+        const snap = snapshots.get(name)!;
+        return send(res, 200, { ok: true, type: 'snapshot.named.info', snapshot: { name, status: 'ready', sourceSandboxId: snap.sandboxId, createdAt: snap.createdAt } });
       }
       if (namedGet !== null && req.method === 'DELETE') {
         const name = decodeURIComponent(namedGet[1]);
@@ -343,7 +367,11 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
         return send(res, 200, { ok: true, type: 'snapshot.named.deleted', name, status: 'deleted' });
       }
       if (route === 'GET /named-snapshots') {
-        return send(res, 200, { ok: true, type: 'snapshot.named.list', snapshots: [...snapshots.keys()].map((name) => ({ name, status: 'ready' })) });
+        const listed = [...snapshots].map(([name, snap]) => ({
+          name, status: 'ready', sourceSandboxId: snap.sandboxId, createdAt: snap.createdAt,
+        }));
+        // The public list is newest first.
+        return send(res, 200, { ok: true, type: 'snapshot.named.list', snapshots: listed.reverse() });
       }
 
       const delMatch = /^\/deletion-operations\/([^/]+)$/.exec(path);
@@ -407,6 +435,9 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
     },
     loseNextCommand: () => {
       loseCommand = true;
+    },
+    nextCreateState: (raw) => {
+      nextCreateRaw = raw;
     },
     close: () => new Promise<void>((resolve, reject) => {
       server.close((e) => (e !== undefined ? reject(e) : resolve()));

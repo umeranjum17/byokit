@@ -10,6 +10,7 @@ A consumer app rents and drives a Boat cloud computer through the built `@byokit
 - `boat-write`: a file write is byte-identical and sends `encoding: 'base64'`.
 - `boat-remove`: delete sends `X-Ascii-Confirm-Delete: <id>` and waits for `operation.status` `completed` or `blocked`.
 - `boat-plan`: `plan` maps `sandboxPlanKey`/`subscriptionTrialEndsAt` (`key`/`why` are absent — no public route/field).
+- `boat-existing`: list, consent-gated adoption, collision refusal, and failed-install retry without another rental.
 - `boat-error`: a wrong key is a typed `unauthorized` and the key never appears in the message.
 - `boat-tailnet`: keyless `joinTailnet` emits the phone login link then a validated MagicDNS name; status distinguishes joined/needs-login/off and refuses malformed answers. Boat join keys are rejected before exec or file writes.
 - `boat-private-bootstrap`: create + install + host + join make zero `/host` calls; `url()` is explicit public exposure, never bootstrap.
@@ -67,13 +68,22 @@ try {
 }
 ```
 
-## Tailnet slice consumer check
+### Existing-computer journey
 
-After the same build/doctor, run and capture:
+Run the maintained built-public-entry consumer journey, including the refusal extremes:
 
 ```sh
 sh scripts/test.sh packages/cloud/test/journey-cloud.test.ts
 ```
+
+The two existing-computer journeys use fake Boat fetch/loopback only: list all pages, omit
+view-only computers, reject malformed replies, verify account/live id/consent before writes,
+refuse files/units/symlink parents, fail installation then retry `install` on the saved ref,
+and assert no create or resume after selection. A second app adopts successfully on a fresh
+directory and unit. Capture command/output outside the checkout in `test-own.txt`.
+No paid Boat run or real key is authorized or proved.
+
+### Tailnet journey
 
 The maintained journey imports the built public entries, drives the real Boat adapter over the existing
 loopback HTTP bench, installs an app to running, relays a synthetic phone approval, and asserts no public hosting

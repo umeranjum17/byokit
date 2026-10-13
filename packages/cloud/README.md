@@ -48,6 +48,28 @@ The package stays private until the recorded real-provider run (M6).
 
 The library reads no environment variable. Every spawned process gets an env built from nothing.
 
+## Saved copies, reset and disk space
+
+A machine made with `keepCopies: true` keeps saved copies of itself. `snapshot()` saves one and
+keeps only the newest three of the kit's own copies (`snapshot({ keep })` to change it; Boat keeps
+10 for free, then bills each). `scheduleSnapshots({ everyMs, onResult })` saves a copy when the newest is
+older than `everyMs`, on a timer while the app runs, and resolves `{ stop() }` (await it; it rejects at once on a bad
+recipe, a missing machine, or a machine or provider without copies). The kit has no hosted
+scheduler, so nothing saves while the app is closed.
+`restore(id)` rebuilds the machine from a copy; everything changed since is lost, so the app
+confirms first with `words('snapshot.restore', { date })`. A copy that is gone rejects
+`no-snapshot`; a save, reset or remove while another of these runs on the same machine rejects `busy`. `disk()` resolves `{ usedGb, totalGb }` for `words('disk.used', ...)`.
+
+```ts
+import { words, type Machine } from '@byokit/cloud';
+
+export async function reset(m: Machine, confirm: (s: string) => Promise<boolean>) {
+  const [last] = await m.snapshots();
+  if (last === undefined || !(await confirm(words('snapshot.restore', { date: last.at.slice(0, 10) })))) return null;
+  return m.restore(last.id); // the app then calls url(port) again: the machine is new
+}
+```
+
 ## Boat adapter
 
 `boat({ baseUrl, label, prices, key, fetch?, signal? })` returns the Boat `Provider`. The app
@@ -89,6 +111,21 @@ The phone must be on the same tailnet; encrypted pairing is still required.
 `url()` or `/host`. Explicit `m.url(port)` makes that port public, including opening the provider
 firewall. Do not reuse a previously exposed sandbox as a fresh private-only machine: the public
 API has no unhost route. Private tailnet reachability and public-port refusal still need live proof.
+
+## Connect an existing Boat computer
+
+Call `provider.list!()` to offer existing computers; never rent another as a fallback.
+After the person picks one, show `words('adopt.confirm', { app })`. Only on approval call
+`m.adopt(selected, { confirmId: selected.id, recipe })`. It installs and returns the saved
+ref, using the recipe's name rather than Boat's display name. No direct store edits are needed.
+
+Adoption checks account, live identity and running state, and refuses existing files,
+services, run users or redirected directories rather than taking them over. Choose a fresh
+workDir and app name. It does not wake or convert the computer. Its existing snapshot setting
+is retained; missing snapshot information disables sleep/copies conservatively.
+If installation fails, the selected ref stays saved: retry `m.install(recipe)`, not create
+or adopt. The app must keep the same consented recipe for that retry. Installation can execute
+the recipe's admin steps; adoption is not a sandbox for an untrusted installer.
 
 ## Recipes
 

@@ -1,8 +1,9 @@
 // The phone side: pair with the computer, sign in to a plan there (a device code typed on the provider's own page), send
 // the helper a message and watch its reply arrive, and allow or deny what it asks first. Plain DOM; every status a
-// person reads is a sentence from @byokit/openclaw's or @byokit/ui's words.
+// person reads is a sentence from @byokit/openclaw's or @byokit/ui's words, except the run's token usage line under
+// the reply, which is this example's own text.
 import { DeviceLink, browserDeviceStore, normalizeCode, pairWithCode, pairWithOffer, type DeviceGrant, type KeptDevice } from '@byokit/pair';
-import { openclawDevice, words, type AccountView, type Approval, type RunEnd } from '@byokit/openclaw/device';
+import { openclawDevice, words, type AccountView, type Approval, type RunEnd, type RunUsage } from '@byokit/openclaw/device';
 import { phaseOf } from '@byokit/ui';
 import { connectView, type ConnectGroup, type ConnectRow } from '@byokit/ui/connect';
 import { livePanelView, signInSheetView, signInsStore, type SignInAction, type SignInRequest } from '@byokit/ui/kits';
@@ -241,6 +242,17 @@ function endWords(end: RunEnd): string {
   return words(END_WORDS[end.kind], { name: account?.name ?? '', time });
 }
 
+// The run's token usage as the engine totals it, in one plain sentence; empty when it says none.
+function usageWords(u: RunUsage | undefined, model: string | undefined): string {
+  if (!u) return '';
+  const bits: string[] = [];
+  if (typeof u.input === 'number') bits.push(`${u.input} in`);
+  if (typeof u.output === 'number') bits.push(`${u.output} out`);
+  if (typeof u.total === 'number') bits.push(`${u.total} total`);
+  if (!bits.length) return '';
+  return `Tokens: ${bits.join(', ')}${model ? `, on ${model}` : ''}.`;
+}
+
 $('run-form').onsubmit = async (e) => {
   e.preventDefault();
   const box = $<HTMLTextAreaElement>('message');
@@ -257,11 +269,8 @@ $('run-form').onsubmit = async (e) => {
       if (frame.type === 'text') $('reply').textContent = frame.text;
       else if (frame.type === 'tool') $('tool').textContent = frame.phase === 'start' ? `Using ${frame.name.replaceAll('_', ' ')}…` : '';
       else if (frame.type === 'end') {
-        if (frame.end.ok) {
-          $('reply').textContent = frame.end.text || $('reply').textContent;
-          box.value = '';
-          if (frame.end.usage?.total) $('usage').textContent = `${frame.end.usage.total.toLocaleString()} tokens used.`;
-        }
+        if (frame.end.ok) { $('reply').textContent = frame.end.text || $('reply').textContent; box.value = ''; }
+        $('usage').textContent = frame.end.ok ? usageWords(frame.end.usage, frame.end.model || undefined) : '';
         $('run-said').textContent = endWords(frame.end);
         if (!frame.end.ok && 'kind' in frame.end && frame.end.kind === 'signed-out') void refresh();
       }

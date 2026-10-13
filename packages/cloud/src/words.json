@@ -14,6 +14,7 @@
   "asleep.provider": "{label} switched your cloud computer off. Opening {app} turns it back on.",
   "asleep.idle": "Your cloud computer went to sleep because nobody was using it. Opening {app} wakes it.",
   "plan.trial": "Your first week is a free trial, and {label} switches your cloud computer off every 2 hours during it. Opening {app} turns it back on. After the trial it stays on.",
+  "adopt.confirm": "Put {app} on this existing cloud computer and let it start automatically? This installs its files and may run setup with admin rights. No new computer will be rented.",
   "setup.makeKey": "Make a key on the {label} site, then paste it here.",
   "setup.typeCode": "Open the {label} page and type this code: {code}",
   "tailnet.joining": "Connecting your cloud computer to your private network.",
@@ -40,5 +41,8 @@
   "error.wrongAccount": "This cloud computer belongs to a different {label} account than the one {app} is using.",
   "error.app": "{app} hit a problem with your cloud computer. Try again, or ask for help.",
   "key.expiring": "Your {label} key expires on {date}. Make a new one to keep your cloud computer working.",
-  "copies.on": "{label} keeps copies of your cloud computer's disk, including your sign-ins, so it can wake where it left off. Your {label} account details may be handled in the United States."
+  "copies.on": "{label} keeps copies of your cloud computer's disk, including your sign-ins, so it can wake where it left off. Your {label} account details may be handled in the United States.",
+  "snapshot.restore": "Resetting brings your cloud computer back to how it was on {date}. Everything changed on it since then is lost.",
+  "disk.used": "{used} GB of {total} GB used on your cloud computer.",
+  "error.noSnapshot": "That saved copy of your cloud computer is gone. Choose another one."
 }

@@ -1,0 +1,1 @@
+- List existing Boat computers and adopt one after installation consent, without creating another rental; refuse account/identity mismatches and existing installation paths, retaining the ref for install retry.

@@ -10,7 +10,8 @@ import {
   userUnitPath, writeUnitFile, writeUserUnit,
 } from './unit.ts';
 import type {
-  AsleepWhy, ExecResult, HostRecipe, HostState, Machine, MachineRecord, MachineRef, MachineStore, Plan, Provider,
+  AsleepWhy, Disk, ExecResult, HostRecipe, HostState, Machine, MachineRecord, MachineRef, MachineStore, Plan, Provider,
+  Snapshot,
 } from './types.ts';
 
 const EXEC_TIMEOUT_MS = 30_000;
@@ -20,6 +21,10 @@ const FILE_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const DELIVER_LIMIT = 64 * 1024;
 /** 8.3 step 5: a failed step reports the last 2 KB of stderr. */
 const STEP_TAIL = 2048;
+/** 5.10: copies kept by default, well inside Boat's 10 free per wallet. */
+const KEEP = 3;
+/** The longest delay a timer accepts; a longer one would fire at once. */
+const TIMER_MAX_MS = 2_147_483_647;
 
 const randomBase36 = (n: number): string => {
   const bytes = crypto.getRandomValues(new Uint8Array(n));
@@ -38,24 +43,27 @@ const feedLines = (text: string, onLine: (line: string) => void): void => {
 
 type ExecOpts = { timeoutMs: number; root?: boolean; input?: Uint8Array };
 
+type StoreState = { loading: Promise<void> | null; record: MachineRecord | null; busyWith: string | null };
+const stores = new WeakMap<MachineStore, StoreState>();
+
 export function machine(o: { provider: Provider; store: MachineStore }): Machine {
-  let loading: Promise<void> | null = null;
-  let record: MachineRecord | null = null;
+  const shared = stores.get(o.store) ?? { loading: null, record: null, busyWith: null };
+  stores.set(o.store, shared);
   // host() resolves 'installing' while an install or update of this object is in flight (5.6).
   let installing = false;
 
   const load = (): Promise<void> => {
-    loading ??= o.store.load().then((r) => {
-      record = r;
+    shared.loading ??= o.store.load().then((r) => {
+      shared.record = r;
     });
-    return loading;
+    return shared.loading;
   };
-  const current = (): MachineRef | null => record?.ref ?? null;
+  const current = (): MachineRef | null => shared.record?.ref ?? null;
 
   const save = async (next: MachineRef | null): Promise<void> => {
-    const saved: MachineRecord = { ...(record ?? { providerKey: '' }), ref: next };
+    const saved: MachineRecord = { ...(shared.record ?? { providerKey: '' }), ref: next };
     await o.store.save(saved);
-    record = saved;
+    shared.record = saved;
   };
 
   const checkAccount = async (r: MachineRef | null): Promise<void> => {
@@ -79,6 +87,75 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       throw new MachineError('bad-recipe', `port: must be an integer 1-65535, got ${JSON.stringify(port)}`);
     }
   };
+
+  // 5.10: create, and every retry of it, carries one idempotency key; unreachable only.
+  const withKey = async <T>(name: string, run: (idempotencyKey: string) => Promise<T>): Promise<T> => {
+    const idempotencyKey = `byokit-${name}-${randomBase36(16)}`;
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await run(idempotencyKey);
+      } catch (e) {
+        if ((e as { code?: string }).code === 'unreachable' && attempt < 3) continue;
+        throw e;
+      }
+    }
+  };
+
+  // 5.10: the kit's own copies of this machine, newest first.
+  const listCopies = async (r: MachineRef): Promise<Snapshot[]> => {
+    if (o.provider.snapshots === undefined) throw new MachineError('unsupported', 'this provider cannot list saved copies');
+    return (await o.provider.snapshots(r)).sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  };
+
+  const needCopies = (r: MachineRef): void => {
+    if (!r.keepCopies) throw new MachineError('unsupported', 'the provider keeps no copies of a machine made without them');
+  };
+
+  const checkCount = (field: string, n: number, min: number): void => {
+    if (!Number.isInteger(n) || n < min) {
+      throw new MachineError('bad-recipe', `${field}: must be an integer >= ${min}, got ${JSON.stringify(n)}`);
+    }
+  };
+
+  // 5.10: save one copy, confirm it is listed ready, and only then prune past `keep`. A failed
+  // prune does not fail the save: the made copy comes back with the error, and the next save prunes again.
+  const saveCopy = async (r: MachineRef, keep: number): Promise<Snapshot & { pruneError?: MachineError }> => {
+    const { snapshot, snapshots, deleteSnapshot } = o.provider;
+    if (snapshot === undefined || snapshots === undefined || deleteSnapshot === undefined) {
+      throw new MachineError('unsupported', 'this provider cannot save copies');
+    }
+    const { name } = await snapshot(r, randomBase36(12));
+    const copies = await listCopies(r);
+    const made = copies.find((c) => c.id === name);
+    if (made === undefined) throw new MachineError('provider', 'the saved copy is not listed as ready');
+    let pruneError: MachineError | undefined;
+    try {
+      for (const old of copies.filter((c) => c.id !== made.id).slice(keep - 1)) await deleteSnapshot(r, old.id);
+    } catch (e) {
+      pruneError = e as MachineError;
+    }
+    return pruneError === undefined ? made : { ...made, pruneError };
+  };
+
+  // The check and claim run before the first await, so two calls in one tick cannot both pass.
+  const exclusive = async <T>(what: string, run: () => Promise<T>): Promise<T> => {
+    if (shared.busyWith !== null) throw new MachineError('busy', `${shared.busyWith} of this machine is already running`);
+    shared.busyWith = what;
+    try {
+      return await run();
+    } finally {
+      shared.busyWith = null;
+    }
+  };
+
+  // 5.10: the scheduler's tick. Due when the newest copy is at least everyMs old; otherwise null.
+  const autoCopy = (everyMs: number, keep: number): Promise<Snapshot | null> => exclusive('a save', async () => {
+    const r = await need();
+    needCopies(r);
+    const [newest] = await listCopies(r);
+    if (newest !== undefined && Date.now() - Date.parse(newest.at) < everyMs) return null;
+    return saveCopy(r, keep);
+  });
 
   // 8.2 without a recipe: probe for a system unit; exit 0 means a system unit.
   const stopUnit = async (r: MachineRef): Promise<void> => {
@@ -337,44 +414,83 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       return current();
     },
 
-    async create({ name, size, keepCopies }): Promise<MachineRef> {
-      await load();
-      const existing = current();
-      await checkAccount(existing);
-      if (existing !== null) throw new MachineError('exists', 'the store already holds a machine');
-      if (!/^[a-z][a-z0-9-]{0,31}$/.test(name)) {
-        throw new MachineError('bad-recipe', `name: must match ^[a-z][a-z0-9-]{0,31}$, got ${JSON.stringify(name)}`);
-      }
-      const sizes = o.provider.sizes();
-      if (sizes.length > 0 && !sizes.some((s) => s.id === size)) {
-        throw new MachineError('bad-recipe', `size: must be one of ${sizes.map((s) => s.id).join(', ')}, got ${JSON.stringify(size)}`);
-      }
-      if (o.provider.create !== undefined) {
-        const idempotencyKey = `byokit-${name}-${randomBase36(16)}`;
-        for (let attempt = 0; ; attempt++) {
-          try {
-            const created = await o.provider.create({ name, size, keepCopies, idempotencyKey });
-            await save(created);
-            return created;
-          } catch (e) {
-            // The same key on every retry; unreachable only.
-            if ((e as { code?: string }).code === 'unreachable' && attempt < 3) continue;
-            throw e;
-          }
+    create({ name, size, keepCopies }): Promise<MachineRef> {
+      return exclusive('a creation', async () => {
+        await load();
+        const existing = current();
+        await checkAccount(existing);
+        if (existing !== null) throw new MachineError('exists', 'the store already holds a machine');
+        if (!/^[a-z][a-z0-9-]{0,31}$/.test(name)) {
+          throw new MachineError('bad-recipe', `name: must match ^[a-z][a-z0-9-]{0,31}$, got ${JSON.stringify(name)}`);
         }
-      }
-      // Provider without create (SSH VM): adopt the machine that already exists (5.2 step 4).
-      if (keepCopies !== false) throw new MachineError('bad-recipe', 'keepCopies: must be false when the provider has no create');
-      if (o.provider.adopt === undefined) throw new MachineError('unsupported', 'this provider cannot adopt a machine');
-      const id = await o.provider.adopt();
-      const adopted: MachineRef = { provider: o.provider.id, account: await o.provider.account(), id, name, keepCopies: false };
-      const s = await o.provider.status(adopted);
-      if (s !== 'on') {
-        if (s === 'host-key-changed') throw new MachineError('host-key', 'the pinned host key no longer matches');
-        throw new MachineError('unreachable', `adopted machine is ${s}, not on`);
-      }
-      await save(adopted);
-      return adopted;
+        const sizes = o.provider.sizes();
+        if (sizes.length > 0 && !sizes.some((s) => s.id === size)) {
+          throw new MachineError('bad-recipe', `size: must be one of ${sizes.map((s) => s.id).join(', ')}, got ${JSON.stringify(size)}`);
+        }
+        const { create } = o.provider;
+        if (create !== undefined) {
+          const created = await withKey(name, (idempotencyKey) => create({ name, size, keepCopies, idempotencyKey }));
+          await save(created);
+          return created;
+        }
+        // Provider without create (SSH VM): adopt the machine that already exists (5.2 step 4).
+        if (keepCopies !== false) throw new MachineError('bad-recipe', 'keepCopies: must be false when the provider has no create');
+        if (o.provider.adopt === undefined) throw new MachineError('unsupported', 'this provider cannot adopt a machine');
+        const id = await o.provider.adopt();
+        const adopted: MachineRef = { provider: o.provider.id, account: await o.provider.account(), id, name, keepCopies: false };
+        const s = await o.provider.status(adopted);
+        if (s !== 'on') {
+          if (s === 'host-key-changed') throw new MachineError('host-key', 'the pinned host key no longer matches');
+          throw new MachineError('unreachable', `adopted machine is ${s}, not on`);
+        }
+        await save(adopted);
+        return adopted;
+      });
+    },
+
+    adopt(selected, { confirmId, recipe }): Promise<MachineRef> {
+      return exclusive('an adoption', async () => {
+        await load();
+        await checkAccount(current());
+        if (current() !== null) throw new MachineError('exists', 'the store already holds a machine');
+        await checkAccount(selected);
+        if (confirmId !== selected.id) throw new MachineError('confirm', 'confirmId must equal the selected machine id');
+        checkRecipe(recipe, recipe.name);
+        if (o.provider.list === undefined) throw new MachineError('unsupported', 'this provider cannot list existing machines');
+        const live = (await o.provider.list()).find((r) => r.id === selected.id);
+        if (live === undefined) throw new MachineError('no-machine', 'the selected machine is no longer listed');
+        await checkAccount(live);
+        const ref = { ...live, name: recipe.name };
+        const state = await o.provider.status(ref);
+        if (state !== 'on') {
+          if (state === 'host-key-changed') throw new MachineError('host-key', 'the pinned host key no longer matches');
+          throw new MachineError('unreachable', `selected machine is ${state}, not on`);
+        }
+        const { machineHome } = await probeMachine(ref, recipe);
+        const absent = async (path: string, flag = '-e'): Promise<void> => {
+          const probe = await o.provider.exec(ref, ['test', flag, path], { timeoutMs: EXEC_TIMEOUT_MS });
+          if (probe.code === 0) throw new MachineError('exists', 'existing files or a service prevent adoption');
+          if (probe.code !== 1 || probe.timedOut) throw new MachineError('provider', 'could not check existing installation');
+        };
+        for (const path of [recipe.workDir, systemUnitPath(ref.name), userUnitPath(machineHome, ref.name), markerPath(ref.name, recipe)]) {
+          await absent(path);
+          await absent(path, '-L');
+        }
+        for (const args of [['systemctl'], ['systemctl', '--user']]) {
+          const unit = await o.provider.exec(ref, [...args, 'show', `byokit-${ref.name}.service`, '-p', 'LoadState'], { timeoutMs: EXEC_TIMEOUT_MS });
+          if (unit.code !== 0 || unit.timedOut) throw new MachineError('provider', 'could not check existing service');
+          if (!unit.stdout.split('\n').includes('LoadState=not-found')) throw new MachineError('exists', 'an existing service prevents adoption');
+        }
+        for (let path = recipe.workDir; path !== ''; path = path.slice(0, path.lastIndexOf('/'))) await absent(path, '-L');
+        if (recipe.user !== undefined) {
+          const user = await o.provider.exec(ref, ['id', '-u', recipe.user], { timeoutMs: EXEC_TIMEOUT_MS });
+          if (user.code === 0) throw new MachineError('exists', 'the requested run user already exists');
+          if (user.code !== 1 || user.timedOut) throw new MachineError('provider', 'could not check the requested run user');
+        }
+        await save(ref);
+        await self.install(recipe);
+        return ref;
+      });
     },
 
     async state() {
@@ -553,17 +669,19 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
         }
         return usageCost(u, o.provider.prices(), { label: o.provider.label, today });
       }
-      const entered = enteredCost(record?.monthlyEntered, o.provider.prices(), { label: o.provider.label, today });
+      const entered = enteredCost(shared.record?.monthlyEntered, o.provider.prices(), { label: o.provider.label, today });
       if (entered === null) throw new MachineError('unsupported', 'no usage and no entered price for this machine');
       return entered;
     },
 
-    async remove(confirm: string): Promise<void> {
-      const r = await need();
-      if (confirm !== r.id) throw new MachineError('confirm', 'confirm must equal the machine id');
-      if (o.provider.remove === undefined) throw new MachineError('unsupported', 'this provider cannot remove a machine');
-      await o.provider.remove(r, confirm);
-      await save(null);
+    remove(confirm: string): Promise<void> {
+      return exclusive('a removal', async () => {
+        const r = await need();
+        if (confirm !== r.id) throw new MachineError('confirm', 'confirm must equal the machine id');
+        if (o.provider.remove === undefined) throw new MachineError('unsupported', 'this provider cannot remove a machine');
+        await o.provider.remove(r, confirm);
+        await save(null);
+      });
     },
 
     async plan(): Promise<Plan | null> {
@@ -619,6 +737,87 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       if (done.code !== 0) {
         throw new MachineError('provider', `deliver ${file} failed with exit ${done.code}: ${done.stderr.slice(-200)}`);
       }
+    },
+
+    async snapshots(): Promise<Snapshot[]> {
+      return listCopies(await need());
+    },
+
+    snapshot(so?: { keep?: number }): Promise<Snapshot & { pruneError?: MachineError }> {
+      return exclusive('a save', async () => {
+        const r = await need();
+        const keep = so?.keep ?? KEEP;
+        checkCount('keep', keep, 1);
+        needCopies(r);
+        return saveCopy(r, keep);
+      });
+    },
+
+    async scheduleSnapshots({ everyMs, keep = KEEP, onResult }): Promise<{ stop(): void }> {
+      checkCount('everyMs', everyMs, 1);
+      if (everyMs > TIMER_MAX_MS) throw new MachineError('bad-recipe', `everyMs: must be at most ${TIMER_MAX_MS}, got ${everyMs}`);
+      checkCount('keep', keep, 1);
+      // A schedule that could never save is refused here, not reported on every tick.
+      const r = await need();
+      if (o.provider.snapshot === undefined || o.provider.snapshots === undefined || o.provider.deleteSnapshot === undefined) {
+        throw new MachineError('unsupported', 'this provider cannot save copies');
+      }
+      needCopies(r);
+      let stopped = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const arm = (): void => {
+        timer = setTimeout(() => {
+          tick().catch(() => {});
+        }, everyMs);
+        (timer as unknown as { unref?: () => void }).unref?.();
+      };
+      // The next check starts once this copy is made, so a copy is never judged before it is everyMs old.
+      const tick = async (): Promise<void> => {
+        let result: Snapshot | null | Error;
+        try {
+          result = await autoCopy(everyMs, keep);
+        } catch (e) {
+          result = e instanceof Error ? e : new Error(String(e));
+        }
+        const gone = result instanceof MachineError && result.code === 'no-machine';
+        if (!stopped && !gone) arm();
+        onResult?.(result);
+      };
+      arm();
+      return {
+        stop: () => {
+          stopped = true;
+          clearTimeout(timer);
+        },
+      };
+    },
+
+    restore(id: string): Promise<void> {
+      return exclusive('a reset', async () => {
+        const r = await need();
+        const { restore } = o.provider;
+        if (restore === undefined) throw new MachineError('unsupported', 'this provider cannot reset a machine from a copy');
+        needCopies(r);
+        if (!(await listCopies(r)).some((c) => c.id === id)) {
+          throw new MachineError('no-snapshot', 'no ready copy of this machine has that id');
+        }
+        // The app confirmed; the words say what is lost (`snapshot.restore`). The new ref is
+        // saved (through `replaced`) before the adapter deletes the old machine.
+        await withKey(r.name, (idempotencyKey) => restore(r, id, { idempotencyKey, replaced: save }));
+      });
+    },
+
+    async disk(): Promise<Disk> {
+      const r = await need();
+      const shown = await o.provider.exec(r, ['df', '-P', '-k', '/'], { timeoutMs: EXEC_TIMEOUT_MS });
+      // POSIX output: a header, then `<fs> <total 1K-blocks> <used> <available> <capacity> <mount>`.
+      const [, total, used] = (shown.stdout.split('\n')[1] ?? '').trim().split(/\s+/).map(Number);
+      if (shown.code !== 0 || !Number.isFinite(total) || !Number.isFinite(used)) {
+        throw new MachineError('provider', `df / failed with exit ${shown.code}: ${shown.stderr.slice(-200)}`);
+      }
+      // Decimal GB (bytes / 1e9), as disks are sold and as the words say.
+      const gb = (kb: number): number => Math.round((kb * 1024) / 1e8) / 10;
+      return { usedGb: gb(used), totalGb: gb(total) };
     },
   };
 

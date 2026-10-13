@@ -179,6 +179,10 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   await approval.getByRole('button', { name: /^Allow/ }).click();
   await approval.waitFor({ state: 'detached' });
   await text(page, '#reply', `fake: ${allowMe}`);
+  // The run's end carries the engine's totals, and the page shows them under the reply.
+  const usage = page.locator('#usage').filter({ hasText: /^Tokens:/ });
+  await usage.waitFor();
+  assert.match(await usage.textContent() ?? '', /^Tokens: \d+ in, \d+ out, \d+ total(, on \S+)?\.$/);
   assert.equal(await page.locator('#approvals-box').isHidden(), true);
   assert.equal(notes(), 'buy milk\n');
   await shot(page, '5-allowed');
@@ -239,7 +243,7 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   await page.fill('#message', 'Hello Go');
   await page.click('#send');
   await text(page, '#reply', 'fake: Hello Go');
-  await page.locator('#usage').filter({ hasText: /^\d+ tokens used\.$/ }).waitFor(); // with the end, after the text
+  await page.locator('#usage').filter({ hasText: /^Tokens: \d+ in, \d+ out, \d+ total(, on \S+)?\.$/ }).waitFor(); // with the end, after the text
   await shot(page, '10-plan-key-answered');
   assert.equal((await page.content()).includes(KEY), false, 'the page keeps no key');
   assert.equal(said.includes(KEY), false, 'the computer never says the key');
@@ -328,4 +332,86 @@ test('away from home: a phone pairs through the relay, gets an approval sealed, 
   assert.equal(pressed.status, 200, await pressed.clone().text());
   assert.equal((await reply)?.type, 'end');
   assert.match(notes(), /from away\n$/);
+});
+
+test('a key typed while the terminal is hidden is neither echoed nor run', async () => {
+  // The hidden plan-key prompt runs only on a terminal: this host gets a pty through `script`, with the kit's fake
+  // Gateway (no engine, no account, no network). Bytes written in the same breath as the prompt's Enter arrive while
+  // input is still hidden, so showInput must drop them instead of echoing or running them as commands.
+  const app2 = join(dir, 'pty');
+  cpSync(app, app2, { recursive: true, filter: (f) => !/[/\\]\.state$/.test(f) });
+  const port2 = await new Promise<number>((resolve) => {
+    const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address() as { port: number }; s.close(() => resolve(port)); });
+  });
+  const pty = trackChild(spawn('script', ['-qec', `node host.ts --via lan --port ${port2} --name Pty`, '/dev/null'],
+    { cwd: app2, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
+  try {
+    let said2 = '';
+    pty.stdout.on('data', (b: Buffer) => { said2 += b.toString(); });
+    const heard2 = async (pattern: RegExp, from = 0) => {
+      for (let i = 0; i < 300 && !pattern.test(said2.slice(from)); i++) await new Promise((r) => setTimeout(r, 50));
+      const m = said2.slice(from).match(pattern);
+      assert.ok(m, `pty host never said ${pattern}; it said:\n${said2}`);
+      return m;
+    };
+    await heard2(new RegExp(WORDS['engine.ready'].replace('.', '\\.')));
+    // A failed add: an empty paste cancels it, and the key bytes in the same breath must be dropped.
+    let mark = said2.length;
+    pty.stdin.write('add opencode-go\n');
+    await heard2(/Paste the/, mark);
+    const CANARY = 'sk-go-CANARY-HIDDEN-5521';
+    mark = said2.length;
+    pty.stdin.write('\n');
+    pty.stdin.write(`${CANARY}\n`);
+    await heard2(/Cancelled\./, mark);
+    await new Promise((r) => setTimeout(r, 1500));
+    assert.doesNotMatch(said2, new RegExp(CANARY), 'the typed key is never echoed');
+    assert.equal((said2.slice(mark).match(CODE) ?? []).length, 0, 'the typed Enter shows no fresh codes');
+    // A signed-in add: trailing bytes past the paste meet the same drop.
+    mark = said2.length;
+    pty.stdin.write('add opencode-go\n');
+    await heard2(/Paste the/, mark);
+    const TRAIL = 'sk-go-CANARY-TRAIL-5522';
+    mark = said2.length;
+    pty.stdin.write('sk-go-CANARY-SIGNED-IN-9\n');
+    pty.stdin.write(`${TRAIL}\n`);
+    await heard2(/Signed in to/, mark);
+    await new Promise((r) => setTimeout(r, 1500));
+    assert.doesNotMatch(said2, new RegExp('CANARY-TRAIL'), 'trailing bytes are never echoed');
+    assert.equal((said2.slice(mark).match(CODE) ?? []).length, 0, 'trailing bytes run no command');
+  } finally {
+    pty.kill('SIGTERM');
+  }
+});
+
+test('Ctrl-C during a hidden plan-key sign-in quits', async () => {
+  // While raw mode hides the terminal, Ctrl-C arrives as a byte, not SIGINT: the host stops like it does outside.
+  const app3 = join(dir, 'pty-quit');
+  cpSync(app, app3, { recursive: true, filter: (f) => !/[/\\]\.state$/.test(f) });
+  const port3 = await new Promise<number>((resolve) => {
+    const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address() as { port: number }; s.close(() => resolve(port)); });
+  });
+  const pty = trackChild(spawn('script', ['-qec', `node host.ts --via lan --port ${port3} --name PtyQuit`, '/dev/null'],
+    { cwd: app3, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
+  try {
+    let said3 = '';
+    pty.stdout.on('data', (b: Buffer) => { said3 += b.toString(); });
+    const heard3 = async (pattern: RegExp, from = 0) => {
+      for (let i = 0; i < 300 && !pattern.test(said3.slice(from)); i++) await new Promise((r) => setTimeout(r, 50));
+      const m = said3.slice(from).match(pattern);
+      assert.ok(m, `pty host never said ${pattern}; it said:\n${said3}`);
+      return m;
+    };
+    await heard3(new RegExp(WORDS['engine.ready'].replace('.', '\\.')));
+    pty.stdin.write('add opencode-go\n');
+    await heard3(/Paste the/);
+    pty.stdin.write(String.fromCharCode(3)); // Ctrl-C while hidden: quit, the same as SIGINT
+    const code = await new Promise<number | null>((resolve) => {
+      const timer = setTimeout(() => resolve(null), 15000);
+      pty.once('exit', (c) => { clearTimeout(timer); resolve(c); });
+    });
+    assert.equal(code, 0, 'the host quits on Ctrl-C during a hidden sign-in');
+  } finally {
+    pty.kill('SIGTERM');
+  }
 });
