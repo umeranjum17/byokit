@@ -5,7 +5,7 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } fr
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { hostname } from 'node:os';
 import { join, resolve } from 'node:path';
-import { createInterface } from 'node:readline';
+import { createInterface, type Interface } from 'node:readline';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -58,10 +58,7 @@ const options: KitOptions = {
   tools: [demoNote],
   host: tools,
   // Sign-in stays driven by the kit's own route list (kit.routes()): no plugin pin here, so every default
-  // subscription route (ChatGPT, OpenCode Go, …) is offered. A live-only Go model the pinned engine's static
-  // catalog does not carry is registered with its API, so a run can name it (@byokit/openclaw's README).
-  config: { models: { providers: { 'opencode-go': { baseUrl: 'https://opencode.ai/zen/go/v1', api: 'openai-responses',
-    models: [{ id: 'muse-spark-1.3-contributor', name: 'Muse Spark 1.3 Contributor' }] } } } },
+  // subscription route (ChatGPT, OpenCode Go, …) is offered.
   onState: (s) => {
     const now = stateWords(s);
     if (now && now !== said) console.log(now);
@@ -122,14 +119,19 @@ const grants: GrantStore = grantFile;
 const ingress = jsonFile<ServeIngress | null>(join(state, 'ingress.json'), null);
 
 // Pairing asks the person here, one device at a time: a second one asking meanwhile is turned away, and a question
-// nobody answers ends with the pairing window. An Enter with no question open shows fresh codes; `accounts` lists
-// the accounts signed in on this computer, `add <choice>` signs one in here (a plan key is typed hidden, and stays
-// on this computer), and `model <provider/model>` sets the default model. Every choice is the kit's own route list.
-const input = createInterface({ input: process.stdin });
+// nobody answers ends with the pairing window. An Enter with no question open shows fresh codes; `add <choice>` signs
+// one in here (a plan key is typed hidden, and stays on this computer). Every choice is the kit's own route list.
 let asking: ((line: string) => void) | undefined;
 let closed = false;
-input.on('line', (line) => { const answer = asking; asking = undefined; if (answer) answer(line); else void command(line); });
-input.on('close', () => { closed = true; asking?.(''); });
+function openInput(): Interface {
+  const rl = createInterface({ input: process.stdin });
+  rl.on('line', (line) => { const answer = asking; asking = undefined; if (answer) answer(line); else void command(line); });
+  rl.on('close', () => { if (rl !== input) return; closed = true; asking?.(''); });
+  return rl;
+}
+// Undefined only while a hidden secret is read: the line interface is closed then, so it neither echoes the keys nor
+// takes the Enter or Ctrl-C.
+let input: Interface | undefined = openInput();
 const ask = (question: string) => new Promise<string>((resolve) => {
   process.stdout.write(question);
   const answer = (line: string) => { clearTimeout(timer); if (asking === answer) asking = undefined; resolve(line); };
@@ -228,27 +230,10 @@ function showCodes() {
   console.log('Codes last five minutes. Press Enter for new ones.');
 }
 
-// Accounts at this computer, from the kit's own route list. A code or browser choice signs in from the phone page;
+// Sign-ins at this computer, from the kit's own route list. A code or browser choice signs in from the phone page;
 // a plan key (OpenCode Go) is pasted here, typed hidden, and never leaves this computer.
 async function command(line: string): Promise<void> {
   const [cmd, arg] = line.trim().split(/\s+/, 2);
-  if (cmd === 'accounts') {
-    const rows = await kit.accounts(MEMBER).catch(() => undefined);
-    if (!rows) { console.log(stateWords(kit.state)); return; }
-    if (!rows.length) console.log('No accounts yet.');
-    for (const row of rows) console.log(`${row.label} (${row.provider}), ${row.state}.`);
-    const offered = kit.routes().filter((r) => r.offer).map((r) => r.choice);
-    console.log(`Offered: ${offered.join(', ')}. Type \`add <choice>\` to sign one in here.`);
-    return;
-  }
-  if (cmd === 'model' && arg) {
-    if (!arg.includes('/')) { console.log('Name a model as provider/model.'); return; }
-    try {
-      await kit.setDefaults(MEMBER, { ...(await kit.defaults(MEMBER)), model: arg });
-      console.log(`Default model: ${arg}.`);
-    } catch (e) { console.log(e instanceof Error ? e.message : String(e)); }
-    return;
-  }
   if (cmd === 'add' && arg) {
     await addChoice(arg);
     return;
@@ -284,7 +269,9 @@ function readSecret(prompt: string): Promise<string> {
     return new Promise((resolve) => { asking = (line) => { resolve(line.trim()); }; });
   }
   return new Promise((resolve) => {
-    input.pause();
+    const rl = input!;
+    input = undefined;
+    rl.close();
     stdin.setRawMode(true);
     stdin.resume();
     let text = '';
@@ -292,7 +279,7 @@ function readSecret(prompt: string): Promise<string> {
       stdin.removeListener('data', onData);
       stdin.setRawMode(false);
       stdin.pause();
-      input.resume();
+      input = openInput();
       process.stdout.write('\n');
       resolve(value);
     };
@@ -308,12 +295,12 @@ function readSecret(prompt: string): Promise<string> {
   });
 }
 
-console.log('Type `accounts` to list signed-in accounts, `add <choice>` to sign in at this computer, `model <provider/model>` for the default model, Enter for fresh codes.');
+console.log('Type `add <choice>` to sign in at this computer, Enter for fresh codes.');
 showCodes();
 kit.start().catch(() => {}); // a failed start is already said in words above; the page shows it too
 
 const stop = async () => {
-  input.close();
+  input?.close();
   await kit.stop().catch(() => {});
   relay?.stop();
   host.close();
