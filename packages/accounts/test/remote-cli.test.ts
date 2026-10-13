@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { cliAccounts, remoteCliHost, signInLock } from '../src/cli.ts';
@@ -342,6 +342,66 @@ test('a runtime-owned folder survives timeout and close; closing wins over late 
     if (!result.ok) assert.equal(result.error, 'cancelled');
     assert.equal(readFileSync(canary, 'utf8'), 'keep');
   } finally { await host.close(); }
+});
+
+test('a long phone wait does not accumulate native-child exit listeners', { timeout: 10_000 }, async () => {
+  const root = scratchDir('remote-wait-listeners');
+  const native = fakeClaude(join(root, 'bins'));
+  const { host } = kitAndHost(root, { claude: native.bin }, { LOGIN_MODE: 'paste' });
+  const warnings: string[] = [];
+  const onWarning = (warning: Error) => {
+    if (warning.name === 'MaxListenersExceededWarning') warnings.push(warning.message);
+  };
+  process.on('warning', onWarning);
+  try {
+    const started = await host.start('claude'); assert.ok(started.ok);
+    if (!started.ok) return;
+    const result = await host.wait(started.signIn.id, { timeoutMs: 3300 });
+    assert.equal(result.ok ? 'ok' : result.error, 'expired');
+    assert.deepEqual(warnings, [], 'polling a live native login must not attach another exit listener');
+  } finally { process.off('warning', onWarning); await host.close(); }
+});
+
+test('a native holder write failure reaps the child and unlocks before a phone retry', { timeout: 10_000 }, async () => {
+  const root = scratchDir('remote-holder-write');
+  const native = fakeClaude(join(root, 'bins'));
+  const stateDir = join(root, 'runtime');
+  const home = join(stateDir, 'home'); mkdirSync(home, { recursive: true });
+  const folder = join(home, '.claude');
+  const pidFile = join(root, 'native.pid');
+  const bins = { claude: native.bin };
+  const cli = cliAccounts({ stateDir, bins, env: { HOME: home, PATH: '/unused', LOGIN_MODE: 'paste', LOGIN_PID_FILE: pidFile },
+    managedFolders: { claude: folder } });
+  await cli.add('claude');
+  const canary = join(folder, 'canary'); writeFileSync(canary, 'keep');
+  const { lock, holder } = signInLock(folder);
+  writeFileSync(holder, String(spawnSync(process.execPath, ['-e', '']).pid), { mode: 0o400 });
+  const host = remoteCliHost({ cli, bins });
+  let rejected = false;
+  try {
+    const result = await host.start('claude').catch(error => { rejected = true; throw error; });
+    assert.equal(result.ok ? 'ok' : result.error, 'failed');
+    assert.equal(existsSync(lock), false, 'failure must release the lock after reaping');
+    assert.equal(existsSync(holder), false);
+    const retry = await host.start('claude'); assert.ok(retry.ok);
+    if (retry.ok) await host.cancel(retry.signIn.id);
+    assert.equal(readFileSync(canary, 'utf8'), 'keep');
+  } finally {
+    // Baseline failure had no registered session: reap only this fixture's reported child.
+    if (rejected) {
+      for (let i = 0; !existsSync(pidFile) && i < 100; i++) await delay(10);
+      if (existsSync(pidFile)) {
+        const pid = Number(readFileSync(pidFile, 'utf8'));
+        try { process.kill(pid, 'SIGKILL'); } catch {}
+        for (let i = 0; i < 300; i++) {
+          try { process.kill(pid, 0); } catch { break; }
+          await delay(10);
+        }
+      }
+    }
+    if (existsSync(holder)) chmodSync(holder, 0o600);
+    await host.close();
+  }
 });
 
 test('shell and phone sign-in share a live native holder and release it before phone retry', { timeout: 10_000 }, async () => {

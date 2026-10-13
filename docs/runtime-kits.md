@@ -775,6 +775,8 @@ sign-in lock (`signInLock`: the `.byokit-signin-lock` directory the shell comman
 (`.byokit-signin-holder`, written by both the shell and remote spawn with the native child's PID) is dead, and no in-host session for the provider is still unexited;
 a live, unreadable or missing holder file is busy (including a legacy shell's holderless lock; no unproven lock is stolen).
 Both paths hold that lock until the native child exits; a shell wrapper's exit alone is not liveness proof.
+The remote driver attaches supervision before recording that PID. A holder-write failure stops and reaps the child,
+then releases the acquired lock and reports a plain failure; waits share one child-exit promise rather than adding a listener per poll.
 The phone uses the existing link start/view/paste/cancel operations; credentials stay on the engine machine.
 For the native Claude route, a link sign-in view reports `ready: false` while its drive is active or its latest
 attempt failed, even if native credential detection already succeeds; other providers keep their signed-in readiness. The drive's successful live activation, not credential presence,

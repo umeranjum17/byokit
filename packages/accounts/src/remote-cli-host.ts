@@ -50,6 +50,7 @@ type Session = {
   id: string;
   provider: RemoteCliProvider;
   child: ChildProcess;
+  exit: Promise<void>;
   completion: string;
   display: RemoteCliDisplay;
   startedAt: number;
@@ -186,12 +187,7 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
       }
     } catch {}
   };
-  const exitOf = (s: Session): Promise<void> => {
-    if (s.exited !== undefined) return Promise.resolve();
-    return new Promise((resolve) => {
-      s.child.once('exit', (code) => { s.exited = code; resolve(); });
-    });
-  };
+  const exitOf = (s: Session): Promise<void> => s.exit;
 
   async function state(): Promise<RemoteCliState[]> {
     return remoteCliState(cli, bins);
@@ -241,8 +237,19 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     }
     if (signal?.aborted) { unlock?.(); await cli.cancel(id); return fail(provider, 'cancelled'); }
     const child = spawn(signIn.argv[0], signIn.argv.slice(1), { env: signIn.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
-    if (child.pid) writeFileSync(signInLock(dirname(signIn.completion)).holder, String(child.pid));
-    const session: Session = { id, provider, child, completion: signIn.completion, display: { id, provider, verificationUri: '' }, startedAt: now(), late: '', unlock };
+    const session: Session = { id, provider, child, completion: signIn.completion, display: { id, provider, verificationUri: '' }, startedAt: now(), late: '', unlock,
+      exit: new Promise(resolve => {
+        child.once('exit', code => { session.exited = code; session.unlock?.(); resolve(); });
+        child.once('error', () => { session.exited ??= null; session.unlock?.(); resolve(); });
+      }) };
+    try {
+      if (child.pid) writeFileSync(signInLock(dirname(signIn.completion)).holder, String(child.pid));
+    } catch {
+      kill(session);
+      await exitOf(session);
+      await cli.cancel(id).catch(() => {});
+      return fail(provider, 'failed');
+    }
     const abort = () => kill(session);
     signal?.addEventListener('abort', abort, { once: true });
     let output = '';
@@ -257,8 +264,6 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     };
     child.stdout?.on('data', append);
     child.stderr?.on('data', append);
-    child.once('exit', (code) => { session.exited = code; session.unlock?.(); });
-    child.once('error', () => { session.exited ??= null; session.unlock?.(); });
     const deadline = now() + parseMs;
     for (;;) {
       if (found || signal?.aborted) break;
