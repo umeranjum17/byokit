@@ -6,7 +6,7 @@
 // at the stand-in OpenAI and a link host on this computer (see e2e-android.sh):
 //   EXPO_PUBLIC_OPENAI_BASE=http://10.0.2.2:21455 npx expo run:android   (after `npm run mock` in this folder)
 //   EXPO_PUBLIC_DEVICE_BASE / EXPO_PUBLIC_CLAUDE_BASE override the device-flow and Claude plan endpoints; unset uses the real providers.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { UsageDemo } from './UsageDemo.tsx';
 import { CloudM6Demo } from './CloudM6Demo.tsx';
 import { ScreenDemo } from './ScreenDemo.tsx';
@@ -25,6 +25,7 @@ import { forgettableStore, pairInput, pairingGeneration } from './pairing.ts';
 import { setupKey, setupProvider, setupWords } from './cloud-setup.ts';
 import { errorWords, MachineError, type MachineStore } from '@byokit/cloud';
 import { linkWords, pairingView, useConnect, useSignIn, type PairPhase, type UseSignIn } from '@byokit/ui';
+import { accountsSource, useAccounts, useModelPicker, type ModelPickerSource } from '@byokit/ui';
 import { overlay, stateWords, type OverlayState } from '@byokit/bubble';
 import { stateWords as chipWords, status as chip } from '@byokit/statusbar';
 import { focusedField } from '@byokit/bubble/focused-field';
@@ -127,6 +128,44 @@ function Ask({ k }: { k: string }) {
   );
 }
 
+/** One provider's accounts with room and the run picker, live through the kit hooks. The source is the shared
+ *  one-line-per-member adapter scoped to this provider (Auto names one of its accounts); the app draws the rows its
+ *  own way and keeps no account logic. Room reads unknown until the app keeps usage readings, so Auto takes list
+ *  order and says so; an explicit signed-out pick keeps its reason on screen. */
+function providerSource(k: string): ModelPickerSource {
+  const room = () => ({ left: 'unknown' as const });
+  const base = accountsSource(accounts, ME, room);
+  return { ...base,
+    accounts: async () => (await base.accounts()).filter((a) => a.provider === k),
+    auto: () => accounts.pick(ME, { account: 'auto', provider: k }, room) };
+}
+
+function ProviderAccounts({ k }: { k: string }) {
+  const s = useStyles();
+  const source = useMemo(() => providerSource(k), [k]);
+  const list = useAccounts(source);
+  const pick = useModelPicker(source);
+  useEffect(() => {
+    refreshers.set(`rooms:${k}`, () => { void list.refresh(); void pick.refresh(); });
+    return () => { refreshers.delete(`rooms:${k}`); };
+  }, [k, list.refresh, pick.refresh]);
+  const view = pick.picker;
+  const chosen = view?.rows.find((r) => r.selected);
+  return (
+    <View testID={tid(k, 'accounts')} style={s.sheet}>
+      {list.rows.map((r) => <View key={r.id}>
+        <Text style={s.words}>{r.title}</Text>
+        <Text style={s.small}>{r.detail}</Text>
+      </View>)}
+      {view?.rows.map((r, i) => <Pressable key={r.key} testID={tid(k, `pick-${i}`)} accessibilityRole="button"
+        disabled={r.disabled} onPress={() => pick.select(r.kind === 'auto' ? { account: 'auto' } : { account: r.key })}>
+        <Text style={r.selected ? s.words : s.small}>{r.selected ? `✓ ${r.title}` : r.title}{r.detail ? ` — ${r.detail}` : ''}</Text>
+      </Pressable>)}
+      {!!view && !view.ok && !!chosen?.detail && <Text testID={tid(k, 'pick-reason')} style={s.small}>{chosen.detail}</Text>}
+    </View>
+  );
+}
+
 /** One plan: signed out, signing in, or a connected card naming the plan ("Claude Max"), with Ask and a quiet sign-out. */
 function Plan({ k, options, onPick, onClose }: { k: string; options?: UseSignIn; onPick: () => void; onClose: () => void }) {
   const s = useStyles();
@@ -155,6 +194,7 @@ function Plan({ k, options, onPick, onClose }: { k: string; options?: UseSignIn;
       {options ? <SignInSheet key={k} k={k} options={options} onClose={() => { onClose(); refresh(); }} />
         : signedIn(status) ? <>
           {(k === 'chatgpt' || k === 'claude') && <Ask k={k} />}
+          <ProviderAccounts k={k} />
           {k === 'chatgpt' && <Button id="recheck" label="Check the sign-in" onPress={async () => {
             // Forces a refresh (the token rotates): what the app does when ChatGPT turns a request away.
             setNote((await accounts.recheck(ME, k)) ? 'Still signed in: the sign-in was refreshed.' : 'Signed out.');
