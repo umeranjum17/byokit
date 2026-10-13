@@ -567,6 +567,11 @@ export function createAccounts(ctx: {
   // entry is dropped. An account agent goes through `clear`, an empty `list`, `agents.delete` with
   // `deleteFiles: false`, removal of its state dir, then the entry is dropped. Refused `busy` while a run holds
   // the agent; the member agent stays ready (only the named provider is logged out or cleared).
+  const providerProfileIds = async (agentId: string, provider: string): Promise<string[]> => {
+    const listed = await ctx.request('byokit.accounts', { action: 'list', agentId }) as { ok?: boolean; profiles?: { profileId?: string; provider?: string }[] };
+    if (listed.ok !== true || !Array.isArray(listed.profiles)) throw new Error('removeAccount: the sign-ins could not be read');
+    return listed.profiles.filter((p) => p.provider === provider && typeof p.profileId === 'string' && p.profileId).map((p) => p.profileId!);
+  };
   async function remove(member: Member, id: AccountId): Promise<void> {
     check(member);
     const { agentId: memberAgent } = await ctx.ensure(member);
@@ -578,10 +583,9 @@ export function createAccounts(ctx: {
     if (ctx.locks.live(agent) || signing.has(`${member}\n${id}`)) throw new Error('removeAccount: busy');
     if (agent === memberAgent) {
       await ctx.locks.exclusive([agent, indexLock(member)], async () => {
-        const listed = await ctx.request('byokit.accounts', { action: 'list', agentId: agent }) as { ok?: boolean; profiles?: { profileId?: string; provider?: string }[] };
-        if (listed.ok !== true || !Array.isArray(listed.profiles)) throw new Error('removeAccount: the sign-ins could not be read');
-        const profileIds = listed.profiles.filter((p) => p.provider === provider && typeof p.profileId === 'string' && p.profileId).map((p) => p.profileId!);
+        const profileIds = await providerProfileIds(agent, provider);
         if (profileIds.length) await ctx.request('models.authLogout', { provider, agentId: agent, profileIds });
+        if ((await providerProfileIds(agent, provider)).length) throw new Error('removeAccount: the account is still signing in');
         const file = read(member);
         dropEntry(file, id);
         write(member, file);
@@ -650,7 +654,7 @@ export function createAccounts(ctx: {
       await ctx.request('agents.delete', { agentId: agent, deleteFiles: false });
     }
     rmSync(agentDir(agent), { recursive: true, force: true });
-    await edit(member, (file) => { delete file.accounts[id]; markGone(file, agent); });
+    await edit(member, (file) => { delete file.accounts[id]; });
   })().catch((error: unknown) => ctx.log?.(`addAccount: ${agent} is not removed yet: ${error instanceof Error ? error.message : String(error)}`));
 
   // Member-agent adds of one provider take turns from the sign-in's start to its settle, so a cleanup clears only the

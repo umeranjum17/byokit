@@ -2018,6 +2018,36 @@ test('removing an account while the engine runs survives a SQLite journal that v
   }
 });
 
+test('a member sign-in that lands again during logout is refused, keeps its entry, and a retry clears it', async () => {
+  const stateDir = scratchDir('o14h-member-relogin');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    assert.ok((await kit.accounts('m1')).some((a) => a.id === 'openai'));
+    await kit.stop();
+    let logouts = 0;
+    const relogin: typeof fake.factory = (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, request: async (method, params, o) => {
+        const answer = await transport.request(method, params, o);
+        if (method === 'models.authLogout' && logouts++ === 0) fake.refresh('m1', 'openai');
+        return answer;
+      } };
+    };
+    const kit2 = new OpenClawKit({ stateDir, transport: relogin, spawnEngine: false, callbackPort: 0 });
+    try {
+      await kit2.start();
+      await assert.rejects(kit2.removeAccount('m1', 'openai'), /still signing in/, 'a profile that lands again refuses removal');
+      assert.ok('openai' in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts, 'and keeps the entry');
+      await kit2.removeAccount('m1', 'openai');
+      assert.equal(logouts, 2, 'the retry logs the landed profile out too');
+      assert.ok(!('openai' in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts), 'and the retry drops the entry');
+    } finally { await kit2.stop(); }
+  } finally { rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 test('a failed member-agent seal says the credential is still there when its clear is refused', async () => {
   const stateDir = scratchDir('o14h-seal-clear-refused');
   const fake = fakeGateway();
