@@ -42,9 +42,11 @@ export function routes(facts: RouteFacts = {}): RouteView[] {
 
 /** Retain explicit legacy selectors alongside corrected discovery metadata. A native CLI selector still
  * reaches engine detection (which checks its own login); it does not make an unavailable route default.
+ * An offered plan key is served whichever way was asked: it is always the pasted key.
  * API billing is never picked as a fallback. */
 export function routeFor(provider: string, via: 'browser' | 'code'): Route | undefined {
-  return table.find(route => route.billing === 'subscription' && route.offerPolicy === 'default'
-    && ((route.offer && route.provider === provider && route.via === via)
-      || (route.legacy?.provider === provider && route.legacy.via === via)));
+  const served = table.filter(route => route.billing === 'subscription' && route.offerPolicy === 'default');
+  return served.find(route => (route.offer && route.provider === provider && route.via === via)
+      || (route.legacy?.provider === provider && route.legacy.via === via))
+    ?? served.find(route => route.offer && route.provider === provider && route.keyEntry);
 }

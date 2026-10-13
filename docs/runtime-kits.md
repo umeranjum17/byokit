@@ -706,7 +706,8 @@ Subscription choices are offered by default, including native `anthropic-cli`; `
 Only proxy routes (`litellm-api-key`, `clawrouter-api-key`, `custom-api-key`), compatibility aliases,
 local runtimes, `copilot-proxy` stay off. Billing labels distinguish subscription from
 API key (billed per use); native `anthropic-cli` uses Claude Code in the isolated HOME. `routes()` returns the full table and
-`routeFor(provider, via)` picks the first offered route. Each `plugin` names the bundled manifest owning
+`routeFor(provider, via)` picks the first offered route, else the provider's offered plan key (a `keyEntry` route is
+the pasted key whichever `via` was asked). Each `plugin` names the bundled manifest owning
 the choice; `via` is `code` for `appGuidedAuth: 'device-code'`, otherwise `browser`. Some offered routes
 need a manual paste: the 2026.8.1 Gateway does not guide every pinned choice. The engine job
 checks inventory and starts the routes the pin supports through its setup wizard.
@@ -2660,7 +2661,7 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 |---|---|---|
 | `oc.state` *view* | — | `{ state: KitState, words: string, version, engine, signedIn? }`: this kit's package version, `ENGINE_VERSION`, and the providers the device member is usably signed in to while `ready` (live `providerStatus` by 5.8, preparing admission; absent when not ready or status is unknown, never `[]` for unknown) |
 | `oc.routes` *view* | — | offered routes only (`offer: true`) |
-| `oc.signin.start` | `{ provider, via }` | `SignInView` (kit picks `routeFor(provider, via)`) |
+| `oc.signin.start` | `{ provider, via }` | `SignInView` (kit picks `routeFor(provider, via)`; an offered plan key such as `opencode-go` asks `{ prompt: 'Plan key' }`, answered by `oc.signin.paste`: the key travels only inside the sealed link frame to the host, whose sign-in activates it) |
 | `oc.signin.view` *view* | `{ provider }` | `{ ready, view: SignInView \| null }` for `toAccountView` |
 | `oc.signin.paste` | `{ provider, text }` | `null` |
 | `oc.signin.cancel` | `{ provider }` | `null` |

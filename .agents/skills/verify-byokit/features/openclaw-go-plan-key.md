@@ -7,6 +7,7 @@ Verification recipe for [plan-key sign-in](../../../../docs/runtime-kits.md#57-s
 - `opencode-go` reads `ready`; a choice the engine cannot set up (`fal-api-key`) reads `no_upstream_flow`, and its sign-in fails with the kit's words (`This key type is not available on this engine.`).
 - The view is `{ state: 'waiting', prompt: 'Plan key' }`; the key never appears in a view, result or log.
 - The account row is `opencode-go`, `subscription`, `ready`; a run with no model named, started on `done`, streams an answer with `usage`.
+- Over the link (`openclawLink`): `oc.signIn.start('opencode-go', 'code' | 'browser')` asks the same `Plan key`; `oc.signIn.paste` carries the key inside the sealed link frame to the host's `kit.signIn`, and no view, state or run frame sent back holds it (`packages/openclaw/test/link.test.ts`; the phone page in [openclaw-kit-connect](openclaw-kit-connect.md)).
 - `kit.addKey(member, { authChoice: 'opencode-go', apiKey })` is `ok`, and `run({ auth: 'apiKey' })` answers on the key's saved model.
 - Every Go request carries a stable `x-opencode-session` per conversation (the pin's wrapper); live, Go answers only with it, and `test/engine/accounts.test.ts` asserts it on the activation probe and each run.
 

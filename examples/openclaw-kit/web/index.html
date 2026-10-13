@@ -99,6 +99,11 @@
         <p id="signin-title"></p>
         <p id="signin-code" class="code" hidden></p>
         <p id="signin-where" hidden><a id="signin-url" target="_blank" rel="noopener noreferrer"></a></p>
+        <form id="signin-key" hidden>
+          <label for="signin-key-input" id="signin-key-label"></label>
+          <input id="signin-key-input" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+          <button class="primary" id="signin-key-go">Save</button>
+        </form>
         <fieldset id="routes"></fieldset>
         <button id="signin-cancel" hidden style="width:100%;margin-top:.5rem">Cancel</button>
       </div>
@@ -132,6 +137,7 @@
         </form>
         <p id="tool" class="status" role="status"></p>
         <div id="reply" class="reply" aria-live="polite"></div>
+        <p id="usage" class="status"></p>
         <div id="chips"></div>
         <p id="run-said" class="error" role="alert"></p>
       </div>
