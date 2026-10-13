@@ -7,18 +7,38 @@ import type { MachineRef, Provider, Tailnet, TailnetStep } from './types.ts';
 export const BOOTSTRAP = `set -eu
 root=\${1:-}
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-if ! command -v tailscale >/dev/null; then
-  curl -fsSL https://tailscale.com/install.sh -o "$tmp/install.sh"
-  sh "$tmp/install.sh"
+changed=0
+if command -v tailscale >/dev/null && command -v tailscaled >/dev/null; then
+  daemon=$(command -v tailscaled)
+else
+  case $(uname -m) in
+    x86_64) arch=amd64; sha=108d1d96ecf410d305571e173516f27038f870919a9b89c914a167c6d33a4528 ;;
+    aarch64|arm64) arch=arm64; sha=f60294374967f3dfd8cf57bbbd474d6cfce32d123e3a8ddeab82a87940daa806 ;;
+    *) echo 'Unsupported Tailscale architecture' >&2; exit 1 ;;
+  esac
+  archive=tailscale_1.104.1_$arch
+  curl -fsSL "https://pkgs.tailscale.com/stable/$archive.tgz" -o "$tmp/tailscale.tgz"
+  printf '%s  %s\\n' "$sha" "$tmp/tailscale.tgz" | sha256sum -c -
+  tar -xzf "$tmp/tailscale.tgz" -C "$tmp" "$archive/tailscale" "$archive/tailscaled"
+  install -d "$root/usr/bin" "$root/usr/sbin" "$root/etc/systemd/system"
+  install -m 0755 "$tmp/$archive/tailscale" "$root/usr/bin/tailscale"
+  install -m 0755 "$tmp/$archive/tailscaled" "$root/usr/sbin/tailscaled"
+  daemon="$root/usr/sbin/tailscaled"
+  printf '[Unit]\\nDescription=Tailscale node agent\\nAfter=network.target\\n[Service]\\nExecStart=%s --state=%s/etc/tailscale/tailscaled.state\\nRuntimeDirectory=tailscale\\nRestart=on-failure\\n[Install]\\nWantedBy=multi-user.target\\n' "$daemon" "$root" > "$tmp/tailscaled.service"
+  install -m 0644 "$tmp/tailscaled.service" "$root/etc/systemd/system/tailscaled.service"
+  changed=1
 fi
 install -d -m 0700 "$root/etc/tailscale"
 install -d "$root/etc/systemd/system/tailscaled.service.d"
 flags=''
 if ! test -c "$root/dev/net/tun"; then flags='--tun=userspace-networking'; fi
-printf '[Service]\\nExecStart=\\nExecStart=%s --state=%s/etc/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock %s\\n' "$(command -v tailscaled)" "$root" "$flags" > "$tmp/byokit.conf"
+printf '[Service]\\nExecStart=\\nExecStart=%s --state=%s/etc/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock %s\\n' "$daemon" "$root" "$flags" > "$tmp/byokit.conf"
 f="$root/etc/systemd/system/tailscaled.service.d/byokit.conf"
 if ! cmp -s "$tmp/byokit.conf" "$f"; then
   install -m 0644 "$tmp/byokit.conf" "$f"
+  changed=1
+fi
+if [ "$changed" = 1 ]; then
   systemctl daemon-reload
   systemctl restart tailscaled
 fi

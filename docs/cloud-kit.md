@@ -799,7 +799,12 @@ ports it previously exposed as though it had this fresh-machine guarantee; the p
 ### 9.1 Join and status
 
 - `joinTailnet({ hostname }, onStep)` validates a single DNS label (1–63 letters, digits or hyphens, no edge hyphen),
-  checks root, installs Tailscale from its official installer if absent, then enables and starts its systemd daemon.
+  checks root, installs the pinned Tailscale **1.104.1** static release if either binary is absent, then enables and starts its systemd daemon.
+  Download `https://pkgs.tailscale.com/stable/tailscale_1.104.1_<arch>.tgz`, verify SHA256 **before extraction or installation**,
+  and refuse a mismatch without installing anything. Supported archives and pinned SHA256 values:
+  `amd64`: `108d1d96ecf410d305571e173516f27038f870919a9b89c914a167c6d33a4528`;
+  `arm64`: `f60294374967f3dfd8cf57bbbd474d6cfce32d123e3a8ddeab82a87940daa806`.
+  Install `tailscale`, `tailscaled` and a kit-owned systemd unit; never execute a downloaded installer script.
   A kit-owned systemd drop-in puts state in `/etc/tailscale/` (0700): Boat preserves `/etc`, but not `/var`, on wake.
   The node identity is sensitive and copied when `keepCopies` is on; the app's copies notice applies to it too.
 - Without `/dev/net/tun`, start `tailscaled --tun=userspace-networking`. This does **not** bind app ports automatically:
@@ -824,10 +829,10 @@ ports it previously exposed as though it had this fresh-machine guarantee; the p
   through `starting` before it runs `tailscale up`, inside the same five-minute deadline. Return a validated MagicDNS
   name when available, else `null`. Unknown or malformed answers that are JSON reject `provider`, never pretend the
   machine joined.
-- Copy policy: the node identity in `/etc/tailscale` is a credential. A machine made from a copy (a fork, or a
-  snapshot restored onto a new machine) clears `/etc/tailscale/tailscaled.state` before its first start, so it joins
-  as a new node. A restore of the same machine keeps its identity. The snapshots lane implements this rule; the
-  kit has no copy method today.
+- Copy policy: the node identity in `/etc/tailscale` is a credential. Today a machine made from a copy keeps the
+  same Tailscale node identity. Clearing `/etc/tailscale/tailscaled.state` before the first start of a fork or a
+  snapshot restored onto a new machine, so it joins as a new node, is planned follow-up in the snapshots lane.
+  A restore of the same machine will keep its identity. The kit has no copy method today.
 - The app shows `tailnet.approvalNeeded` and `tailnet.loginExpired`; the callback remains the
   union in 4.4 (`open-page`, `approve`, `joined`). This slice's key refusal is specified in 4.4.
 

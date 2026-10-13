@@ -99,9 +99,12 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
   const install = async () => {
     say('Installing the cloud host…'); const until = Date.now() + 300000;
     while (await computer.state() !== 'on') { if (Date.now() > until) throw new Error('Cloud creation did not finish within five minutes.'); await new Promise(r => setTimeout(r, 2000)); }
+    let approvalShown = false;
     const joined = await computer.joinTailnet({ hostname: 'umer-cloud' }, s => {
-      if (s.step === 'open-page') { say('Approve your cloud computer on your phone.'); void Linking.openURL(s.url); }
-      if (s.step === 'approve') say(words('tailnet.approvalNeeded'));
+      if ((s.step === 'open-page' || s.step === 'approve') && !approvalShown) {
+        approvalShown = true; say(words('tailnet.approvalNeeded'));
+      }
+      if (s.step === 'open-page') void Linking.openURL(s.url);
     });
     await computer.install(cloudRecipe(`http://${joined.name}:7300`, computer.ref!.name));
     if (await computer.host() !== 'running') throw new Error('The installed cloud host is not running.'); say('Host installed and running. Ready to pair.');
