@@ -71,13 +71,22 @@ export async function hetzner(o: HetznerOptions): Promise<HetznerProvider> {
   }
   if (!sizes.length) throw new MachineError('unsupported', 'no available shared server type in this location');
   let selected = sizes[0].id;
-  const server = async (m: MachineRef): Promise<Server> => {
+  const serverOrNull = async (m: MachineRef): Promise<Server | null> => {
     if (m.provider !== 'hetzner' || m.account !== o.project || !/^[1-9]\d*$/.test(m.id)) throw new MachineError('wrong-account', 'the ref belongs to another provider or project');
-    const s = (await request<{ server: Server }>('GET', `/servers/${m.id}`, undefined, true))?.server;
+    return (await request<{ server: Server }>('GET', `/servers/${m.id}`, undefined, true))?.server ?? null;
+  };
+  const checkServer = (m: MachineRef, s: Server | null): Server => {
     if (!s || String(s.id) !== m.id || s.name !== m.name || !s.labels?.['byokit-create']) throw new MachineError('wrong-account', 'the server is not visible as this app machine in this project');
     if (!s.server_type?.name || !s.public_net?.ipv4) throw new MachineError('provider', 'Hetzner returned incomplete server details');
     selected = s.server_type.name;
     return s;
+  };
+  const server = async (m: MachineRef): Promise<Server> => checkServer(m, await serverOrNull(m));
+  const namedFirewalls = async (name: string): Promise<{ firewall: Firewall; used: boolean }[]> => {
+    const named = await list<Firewall>(`/firewalls?name=byokit-${name}`, 'firewalls');
+    if (!named.length) return [];
+    const attached = new Set((await list<Server>('/servers', 'servers')).flatMap(s => s.public_net?.firewalls ?? []).map(a => a.id));
+    return named.map(firewall => ({ firewall, used: attached.has(firewall.id) }));
   };
   const firewallFor = async (s: Server, applied = true): Promise<Firewall> => {
     const attached = s.public_net.firewalls;
@@ -93,7 +102,7 @@ export async function hetzner(o: HetznerOptions): Promise<HetznerProvider> {
   };
   const account = async (): Promise<string> => {
     const saved = (await o.store.load())?.ref;
-    if (saved) await server(saved);
+    if (saved) { const s = await serverOrNull(saved); if (s) checkServer(saved, s); }
     return o.project;
   };
   const waitGone = async (path: string): Promise<void> => {
@@ -134,9 +143,11 @@ export async function hetzner(o: HetznerOptions): Promise<HetznerProvider> {
       if (existing.some(s => s.labels?.['byokit-create'] !== c.idempotencyKey || s.server_type?.name !== c.size)) throw new MachineError('exists', 'a server already uses this name');
       const user_data = '#cloud-config\n' + JSON.stringify({ users: [{ name: 'user', shell: '/bin/bash', sudo: 'ALL=(ALL) NOPASSWD:ALL', lock_passwd: true, ssh_authorized_keys: [o.publicKey] }], ssh_pwauth: false, disable_root: true, runcmd: [['loginctl', 'enable-linger', 'user']] });
       const owned = (s: Server): boolean => s.name === c.name && s.labels?.['byokit-create'] === c.idempotencyKey && Number.isSafeInteger(s.id) && s.id > 0;
-      const firewalls = await list<Firewall>(`/firewalls?name=byokit-${c.name}`, 'firewalls');
-      if (firewalls.some(f => f.labels?.['byokit-create'] !== c.idempotencyKey)) throw new MachineError('exists', 'another operation owns this firewall name');
-      const f = firewalls[0] ?? (await request<{ firewall: Firewall }>('POST', '/firewalls', { name: `byokit-${c.name}`, labels: { 'byokit-create': c.idempotencyKey }, rules: [SSH_RULE] }))?.firewall;
+      const named = await namedFirewalls(c.name);
+      const foreign = named.filter(({ firewall }) => firewall.labels?.['byokit-create'] !== c.idempotencyKey);
+      if (foreign.some(({ firewall, used }) => used || !firewall.labels?.['byokit-create'])) throw new MachineError('exists', 'another operation owns this firewall name');
+      for (const { firewall } of foreign) await destroy(undefined, firewall.id);
+      const f = named.find(({ firewall }) => firewall.labels?.['byokit-create'] === c.idempotencyKey)?.firewall ?? (await request<{ firewall: Firewall }>('POST', '/firewalls', { name: `byokit-${c.name}`, labels: { 'byokit-create': c.idempotencyKey }, rules: [SSH_RULE] }))?.firewall;
       if (!f || !Number.isSafeInteger(f.id) || f.id <= 0 || f.labels?.['byokit-create'] !== c.idempotencyKey) throw new MachineError('provider', 'Hetzner returned no owned firewall id');
       let s: Server | undefined = existing[0];
       try {
@@ -144,7 +155,15 @@ export async function hetzner(o: HetznerOptions): Promise<HetznerProvider> {
         if (!s) {
           let created: Server | undefined;
           try { created = (await request<{ server: Server }>('POST', '/servers', { name: c.name, server_type: c.size, location: o.location, image: o.image, labels: { 'byokit-create': c.idempotencyKey }, user_data, firewalls: [{ firewall: f.id }], public_net: { enable_ipv4: true, enable_ipv6: true } }))?.server; }
-          catch (e) { if (!(e instanceof MachineError) || e.code !== 'unreachable' || o.signal?.aborted) throw e; created = (await list<Server>(`/servers?name=${c.name}`, 'servers')).find(owned); if (!created) throw e; }
+          catch (e) {
+            if (!(e instanceof MachineError) || e.code !== 'unreachable' || o.signal?.aborted) throw e;
+            const until = Date.now() + 30_000;
+            do {
+              created = (await list<Server>(`/servers?name=${c.name}`, 'servers')).find(owned);
+              if (!created && Date.now() < until) await new Promise(r => setTimeout(r, 2000));
+            } while (!created && Date.now() < until);
+            if (!created) throw e;
+          }
           if (!created || !owned(created)) throw new MachineError('provider', 'Hetzner returned no matching created server');
           s = created;
         }
@@ -167,13 +186,18 @@ export async function hetzner(o: HetznerOptions): Promise<HetznerProvider> {
       } catch (e) {
         const reason = e instanceof MachineError ? e.message : 'invalid Hetzner response';
         try { s ??= (await list<Server>(`/servers?name=${c.name}`, 'servers', true)).find(owned); await destroy(s, f.id); }
-        catch (cleanup) { throw new MachineError('provider', `setup failed: ${reason}; cleanup failed: ${cleanup instanceof MachineError ? cleanup.message : 'invalid response'}`, { machine: String(s?.id ?? ''), firewall: String(f.id), operation: c.idempotencyKey }); }
+        catch (cleanup) { throw new MachineError('provider', `setup failed: ${reason}; cleanup failed: ${cleanup instanceof MachineError ? cleanup.message : 'invalid response'}`, { ...(s ? { machine: String(s.id) } : {}), name: c.name, firewall: String(f.id), operation: c.idempotencyKey }); }
         throw new MachineError('provider', `setup failed; allocated resources deleted: ${reason}`);
       }
     },
     remove: async (m, confirm) => {
       if (confirm !== m.id) throw new MachineError('confirm', 'confirm must equal the machine id');
-      const s = await server(m);
+      const found = await serverOrNull(m);
+      if (found === null) {
+        for (const { firewall, used } of await namedFirewalls(m.name)) if (!used && firewall.labels?.['byokit-create']) await destroy(undefined, firewall.id);
+        return;
+      }
+      const s = checkServer(m, found);
       const ips = [s.public_net.ipv4, s.public_net.ipv6].filter(ip => ip !== null);
       for (const ip of ips) {
         const info = (await request<{ primary_ip: { auto_delete: boolean; labels: Record<string, string> } }>('GET', `/primary_ips/${ip.id}`))?.primary_ip;

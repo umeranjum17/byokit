@@ -7,7 +7,7 @@ export async function startFakeHetznerServer() {
   const ips = new Map<number, { auto_delete: boolean; labels: Record<string, string> }>();
   const firewalls = new Map<number, Record<string, unknown>>();
   let nextFirewall = 100; let detach = false;
-  let next = 1; let drop = false; let failure: { status: number; message: string; path?: string } | null = null;
+  let next = 1; let drop = false; let hiddenLists = 0; let failure: { status: number; message: string; path?: string } | null = null;
   const rate = (hour: string, month: string) => ({ location: 'fsn1', price_hourly: { net: hour }, price_monthly: { net: month } });
   const http = createServer(async (req, res) => {
     const chunks: Buffer[] = []; for await (const b of req) chunks.push(b as Buffer);
@@ -27,7 +27,10 @@ export async function startFakeHetznerServer() {
       assert.deepEqual(body['rules'], [{ direction: 'in', protocol: 'tcp', port: '22', source_ips: ['0.0.0.0/0', '::/0'] }]);
       const f = { ...body, id: nextFirewall++ }; firewalls.set(f.id, f); return send(201, { firewall: f, actions: [] });
     }
-    if (path === '/servers' && method === 'GET') return send(200, { servers: [...servers.values()].filter(s => !url.searchParams.has('name') || s['name'] === url.searchParams.get('name')), meta: { pagination: { next_page: null } } });
+    if (path === '/servers' && method === 'GET') {
+      if (hiddenLists > 0 && url.searchParams.has('name')) { hiddenLists--; return send(200, { servers: [], meta: { pagination: { next_page: null } } }); }
+      return send(200, { servers: [...servers.values()].filter(s => !url.searchParams.has('name') || s['name'] === url.searchParams.get('name')), meta: { pagination: { next_page: null } } });
+    }
     if (path === '/servers' && method === 'POST') {
       const id = next++; const ipv4 = id * 2; const ipv6 = ipv4 + 1;
       const attached = body['firewalls'] as { firewall: number }[];
@@ -40,7 +43,7 @@ export async function startFakeHetznerServer() {
     const id = Number(path.split('/').at(-1));
     if (path.startsWith('/firewalls/') && firewalls.has(id)) {
       if (method === 'DELETE') {
-        assert.ok(![...servers.values()].some(s => (s['public_net'] as { firewalls: { id: number }[] }).firewalls.some(f => f.id === id)), 'delete server before its firewall');
+        if ([...servers.values()].some(s => (s['public_net'] as { firewalls: { id: number }[] }).firewalls.some(f => f.id === id))) return send(409, { error: { code: 'resource_in_use', message: 'firewall is in use' } });
         firewalls.delete(id); return send(204, null);
       }
       return send(200, { firewall: firewalls.get(id) });
@@ -63,7 +66,7 @@ export async function startFakeHetznerServer() {
   await new Promise<void>(r => http.listen(0, '127.0.0.1', r));
   const address = http.address(); if (!address || typeof address === 'string') throw new Error('no loopback address');
   return { url: `http://127.0.0.1:${address.port}/v1`, requests, servers, ips, firewalls, detachNextCreate: () => { detach = true; },
-    dropNextCreate: () => { drop = true; }, failNext: (status: number, message: string, path?: string) => { failure = { status, message, path }; },
+    dropNextCreate: (hidden = 0) => { drop = true; hiddenLists = hidden; },failNext: (status: number, message: string, path?: string) => { failure = { status, message, path }; },
     close: () => new Promise<void>((resolve, reject) => { http.close(e => e ? reject(e) : resolve()); http.closeAllConnections(); }),
   };
 }

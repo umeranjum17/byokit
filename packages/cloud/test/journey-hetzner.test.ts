@@ -74,3 +74,39 @@ test('a failed firewall attachment never saves or leaves a half-open server', as
   assert.equal(b.api.requests.filter(r => r.method === 'POST' && r.path === '/servers').length, 1);
   assert.ok(b.api.requests.some(r => r.method === 'DELETE' && r.path === '/servers/1'));
 });
+
+test('remove forgets a server deleted in the Hetzner console and clears its orphan firewall', async () => {
+  const b = await bench(); const m = machine(b);
+  const ref = await m.create({ name: 'web', size: 'small', keepCopies: false });
+  b.api.servers.delete(Number(ref.id)); b.api.ips.clear();
+  await assert.rejects(m.state(), { code: 'wrong-account' });
+  await m.remove(ref.id);
+  assert.equal(m.ref, null); assert.equal((await b.store.load())?.ref, null);
+  assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0);
+});
+
+test('create reclaims an orphan same-name firewall that no server uses', async () => {
+  const b = await bench(); const m = machine(b);
+  const ref = await m.create({ name: 'web', size: 'small', keepCopies: false });
+  b.api.servers.delete(Number(ref.id)); b.api.ips.clear();
+  const again = await b.provider.create!({ name: 'web', size: 'small', keepCopies: false, idempotencyKey: 'second-op' });
+  assert.equal(b.api.servers.size, 1); assert.equal(b.api.firewalls.size, 1);
+  assert.equal(([...b.api.firewalls.values()][0]['labels'] as Record<string, string>)['byokit-create'], 'second-op');
+  await b.provider.remove!(again, again.id); assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0);
+});
+
+test('a lost create response reconciles a late-listed server, and one never listed fails naming it', async () => {
+  const b = await bench();
+  b.api.dropNextCreate(2);
+  const ref = await b.provider.create!({ name: 'web', size: 'small', keepCopies: false, idempotencyKey: 'lagged-op' });
+  assert.equal(ref.id, '1'); assert.equal(b.api.requests.filter(r => r.method === 'POST' && r.path === '/servers').length, 1);
+  await b.provider.remove!(ref, ref.id);
+  b.api.dropNextCreate(Infinity);
+  await assert.rejects(b.provider.create!({ name: 'lost', size: 'small', keepCopies: false, idempotencyKey: 'lost-op' }), e => {
+    const extra = (e as { code: string; extra: Record<string, string> });
+    assert.equal(extra.code, 'provider'); assert.equal(extra.extra['name'], 'lost');
+    assert.equal(extra.extra['firewall'], String([...b.api.firewalls.values()].find(f => (f['labels'] as Record<string, string>)['byokit-create'] === 'lost-op')?.['id']));
+    assert.equal('machine' in extra.extra, false);
+    return true;
+  });
+});
