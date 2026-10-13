@@ -62,9 +62,9 @@ test('Umer rents, bootstraps, prices and deletes one Hetzner computer without le
   const recovered = await b.provider.create!({ name: 'recovery', size: 'large', keepCopies: false, idempotencyKey: 'recover-op' });
   assert.deepEqual(b.provider.prices().map(p => p.size), ['small', 'large'], 'touching a larger server never reorders the catalogue');
   const chosen = b.provider.prices().find(p => p.size === 'large'); assert.ok(chosen?.perMonthCap);
-  // Without usage(), the app records its chosen monthly price (cloud-kit 10.1); prices()[0] stays smallest.
-  await b.store.save({ ref: recovered, providerKey: '', monthlyEntered: chosen.perMonthCap });
-  assert.equal((await machine({ provider: await hetzner(b.options), store: b.store }).cost()).perMonth, 6.6);
+  // Restart with a fresh store; without usage(), the app records its chosen monthly price (cloud-kit 10.1).
+  const restarted = memoryStore({ ref: recovered, providerKey: '', monthlyEntered: chosen.perMonthCap });
+  assert.equal((await machine({ provider: await hetzner({ ...b.options, store: restarted }), store: restarted }).cost()).perMonth, 6.6);
   await b.provider.remove!(recovered, recovered.id); assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0);
   assert.ok(b.api.requests.some(r => r.method === 'GET' && r.path === `/servers/${ref.id}`));
   assert.doesNotMatch(JSON.stringify(b.api.requests) + JSON.stringify(b.ssh.calls()), /test-key|secret-wrong-key/);
