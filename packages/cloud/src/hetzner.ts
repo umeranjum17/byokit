@@ -80,11 +80,11 @@ export async function hetzner(o: HetznerOptions): Promise<HetznerProvider> {
     return s;
   };
   const server = async (m: MachineRef): Promise<Server> => checkServer(m, await serverOrNull(m));
-  const firewallFor = async (s: Server, applied = true): Promise<Firewall> => {
+  const firewallFor = async (s: Server): Promise<Firewall> => {
     const attached = s.public_net.firewalls;
-    if (!Array.isArray(attached) || attached.length !== 1 || !Number.isSafeInteger(attached[0].id) || (applied && attached[0].status !== 'applied')) throw new MachineError('provider', 'the SSH-only firewall is not attached and applied');
-    const f = (await request<{ firewall: Firewall }>('GET', `/firewalls/${attached[0].id}`))?.firewall;
-    if (!f || f.labels?.['byokit-create'] !== s.labels['byokit-create'] || (applied && !sshOnly(f))) throw new MachineError('provider', 'the app firewall ownership or SSH-only rules changed');
+    if (!Array.isArray(attached) || attached.length !== 1 || !Number.isSafeInteger(attached[0].id) || attached[0].status !== 'applied') throw new MachineError('provider', 'the SSH-only firewall is not attached and applied; re-attach the app firewall or remove the machine');
+    const f = (await request<{ firewall: Firewall }>('GET', `/firewalls/${attached[0].id}`, undefined, true))?.firewall;
+    if (!f || f.labels?.['byokit-create'] !== s.labels['byokit-create'] || !sshOnly(f)) throw new MachineError('provider', 'the app firewall ownership or SSH-only rules changed; re-attach the app firewall or remove the machine');
     return f;
   };
   const connection = async (m: MachineRef): Promise<SshVmOptions> => {
@@ -104,7 +104,7 @@ export async function hetzner(o: HetznerOptions): Promise<HetznerProvider> {
       await new Promise(r => setTimeout(r, 2000));
     }
   };
-  const destroy = async (s: Server | undefined, firewall: number): Promise<void> => {
+  const destroy = async (s: Server | undefined, firewall?: number): Promise<void> => {
     if (s) {
       await request('DELETE', `/servers/${s.id}`, undefined, true, true); await waitGone(`/servers/${s.id}`);
       const ip = s.public_net?.ipv4;
@@ -112,7 +112,9 @@ export async function hetzner(o: HetznerOptions): Promise<HetznerProvider> {
         await request('DELETE', `/primary_ips/${ip.id}`, undefined, true, true); await waitGone(`/primary_ips/${ip.id}`);
       }
     }
-    await request('DELETE', `/firewalls/${firewall}`, undefined, true, true); await waitGone(`/firewalls/${firewall}`);
+    if (firewall !== undefined) {
+      await request('DELETE', `/firewalls/${firewall}`, undefined, true, true); await waitGone(`/firewalls/${firewall}`);
+    }
   };
   const sweepFirewalls = async (name: string): Promise<void> => {
     const attached = new Set((await list<Server>('/servers', 'servers')).flatMap(s => s.public_net?.firewalls ?? []).map(a => a.id));
@@ -196,7 +198,8 @@ export async function hetzner(o: HetznerOptions): Promise<HetznerProvider> {
       const ip = s.public_net.ipv4;
       const info = (await request<{ primary_ip: { auto_delete: boolean; labels: Record<string, string> } }>('GET', `/primary_ips/${ip.id}`))?.primary_ip;
       if (!info?.auto_delete || info.labels?.['byokit-create'] !== s.labels['byokit-create']) throw new MachineError('provider', 'primary IP ownership or auto-delete changed; refusing deletion');
-      await destroy(s, (await firewallFor(s, false)).id);
+      await destroy(s);
+      await sweepFirewalls(m.name);
     },
   };
 }

@@ -133,21 +133,25 @@ keep the app project id in step with the token. An unreachable or 5xx create res
 is reconciled by unique name plus operation label before cleanup. Create makes a dedicated
 Hetzner Cloud Firewall **before** the server and attaches it in the server-create request: its only
 inbound rule is **SSH 22/tcp on IPv4**. Every app port stays closed publicly; recipe
-installation never adds a rule. SSH-only firewall ownership/rules are checked before
-SSH operations. Tailnet-only SSH is a later step; public SSH 22 remains for bootstrap.
+installation never adds a rule. Exec/write/hostKey require the attached, applied
+SSH-only app firewall; a typed `provider` refusal says to re-attach it or remove the
+machine. Tailnet-only SSH is a later step; public SSH 22 remains for bootstrap.
 
 If attachment or subsequent setup fails, the adapter deletes the allocated server,
 its primary IPs and firewall, then returns a typed failure. If cleanup itself fails,
 `extra.machine`, `extra.firewall` and `extra.operation` identify the remaining cleanup
 scope; do not provision a replacement until that cleanup is completed. Delete confirms
-the server, automatically allocated primary IPs and dedicated firewall are gone;
-changed IP ownership/auto-delete refuses deletion.
+the server and automatically allocated primary IPs are gone, then sweeps every
+unused kit-labelled firewall for that machine name, attached or detached before
+deletion. Firewall changes never block server removal; changed IP ownership/auto-delete
+still refuses deletion.
 
 This slice offers create, status, SSH exec/write, host bootstrap and confirmed delete.
 It refuses `keepCopies: true` and enables **no paid backups or snapshots**. Start/stop
 are a follow-up. **A stopped Hetzner server still bills**; stopping is not deletion or
-a backup. API prices remain a list estimate, not an invoice. `machine.cost()` uses
-the selected size's monthly cap (or the app's entered amount); it does not measure
+a backup. API prices remain a list estimate, not an invoice. Without usage,
+`machine.cost()` uses the app's `monthlyEntered` amount or the first (smallest) price's
+monthly cap; record a larger selected size's cap explicitly. It does not measure
 elapsed Hetzner spend. `provider.url`, usage, plan and scoped keys are absent.
 
 ## Recipes

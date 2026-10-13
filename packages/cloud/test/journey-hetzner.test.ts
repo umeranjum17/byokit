@@ -78,6 +78,39 @@ test('a failed firewall attachment never saves or leaves a half-open server', as
   assert.ok(b.api.requests.some(r => r.method === 'DELETE' && r.path === '/servers/1'));
 });
 
+test('remove destroys a detached-firewall machine before sweeping its kit firewall', async () => {
+  const b = await bench(); const m = machine(b);
+  const ref = await m.create({ name: 'web', size: 'small', keepCopies: false });
+  const allocated = b.api.servers.get(Number(ref.id)); assert.ok(allocated);
+  (allocated['public_net'] as { firewalls: unknown[] }).firewalls = [];
+  const before = b.api.requests.length;
+  await m.remove(ref.id);
+  assert.equal(m.ref, null); assert.equal((await b.store.load())?.ref, null);
+  assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0);
+  const removal = b.api.requests.slice(before);
+  const serverDelete = removal.findIndex(r => r.method === 'DELETE' && r.path === `/servers/${ref.id}`);
+  const firewallRead = removal.findIndex(r => r.method === 'GET' && r.path.startsWith('/firewalls'));
+  assert.ok(serverDelete >= 0 && firewallRead > serverDelete, 'no firewall lookup gates server deletion');
+});
+
+test('SSH refuses a detached or unapplied firewall with typed re-attach-or-remove guidance', async () => {
+  const b = await bench(); const m = machine(b);
+  const ref = await m.create({ name: 'web', size: 'small', keepCopies: false });
+  const allocated = b.api.servers.get(Number(ref.id)); assert.ok(allocated);
+  const net = allocated['public_net'] as { firewalls: { id: number; status: string }[] };
+  const attached = net.firewalls[0]; assert.ok(attached);
+  const before = b.ssh.calls().length;
+  for (const firewalls of [[], [{ ...attached, status: 'pending' }]]) {
+    net.firewalls = firewalls;
+    const refusal = { name: 'MachineError', code: 'provider', message: /re-attach.*remove the machine/ };
+    await assert.rejects(b.provider.exec(ref, ['true'], { timeoutMs: 1000 }), refusal);
+    await assert.rejects(b.provider.write(ref, '/home/user/app/private.txt', new Uint8Array([1]), 0o600), refusal);
+    await assert.rejects(b.provider.hostKey(ref), refusal);
+  }
+  assert.equal(b.ssh.calls().length, before, 'the unsafe machine receives no SSH subprocess');
+  await m.remove(ref.id); assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0);
+});
+
 test('remove forgets a server deleted in the Hetzner console and clears its orphan firewall', async () => {
   const b = await bench(); const m = machine(b);
   const ref = await m.create({ name: 'web', size: 'small', keepCopies: false });
@@ -95,7 +128,7 @@ test('a new create never deletes another operation firewall; remove sweeps the o
   b.api.servers.delete(Number(ref.id)); b.api.ips.clear();
   const again = await b.provider.create!({ name: 'web', size: 'small', keepCopies: false, idempotencyKey: 'second-op' });
   assert.equal(b.api.servers.size, 1); assert.equal(b.api.firewalls.size, 2); assert.ok(b.api.firewalls.has(orphan));
-  await b.provider.remove!(again, again.id); assert.equal(b.api.firewalls.size, 1);
+  await b.provider.remove!(again, again.id); assert.equal(b.api.firewalls.size, 0, 'removal sweeps both the attached firewall and the prior operation orphan');
   await m.remove(ref.id);
   assert.equal(b.api.servers.size + b.api.ips.size + b.api.firewalls.size, 0);
 });
