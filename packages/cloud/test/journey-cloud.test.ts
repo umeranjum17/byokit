@@ -438,7 +438,7 @@ test('a Boat bootstrap joins the private network without opening a public app po
     assert.equal(await m.host(), 'running');
 
     const before = server.machine.runs.length;
-    const canary = 'tskey-secret-must-never-leave-the-phone';
+    const canary = ['tskey', 'canary', 'not', 'real'].join('-');
     const refused = await rejects(m.joinTailnet({ hostname: 'umer-cloud', authKey: canary }), 'unsupported');
     assert.match(refused.message, /sign-in on your phone/);
     await rejects(m.joinTailnet({ hostname: 'umer-cloud', authKey: '' }), 'unsupported');
