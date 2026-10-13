@@ -504,6 +504,38 @@ test('a native login that exits 0 with no phone waiter is settled before its loc
   } finally { await host.close(); }
 });
 
+test('a stalled settlement keeps its holder and lock until the settled row releases them', { timeout: 15_000 }, async () => {
+  const root = scratchDir('remote-stalled-settlement');
+  const native = fakeClaude(join(root, 'bins'));
+  const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
+  const home = join(stateDir, 'home'); mkdirSync(home);
+  const folder = join(home, '.claude');
+  const bins = { claude: native.bin };
+  const statusWait = join(root, 'status-wait');
+  const env = { HOME: home, PATH: '/unused', LOGIN_MODE: 'success', STATUS_WAIT_FILE: statusWait };
+  const cli = cliAccounts({ stateDir, bins, env, managedFolders: { claude: folder } });
+  const host = remoteCliHost({ cli, bins, waitCapMs: 60_000 });
+  const { lock, holder } = signInLock(folder);
+  try {
+    assert.equal((await host.start('claude')).ok, true);
+    for (let i = 0; !existsSync(statusWait) && i < 500; i++) await delay(10);
+    assert.ok(existsSync(statusWait), 'the exit-0 settlement is stalled in the native status read');
+    assert.ok(existsSync(lock));
+    assert.equal(Number(readFileSync(holder, 'utf8')), process.pid, 'the live host holds the lock through settlement');
+    const again = await host.start('claude');
+    assert.equal(again.ok ? 'ok' : again.error, 'busy', 'the live host refuses a second start');
+    assert.equal(native.calls().filter((c) => c.argv[1] === 'login').length, 1, 'no second native login is spawned');
+    writeFileSync(`${statusWait}.release`, '');
+    for (let i = 0; existsSync(lock) && i < 500; i++) await delay(10);
+    assert.equal(existsSync(lock), false, 'the lock frees once settlement finishes');
+    assert.equal(existsSync(holder), false, 'the holder is removed with the lock, after settlement');
+    assert.equal((await cli.list())[0]?.state, 'ready');
+  } finally {
+    writeFileSync(`${statusWait}.release`, '');
+    await host.close();
+  }
+});
+
 test('managed folders are Claude-only; a Codex folder is refused', () => {
   const root = scratchDir('remote-managed-codex');
   const native = fakeClaude(join(root, 'bins'));

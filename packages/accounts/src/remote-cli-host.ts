@@ -246,11 +246,12 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     if (signal?.aborted) { unlock?.(); await cli.cancel(id); return fail(provider, 'cancelled'); }
     const child = spawn(signIn.argv[0], signIn.argv.slice(1), { env: signIn.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     const holder = signInLock(dirname(signIn.completion)).holder;
-    // Supervision is attached before the holder is recorded. Once the child exits its holder is
-    // removed, so a settling lock reads busy; the lock is released only after `settle` has run.
+    // Supervision is attached before the holder is recorded. Once the child exits, the holder names
+    // this host, so a settling lock stays busy while the host lives; holder and lock go together after `settle`.
+    const handOver = () => { try { writeFileSync(holder, String(process.pid)); } catch {} };
     const exit = new Promise<void>((resolve) => {
-      child.once('exit', (code) => { session.exited = code; rmSync(holder, { force: true }); resolve(); });
-      child.once('error', () => { session.exited ??= null; rmSync(holder, { force: true }); resolve(); });
+      child.once('exit', (code) => { session.exited = code; handOver(); resolve(); });
+      child.once('error', () => { session.exited ??= null; handOver(); resolve(); });
     });
     const settled = exit.then(() => settle(session)).finally(() => { session.done = true; unlock?.(); });
     const session: Session = { id, provider, child, exit, settled, completion: signIn.completion,
