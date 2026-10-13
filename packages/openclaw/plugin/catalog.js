@@ -13,9 +13,11 @@ export function registerCatalog(api) {
       const hook = resolvePluginProviders({ config, env: process.env }).find((p) => p.id === provider)?.catalog;
       if (!provider || typeof hook?.run !== 'function') return respond(true, { ok: false, reason: 'failed' });
       // The first agent holding the provider's key; every account of one provider sees the same catalog.
+      let unreadable = false;
       for (const agentId of new Set([...Object.keys(config.agents?.entries ?? {}), 'main'])) {
         const agentDir = resolveAgentDir(config, agentId);
-        const apiKey = await resolveApiKeyForProvider({ provider, cfg: config, agentDir }).then((a) => a?.apiKey, () => undefined);
+        const apiKey = await resolveApiKeyForProvider({ provider, cfg: config, agentDir })
+          .then((a) => a?.apiKey, () => { unreadable = true; return undefined; });
         if (!apiKey) continue;
         const run = async (discoveryApiKey) => (await hook.run({ config, agentDir, env: process.env, providerIds: [provider],
           resolveProviderApiKey: () => ({ apiKey, discoveryApiKey }),
@@ -38,7 +40,7 @@ export function registerCatalog(api) {
             (endpoint.has(model.api) ? { ...model, baseUrl: endpoint.get(model.api) } : model));
         return respond(true, { ok: true, models });
       }
-      respond(true, { ok: false, reason: 'no-key' });
+      respond(true, { ok: false, reason: unreadable ? 'failed' : 'no-key' });
     } catch {
       respond(true, { ok: false, reason: 'failed' }); // never engine text: a hook error could carry the key
     }

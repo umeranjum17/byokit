@@ -634,7 +634,7 @@ see them with no model setup in the app:
   uses for that `api`: upstream now names `opencode.ai/inference/go/v1`, and the pinned engine sends Go's
   `x-opencode-session` routing header only to endpoints it knows, so a run there ends `400 Request is missing
   x-opencode-session`. No agent holds the provider's key answers `{ ok: false, reason: 'no-key' }`; a missing hook, a
-  throwing live fetch or a live list with no rows answers `{ ok: false, reason: 'failed' }`. Neither carries a key or
+  throwing live fetch, a live list with no rows, or a key that cannot be read answers `{ ok: false, reason: 'failed' }`. Neither carries a key or
   engine text. No model is special-cased.
 - Triggers: each time the kit reaches `ready` (start, and every restart, including the one an activation's auth
   write causes), and after `addKey` or `addAccount` ends `ok` for that provider. Syncs are serialized and run in the

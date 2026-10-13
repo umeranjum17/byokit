@@ -1014,7 +1014,7 @@ export class OpenClawKit {
       done: Promise<{ view: SignInView; id: AccountId }> }> {
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.accountsCtl.add(member, o, on).then((added) => ({ ...added,
-      done: added.done.then((r) => { this.syncCatalogs(); return r; }) }));
+      done: added.done.then((r) => { if (r.view.state === 'done') this.syncCatalogs(); return r; }) }));
   }
 
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account> {
