@@ -14,7 +14,7 @@ import {
   machine, boat, estimate, status, words, stateWords, hostWords, errorWords, keyWords, WORDS, MachineError,
 } from '@byokit/cloud';
 import type {
-  HostRecipe, Status, MachineErrorCode, MachineState, HostState, Price, KeyInfo, Provider, Snapshot,
+  HostRecipe, Status, MachineErrorCode, MachineState, HostState, Price, KeyInfo, Provider, Snapshot, ExecResult,
 } from '@byokit/cloud';
 import { fakeProvider, memoryStore, startFakeSandboxServer } from '@byokit/cloud/testing';
 
@@ -562,7 +562,7 @@ for (const forever of [false, true]) test(forever
         if (upAt !== null && Date.now() >= upAt + 60_000 && (forever || hung === 0)) {
           hung++;
           assert.equal(opts.timeoutMs, 30_000);
-          return new Promise(resolve => setTimeout(() => resolve({ code: 124, stdout: '', stderr: '', timedOut: true }), 30_000));
+          return new Promise<ExecResult>(resolve => setTimeout(() => resolve({ code: 124, stdout: '', stderr: '', timedOut: true }), 30_000));
         }
         return { code: 0, stdout: JSON.stringify(hung
           ? { BackendState: 'Running', Self: { DNSName: 'hung-check.tail.ts.net.' } }
