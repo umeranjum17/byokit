@@ -1087,7 +1087,7 @@ test('a key add whose gateway restart fails after activation returns retry, not 
     assert.equal(await pending, 'retry');
     assert.ok(!fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'));
     const probe = fake.factory({ port: 0, token: 'test', identityPath: '', bridgeSock: '' });
-    assert.deepEqual(await probe.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false });
+    assert.deepEqual(await probe.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });
@@ -1140,7 +1140,7 @@ test('a key add whose activation throws clears the key it may have stored and re
     await kit.start();
     assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-THROWS' }), 'retry');
     assert.ok(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'clear'));
-    assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false });
+    assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });
