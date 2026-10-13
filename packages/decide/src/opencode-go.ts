@@ -39,9 +39,13 @@ export function opencodeGo(o: OpenCodeGoOptions): Backend {
     if (o.account !== undefined) throw new Error('opencodeGo takes a plan key or a plan account, not both');
   } else if (o.key !== undefined) {
     throw new Error('opencodeGo needs a key');
-  } else if (!o.account || o.account.billing !== 'subscription' || typeof o.account.access !== 'function' ||
-      (o.account as { provider?: unknown }).provider !== 'opencode-go') {
-    throw new UnsupportedAccountError('OpenCode Go plan usage needs an OpenCode Go plan account from the @byokit/accounts peer (install it and use accounts.opencodeGo(member)); update @byokit/accounts if this account has no provider tag.');
+  } else if (!o.account || o.account.billing !== 'subscription' || typeof o.account.access !== 'function') {
+    throw new UnsupportedAccountError('OpenCode Go plan usage needs an OpenCode Go plan account from the @byokit/accounts peer (install it and use accounts.opencodeGo(member)).');
+  } else if ((o.account as { provider?: unknown }).provider !== 'opencode-go') {
+    const tag = (o.account as { provider?: unknown }).provider;
+    throw new UnsupportedAccountError(tag === undefined
+      ? 'OpenCode Go plan usage needs an OpenCode Go plan account; update @byokit/accounts if this account has no provider tag.'
+      : `This is a ${String(tag)} plan account; pass it on the ${String(tag)} route.`);
   }
   const request = o.request ?? {};
   const send = retryFetch('opencode-go', o.fetch ?? globalThis.fetch, o);

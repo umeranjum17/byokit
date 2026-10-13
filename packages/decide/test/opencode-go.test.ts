@@ -109,7 +109,7 @@ test('a misplaced plan handle is refused on both providers, naming the provider,
     scopes: ['resource.invoke', 'chatgpt.tokens.use.direct'] }) });
   assert.equal(chatgpt.provider, 'chatgpt');
   assert.throws(() => opencodeGo({ model: 'muse-spark-1.3-contributor', account: chatgpt as any }),
-    /OpenCode Go plan usage needs an OpenCode Go plan account/);
+    /This is a chatgpt plan account; pass it on the chatgpt route/);
 
   const { Accounts, memoryStore } = await import('../../accounts/src/index.ts');
   const saved = new Map<string, string>();
@@ -123,7 +123,7 @@ test('a misplaced plan handle is refused on both providers, naming the provider,
   const go = accounts.opencodeGo('Umer');
   assert.equal(go.provider, 'opencode-go');
   assert.throws(() => openai({ auth: 'account', account: go as any, model: 'gpt-6.1-sol' }),
-    /ChatGPT plan usage needs a ChatGPT plan account/);
+    /This is a opencode-go plan account; pass it on the opencode-go route/);
 
   // Untagged token handles from an older @byokit/accounts are refused on both routes and never sent anywhere.
   const legacyChatGPT = { billing: 'subscription', access: async () => 'legacy-token' };
