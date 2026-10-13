@@ -986,7 +986,7 @@ A run's artifacts are what the pinned engine already lists: no engine patch, no 
 image/audio/video/file content block of any message is an artifact with a stable id (`artifact_` + 18 base64url
 characters of sha256 over session key, message seq, block index, type and title; managed outgoing media keeps its
 `artifact_managed_{image,media}_<uuid>` id). Its `download.mode` is `bytes` (inline base64), `url` (an http(s) URL or
-the gateway's own `/api/chat/media/outgoing/...` route) or `unsupported`. A query needs `sessionKey`, `runId` or
+any relative `/api/...` path) or `unsupported`. A query needs `sessionKey`, `runId` or
 `taskId`; the kit always sends `sessionKey` plus that key's `agentId`, so the engine's own owner and session-sharing
 checks apply. `artifacts.download` returns the whole artifact in one response (`encoding: 'base64', data`, or `url`
 plus a 5-minute `expiresAt` ticket for managed media). It has no offset, range, size cap or hash, so chunking, resume
@@ -996,8 +996,8 @@ How an artifact is produced offline on the pin: the engine's built-in `read` too
 `{ type: 'image', data, mimeType }` block (`agent-tools.read-EQRM4v5A.js`, after `sanitizeToolResultImages`, which may
 re-encode it). The tool-result message keeps that block in the transcript, so it lists as `bytes`. A model-stub script
 that calls `read` on a PNG in the member workspace therefore produces one with no network. Images sent as
-`RunSpec.images` are **not** artifacts (the pin stores them as `__openclaw.media` facts, not content blocks), and
-`chat.inject` writes text only. The reference hash is that of the bytes `artifacts.download` returns, never of the
+`RunSpec.images` are not relied on as artifacts (the persisted user turn keeps them as `__openclaw.media` facts,
+not content blocks; O26 checks it), and `chat.inject` writes text only. The reference hash is that of the bytes `artifacts.download` returns, never of the
 source file. This is a read of the published pin; O26's engine case is the proof.
 
 ```ts
@@ -1006,7 +1006,8 @@ export type ArtifactInfo = { id: string; type: 'image' | 'audio' | 'video' | 'fi
   sizeBytes?: number; runId?: string; messageSeq: number; download: 'bytes' | 'url' | 'unsupported' };
 export type ArtifactRefusal = { ok: false; code: 'unsupported' | 'not_found' | 'not_downloadable' | 'too_large' |
   'changed' | 'range'; message: string };                    // message = words('artifact.<code>')
-export type ArtifactsResult = { ok: true; artifacts: ArtifactInfo[] } | ArtifactRefusal;
+export type ArtifactsResult = { ok: true; artifacts: ArtifactInfo[] }
+  | (ArtifactRefusal & { code: 'unsupported' | 'not_found' });
 export type ArtifactBytes = { ok: true; artifact: ArtifactInfo; bytes: Uint8Array; sha256: string };   // host only
 export type ArtifactFrame =                                   // oc.artifact wire frames, one NDJSON line each
   | { type: 'head'; artifact: ArtifactInfo; size: number; sha256: string; chunk: number }
@@ -1021,19 +1022,24 @@ export declare class ArtifactHashError extends Error { readonly offset: number }
 ```
 
 - `artifacts(sessionKey, o?)` → `artifacts.list { sessionKey, agentId, runId? }`, mapped to `ArtifactInfo` (the
-  engine's `sessionKey`, `taskId` and `source` are dropped). `artifact(sessionKey, id)` → `artifacts.download`, then
-  the decoded bytes and their lowercase hex sha256. `bytes` mode decodes `data`. `url` mode is fetched only when it
-  is the gateway's own managed route: GET `http://127.0.0.1:<port><url>` with its ticket, inside the 5-minute window,
-  read up to the cap. Any other URL is `not_downloadable`: the host never fetches a third-party URL for a device,
-  and a URL or ticket never reaches a device.
-- **Size cap**: `ARTIFACT_MAX_BYTES` = 16 MiB decoded (pair's `MAX_MESSAGE`; under the gateway's 25 MiB inbound and
-  50 MiB buffered limits). A summary `sizeBytes` over the cap is `too_large` before any download; so is a decoded
-  length over it (the pin caps no response).
+  engine's `sessionKey`, `taskId` and `source` are dropped; `title` is cut to 256 UTF-16 units and `mimeType` to 128,
+  so a `head` line always fits). `artifact(sessionKey, id)` → `artifacts.get { sessionKey, agentId, artifactId: id }`
+  (summary, no data) for the size check, then `artifacts.download` with the same params (a closed schema: the key
+  is `artifactId`), then the decoded bytes and their lowercase hex sha256. `bytes` mode decodes `data`. `url` mode is
+  fetched only when the download response carries `expiresAt` and `url` matches the engine's own route
+  `^/api/chat/media/outgoing/[^/]+/[^/]+/full\?mediaTicket=` (`managed-image-attachments-ljAh0_MK.js:254-256,781-791`): GET
+  `http://127.0.0.1:<port><url>`, no bearer token (the ticket authorizes), inside the 5-minute window, read up to the
+  cap. Any other URL, including another relative `/api/...` path and a managed path without `expiresAt`, is
+  `not_downloadable` and no request is made: the host never fetches a third-party or arbitrary gateway URL for a
+  device, and a URL or ticket never reaches a device.
+- **Size cap**: `ARTIFACT_MAX_BYTES` = 16 MiB decoded (the same figure as pair's `MAX_MESSAGE`; under the gateway's
+  25 MiB inbound and 50 MiB buffered limits). An `artifacts.get` `sizeBytes` over the cap is `too_large` with no
+  `artifacts.download`; so is a decoded or fetched length over it (the pin caps no response).
 - **Unsupported**: before each call the kit checks the connected `hello.methods` for the method it needs
-  (`artifacts.list` for `artifacts`, `artifacts.download` for `artifact`). A missing one is `{ ok: false, code:
+  (`artifacts.list` for `artifacts`; `artifacts.get` and `artifacts.download` for `artifact`). A missing one is `{ ok: false, code:
   'unsupported' }`; it is never a throw from `call`. Engine errors map by `details.type`: `artifact_not_found` and
-  `artifact_scope_not_found` → `not_found`, `artifact_download_unsupported` → `not_downloadable`. Others throw as
-  `call` does.
+  `artifact_scope_not_found` → `not_found` (for `artifacts` too), `artifact_download_unsupported` →
+  `not_downloadable`. Others throw as `call` does.
 - **Scope**: on the host the key is the app's (full power, D8). Over a link (7.1) the key must be the grant member's
   (D9: member agent, its account agents, or its key lane), and the engine's session scoping confines ids to that
   key. An id from another session is `not_found`, never another member's bytes.
@@ -1042,9 +1048,10 @@ export declare class ArtifactHashError extends Error { readonly offset: number }
   `offset`. Each frame carries at most 256 KiB, so its base64 line stays under pair's 1 MiB NDJSON line limit, and
   `sha256` is the hex hash of that chunk's decoded bytes. The stream closes with `end`. `offset` is an integer in
   `0..size`, else `range`. `sha256`, when given, is the whole hash from an earlier `head`; a different current hash is
-  `changed` before any chunk, so a resume never splices two versions. The pin has no range read, so every request
+  `changed`, so a resume never splices two versions. A refusal of any code is the `end` frame alone: `head` is
+  written only after the download, the offset and the hash checks pass. The pin has no range read, so every request
   downloads the whole artifact again; that is bounded by the cap.
-- **Device**: `artifact(...)` yields only verified chunks. It checks that each chunk's offset continues the last and
+- **Device**: `artifact(...)` yields the `head`, then only verified `chunk` pieces, then the `end`. It checks that each chunk's offset continues the last and
   that its sha256 matches. On a mismatch it throws `ArtifactHashError` whose `offset` is the first unverified byte,
   so the app resumes there with the head's `sha256`. A refusal arrives as the `end` frame's `ArtifactRefusal`, not a
   throw. The whole hash is the app's check once it has reassembled from 0 (`head.sha256`). Hashing uses
@@ -3259,7 +3266,8 @@ its fixture; `@byokit/ui` `AccountsSource` (for `fits`) · version: openclaw nex
   `test/engine/artifacts.test.ts`, `changes/openclaw-artifacts.md`.
 - Acceptance: the 5.3, 5.13, 7.1 and 7.2 signatures exactly; portable and React Native import checks still pass for
   `./device`; on the fake gateway, a hello without `artifacts.download` gives `unsupported`, never a throw from `call`,
-  and a summary `sizeBytes` over 16 MiB gives `too_large` with no `artifacts.download` request.
+  and an `artifacts.get` `sizeBytes` over 16 MiB gives `too_large` with no `artifacts.download` request; a non-managed
+  `/api/...` URL gives `not_downloadable` with no HTTP request.
 - Proof (engine job case, `npm run test:engine`): the real pinned engine plus `src/testing/model-stub.ts` scripts a
   `read` of a PNG in the member workspace; `kit.artifacts` lists it as `bytes`. A device over a real loopback link
   downloads it, the socket is dropped after half the chunks, and the download resumes from the last verified
