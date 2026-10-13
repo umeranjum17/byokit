@@ -378,7 +378,9 @@ tool's `input_schema` and `tool_choice` forcing that tool. It parses the tool in
 mapping as the Responses backends: self-reported probabilities with the same floors, plus reported
 usage and the raw response on answered and abstained answers alike. A refusal, a reply without the
 tool use and malformed input abstain; only 429s retry. `ANTHROPIC_ROUTES.apiKey` labels billing
-`'api'` with `offer: false`. There is no plan sign-in here; fixtures in
+`'api'` with `offer: false`. There is no plan sign-in here. The plain key runs on a computer or server (Node), not
+in a browser or PWA, because the request sends it without the browser-access header; a phone app reaches this route
+through its paired computer. Fixtures in
 `test/fixtures/anthropic-messages.json` are hand-authored saved API-shape responses, not live model
 recordings. Tests never call a real model.
 
