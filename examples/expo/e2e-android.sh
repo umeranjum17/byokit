@@ -170,3 +170,7 @@ expect "ChatGPT isn't signed in yet."
 grep -q "POST /oauth/revoke" "$log" && echo "ok: sign-out ended the sign-in at the stand-in OpenAI"
 grep -q "POST /oauth/token refresh_token" "$log" && echo "ok: refreshed"
 echo "passed on $serial"
+# The maintained verify skill adds the account/picker native journey only when requested.
+if [ -n "${EXPO_ACCOUNTS_EVIDENCE:-}" ]; then
+  . ../../.agents/skills/verify-byokit/capture/expo-account-journey.sh
+fi
