@@ -14,7 +14,7 @@ import { Engine, refusedOnly } from './engine.ts';
 import { AuthStoreSealSizeError } from './auth-store.ts';
 import { gatewayTransport } from './transport.ts';
 import { createMembers } from './members.ts';
-import { createAccounts } from './accounts.ts';
+import { createAccounts, memberOfAccount } from './accounts.ts';
 import { createLocks } from './locks.ts';
 import { keyAgentId, KEY_PREFIX, MEMBER_ID } from './members.ts';
 import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLogin } from './migrate.ts';
@@ -708,6 +708,7 @@ export class OpenClawKit {
     this.approvalsCtl = new Approvals({
       request: (method, params, co) => this.request()(method, params, co),
       bridge: { resolveAsk: (id, d) => slot.bridge?.resolveAsk(id, d) ?? false },
+      memberOf: (ref) => this.memberOf(ref),
     });
     const host: ToolHost | undefined = o.browser ? {
       gate: async (run, tool, input, info) => {
@@ -732,6 +733,7 @@ export class OpenClawKit {
         return browserSessionMayRun(this.browserHost.signIns(), key, this.bridge.isRegisteredRun(key, runId));
       } } : {}),
       permitted: o.permitted ?? (() => true), approvalTimeoutMs: o.approvalTimeoutMs ?? 180_000,
+      memberOf: (ref) => this.memberOf(ref),
       onAsk: (a) => this.approvalsCtl.add(a), onAskGone: (id) => this.approvalsCtl.remove(id) });
     slot.bridge = this.bridge;
   }
@@ -978,6 +980,12 @@ export class OpenClawKit {
 
   signOut(member: Member, provider: string): Promise<void> {
     return engineSignOut(this.signInCtx(), member, provider);
+  }
+
+  // The member an agent id or session key belongs to, through the account index (5.15, O14m). Reads the index file, so it
+  // needs no live gateway.
+  memberOf(ref: string): Member | undefined {
+    return memberOfAccount(this.engine.root, ref);
   }
 
   // accounts (5.15, O14 steps S5, S6 and S8-S12): the per-member index with listing, adding, defaults, rename, models

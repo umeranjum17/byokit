@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { test } from 'node:test';
 import { Bridge, resolveBridge, writePlugin } from '../src/bridge.ts';
+import { memberOf } from '../src/attribution.ts';
 import { words } from '../src/words.ts';
 import type { Approval, RunRef, ToolHost } from '../src/types.ts';
 
@@ -64,6 +65,7 @@ async function withBridge(
     path: sockPath,
     host: o.host ?? host(),
     tools: new Set(['note', 'other']),
+    memberOf,
     permitted: o.permitted ?? (() => true),
     approvalTimeoutMs: o.approvalTimeoutMs ?? 5_000,
     onAsk: (a) => { seen.asked.push(a); o.onAsk?.(a); },
@@ -302,6 +304,7 @@ test('stopping with a parked ask ends it gone', async () => {
     path: join(dir, 'b.sock'),
     host: host(),
     tools: new Set(['note']),
+    memberOf,
     permitted: () => true,
     approvalTimeoutMs: 5_000,
     onAsk: (a) => seen.asked.push(a),

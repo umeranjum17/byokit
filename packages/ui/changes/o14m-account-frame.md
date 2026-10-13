@@ -1,0 +1,1 @@
+- FEAT: `runStore` tolerates an account run's first frame: the run stream may open with an `account` event (O14m) naming the account the reply bills to, which the run view ignores while the reply, tools and end behave as before.
