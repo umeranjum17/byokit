@@ -54,7 +54,7 @@ A machine made with `keepCopies: true` keeps saved copies of itself. `snapshot()
 keeps only the newest three of the kit's own copies (`snapshot({ keep })` to change it; Boat keeps
 10 for free, then bills each). `scheduleSnapshots({ everyMs, onResult })` saves a copy when the newest is
 older than `everyMs`, on a timer while the app runs, and resolves `{ stop() }` (await it; it rejects at once on a bad
-recipe, a missing machine or one without copies). The kit has no hosted
+recipe, a missing machine, or a machine or provider without copies). The kit has no hosted
 scheduler, so nothing saves while the app is closed.
 `restore(id)` rebuilds the machine from a copy; everything changed since is lost, so the app
 confirms first with `words('snapshot.restore', { date })`. A copy that is gone rejects
