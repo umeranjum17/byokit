@@ -1,6 +1,5 @@
 // status(): the one read a phone polls (docs/cloud-kit.md 5.9). The host is asked only while
 // the machine is on, because `host()` runs a command on the machine.
-import { MachineError } from './errors.ts';
 import { hostWords, stateWords } from './words.ts';
 import type { HostState, Machine, MachineState } from './types.ts';
 
@@ -14,7 +13,6 @@ export async function status(m: Machine, vars: { app: string; label: string }): 
   try {
     host = await m.host();
   } catch (e) {
-    if (!(e instanceof MachineError) || e.code !== 'unreachable') throw e;
     const now = await m.state();
     if (now === 'on') throw e;
     return { machine: now, host: null, words: stateWords(now, vars) };

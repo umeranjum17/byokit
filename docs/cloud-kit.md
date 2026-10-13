@@ -408,7 +408,7 @@ recovery. It is the only write `Machine` offers; anything else goes in the recip
 `status(m, { app, label })` (portable, in `.`) is the one read a phone polls through create, install, sleep, wake
 and remove. It resolves `{ machine, host, words }`: `machine` is `m.state()`; while it is `on`, `host` is `m.host()`
 and `words` is `hostWords(host)`; otherwise `host` is `null` (no command is sent to a machine that is not on) and
-`words` is `stateWords(machine)`. If the machine leaves `on` between the two reads, `host()` fails `unreachable`; `status` then reads `state()` again and resolves that state with `host` `null`. Rejections are `state()`'s and `host()`'s (`no-machine` after `remove`); the app
+`words` is `stateWords(machine)`. If `host()` rejects and a second `state()` read is no longer `on` (the machine left `on` between the two reads), `status` resolves that state with `host` `null`; otherwise it rethrows. Rejections are `state()`'s and `host()`'s (`no-machine` after `remove`); the app
 shows `errorWords`. Boat's `create` resolves before the machine is on, so an app polls `status` until `on` before
 `install`.
 

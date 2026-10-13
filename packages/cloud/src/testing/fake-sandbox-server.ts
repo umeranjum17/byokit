@@ -49,7 +49,7 @@ export type SandboxServerOptions = {
   unlimited?: boolean;
   /** Resume leaves the machine provisioning for this many status reads (default 0). */
   slowWakeReads?: number;
-  /** Create leaves the machine provisioning for this many status reads (default 0). */
+  /** Create leaves the machine provisioning for this many status reads less one: the read that counts it down to zero already answers ready (default 0). */
   slowCreateReads?: number;
 };
 
