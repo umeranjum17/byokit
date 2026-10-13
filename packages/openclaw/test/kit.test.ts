@@ -586,6 +586,44 @@ test('an interrupted start sweep runs again on the next ready and a key with its
   } finally { await second.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
+test('a start sweep whose clear the engine refuses runs again on the next connect', async () => {
+  const stateDir = scratchDir('o4-key-sweep-refused');
+  const fake = fakeGateway();
+  const clears = () => fake.calls.filter((c) => c.method === 'byokit.keys'
+    && (c.params as { action?: string }).action === 'clear');
+  const first = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+  await first.start();
+  await first.ensureMember('m1');
+  await first.call('openclaw.setup.activate', { kind: 'api-key', agentId: 'byokit-key-m1',
+    authChoice: 'openai-api-key', apiKey: 'CANARY-REFUSED-UNSEALED-436' });
+  await first.stop();
+  let refused = false;
+  const refusing = (ctx: Parameters<typeof fake.factory>[0]) => {
+    const transport = fake.factory(ctx);
+    const request: typeof transport.request = async (method, params, options) => {
+      const reply = await transport.request(method, params, options);
+      const p = params as { member?: string; action?: string } | undefined;
+      if (method === 'byokit.keys' && p?.member === 'm1' && p.action === 'clear' && !refused) {
+        refused = true;
+        return { ok: false };
+      }
+      return reply;
+    };
+    return { ...transport, request };
+  };
+  const second = new OpenClawKit({ stateDir, spawnEngine: false, transport: refusing });
+  try {
+    await second.start();
+    await until(() => refused);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    fake.drop('test');
+    await second.start();
+    await until(() => clears().length === 2);
+    assert.deepEqual(clears().at(-1)?.params, { member: 'm1', action: 'clear' });
+    assert.equal(second.state.phase, 'ready');
+  } finally { await second.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 test('a reconnect after a gateway drop does not clear an unsealed key', async () => {
   const stateDir = scratchDir('o4-key-reconnect');
   const fake = fakeGateway();
