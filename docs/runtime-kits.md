@@ -756,7 +756,21 @@ key (subscription); `microsoft-foundry-entra` is Entra cloud credentials, not an
 (`unknown`). A sensitive wizard text step (`setup-token`) is answered from the paste channel without echo (B8).
 Until those packages merge, the table above is what ships.
 
-**signIn(member, { authChoice, via, signal? }, on)** — provider-owned wizard drive:
+**signIn(member, { authChoice, via, signal? }, on)** — provider-owned sign-in drive:
+Native `anthropic-cli` first asks the engine's `setup.detect`. If its isolated Claude folder is signed out,
+the kit starts unmodified `claude auth login --claudeai` in the exact engine HOME and `CLAUDE_CONFIG_DIR`,
+using Accounts' remote CLI driver and a narrow `cliAccounts.managedFolders` option, restricted to explicit
+app-owned folders inside its state directory. Its roster references that exact folder, never a second grant.
+Cancellation removes only roster/marker bookkeeping, never the engine folder. The engine verifies readiness
+again after the native login finishes. The waiting view carries the native verification address and a plain paste-code
+prompt. `paste` writes one returned code to that CLI's stdin; cancel/expiry stop only that login. CLI output
+and credentials are never forwarded, logged, copied or read by the kit. A successful native exit is checked
+again through the engine, then existing `setup.activate { kind: 'claude-cli' }` live-tests and persists the route;
+only successful activation/restart is `done`. Concurrent native logins to one engine are refused as busy.
+The phone uses the existing link start/view/paste/cancel operations; credentials stay on the engine machine.
+Both Claude and ChatGPT are plan sign-ins. Remote ChatGPT uses `openai-device-code` (`via: 'code'`): the
+engine's own wizard polls its provider and writes its grant; no kit localhost callback listener is created.
+Other choices use the provider-owned wizard:
 `ensureMember`; `openclaw.setup.auth.start { sessionId: 'byokit-' + uuid, agentId, authChoice }` (60 s); pull steps
 only with `wizard.next` (120 s for ordinary steps, max 200 turns; never `wizard.status`); a `deviceCode` step,
 or a `note` step whose text carries the code, → view `{ code, url, expiresAt?, message? }` then acknowledge

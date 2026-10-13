@@ -19,6 +19,8 @@ export type CliOptions = {
   bins: Partial<Record<CliProvider, string>>;
   env: { PATH: string; HOME: string } & Record<string, string>;
   historyFrom?: Partial<Record<CliProvider, string>>;
+  /** Explicit runtime-owned folders inside stateDir; never removed with roster bookkeeping. */
+  managedFolders?: Partial<Record<'claude' | 'codex', string>>;
   prepare?: (folder: string, provider: CliProvider) => Promise<void>;
 };
 export type CliLaunchResult =
@@ -121,6 +123,11 @@ export function cliAccounts(options: CliOptions) {
   if (Object.entries(options.bins).some(([p, bin]) => !providers.includes(p as CliProvider) || !text(bin) || !isAbsolute(bin))) throw new CliAccountError('bad-option');
   if (options.historyFrom && (!record(options.historyFrom) || Object.entries(options.historyFrom).some(([p, path]) => !providers.includes(p as CliProvider) || !text(path) || !isAbsolute(path)))) throw new CliAccountError('bad-option');
   const stateDir = resolve(options.stateDir); const env = { ...options.env }; const bins = { ...options.bins }; const history = { ...options.historyFrom };
+  const managedFolders = { ...options.managedFolders };
+  if (options.managedFolders && (!record(options.managedFolders) || Object.entries(managedFolders).some(([p, folder]) =>
+    !['claude', 'codex'].includes(p) || !text(folder) || resolve(folder) !== folder || !folder.startsWith(stateDir + '/')
+    || !directory(dirname(folder)) || realpathSync(dirname(folder)) !== dirname(folder)))) throw new CliAccountError('bad-option');
+  const managed = (r: Row) => r.provider !== 'pi' && managedFolders[r.provider] === r.folder;
   for (const path of ['.claude', '.codex', '.pi']) {
     const own = join(resolve(env.HOME), path);
     if (stateDir === own || stateDir.startsWith(own + '/')) throw new CliAccountError('bad-option');
@@ -137,7 +144,9 @@ export function cliAccounts(options: CliOptions) {
   const stampAddedAt = () => { const now = Date.now(); lastAddedAt = now > lastAddedAt ? now : lastAddedAt + 1; return lastAddedAt; };
   function safe(r: Row): boolean {
     const parent = join(stateDir, r.provider);
-    return resolve(r.folder) === r.folder && r.folder.startsWith(parent + '/') && /^[a-f0-9]+$/.test(r.folder.slice(parent.length + 1)) && directory(stateDir) && realpathSync(stateDir) === stateDir && directory(parent) && directory(r.folder);
+    return directory(stateDir) && realpathSync(stateDir) === stateDir && directory(r.folder)
+      && (managed(r) ? realpathSync(r.folder) === r.folder : resolve(r.folder) === r.folder
+        && r.folder.startsWith(parent + '/') && /^[a-f0-9]+$/.test(r.folder.slice(parent.length + 1)) && directory(parent));
   }
   function load(): Row[] {
     if (!directory(stateDir) || realpathSync(stateDir) !== stateDir) throw new CliAccountError('bad-option');
@@ -270,7 +279,8 @@ export function cliAccounts(options: CliOptions) {
     });
   }
   async function remove(id: string) {
-    return serial(id, async () => { const r = row(id); rmSync(r.folder, { recursive: true, force: true }); save(load().filter((v) => v.id !== id), r.provider); created.delete(id); });
+    return serial(id, async () => { const r = row(id); if (managed(r)) { rmSync(pending(r), { force: true }); rmSync(complete(r), { force: true }); }
+      else rmSync(r.folder, { recursive: true, force: true }); save(load().filter((v) => v.id !== id), r.provider); created.delete(id); });
   }
   type Added = { account: CliAccount; signIn: SignInCommand };
   function add(provider: 'pi', metadata: { piProvider: PiProvider }): Promise<Added>;
@@ -281,9 +291,10 @@ export function cliAccounts(options: CliOptions) {
     binary(provider);
     const parent = join(stateDir, provider); if (!directory(stateDir) || !directory(parent, true)) throw new CliAccountError('bad-option');
     chmodSync(parent, 0o700);
-    const r: Row = { id: `pa_${randomBytes(9).toString('hex')}`, provider, name: adopted?.name ?? '', folder: join(parent, randomBytes(8).toString('hex')), found: false, addedAt: stampAddedAt(),
+    const r: Row = { id: `pa_${randomBytes(9).toString('hex')}`, provider, name: adopted?.name ?? '', folder: provider !== 'pi' && managedFolders[provider] || join(parent, randomBytes(8).toString('hex')), found: false, addedAt: stampAddedAt(),
       ...(provider === 'pi' ? { piProvider: metadata!.piProvider } : {}), ...(adopted ? { adoptedFrom: adopted.id } : {}) };
-    mkdirSync(r.folder, { mode: 0o700 });
+    if (managed(r) && (history[provider] || load().some(row => row.folder === r.folder))) throw new CliAccountError('prepare-failed');
+    if (!directory(r.folder, true)) throw new CliAccountError('bad-option');
     try {
       if (history[provider]) symlinkSync(history[provider]!, join(r.folder, provider === 'claude' ? 'projects' : 'sessions'), 'dir');
       const signIn = begin(r);
@@ -291,7 +302,8 @@ export function cliAccounts(options: CliOptions) {
       if (!safe(r)) throw new CliAccountError('prepare-failed');
       save([...load(), r], provider); created.add(r.id);
       return { account: { id: r.id, provider, name: r.name || (provider === 'pi' ? piRoutes.find(v => v.upstream.id === r.piProvider)!.name : suggestName(undefined, provider)), billing: 'subscription', state: 'signing', ...(r.piProvider ? { piProvider: r.piProvider } : {}), ...(r.adoptedFrom ? { adoptedFrom: r.adoptedFrom } : {}), addedAt: r.addedAt }, signIn };
-    } catch { rmSync(r.folder, { recursive: true, force: true }); throw new CliAccountError('prepare-failed'); }
+    } catch { if (managed(r)) { rmSync(pending(r), { force: true }); rmSync(complete(r), { force: true }); }
+      else rmSync(r.folder, { recursive: true, force: true }); throw new CliAccountError('prepare-failed'); }
   }
   return {
     list: async (): Promise<CliAccount[]> => Promise.all(load().filter((r) => !r.found && !r.id.startsWith('found-')).map((r) => status(r.id))),

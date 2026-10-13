@@ -296,6 +296,32 @@ test('cancel stops a hanging login; unknown ids and bad ops fail plainly', async
   repliesClean(seen);
 });
 
+test('a runtime-owned folder survives timeout and close without a grant or a roster row', async () => {
+  const root = scratchDir('remote-runtime');
+  const native = fakeClaude(join(root, 'bins'));
+  const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
+  const home = join(stateDir, 'home'); mkdirSync(home);
+  const folder = join(home, '.claude'); mkdirSync(folder);
+  const canary = join(folder, 'host-owned'); writeFileSync(canary, 'keep');
+  const bins = { claude: native.bin };
+  const cli = cliAccounts({ stateDir, bins, env: { HOME: home, PATH: '/unused', LOGIN_MODE: 'paste' }, managedFolders: { claude: folder } });
+  const host = remoteCliHost({ cli, bins, waitCapMs: 60 });
+  try {
+    const started = await host.start('claude'); assert.equal(started.ok, true);
+    if (!started.ok) return;
+    assert.equal(cli.launchEnv(started.signIn.id).set.CLAUDE_CONFIG_DIR, folder);
+    const end = await host.wait(started.signIn.id); assert.equal(end.ok, false);
+    if (!end.ok) assert.equal(end.error, 'expired');
+    assert.deepEqual(await cli.list(), []);
+    assert.equal(readFileSync(canary, 'utf8'), 'keep');
+    const next = await host.start('claude'); assert.equal(next.ok, true);
+    await host.close();
+    assert.deepEqual(await cli.list(), []);
+    assert.equal(readFileSync(canary, 'utf8'), 'keep');
+    assert.ok(!existsSync(join(folder, 'granted')));
+  } finally { await host.close(); }
+});
+
 test('a login that prints no code fails to start without a row', async () => {
   const root = scratchDir('remote-silent');
   const codex = fakeCodex(join(root, 'bins'));

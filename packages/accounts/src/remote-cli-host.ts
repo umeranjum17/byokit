@@ -125,7 +125,8 @@ const fail = (provider: RemoteCliProvider, error: RemoteCliFailure['error']): Re
 
 export function remoteCliHost(options: RemoteCliHostOptions): {
   state(): Promise<RemoteCliState[]>;
-  start(provider: RemoteCliProvider): Promise<RemoteCliStart>;
+  close(): Promise<void>;
+  start(provider: RemoteCliProvider, opts?: { signal?: AbortSignal }): Promise<RemoteCliStart>;
   wait(id: string, opts?: { timeoutMs?: number }): Promise<RemoteCliResult>;
   paste(id: string, pasteText: string): Promise<void>;
   cancel(id: string): Promise<void>;
@@ -138,6 +139,9 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
   const waitCapMs = options.waitCapMs ?? DEFAULT_WAIT_CAP_MS;
   if (!(parseMs > 0 && parseMs <= 2 ** 31 - 1) || !(waitCapMs > 0 && waitCapMs <= 2 ** 31 - 1)) throw new CliAccountError('bad-option');
   const sessions = new Map<string, Session>();
+  const starting = new Set<RemoteCliProvider>();
+  const pendingStarts = new Set<Promise<RemoteCliStart>>();
+  const lifetime = new AbortController();
 
   const sweep = () => {
     if (sessions.size < 50) return;
@@ -165,9 +169,19 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     return remoteCliState(cli, bins);
   }
 
-  async function start(provider: RemoteCliProvider): Promise<RemoteCliStart> {
+  async function start(provider: RemoteCliProvider, opts?: { signal?: AbortSignal }): Promise<RemoteCliStart> {
+    if (starting.has(provider)) return fail(provider, 'busy');
+    starting.add(provider);
+    const task = startLogin(provider, opts?.signal ? AbortSignal.any([lifetime.signal, opts.signal]) : lifetime.signal);
+    pendingStarts.add(task);
+    try { return await task; }
+    finally { starting.delete(provider); pendingStarts.delete(task); }
+  }
+
+  async function startLogin(provider: RemoteCliProvider, signal?: AbortSignal): Promise<RemoteCliStart> {
     if (!isRemoteCliProvider(provider)) throw new Error('accounts.cli.signin.start needs { provider: claude|codex|pi }');
     if (provider === 'pi') return fail(provider, 'unsupported');
+    if (signal?.aborted) return fail(provider, 'cancelled');
     sweep();
     for (const s of sessions.values()) {
       if (s.provider === provider && !s.result) return fail(provider, 'busy');
@@ -192,8 +206,11 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
       if (e instanceof CliAccountError && e.code === 'prepare-failed') return fail(provider, 'busy');
       throw e;
     }
+    if (signal?.aborted) { await cli.cancel(id); return fail(provider, 'cancelled'); }
     const child = spawn(signIn.argv[0], signIn.argv.slice(1), { env: signIn.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     const session: Session = { id, provider, child, completion: signIn.completion, display: { id, provider, verificationUri: '' }, startedAt: now(), late: '' };
+    const abort = () => kill(session);
+    signal?.addEventListener('abort', abort, { once: true });
     let output = '';
     let found: Omit<RemoteCliDisplay, 'id' | 'provider'> | undefined;
     let shown = false;
@@ -210,15 +227,17 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     child.once('error', () => { session.exited ??= null; });
     const deadline = now() + parseMs;
     for (;;) {
-      if (found) break;
+      if (found || signal?.aborted) break;
       if (session.exited !== undefined) break;
       if (now() >= deadline) break;
       await new Promise((r) => setTimeout(r, 50));
     }
-    if (!found) {
+    signal?.removeEventListener('abort', abort);
+    if (!found || signal?.aborted) {
       kill(session);
+      await exitOf(session);
       await cli.cancel(id).catch(() => {});
-      return fail(provider, 'failed');
+      return fail(provider, signal?.aborted ? 'cancelled' : 'failed');
     }
     shown = true;
     session.display = { id, provider, ...found };
@@ -278,7 +297,7 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     }
     if (session.result) return session.result;
     if (timedOut) kill(session);
-    else if (session.exited === undefined) await exitOf(session);
+    if (session.exited === undefined) await exitOf(session);
     return finish(session, timedOut);
   }
 
@@ -308,9 +327,10 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     const session = sessions.get(id);
     if (!session) throw Object.assign(new Error(REMOTE_CLI_WORDS.unknown()), { remoteCliProblem: 'unknown' as RemoteCliProblem });
     if (!session.result) {
-      kill(session);
-      await cli.cancel(id).catch(() => {});
       session.result = fail(session.provider, 'cancelled') as RemoteCliResult;
+      kill(session);
+      await exitOf(session);
+      await cli.cancel(id).catch(() => {});
     }
   }
 
@@ -372,5 +392,11 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     }
   }
 
-  return { state, start, wait, paste, cancel, handle };
+  async function close(): Promise<void> {
+    lifetime.abort();
+    await Promise.allSettled([...pendingStarts]);
+    await Promise.all([...sessions.values()].filter(session => !session.result).map(session => cancel(session.id)));
+  }
+
+  return { state, start, wait, paste, cancel, close, handle };
 }

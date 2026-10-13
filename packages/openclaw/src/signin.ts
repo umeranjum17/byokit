@@ -1,6 +1,7 @@
 // Sign-in: the kit drives OpenClaw's own setup wizard loop and holds the ChatGPT callback port during a browser
 // sign-in; OAuth credentials stay in the engine/CLI. Explicit API keys go only to engine activation (D11).
 import { randomUUID } from 'node:crypto';
+import type { remoteCliHost } from '@byokit/accounts/cli';
 import { createServer, type Server } from 'node:http';
 import { activate, LATE_RESTART } from './activation.ts';
 import { authStatus } from './auth-status.ts';
@@ -14,6 +15,7 @@ export type SignInCtx = {
   authStatus?: (agentId: string, refresh: boolean, native: boolean) => ReturnType<typeof authStatus>;
   ensure(member: Member): Promise<{ agentId: string }>;
   callbackPort: number;
+  nativeClaudeLogin?(): ReturnType<typeof remoteCliHost>;
   onDisconnect?(fn: () => void): () => void;
   authConfig(): string;
   restarted(authBefore: string | undefined, signal?: AbortSignal): Promise<boolean>;
@@ -80,6 +82,9 @@ export function signIn(
   };
   let server: Server | undefined;
   let sessionId = '';
+  let native: ReturnType<typeof remoteCliHost> | undefined;
+  let nativeId: string | undefined;
+  let nativeStarting: Promise<unknown> | undefined;
   let starting: Promise<unknown> | undefined;
   let releasing: Promise<void> | undefined;
   let settleStart!: () => void;
@@ -164,6 +169,8 @@ export function signIn(
       // session only as `openclaw.setup.auth.start` settles, so a cancel sent sooner is answered `wizard not found`
       // and leaves the person locked out of signing in. Waiting for that settlement is what frees the admission.
       await startingSettled;
+      await nativeStarting?.catch(() => {});
+      if (nativeId) await native?.cancel(nativeId).catch(() => {});
       if (sessionId) await Promise.resolve().then(() => ctx.request('wizard.cancel', { sessionId },
         { timeoutMs: CANCEL_MS })).catch(() => {});
     })();
@@ -223,7 +230,7 @@ export function signIn(
       before = profiles(await authStatus(ctx.request, agentId).catch(() => undefined), false);
       if (signal.aborted) return cancelled();
     }
-    // Native login is completed by the person in unmodified Claude Code. The pin does not expose this
+    // Native login is driven through unmodified Claude Code. The pin does not expose this
     // choice via auth.start; activation verifies the CLI route and persists it only after a live test succeeds.
     // A key-entry choice (API key or plan key) is not an auth.start login either: the pin's Gateway sets it up only
     // from the pasted key through typed activation, and refuses it there ("provider setup is not available").
@@ -231,11 +238,36 @@ export function signIn(
       settleStart();
       let apiKey: string | undefined;
       if (o.authChoice === 'anthropic-cli') {
-        const detected = await ctx.request('openclaw.setup.detect', { agentId }, { timeoutMs: STATUS_MS }) as {
-          candidates?: { kind?: string; credentials?: boolean }[];
+        const detected = async () => {
+          const value = await ctx.request('openclaw.setup.detect', { agentId }, { timeoutMs: STATUS_MS }) as {
+            candidates?: { kind?: string; credentials?: boolean }[];
+          };
+          return value.candidates?.some(candidate => candidate.kind === 'claude-cli' && candidate.credentials === true);
         };
-        if (!detected.candidates?.some((candidate) => candidate.kind === 'claude-cli' && candidate.credentials === true))
-          return { state: 'failed', via, why: 'failed', error: 'Sign in with Claude Code on this machine in the kit’s isolated HOME, then try again. The login stays in Claude Code.' };
+        if (!await detected()) {
+          native = ctx.nativeClaudeLogin?.();
+          if (!native) return { state: 'failed', via, why: 'failed', error: 'Claude Code sign-in is not available on this engine.' };
+          const pending = native.start('claude', { signal });
+          nativeStarting = pending;
+          const started = await pending;
+          if (!started.ok) return { state: 'failed', via,
+            why: started.error === 'busy' ? 'busy' : started.error === 'cancelled' ? 'declined' : 'failed', error: started.words };
+          nativeId = started.signIn.id;
+          if (signal.aborted) { await native.cancel(nativeId); return cancelled(); }
+          let pasteFailed = false;
+          pasteIn = text => { void native!.paste(nativeId!, text).catch(() => {
+            pasteFailed = true; void native!.cancel(nativeId!);
+          }); };
+          say({ url: started.signIn.verificationUri, prompt: 'Paste the code from the sign-in page' });
+          if (returned !== undefined) { pasteIn(returned); returned = undefined; }
+          const result = await native.wait(nativeId);
+          pasteIn = undefined;
+          if (signal.aborted) return cancelled();
+          if (pasteFailed) return { state: 'failed', via, why: 'failed', error: 'The sign-in code could not be sent. Try again.' };
+          if (!result.ok) return { state: 'failed', via,
+            why: result.error === 'expired' ? 'expired' : result.error === 'cancelled' ? 'declined' : 'failed', error: result.words };
+          if (!await detected()) return { state: 'failed', via, why: 'failed', error: 'Claude Code is still signed out on this engine. Try again.' };
+        }
       } else {
         say({ prompt: keyRoute?.billing === 'api' ? 'API key (billed per use)' : 'Plan key' });
         apiKey = returned ?? await new Promise<string | undefined>((resolve) => {

@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setImmediate as turn, setTimeout as delay } from 'node:timers/promises';
 import { providers, signIn, type SignInCtx } from '../src/signin.ts';
@@ -609,3 +609,63 @@ test('a key activation whose restart does not finish fails retryably and keeps i
     error: 'The engine took too long to restart after this sign-in. Nothing was kept; try again.' });
   assert.ok(!JSON.stringify(view).includes(secret));
 });
+
+test('phone native Claude login uses the engine folder; wrong code, expiry and cancellation never activate', { timeout: 30_000 }, async () => {
+  const root = scratchDir('native-phone');
+  const bin = join(root, 'bin'); mkdirSync(bin);
+  const modeFile = join(root, 'mode');
+  const folder = join(root, 'openclaw/home/.claude');
+  const granted = join(folder, 'granted');
+  writeFileSync(join(bin, 'claude'), `#!${process.execPath}
+const fs = require('node:fs'), path = require('node:path');
+const folder = process.env.CLAUDE_CONFIG_DIR;
+if (folder !== ${JSON.stringify(folder)} || process.env.HOME !== path.dirname(folder)) process.exit(3);
+const granted = path.join(folder, 'granted');
+if (process.argv[3] === 'status') { console.log(JSON.stringify({loggedIn: fs.existsSync(granted)})); process.exit(); }
+if (process.argv.slice(2).join(' ') !== 'auth login --claudeai') process.exit(2);
+console.log('If the browser did not open, visit: https://claude.example.test/authorize');
+const mode = fs.readFileSync(${JSON.stringify(modeFile)}, 'utf8');
+if (mode === 'expired') { setTimeout(() => { console.log('code expired'); process.exit(1); }, 200); }
+else { process.stdin.setEncoding('utf8'); process.stdin.once('data', code => {
+  if (code.trim() !== 'synthetic-returned-code') { console.log('code declined'); process.exit(1); }
+  fs.writeFileSync(granted, 'signed in'); process.exit(0);
+}); }
+`, { mode: 0o700 });
+  let activated = false;
+  const gateway = fakeGateway({
+    'openclaw.setup.detect': () => ({ candidates: [{ kind: 'claude-cli', credentials: existsSync(granted) }] }),
+    'openclaw.setup.activate': (p) => { assert.equal(p.kind, 'claude-cli'); assert.ok(existsSync(granted)); activated = true; return { ok: true }; },
+    'models.authStatus': () => ({ providers: activated ? ['claude-cli'] : [] }),
+  });
+  const kit = new OpenClawKit({ stateDir: root, enginePath: [bin], spawnEngine: false, transport: gateway.factory });
+  try {
+    await kit.start();
+    const api = openclawLink(kit, { memberOf: () => 'umer' });
+    const grant = { id: 'phone', name: 'Umer', key: '', role: 'control' as const, created: 0 };
+    const call = (op: string, args: object) => api.handle!({ op, args: { provider: 'claude-cli', ...args } }, grant);
+    const read = () => call('oc.signin.view', {}) as Promise<{ ready: boolean; view: SignInView }>;
+    const until = async (condition: (v: SignInView) => boolean) => {
+      for (let i = 0; i < 300; i++) { const value = await read(); if (condition(value.view)) return value; await delay(10); }
+      throw new Error('native phone sign-in did not settle');
+    };
+    for (const mode of ['wrong', 'expired', 'cancel', 'success']) {
+      writeFileSync(modeFile, mode);
+      await call('oc.signin.start', { via: 'browser' });
+      const waiting = await until(v => Boolean(v?.url));
+      assert.equal(waiting.view.url, 'https://claude.example.test/authorize');
+      assert.match(waiting.view.prompt!, /Paste the code/);
+      if (mode === 'cancel') await call('oc.signin.cancel', {});
+      else if (mode !== 'expired') await call('oc.signin.paste', { text: mode === 'wrong' ? 'wrong-code' : 'synthetic-returned-code' });
+      const end = await until(v => v?.state === 'done' || v?.state === 'failed');
+      assert.equal(end.view.state, mode === 'success' ? 'done' : 'failed');
+      assert.equal(activated, mode === 'success');
+      if (mode === 'expired') assert.equal(end.view.why, 'expired');
+      if (mode === 'cancel') assert.equal(end.view.why, 'declined');
+      assert.ok(existsSync(folder), 'cancel preserves the engine folder');
+      assert.ok(!JSON.stringify(end).includes('synthetic-returned-code'));
+    }
+    assert.equal((await read()).ready, true, 'readiness is read back through the engine');
+    assert.deepEqual(await kit.providers('umer'), ['claude-cli']);
+  } finally { await kit.stop(); rmSync(root, { recursive: true, force: true }); }
+});
+

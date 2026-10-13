@@ -1,10 +1,11 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { randomBytes, generateKeyPairSync, randomUUID } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, copyFileSync, rmSync, realpathSync, statSync } from 'node:fs';
+import { accessSync, constants, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, copyFileSync, rmSync, realpathSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { basename, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import { cliAccounts, remoteCliHost } from '@byokit/accounts/cli';
 import { AuthStore, AuthStoreUnreadableError, AuthStoreSealSizeError } from './auth-store.ts';
 import { EngineAlreadyRunningError, pidAlive, StartedProcesses } from './engine-status.ts';
 import { EnginePatchError, atomic, prepareEngineSet, processStartTime, readPatchSet, sha256, verifyEngineSet, type PatchSet } from './engine-patches.ts';
@@ -82,6 +83,7 @@ export class Engine {
   private starting?: Promise<{ port: number; token: string; identityPath: string } | undefined>;
   readonly authStore: AuthStore;
   private stopping = false;
+  private claudeLogin?: ReturnType<typeof remoteCliHost>;
   private credentialsLocked = false;
   private repaired = false;
   private prepared?: Promise<void>;
@@ -255,6 +257,18 @@ export class Engine {
       BYOKIT_APP_OWNED_SESSION_PREFIXES: JSON.stringify(this.appOwnedSessionPrefixes),
     } };
   }
+  nativeClaudeLogin(): ReturnType<typeof remoteCliHost> {
+    if (this.claudeLogin) return this.claudeLogin;
+    const { env } = this.doctorContext();
+    const bin = env.PATH.split(':').map(path => join(path, 'claude')).find(path => {
+      try { accessSync(path, constants.X_OK); return true; } catch { return false; }
+    });
+    const bins = bin ? { claude: bin } : {};
+    const cli = cliAccounts({ stateDir: this.root, bins, env: { ...env, HOME: env.HOME, PATH: env.PATH },
+      managedFolders: { claude: env.CLAUDE_CONFIG_DIR } });
+    this.claudeLogin = remoteCliHost({ cli, bins });
+    return this.claudeLogin;
+  }
   doctor(timeoutMs: number): { status: number | null } {
     const { entry, env } = this.doctorContext();
     if (this.o.spawnEngine) verifyEngineSet(this.setDir!, this.wantedSet!, installMatches);
@@ -404,6 +418,8 @@ export class Engine {
   }
   withAuthStore<T>(task: () => Promise<T>): Promise<T> { return this.authStore.offline(task); }
   async stop(): Promise<void> {
+    await this.claudeLogin?.close();
+    this.claudeLogin = undefined;
     this.stopping = true;
     await this.starting?.catch(() => {});
     const child = this.child;
