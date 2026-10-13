@@ -43,7 +43,7 @@ Linux machine over the `ssh` binary the app passes by absolute path); `./hetzner
 frozen types, words, pure parts (`renderUnit`, recipe checks, node argv, cost), `machine()`
 for §5.1–5.5 and §5.7 plus install and supervise (§8: `install`, `update`, `host`,
 `logs`, `deliver`), `status()` (§5.9), the fake provider and the contract suite, the Boat adapter
-(M4), and the SSH VM adapter (M2). Idle sleep and wake-on-open land in M7 (manual `sleep()` and
+(M4), the SSH VM adapter (M2), and the Hetzner first slice. Idle sleep and wake-on-open land in M7 (manual `sleep()` and
 `wake()` are already here), account link in M8.
 The package stays private until the recorded real-provider run (M6).
 
