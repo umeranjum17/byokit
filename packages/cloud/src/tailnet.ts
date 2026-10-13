@@ -61,9 +61,8 @@ export async function tailnet(provider: Provider, ref: MachineRef): Promise<Tail
 
 export async function joinTailnet(provider: Provider, ref: MachineRef, o: { hostname: string; authKey?: string }, onStep?: (s: TailnetStep) => void): Promise<{ name: string }> {
   // REST exec input is file-backed. Never send a key into that transport, even an empty one.
-  if (provider.id !== 'sandbox-api' || o.authKey !== undefined) {
-    throw new MachineError('unsupported', 'This cloud computer needs sign-in on your phone instead of a join key.');
-  }
+  if (provider.id !== 'sandbox-api') throw new MachineError('unsupported', words('tailnet.unsupported'));
+  if (o.authKey !== undefined) throw new MachineError('unsupported', words('tailnet.signInOnPhone'));
   if (typeof o.hostname !== 'string' || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(o.hostname)) {
     throw new MachineError('bad-recipe', 'hostname: use one name of up to 63 letters, numbers or hyphens, with no hyphen at either end.');
   }

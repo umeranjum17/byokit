@@ -17,6 +17,8 @@
   "setup.makeKey": "Make a key on the {label} site, then paste it here.",
   "setup.typeCode": "Open the {label} page and type this code: {code}",
   "tailnet.joining": "Connecting your cloud computer to your private network.",
+  "tailnet.signInOnPhone": "This cloud computer needs sign-in on your phone instead of a join key.",
+  "tailnet.unsupported": "This cloud computer cannot join your private network yet.",
   "tailnet.approvalNeeded": "Approve your cloud computer on the sign-in page on your phone.",
   "tailnet.loginExpired": "The sign-in link expired. Try connecting your cloud computer again.",
   "host.not-installed": "{app} isn't on your cloud computer yet.",
