@@ -124,6 +124,26 @@ test('unavailable or malformed authoritative metadata never approves braces', as
   }), unpatched);
 });
 
+test('braces metadata request authenticates with GITHUB_TOKEN when CI provides one', async () => {
+  const token = process.env.GITHUB_TOKEN;
+  const seen: Array<Record<string, string>> = [];
+  const fetcher = async (_input: unknown, init?: RequestInit) => {
+    seen.push(init?.headers as Record<string, string>);
+    return Response.json(unpatched);
+  };
+  try {
+    process.env.GITHUB_TOKEN = 'ci-token';
+    await loadBracesAdvisory(fetcher as typeof fetch);
+    delete process.env.GITHUB_TOKEN;
+    await loadBracesAdvisory(fetcher as typeof fetch);
+  } finally {
+    if (token === undefined) delete process.env.GITHUB_TOKEN; else process.env.GITHUB_TOKEN = token;
+  }
+  assert.equal(seen[0].Authorization, 'Bearer ci-token');
+  assert.equal(seen[1].Authorization, undefined);
+  await assert.rejects(loadBracesAdvisory(async () => new Response('{}', { status: 403 })), /HTTP 403/);
+});
+
 const retained = readFileSync(new URL('./fixtures/audit-expo-braces.json', import.meta.url), 'utf8');
 test('retained Metro/ReactNative cyclic report passes only with exact braces exception', () => {
   assert.throws(() => assessAudit(retained, 1), /metadata/);
