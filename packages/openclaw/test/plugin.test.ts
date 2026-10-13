@@ -7,6 +7,7 @@ import { scratchDir } from '../../test-support.ts';
 import { test } from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Bridge, writePlugin } from '../src/bridge.ts';
+import { memberOf } from '../src/attribution.ts';
 import type { GateResult, RunRef } from '../src/types.ts';
 import { browserSessionMayRun } from '../src/config.ts';
 import type { NeedSignIn, ResumeState } from '../src/browser.ts';
@@ -36,6 +37,7 @@ async function withPlugin(
     path: join(dir, 'bridge.sock'),
     ...(o.browser ? { browserCapabilities: () => o.capabilities ?? [], beforeAgentRun: async (key, runId) => o.admission ? o.admission(key, runId) : o.modelAllowed !== false } : {}),
     tools: new Set(tools.map((t) => t.name)),
+    memberOf,
     host: {
       gate: async (_run: RunRef, tool: string, _input: Record<string, unknown>, info: { builtin: boolean }) => {
         seen.gated.push([tool, info]);

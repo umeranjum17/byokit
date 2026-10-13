@@ -12,6 +12,7 @@ export { jev } from './jev.ts';
 export { pairedJev, jevHost, PAIRED_JEV_OP, type PairedJevLink, type JevHostKeys } from './paired.ts';
 export { PairedHostError, type PairedHostProblem } from './paired-errors.ts';
 export { openai, OPENAI_ROUTES, type OpenAIAccount, type OpenAIOptions, type OpenAIRequestOptions } from './openai.ts';
+export { anthropic, ANTHROPIC_ROUTES, type AnthropicOptions } from './anthropic.ts';
 export { opencodeGo, OPENCODE_GO_ROUTES, type OpenCodeGoAccount, type OpenCodeGoOptions } from './opencode-go.ts';
 export { parseConfig, createDecider, ConfigError, type DecideConfig, type ConfigHost, type ConfigOptions } from './config.ts';
 import { decide as decideCore } from './core.ts';
@@ -19,7 +20,7 @@ import { decideForConfig, type ConfigOptions } from './config.ts';
 import type { Answer, Options, Question } from './core.ts';
 
 /** Asks each backend in order for the questions still unanswered; a failed or slow backend answers nothing.
- * A `{ config, host }` call resolves its one configured backend first (Jev or OpenAI); a `{ backends }`
+ * A `{ config, host }` call resolves its one configured backend first (Jev, OpenAI, Anthropic or OpenCode Go); a `{ backends }`
  * call asks the given backends directly. */
 export async function decide(state: unknown, questions: Record<string, Question>, opts: Options | ConfigOptions): Promise<Record<string, Answer>> {
   return 'config' in opts ? decideForConfig(state, questions, opts) : decideCore(state, questions, opts);

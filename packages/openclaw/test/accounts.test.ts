@@ -23,6 +23,11 @@ import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { Engine } from '../src/engine.ts';
 import { OpenClawKit } from '../src/kit.ts';
+import { memberOfAccount } from '../src/accounts.ts';
+import { openclawLink } from '../src/link.ts';
+import { openclawDevice } from '../src/device.ts';
+import { words } from '../src/words.ts';
+import type { DeviceLink, Grant, LinkStream } from '@byokit/pair';
 import { createLocks } from '../src/locks.ts';
 import { keyAgentId } from '../src/members.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
@@ -972,7 +977,7 @@ test('a key add whose gateway restarts 10 s after activation is ok, and its key 
     await flush();
     t.mock.timers.tick(1_000);
     await flush();
-    assert.equal(await pending, 'ok');
+    assert.deepEqual(await pending, { status: 'ok' });
     assert.ok(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'));
   } finally {
     await kit.stop();
@@ -991,7 +996,7 @@ test('a key add whose gateway never restarts returns retry and clears the key it
     await flush();
     t.mock.timers.tick(60_000);
     await flush();
-    assert.equal(await pending, 'retry');
+    assert.deepEqual(await pending, { status: 'retry', reason: 'busy' });
     assert.ok(!fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'));
     assert.ok(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'clear'));
   } finally {
@@ -1008,7 +1013,7 @@ test('a key add that finds the gateway restarting before the engine saw the key 
   try {
     await kit.start();
     fake.drop('gateway restart');
-    assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-PRE-ACCEPT' }), 'retry');
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-PRE-ACCEPT' }), { status: 'retry', reason: 'busy' });
     assert.ok(!fake.calls.some((c) => c.method === 'openclaw.setup.activate'));
   } finally {
     await kit.stop();
@@ -1084,10 +1089,10 @@ test('a key add whose gateway restart fails after activation returns retry, not 
     await flush();
     t.mock.timers.tick(1_000);
     await flush();
-    assert.equal(await pending, 'retry');
+    assert.deepEqual(await pending, { status: 'retry', reason: 'busy' });
     assert.ok(!fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'));
     const probe = fake.factory({ port: 0, token: 'test', identityPath: '', bridgeSock: '' });
-    assert.deepEqual(await probe.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false });
+    assert.deepEqual(await probe.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });
@@ -1122,8 +1127,8 @@ test('a key add for a choice the engine cannot set up is not_included and leaves
   const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
   try {
     await kit.start();
-    assert.equal(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-working' }), 'ok');
-    assert.equal(await kit.addKey('m1', { authChoice: 'fal-api-key', apiKey: 'CANARY-KEY-FAL' }), 'not_included');
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-working' }), { status: 'ok' });
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'fal-api-key', apiKey: 'CANARY-KEY-FAL' }), { status: 'not_included', reason: 'model' });
     assert.equal((await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }) as { ok: boolean }).ok, true);
   } finally {
     await kit.stop();
@@ -1138,9 +1143,9 @@ test('a key add whose activation throws clears the key it may have stored and re
   const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
   try {
     await kit.start();
-    assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-THROWS' }), 'retry');
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-THROWS' }), { status: 'retry', reason: 'engine' });
     assert.ok(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'clear'));
-    assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false });
+    assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });
@@ -1249,7 +1254,7 @@ test('session binding: a run stays on the account that holds its session; pick e
     const kept = await run({ sessionKey: 'agent:m1:chat:k', account: 'anthropic.a0a0a0' });
     assert.ok(kept.end.ok && kept.end.account === 'anthropic.a0a0a0', JSON.stringify(kept.end));
     // An API-key run continues only an API-billed conversation: a subscription- or member-bound one is refused, with no agent request.
-    assert.equal(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-test' }), 'ok');
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-test' }), { status: 'ok' });
     const keyRun =(sessionKey: string) => kit.run({ member: 'm1', sessionKey, message: 'hello', auth: 'apiKey' });
     const keyRefusal = (name: string) => ({ ok: false, kind: 'other', message: `This conversation uses ${name}. Move it to switch accounts.` });
     const keyFrom = fake.calls.length;
@@ -1521,6 +1526,197 @@ test('move: a run that waited across a move binds again and ends moved; a taken 
     assert.equal(await resolves('m1', 'chat:3'), true);
   } finally {
     release();
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+// O14m attribution: an unreadable or malformed account index attributes nothing and never throws out of the link filter,
+// approvals or bridge.
+test('attribution: a malformed account index maps nothing and does not throw', () => {
+  const root = scratchDir('o14m-malformed-index');
+  try {
+    mkdirSync(join(root, 'accounts'), { recursive: true });
+    writeFileSync(join(root, 'accounts', 'm1.json'), '{not json');
+    assert.equal(memberOfAccount(root, 'm1--abcdef'), undefined);
+    assert.equal(memberOfAccount(root, 'agent:m1--abcdef:x'), undefined);
+    assert.equal(memberOfAccount(root, 'm1'), 'm1');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('attribution: a legacy member with its own workspace attributes to itself, an orphan account agent does not', () => {
+  const root = scratchDir('o14m-legacy-member');
+  try {
+    mkdirSync(join(root, 'workspaces', 'work--c0ffee'), { recursive: true });
+    assert.equal(memberOfAccount(root, 'work--c0ffee'), 'work--c0ffee');
+    assert.equal(memberOfAccount(root, 'agent:work--c0ffee:x'), 'work--c0ffee');
+    assert.equal(memberOfAccount(root, 'work--ffffff'), undefined);
+    assert.equal(memberOfAccount(root, 'agent:work--ffffff:x'), undefined);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// O14m attribution and link frames: an approval raised on an indexed `<member>--<hex6>` agent lists under the
+// member, link `oc.events`/`oc.sessions` carry the account agent under the member, `oc.run` carries the account
+// selection with the account frame first on the host and on a stub device link, an unindexed account-shaped agent
+// stays unreachable across events, sessions, approvals and steer/abort, `addAccount` refuses key material, and a canary held by two accounts never
+// appears in a link frame.
+test('attribution and link frames: account agent under the member, unindexed unreachable, key refused, canary scan', async () => {
+  const stateDir = scratchDir('o14m-attribution');
+  const fake = fakeGateway();
+  const canaryWho = 'c0ffee1234567890';
+  let maskWho = false;
+  const masking: typeof fake.factory = (ctx) => {
+    const transport = fake.factory(ctx);
+    return { ...transport, request: async (method, params, o) => {
+      const answer = await transport.request(method, params, o);
+      const p = params as { action?: string; agentId?: string } | undefined;
+      if (maskWho && method === 'byokit.accounts' && p?.action === 'list'
+        && (p.agentId === 'm1' || p.agentId?.startsWith('m1--')))
+        return { ...(answer as Record<string, unknown>),
+          profiles: ((answer as { profiles?: Record<string, unknown>[] }).profiles ?? [])
+            .map((profile) => ({ ...profile, who: canaryWho })) };
+      return answer;
+    } };
+  };
+  const kit = new OpenClawKit({ stateDir, transport: masking, spawnEngine: false, callbackPort: 0 });
+  const frames: string[] = [];
+  const snap = (v: unknown): void => { frames.push(JSON.stringify(v)); };
+  try {
+    await kit.start();
+    fake.signInAs({ accountId: 'canary-o14m-shared', email: 'umer@example.com' });
+    assert.deepEqual(await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done, { state: 'done', via: 'browser' });
+    fake.signInAs({ accountId: 'canary-o14m-other', email: 'umer@example.com' });
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+
+    // Attribution: an approval raised on the account agent lists under the member.
+    await kit.call('exec.approval.request', { id: 'o14m-a1', command: 'tune antenna', agentId: agent, sessionKey: `agent:${agent}:x` });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.ok(kit.approvals('m1').some((a) => a.id === 'o14m-a1' && a.member === 'm1'));
+    assert.deepEqual(kit.approvals('m2'), []);
+
+    // An unindexed `<member>--<hex6>` agent is never listed and stays unreachable.
+    await kit.call('agents.create', { name: 'm1--ffffff', workspace: join(stateDir, 'openclaw', 'workspaces', 'm1') });
+    assert.deepEqual((await kit.accounts('m1')).map((a) => a.id).sort(), ['openai', second.id].sort());
+    await assert.rejects(kit.models('m1', 'openai.ffffff'), /unknown account: openai\.ffffff/);
+    await assert.rejects(kit.room('m1', 'openai.ffffff'), /unknown account: openai\.ffffff/);
+
+    // Keys are host-only: addAccount refuses key material.
+    await assert.rejects(kit.addAccount('m1', { authChoice: 'openai', key: 'sk-test' } as never, () => {}), /host-only/);
+
+    // Hold the canary by two accounts: every profile read reports it, and both rows keep it across listings.
+    maskWho = true;
+    const indexFile = indexOf(stateDir, 'm1');
+    const stored = JSON.parse(readFileSync(indexFile, 'utf8')) as { accounts: Record<string, { who?: string }> };
+    stored.accounts.openai!.who = canaryWho;
+    stored.accounts[second.id]!.who = canaryWho;
+    writeFileSync(indexFile, JSON.stringify(stored, null, 2) + '\n');
+    await kit.accounts('m1');
+    assert.equal(readFileSync(indexFile, 'utf8').split(canaryWho).length - 1, 2);
+
+    // A stub device link through the built kit.
+    const api = openclawLink(kit, { memberOf: (grant) => (grant.meta as { member?: string } | undefined)?.member });
+    const grant = { id: 'o14m-g1', key: 'k', name: 'phone', role: 'control', created: Date.now(), meta: { member: 'm1' } } as Grant;
+
+    // oc.sessions shows the member key and the account agent's, never another member's or an unindexed agent's.
+    fake.handle('sessions.list', () => ({ sessions: [{ sessionKey: 'agent:m1:x' },
+      { sessionKey: `agent:${agent}:y` }, { sessionKey: 'agent:m1--ffffff:ghost' }, { sessionKey: 'agent:b:z' }] }));
+    const sessions = await api.handle({ op: 'oc.sessions' }, grant) as { sessionKey: string }[];
+    snap(sessions);
+    assert.deepEqual(sessions.map((s) => s.sessionKey).sort(), ['agent:m1:x', `agent:${agent}:y`].sort());
+
+    // oc.events carries the account agent's gateway events and approval frames under the member.
+    const lines: string[] = [];
+    const server: { write(d: string): Promise<void>; end(e?: string): void; onEnd?: () => void } = {
+      write: async (d) => { lines.push(d); snap(JSON.parse(d)); },
+      end: () => {},
+    };
+    await api.stream!(server as unknown as LinkStream, { op: 'oc.events' }, grant);
+    fake.emit('agent', { agentId: agent, runId: 'r-o14m', stream: 'assistant', data: { text: 'mine' } });
+    fake.emit('agent', { agentId: 'b', runId: 'r-foreign', stream: 'assistant', data: { text: 'nope' } });
+    fake.emit('agent', { agentId: 'm1--ffffff', runId: 'r-ghost', stream: 'assistant', data: { text: 'ghost' } });
+    await kit.call('exec.approval.request', { id: 'o14m-a2', command: 'oil antenna', agentId: 'm1', sessionKey: 'agent:m1:x' });
+    await kit.call('exec.approval.request', { id: 'o14m-a3', command: 'ghost', agentId: 'm1--ffffff', sessionKey: 'agent:m1--ffffff:ghost' });
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(lines.length, 2);
+    assert.equal((JSON.parse(lines[0]!) as { event: string }).event, 'agent');
+    assert.equal((JSON.parse(lines[1]!) as { event: string }).event, 'approval');
+    assert.ok(!kit.approvals('m1').some((a) => a.id === 'o14m-a3'));
+    server.onEnd?.();
+
+    // An unindexed account-shaped agent is unreachable through steer and abort as well.
+    await assert.rejects(Promise.resolve().then(() => api.handle({ op: 'oc.steer', args: { sessionKey: 'agent:m1--ffffff:ghost', text: 'hi' } }, grant)),
+      new RegExp(words('link.notAllowed').slice(0, 20)));
+    await assert.rejects(Promise.resolve().then(() => api.handle({ op: 'oc.abort', args: { sessionKey: 'agent:m1--ffffff:ghost' } }, grant)),
+      new RegExp(words('link.notAllowed').slice(0, 20)));
+
+    // oc.run carries the account selection: the account frame comes first.
+    fake.setUsage('m1', 'openai', [{ label: 'session', usedPercent: 80 }]);
+    fake.setUsage(agent, 'openai', [{ label: 'session', usedPercent: 10 }]);
+    for (const id of ['openai', second.id]) await kit.room('m1', id);
+    const runLines: string[] = [];
+    const runServer: { write(d: string): Promise<void>; end(e?: string): void; onEnd?: () => void } = {
+      write: async (d) => { runLines.push(d); snap(JSON.parse(d)); },
+      end: () => {},
+    };
+    await api.stream!(runServer as unknown as LinkStream,
+      { op: 'oc.run', args: { message: 'hello', sessionKey: 'agent:m1:link:1', account: second.id } }, grant);
+    const hostFrames = runLines.map((l) => JSON.parse(l) as { type: string; account?: string });
+    assert.equal(hostFrames[0]?.type, 'account');
+    assert.equal(hostFrames[0]?.account, second.id);
+    assert.equal(hostFrames.at(-1)?.type, 'end');
+
+    // The device client sends the account selection and refuses a misshapen key before any request.
+    const enc = new TextEncoder();
+    const pending: Uint8Array[] = [];
+    let toDevice: ((c: Uint8Array) => void) | undefined;
+    let deviceDone: ((e?: string) => void) | undefined;
+    let ended = false;
+    let endedWith: string | undefined;
+    const stubLink = {
+      request: (op: string, args?: unknown) => api.handle({ op, args }, grant),
+      stream: async (op: string, args?: unknown) => {
+        const serverSide = {
+          write: async (d: string) => {
+            const bytes = enc.encode(d);
+            if (toDevice) toDevice(bytes);
+            else pending.push(bytes);
+          },
+          end: (e?: string) => { ended = true; endedWith = e; deviceDone?.(e); },
+        } as unknown as LinkStream;
+        void api.stream!(serverSide, { op, args }, grant);
+        return {
+          set onData(fn: (c: Uint8Array) => void) { toDevice = fn; for (const bytes of pending.splice(0)) fn(bytes); },
+          set onEnd(fn: (e?: string) => void) { deviceDone = fn; if (ended) fn(endedWith); },
+          write: async (_d: string) => {},
+          end: (_e?: string) => {},
+        } as unknown as LinkStream;
+      },
+    } as unknown as DeviceLink;
+    const oc = openclawDevice(stubLink);
+    const deviceFrames: unknown[] = [];
+    for await (const frame of oc.run('hello', { sessionKey: 'agent:m1:link:2', account: 'auto' })) {
+      deviceFrames.push(frame);
+      snap(frame);
+    }
+    assert.equal((deviceFrames[0] as { type: string }).type, 'account');
+    assert.equal((deviceFrames[0] as { account: string }).account, second.id);
+    snap(await oc.sessions());
+    await assert.rejects(async () => { for await (const frame of oc.run('hi', { sessionKey: 'not-a-key' })) snap(frame); }, /Invalid session key/);
+
+    // The canary held by two accounts never appears in a link frame, including the state, approval and sign-in views.
+    snap(await api.handle({ op: 'oc.state' }, grant));
+    snap(await api.handle({ op: 'oc.approvals' }, grant));
+    snap(await api.handle({ op: 'oc.signin.view', args: { provider: 'openai' } }, grant));
+    const text = frames.join('\n');
+    for (const canary of [canaryWho, 'canary-o14m-shared', 'canary-o14m-other'])
+      assert.ok(!text.includes(canary), `link frame leaks ${canary}`);
+  } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });
   }

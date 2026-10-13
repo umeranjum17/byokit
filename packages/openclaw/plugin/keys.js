@@ -27,7 +27,10 @@ export function registerKeys(api) {
       const marker = join(keyDir, 'byokit-key-ready.json');
       if (params.action === 'ready') {
         if (diagnostics) diagnostics.stage = 'marker';
-        const selected = JSON.parse(await readFile(marker, 'utf8'));
+        let text;
+        try { text = await readFile(marker, 'utf8'); }
+        catch (error) { if (error?.code !== 'ENOENT') throw error; reply({ ok: false, absent: true }); return; }
+        const selected = JSON.parse(text);
         let ready = false;
         if (diagnostics) diagnostics.stage = 'store';
         await updateAuthProfileStoreWithLock({ agentDir: keyDir, updater(store) {
@@ -45,7 +48,6 @@ export function registerKeys(api) {
         reply({ ok: ready, ...(ready ? { model: selected.model } : {}) });
         return;
       }
-      await rm(marker, { force: true });
       if (params.action === 'prepare') {
         // Only local profiles are loaded by this transaction: no shared-store read-through or CLI sync.
         const normal = await updateAuthProfileStoreWithLock({
@@ -66,15 +68,18 @@ export function registerKeys(api) {
         const cleared = await updateAuthProfileStoreWithLock({ agentDir: keyDir,
           saveOptions: { filterExternalAuthProfiles: false, syncExternalCli: false },
           updater(store) { store.profiles = {}; store.order = {}; return true; } });
+        // The marker goes only once the replacement passes its own checks: a refused prepare keeps it.
+        if (cleared) await rm(marker, { force: true });
         respond(true, { ok: Boolean(cleared) });
         return;
       }
       if (params.action === 'clear') {
         // A failed add drops the key it activated; if this clear never reaches the engine, the unsealed key stays but is
-        // unusable until the next add's prepare.
+        // unusable until the next add's prepare or the next kit start's sweep.
         const cleared = await updateAuthProfileStoreWithLock({ agentDir: keyDir,
           saveOptions: { filterExternalAuthProfiles: false, syncExternalCli: false },
           updater(store) { store.profiles = {}; store.order = {}; delete store.lastGood; return true; } });
+        if (cleared) await rm(marker, { force: true });
         respond(true, { ok: Boolean(cleared) });
         return;
       }
@@ -83,7 +88,11 @@ export function registerKeys(api) {
       const at = typeof primary === 'string' ? primary.lastIndexOf('@') : -1;
       if (at < 1) { respond(true, { ok: false }); return; }
       const profileId = primary.slice(at + 1);
-      const model = primary.slice(0, at);
+      const model = params.model ?? primary.slice(0, at);
+      // The kit checks the route catalog before seal; a direct call still cannot cross the activated provider.
+      if (typeof model !== 'string' || !model || model.split('/')[0] !== primary.split('/')[0]) {
+        respond(true, { ok: false }); return;
+      }
       let found = false;
       const sealed = await updateAuthProfileStoreWithLock({ agentDir: keyDir,
         saveOptions: { filterExternalAuthProfiles: false, syncExternalCli: false },

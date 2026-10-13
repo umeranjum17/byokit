@@ -146,8 +146,16 @@ returns what that run would choose now, refusals included, without running. `ste
 
 
 For an owner who explicitly offers keys, `kit.addKey('ana', { authChoice: 'openai-api-key', apiKey })` returns
-`ok`, `invalid`, `not_included` or `retry` (the engine took the key but it was not kept, for example a gateway restart
-ran late; nothing was kept, so add it again). Label the option **API key (billed per use)**. Select only `routes()` rows with
+`{ status: 'ok' }` or `{ status: 'invalid' | 'not_included' | 'retry', reason }`.
+`reason` is `auth` (provider refused the key) or `billing` (the provider's billing refused it; the kit words it and never passes
+provider text): both are `invalid`, and an unchanged key must not be retried. `empty` is a blank key, rejected locally before any
+provider call, also `invalid`. `model` is an unsupported route or unknown model (`not_included`), or a live model the engine did not
+register (`retry`). `network` is a timeout or transport failure; `inference` is a provider reply in an unexpected format, an unknown
+probe failure, or a typed request-validation refusal; `engine` is a control or preparation failure; `busy` is a rate limit or a
+restarting engine. `not_included` covers an unsupported route, an unknown chosen model and a probe reporting the route unavailable;
+every other failure is `retry`. Migrate from the old string result with `result.status === 'ok'`, not `result === 'ok'`.
+A member that is not your own throws. `retry` means the engine may have taken the key but it was not kept
+sealed (for example a gateway restart ran late); no usable key was kept, so add it again. Failures never contain keys, key fragments, headers or raw engine diagnostics. Label the option **API key (billed per use)**. Select only `routes()` rows with
 `keyEntry: true`; API rows remain `offer: false`. Each route also carries its engine `revision`, `checked` date,
 label and key error word names. Submit the input directly, clear the field afterwards, and never log or save it in
 app state. The kit never returns engine key-check errors or the key. [`@byokit/ui/kits`](../ui/README.md) supplies `keyStep`/`keyView`
@@ -155,13 +163,25 @@ for entry, checking, success and failure states, using the kit's `key.*` words.
 
 To use the saved key for one run, pass `auth: 'apiKey'`. The key lives in the member's separate
 `byokit-key-<member>` agent and workspace, with `copyToAgents: false` and only that key in its local auth order.
-Its selected model is used when `model` is omitted; any other model of the same provider (`provider/model`) runs too,
+List the route's models with `kit.models('ana', { authChoice: 'opencode-go' })` after a key is saved; this reads the
+live catalog. Before a key exists it returns `[]` and queries no agent. Only available key-lane
+models can be saved; the ordinary member's sign-ins never supply the list. Pass a full catalog id, e.g.
+`model: 'opencode-go/muse-spark-1.3-contributor'`, to `addKey` to save it as the lane's default after activation.
+Model listing and selection are Go-only: other key routes list no models, and a `model` on them returns `not_included`/`model`
+before activation.
+An unknown model returns `{ status: 'not_included', reason: 'model' }` and clears the replacement.
+Before success, `addKey` waits for catalog registration and prepares the new key agent's full-catalog owner once.
+For a live-catalog provider, a chosen model must also be in the engine's registered `models.providers[provider].models`
+list before anything is sealed; otherwise the add clears the attempt and returns `{ status: 'retry', reason: 'model' }`.
+Preparation failure clears the attempted key and returns `{ status: 'retry', reason: 'engine' }`; ordinary runs stay unchanged.
+With no choice, today's starter stays.
+The saved model is used when a run's `model` is omitted; any other model of the same provider (`provider/model`) runs too,
 and another provider ends `plan`. Key runs have separate history. To steer or stop
 one, pass `{ auth: 'apiKey' }` to `steer` or `abort` too (the device helpers accept the same option).
 Ordinary runs never enter the key agent, even when the subscription is resting. This agent boundary is necessary
 because the engine's profile pins can rotate. The `byokit-key-` member prefix is reserved. Adding another key
 replaces the previous key; a failed replacement leaves this option unavailable. If the normal agent already has
-an API key added through pass-through calls, `addKey` returns `invalid` and leaves that key untouched.
+an API key added through pass-through calls, `addKey` returns `{ status: 'retry', reason: 'engine' }` and leaves that key untouched.
 
 `OpenClawKit.abort` always returns a Promise. Await it or attach `.catch(...)`: an unavailable engine, transport
 failure or invalid API-key session key rejects with the original error, never throws synchronously, and is not
@@ -346,7 +366,7 @@ streams, [`examples/openclaw-kit`](../../examples/openclaw-kit) for a whole app,
 
 Subscription sign-ins are offered by default. API-billed routes remain in `kit.routes()` with `offer: false`;
 apps can offer them when the app or person opts in, labelled API key (billed per use). Each `Route` carries `billing` (`subscription`, `api` or
-`local`) so the app can label what is billed. Proxy routes, compatibility aliases, local runtimes stay off. Native Claude Code sign-in is offered by default. A plan key (OpenCode Go: `kit.addAccount(member, { authChoice: 'opencode-go' }, on)`) asks for `Plan key`; `paste` it and the engine live-tests it before `done`. A run reaches the pinned engine's static Go models (default `opencode-go/deepseek-v4-pro`); the engine sends OpenCode Go's `x-opencode-session` header on every request. A live-only Go model such as Muse needs no app config: the kit registers the plan's live catalog with each model's API, so `run({ model: 'opencode-go/muse-spark-1.3-contributor' })` runs on the account (or with `auth: 'apiKey'` on a Go key); an app that sets `config.models.providers['opencode-go'].models` keeps its own list. A choice the pinned Gateway cannot set up has readiness `no_upstream_flow` and is never offered. Pass the accounts the app offers in `KitOptions.offered` (the provider, auth choice or alias each route carries, e.g. `'openrouter'`); the kit allow-lists the plugin of every route those name, so an opted-in sign-in is not blocked. An app can still name a plugin directly in `config.plugins.allow`, and pass the route's `choice` explicitly to `kit.signIn()`.
+`local`) so the app can label what is billed. Proxy routes, compatibility aliases, local runtimes stay off. Native Claude Code sign-in is offered by default. A plan key (OpenCode Go: `kit.addAccount(member, { authChoice: 'opencode-go' }, on)`) asks for `Plan key`; `paste` it and the engine live-tests it before `done`. A paired device starts the same sign-in with either `via` and pastes the key over the sealed link, which keeps it on the host. A run reaches the pinned engine's static Go models (default `opencode-go/deepseek-v4-pro`); the kit keeps OpenCode Go's `x-opencode-session` header on every request, the setup probe included. A live-only Go model such as Muse needs no app config: the kit registers the plan's live catalog with each model's API, so `run({ model: 'opencode-go/muse-spark-1.3-contributor' })` runs on the account (or with `auth: 'apiKey'` on a Go key); an app that sets `config.models.providers['opencode-go'].models` keeps its own list. A choice the pinned Gateway cannot set up has readiness `no_upstream_flow` and is never offered. Pass the accounts the app offers in `KitOptions.offered` (the provider, auth choice or alias each route carries, e.g. `'openrouter'`); the kit allow-lists the plugin of every route those name, so an opted-in sign-in is not blocked. An app can still name a plugin directly in `config.plugins.allow`, and pass the route's `choice` explicitly to `kit.signIn()`.
 Offered provider plugins are allowed by default alongside the app's plugin ids.
 
 ## API at a glance

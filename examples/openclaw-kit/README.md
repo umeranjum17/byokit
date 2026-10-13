@@ -24,16 +24,17 @@ npm start
 3. The phone and the terminal show the same two words. If they match, answer `y` in the terminal.
 4. On the phone, under **Plans**, tap **ChatGPT Device Pairing — sign in with a code** (the list is every way in the
    kit has, and the ones this page can't start say why). It shows a code: open the ChatGPT page it links to, sign in
-   there and type the code. The phone moves on by itself once ChatGPT says yes.
+   there and type the code. The phone moves on by itself once ChatGPT says yes. With an OpenCode Go plan, tap
+   **OpenCode Go catalog — paste the key from your plan** instead and paste the key from your OpenCode Go dashboard:
+   it goes to this computer over the paired link, which keeps it and checks it; the phone keeps nothing.
 5. Type a message and tap **Send**. The reply streams in under it, with its token usage (`Tokens: …`) underneath.
 6. Ask it to save a note (for example "save a note that says buy milk"). Before it does, the phone shows **Your
    helper wants to save a note. Allow it?** Tap **Allow** and the note lands in `.state/notes.txt`, or **Deny** and
    nothing is saved. Everything else the helper would do on this computer (searching the web, say) asks the same way.
 
-A plan key (OpenCode Go) is signed in at the computer: type `add opencode-go` in the terminal, then paste the key there
-(typed input stays hidden). The key is stored only on this computer. The phone's OpenCode Go row under **Plans** says
-this page has no form for a key yet, so it can't add one. Once the key is in, the phone talks on that account too, and
-its streamed reply shows usage the same way.
+A plan key (OpenCode Go) can also be added at the computer: type `add opencode-go` in the terminal, then paste the key
+there (typed input stays hidden). Either way the key is stored only on this computer. Once it is in, the phone talks on
+that account too, and its streamed reply shows usage the same way.
 
 Over Tailscale the page is https and the phone keeps its pairing sealed in the browser. Over your home network it is
 plain http, which browsers don't let a page seal with, so the pairing is kept in the browser's ordinary storage
@@ -44,8 +45,8 @@ Options: `--port` (default 7310), `--via` (`auto`: Tailscale when it is installe
 
 Try it without the engine or an account: `BYOKIT_EXAMPLE_FAKE=1 npm start` runs the kit's stand-in Gateway. Its
 sign-in shows the code `CREW-2026` and says yes by itself a few seconds later; its helper answers
-`fake: <your message>`, and a message containing `[tool demo_note {"text":"buy milk"}]` asks to save that note.
-It also shows the helper's browser sign-in with a synthetic fixture (the kit's offline browser fake, no Chromium,
+`fake: <your message>`, its OpenCode Go row takes any key but `wrong-key`, and a message containing
+`[tool demo_note {"text":"buy milk"}]` asks to save that note. It also shows the helper's browser sign-in with a synthetic fixture (the kit's offline browser fake, no Chromium,
 no real site): a "Sign in to 127.0.0.1" card waits on `http://127.0.0.1:2820`, takeover shows a labelled stand-in
 page live, and Done puts "Signed in to 127.0.0.1 ✓" under the chat. It shows the screens only; it is not browser
 protection.
@@ -119,6 +120,7 @@ only. This web page takes no push notices itself; a phone app does.
 | This computer couldn't start the helper. Restart the app to try again. | See `.state/logs/openclaw.log` for why, then restart `npm start`. The first install needs the network. |
 | Something stopped. Starting it again by itself. | The engine stopped and the kit is starting it again; wait for `Ready.` |
 | This app needs an update to keep working. | The engine in `.state` isn't the one this kit pins even after installing it; restart `npm start`, and `npm i` a newer `@byokit/openclaw` if it keeps saying this. |
+| API key activation failed (after pasting a plan key) | The plan refused the key; copy it again from your OpenCode Go dashboard, tap the row and paste it. |
 | Sign in with ChatGPT Device Pairing to start. | Tap **ChatGPT Device Pairing — sign in with a code** again and type the code on ChatGPT's page. |
 | Another sign-in is already in progress. Finish or cancel it, then try again. | Another device is signing in on this computer; finish it there, or wait for it to run out. |
 | The sign-in took too long. Start it again. | The code ran out; tap **ChatGPT Device Pairing — sign in with a code** for a new one. |

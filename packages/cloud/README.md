@@ -7,15 +7,27 @@ their own bill. The person-facing words say "your cloud computer". The Boat adap
 ([spec](../../docs/cloud-kit.md)).
 
 ```ts
-import { machine, type Provider, type MachineStore, type HostRecipe } from '@byokit/cloud';
+import { machine, status, type Provider, type MachineStore, type HostRecipe } from '@byokit/cloud';
 
-export async function start(provider: Provider, store: MachineStore, recipe: HostRecipe) {
+export async function start(provider: Provider, store: MachineStore, recipe: HostRecipe, show: (s: string) => void) {
   const m = machine({ provider, store });
   const ref = await m.create({ name: 'tracker', size: 'small', keepCopies: true });
+  const vars = { app: 'Tracker', label: 'Boat' };
+  // Boat's create resolves before the machine is on; poll the one status a phone shows.
+  for (let s = await status(m, vars); s.machine !== 'on'; s = await status(m, vars)) {
+    show(s.words); // "Setting up your cloud computer. This takes a minute or two."
+    if (['failed', 'host-key-changed', 'gone'].includes(s.machine)) return ref;
+    await new Promise((r) => setTimeout(r, 3000));
+  }
   await m.install(recipe);
-  return { ref, state: await m.state() }; // 'on'
+  show((await status(m, vars)).words); // "Tracker is running on your cloud computer."
+  return ref;
 }
 ```
+
+`status(m, { app, label })` resolves `{ machine, host, words }`: the host is asked only while
+the machine is on, and `words` is the one plain sentence to show. Start and stop are
+`wake()` and `sleep()`; delete is `remove(ref.id)`.
 
 `machine()` decides where the app's host process runs; the app's one runtime kit
 (`@byokit/openclaw` or `@byokit/herdr`) runs inside that process exactly as it does at home.
@@ -29,11 +41,34 @@ inside the host process; `./testing` is Node only (the fake provider and the con
 **Status: in development.** This is the M3 build ([spec](../../docs/cloud-kit.md) §14):
 frozen types, words, pure parts (`renderUnit`, recipe checks, node argv, cost), `machine()`
 for §5.1–5.5 and §5.7 plus install and supervise (§8: `install`, `update`, `host`,
-`logs`, `deliver`), the fake provider and the contract suite, the Boat adapter
-(M4), and the SSH VM adapter (M2). Sleep-and-wake lands in M7, account link in M8.
+`logs`, `deliver`), `status()` (§5.9), the fake provider and the contract suite, the Boat adapter
+(M4), and the SSH VM adapter (M2). Idle sleep and wake-on-open land in M7 (manual `sleep()` and
+`wake()` are already here), account link in M8.
 The package stays private until the recorded real-provider run (M6).
 
 The library reads no environment variable. Every spawned process gets an env built from nothing.
+
+## Saved copies, reset and disk space
+
+A machine made with `keepCopies: true` keeps saved copies of itself. `snapshot()` saves one and
+keeps only the newest three of the kit's own copies (`snapshot({ keep })` to change it; Boat keeps
+10 for free, then bills each). `scheduleSnapshots({ everyMs, onResult })` saves a copy when the newest is
+older than `everyMs`, on a timer while the app runs, and resolves `{ stop() }` (await it; it rejects at once on a bad
+recipe, a missing machine, or a machine or provider without copies). The kit has no hosted
+scheduler, so nothing saves while the app is closed.
+`restore(id)` rebuilds the machine from a copy; everything changed since is lost, so the app
+confirms first with `words('snapshot.restore', { date })`. A copy that is gone rejects
+`no-snapshot`; a save, reset or remove while another of these runs on the same machine rejects `busy`. `disk()` resolves `{ usedGb, totalGb }` for `words('disk.used', ...)`.
+
+```ts
+import { words, type Machine } from '@byokit/cloud';
+
+export async function reset(m: Machine, confirm: (s: string) => Promise<boolean>) {
+  const [last] = await m.snapshots();
+  if (last === undefined || !(await confirm(words('snapshot.restore', { date: last.at.slice(0, 10) })))) return null;
+  return m.restore(last.id); // the app then calls url(port) again: the machine is new
+}
+```
 
 ## Boat adapter
 

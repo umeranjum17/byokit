@@ -137,13 +137,15 @@ async function refresh() {
   if (askAgain) { askAgain = false; void refresh(); } else timer = setTimeout(() => void refresh(), poll ? 1000 : 5000);
 }
 
-// A row is a button only when this page can start it: a ready plan that signs in with a code, which the phone shows
-// (a sign-in on the provider's page returns to the computer, and this page has no key or setup form). The computer
-// starts a code sign-in by provider alone, so only the first such row of a provider (the kit's order, as it picks) can
-// be started. Every other row stays listed, saying why. Plans are open; every other group starts folded.
+// A row is a button only when this page can start it: a ready plan that signs in with a code, which the phone shows,
+// or with the key from the plan, which the phone pastes (a sign-in on the provider's page returns to the computer, and
+// this page has no API key or setup form). The computer starts a sign-in by provider alone, so only the first such row
+// of a provider (the kit's order, as it picks) can be started. Every other row stays listed, saying why. Plans are
+// open; every other group starts folded.
 function drawRoutes(list: ConnectGroup[]) {
   const first = new Map<string, string>();
-  for (const r of list.flatMap((g) => g.rows)) if (r.offered && r.via === 'code' && !first.has(r.provider)) first.set(r.provider, r.key);
+  for (const r of list.flatMap((g) => g.rows))
+    if (r.offered && (r.via === 'code' || r.via === 'plan_key') && !first.has(r.provider)) first.set(r.provider, r.key);
   const canStart = (r: ConnectRow) => first.get(r.provider) === r.key;
   $('routes').replaceChildren(...list.map((g) => {
     const box = el('details', { className: 'group', open: g.id === 'plans' }, el('summary', { textContent: g.title }),
@@ -172,10 +174,17 @@ async function pick(row: ConnectRow) {
   void refresh();
 }
 
+let checking = false; // a pasted key is on its way to the computer, which checks it with the provider
+let keyError = ''; // why the last pasted key was refused, shown until the next submit or until the sign-in leaves the prompt
 /** Draws the ways in and the sign-in card, or the message box; true while the sign-in is still moving. */
 function drawAccount(view: AccountView | undefined): boolean {
   const phase = view && phaseOf(view);
   const moving = view?.signIn?.state === 'waiting';
+  // The kit asks for the plan's key: the phone sends it once, over the sealed link, and keeps nothing.
+  const asked = moving && view?.signIn?.prompt ? view.signIn.prompt : '';
+  if (!asked) { checking = false; keyError = ''; }
+  $('signin-key').hidden = !asked || checking;
+  $('signin-key-label').textContent = asked;
   $('signin').hidden = phase === 'done';
   $('talk').hidden = phase !== 'done';
   const name = account?.name ?? '';
@@ -190,6 +199,7 @@ function drawAccount(view: AccountView | undefined): boolean {
   $('signin-cancel').hidden = !moving;
   $('signin-title').textContent = !view ? ''
     : !view.signIn ? words('member.signedOut', { name })
+    : asked ? (checking ? words('key.checking') : keyError || 'Paste the key from your plan. Your computer keeps it, not this phone.')
     : phase === 'code' ? `On the ${name} page, type this code:`
     : phase === 'busy' ? words('signin.busy')
     : phase === 'expired' ? words('signin.expired')
@@ -199,6 +209,19 @@ function drawAccount(view: AccountView | undefined): boolean {
   return moving;
 }
 
+$('signin-key').onsubmit = async (e) => {
+  e.preventDefault();
+  const input = $<HTMLInputElement>('signin-key-input');
+  const key = input.value.trim();
+  input.value = '';
+  if (!key || !account) return;
+  checking = true;
+  keyError = '';
+  $('signin-key').hidden = true;
+  $('signin-title').textContent = words('key.checking');
+  try { await oc.signIn.paste(account.provider, key); } catch (err) { checking = false; keyError = said(err); }
+  void refresh();
+};
 $('signin-cancel').onclick = async () => {
   try { if (account) await oc.signIn.cancel(account.provider); } catch { /* the link line says why */ }
   void refresh();
@@ -239,8 +262,8 @@ $('run-form').onsubmit = async (e) => {
   $('stop').hidden = false;
   $('reply').textContent = '';
   $('run-said').textContent = '';
-  $('tool').textContent = '';
   $('usage').textContent = '';
+  $('tool').textContent = '';
   try {
     for await (const frame of oc.run(text, { sessionKey: SESSION })) {
       if (frame.type === 'text') $('reply').textContent = frame.text;

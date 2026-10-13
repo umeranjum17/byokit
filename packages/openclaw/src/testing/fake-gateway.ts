@@ -147,7 +147,7 @@ export type FakeGateway = {
   /** Profile fields every later wizard sign-in stores (O14 identity): `accountId: undefined` signs in with no account
    * id, so no `who`. With no call, or `signInAs()`, the account id is `fake-<agentId>`. */
   signInAs(fields?: { accountId?: string; email?: string; expires?: number }): void;
-  /** A sealed profile already in an agent's store, as a sign-in of another provider leaves it. */
+  /** A sealed profile already in an agent's store, as a sign-in of another provider leaves it; the agent's model points at it. */
   seedProfile(agentId: string, profileId: string, profile: { provider: string; type: string } & Record<string, unknown>): void;
 } & { transport: GatewayTransport };
 export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number }): FakeGateway {
@@ -459,9 +459,9 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       const id = `byokit-key-${p.member}`;
       if (p.action === 'prepare' || p.action === 'clear') { keys.delete(id); ensureAgent(id).providers = []; return { ok: true }; }
       const key = keys.get(id);
-      if (!key) return { ok: false };
-      if (p.action === 'seal') { key.sealed = true; return { ok: true }; }
-      return { ok: key.sealed, ...(key.sealed ? { model: key.model } : {}) };
+      if (!key) return { ok: false, absent: true };
+      if (p.action === 'seal') { key.sealed = true; if (typeof p.model === 'string') key.model = p.model; return { ok: true }; }
+      return key.sealed ? { ok: true, model: key.model } : { ok: false, absent: true };
     },
     // The provider's live catalog hook (5.6): every live model with its own api, once an agent holds the provider's key.
     'byokit.catalog': (p) => ([...keys.values()].some((key) => key.provider === p.provider) ? { ok: true, models: [
@@ -803,7 +803,11 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       perAgent.set(provider, windows);
     },
     signInAs: (fields) => { signInFields = fields && { ...fields }; },
-    seedProfile: (agentId, profileId, profile) => { ensureAgent(agentId); storeOf(agentId)[profileId] = profile; },
+    seedProfile: (agentId, profileId, profile) => {
+      ensureAgent(agentId);
+      storeOf(agentId)[profileId] = profile;
+      setPrimaryOfId(agentId, `${profile.provider}/default@${profileId}`);
+    },
     transport: factory({ port: 0, token: 'test', identityPath: '', bridgeSock: '' }),
   };
 }

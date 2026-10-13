@@ -147,8 +147,9 @@ asks expire, deny when the caller disconnects, and are removed on shutdown.
 Native exec/plugin decisions use `allow-once`, not a persistent allowlist.
 The engine remains authoritative for native approval expiration and resolution.
 
-`openclawLink` checks the app's member mapping and session prefix before member
-operations, checks pending approval ownership before deciding, and denies mutation
+`openclawLink` checks the app's member mapping and each session key's owner (`kit.memberOf`,
+which maps an indexed account agent's keys to its member) before member operations, checks
+pending approval ownership before deciding, and denies mutation
 to view grants. Raw `oc.call` is denied unless the app's `passThrough` explicitly
 allows the method; that callback must also enforce parameter/member scope. The
 local `kit.call`/`kit.decide` surface has operator authority and is trusted host

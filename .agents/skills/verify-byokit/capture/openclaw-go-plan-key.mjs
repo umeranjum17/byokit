@@ -56,8 +56,8 @@ try {
 
   // The key path: addKey sets the plan key up on another member's key agent; `auth: 'apiKey'` runs on its saved model.
   const keyed = await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: key });
-  say('addKey:', keyed);
-  assert.equal(keyed, 'ok');
+  say('addKey:', JSON.stringify(keyed));
+  assert.deepEqual(keyed, { status: 'ok' });
   await turn('key', { member: 'm2', auth: 'apiKey' });
 
   say('GO-PLAN-KEY OK');

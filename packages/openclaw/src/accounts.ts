@@ -3,15 +3,46 @@
 // who? } }, defaults }`. No credential, token, email or engine line. Listing, rename, defaults, models, room,
 // adding with its identity merge (O14 steps S6, S7), the start-of-run pick (S10), session binding (S11) and moving a
 // conversation (S12) live here; remove arrives in a later step.
-import { chmodSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { createLocks } from './locks.ts';
 import { providerOf, resolveSelection } from './pick.ts';
+import { agentOf, memberOf as baseMemberOf } from './attribution.ts';
 import { KEY_PREFIX, MEMBER_ID, NEW_MEMBER_ID, untilListed } from './members.ts';
 import { routes, routeFor } from './routes.ts';
 import { words } from './words.ts';
 import type { Account, AccountId, AccountPick, Defaults, GatewayTransport, Member, ModelInfo, MoveResult, Room, RoomSpan, RunSelection, SignInOptions, SignInState, SignInView } from './types.ts';
+
+const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+// `models.list { agentId, view: 'default' }` rows of the account's provider, mapped to `provider/model`. The pin
+// reports no per-plan availability, so `why: 'plan'` only comes from a run ending `plan`, never from here.
+export const modelsOf = (provider: string, answer: unknown): ModelInfo[] => {
+  const rows = record(answer) && Array.isArray(answer.models) ? answer.models : [];
+  const out: ModelInfo[] = [];
+  for (const candidate of rows) {
+    if (!record(candidate) || typeof candidate.provider !== 'string'
+      || candidate.provider.toLowerCase() !== provider.toLowerCase()) continue;
+    if (typeof candidate.id !== 'string' || !candidate.id || typeof candidate.name !== 'string') continue;
+    const id = candidate.id.includes('/') ? candidate.id : `${candidate.provider}/${candidate.id}`;
+    if (providerOf(id) !== provider.toLowerCase()) continue;
+    const available = candidate.available === undefined
+      ? candidate.unavailableReason === undefined : candidate.available === true;
+    const info: ModelInfo = { id, name: candidate.name, available };
+    if ((candidate.tier === 'strong' || candidate.tier === 'fast')) info.tier = candidate.tier;
+    if (!available) {
+      if (candidate.unavailableReason === 'missing-auth' || candidate.unavailableReason === 'auth-failed')
+        info.why = 'signed_out';
+      else if (candidate.unavailableReason === 'cooldown') {
+        info.why = 'resting';
+        if (typeof candidate.unavailableUntil === 'number' && Number.isFinite(candidate.unavailableUntil))
+          info.until = candidate.unavailableUntil;
+      }
+    }
+    out.push(info);
+  }
+  return out;
+};
 
 type IndexEntry = { agent: string; name: string; route: string; addedAt: number; until?: number; model?: string; who?: string };
 type IndexFile = { v: 1; accounts: Record<string, IndexEntry>; defaults: Defaults };
@@ -41,6 +72,40 @@ const validEntry = (v: unknown): v is IndexEntry => !!v && typeof v === 'object'
   && ((v as IndexEntry).model === undefined || typeof (v as IndexEntry).model === 'string')
   && ((v as IndexEntry).who === undefined || typeof (v as IndexEntry).who === 'string');
 
+const indexPath = (root: string, member: Member): string => join(root, 'accounts', `${member}.json`);
+const readIndex = (root: string, member: Member): IndexFile => {
+  let text: string;
+  try { text = readFileSync(indexPath(root, member), 'utf8'); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return empty(); throw error; }
+  const file = JSON.parse(text) as Partial<IndexFile>;
+  if (!file || typeof file !== 'object' || file.v !== 1) return empty();
+  const accounts: Record<string, IndexEntry> = {};
+  for (const [id, entry] of Object.entries(file.accounts ?? {})) if (validEntry(entry)) accounts[id] = entry;
+  const raw = file.defaults && typeof file.defaults === 'object' ? file.defaults as Defaults : {};
+  const defaults: Defaults = {};
+  if (typeof raw.account === 'string') defaults.account = raw.account;
+  if (typeof raw.model === 'string') defaults.model = raw.model;
+  if (typeof raw.auto === 'boolean') defaults.auto = raw.auto;
+  return { v: 1, accounts, defaults };
+};
+
+// Attribution (5.15, O14m): the member an agent id or `agent:<agent>:<tail>` session key belongs to. A member agent is its
+// own, and so is an agent whose workspace the kit created for it (a legacy member id may end in `--<hex6>`); any other
+// agent, an `<member>--<hex6>` account agent included, maps only while the index names it under that member. Account
+// agents share their member's workspace, so an unindexed account-shaped agent maps nowhere and stays unreachable.
+export function memberOfAccount(root: string, ref: string): Member | undefined {
+  const agent = agentOf(ref);
+  if (agent === undefined) return undefined;
+  const member = baseMemberOf(agent);
+  if (member === undefined || agent === member) return member;
+  if (MEMBER_ID.test(agent) && existsSync(join(root, 'workspaces', agent))) return agent;
+  try {
+    return Object.values(readIndex(root, member).accounts).some((e) => e.agent === agent) ? member : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function createAccounts(ctx: {
   request: GatewayTransport['request'];
   root: string;
@@ -63,28 +128,14 @@ export function createAccounts(ctx: {
   rest(member: Member, id: AccountId, until: number): Promise<void>;
   move(member: Member, sessionKey: string, to: AccountId): Promise<MoveResult>;
 } {
-  const path = (member: Member): string => join(ctx.root, 'accounts', `${member}.json`);
+  const path = (member: Member): string => indexPath(ctx.root, member);
+  const read = (member: Member): IndexFile => readIndex(ctx.root, member);
   // Accounts whose sign-in is running, as `<member>\n<id>`, counted per add: listed `signing` until the last one ends.
   const signing = new Map<string, number>();
   // The index file's own lock, apart from any agent's: a run's shared hold on the member agent never blocks an edit.
   const indexLock = (member: Member): string => `${member}#index`;
   const check = (member: Member): void => {
     if (!MEMBER_ID.test(member) || member.startsWith(KEY_PREFIX)) throw new Error(`invalid member id: ${member}`);
-  };
-  const read = (member: Member): IndexFile => {
-    let text: string;
-    try { text = readFileSync(path(member), 'utf8'); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return empty(); throw error; }
-    const file = JSON.parse(text) as Partial<IndexFile>;
-    if (!file || typeof file !== 'object' || file.v !== 1) return empty();
-    const accounts: Record<string, IndexEntry> = {};
-    for (const [id, entry] of Object.entries(file.accounts ?? {})) if (validEntry(entry)) accounts[id] = entry;
-    const raw = file.defaults && typeof file.defaults === 'object' ? file.defaults as Defaults : {};
-    const defaults: Defaults = {};
-    if (typeof raw.account === 'string') defaults.account = raw.account;
-    if (typeof raw.model === 'string') defaults.model = raw.model;
-    if (typeof raw.auto === 'boolean') defaults.auto = raw.auto;
-    return { v: 1, accounts, defaults };
   };
   const write = (member: Member, file: IndexFile): void => {
     mkdirSync(join(ctx.root, 'accounts'), { recursive: true, mode: 0o700 });
@@ -190,35 +241,6 @@ export function createAccounts(ctx: {
     const entry = read(member).accounts[id];
     if (!row || !entry) throw new Error(`unknown account: ${id}`);
     return { row, entry };
-  };
-  const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-  // `models.list { agentId, view: 'default' }` rows of the account's provider, mapped to `provider/model`. The pin
-  // reports no per-plan availability, so `why: 'plan'` only comes from a run ending `plan`, never from here.
-  const modelsOf = (provider: string, answer: unknown): ModelInfo[] => {
-    const rows = record(answer) && Array.isArray(answer.models) ? answer.models : [];
-    const out: ModelInfo[] = [];
-    for (const candidate of rows) {
-      if (!record(candidate) || typeof candidate.provider !== 'string'
-        || candidate.provider.toLowerCase() !== provider.toLowerCase()) continue;
-      if (typeof candidate.id !== 'string' || !candidate.id || typeof candidate.name !== 'string') continue;
-      const id = candidate.id.includes('/') ? candidate.id : `${candidate.provider}/${candidate.id}`;
-      if (providerOf(id) !== provider.toLowerCase()) continue;
-      const available = candidate.available === undefined
-        ? candidate.unavailableReason === undefined : candidate.available === true;
-      const info: ModelInfo = { id, name: candidate.name, available };
-      if ((candidate.tier === 'strong' || candidate.tier === 'fast')) info.tier = candidate.tier;
-      if (!available) {
-        if (candidate.unavailableReason === 'missing-auth' || candidate.unavailableReason === 'auth-failed')
-          info.why = 'signed_out';
-        else if (candidate.unavailableReason === 'cooldown') {
-          info.why = 'resting';
-          if (typeof candidate.unavailableUntil === 'number' && Number.isFinite(candidate.unavailableUntil))
-            info.until = candidate.unavailableUntil;
-        }
-      }
-      out.push(info);
-    }
-    return out;
   };
   const spanOf = (label: string): RoomSpan => {
     const lower = label.toLowerCase();
@@ -543,6 +565,7 @@ export function createAccounts(ctx: {
 
   async function add(member: Member, o: AddOptions, on: (v: SignInView) => void): Promise<AccountSignIn> {
     check(member);
+    if (o && typeof o === 'object' && 'key' in o) throw new Error('addAccount: keys are host-only');
     if (!NEW_MEMBER_ID.test(member)) throw new Error(words('account.legacyMember'));
     const choice = o?.authChoice === 'openai-codex' ? 'openai' : o?.authChoice;
     const route = routes().find((r) => r.choice === choice && r.billing === 'subscription');
