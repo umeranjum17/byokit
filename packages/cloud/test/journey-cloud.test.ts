@@ -465,13 +465,15 @@ test('a Boat bootstrap joins the private network without opening a public app po
     assert.deepEqual(await m.tailnet(), { state: 'joined', name: 'umer-cloud.umer.ts.net' });
     const bootstrap = server.machine.runs.find(r => r.argv[2]?.includes('tailscale.com/install.sh'));
     assert.ok(bootstrap?.root && bootstrap.inputBytes === 0);
-    assert.match(bootstrap.argv[2], /--tun=userspace-networking/);
-    assert.match(bootstrap.argv[2], /--state=\/etc\/tailscale/);
     assert.equal(server.requests.filter(r => r.path.endsWith('/host')).length, 0, 'bootstrap plus host makes no public hosting call');
     daemon('NeedsMachineAuth', 'umer-cloud.umer.ts.net.');
     assert.equal((await m.tailnet()).state, 'needs-login');
     daemon('Stopped');
     assert.equal((await m.tailnet()).state, 'off');
+    daemon('Starting');
+    assert.deepEqual(await m.tailnet(), { state: 'starting', name: null });
+    server.machine.script('tailscale', { code: 1, stdout: '', stderr: 'failed to connect to local tailscaled', timedOut: false });
+    assert.deepEqual(await m.tailnet(), { state: 'starting', name: null });
     daemon('Unexpected');
     await rejects(m.tailnet(), 'provider');
     daemon('Running', 'not-a-tailnet-name');

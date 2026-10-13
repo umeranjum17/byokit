@@ -33,8 +33,9 @@ export type ProofHooks = {
 export type ProofTarget = {
   provider: Provider;
   app: AppRecipe;
-  // Called before install: upload a clean release archive and lab-owned files only.
-  prepare(session: Session): Promise<void>;
+  // Called before install: upload a clean release archive and lab-owned files only. Returns the
+  // private https route (the MagicDNS origin) the probes dial, or null when the adapter has none.
+  prepare(session: Session): Promise<string | null>;
   contractRecipe(name: string): HostRecipe;
   // Called with the install duration in seconds once `installApp` returns (live timings).
   onInstall?(seconds: number): void;
@@ -96,7 +97,7 @@ export async function runProof(o: {
     try {
       const ref = await m.create({ name: target.app.host.name, size: 'small', keepCopies: provider.create !== undefined });
       session = { provider, ref, app: target.app, url: null };
-      await target.prepare(session);
+      session.url = await target.prepare(session);
       const installStarted = Date.now();
       await installApp(provider, ref, target.app);
       target.onInstall?.((Date.now() - installStarted) / 1000);
@@ -116,12 +117,17 @@ export async function runProof(o: {
         await add(adapter, check, () => o.hooks.observe(check, s));
       }
       const beforeIp = await o.hooks.address(s);
+      const oldUrl = s.url;
       if (provider.sleep && provider.wake) {
         await m.sleep();
         assert.equal(await m.state(), 'asleep');
         await m.wake();
       } else {
         await o.hooks.cycleVm(s);
+      }
+      if (provider.id === 'sandbox-api') {
+        const tailnet = await m.tailnet();
+        s.url = tailnet.name === null ? null : `https://${tailnet.name}`;
       }
       await add(adapter, 'unit-resume', async () => {
         assert.equal(await m.host(), 'running');
@@ -134,7 +140,6 @@ export async function runProof(o: {
         const v4 = /(?:\d{1,3}\.){3}\d{1,3}/.test(afterIp);
         return { status: 'observed', detail: `address changed: ${beforeIp !== afterIp}; IPv6-only: ${!v4 && afterIp.includes(':')}` };
       });
-      const oldUrl = s.url;
       // MagicDNS is stable; private ingress is configured by the app, not provider hosting.
       await add(adapter, 'route-rehost', async () => {
         const observed = await o.hooks.observe('route-rehost', s);

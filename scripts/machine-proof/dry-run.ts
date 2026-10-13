@@ -33,7 +33,7 @@ export async function dryRun(record: (r: Report) => Promise<void>): Promise<Repo
     const wake = sandbox.wake!;
     sandbox.wake = async ref => { await wake(ref); server.machine.reboot(); };
     const targets: ProofTarget[] = [sandbox, vm].map(provider => ({
-      provider, app, prepare: async () => {},
+      provider, app, prepare: async () => null,
       contractRecipe: name => ({ name, node: fakeNode, workDir: '/home/user/app', install: [['npm', 'ci']], run: { argv: ['node', 'server.mjs'], env: { PORT: '7310' } } }),
       bench: async () => ({ provider, store: memoryStore(), installs: true }),
       cleanupContract: async () => {},

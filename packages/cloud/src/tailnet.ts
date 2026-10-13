@@ -3,21 +3,22 @@ import { words } from './words.ts';
 import type { MachineRef, Provider, Tailnet, TailnetStep } from './types.ts';
 
 // Boat keeps /etc across wakes, unlike /var. This identity is included in disk copies.
-const BOOTSTRAP = `set -eu
+// $1 is a root prefix for tests (empty on a machine); the kit never passes one.
+export const BOOTSTRAP = `set -eu
+root=\${1:-}
+tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 if ! command -v tailscale >/dev/null; then
-  t=$(mktemp); trap 'rm -f "$t"' EXIT
-  curl -fsSL https://tailscale.com/install.sh -o "$t"
-  sh "$t"
+  curl -fsSL https://tailscale.com/install.sh -o "$tmp/install.sh"
+  sh "$tmp/install.sh"
 fi
-install -d -m 0700 /etc/tailscale
-install -d /etc/systemd/system/tailscaled.service.d
-t=$(mktemp); trap 'rm -f "$t"' EXIT
+install -d -m 0700 "$root/etc/tailscale"
+install -d "$root/etc/systemd/system/tailscaled.service.d"
 flags=''
-if ! test -c /dev/net/tun; then flags='--tun=userspace-networking'; fi
-printf '[Service]\\nExecStart=\\nExecStart=%s --state=/etc/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock %s\\n' "$(command -v tailscaled)" "$flags" > "$t"
-f=/etc/systemd/system/tailscaled.service.d/byokit.conf
-if ! cmp -s "$t" "$f"; then
-  install -m 0644 "$t" "$f"
+if ! test -c "$root/dev/net/tun"; then flags='--tun=userspace-networking'; fi
+printf '[Service]\\nExecStart=\\nExecStart=%s --state=%s/etc/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock %s\\n' "$(command -v tailscaled)" "$root" "$flags" > "$tmp/byokit.conf"
+f="$root/etc/systemd/system/tailscaled.service.d/byokit.conf"
+if ! cmp -s "$tmp/byokit.conf" "$f"; then
+  install -m 0644 "$tmp/byokit.conf" "$f"
   systemctl daemon-reload
   systemctl restart tailscaled
 fi
@@ -39,15 +40,17 @@ export async function tailnet(provider: Provider, ref: MachineRef): Promise<Tail
   if (r.timedOut) throw new MachineError('timeout', 'Checking your private network took too long.');
   let status;
   try { status = JSON.parse(r.stdout) as { BackendState?: string; Self?: { DNSName?: string } }; }
-  catch { throw new MachineError('provider', `Checking your private network failed: ${r.stderr.slice(-200)}`); }
+  catch { return { state: 'starting', name: null }; }
   const name = dnsName(status?.Self?.DNSName);
   switch (status?.BackendState) {
     case 'Running':
       if (r.code !== 0 || name === null) throw new MachineError('provider', 'Your private network did not return a cloud computer name.');
       return { state: 'joined', name };
-    case 'NeedsLogin': case 'NeedsMachineAuth': case 'Starting':
+    case 'NeedsLogin': case 'NeedsMachineAuth':
       return { state: 'needs-login', name };
-    case 'Stopped': case 'NoState':
+    case 'Starting': case 'NoState':
+      return { state: 'starting', name };
+    case 'Stopped':
       return { state: 'off', name };
     default:
       throw new MachineError('provider', `Checking your private network failed: ${r.stderr.slice(-200)}`);
@@ -68,11 +71,15 @@ export async function joinTailnet(provider: Provider, ref: MachineRef, o: { host
   const installed = await provider.exec(ref, ['sh', '-c', BOOTSTRAP], { root: true, timeoutMs: 20 * 60_000 });
   if (installed.timedOut) throw new MachineError('timeout', 'Installing your private network took too long.');
   if (installed.code !== 0) throw new MachineError('provider', `Installing your private network failed: ${installed.stderr.slice(-200)}`);
+  const until = Date.now() + 5 * 60_000;
+  while ((await tailnet(provider, ref)).state === 'starting') {
+    if (Date.now() >= until) throw new MachineError('timeout', 'Starting your private network took too long.');
+    await new Promise<void>((resolve) => setTimeout(resolve, 1000));
+  }
   const up = await provider.exec(ref, ['tailscale', 'up', '--hostname', o.hostname, '--accept-dns=false', '--accept-routes=false', '--timeout=1s'], { root: true, timeoutMs: 30_000 });
   const link = /https:\/\/login\.tailscale\.com\/[^\s"<>]+/.exec(`${up.stdout}\n${up.stderr}`)?.[0];
   if (link) onStep?.({ step: 'open-page', url: link });
   // A short `up` deadline deliberately returns while the person signs in. Status is authoritative.
-  const until = Date.now() + 5 * 60_000;
   for (;;) {
     const current = await tailnet(provider, ref);
     if (current.state === 'joined' && current.name !== null) {
