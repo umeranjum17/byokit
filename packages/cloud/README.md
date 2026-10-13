@@ -41,8 +41,9 @@ The library reads no environment variable. Every spawned process gets an env bui
 supplies the full API root (including its version path), display label, dated price
 rows and a key callback from its own store; the kit has no default provider or URL.
 `fetch` is optional. `signal` cancels the provider for good: once aborted, every later call
-fails `unreachable`, so build a new `boat()` for the next operation. Setup runs from Node, Electron or React Native; Boat's CORS rules
-prevent setup from a web page. Tests use `boat.test` mapped to a loopback fake.
+fails `unreachable`, so build a new `boat()` for the next operation. Setup runs from Node,
+Electron or React Native; Boat's CORS rules prevent setup from a web page. Tests use `boat.test`
+mapped to a loopback fake.
 
 ```ts
 import { boat, machine, type MachineStore } from '@byokit/cloud';

@@ -36,10 +36,10 @@ const TRIAL_TTL_SECONDS = 7200;
 const DELETE_CONFIRM_HEADER = 'X-Ascii-Confirm-Delete';
 
 const RETRY_WAITS_MS = [1000, 2000, 4000];
-// One deadline for a whole call: the backoff waits and the start of each new
-// attempt are bounded by it, so slow 429/5xx answers cannot stretch the retries
-// to ~47 s. A request already in flight is never cut, because a non-detached
-// exec POST legitimately stays open up to its timeoutSeconds.
+// One deadline per request: the backoff waits and the start of each new attempt
+// are bounded by it, so slow 429/5xx answers cannot stretch the retries to ~47 s.
+// A request already in flight is never cut by it, because a non-detached exec
+// POST legitimately stays open up to its timeoutSeconds.
 const REQUEST_TIMEOUT_MS = 10_000;
 const POLL_EVERY_MS = 2000;
 const EXEC_POLL_EVERY_MS = 1000;
