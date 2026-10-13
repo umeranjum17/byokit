@@ -16,7 +16,10 @@ export type DecideConfig = RetryOptions & (
 /** Credentials and fetch stay host-owned; configuration itself is portable JSON. */
 export type ConfigHost = {
   keys?: { jev?: string; openai?: string; anthropic?: string; 'opencode-go'?: string };
-  account?: OpenAIAccount | OpenCodeGoAccount;
+  /** The ChatGPT plan account, for the openai backend only. Never reaches another provider. */
+  account?: OpenAIAccount;
+  /** Per-provider plan accounts, keyed like `keys`. The opencode-go backend reads only its own slot. */
+  accounts?: { 'opencode-go'?: OpenCodeGoAccount };
   fetch?: typeof fetch;
   /** Separate cache namespace per person/account. Required for account authentication with a cache. */
   cacheScope?: string;
@@ -82,14 +85,15 @@ export function configuredBackend(o: ConfigOptions): { backend: Backend; config:
     if (config.auth === 'apiKey') {
       return { config, backend: opencodeGo({ ...config, key: o.host.keys?.['opencode-go'] ?? '', fetch: o.host.fetch }) };
     }
-    if (!o.host.account) throw new UnsupportedAccountError('OpenCode Go plan usage needs a plan account from the @byokit/accounts peer (install it and use accounts.opencodeGo(member)).');
+    const goAccount = o.host.accounts?.['opencode-go'];
+    if (!goAccount) throw new UnsupportedAccountError('OpenCode Go plan usage needs a plan account from the @byokit/accounts peer (install it and use accounts.opencodeGo(member)).');
     if (o.cache && !o.host.cacheScope?.trim()) throw new ConfigError('Account caches require a per-person cacheScope.');
-    return { config, backend: opencodeGo({ ...config, account: o.host.account as OpenCodeGoAccount, fetch: o.host.fetch }) };
+    return { config, backend: opencodeGo({ ...config, account: goAccount, fetch: o.host.fetch }) };
   }
   if (config.auth === 'apiKey') return { config, backend: openai({ ...config, auth: 'apiKey', key: o.host.keys?.openai ?? '', fetch: o.host.fetch }) };
   if (!o.host.account) throw new UnsupportedAccountError('ChatGPT plan usage needs an account session from the @byokit/accounts peer (install it to use auth: "account").');
   if (o.cache && !o.host.cacheScope?.trim()) throw new ConfigError('Account caches require a per-person cacheScope.');
-  return { config, backend: openai({ ...config, auth: 'account', account: o.host.account as OpenAIAccount, fetch: o.host.fetch }) };
+  return { config, backend: openai({ ...config, auth: 'account', account: o.host.account, fetch: o.host.fetch }) };
 }
 
 /** Same cache hook as decide, separated by backend/model/request options, billing route and host identity. */

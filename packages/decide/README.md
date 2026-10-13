@@ -448,8 +448,10 @@ take `apiKey` only). Fields are `backend`, `auth`, `model`,
 `supportsImages` but no `request`), `maxRetries`, `retryBaseMs`, `retryMaxMs`. Unknown fields, invalid JSON,
 wrong types and invalid retry values throw `ConfigError` (`code: 'invalid_config'`); Jev or Anthropic
 account auth throws `UnsupportedAccountError`. API-key credentials must be explicitly supplied by the host:
-`host.keys.anthropic` for Anthropic, `host.keys['opencode-go']` for the Go plan key, and `host.account`
-for the Go plan account (an OpenAI account there is refused with no fallback). A backend switch clears
+`host.keys.anthropic` for Anthropic, `host.keys['opencode-go']` for the Go plan key, and
+`host.accounts['opencode-go']` for the Go plan account. Each account slot reaches only its own provider:
+an OpenAI account in `host.account` never reaches the Go endpoint, and a Go plan account never reaches
+the OpenAI endpoint. A backend switch clears
 provider-specific model/route/request settings; a switch to OpenAI, Anthropic or OpenCode Go must specify
 its model.
 

@@ -368,13 +368,23 @@ test('a host selects an Anthropic or Go plan key through one config, with no oth
     { backend: 'opencode-go', model: 'muse-spark-1.3-contributor' })).intent.by, 'opencode-go');
   assert.deepEqual(seen, ['anthropic:anthropic-key', 'go:Bearer go-plan-key', 'go:Bearer go-plan-key']);
 
-  // The Go account route reads the member's saved plan key; a missing key or account fails before any request.
+  // The Go account route reads the member's saved plan key from its own slot; a missing Go account fails before any request.
   const viaGoAccount = createDecider(parseConfig({ backend: 'opencode-go', auth: 'account', model: 'muse-spark-1.3-contributor' }), {
     privacy: 'may-leave',
-    host: { account: { billing: 'subscription' as const, access: async () => 'member-plan-key' }, fetch: fetch as typeof fetch },
+    host: { accounts: { 'opencode-go': { billing: 'subscription' as const, access: async () => 'member-plan-key' } }, fetch: fetch as typeof fetch },
   });
   assert.equal((await viaGoAccount({}, { intent: questions.intent })).intent.answer, 'followup');
   assert.equal(seen.at(-1), 'go:Bearer member-plan-key');
+
+  // A ChatGPT account in the OpenAI slot never reaches the Go endpoint: the Go branch reads only its own slot.
+  const { chatgptPlan } = await import('@byokit/accounts/chatgpt-plan');
+  const chatgpt = chatgptPlan({ session: async () => ({ accessToken: 'chatgpt-token',
+    scopes: ['resource.invoke', 'chatgpt.tokens.use.direct'] }) });
+  const crossed = createDecider(parseConfig({ backend: 'opencode-go', auth: 'account', model: 'muse-spark-1.3-contributor' }), {
+    privacy: 'may-leave',
+    host: { account: chatgpt, fetch: async () => { throw new Error('must not fetch'); } },
+  });
+  assert.throws(() => crossed({}, { intent: questions.intent }), UnsupportedAccountError);
   const noKey = createDecider(parseConfig({ backend: 'anthropic', model: 'claude-opus-4-6' }),
     { privacy: 'may-leave', host: { fetch: fetch as typeof fetch } });
   assert.throws(() => noKey({}, { intent: questions.intent }), /needs a key/);
