@@ -95,8 +95,9 @@ export function createKeys(ctx: ActivationCtx & {
         const member = agent.id.slice(KEY_PREFIX.length) as Member;
         if (!check(member)) continue;
         await exclusive(member, async () => {
-          const ready = await control(member, 'ready').catch(() => { complete = false; return undefined; });
-          if (!ready?.absent) return;
+          const ready = await control(member, 'ready').catch(() => undefined);
+          if (ready?.ok === true) return;
+          if (ready?.absent !== true) { complete = false; return; }
           const cleared = await control(member, 'clear').catch(() => undefined);
           if (cleared?.ok !== true) complete = false;
         });
