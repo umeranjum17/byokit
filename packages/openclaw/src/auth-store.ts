@@ -267,7 +267,7 @@ export class AuthStore {
     try { saved = snapshot(text); } catch { throw new AuthStoreUnreadableError('invalid-snapshot'); }
     const gone = removedAccountAgents(this.o.root);
     const keep = (path: string) => !path.startsWith('state/agents/') || !gone.has(path.split('/')[2]!);
-    const kept = { ...saved, dirs: saved.dirs.filter(keep), files: saved.files.filter(([path]) => keep(path)) };
+    const kept: Snapshot = { v: 1, dirs: saved.dirs.filter(keep), files: saved.files.filter(([path]) => keep(path)) };
     if (kept.dirs.length !== saved.dirs.length || kept.files.length !== saved.files.length) {
       this.seal(this.file, JSON.stringify(kept));
     } else {
@@ -500,10 +500,11 @@ export class AuthStore {
       } finally { this.release(); }
     });
   }
-  /** Re-seal the live tree while the engine runs (removeAccount): the sealed snapshot and the sealed objects
-   *  drop the removed profile at once instead of waiting for stop. Live files stay in place — unlike persist(),
-   *  nothing is removed and no crash-transition recovery runs, so this never deletes the tree a live engine
-   *  is running on. No-op without a seal or while the store is not active. */
+  /** Re-seal the credential snapshot while the engine runs (removeAccount): it drops the removed profile at once
+   *  instead of waiting for stop, and read() drops the removed agent's sealed objects. Database objects are never
+   *  read here — each keeps its last sealed copy until stop, when persist() seals the live databases. Live files
+   *  stay in place — unlike persist(), nothing is removed and no crash-transition recovery runs, so this never
+   *  deletes the tree a live engine is running on. No-op without a seal or while the store is not active. */
   async reseal(): Promise<void> {
     return this.serial(async () => {
       if (!this.o.seal || !this.active) return;
@@ -513,7 +514,6 @@ export class AuthStore {
       // keeps the sealed credentials instead of replacing them with an empty snapshot.
       if (!saved.files.length && !objects.length && previous) return;
       this.seal(this.file, JSON.stringify(saved));
-      this.sealObjects(objects);
     });
   }
   start(): Promise<void> {

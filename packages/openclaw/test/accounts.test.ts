@@ -17,7 +17,7 @@
 import { mock, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
@@ -2046,6 +2046,115 @@ test('a member sign-in that lands again during logout is refused, keeps its entr
       assert.ok(!('openai' in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts), 'and the retry drops the entry');
     } finally { await kit2.stop(); }
   } finally { rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('removeAccount is refused busy while a run holds the account agent or the member agent live, and keeps the entry', async () => {
+  const stateDir = scratchDir('o14h-remove-live');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    fake.setUsage('m1', 'openai', [{ label: 'session', usedPercent: 80 }]);
+    fake.setUsage(agent, 'openai', [{ label: 'session', usedPercent: 10 }]);
+    for (const id of ['openai', second.id]) await kit.room('m1', id);
+    const refusedWhileLive = async (account: string, liveAgent: string) => {
+      let started!: () => void;
+      const running = new Promise<void>((resolve) => { started = resolve; });
+      const pending = kit.run({ member: 'm1', sessionKey: `agent:m1:live-${account}`, message: 'hello', account },
+        (e) => { if (e.type === 'started') started(); });
+      await running;
+      await assert.rejects(kit.removeAccount('m1', account), /removeAccount: busy/);
+      assert.ok((await kit.accounts('m1')).some((a) => a.id === account), 'the entry stays');
+      assert.ok((await kit.call('agents.list', {})).agents.some((a) => a.id === liveAgent), 'and the agent');
+      assert.ok((await pending).ok, 'the live run finishes');
+    };
+    await refusedWhileLive(second.id, agent);
+    await refusedWhileLive('openai', 'm1');
+    assert.equal((await kit.accounts('m1')).find((a) => a.id === 'openai')?.state, 'ready', 'the member stays ready');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a reseal during a run leaves the sealed databases as they were and drops only the removed agent\'s', async () => {
+  const stateDir = scratchDir('o14h-reseal-db');
+  const fake = fakeGateway();
+  const authSeal = hostKeySeal({ key: new Uint8Array(32).fill(5) });
+  const root = join(stateDir, 'openclaw');
+  const objects = join(root, 'auth-store.objects');
+  const sealedObjects = () => new Map(readdirSync(objects).map((name) => [name, readFileSync(join(objects, name))] as const));
+  const databaseText = (bytes: Buffer) => Buffer.from((JSON.parse(authSeal.decryptString(bytes)) as { data: string }).data, 'base64').toString();
+  const plant = (agent: string, text: string) => {
+    const dir = join(root, 'state', 'agents', agent, 'agent');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'openclaw-agent.sqlite'), text);
+  };
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    plant('m1', 'member-db-v1');
+    plant(agent, 'removed-db');
+    await kit.stop();
+    const before = sealedObjects();
+    assert.ok([...before.values()].some((bytes) => databaseText(bytes) === 'removed-db'), 'both databases are sealed at stop');
+
+    const running = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+    try {
+      await running.start();
+      writeFileSync(join(root, 'state', 'agents', 'm1', 'agent', 'openclaw-agent.sqlite'), 'member-db-v2');
+      await running.removeAccount('m1', second.id);
+      const after = sealedObjects();
+      assert.equal([...before.keys()].filter((name) => !after.has(name)).length, 1, 'only the removed agent database is dropped');
+      for (const [name, bytes] of after) assert.deepEqual(bytes, before.get(name), 'the other sealed databases are not rewritten');
+      assert.deepEqual([...after.values()].map(databaseText).sort(), ['member-db-v1'], 'no removed-agent or live database is sealed mid-run');
+    } finally { await running.stop(); }
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a v:2 snapshot that drops a removed account re-seals as v:1 on restore', async () => {
+  const stateDir = scratchDir('o14h-v2-tombstone');
+  const fake = fakeGateway();
+  const authSeal = hostKeySeal({ key: new Uint8Array(32).fill(6) });
+  const root = join(stateDir, 'openclaw');
+  const blob = join(root, 'auth-store.sealed');
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    mkdirSync(join(root, 'state', 'agents', agent, 'agent'), { recursive: true });
+    writeFileSync(join(root, 'state', 'agents', agent, 'agent', 'auth-profiles.json'), '{}');
+    await kit.stop();
+    const index = JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8'));
+    delete index.accounts[second.id];
+    index.gone = [agent];
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(index));
+    const snap = JSON.parse(authSeal.decryptString(readFileSync(blob))) as { v: number; dirs: string[]; files: [string, string][] };
+    assert.ok(snap.files.some(([path]) => path.includes(agent)), 'the sealed snapshot still holds the account agent profile');
+    writeFileSync(blob, authSeal.encryptString(JSON.stringify({ ...snap, v: 2 })));
+    const kit2 = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+    try {
+      await kit2.start();
+      assert.equal((JSON.parse(authSeal.decryptString(readFileSync(blob))) as { v: number }).v, 1, 're-sealed as v: 1');
+      assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'and the removed agent dir is gone');
+    } finally { await kit2.stop(); }
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
 });
 
 test('a failed member-agent seal says the credential is still there when its clear is refused', async () => {
