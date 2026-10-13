@@ -8,13 +8,13 @@
 // half-installed, a rejected key never appears in an error, a delete removes only the kit's own
 // snapshots, and a reset brings back a saved copy while pruning only the kit's own copies. The provider is the kit's own bench (in-memory fake, loopback fake server); no network,
 // key or real machine is used.
-import { test } from 'node:test';
+import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   machine, boat, estimate, status, words, stateWords, hostWords, errorWords, keyWords, WORDS, MachineError,
 } from '@byokit/cloud';
 import type {
-  HostRecipe, Status, MachineErrorCode, MachineState, HostState, Price, KeyInfo, Snapshot,
+  HostRecipe, Status, MachineErrorCode, MachineState, HostState, Price, KeyInfo, Provider, Snapshot,
 } from '@byokit/cloud';
 import { fakeProvider, memoryStore, startFakeSandboxServer } from '@byokit/cloud/testing';
 
@@ -425,6 +425,52 @@ test('a Boat bootstrap joins the private network without opening a public app po
     await rejects(m.tailnet(), 'provider');
     await m.remove(ref.id);
   } finally { await server.close(); }
+});
+
+test('a sign-in link shown late in the startup wait keeps a full five minutes to sign in', async () => {
+  mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 0 });
+  try {
+    const base = fakeProvider();
+    const signInAfter = 2 * 60_000;
+    let upAt: number | null = null;
+    const provider: Provider = {
+      ...base,
+      exec: async (ref, argv, opts) => {
+        const now = Date.now();
+        if (argv[0] === 'true' || argv[0] === 'sh' || argv[0] === 'systemctl') return { code: 0, stdout: '', stderr: '', timedOut: false };
+        if (argv[0] === 'tailscale' && argv[1] === 'up') {
+          upAt = now;
+          return { code: 1, stdout: '', stderr: 'To authenticate, visit: https://login.tailscale.com/a/fake-clock\n', timedOut: false };
+        }
+        if (argv[0] === 'tailscale' && argv[1] === 'status') {
+          const signedIn = upAt !== null && now >= upAt + signInAfter;
+          const status = now < 299_000 ? { BackendState: 'Starting' }
+            : signedIn ? { BackendState: 'Running', Self: { DNSName: 'umer-cloud.umer.ts.net.' } }
+              : { BackendState: 'NeedsLogin' };
+          return { code: 0, stdout: JSON.stringify(status), stderr: '', timedOut: false };
+        }
+        return base.exec(ref, argv, opts);
+      },
+    };
+    const m = machine({ provider, store: memoryStore() });
+    await m.create({ name: 'web', size: 'small', keepCopies: false });
+    const steps: string[] = [];
+    let outcome: { name: string } | MachineError | undefined;
+    const joined = m.joinTailnet({ hostname: 'umer-cloud' }, (s) => { steps.push(s.step); }).then(
+      (v) => { outcome = v; },
+      (e: MachineError) => { outcome = e; },
+    );
+    for (let ticks = 0; outcome === undefined; ticks += 1) {
+      assert.ok(ticks < 1000, 'the join settles inside the fake clock');
+      await new Promise((resolve) => setImmediate(resolve));
+      if (outcome === undefined) mock.timers.tick(1000);
+    }
+    await joined;
+    assert.deepEqual(outcome, { name: 'umer-cloud.umer.ts.net' });
+    assert.deepEqual(steps, ['open-page', 'joined']);
+    assert.ok(upAt !== null && upAt >= 299_000, 'the link shows only after the startup wait');
+    assert.ok(Date.now() >= upAt + signInAfter, 'the person signed in two minutes after the link');
+  } finally { mock.timers.reset(); }
 });
 
 test('an app cleans up on Boat and every failure stays honest: no key leak, no lying state', async () => {
