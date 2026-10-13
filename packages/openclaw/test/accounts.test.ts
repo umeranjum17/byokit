@@ -1095,7 +1095,7 @@ test('a plan key add whose seal is refused shows the kit sentence, never the eng
   const fake = fakeGateway();
   const transport = (ctx: Parameters<typeof fake.factory>[0]) => {
     const inner = fake.factory(ctx);
-    return { ...inner, request: async (method: string, params?: Record<string, unknown>, options?: unknown) => {
+    return { ...inner, request: async (method: string, params?: Record<string, unknown>, options?: Parameters<typeof inner.request>[2]) => {
       if (method === 'byokit.accounts' && params?.action === 'seal') throw new Error('CANARY-SEAL-ENGINE-TEXT');
       return inner.request(method, params, options);
     } };
