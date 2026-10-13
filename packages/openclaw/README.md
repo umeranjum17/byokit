@@ -147,7 +147,7 @@ returns what that run would choose now, refusals included, without running. `ste
 
 For an owner who explicitly offers keys, `kit.addKey('ana', { authChoice: 'openai-api-key', apiKey })` returns
 `ok`, `invalid`, `not_included` or `retry` (the engine took the key but it was not kept, for example a gateway restart
-ran late; nothing was kept, so add it again). Label the option **API key (billed per use)**. Select only `routes()` rows with
+ran late; no usable key was kept, so add it again). Label the option **API key (billed per use)**. Select only `routes()` rows with
 `keyEntry: true`; API rows remain `offer: false`. Each route also carries its engine `revision`, `checked` date,
 label and key error word names. Submit the input directly, clear the field afterwards, and never log or save it in
 app state. The kit never returns engine key-check errors or the key. [`@byokit/ui/kits`](../ui/README.md) supplies `keyStep`/`keyView`
