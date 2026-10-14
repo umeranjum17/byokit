@@ -93,6 +93,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [PWA review evidence](./pwa-review-evidence.md) — frames and motion for a user-visible change, in every theme and form factor the app has.
 - [Dictation long-take windows](./dictation-whisper-windows.md) — the built `@byokit/dictation` whisper.rn engine steps long-take windows from where the decoder stopped and joins the overlap once, driven by a stubbed decoder over synthetic WAV audio.
 - [Decide slim install](./decide-slim-install.md) — the built `@byokit/decide/slim` decides with rules, any host-owned model and Jev with zero peers; the main entry is unchanged and account billing without the peer names it.
+- [Outbox requestId retry-safe enqueue](./outbox-request-id.md) — built `@byokit/outbox`: duplicate `requestId` enqueue returns the existing entry (queued, after reopen, and after sent) so flush never double-sends.
 
 ## Not provable here (declare honestly, do not fake)
 
@@ -156,3 +157,4 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [pwa-review-evidence](./pwa-review-evidence.md) — before/after frames and motion per theme/form factor, including Grok device code, one dropped poll, approval, reload and sign-out; the separate built browser-API host-only negative is covered by the PWA journey test.
 - [decide-slim-install](./decide-slim-install.md) — slim entry, unchanged main entry, self-naming missing peer, and the offline alone-tarball install.
 - [release-publish-superseded](./release-publish-superseded.md) — a superseded workflow_run sha exits 0 with `superseded by <sha>`, while every other HEAD mismatch still fails.
+- [outbox-request-id](./outbox-request-id.md) — retry-safe `requestId` enqueue: one send for duplicate ids before flush, after reopen, and after already sent.

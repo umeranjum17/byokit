@@ -38,6 +38,59 @@ async function open(dir: string, sender?: OutboxSender): Promise<Outbox> {
   return Outbox.open({ stateDir: dir, ...(sender ? { sender } : {}) });
 }
 
+test('duplicate enqueue with the same requestId then flush invokes the sender once', async () => {
+  const dir = scratchDir('outbox');
+  const { sender, calls } = fakeSender();
+  const outbox = await open(dir, sender);
+  const first = await outbox.enqueue({ kind: 'email-reply', payload: { body: 'once' }, requestId: 'reply-1' });
+  const second = await outbox.enqueue({ kind: 'email-reply', payload: { body: 'retry' }, requestId: 'reply-1' });
+  assert.equal(second.id, first.id);
+  assert.equal(second.requestId, 'reply-1');
+  assert.equal(outbox.list().length, 1);
+  const drained = await outbox.flush();
+  assert.equal(calls.length, 1);
+  assert.equal(drained.sent.length, 1);
+  assert.deepEqual(calls[0].payload, { body: 'once' });
+  await outbox.close();
+});
+
+test('requestId dedupe survives reopen on the same stateDir', async () => {
+  const dir = scratchDir('outbox');
+  const { sender, calls } = fakeSender();
+  const firstLife = await open(dir, sender);
+  const first = await firstLife.enqueue({ kind: 'email-reply', payload: { body: 'keep' }, requestId: 'phone-42' });
+  await firstLife.close();
+  const reopened = await open(dir, sender);
+  const again = await reopened.enqueue({ kind: 'email-reply', payload: { body: 'retry after restart' }, requestId: 'phone-42' });
+  assert.equal(again.id, first.id);
+  assert.equal(again.requestId, 'phone-42');
+  assert.equal(reopened.list().length, 1);
+  const drained = await reopened.flush();
+  assert.equal(calls.length, 1);
+  assert.equal(drained.sent.length, 1);
+  assert.deepEqual(calls[0].payload, { body: 'keep' });
+  await reopened.close();
+});
+
+test('requestId on an already sent entry returns that entry and does not send again', async () => {
+  const dir = scratchDir('outbox');
+  const { sender, calls } = fakeSender();
+  const outbox = await open(dir, sender);
+  const first = await outbox.enqueue({ kind: 'email-reply', payload: { body: 'gone' }, requestId: 'sent-once' });
+  const drained = await outbox.flush();
+  assert.equal(drained.sent.length, 1);
+  assert.equal(calls.length, 1);
+  const again = await outbox.enqueue({ kind: 'email-reply', payload: { body: 'again' }, requestId: 'sent-once' });
+  assert.equal(again.id, first.id);
+  assert.equal(again.state, 'sent');
+  assert.equal(again.requestId, 'sent-once');
+  const idle = await outbox.flush();
+  assert.deepEqual(idle, { sent: [], failed: [] });
+  assert.equal(calls.length, 1);
+  assert.equal(outbox.list().length, 1);
+  await outbox.close();
+});
+
 test('enqueue persists a queued entry with 0700/0600 store; reopen sees it byte for byte', async () => {
   const dir = scratchDir('outbox');
   const { sender } = fakeSender();
