@@ -33,6 +33,10 @@ test('locked saved credentials resolve prepare/start, preserve the store and rec
   const root = join(stateDir, 'openclaw');
   mkdirSync(join(root, 'state'), { recursive: true });
   writeFileSync(join(root, 'state', 'auth.json'), 'saved-sign-in');
+  // Engine stores sealed as separate objects must follow the main file across a wrap-mode change.
+  const stores = ['state/transcripts/run.jsonl', 'state/logs/gateway.log', 'state/state/openclaw.sqlite'];
+  for (const name of stores) { mkdirSync(join(root, name, '..'), { recursive: true }); writeFileSync(join(root, name), `${name} bytes`); }
+  const objects = () => readdirSync(join(root, 'auth-store.objects')).map(entry => readFileSync(join(root, 'auth-store.objects', entry)));
   const initial = new OpenClawKit({ stateDir, authSeal: seal, spawnEngine: false });
   await initial.prepare();
   const file = join(root, 'auth-store.sealed');
@@ -60,8 +64,19 @@ test('locked saved credentials resolve prepare/start, preserve the store and rec
   const dualKit = new OpenClawKit({ stateDir, authSeal: osKeyringSeal({ ...sealOptions, dualWrap: true }), spawnEngine: false, transport: fake.factory });
   await dualKit.prepare();
   assert.equal(readFileSync(file)[4], 3);
+  // A start and stop in the new wrap mode reseals every unchanged object under both wraps too.
+  await dualKit.start();
+  await dualKit.stop();
+  const sealed = objects();
+  assert.equal(sealed.length, stores.length);
+  assert.deepEqual(sealed.map(bytes => bytes[4]), stores.map(() => 3), 'unchanged objects are resealed under both wraps');
+  // Same wrap mode: an unchanged object is not resealed again.
+  await dualKit.start();
+  await dualKit.stop();
+  assert.deepEqual(objects(), sealed, 'a same-mode stop skips unchanged objects');
   locked = true;
   await dualKit.start();
+  for (const name of stores) assert.equal(readFileSync(join(root, name), 'utf8'), `${name} bytes`, `${name} restores through the host wrap`);
   assert.equal(dualKit.state.phase, 'ready');
   assert.equal(readFileSync(join(root, 'state', 'auth.json'), 'utf8'), 'saved-sign-in');
   await dualKit.stop();

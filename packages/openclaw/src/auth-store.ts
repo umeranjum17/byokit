@@ -186,8 +186,9 @@ export class AuthStore {
   private readonly cleanup: string;
   private readonly restoring: string;
   // Object file name -> sha256 of the plaintext payload currently sealed at that file. Kept only in memory: it
-  // never becomes on-disk metadata. Filled by restore() from what is decrypted, refreshed after each successful
-  // seal. A process that never restored starts with an empty map and reseals every object, as before.
+  // never becomes on-disk metadata. Filled by restore() from what is decrypted (except objects in an older wrap
+  // mode), refreshed after each successful seal. A process that never restored starts with an empty map and
+  // reseals every object, as before.
   private readonly objectHashes = new Map<string, string>();
   constructor(privateOptions: { root: string; stateDir: string; engineDir: string; seal?: SealingAdapter; log?: (line: string) => void }) {
     this.o = privateOptions;
@@ -287,11 +288,13 @@ export class AuthStore {
     }
     return kept;
   }
-  private readObject(file: string): [string, string, string] {
+  private readObject(file: string): [string, string, string, Buffer] {
+    let bytes = Buffer.alloc(0);
     let text = '';
     let entry: { path?: unknown; data?: unknown } | null = null;
     try {
-      text = this.open(readFileSync(file));
+      bytes = readFileSync(file);
+      text = this.open(bytes);
       entry = JSON.parse(text);
     } catch (error) {
       if (error instanceof AuthStoreUnreadableError) throw error;
@@ -302,7 +305,7 @@ export class AuthStore {
     if (!safePath(path) || !apart(path) || typeof data !== 'string' || Buffer.from(data, 'base64').toString('base64') !== data) {
       throw new AuthStoreUnreadableError('invalid-snapshot');
     }
-    return [path, data, text];
+    return [path, data, text, bytes];
   }
   private inventory(): { dirs: string[]; files: Entry[]; objects: Entry[] } {
     const dirs: string[] = [];
@@ -457,8 +460,10 @@ export class AuthStore {
     }
     if (existsSync(this.objects)) {
       for (const entry of readdirSync(this.objects)) {
-        const [path, data, payload] = this.readObject(join(this.objects, entry));
-        this.objectHashes.set(entry, objectHash(payload));
+        const [path, data, payload, bytes] = this.readObject(join(this.objects, entry));
+        // An object sealed in an older wrap mode (the adapter would upgrade it, as read() does the main file) gets
+        // no hash, so the next seal reseals it in the current mode even when unchanged.
+        if (!this.o.seal.upgrade?.(bytes)) this.objectHashes.set(entry, objectHash(payload));
         // An object path can be several directories below an existing one, and those directories are not in
         // `saved.dirs` (they sit in a non-credential subtree). Create them through ensureRestoreDirs so the
         // parent of every directory this restore creates — not just each object's own directory — is fsynced
