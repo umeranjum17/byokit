@@ -53,7 +53,14 @@ export type SandboxServerOptions = {
   slowWakeReads?: number;
   /** Create leaves the machine provisioning for this many status reads less one: the read that counts it down to zero already answers ready (default 0). */
   slowCreateReads?: number;
+  /** The email `POST /api/boat/agent/identity` accepts (default `umer@example.com`); any other address is refused. */
+  claimEmail?: string;
+  /** The `interval` the sign-in ceremony advertises (default 0, so tests never wait). */
+  claimInterval?: number;
 };
+
+/** One scripted `POST /api/boat/oauth2/token` claim-grant answer: a poll state, or the final key. */
+export type ClaimPollStep = 'pending' | 'slow_down' | 'expired_token' | 'invalid_grant' | 'assertion' | 'success';
 
 export type SandboxServer = {
   /** The API root, e.g. `http://127.0.0.1:1234/api/v1`. */
@@ -74,6 +81,8 @@ export type SandboxServer = {
   loseNextCommand(): void;
   /** Give the next created sandbox this raw state (6.2), so a machine that never comes on can be simulated. */
   nextCreateState(raw: string): void;
+  /** Queue `POST /api/boat/oauth2/token` claim-grant answers (`success` once the queue runs out). */
+  scriptClaimPoll(script: readonly ClaimPollStep[]): void;
   close(): Promise<void>;
 };
 
@@ -115,6 +124,14 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
   let loseCommand = false;
   let nextCreateRaw: string | null = null;
   const failures: { status: number; body?: unknown }[] = [];
+  // Sign-in ceremony state (11.5): the accepted email, the advertised poll interval,
+  // one code per minted claim token, and the scripted claim-grant answers.
+  const claimEmail = o.claimEmail ?? 'umer@example.com';
+  const claimInterval = o.claimInterval ?? 0;
+  let claimSeq = 0;
+  const claimCodes = new Map<string, string>();
+  const claimScript: ClaimPollStep[] = [];
+  const CLAIM_KEY = 'boat-claimed-key';
 
   const send = (res: http.ServerResponse, status: number, body: unknown): void => {
     const text = JSON.stringify(body);
@@ -193,6 +210,71 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
       if (fail !== undefined) {
         send(res, fail.status, fail.body ?? { error: 'injected' });
         return;
+      }
+      // Sign-in routes live under /api/boat, outside the versioned API root, and need no
+      // key: the claim is how the app gets one (11.5, https://boat.dev/auth.md steps 1-5).
+      if (path === '/api/boat/.well-known/oauth-authorization-server' || path.startsWith('/api/boat/agent/') || path === '/api/boat/oauth2/token') {
+        const base = `http://127.0.0.1:${port}`;
+        const signRoute = `${req.method} ${path}`;
+        const signBody = (body ?? {}) as Record<string, unknown>;
+        if (signRoute === 'GET /api/boat/.well-known/oauth-authorization-server') {
+          return send(res, 200, {
+            issuer: base,
+            token_endpoint: `${base}/api/boat/oauth2/token`,
+            revocation_endpoint: `${base}/api/boat/oauth2/revoke`,
+            grant_types_supported: ['urn:ietf:params:oauth:grant-type:jwt-bearer', 'urn:workos:agent-auth:grant-type:claim'],
+            agent_auth: {
+              skill: `${base}/auth.md`,
+              identity_endpoint: `${base}/api/boat/agent/identity`,
+              claim_endpoint: `${base}/api/boat/agent/identity/claim`,
+              identity_types_supported: ['anonymous', 'service_auth'],
+            },
+          });
+        }
+        if (signRoute === 'POST /api/boat/agent/identity') {
+          if (signBody['type'] !== 'service_auth' || typeof signBody['login_hint'] !== 'string') {
+            return send(res, 400, { error: 'invalid_request' });
+          }
+          if (signBody['login_hint'] !== claimEmail) return send(res, 403, { error: 'unknown_email' });
+          const token = `clm-test-${++claimSeq}`;
+          claimCodes.set(token, '123456');
+          return send(res, 200, {
+            type: 'identity.registered',
+            claim_token: token,
+            claim: {
+              user_code: '123456',
+              verification_uri: `${base}/api/boat/agent/identity/claim?claim_attempt_token=att-test-${claimSeq}`,
+              expires_in: 300,
+              interval: claimInterval,
+            },
+          });
+        }
+        if (signRoute === 'POST /api/boat/oauth2/token') {
+          const form = new URLSearchParams(text);
+          if (form.get('grant_type') === 'urn:workos:agent-auth:grant-type:claim') {
+            const token = form.get('claim_token');
+            if (token === null || !claimCodes.has(token)) return send(res, 400, { error: 'invalid_grant' });
+            switch (claimScript.shift() ?? 'success') {
+              case 'pending': return send(res, 400, { error: 'authorization_pending' });
+              case 'slow_down': return send(res, 400, { error: 'slow_down' });
+              case 'expired_token': return send(res, 400, { error: 'expired_token' });
+              case 'invalid_grant': return send(res, 400, { error: 'invalid_grant' });
+              case 'assertion': return send(res, 200, { token_type: 'Bearer', identity_assertion: 'assert-test' });
+              default: return send(res, 200, {
+                access_token: CLAIM_KEY, token_type: 'Bearer', expires_in: 3600,
+                scope: 'box.me box.limits box.write box.billing', identity_assertion: 'assert-test-claimed',
+              });
+            }
+          }
+          if (form.get('grant_type') === 'urn:ietf:params:oauth:grant-type:jwt-bearer' && form.get('assertion') !== null) {
+            return send(res, 200, {
+              access_token: CLAIM_KEY, token_type: 'Bearer', expires_in: 3600,
+              scope: 'box.me box.limits box.write box.billing', identity_assertion: 'assert-test-rotated',
+            });
+          }
+          return send(res, 400, { error: 'unsupported_grant_type' });
+        }
+        return send(res, 404, { error: 'not found' });
       }
       if (req.headers.authorization !== `Bearer ${key}`) {
         send(res, 401, { error: 'unauthorized' });
@@ -438,6 +520,9 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
     },
     nextCreateState: (raw) => {
       nextCreateRaw = raw;
+    },
+    scriptClaimPoll: (script) => {
+      claimScript.push(...script);
     },
     close: () => new Promise<void>((resolve, reject) => {
       server.close((e) => (e !== undefined ? reject(e) : resolve()));

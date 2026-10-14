@@ -306,7 +306,7 @@ export type ClaimStep =
   | { step: 'waiting' }
   | { step: 'done'; key: string; expires: string | null; scopes: readonly string[] }
   | { step: 'failed'; why: 'refused' | 'expired' | 'unreachable' | 'provider' }
-export function claim(o: { baseUrl: string; fetch?: typeof fetch; signal?: AbortSignal }): AsyncIterable<ClaimStep>
+export function claim(o: { baseUrl: string; email: string; fetch?: typeof fetch; signal?: AbortSignal }): AsyncIterable<ClaimStep>
 ```
 
 `MachineErrorCode` (4.2) also gains `'needs-root'` (G5b, G7: root steps on an SSH VM without passwordless sudo;
@@ -1117,8 +1117,8 @@ calls `provider.key?.()` on open. Minting the M7 wake key needs an admin-scoped 
 ### 11.5 Linking an account without pasting a key (G1)
 
 Making a provider key on a dashboard and pasting it is a technical step. The provider also has an app sign-in: the app
-shows a short code, the person opens the provider's page, signs in there and types it, and the app receives a scoped,
-expiring key. `claim({ baseUrl })` (M8) drives that flow and yields 4.3's `ClaimStep`s; on `done` the app saves `key`
+passes the person's email, shows a short code, the person opens the provider's page, signs in there and types it, and the app receives a scoped,
+expiring key. `claim({ baseUrl, email })` (M8) drives that flow and yields 4.3's `ClaimStep`s; on `done` the app saves `key`
 as `MachineRecord.providerKey`. It is the person's own sign-in on the provider's own page, so nothing BYOKit runs sees
 their password. There is no refresh: when the claimed key nears expiry, `keyWords` warns and the app runs `claim()`
 again. Whether the claimed key's scopes allow create, install and hosting is unverified until M6; if they do not, the
@@ -1179,6 +1179,8 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
 | `snapshot.restore` | Resetting brings your cloud computer back to how it was on {date}. Everything changed on it since then is lost. |
 | `disk.used` | {used} GB of {total} GB used on your cloud computer. |
 | `error.noSnapshot` | That saved copy of your cloud computer is gone. Choose another one. |
+| `claim.refused` | {label} didn't accept that address. Check it and try again. |
+| `claim.expired` | That sign-in expired. Try again. |
 
 - Sentences use ASCII apostrophes and U+2026 for the ellipsis, byte for byte as above.
 - `words(key, vars)` fills `{app}`, `{label}`, `{amount}`, `{date}` and `{code}`; an unfilled slot stays visible, as in herdr.
