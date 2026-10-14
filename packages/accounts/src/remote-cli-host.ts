@@ -138,6 +138,13 @@ function holderAlive(holder: string): boolean {
   catch (e) { return (e as NodeJS.ErrnoException).code !== 'ESRCH'; }
 }
 
+// The lock is a directory whose holder file names a PID. The remote driver writes its HOST pid
+// (not the native child's) before spawn and keeps it through settlement, so the lock is released
+// only after the row settles; the shell records its native child instead (cli.ts `command`).
+// holderAlive treats an unreadable or non-numeric holder as alive, so a holderless legacy lock
+// stays busy. A host that dies mid-sign-in can leave its child running: the next claim reclaims
+// the dead host's lock, and two logins may then write the same CLAUDE_CONFIG_DIR (last writer wins).
+// A failed holder write releases the claim before any child is spawned.
 function claimSignIn(folder: string): (() => void) | undefined {
   const { lock, holder } = signInLock(folder);
   const take = () => { try { mkdirSync(lock, { mode: 0o700 }); return true; } catch { return false; } };
