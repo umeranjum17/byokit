@@ -407,6 +407,20 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       profiles.delete(id); orders.delete(id); models.delete(id);
       return { ok: true, agentId: id, removedBindings: 0 };
     },
+    // model: null clears the agent's primary (config.patch cannot delete a key); a string sets it.
+    'agents.update': (p) => {
+      const id = String(p.agentId ?? '');
+      if (!id) throw new Error('agents.update requires agentId');
+      if ('model' in p) {
+        const entries = (configBox.config.agents as { entries?: Record<string, Record<string, unknown>> } | undefined)?.entries;
+        if (p.model === null) {
+          models.delete(id);
+          if (entries?.[id] && 'model' in entries[id]!) delete entries[id]!.model;
+        } else if (typeof p.model === 'string') setPrimaryOfId(id, p.model);
+        else throw new Error('agents.update model must be a string or null');
+      }
+      return { ok: true as const, agentId: id };
+    },
     'agents.files.get': (p) => fileAnswer(String(p.agentId), String(p.name)),
     'agents.files.set': (p) => {
       filesOf(String(p.agentId)).files.set(String(p.name), String(p.content));

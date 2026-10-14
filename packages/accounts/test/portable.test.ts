@@ -34,7 +34,7 @@ test('portable entry bundles for a browser and can be imported', async () => {
   assert.ok(!Object.keys(keyed.metafile.inputs).some((path) => path.startsWith('node:') || path.includes('node_modules/@earendil-works/pi-ai/')));
   assert.doesNotMatch(result.outputFiles[0].text, /\bimport\s*\(\s*[^'"`]/, 'no non-literal dynamic imports');
   const portable = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].contents).toString('base64')}`);
-  assert.equal(portable.routes({ platform: 'rn' }).length, 72);
+  assert.equal(portable.routes({ platform: 'rn' }).length, 73);
   assert.equal(portable.route('openai:code', { platform: 'rn' }).readiness, 'ready');
   assert.ok(portable.offered({ platform: 'rn' }).every((r: { billing: string; readiness: string }) => r.billing === 'subscription' && r.readiness === 'ready'));
   const store = portable.memoryStore();
@@ -98,7 +98,7 @@ test('device and token errors never expose response bodies', async () => {
 
 test('sign in with ChatGPT by device code: the code and page to show, approved there, kept, plan read', async () => {
   const a = kit();
-  assert.deepEqual(a.providers.map((p) => p.key), ['chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'opencode'], 'only what a phone or browser can sign in to: the device ones from catalogue data, plus pasted plan keys');
+  assert.deepEqual(a.providers.map((p) => p.key), ['chatgpt', 'grok', 'copilot', 'claude', 'kimi', 'opencode', 'ollama-pro'], 'only what a phone or browser can sign in to: the device ones from catalogue data, plus pasted plan keys');
   const v = (await a.login(1, 'chatgpt'))!;
   assert.deepEqual([v.state, v.via, v.url], ['waiting', 'code', `${openai.base}/codex/device`]);
   assert.match(v.code!, /^MOCK-/);

@@ -86,10 +86,11 @@ the machine:     byokit-<app>.service → the app's host process (unchanged)
 packages/cloud/
   package.json  tsconfig.json  README.md  CHANGELOG.md  LICENSE
   src/
-    index.ts          # '.' re-exports everything 4.1, 4.2, 4.3 and 4.5 declare for '.'
+    index.ts          # '.' re-exports everything 4.1, 4.2, 4.3, 4.5 and 5.12 declare for '.'
     types.ts          # section 4, verbatim
     errors.ts         # MachineError (4.2)
     machine.ts        # machine() (5)
+    enrol.ts          # phone-key enrol (5.12), portable
     tailnet.ts        # joinTailnet(), tailnet() (9.1)
     status.ts         # status(), the one read a phone polls (5.9)
     unit.ts           # renderUnit(), quoting (8.4), pure
@@ -305,7 +306,7 @@ export type ClaimStep =
   | { step: 'waiting' }
   | { step: 'done'; key: string; expires: string | null; scopes: readonly string[] }
   | { step: 'failed'; why: 'refused' | 'expired' | 'unreachable' | 'provider' }
-export function claim(o: { baseUrl: string; fetch?: typeof fetch; signal?: AbortSignal }): AsyncIterable<ClaimStep>
+export function claim(o: { baseUrl: string; email: string; fetch?: typeof fetch; signal?: AbortSignal }): AsyncIterable<ClaimStep>
 ```
 
 `MachineErrorCode` (4.2) also gains `'needs-root'` (G5b, G7: root steps on an SSH VM without passwordless sudo;
@@ -582,7 +583,7 @@ land with that provider's adapter, behind the same members (follow-up).
 (`provider.account()`), listing (`provider.list()`; absent reads as a non-retryable listing failure), the
 app's `pick`, inspecting plus installing (`Machine.adopt` with the consented recipe; `onLine` carries the
 install lines), the `pair` gate, then ready. No step is emitted before its result: no timer percentages and
-no log-text inference. Phone-key enrol, claim/publish, the public route and console setup are out of scope.
+no log-text inference. Claim/publish, the public route and console setup are out of scope (phone-key enrol is 5.12).
 - A rejection yields one `failed` step and ends the stream: `at` is the phase whose call failed, `cause` is
   `errorKey` of the error (a non-`MachineError` reads `error.app`), and `retryable` is true only for
   `unreachable`, `timeout`, `provider`, `balance` and `busy`. An adopt failure after the ref was saved reads
@@ -590,6 +591,15 @@ no log-text inference. Phone-key enrol, claim/publish, the public route and cons
 - A retry calls `setup()` again with the same arguments: when the store already holds the picked machine
   (`exists`), the stream resumes at install on that ref. Install stays idempotent, so a re-run on an installed
   machine reinstalls rather than reporting work it did not do.
+
+### 5.12 Phone-key enrol (K-ENROL)
+
+`src/enrol.ts` (portable, in `.`) binds exactly the one authenticated phone, with no new pairing crypto and no secret-bearing recipe field: the setup device hands the phone's 32-byte public key to the machine through provider delivery, and the machine's host process binds it with `Host.enrol`.
+`PHONE_KEY_FILE` (`'phone.bin'`) is the one inbox file; `deliverPhoneKey(machine, recipe, key)` checks 32 bytes and calls `machine.deliver(recipe, PHONE_KEY_FILE, key)`.
+The key travels only as delivery bytes: never in `run.env`, `run.argv`, files outside the inbox, logs or error text, so the 8.1 `KEY`/`TOKEN`/`SECRET`/`PASSWORD` refusal stays unchanged.
+`bindPhoneKey(host, key, name?)` runs on the machine inside the host process against a structural host (`devices()` and `enrol()` only, so the real `Host` fits with no kit-to-kit import): it checks 32 bytes, resolves `{ id, bound: false }` when a `kind: 'phone'` grant already holds that key, rejects `exists` when one holds another key, and otherwise calls `host.enrol({ key, name, role: 'control', kind: 'phone' })` and resolves `{ id, bound: true }`.
+First writer wins and restart-safe: the durable grant store is the binding record, so after a restart the same key rebinds idempotently and any other key is still refused.
+`pairEnrol(machine, recipe, key)` is the `setup()` `pair` gate: it delivers and resolves, so the stream emits the existing `pairing` step (shown with `setup.pairing`; no new words) before `ready`.
 
 ## 6. Boat adapter (`src/boat.ts`)
 
@@ -1107,8 +1117,8 @@ calls `provider.key?.()` on open. Minting the M7 wake key needs an admin-scoped 
 ### 11.5 Linking an account without pasting a key (G1)
 
 Making a provider key on a dashboard and pasting it is a technical step. The provider also has an app sign-in: the app
-shows a short code, the person opens the provider's page, signs in there and types it, and the app receives a scoped,
-expiring key. `claim({ baseUrl })` (M8) drives that flow and yields 4.3's `ClaimStep`s; on `done` the app saves `key`
+passes the person's email, shows a short code, the person opens the provider's page, signs in there and types it, and the app receives a scoped,
+expiring key. `claim({ baseUrl, email })` (M8) drives that flow and yields 4.3's `ClaimStep`s; on `done` the app saves `key`
 as `MachineRecord.providerKey`. It is the person's own sign-in on the provider's own page, so nothing BYOKit runs sees
 their password. There is no refresh: when the claimed key nears expiry, `keyWords` warns and the app runs `claim()`
 again. Whether the claimed key's scopes allow create, install and hosting is unverified until M6; if they do not, the
@@ -1169,6 +1179,8 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
 | `snapshot.restore` | Resetting brings your cloud computer back to how it was on {date}. Everything changed on it since then is lost. |
 | `disk.used` | {used} GB of {total} GB used on your cloud computer. |
 | `error.noSnapshot` | That saved copy of your cloud computer is gone. Choose another one. |
+| `claim.refused` | {label} didn't accept that address. Check it and try again. |
+| `claim.expired` | That sign-in expired. Try again. |
 
 - Sentences use ASCII apostrophes and U+2026 for the ellipsis, byte for byte as above.
 - `words(key, vars)` fills `{app}`, `{label}`, `{amount}`, `{date}` and `{code}`; an unfilled slot stays visible, as in herdr.

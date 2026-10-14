@@ -10,8 +10,8 @@
 // CLI lives in `remote-cli-host.ts` (Node only, re-exported from `./cli`).
 
 /** Agent CLIs a remote sign-in can report on. */
-export type RemoteCliProvider = 'claude' | 'codex' | 'pi';
-export const REMOTE_CLI_PROVIDERS: readonly RemoteCliProvider[] = ['claude', 'codex', 'pi'];
+export type RemoteCliProvider = 'claude' | 'codex' | 'pi' | 'opencode';
+export const REMOTE_CLI_PROVIDERS: readonly RemoteCliProvider[] = ['claude', 'codex', 'pi', 'opencode'];
 
 /** Paired-link operations. Compose `remoteCliHost(...).handle` into the pair `Host`'s `handle`. */
 export const REMOTE_CLI_OPS = {
@@ -31,9 +31,9 @@ export type RemoteCliLink = {
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === 'string' && !v.includes('\0');
 export const isRemoteCliProvider = (v: unknown): v is RemoteCliProvider =>
-  v === 'claude' || v === 'codex' || v === 'pi';
+  v === 'claude' || v === 'codex' || v === 'pi' || v === 'opencode';
 
-const label: Record<RemoteCliProvider, string> = { claude: 'Claude', codex: 'Codex', pi: 'Pi' };
+const label: Record<RemoteCliProvider, string> = { claude: 'Claude', codex: 'Codex', pi: 'Pi', opencode: 'OpenCode' };
 export const remoteCliLabel = (provider: RemoteCliProvider): string => label[provider];
 
 /** Every way a remote CLI sign-in ends, in words the phone shows as-is. */

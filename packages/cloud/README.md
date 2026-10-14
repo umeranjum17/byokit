@@ -39,13 +39,18 @@ Linux machine over the `ssh` binary the app passes by absolute path); `./hetzner
 (the Hetzner Cloud first slice below); `./idle` runs on the machine inside the host process;
 `./testing` is Node only (the fake providers and the contract suite).
 
-**Status: in development.** This is the M3 build ([spec](../../docs/cloud-kit.md) §14):
+**Status: in development.** This is the M8 build ([spec](../../docs/cloud-kit.md) §14):
 frozen types, words, pure parts (`renderUnit`, recipe checks, node argv, cost), `machine()`
 for §5.1–5.5 and §5.7 plus install and supervise (§8: `install`, `update`, `host`,
 `logs`, `deliver`), `status()` (§5.9), the fake provider and the contract suite, the Boat adapter
-(M4), the keyless Boat tailnet join (§9.1), the SSH VM adapter (M2), and the Hetzner first slice. Idle sleep and wake-on-open land in M7 (manual `sleep()` and
-`wake()` are already here), account link in M8.
-The package stays private until the recorded real-provider run (M6).
+(M4), the keyless Boat tailnet join (§9.1), the SSH VM adapter (M2), the Hetzner first slice,
+and account link (`claim()`, §11.5). Idle sleep and wake-on-open land in M7 (manual `sleep()` and
+`wake()` are already here).
+The package is ready to publish (files, exports, README); it stays private until the
+recorded live claim proof passes, then one PR removes `private`. The fake sign-in routes
+follow the documented contract ([auth.md](https://boat.dev/auth.md)), yet no live register
+or claim call has run, and whether a claimed key's scopes allow create,
+install and hosting is unverified (M6). Until that proof passes, the app keeps `setup.makeKey`.
 
 The library reads no environment variable. Every spawned process gets an env built from nothing.
 
@@ -210,6 +215,66 @@ export async function connect(
   for await (const s of setup({ provider, store, recipe, pick, confirmId, pair })) {
     show(s.step === 'failed' ? words(s.cause, vars) : words(`setup.${s.step}`, vars));
   }
+}
+```
+
+## Enrol the owner's phone
+
+`pairEnrol(m, recipe, phoneKey)` is the `setup()` `pair` gate for exact-phone enrollment: it hands
+the one authenticated phone's 32-byte public key to the machine through provider delivery
+(`deliverPhoneKey`, inbox file `phone.bin` at 0600), and the machine's host process binds it with
+`Host.enrol` (`bindPhoneKey`). No new pairing crypto, and the key never travels in `run.env`,
+`run.argv`, logs or error text, so the recipe guard keeps refusing `KEY`-looking names unchanged.
+The first phone wins and the binding survives restarts: the same key rebinds idempotently while any
+other key is refused. Shown with the existing `setup.pairing` words.
+
+```ts
+import { machine, pairEnrol, setup, type HostRecipe, type MachineRef, type MachineStore, type Provider } from '@byokit/cloud';
+
+export async function connectPhone(
+  provider: Provider, store: MachineStore, recipe: HostRecipe,
+  pick: (listed: MachineRef[]) => MachineRef, confirmId: string, phoneKey: Uint8Array,
+) {
+  const m = machine({ provider, store });
+  for await (const s of setup({ provider, store, recipe, pick, confirmId, pair: pairEnrol(m, recipe, phoneKey) })) {
+    if (s.step === 'ready') return s.ref;
+    if (s.step === 'failed') throw new Error(s.at);
+  }
+  throw new Error('connect ended without ready');
+}
+```
+
+```ts
+import { bindPhoneKey } from '@byokit/cloud';
+import { Host } from '@byokit/pair';
+
+export async function bindOwner(host: Host, delivered: Uint8Array) {
+  return bindPhoneKey(host, delivered, 'Phone'); // { id, bound }: false when this phone was already bound
+}
+```
+
+## Link without pasting a key
+
+`claim({ baseUrl, email })` links the provider account through the provider's own
+sign-in: it yields `open-page` with the sign-in link, then `type-code` with the code the
+person types there (the code never comes back), then `waiting` while the provider is
+polled, then `done` with the key, its expiry and scopes. Save the key as
+`MachineRecord.providerKey`. There is no refresh: when it nears expiry, `keyWords` warns
+and the app runs `claim()` again. A `failed` step ends the run; show `claim.refused` for
+`refused`, `claim.expired` for `expired`, `state.unknown` for `unreachable` and
+`state.failed` for `provider`, or fall back to `setup.makeKey`.
+
+```ts
+import { claim, words } from '@byokit/cloud';
+
+export async function link(baseUrl: string, email: string, open: (url: string) => void): Promise<string | null> {
+  for await (const s of claim({ baseUrl, email })) {
+    if (s.step === 'open-page') open(s.url);
+    else if (s.step === 'type-code') open(s.url); // show s.code beside it for the person to type
+    else if (s.step === 'done') return s.key;
+    else if (s.step === 'failed' && s.why === 'expired') open(words('claim.expired', { label: 'Boat' }));
+  }
+  return null;
 }
 ```
 

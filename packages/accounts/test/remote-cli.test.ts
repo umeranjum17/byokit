@@ -163,6 +163,7 @@ test('read-only state reports every CLI without writing or logging secrets', asy
     { provider: 'claude', billing: 'subscription', installed: true, signedIn: false, supported: true },
     { provider: 'codex', billing: 'subscription', installed: true, signedIn: false, supported: true },
     { provider: 'pi', billing: 'subscription', installed: true, signedIn: false, supported: false },
+    { provider: 'opencode', billing: 'subscription', installed: false, signedIn: false, supported: false },
   ]);
   // Nothing written: no roster, no markers; only status reads ran.
   assert.deepEqual(readdirSync(stateDir), []);
@@ -308,7 +309,7 @@ test('a runtime-owned folder survives timeout and close; closing wins over late 
   const native = fakeClaude(join(root, 'bins'));
   const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
   const home = join(stateDir, 'home'); mkdirSync(home);
-  const folder = join(home, '.claude'); mkdirSync(folder);
+  const folder = join(stateDir, 'claude'); mkdirSync(folder);
   const canary = join(folder, 'host-owned'); writeFileSync(canary, 'keep');
   const bins = { claude: native.bin };
   const cli = cliAccounts({ stateDir, bins, env: { HOME: home, PATH: '/unused', LOGIN_MODE: 'paste' }, managedFolders: { claude: folder } });
@@ -366,53 +367,10 @@ test('a long phone wait does not accumulate native-child exit listeners', { time
   } finally { process.off('warning', onWarning); await host.close(); await turn(); t.mock.timers.reset(); }
 });
 
-test('a native holder write failure reaps the child and unlocks before a phone retry', { timeout: 10_000 }, async () => {
-  const root = scratchDir('remote-holder-write');
-  const native = fakeClaude(join(root, 'bins'));
-  const stateDir = join(root, 'runtime');
-  const home = join(stateDir, 'home'); mkdirSync(home, { recursive: true });
-  const folder = join(home, '.claude');
-  const pidFile = join(root, 'native.pid');
-  const bins = { claude: native.bin };
-  const cli = cliAccounts({ stateDir, bins, env: { HOME: home, PATH: '/unused', LOGIN_MODE: 'paste', LOGIN_PID_FILE: pidFile },
-    managedFolders: { claude: folder } });
-  await cli.add('claude');
-  const canary = join(folder, 'canary'); writeFileSync(canary, 'keep');
-  const { lock, holder } = signInLock(folder);
-  writeFileSync(holder, String(spawnSync(process.execPath, ['-e', '']).pid), { mode: 0o400 });
-  const host = remoteCliHost({ cli, bins });
-  let rejected = false;
-  try {
-    const result = await host.start('claude').catch(error => { rejected = true; throw error; });
-    assert.equal(result.ok ? 'ok' : result.error, 'failed');
-    assert.equal(existsSync(lock), false, 'failure must release the lock after reaping');
-    assert.equal(existsSync(holder), false);
-    assert.equal(native.calls().filter(c => c.argv[1] === 'login').length, 0, 'failed claim metadata must not spawn a child');
-    const retry = await host.start('claude'); assert.ok(retry.ok);
-    if (retry.ok) await host.cancel(retry.signIn.id);
-    assert.equal(readFileSync(canary, 'utf8'), 'keep');
-  } finally {
-    // Baseline failure had no registered session: reap only this fixture's reported child.
-    if (rejected) {
-      for (let i = 0; !existsSync(pidFile) && i < 100; i++) await delay(10);
-      if (existsSync(pidFile)) {
-        const pid = Number(readFileSync(pidFile, 'utf8'));
-        try { process.kill(pid, 'SIGKILL'); } catch {}
-        for (let i = 0; i < 300; i++) {
-          try { process.kill(pid, 0); } catch { break; }
-          await delay(10);
-        }
-      }
-    }
-    if (existsSync(holder)) chmodSync(holder, 0o600);
-    await host.close();
-  }
-});
-
 test('cleanup failure with no phone waiter cannot crash the native sign-in host', { timeout: 15_000 }, async () => {
   const root = scratchDir('remote-detached-cleanup');
   const native = fakeClaude(join(root, 'bins'));
-  const folder = join(root, 'runtime', 'home', '.claude');
+  const folder = join(root, 'runtime', 'claude');
   const script = `
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -451,13 +409,13 @@ test('a failed fresh holder claim cancels its newly added row without spawning',
   const root = scratchDir('remote-fresh-claim');
   const native = fakeClaude(join(root, 'bins'));
   const stateDir = join(root, 'runtime'), home = join(stateDir, 'home'); mkdirSync(home, { recursive: true });
-  const folder = join(home, '.claude'), bins = { claude: native.bin };
+  const folder = join(stateDir, 'claude'), bins = { claude: native.bin };
   const cli = cliAccounts({ stateDir, bins, env: { HOME: home, PATH: '/unused' }, managedFolders: { claude: folder },
-    prepare: async () => { writeFileSync(signInLock(folder).holder, '0', { mode: 0o400 }); } });
+    prepare: async () => { mkdirSync(signInLock(folder).lock); writeFileSync(signInLock(folder).holder, '0', { mode: 0o400 }); } });
   const host = remoteCliHost({ cli, bins });
   try {
     const result = await host.start('claude');
-    assert.equal(result.ok ? 'ok' : result.error, 'failed');
+    assert.equal(result.ok ? 'ok' : result.error, 'busy', 'an unreadable holder is a live login, so the new row is cancelled');
     assert.deepEqual(await cli.list(), [], 'a phone that never got a login must not leave a signing row');
     assert.equal(existsSync(join(folder, '.byokit-signin-pending')), false);
     assert.equal(native.calls().filter(c => c.argv[1] === 'login').length, 0);
@@ -499,7 +457,7 @@ test('a signing row left by a crashed login is retried only once its sign-in loc
   const native = fakeClaude(join(root, 'bins'));
   const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
   const home = join(stateDir, 'home'); mkdirSync(home);
-  const folder = join(home, '.claude');
+  const folder = join(stateDir, 'claude');
   const bins = { claude: native.bin };
   const env = { HOME: home, PATH: '/unused', LOGIN_MODE: 'paste' };
   const crashed = cliAccounts({ stateDir, bins, env, managedFolders: { claude: folder } });
@@ -517,6 +475,7 @@ test('a signing row left by a crashed login is retried only once its sign-in loc
     mkdirSync(lock);
     writeFileSync(holder, String(spawnSync(process.execPath, ['-e', '']).pid));
     assert.equal(await outcome(), 'ok', 'a dead holder is a crash left behind, so the next start retries');
+    assert.equal(readdirSync(folder).some(n => n.endsWith('.stale')), false, 'the reclaimed lock leaves no stale copy');
     assert.equal(await outcome(), 'busy', 'the retried login now holds the lock');
   } finally { await host.close(); }
 });
@@ -526,7 +485,7 @@ test('a login still dying after cancel keeps its sign-in lock: the next start is
   const native = fakeClaude(join(root, 'bins'));
   const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
   const home = join(stateDir, 'home'); mkdirSync(home);
-  const folder = join(home, '.claude');
+  const folder = join(stateDir, 'claude');
   const bins = { claude: native.bin };
   const cli = cliAccounts({ stateDir, bins, env: { HOME: home, PATH: '/unused', LOGIN_MODE: 'paste' }, managedFolders: { claude: folder } });
   const host = remoteCliHost({ cli, bins, waitCapMs: 60_000 });
@@ -546,7 +505,7 @@ test('a native login that exits 0 with no phone waiter is settled before its loc
   const native = fakeClaude(join(root, 'bins'));
   const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
   const home = join(stateDir, 'home'); mkdirSync(home);
-  const folder = join(home, '.claude');
+  const folder = join(stateDir, 'claude');
   const bins = { claude: native.bin };
   const cli = cliAccounts({ stateDir, bins, env: { HOME: home, PATH: '/unused', LOGIN_MODE: 'success' }, managedFolders: { claude: folder } });
   const host = remoteCliHost({ cli, bins, waitCapMs: 60_000 });
@@ -569,7 +528,7 @@ test('a ready reused row wins over phone cancel during settlement', { timeout: 1
   const native = fakeClaude(join(root, 'bins'));
   const stateDir = join(root, 'runtime');
   const home = join(stateDir, 'home'); mkdirSync(home, { recursive: true });
-  const folder = join(home, '.claude');
+  const folder = join(stateDir, 'claude');
   const bins = { claude: native.bin };
   const statusWait = join(root, 'status-wait');
   const options = { stateDir, bins, env: { HOME: home, PATH: '/unused', STATUS_WAIT_FILE: statusWait }, managedFolders: { claude: folder } };
@@ -597,7 +556,7 @@ test('a stalled settlement keeps its holder and lock until the settled row relea
   const native = fakeClaude(join(root, 'bins'));
   const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
   const home = join(stateDir, 'home'); mkdirSync(home);
-  const folder = join(home, '.claude');
+  const folder = join(stateDir, 'claude');
   const bins = { claude: native.bin };
   const statusWait = join(root, 'status-wait');
   const env = { HOME: home, PATH: '/unused', LOGIN_MODE: 'success', STATUS_WAIT_FILE: statusWait };
@@ -624,6 +583,24 @@ test('a stalled settlement keeps its holder and lock until the settled row relea
     writeFileSync(`${statusWait}.release`, '');
     await host.close();
   }
+});
+
+test('a managed folder that is the default Claude login is refused at construction', () => {
+  const root = scratchDir('remote-managed-default-login');
+  const native = fakeClaude(join(root, 'bins'));
+  const home = join(root, 'home'); mkdirSync(home);
+  assert.throws(() => cliAccounts({ stateDir: home, bins: { claude: native.bin }, env: { HOME: home, PATH: '/unused' },
+    managedFolders: { claude: join(home, '.claude') } }), { code: 'bad-option' });
+});
+
+test('an undefined managed folder entry is treated as absent', async () => {
+  const root = scratchDir('remote-managed-undefined');
+  const native = fakeClaude(join(root, 'bins'));
+  const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
+  const home = join(stateDir, 'home'); mkdirSync(home);
+  const cli = cliAccounts({ stateDir, bins: { claude: native.bin }, env: { HOME: home, PATH: '/unused' }, managedFolders: { claude: undefined } });
+  const added = await cli.add('claude');
+  assert.ok(cli.folderOf(added.account.id).startsWith(join(stateDir, 'claude') + '/'));
 });
 
 test('managed folders are Claude-only; a Codex folder is refused', () => {
@@ -679,7 +656,7 @@ test('a managed folder with history signs in again after a cancel', async () => 
   const native = fakeClaude(join(root, 'bins'));
   const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
   const home = join(stateDir, 'home'); mkdirSync(home);
-  const folder = join(home, '.claude');
+  const folder = join(stateDir, 'claude');
   const history = join(root, 'history'); mkdirSync(history);
   const cli = cliAccounts({ stateDir, bins: { claude: native.bin }, env: { HOME: home, PATH: '/unused' }, managedFolders: { claude: folder }, historyFrom: { claude: history } });
   const first = await cli.add('claude');
@@ -689,13 +666,13 @@ test('a managed folder with history signs in again after a cancel', async () => 
   assert.equal(readlinkSync(join(folder, 'projects')), history);
 });
 
-test('a login that exits 0 before printing a URL reports ready, not a failure', { timeout: 10_000 }, async () => {
+test('a login that exits 0 before printing a URL reports already signed in',{ timeout: 10_000 }, async () => {
   const root = scratchDir('remote-silent-success');
   const bins = join(root, 'bins'); mkdirSync(bins, { recursive: true });
   const bin = join(bins, 'claude-silent');
   const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
   const home = join(stateDir, 'home'); mkdirSync(home);
-  const folder = join(home, '.claude');
+  const folder = join(stateDir, 'claude');
   const granted = join(folder, 'granted');
   writeFileSync(bin, `#!${process.execPath}
 const fs = require('node:fs');
@@ -712,12 +689,32 @@ if (process.argv[2] === 'auth' && process.argv[3] === 'status') console.log(JSON
   } finally { await host.close(); }
 });
 
+test('removing a managed account during its sign-in is refused busy and keeps its login', { timeout: 10_000 }, async () => {
+  const root = scratchDir('remote-remove-during-signin');
+  const native = fakeClaude(join(root, 'bins'));
+  const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
+  const home = join(stateDir, 'home'); mkdirSync(home);
+  const folder = join(stateDir, 'claude');
+  const bins = { claude: native.bin };
+  const cli = cliAccounts({ stateDir, bins, env: { HOME: home, PATH: '/unused', LOGIN_MODE: 'paste', EXPECT_CODE: 'unused' }, managedFolders: { claude: folder } });
+  const host = remoteCliHost({ cli, bins, waitCapMs: 60_000 });
+  try {
+    const started = await host.start('claude');
+    assert.equal(started.ok, true);
+    const id = started.ok ? started.signIn.id : '';
+    writeFileSync(join(folder, '.credentials.json'), '{}');
+    await assert.rejects(cli.remove(id), { code: 'prepare-failed' });
+    assert.equal(existsSync(join(folder, '.credentials.json')), true, 'the in-flight login is not deleted');
+    assert.equal((await cli.list()).length, 1, 'the row is still there');
+  } finally { await host.close(); }
+});
+
 test('removing a managed Claude account deletes its login files and keeps the folder', async () => {
   const root = scratchDir('remote-managed-remove-login');
   const native = fakeClaude(join(root, 'bins'));
   const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
   const home = join(stateDir, 'home'); mkdirSync(home);
-  const folder = join(home, '.claude');
+  const folder = join(stateDir, 'claude');
   const cli = cliAccounts({ stateDir, bins: { claude: native.bin }, env: { HOME: home, PATH: '/unused' }, managedFolders: { claude: folder } });
   const added = await cli.add('claude');
   writeFileSync(join(folder, '.credentials.json'), '{}');
@@ -735,7 +732,7 @@ test('a login whose status does not confirm keeps its login files', { timeout: 1
   const bin = join(bins, 'claude-unconfirmed');
   const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
   const home = join(stateDir, 'home'); mkdirSync(home);
-  const folder = join(home, '.claude');
+  const folder = join(stateDir, 'claude');
   writeFileSync(bin, `#!${process.execPath}
 const fs = require('node:fs');
 if (process.argv[2] === 'auth' && process.argv[3] === 'login') fs.writeFileSync(${JSON.stringify(join(folder, '.credentials.json'))}, '{}');

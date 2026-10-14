@@ -347,9 +347,13 @@ export type RunUsage = { input?: number; output?: number; cacheRead?: number; ca
   reasoning?: number; total?: number; costUsd?: number };      // the engine's run total
 export type PlanWindow = { provider: string; plan?: string;
   windows: { label: string; usedPercent: number; resetAt?: number }[] };   // usedPercent 0-100, resetAt epoch ms
+export type ThinkingAsked = 'off' | 'low' | 'medium' | 'high';
+export type ThinkingUsed = ThinkingAsked | 'minimal' | 'xhigh' | 'max';
+export type ThinkingReport = { asked: ThinkingAsked; used: ThinkingUsed };
 export type RunEnd<T = unknown> =
   | { ok: true; text: string; data?: T; usage?: RunUsage; planWindow?: PlanWindow;   // data: validated schema; usage/window: engine reports
-      account?: AccountId; model?: string }                    // both exactly when the run used an account (5.15)
+      account?: AccountId; model?: string;                     // both exactly when the run used an account (5.15)
+      thinking?: ThinkingReport }                              // when the run asked for thinking; used may be clamped to the catalog
   | { ok: false; aborted: true }
   | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other' | 'output'; until?: number; message: string };
 export type SignInView = {
@@ -885,13 +889,18 @@ the engine. External retained sources are touched only when explicitly passed to
   when present with its type); the pin's `update`, `input_delta` and `review` phases are progress inside the pair and
   are not forwarded. Pin facts: the kit's `tool-events` cap makes the connection that sent `agent` a tool-event
   recipient, and that copy is never stripped by verbose level; `args` has its strings redacted, `result` text
-  content is capped at 8000 characters by the engine. Request `agent { agentId, sessionKey, message,
+  content is capped at 8000 characters by the engine. When `spec.thinking` is set, the kit reads that model's
+  supported levels from `config.models.providers` (the same catalog live sync already wrote: `compat.supportedReasoningEfforts`
+  or `thinkingLevelMap`); if the asked level is listed it is sent unchanged, otherwise the nearest still-reasoning
+  level rounding up (e.g. `low`/`medium` → `high` when only `off`/`high`/`max` exist), never to `off` unless asked;
+  no catalog levels for the model passes the asked level through. The ok end carries `thinking: { asked, used }`;
+  `words('run.thinkingClamped')` is the notice when they differ. Request `agent { agentId, sessionKey, message,
   extraSystemPrompt, idempotencyKey: spec.idempotencyKey ?? uuid, attachments?, thinking?, provider?, model? }` with `expectFinal`: the
   interim `status: 'accepted'` frame names the run (its `runId` is taken as it lands) and emits `{ type: 'started' }`
   once, before subsequent stream events. Native lifecycle start does not double-emit; cached final/in-flight replays
   without an accepted frame do not invent a start. Acceptance is not completion. Then `agent.wait { runId,
   timeoutMs: 3_600_000 }` (client timeout 3_610_000) decides the end as before. `status === 'ok'` → final text event
-  and `{ ok: true, text, usage?, planWindow? }`. Silent/empty terminal dispositions produce empty text. Otherwise
+  and `{ ok: true, text, usage?, planWindow?, thinking? }`. Silent/empty terminal dispositions produce empty text. Otherwise
   text comes from string `result.payloads[].text` fields in the `agent` final frame, joined in order with two
   newlines (including explicit empty strings); absent payload text falls back to the last assistant stream
   text, then terminal text, then empty text. The terminal snapshot is sanitized and capped at 4096 characters
@@ -1488,8 +1497,10 @@ O14 a member runs only on its own sign-ins, and one that never signed in reads `
   member's workspace (files, memory, skills); only credentials and session history are per account. The first account
   agent turns the fleet `agents.ownership: 'explicit'`; every kit request already names its `agentId`.
 - `<root>/accounts/<member>.json` (0600, written whole through a temp file and rename) is the only kit state:
-  `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?, who? } }, defaults: Defaults }` (`model`
-  only for an API key: the model saved with it; `who` the sign-in identity from `seal`, Sealing, kept after a sign-out
+  `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?, who?, priorModel? } }, defaults: Defaults }`
+  (`model` only for an API key: the model saved with it; `priorModel` only for a member-agent subscription account:
+  the member agent's primary model before that sign-in pinned it, empty string when there was none, so
+  `removeAccount` can restore or clear it; `who` the sign-in identity from `seal`, Sealing, kept after a sign-out
   so a later sign-in can be matched; `list` also records a live profile's `who` on a row that lacks one, and a member
   row follows its live profile's `who` when they differ). It holds no credential, token, email or engine line. An
   entry is written before its agent is created, so an agent is one of the member's accounts **only** when the member's index names it
@@ -1534,8 +1545,12 @@ using the plugin SDK's `resolveAgentDir` and local-only `updateAuthProfileStoreW
   old profile), then clears it from `from` (the grant stays shared and agents hold views only; D11 holds). It answers
   `{ ok: false }`, changing nothing, unless `from`'s profile carries exactly that `who`. Without the rewrite
   the pin would keep pinning the deleted profile on every run with the agent's default model.
-- Before any sign-in on an existing agent the kit notes that agent's primary model (`config.get`); when the sign-in's
-  profile is adopted away or cleared from it, the kit restores that primary model (the pin's sign-in rewrote it).
+- Before any sign-in on an existing agent the kit notes that agent's primary model (`config.get`) and, when the
+  sign-in is the member agent's first of that provider, stores it on the new index entry as `priorModel` (empty
+  string when there was none). When the sign-in's profile is adopted away or cleared from the member agent
+  (`removeAccount` included), the kit restores that primary (`config.patch`); when there was none, or the stored
+  value is missing or damaged, it removes the pin (`agents.update { model: null }`, because a merge patch cannot
+  delete a key) so the engine default applies. A restore failure never blocks removal.
 - `clear { agentId }`: removes every profile from the agent's own store. `clear { agentId, provider }` removes only that provider's profiles, order entry and last-good mark, leaving every other provider's sign-in alone (a failed member-agent sign-in's cleanup uses this; `removeAccount`'s member path uses `models.authLogout` with its sealed profileIds; the bare form is the account-agent path).
 
 `@byokit/accounts`' structural `roomOf(windows, at, resetUnit?)` keeps legacy reset seconds as its default;
@@ -1712,7 +1727,9 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
 - `removeAccount(member, id)`: refused (`busy`) for either kind while a run is live on the agent or its sign-in is
   pending. A member-agent account is `models.authLogout { provider, agentId: member, profileIds: <its sealed profile> }`,
   then `byokit.accounts list` must show no profile of that provider (still listed → stop with the error "still
-  signing in", nothing dropped), then its entry is dropped. An account agent: `byokit.accounts clear`, then
+  signing in", nothing dropped), then the member agent's primary is restored from the entry's `priorModel` (or the
+  pin removed when that value is empty, missing or damaged; a restore failure is logged and removal continues),
+  then its entry is dropped. An account agent: `byokit.accounts clear`, then
   `byokit.accounts list` must answer no profile of any type, order or expiry (a profile the engine refreshed during
   `clear` lands whole before or after it, under the same store lock; still listed → stop with the error "still
   signing in", nothing deleted, no retry);
@@ -2749,13 +2766,13 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 | `oc.abort` | `{ sessionKey, auth? }` | `null` (key must be the member's, D9) |
 | `oc.artifacts` *view* | `{ sessionKey, runId? }` | `ArtifactsResult` (5.8.2; key must be the member's, D9) |
 | `oc.artifact` (stream) | `{ sessionKey, id, offset?, sha256? }` | `ArtifactFrame` lines: `head`, `chunk`s from `offset`, `end` (5.8.2; key must be the member's, D9; a refusal is the `end` frame) |
-| `oc.accounts` *view* | — | `Account[]` (5.15) |
+| `oc.accounts` (not shipped) | — | the link refuses it as an unknown op; listing is `kit.accounts` |
 | `oc.account.add` (not shipped) | — | the link refuses it as an unknown op; account adding is `kit.addAccount`, which refuses `key` (keys are host-only) |
-| `oc.account.view` *view* | `{ id }` | `{ ready, view: SignInView \| null }` for `toAccountView` |
-| `oc.account.paste` | `{ id, text }` | `null` |
-| `oc.account.cancel` | `{ id }` | `null` |
-| `oc.account.rename` | `{ id, name }` | `Account` |
-| `oc.account.remove` | `{ id }` | `null` |
+| `oc.account.view` (not shipped) | — | the link refuses it as an unknown op; account sign-in view is on the `kit.addAccount` handle |
+| `oc.account.paste` (not shipped) | — | the link refuses it as an unknown op; paste is on the `kit.addAccount` handle |
+| `oc.account.cancel` (not shipped) | — | the link refuses it as an unknown op; cancel is on the `kit.addAccount` handle |
+| `oc.account.rename` (not shipped) | — | the link refuses it as an unknown op; renaming is `kit.renameAccount` |
+| `oc.account.remove` (not shipped) | — | the link refuses it as an unknown op; removal is `kit.removeAccount` |
 | `oc.models` *view* | `{ id }` | `ModelInfo[]` |
 | `oc.room` *view* | `{ id, demand? }` | `Room` |
 | `oc.defaults` *view* | — | `Defaults` |

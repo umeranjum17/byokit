@@ -10,6 +10,18 @@ on:
         description: Gate, pack and print without publishing
         type: boolean
         default: true
+  # Automatic publish: every green CI run from a push to main. A plain push
+  # trigger would race CI (scripts/release.ts publish gates on a completed
+  # successful ci.yml run for the sha), so this waits for CI instead.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+# Two merges in a row must never publish at once; a queued run waits (no cancel).
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -18,19 +30,27 @@ permissions:
 
 jobs:
   publish:
-    if: github.ref == 'refs/heads/main'
+    # Manual dispatches run on main; automatic runs run only for a green CI push to main.
+    if: >
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          # A workflow_run checks out this workflow's own tip by default; publish the exact sha CI just passed.
+          # A manual dispatch checks out its own ref instead.
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
           registry-url: https://registry.npmjs.org
       - run: npm install -g npm@11.20.0
       - run: npm ci --no-audit --no-fund
+      # inputs is empty on a workflow_run, so the automatic trigger always publishes for real;
+      # a manual dispatch dry-runs by default and publishes only with dry_run: false.
       - run: npm run release -- publish ${{ inputs.dry_run && '--dry-run' || '' }}
         env:
           GH_TOKEN: ${{ github.token }}

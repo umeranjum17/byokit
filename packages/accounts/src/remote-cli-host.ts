@@ -8,14 +8,16 @@
 // --device-auth`, a ChatGPT subscription); Claude exposes a link-and-paste-code login
 // (`auth login --claudeai`, a Claude subscription: the phone opens the link, the person pastes the
 // page's code back). Pi has no headless login, so it reports `unsupported` ("not supported here")
-// while its read-only state still works. The `--console` API-billed Claude login is never started.
+// while its read-only state still works. OpenCode likewise reports `unsupported`: its plan key is
+// pasted in the computer's app (`saveKey`), never over the link. The `--console` API-billed Claude login is never started.
 //
 // Compose `remoteCliHost(...).handle` into the pair `Host`'s `handle` (behind `allow`); the phone
 // uses `remoteCliDevice(link)` from `./remote-cli.ts`.
 import { spawn, type ChildProcess } from 'node:child_process';
-import { accessSync, constants, mkdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
-import { CliAccountError, cliAccounts, signInLock } from './cli.ts';
+import { randomUUID } from 'node:crypto';
+import { accessSync, constants, mkdirSync, readFileSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
+import { CliAccountError, cliAccounts, holderAlive, signInLock } from './cli.ts';
 import {
   REMOTE_CLI_OPS,
   REMOTE_CLI_PROVIDERS,
@@ -85,7 +87,7 @@ export async function remoteCliState(kit: Kit, bins: Partial<Record<RemoteCliPro
     }
     const ready = rows.find((r) => r.provider === provider && r.state === 'ready');
     const state: RemoteCliState = { provider, billing: 'subscription', installed,
-      signedIn: installed && ready !== undefined, supported: provider !== 'pi' };
+      signedIn: installed && ready !== undefined, supported: provider === 'claude' || provider === 'codex' };
     const label = ready?.email || (ready?.name.trim() ? ready.name : undefined);
     if (label && label.length <= 320) state.label = label;
     if (ready?.plan) state.plan = ready.plan;
@@ -130,14 +132,6 @@ const fail = (provider: RemoteCliProvider, error: RemoteCliFailure['error']): Re
   return { ok: false, error, words };
 };
 
-function holderAlive(holder: string): boolean {
-  let pid: number;
-  try { pid = Number(readFileSync(holder, 'utf8')); } catch { return true; }
-  if (!Number.isSafeInteger(pid) || pid <= 0) return true;
-  try { process.kill(pid, 0); return true; }
-  catch (e) { return (e as NodeJS.ErrnoException).code !== 'ESRCH'; }
-}
-
 // The lock is a directory whose holder file names a PID. The remote driver writes its HOST pid
 // (not the native child's) before spawn and keeps it through settlement, so the lock is released
 // only after the row settles; the shell records its native child instead (cli.ts `command`).
@@ -145,20 +139,26 @@ function holderAlive(holder: string): boolean {
 // stays busy. A host that dies mid-sign-in can leave its child running: the next claim reclaims
 // the dead host's lock, and two logins may then write the same CLAUDE_CONFIG_DIR (last writer wins).
 // A failed holder write releases the claim before any child is spawned.
+function reclaimDead(lock: string, holder: string): boolean {
+  if (holderAlive(holder)) return false;
+  const aside = `${lock}.${randomUUID()}.stale`;
+  try { renameSync(lock, aside); } catch { return false; }
+  if (holderAlive(join(aside, basename(holder)))) {
+    try { renameSync(aside, lock); } catch {}
+    return false;
+  }
+  rmSync(aside, { recursive: true, force: true });
+  return true;
+}
 function claimSignIn(folder: string): (() => void) | undefined {
   const { lock, holder } = signInLock(folder);
   const take = () => { try { mkdirSync(lock, { mode: 0o700 }); return true; } catch { return false; } };
-  if (!take()) {
-    if (holderAlive(holder)) return undefined;
-    rmSync(holder, { force: true });
-    try { rmdirSync(lock); } catch { return undefined; }
-    if (!take()) return undefined;
-  }
+  if (!take() && (!reclaimDead(lock, holder) || !take())) return undefined;
   let held = true;
   const unlock = () => {
     if (!held) return;
     held = false;
-    rmSync(holder, { force: true });
+    try { if (Number(readFileSync(holder, 'utf8')) === process.pid) rmSync(holder, { force: true }); } catch {}
     try { rmdirSync(lock); } catch {}
   };
   try { writeFileSync(holder, String(process.pid), { mode: 0o600 }); }
@@ -184,8 +184,7 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
   const waitCapMs = options.waitCapMs ?? DEFAULT_WAIT_CAP_MS;
   if (!(parseMs > 0 && parseMs <= 2 ** 31 - 1) || !(waitCapMs > 0 && waitCapMs <= 2 ** 31 - 1)) throw new CliAccountError('bad-option');
   const sessions = new Map<string, Session>();
-  const starting = new Set<RemoteCliProvider>();
-  const pendingStarts = new Set<Promise<RemoteCliStart>>();
+  const starts = new Map<RemoteCliProvider, Promise<RemoteCliStart>>();
   const lifetime = new AbortController();
 
   const sweep = () => {
@@ -214,17 +213,17 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
   }
 
   async function start(provider: RemoteCliProvider, opts?: { signal?: AbortSignal }): Promise<RemoteCliStart> {
-    if (starting.has(provider)) return fail(provider, 'busy');
-    starting.add(provider);
+    if (starts.has(provider)) return fail(provider, 'busy');
     const task = startLogin(provider, opts?.signal ? AbortSignal.any([lifetime.signal, opts.signal]) : lifetime.signal);
-    pendingStarts.add(task);
+    starts.set(provider, task);
     try { return await task; }
-    finally { starting.delete(provider); pendingStarts.delete(task); }
+    finally { starts.delete(provider); }
   }
 
   async function startLogin(provider: RemoteCliProvider, signal?: AbortSignal): Promise<RemoteCliStart> {
-    if (!isRemoteCliProvider(provider)) throw new Error('accounts.cli.signin.start needs { provider: claude|codex|pi }');
-    if (provider === 'pi') return fail(provider, 'unsupported');
+    if (!isRemoteCliProvider(provider)) throw new Error('accounts.cli.signin.start needs { provider: claude|codex|pi|opencode }');
+    // Pi has no headless login; OpenCode connects by pasting its plan key in the computer's app instead.
+    if (provider === 'pi' || provider === 'opencode') return fail(provider, 'unsupported');
     if (signal?.aborted) return fail(provider, 'cancelled');
     sweep();
     for (const s of sessions.values()) {
@@ -440,7 +439,7 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
 
   async function close(): Promise<void> {
     lifetime.abort();
-    await Promise.allSettled([...pendingStarts]);
+    await Promise.allSettled([...starts.values()]);
     await Promise.all([...sessions.values()].filter(session => !session.done).map(session => cancel(session.id)));
   }
 

@@ -48,7 +48,20 @@ try {
   assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'the late file is swept on prepare');
   console.log('late file swept on prepare: true');
 
-  // Member leg: authLogout carries the sealed profileIds, then the entry.
+  // Member leg: authLogout, restore priorModel primary, drop entry.
+  const modelOf = async () => {
+    const got = await kit.call('config.get', {});
+    return got?.config?.agents?.entries?.m1?.model;
+  };
+  const memberIndex = JSON.parse(readFileSync(join(root, 'accounts', 'm1.json'), 'utf8'));
+  memberIndex.accounts.openai.priorModel = 'openai/before-sign-in';
+  writeFileSync(join(root, 'accounts', 'm1.json'), JSON.stringify(memberIndex, null, 2) + '\n');
+  // Ensure the live pin matches what addAccount would leave, then remove restores priorModel.
+  await kit.call('config.patch', {
+    raw: JSON.stringify({ agents: { ownership: 'explicit', entries: { m1: { model: 'openai/default@openai:default' } } } }),
+    baseHash: (await kit.call('config.get', {})).hash,
+  });
+  assert.match(String(await modelOf()), /@openai:default/, 'member is still pinned before remove');
   const authBefore = fake.calls.filter((c) => c.method === 'models.authLogout').length;
   await kit.removeAccount('m1', 'openai');
   const auth = fake.calls.filter((c) => c.method === 'models.authLogout').slice(authBefore);
@@ -57,7 +70,9 @@ try {
   assert.equal(auth[0].params.agentId, 'm1');
   assert.ok(Array.isArray(auth[0].params.profileIds) && auth[0].params.profileIds.length > 0, 'with its sealed profile');
   assert.ok(!('openai' in index()), 'the member entry is dropped');
+  assert.equal(await modelOf(), 'openai/before-sign-in', 'member primary restored from priorModel');
   console.log('member account removed through authLogout with profileIds: true');
+  console.log('member primary restored: true');
   console.log('REMOVE-ACCOUNT OK');
 } finally {
   await kit.stop();
