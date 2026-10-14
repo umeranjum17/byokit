@@ -764,14 +764,14 @@ key (subscription); `microsoft-foundry-entra` is Entra cloud credentials, not an
 Until those packages merge, the table above is what ships.
 
 **signIn(member, { authChoice, via, signal? }, on)** — provider-owned wizard drive:
-Native `anthropic-cli` runs unmodified `claude auth login --claudeai` with the engine's `CLAUDE_CONFIG_DIR` in its own login HOME (`<root>/login-home`: Accounts refuses a folder that is its HOME's default login), through Accounts' remote CLI driver and a `cliAccounts.managedFolders` option limited to app-owned folders; cancel removes only roster bookkeeping, never the folder or grant, and a ready native status wins over a phone cancel during settlement.
+Native `anthropic-cli` runs unmodified `claude auth login --claudeai` with the engine's `CLAUDE_CONFIG_DIR` in its own login HOME (`<root>/login-home`: Accounts refuses a folder that is its HOME's default login), through Accounts' remote CLI driver and a `cliAccounts.managedFolders` option limited to app-owned folders; cancel removes only roster bookkeeping, never the folder or grant.
 The `anthropic-cli` and key-entry drives have one commit point, the `setup.activate` call:
 1. Prepare: detection (`setup.detect`, passed the phone signal), the native login or the key paste. A phone cancel or host shutdown here ends `why: 'declined'`; nothing is activated.
 2. Commit: immediately before `setup.activate`, a cancel or shutdown that has already landed still ends declined with no activation call; otherwise the drive is committed and calls `setup.activate` once.
 3. After commit the drive settles on the engine's answer and a phone cancel no longer declines it. Claude is `done` once its restart is confirmed, or `failed` with `signin.savedNotRestarted` when the restart runs late or host shutdown ends the wait. A key's cancel still declines its restart wait; a late key restart is `failed` with `LATE_RESTART`.
 `cancel()` always settles `done` exactly once: before commit as soon as the native login is released, after commit once the engine answers the activation.
 A native sign-in view reports `ready: false` while its drive is active or failed; the successful live activation, not credential presence, completes the attempt.
-A stale ready Claude row is cleared (roster only, never its folder or grant) and one fresh login starts; there is no automatic loop.
+A stale ready Claude row is cleared through Accounts, which deletes that folder's Claude login files (`.credentials.json`, `.claude.json`) but keeps the folder, and one fresh login starts; there is no automatic loop.
 A `signing` row is reused only when its `signInLock` is free or its holder PID is dead; a live, unreadable or missing holder stays busy.
 `ensureMember`; `openclaw.setup.auth.start { sessionId: 'byokit-' + uuid, agentId, authChoice }` (60 s); pull steps
 only with `wizard.next` (120 s for ordinary steps, max 200 turns; never `wizard.status`); a `deviceCode` step,

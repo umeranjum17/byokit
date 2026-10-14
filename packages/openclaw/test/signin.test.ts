@@ -712,7 +712,7 @@ for (const action of ['shutdown-ready', 'stale-ready']) test(`native Claude reco
     } else {
       assert.equal((await first.handle.done).state, 'failed', 'engine and native readiness disagree'); assert.equal(logins(), 1);
       const second = launch(context); assert.equal((await second.waiting).state, 'waiting', 'stale ready bookkeeping must not trap the phone at already');
-      assert.equal(readFileSync(claude.granted, 'utf8'), 'signed in', 'reset preserves the native folder and grant');
+      assert.equal(readFileSync(claude.granted, 'utf8'), 'signed in', "the fake's own marker file survives the reset");
       second.handle.paste('synthetic-code'); assert.equal((await second.handle.done).state, 'done'); assert.equal(logins(), 2, 'one fresh login, never an automatic loop');
       assert.equal(fake.methods().filter((m) => m === 'openclaw.setup.activate').length, 1);
       missOnce = true; // start sees already, then the independent engine detection succeeds.
