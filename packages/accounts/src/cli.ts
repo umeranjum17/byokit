@@ -10,6 +10,7 @@ import { launchEnv as cleanLaunchEnv } from './isolate.ts';
 import type { AccountLike } from './multi.ts';
 import routes from './routes.json' with { type: 'json' };
 export { remoteCliHost, remoteCliState, type RemoteCliHostOptions } from './remote-cli-host.ts';
+export { poolPrepare, type PoolPrepareOptions } from './prepare.ts';
 
 export type CliProvider = 'claude' | 'codex' | 'pi' | 'opencode' | 'kimi' | 'vibe';
 /** Published Pi subscription OAuth provider id, validated against the route catalogue. */
