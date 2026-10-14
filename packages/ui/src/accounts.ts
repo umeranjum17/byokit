@@ -161,7 +161,7 @@ export type RunSelection = { account: string | 'default' | 'auto'; model?: strin
 export type PickWhy = 'chosen' | 'default' | 'first_ready' | 'only' | 'most_room' | 'earlier_reset' | 'list_order' | 'no_reading' | 'refills_first';
 
 /** Why an account cannot be used, as Auto judges it, restated from `@byokit/accounts` `Considered`. */
-export type PickOut = 'state' | 'resting' | 'billing' | 'model' | 'provider' | 'key';
+export type PickOut = 'state' | 'resting' | 'billing' | 'model' | 'provider';
 /** One account's line in the pick's explanation; only the id, the why and the refill time are read here. */
 type ConsideredRow = { id: string; out?: PickOut; until?: number };
 

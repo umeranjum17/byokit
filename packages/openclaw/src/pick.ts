@@ -25,11 +25,9 @@ const clock = (t: number) => (new Date(t).toDateString() === new Date().toDateSt
 // `bound` (kit only) is the accounts a conversation may use; an account outside it is never a candidate, even when
 // the selection names it, and its row carries `out: 'bound'`. An account the selection names is judged only on
 // `bound` and the demand, so an API-key or resting account it names carries no `billing`/`resting` `out`.
-// `lanes` (kit only) are the member's key-lane accounts: outside `bound` and unnamed, one carries `out: 'key'`,
-// so Auto and a default fallback never start on a key lane.
 function considerRows(accounts: readonly Account[], room: (a: Account) => Room, nowMs: number,
   demand: readonly string[] = [], models?: (a: Account) => readonly ModelInfo[] | undefined, provider?: string,
-  named?: AccountId, bound?: readonly AccountId[], lanes?: readonly AccountId[]): Candidate[] {
+  named?: AccountId, bound?: readonly AccountId[]): Candidate[] {
   return accounts.map((account) => {
     const r = room(account);
     const age = finite(r.at) ? Math.max(0, nowMs - r.at) : 'unknown';
@@ -40,8 +38,7 @@ function considerRows(accounts: readonly Account[], room: (a: Account) => Room, 
     if (r.left !== 'unknown') { row.span = r.span; if (finite(r.resetsAt)) row.resetsAt = r.resetsAt; }
     if (bound !== undefined && !bound.includes(account.id)) row.out = 'bound';
     if (!row.out && account.id !== named) {
-      if (lanes?.includes(account.id) && !bound?.includes(account.id)) row.out = 'key';
-      else if (account.state === 'resting' && finite(account.until) && account.until > nowMs) { row.out = 'resting'; row.until = account.until; }
+      if (account.state === 'resting' && finite(account.until) && account.until > nowMs) { row.out = 'resting'; row.until = account.until; }
       else if (account.state !== 'ready' && !(account.state === 'resting' && finite(account.until) && account.until <= nowMs)) row.out = 'state';
       else if (account.billing !== 'subscription') row.out = 'billing';
     }
@@ -68,12 +65,12 @@ function considerRows(accounts: readonly Account[], room: (a: Account) => Room, 
 
 /** Every account's `Considered` row, in list order, with the kit-only `bound` applied. */
 export function consider(accounts: readonly Account[], defaults: Defaults, sel: RunSelection, room: RoomOf,
-  nowMs: number, models?: (a: Account) => readonly ModelInfo[] | undefined, bound?: readonly AccountId[], lanes?: readonly AccountId[]): Considered[] {
+  nowMs: number, models?: (a: Account) => readonly ModelInfo[] | undefined, bound?: readonly AccountId[]): Considered[] {
   const demand = [...new Set([...(sel.model ? [sel.model] : []), ...(sel.needs ?? [])])];
   const defaultAccount = accounts.find((a) => a.id === defaults.account);
   const named = nameOf(accounts, defaults, sel, bound);
   const provider = sel.provider ?? defaultAccount?.provider ?? accounts[0]?.provider;
-  return considerRows(accounts, (a) => room(a, demand), nowMs, demand, models, provider, named, bound, lanes).map((c) => c.row);
+  return considerRows(accounts, (a) => room(a, demand), nowMs, demand, models, provider, named, bound).map((c) => c.row);
 }
 
 const tierOrder = { room: 0, unknown: 1, exhausted: 2 };
@@ -120,12 +117,12 @@ function nameOf(accounts: readonly Account[], defaults: Defaults, sel: RunSelect
  * models are unknown (`undefined`) host-validates membership by provider; with no model asked for it runs the saved
  * default, else model '' (no override: the engine's own default). */
 export function resolveSelection(accounts: readonly Account[], defaults: Defaults, sel: RunSelection, room: RoomOf,
-  nowMs: number, models?: (a: Account) => readonly ModelInfo[] | undefined, bound?: readonly AccountId[], lanes?: readonly AccountId[]): AccountPick {
+  nowMs: number, models?: (a: Account) => readonly ModelInfo[] | undefined, bound?: readonly AccountId[]): AccountPick {
   const demand = [...new Set([...(sel.model ? [sel.model] : []), ...(sel.needs ?? [])])];
   const defaultAccount = accounts.find((a) => a.id === defaults.account);
   const named = nameOf(accounts, defaults, sel, bound);
   const provider = sel.provider ?? defaultAccount?.provider ?? accounts[0]?.provider;
-  const rows = considerRows(accounts, (a) => room(a, demand), nowMs, demand, models, provider, named, bound, lanes);
+  const rows = considerRows(accounts, (a) => room(a, demand), nowMs, demand, models, provider, named, bound);
   const considered = rows.map((c) => c.row);
   const auto = rank(rows); // also fills explanations for every eligible row, even on explicit selection
   const restingPick = (c: Candidate): AccountPick => ({ ok: false, code: 'resting', account: c.account.id, until: c.row.until,
@@ -148,9 +145,6 @@ export function resolveSelection(accounts: readonly Account[], defaults: Default
   // An empty `bound` (a member-agent conversation holding no indexed account) names no provider: every account is
   // signed in somewhere else, so the provider-specific sentence would mislead.
   if (bound !== undefined && !bound.length) return { ok: false, code: 'none', reason: words('auto.noneBound'), considered };
-  // Every listed account is a key lane: the provider-specific sentence would name a signed-in key as missing.
-  if (lanes?.length && rows.length > 0 && rows.every((c) => lanes.includes(c.account.id)))
-    return { ok: false, code: 'none', reason: words('auto.keyOnly'), considered };
   return { ok: false, code: 'none', reason: words('auto.none', { provider: provider ?? '' }), considered };
 
   function finish(account: Account, row: Considered, how: 'chosen' | 'default' | 'auto', why: PickWhy): AccountPick {

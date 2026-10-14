@@ -591,7 +591,7 @@ export function createAccounts(ctx: {
     });
 
   // Runs step 2 reads the index alone: the index-only refusal makes no request, and a cold index adds one account
-  // listing (the pick's late check after `list`; `keyRefusal` lists when the held account is not API-billed). This
+  // listing (the pick's late check after `list`; `keyRefusal` lists unless the binding is the key lane). This
   // gives the accounts a binding holds, in list order, and the name a refusal shows (`account.another` when it holds none).
   const boundOf = (file: IndexFile, binding: Binding): AccountId[] => binding.id !== undefined ? [binding.id]
     : Object.entries(file.accounts).filter(([, e]) => e.agent === binding.agentId)
@@ -676,14 +676,18 @@ export function createAccounts(ctx: {
     const known = named === undefined || listed.some((r) => r.id === named);
     if (binding?.id !== undefined && known) sel = { ...sel, account: binding.id };
     const bound = binding && known ? boundOf(file, binding) : undefined;
-    const lanes = Object.entries(file.accounts).filter(([, e]) => e.agent === keyAgentId(member)).map(([id]) => id);
+    // The key lane is reached only by naming it (or the saved default): an unnamed lane row is not a pick input, so
+    // Auto and a default fallback see exactly the accounts they saw before the lane was indexed.
+    const lanes = new Set(Object.entries(file.accounts).filter(([, e]) => e.agent === keyAgentId(member)).map(([id]) => id));
+    const pickRows = rows.filter((r) => !lanes.has(r.id) || sel.account === r.id ||
+      (sel.account === 'default' && file.defaults.account === r.id));
     const reads = new Map(await Promise.all(rows.map(async (row) => {
       const entry = file.accounts[row.id]!;
       const models = await readModels(row, entry).then((ms) => ms.map((m) => (m.why ? { ...m, available: true } : m)), () => undefined);
       return [row.id, { room: await readRoom(row, entry), models }] as const;
     })));
-    const chosen = resolveSelection(rows, file.defaults, sel, (a) => reads.get(a.id)!.room, Date.now(),
-      (a) => reads.get(a.id)!.models, bound, lanes);
+    const chosen = resolveSelection(pickRows, file.defaults, sel, (a) => reads.get(a.id)!.room, Date.now(),
+      (a) => reads.get(a.id)!.models, bound);
     return { pick: chosen, ...(chosen.ok ? { agent: file.accounts[chosen.account.id]!.agent } : {}) };
   }
 
