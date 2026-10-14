@@ -948,6 +948,7 @@ export class OpenClawKit {
       nativeClaudeLogin: () => this.engine.nativeClaudeLogin(),
       resetNativeClaudeLogin: () => this.engine.resetNativeClaudeLogin(),
       onDisconnect: (fn) => { this.signInDisconnects.add(fn); return () => { this.signInDisconnects.delete(fn); }; },
+      stopSignal: this.engine.stopSignal,
       authConfig: () => this.authSnapshot(),
       restarted: (authBefore, signal) => this.restarted(authBefore, signal) };
   }

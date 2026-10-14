@@ -19,6 +19,9 @@ export type SignInCtx = {
   onDisconnect?(fn: () => void): () => void;
   authConfig(): string;
   restarted(authBefore: string | undefined, signal?: AbortSignal): Promise<boolean>;
+  // The engine's own shutdown signal (Engine.stop): a shutdown before the commit point declines this drive at once,
+  // the key paste included, the same way a phone cancel does.
+  stopSignal?: AbortSignal;
   // A further account of a provider the member already holds (5.15): its sign-in must not reuse the browser's session.
   fresh?: boolean;
 };
@@ -153,6 +156,7 @@ export function signIn(
     stopApproval();
     offDisconnect?.();
     o.signal?.removeEventListener('abort', cancel);
+    ctx.stopSignal?.removeEventListener('abort', cancel);
     owner.abort();
     returned = undefined;
     pasteIn = undefined;
@@ -189,6 +193,10 @@ export function signIn(
 
   o.signal?.addEventListener('abort', cancel, { once: true });
   if (o.signal?.aborted) cancel();
+  // An engine shutdown before the commit point is this drive's decline too: without it a key paste would sit out
+  // its 15-minute paste wait after the engine is gone.
+  ctx.stopSignal?.addEventListener('abort', cancel, { once: true });
+  if (ctx.stopSignal?.aborted) cancel();
 
   /** Hold 127.0.0.1:<callbackPort> for the sign-in's life; a taken port is why the sign-in cannot start. */
   const holdCallback = (): Promise<Server> => {
