@@ -1,0 +1,1 @@
+- FIX: recent delivered notification ids are kept in relay state with push, so a restart refuses a retried id instead of sending it twice. Payloads still carry no body text by default.
