@@ -84,6 +84,10 @@ export class Engine {
   private starting?: Promise<{ port: number; token: string; identityPath: string } | undefined>;
   readonly authStore: AuthStore;
   private stopping = false;
+  // Aborted by stop(): a sign-in drive that has not reached its commit point then declines at once, the key paste
+  // included (it has no native host signal of its own). start() replaces it, so an earlier shutdown cannot decline
+  // a later drive.
+  private stopOwner = new AbortController();
   private claudeLogin?: ReturnType<typeof remoteCliHost>; private claudeAccounts?: ReturnType<typeof cliAccounts>; private claudeReset?: Promise<void>;
   private credentialsLocked = false;
   private repaired = false;
@@ -259,6 +263,8 @@ export class Engine {
       BYOKIT_APP_OWNED_SESSION_PREFIXES: JSON.stringify(this.appOwnedSessionPrefixes),
     } };
   }
+  /** The engine's own shutdown signal; aborted by stop() and replaced by the next start(). */
+  get stopSignal(): AbortSignal { return this.stopOwner.signal; }
   nativeClaudeLogin(): ReturnType<typeof remoteCliHost> {
     if (this.claudeLogin) return this.claudeLogin;
     const { env } = this.doctorContext();
@@ -337,6 +343,7 @@ export class Engine {
   start(): Promise<{ port: number; token: string; identityPath: string } | undefined> {
     if (this.starting) return this.starting;
     this.stopping = false;
+    this.stopOwner = new AbortController();
     const pending = this.startOnce();
     this.starting = pending;
     void pending.finally(() => { if (this.starting === pending) this.starting = undefined; }).catch(() => {});
@@ -437,6 +444,7 @@ export class Engine {
   withAuthStore<T>(task: () => Promise<T>): Promise<T> { return this.authStore.offline(task); }
   async stop(): Promise<void> {
     this.stopping = true;
+    this.stopOwner.abort();
     await this.claudeLogin?.close(); await this.claudeReset?.catch(() => {});
     this.claudeLogin = undefined; this.claudeAccounts = undefined;
     await this.starting?.catch(() => {});

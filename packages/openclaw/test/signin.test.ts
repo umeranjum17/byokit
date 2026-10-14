@@ -667,6 +667,22 @@ test('an earlier phone attempt finishing its committed activation never overwrit
   } finally { for (const hold of holds) hold({ ok: true }); await kit.stop(); rmSync(root, { recursive: true, force: true }); }
 });
 
+test('an engine shutdown before a key is pasted declines the key-paste sign-in at once', { timeout: 15_000 }, async () => {
+  const root = scratchDir('key-phone-shutdown');
+  let activated = false;
+  const kit = kitFor(root, { 'openclaw.setup.activate': () => { activated = true; return { ok: true }; } });
+  try { await kit.start(); const { call, read, until } = phone(kit, 'opencode-go');
+    await call('oc.signin.start', { via: 'code' });
+    assert.equal((await until((view) => view?.prompt === 'Plan key')).view.prompt, 'Plan key', 'the drive waits for the pasted plan key');
+    const stoppedAt = Date.now(); await kit.stop();
+    const end = await until((view) => view?.state === 'failed');
+    assert.deepEqual(end.view, { state: 'failed', via: 'code', why: 'declined', error: words('signin.cancelled') });
+    assert.equal(activated, false, 'a shutdown before the commit point activates nothing');
+    assert.ok(Date.now() - stoppedAt < 5_000, 'the shutdown ends the sign-in at once, not at the 15-minute paste timeout');
+    assert.equal((await read()).ready, false);
+  } finally { await kit.stop(); rmSync(root, { recursive: true, force: true }); }
+});
+
 for (const action of ['paste', 'cancel', 'shutdown'] as const) test(`native Claude settlement: ${action} after exit`, { timeout: 30_000 }, async () => {
   const root = scratchDir('native-paste-after-exit'), claude = fakeClaude(root, true);
   let activated = false, release!: () => void; const hold = new Promise<void>((resolve) => { release = resolve; });
