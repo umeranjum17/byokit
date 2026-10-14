@@ -9,7 +9,7 @@ Verification recipe for [removing an account](../../../../docs/runtime-kits.md#5
 - Removal is refused `busy` while a run holds the agent or a sign-in is pending; the member agent stays `ready`.
 - Removal re-seals the live credential store at once while the engine runs, so `auth-store.sealed` and `auth-store.objects/` stop holding the removed profile without waiting for stop.
 - A file the engine lands after removal is swept on the next `prepare` (and after a sealed restore, before launch). Only `<member>--<hex6>` dirs a removal recorded as gone and no index names are swept; a legacy member dir stays.
-- A late token refresh into the member agent's own store after member-agent `authLogout` is also dropped on `prepare`: profiles whose provider no index entry on that member agent names are removed from `auth-profiles.json` and the native store; remaining accounts stay.
+- A late token refresh into the member agent's own store after member-agent `authLogout` is also dropped on `prepare`: removal records the provider in the index `dropped` list, and prepare removes that provider from `auth-profiles.json` and the native store while no member-agent index entry names it again; remaining accounts stay.
 - A late refresh after removal's reseal is excluded at stop from both the credential blob and native SQLite objects. The next `prepare` also prunes removed-agent entries and objects in an older sealed store; restarting keeps the member's sign-in and cannot restore the removed agent.
 
 ## How to get to it (user POV)

@@ -2094,7 +2094,11 @@ test('removeAccount restores or clears the member primary model', async () => {
     await kit.removeAccount('m1', second.id);
     assert.equal(await modelOf('m1'), before, 'removing an account agent does not touch the member primary');
     assert.ok('openai' in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts, 'the member account stays');
-
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
 
 // A late token refresh after member-agent authLogout can rewrite state/agents/<member>; prepare must drop that
 // profile so listing cannot synthesize the removed account, while every other account stays.

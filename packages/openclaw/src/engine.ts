@@ -307,9 +307,9 @@ export class Engine {
   }
   // The account orphan sweep (5.15): a late engine write after a removal cannot be ruled out by a bounded check, so
   // prepare and the sealed restore remove each `<root>/state/agents/<member>--<hex6>` directory a removal recorded as
-  // gone and no index names, and drop member-store auth profiles no index entry names. No roster here: the gateway is
-  // down, and no add is in flight while preparing (an entry is written before its agent is created, so an account being
-  // added is named).
+  // gone and no index names, and drop member-store auth profiles a removal recorded as `dropped`. No roster here: the
+  // gateway is down, and no add is in flight while preparing (an entry is written before its agent is created, so an
+  // account being added is named).
   private sweepAccountOrphans(): void {
     try { sweepOrphans(this.root); }
     catch (error) { this.o.log?.(`prepare: orphans are not swept: ${String((error as Error).message).slice(0, 200)}`); }
