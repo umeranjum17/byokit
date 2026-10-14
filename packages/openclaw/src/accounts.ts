@@ -614,18 +614,17 @@ export function createAccounts(ctx: {
   // An API-key run (Runs step 2): its key continues its own lane's conversation whatever the key bills (a
   // plan key bills subscription), and any other binding is refused.
   const keyRefusal = async (member: Member, binding: Binding): Promise<string | undefined> => {
-    const held = binding.id === undefined ? undefined : read(member).accounts[binding.id];
-    if (held && (metaOf(held.route).billing === 'api' || held.agent === keyAgentId(member))) return undefined;
+    if (binding.agentId === keyAgentId(member)) return undefined;
     await list(member);
     const file = read(member);
     return words('account.bound', { name: nameOf(file, boundOf(file, binding)) });
   };
 
-  // Runs step 1 (5.15): a key `agent:<member>--<hex6>:<tail>` of an indexed account agent is bound to that account; a
-  // key `agent:byokit-key-<member>:<tail>` of the indexed key lane is bound to its `<provider>.key` account. A key
+  // Runs step 1 (5.15): a key `agent:<member>--<hex6>:<tail>` of an indexed account agent is bound to that account. A key
   // `agent:<member>:<tail>` is bound to whichever of the member's agents holds `agent:<that agent>:<tail>` (member agent
-  // first, then the key lane, then the account agents), else unbound. Any other key is not the member's. With no account
-  // agent and no indexed lane, the member agent and an unbound key run alike, so nothing is asked.
+  // first, then the key lane, whose account is its `<provider>.key`, then the account agents), else unbound. Any other key
+  // is not the member's. With no account agent and no indexed lane, the member agent and an unbound key run alike, so
+  // nothing is asked.
   async function bind(member: Member, sessionKey: string): Promise<Binding | undefined> {
     check(member);
     const file = read(member);
@@ -635,7 +634,6 @@ export function createAccounts(ctx: {
     const laneId = Object.entries(file.accounts).find(([, e]) => e.agent === lane)?.[0];
     if (!sessionKey.startsWith(`agent:${member}:`)) {
       const agent = /^agent:([^:]+):/.exec(sessionKey)?.[1];
-      if (agent === lane && laneId !== undefined) return { agentId: agent, id: laneId };
       const id = agent === undefined ? undefined : agents.get(agent);
       if (id === undefined) throw new Error(`refused: "${sessionKey}" is not a session of member "${member}"`);
       return { agentId: agent!, id };

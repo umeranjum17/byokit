@@ -1652,9 +1652,9 @@ cache.
    member agent holds no indexed account) ends Choosing `none` with words `auto.noneBound` ("No account in this
    conversation is signed in."), never the provider-specific `auto.none`.
    An `auth: 'apiKey'` run on a conversation bound to a subscription account or to the member agent is refused the same
-   way (`code: 'bound'`, words `account.bound`). On the indexed key-lane binding it continues on the lane; on an
-   API-billed account binding (a pre-O14 `<member>--<hex6>` account) it continues on that account's own agent and
-   session, not on the lane. `steer` and `abort` with `auth: 'apiKey'` address that same agent and session. An API-key run first reads the key (`byokit.keys ready`), then the binding
+   way (`code: 'bound'`, words `account.bound`). Only the indexed key-lane binding continues, on the lane; an API-billed
+   account binding of a pre-O14 `<member>--<hex6>` agent is refused the same way, so the user re-adds the key. `steer` and
+   `abort` with `auth: 'apiKey'` address the key lane. An API-key run first reads the key (`byokit.keys ready`), then the binding
    (step 1); the refusals here read the index, and the account listing once when it is cold; no room, model or agent
    request precedes them.
 3. Bound to the member agent, or unbound, with `spec.account` absent and `spec.needs` absent or empty: exactly today's 5.8

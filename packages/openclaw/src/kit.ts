@@ -1151,7 +1151,7 @@ export class OpenClawKit {
   async run<const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void): Promise<RunEnd<SchemaOutput<S>>> {
     if (this.o.browser) {
       if (!await this.checkBrowserTools()) return { ok: false, kind: 'other', message: 'browser tool policy refused' };
-      if (!await this.browserHost?.beforeRun(spec.member, await this.runKey(spec.sessionKey, spec)))
+      if (!await this.browserHost?.beforeRun(spec.member, this.runKey(spec.sessionKey, spec)))
         return { ok: false, kind: 'other', message: 'Waiting for the person to sign in' };
     }
     if (spec.auth !== undefined && spec.auth !== 'apiKey') return Promise.reject(new Error('Choose a supported account option.'));
@@ -1172,21 +1172,20 @@ export class OpenClawKit {
     return this.runs().run(spec, on, undefined, output);
   }
 
-  // An API-key run's session is the account agent it binds to, or the key lane when it binds to no account (Runs step 2).
-  private async runKey(sessionKey: string, o?: { auth?: 'apiKey' }): Promise<string> {
+  // An API-key run's session is on the key lane (Runs step 2).
+  private runKey(sessionKey: string, o?: { auth?: 'apiKey' }): string {
     if (o?.auth !== 'apiKey') return sessionKey;
     const [, member, tail] = /^agent:([^:]+):(.*)$/.exec(sessionKey) ?? [];
     if (!member || !MEMBER_ID.test(member) || member.startsWith(KEY_PREFIX)) throw new Error('Choose your own conversation.');
-    const binding = await this.accountsCtl?.bind(member, sessionKey);
-    return `agent:${binding?.id !== undefined ? binding.agentId : keyAgentId(member)}:${tail}`;
+    return `agent:${keyAgentId(member)}:${tail}`;
   }
 
   async steer(sessionKey: string, text: string, o?: { auth?: 'apiKey' }): Promise<void> {
-    return this.runs().steer(await this.runKey(sessionKey, o), text);
+    return this.runs().steer(this.runKey(sessionKey, o), text);
   }
 
   async abort(sessionKey: string, o?: { auth?: 'apiKey' }): Promise<void> {
-    return this.runs().abort(await this.runKey(sessionKey, o));
+    return this.runs().abort(this.runKey(sessionKey, o));
   }
 
   // approvals (5.9)
