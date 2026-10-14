@@ -28,6 +28,8 @@
   "setup.installing": "Putting {app} on your cloud computer.",
   "setup.pairing": "Connecting this device to {app}.",
   "setup.ready": "{app} is running on your cloud computer.",
+  "claim.refused": "{label} didn't accept that address. Check it and try again.",
+  "claim.expired": "That sign-in expired. Try again.",
   "host.not-installed": "{app} isn't on your cloud computer yet.",
   "host.installing": "Putting {app} on your cloud computer…",
   "host.running": "{app} is running on your cloud computer.",
