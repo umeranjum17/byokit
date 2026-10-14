@@ -27,9 +27,9 @@ export async function saveOpenCodePlanKey(store: Keystore, key: string, route: s
 }
 
 /** Read a plan route's saved key. A missing key fails with words, never with key material. */
-export async function readOpenCodePlanKey(store: Keystore | undefined, route: string = OPENCODE_GO_PLAN_ROUTE): Promise<string> {
+export async function readOpenCodePlanKey(store: Keystore | undefined, route: string = OPENCODE_GO_PLAN_ROUTE, name = 'OpenCode'): Promise<string> {
   const key = await store?.get(openCodePlanKeyEntry(route));
-  if (typeof key !== 'string' || !key) throw new Error(say('cli.missingPlanKey', { name: 'OpenCode' }));
+  if (typeof key !== 'string' || !key) throw new Error(say('cli.missingPlanKey', { name }));
   return key;
 }
 

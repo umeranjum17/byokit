@@ -295,5 +295,22 @@
       "why": "Each member supplies their own plan key.",
       "source": "https://opencode.ai"
     }
+  },
+  "ollama-pro": {
+    "pi": "ollama-pro",
+    "name": "Ollama Pro",
+    "company": "Ollama",
+    "models": {
+      "strong": "deepseek-v4.1-flash"
+    },
+    "billing": "subscription",
+    "auth": "api-key",
+    "routes": ["ollama-pro:plan_key"],
+    "source": "https://docs.ollama.com/cloud",
+    "multiAccount": {
+      "terms": "grey",
+      "why": "Each member supplies their own plan key.",
+      "source": "https://docs.ollama.com/cloud"
+    }
   }
 }
