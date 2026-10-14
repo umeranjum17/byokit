@@ -2094,6 +2094,55 @@ test('removeAccount restores or clears the member primary model', async () => {
     await kit.removeAccount('m1', second.id);
     assert.equal(await modelOf('m1'), before, 'removing an account agent does not touch the member primary');
     assert.ok('openai' in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts, 'the member account stays');
+
+
+// A late token refresh after member-agent authLogout can rewrite state/agents/<member>; prepare must drop that
+// profile so listing cannot synthesize the removed account, while every other account stays.
+test('prepare sweeps a late member-store refresh of a removed account', async () => {
+  const stateDir = scratchDir('o14h-member-late-refresh');
+  const fake = fakeGateway();
+  const root = join(stateDir, 'openclaw');
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const go = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
+    go.paste('CANARY-GO-MEMBER-LATE-REFRESH');
+    assert.equal((await go.done).view.state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const keptAgent = second.id;
+    assert.deepEqual((await kit.accounts('m1')).map((a) => a.id).sort(), ['openai', 'opencode-go', keptAgent].sort());
+    await kit.removeAccount('m1', 'openai');
+    const indexAfter = JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')) as { accounts: Record<string, unknown> };
+    assert.ok(!('openai' in indexAfter.accounts));
+    assert.ok('opencode-go' in indexAfter.accounts, 'the other member account stays');
+    assert.ok(keptAgent in indexAfter.accounts, 'and the account agent stays');
+    const memberStore = join(root, 'state', 'agents', 'm1', 'agent', 'auth-profiles.json');
+    mkdirSync(join(memberStore, '..'), { recursive: true });
+    writeFileSync(memberStore, JSON.stringify({
+      version: 1,
+      profiles: {
+        'openai:default': { type: 'oauth', provider: 'openai', access: 'late-access', refresh: 'late-refresh' },
+        'opencode-go:default': { type: 'api_key', provider: 'opencode-go', key: 'kept-on-member' },
+      },
+      order: { openai: ['openai:default'], 'opencode-go': ['opencode-go:default'] },
+    }));
+    await kit.prepare();
+    const swept = JSON.parse(readFileSync(memberStore, 'utf8')) as {
+      profiles: Record<string, { provider?: string }>;
+      order?: Record<string, unknown>;
+    };
+    assert.equal(swept.profiles['openai:default'], undefined, 'the late member refresh is gone');
+    assert.equal(swept.profiles['opencode-go:default']?.provider, 'opencode-go', 'the remaining member profile stays');
+    assert.deepEqual(swept.order, { 'opencode-go': ['opencode-go:default'] });
+    const index = JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')) as { accounts: Record<string, unknown> };
+    assert.ok(!('openai' in index.accounts), 'the removed member account stays out of the index');
+    assert.ok('opencode-go' in index.accounts, 'the remaining member account entry is intact');
+    assert.ok(keptAgent in index.accounts, 'and the account agent entry is intact');
+    const listed = (await kit.accounts('m1')).map((a) => a.id).sort();
+    assert.deepEqual(listed, ['opencode-go', keptAgent].sort());
+
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });
