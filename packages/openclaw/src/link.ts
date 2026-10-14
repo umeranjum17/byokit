@@ -323,13 +323,16 @@ export function openclawLink(
         drives.get(key)?.cancel();
         const view: SignInView = { state: 'waiting', via: args.via };
         latest.set(key, view);
-        const drive = kit.signIn(member, { authChoice: route.choice, via: args.via }, (next) => {
-          latest.set(key, next);
+        // A superseded attempt (still activating past its commit point) never writes over the newer one's view.
+        let drive: ReturnType<OpenClawKit['signIn']> | undefined;
+        const current = () => drive !== undefined && drives.get(key) === drive;
+        drive = kit.signIn(member, { authChoice: route.choice, via: args.via }, (next) => {
+          if (current()) latest.set(key, next);
         });
         drives.set(key, drive);
         void drive.done.then(
-          (done) => { latest.set(key, done); if (drives.get(key) === drive) drives.delete(key); },
-          () => { if (drives.get(key) === drive) drives.delete(key); },
+          (done) => { if (current()) { latest.set(key, done); drives.delete(key); } },
+          () => { if (current()) drives.delete(key); },
         );
         return latest.get(key);
       }

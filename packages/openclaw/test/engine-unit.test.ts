@@ -370,6 +370,64 @@ setInterval(() => {}, 1000);
   }
 });
 
+test('stop still ends its gateway and seals when an in-flight Claude reset fails removing the stale row', { timeout: 120_000 }, async () => {
+  const dir = scratchDir('engine-stop-reset');
+  const engineDir = join(dir, 'engine');
+  const bin = join(dir, 'bin'); mkdirSync(bin);
+  const folder = join(dir, 'openclaw', 'home', '.claude');
+  const granted = join(folder, 'granted');
+  const calls = join(dir, 'status-calls'), hold = join(dir, 'status-hold');
+  const inflight = join(dir, 'status-inflight'), release = join(dir, 'status-release');
+  writeFileSync(join(bin, 'claude'), `#!${process.execPath}
+const fs = require('node:fs');
+if (process.env.CLAUDE_CONFIG_DIR !== ${JSON.stringify(folder)}) process.exit(3);
+if (process.argv[3] === 'status') {
+  const n = Number(fs.existsSync(${JSON.stringify(calls)}) ? fs.readFileSync(${JSON.stringify(calls)}, 'utf8') : 0) + 1;
+  fs.writeFileSync(${JSON.stringify(calls)}, String(n));
+  const answer = () => { console.log(JSON.stringify({ loggedIn: fs.existsSync(${JSON.stringify(granted)}) })); process.exit(); };
+  if (n !== 2 || !fs.existsSync(${JSON.stringify(hold)})) answer();
+  else { fs.writeFileSync(${JSON.stringify(inflight)}, ''); const wait = () => fs.existsSync(${JSON.stringify(release)}) ? answer() : setTimeout(wait, 10); wait(); }
+} else {
+  console.log('If the browser did not open, visit: https://claude.example.test/authorize');
+  process.stdin.once('data', () => { fs.writeFileSync(${JSON.stringify(granted)}, 'signed in'); process.exit(0); });
+}
+`, { mode: 0o700 });
+  seedInstall(engineDir);
+  writeFileSync(join(engineDir, 'node_modules/openclaw/openclaw.mjs'), `if (process.argv[2] === 'doctor') process.exit(0);
+setInterval(() => {}, 1000);
+`);
+  await seedSet(engineDir);
+  const engine = new Engine({ stateDir: dir, engineDir, authSeal: hostKeySeal({ key: new Uint8Array(32).fill(5) }), enginePath: [bin], pluginId: 'byokit', tools: [], spawnEngine: true, onState() {}, onExit() {} });
+  try {
+    await engine.start();
+    const gateway = Number(readFileSync(join(dir, 'openclaw', 'gateway.pid'), 'utf8'));
+    const host = engine.nativeClaudeLogin();
+    const started = await host.start('claude');
+    assert.ok(started.ok);
+    await host.paste(started.signIn.id, 'synthetic-code');
+    assert.equal((await host.wait(started.signIn.id)).ok, true, 'the login leaves a ready row');
+    fs.chmodSync(folder, 0o500);
+    writeFileSync(calls, '0'); writeFileSync(hold, '');
+    const reset = engine.resetNativeClaudeLogin().then(() => undefined, (error: NodeJS.ErrnoException) => error);
+    const roster = host.state(); // queues its status read behind the reset's list, holding the row while the reset waits to remove it
+    for (let i = 0; !existsSync(inflight) && i < 300; i++) await delay(10);
+    assert.ok(existsSync(inflight), 'the roster read holds the row when shutdown begins');
+    const stopping = engine.stop();
+    writeFileSync(release, '');
+    await stopping;
+    assert.equal((await reset)?.code, 'EACCES', 'the reset really failed to remove the stale row');
+    await roster;
+    assert.equal(pidAlive(gateway), false, 'the gateway the engine started is stopped');
+    assert.ok(existsSync(join(dir, 'openclaw', 'auth-store.sealed')), 'stop seals the engine home');
+    assert.equal(existsSync(granted), false, 'the sealed home keeps no plaintext sign-in');
+  } finally {
+    if (existsSync(folder)) fs.chmodSync(folder, 0o700);
+    writeFileSync(release, '');
+    await engine.stop().catch(() => {});
+    removeScratch(dir);
+  }
+});
+
 // pidAlive portability: macOS has no /proc, so a dead-but-unreaped guard must read stale
 // via ps there exactly as it does via /proc on Linux — while a live pid is never stolen.
 test('pidAlive is portable: macOS zombies read stale, live pids are never stolen', async (t) => {

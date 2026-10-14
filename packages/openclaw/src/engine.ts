@@ -438,7 +438,7 @@ export class Engine {
   withAuthStore<T>(task: () => Promise<T>): Promise<T> { return this.authStore.offline(task); }
   async stop(): Promise<void> {
     await this.claudeLogin?.close();
-    await this.claudeReset;
+    await this.claudeReset?.catch(() => {});
     this.claudeLogin = undefined;
     this.claudeAccounts = undefined;
     this.stopping = true;

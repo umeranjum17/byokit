@@ -21,6 +21,7 @@
   "signin.returned": "Thanks. Finishing the sign-in — you can go back to the app now.",
   "signin.busy": "Another sign-in is already in progress. Finish or cancel it, then try again.",
   "signin.cancelled": "Sign-in cancelled. You can start again whenever you are ready.",
+  "signin.savedNotRestarted": "Your Claude sign-in was saved, but the engine did not restart in time. Try again.",
   "signin.expired": "The sign-in took too long. Start it again.",
   "signin.title": "Sign in to {site}",
   "signin.takeover": "Take over to sign in",

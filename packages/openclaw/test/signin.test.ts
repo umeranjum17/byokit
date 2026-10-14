@@ -681,6 +681,36 @@ else { process.stdin.setEncoding('utf8'); process.stdin.once('data', code => {
 });
 
 
+test('an earlier phone attempt finishing its committed activation never overwrites the newer attempt', { timeout: 15_000 }, async () => {
+  const root = scratchDir('native-superseded');
+  const holds: ((value: { ok: boolean }) => void)[] = [];
+  const gateway = fakeGateway({
+    'openclaw.setup.detect': () => ({ candidates: [{ kind: 'claude-cli', credentials: true }] }),
+    'openclaw.setup.activate': () => new Promise(resolve => { holds.push(resolve); }),
+    'models.authStatus': () => ({ providers: ['claude-cli'] }),
+  });
+  const kit = new OpenClawKit({ stateDir: root, spawnEngine: false, transport: gateway.factory });
+  try {
+    await kit.start();
+    const api = openclawLink(kit, { memberOf: () => 'umer' });
+    const grant = { id: 'phone', name: 'Umer', key: '', role: 'control' as const, created: 0 };
+    const call = (op: string, args: object) => api.handle!({ op, args: { provider: 'claude-cli', ...args } }, grant);
+    const read = () => call('oc.signin.view', {}) as Promise<{ ready: boolean; view: SignInView }>;
+    const activations = async (n: number) => { for (let i = 0; holds.length < n && i < 300; i++) await delay(10); assert.equal(holds.length, n); };
+    await call('oc.signin.start', { via: 'browser' });
+    await activations(1);
+    await call('oc.signin.cancel', {}); // past the commit point: the first attempt keeps activating
+    await call('oc.signin.start', { via: 'browser' });
+    await activations(2);
+    holds[0]({ ok: true });
+    await delay(50);
+    assert.deepEqual(await read(), { ready: false, view: { state: 'waiting', via: 'browser' } }, 'the newer attempt still owns the view');
+    holds[1]({ ok: true });
+    for (let i = 0; (await read()).view?.state === 'waiting' && i < 300; i++) await delay(10);
+    assert.deepEqual(await read(), { ready: true, view: { state: 'done', via: 'browser' } });
+  } finally { for (const hold of holds) hold({ ok: true }); await kit.stop(); rmSync(root, { recursive: true, force: true }); }
+});
+
 for (const action of ['paste', 'cancel', 'shutdown']) test(`native Claude settlement: ${action} after exit`, { timeout: 30_000 }, async () => {
   const root = scratchDir('native-paste-after-exit');
   const bin = join(root, 'bin'); mkdirSync(bin);
@@ -735,9 +765,15 @@ if (process.argv[3] === 'status') {
       assert.equal(activated, false, 'a stopped engine is never activated');
       return;
     }
+    if (action === 'cancel') {
+      const end = await until(v => v?.state === 'failed');
+      assert.equal(end.why, 'declined', 'a cancel before the commit point declines even a ready native row');
+      assert.equal(activated, false, 'and never activates it');
+      return;
+    }
     const held = await until(v => activated || v?.state === 'failed');
-    assert.equal(held.state, 'waiting', 'a ready native row must not produce a declined view');
-    assert.equal(activated, true, 'ready settlement continues into activation despite phone cancel');
+    assert.equal(held.state, 'waiting', 'a late paste does not end a ready native row');
+    assert.equal(activated, true, 'ready settlement continues into activation');
     assert.equal((await call('oc.signin.view', {}) as { ready: boolean }).ready, false, 'activation still owns completion');
     releaseActivation();
     const end = await until(v => v?.state === 'done' || v?.state === 'failed');
@@ -816,6 +852,82 @@ process.stdin.once('data', () => { fs.writeFileSync(${JSON.stringify(granted)}, 
       assert.equal(logins(), 2);
     }
   } finally { releaseDetect(); await engine.stop(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a native Claude sign-in whose gateway restart runs late stays failed and says the sign-in was saved', { timeout: 15_000 }, async () => {
+  const root = scratchDir('native-late-restart');
+  const bin = join(root, 'bin'); mkdirSync(bin);
+  const folder = join(root, 'openclaw/home/.claude');
+  const granted = join(folder, 'granted');
+  writeFileSync(join(bin, 'claude'), `#!${process.execPath}
+const fs = require('node:fs');
+if (process.env.CLAUDE_CONFIG_DIR !== ${JSON.stringify(folder)}) process.exit(3);
+if (process.argv[3] === 'status') { console.log(JSON.stringify({ loggedIn: fs.existsSync(${JSON.stringify(granted)}) })); process.exit(); }
+console.log('If the browser did not open, visit: https://claude.example.test/authorize');
+process.stdin.once('data', () => { fs.writeFileSync(${JSON.stringify(granted)}, 'signed in'); process.exit(0); });
+`, { mode: 0o700 });
+  const engine = new Engine({ stateDir: root, enginePath: [bin], spawnEngine: false, pluginId: 'byokit', tools: [], onState() {}, onExit() {} });
+  const fake = scripted({
+    'openclaw.setup.detect': () => ({ candidates: [{ kind: 'claude-cli', credentials: existsSync(granted) }] }),
+    'openclaw.setup.activate': () => ({ ok: true }),
+  });
+  try {
+    await engine.prepare();
+    let shown!: (v: SignInView) => void;
+    const waiting = new Promise<SignInView>(resolve => { shown = resolve; });
+    const drive = signIn(ctx(fake, { nativeClaudeLogin: () => engine.nativeClaudeLogin(), restarted: async () => false }),
+      'm1', { authChoice: 'anthropic-cli' }, v => { if (v.url) shown(v); });
+    await Promise.race([waiting, drive.done]);
+    drive.paste('synthetic-code');
+    assert.deepEqual(await drive.done, { state: 'failed', via: 'browser', why: 'failed', error: words('signin.savedNotRestarted') });
+    assert.equal(fake.methods().filter(m => m === 'openclaw.setup.activate').length, 1, 'the route was activated before the restart ran late');
+    assert.equal(readFileSync(granted, 'utf8'), 'signed in', 'the native grant is kept for the retry');
+  } finally { await engine.stop(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a phone cancel before detection starts a Claude sign-in never activates it', async () => {
+  const fake = scripted({
+    'openclaw.setup.detect': () => ({ candidates: [{ kind: 'claude-cli', credentials: true }] }),
+    'openclaw.setup.activate': () => ({ ok: true }),
+  });
+  const drive = signIn(ctx(fake), 'm1', { authChoice: 'anthropic-cli' }, () => {});
+  drive.cancel();
+  assert.deepEqual(await drive.done, { state: 'failed', via: 'browser', why: 'declined', error: words('signin.cancelled') });
+  assert.equal(fake.methods().includes('openclaw.setup.activate'), false);
+});
+
+test('a phone cancel during a pending detection never activates the route it finds', async () => {
+  let answerDetect: ((value: unknown) => void) | undefined;
+  let detectSignal: AbortSignal | undefined;
+  const fake = scripted({
+    'openclaw.setup.detect': (_, o) => new Promise(resolve => { answerDetect = resolve; detectSignal = o.signal; }),
+    'openclaw.setup.activate': () => ({ ok: true }),
+  });
+  const drive = signIn(ctx(fake), 'm1', { authChoice: 'anthropic-cli' }, () => {});
+  for (let i = 0; !answerDetect && i < 300; i++) await delay(10);
+  assert.ok(answerDetect, 'detection is pending when the phone cancels');
+  drive.cancel();
+  assert.equal(detectSignal?.aborted, true, 'the cancel aborts the pending detection');
+  answerDetect({ candidates: [{ kind: 'claude-cli', credentials: true }] });
+  assert.deepEqual(await drive.done, { state: 'failed', via: 'browser', why: 'declined', error: words('signin.cancelled') });
+  assert.equal(fake.methods().includes('openclaw.setup.activate'), false);
+});
+
+for (const confirmed of [true, false]) test(`a phone cancel after activation started leaves the saved result (restart ${confirmed ? 'confirmed' : 'late'})`, { timeout: 15_000 }, async () => {
+  let finishRestart: ((ok: boolean) => void) | undefined;
+  const fake = scripted({
+    'openclaw.setup.detect': () => ({ candidates: [{ kind: 'claude-cli', credentials: true }] }),
+    'openclaw.setup.activate': () => ({ ok: true }),
+  });
+  const restarted = () => new Promise<boolean>(resolve => { finishRestart = resolve; });
+  const drive = signIn(ctx(fake, { restarted }), 'm1', { authChoice: 'anthropic-cli' }, () => {});
+  for (let i = 0; !finishRestart && i < 300; i++) await delay(10);
+  assert.ok(finishRestart, 'the route is activated and its restart is pending');
+  drive.cancel();
+  finishRestart(confirmed);
+  assert.deepEqual(await drive.done, confirmed
+    ? { state: 'done', via: 'browser' }
+    : { state: 'failed', via: 'browser', why: 'failed', error: words('signin.savedNotRestarted') });
 });
 
 test('a sealed engine creates its own home for a phone Claude sign-in instead of failing it', { timeout: 30_000 }, async () => {

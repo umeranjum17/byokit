@@ -253,6 +253,7 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     }
     if (signal?.aborted) { unlock?.(); await cli.cancel(id); return fail(provider, 'cancelled'); }
     const child = spawn(signIn.argv[0], signIn.argv.slice(1), { env: signIn.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    child.stdin?.on('error', () => {});
     // The host owns admission from claim until row settlement, with no child-exit holder rewrite.
     const exit = new Promise<void>((resolve) => {
       child.once('exit', (code) => { session.exited = code; resolve(); });

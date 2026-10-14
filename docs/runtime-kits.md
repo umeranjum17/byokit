@@ -765,7 +765,18 @@ the kit starts unmodified `claude auth login --claudeai` in the exact engine HOM
 using Accounts' remote CLI driver and a narrow `cliAccounts.managedFolders` option, restricted to explicit
 app-owned folders inside its state directory. Its roster references that exact folder, never a second grant.
 Cancellation removes only roster/marker bookkeeping, never the engine folder. During settlement a ready native
-status wins over a phone cancel: the result and row stay ready. The kit also waits for that native result instead of publishing a declined view early; a ready result still requires successful engine detection and activation/restart before done, even if phone cancel landed. Host shutdown still wins over late status, and a stopped engine cannot proceed into activation after shutdown. The native host exposes its single lifetime `AbortSignal`; `close()` aborts it before awaiting cleanup, and the drive checks it immediately before activation and passes it through activation/restart. A ready native row may be activated without a new login: an `already` result proceeds to engine detection. If the engine still reports signed out, the engine clears only that stale ready Claude roster row (not its managed folder or grant) and starts one fresh native login; it never loops automatic logins. The engine verifies readiness
+status wins over a phone cancel at the host: the row stays ready. The native host exposes its single lifetime `AbortSignal`; `close()` aborts it before awaiting cleanup.
+The `anthropic-cli` and key-entry drives have one commit point, the `setup.activate` call:
+1. Prepare: detection (`setup.detect`, passed the phone signal), the native login, or the key paste. A phone cancel,
+   or host shutdown, here ends `why: 'declined'` once the native login is released; nothing is activated.
+2. Commit: immediately before `setup.activate`, a phone cancel or host shutdown that has landed still ends declined
+   with no activation call. Otherwise the drive is committed and calls `setup.activate` once.
+3. After commit a phone cancel no longer affects the result; the drive settles on the engine's answer. A refusal is
+   `failed` with its words; an ok activation is `done` once its restart is confirmed, or, when the restart runs late (for Claude
+   also when host shutdown ends the wait; a key's wait has no host signal), `failed` with the saved words: `signin.savedNotRestarted` for Claude (the route is
+   persisted), the shared `LATE_RESTART` text for a key (the add path cleans it up). Never declined after commit.
+`cancel()` always settles `done` exactly once: before commit as soon as the native login is released, after it on
+the engine's answer. A ready native row may be activated without a new login: an `already` result proceeds to engine detection. If the engine still reports signed out, the engine clears only that stale ready Claude roster row (not its managed folder or grant) and starts one fresh native login; it never loops automatic logins. The engine verifies readiness
 again after the native login finishes. The waiting view carries the native verification address and a plain paste-code
 prompt. `paste` writes one returned code to that CLI's stdin; cancel/expiry stop only that login. CLI output
 and credentials are never forwarded, logged, copied or read by the kit. A successful native exit is checked
@@ -803,9 +814,8 @@ A `keyEntry` choice (a plan key such as `opencode-go`) never starts the wizard, 
 the agent's model. A failed key-entry sign-in shows only the kit's words (`API key activation failed`, or `This key type is not available on this engine.` when the engine refuses the key type); the engine's text never reaches the view. Activation (this one and `anthropic-cli`'s) writes
 `auth`, which the pin applies by restarting the gateway once its requests drain; when the activation changed config
 `auth` and a spawned engine restarts for it, `done` waits for that restart to begin and the kit to be ready again,
-within 60 s (event-driven, not polled). Past that the sign-in ends `why: 'failed'` with the words that the engine took too long and to try again (cancelled
-during the wait it ends `why: 'declined'`), and the add is cleaned up either way: a new agent is discarded, a member agent
-clears only this provider's profile and its index entry. The same wait and cleanup apply to `addKey` (below). A cancel during the activation request waits for the engine's answer before the cleanup, and ends `why: 'declined'`. Adds of one provider for one member take turns until each settles. Done means sealed.
+within 60 s (event-driven, not polled). Past that the sign-in ends `why: 'failed'` with the late-restart words above, and the add is cleaned up: a new agent is discarded, a member agent
+clears only this provider's profile and its index entry. The same wait and cleanup apply to `addKey` (below). A cancel after the activation call does not change the result (the commit point above). Adds of one provider for one member take turns until each settles. Done means sealed.
 A run started on done uses the new sign-in.
 A run prepares its models from configured facts and the static catalog only (the pin's run path; live discovery
 feeds `models.list view: 'all'`, never a run): a live-only OpenCode Go model (Muse) resolves once
@@ -1400,6 +1410,7 @@ export declare function openNotice(data: Record<string, unknown>, seed: Uint8Arr
 | `signin.returned` | Thanks. Finishing the sign-in — you can go back to the app now. |
 | `signin.busy` | Another sign-in is already in progress. Finish or cancel it, then try again. |
 | `signin.cancelled` | Sign-in cancelled. You can start again whenever you are ready. |
+| `signin.savedNotRestarted` | Your Claude sign-in was saved, but the engine did not restart in time. Try again. |
 | `signin.expired` | The sign-in took too long. Start it again. |
 | `approval.ask` | {helper} wants to {summary}. Allow it? |
 | `approval.expired` | Nobody answered in time, so this wasn't allowed. |

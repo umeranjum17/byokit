@@ -636,6 +636,32 @@ test('managed folders are Claude-only; a Codex folder is refused', () => {
     managedFolders: { codex: join(stateDir, 'codex', 'managed') } } as never), { code: 'bad-option' });
 });
 
+test('a paste into a native child that already closed its stdin fails plainly and cannot crash the host', { timeout: 10_000 }, async () => {
+  const root = scratchDir('remote-stdin-closed');
+  const bin = join(root, 'bin'); mkdirSync(bin);
+  const closed = join(root, 'stdin-closed');
+  writeFileSync(join(bin, 'claude'), `#!${process.execPath}
+const fs = require('node:fs');
+console.log('If the browser did not open, visit: https://claude.example.test/authorize');
+fs.closeSync(0);
+fs.writeFileSync(${JSON.stringify(closed)}, '');
+setInterval(() => {}, 1000);
+`, { mode: 0o700 });
+  const { host } = kitAndHost(root, { claude: join(bin, 'claude') });
+  try {
+    const started = await host.start('claude');
+    assert.ok(started.ok);
+    for (let i = 0; !existsSync(closed) && i < 300; i++) await delay(10);
+    let problem: unknown;
+    for (let i = 0; i < 300 && problem === undefined; i++) {
+      await host.paste(started.signIn.id, 'late-code').catch((error: { remoteCliProblem?: unknown }) => { problem = error.remoteCliProblem ?? 'other'; });
+      await delay(10);
+    }
+    assert.equal(problem, 'failed', 'the broken pipe is a plain failed paste, not an uncaught stream error');
+    await host.cancel(started.signIn.id);
+  } finally { await host.close(); }
+});
+
 test('a login that prints no code fails to start without a row', async () => {
   const root = scratchDir('remote-silent');
   const codex = fakeCodex(join(root, 'bins'));
