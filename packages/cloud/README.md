@@ -218,6 +218,41 @@ export async function connect(
 }
 ```
 
+## Enrol the owner's phone
+
+`pairEnrol(m, recipe, phoneKey)` is the `setup()` `pair` gate for exact-phone enrollment: it hands
+the one authenticated phone's 32-byte public key to the machine through provider delivery
+(`deliverPhoneKey`, inbox file `phone.bin` at 0600), and the machine's host process binds it with
+`Host.enrol` (`bindPhoneKey`). No new pairing crypto, and the key never travels in `run.env`,
+`run.argv`, logs or error text, so the recipe guard keeps refusing `KEY`-looking names unchanged.
+The first phone wins and the binding survives restarts: the same key rebinds idempotently while any
+other key is refused. Shown with the existing `setup.pairing` words.
+
+```ts
+import { machine, pairEnrol, setup, type HostRecipe, type MachineRef, type MachineStore, type Provider } from '@byokit/cloud';
+
+export async function connectPhone(
+  provider: Provider, store: MachineStore, recipe: HostRecipe,
+  pick: (listed: MachineRef[]) => MachineRef, confirmId: string, phoneKey: Uint8Array,
+) {
+  const m = machine({ provider, store });
+  for await (const s of setup({ provider, store, recipe, pick, confirmId, pair: pairEnrol(m, recipe, phoneKey) })) {
+    if (s.step === 'ready') return s.ref;
+    if (s.step === 'failed') throw new Error(s.at);
+  }
+  throw new Error('connect ended without ready');
+}
+```
+
+```ts
+import { bindPhoneKey } from '@byokit/cloud';
+import { Host } from '@byokit/pair';
+
+export async function bindOwner(host: Host, delivered: Uint8Array) {
+  return bindPhoneKey(host, delivered, 'Phone'); // { id, bound }: false when this phone was already bound
+}
+```
+
 ## Link without pasting a key
 
 `claim({ baseUrl, email })` links the provider account through the provider's own
