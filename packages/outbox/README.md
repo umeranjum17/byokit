@@ -68,12 +68,17 @@ await outbox.close();
 
 A queue without a `sender` parks: enqueue and cancel work, `flush` rejects `unavailable`.
 
+Pass an optional `requestId` (non-empty string, same length rule as `kind`) when the caller may
+retry the same enqueue — for example after a phone reconnect. If any entry already carries that id,
+in any state including `sent`, `enqueue` returns that entry and writes nothing; the id is persisted
+with no expiry. Entries without a `requestId` behave exactly as before.
+
 ## API
 
 | member | what it does |
 |---|---|
 | `Outbox.open({ stateDir, sender?, now?, log? })` | Open or create the store. A malformed store rejects `invalid`; it is never reset. |
-| `enqueue({ kind, payload }, { signal? })` | Queue a message. `payload` must be JSON; it is stored as its JSON round-trip and the kit never reads it. Returns the entry (`revision: 1`). |
+| `enqueue({ kind, payload, requestId? }, { signal? })` | Queue a message. `payload` must be JSON; it is stored as its JSON round-trip and the kit never reads it. Optional `requestId` makes a retried enqueue return the existing entry (any state) instead of adding another. Returns the entry (`revision: 1` when newly queued). |
 | `get(id)` / `list()` | Snapshots of the last persisted state, in enqueue order. |
 | `cancel(id, { revision })` | `{ ok: true, entry }` while queued **or claimed-not-yet-invoked** — the sender will never see it; `{ ok: false, code: 'too-late' }` once the sender was invoked or the message settled; `{ ok: false, code: 'unknown' }` for a send interrupted by an earlier process; rejects `stale-revision` for an older revision, `not-found` for a missing id. |
 | `flush({ signal? })` | Send every queued message in order, one claim at a time, through the two serialized steps above. Sender rejections are recorded as `failed` and never retried by the kit. `signal` stops further claims; an in-flight send still records its outcome before the call rejects. |

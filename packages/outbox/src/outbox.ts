@@ -35,6 +35,11 @@ export type OutboxEntry = {
   seq: number;
   createdAt: number;
   updatedAt: number;
+  /**
+   * Optional caller-chosen id for retry-safe enqueue. Same length rule as `kind`. When set, a later
+   * `enqueue` with the same id returns this entry (any state) and adds nothing. Persisted with no expiry.
+   */
+  requestId?: string;
   /** Set when the sender resolved. A send that resolved is not a delivery claim. */
   sentAt?: number;
   /** Whatever the sender resolved with, when it is JSON. */
@@ -117,8 +122,10 @@ function entryOf(raw: unknown): OutboxEntry | null {
     !integer(raw.revision) || raw.revision < 1 || !integer(raw.seq) || raw.seq < 1 || !count(raw.createdAt) || !count(raw.updatedAt)) return null;
   if (raw.sentAt !== undefined && !count(raw.sentAt)) return null;
   if (raw.failure !== undefined && (typeof raw.failure !== 'string' || raw.failure.length > 4096)) return null;
+  if (raw.requestId !== undefined && !text(raw.requestId)) return null;
   const entry = { id: raw.id, kind: raw.kind, payload: raw.payload, state: raw.state as OutboxState, revision: raw.revision,
     seq: raw.seq, createdAt: raw.createdAt, updatedAt: raw.updatedAt } as OutboxEntry;
+  if (raw.requestId !== undefined) entry.requestId = raw.requestId;
   if (raw.receipt !== undefined) entry.receipt = raw.receipt;
   if (raw.sentAt !== undefined) entry.sentAt = raw.sentAt;
   if (raw.failure !== undefined) entry.failure = raw.failure;
@@ -180,7 +187,8 @@ export class Outbox {
     for (const item of raw.entries) {
       const entry = entryOf(item);
       if (!entry) throw new OutboxError('invalid', 'the outbox store holds a malformed message');
-      if (entries.some((other) => other.id === entry.id || other.seq === entry.seq)) {
+      if (entries.some((other) => other.id === entry.id || other.seq === entry.seq ||
+        (entry.requestId !== undefined && other.requestId === entry.requestId))) {
         throw new OutboxError('invalid', 'the outbox store holds duplicate messages');
       }
       entries.push(entry);
@@ -191,15 +199,32 @@ export class Outbox {
     return made;
   }
 
-  /** Queue a message. It leaves only through `flush`, unless it is cancelled first. */
-  async enqueue(input: { kind: string; payload: unknown }, o: { signal?: AbortSignal } = {}): Promise<OutboxEntry> {
+  /**
+   * Queue a message. It leaves only through `flush`, unless it is cancelled first.
+   * Optional `requestId` (same length rule as `kind`) makes enqueue retry-safe: if any entry already
+   * carries that id, in any state, this returns that entry and writes nothing. Entries without a
+   * `requestId` behave exactly as before.
+   */
+  async enqueue(input: { kind: string; payload: unknown; requestId?: string }, o: { signal?: AbortSignal } = {}): Promise<OutboxEntry> {
     o.signal?.throwIfAborted();
     this.#live('enqueue');
     if (!object(input) || !text(input.kind)) throw new TypeError('enqueue: kind must be a non-empty string of at most 512 characters');
+    if (input.requestId !== undefined && !text(input.requestId)) {
+      throw new TypeError('enqueue: requestId must be a non-empty string of at most 512 characters');
+    }
     const payload = storable(input.payload, 'enqueue: payload');
+    const requestId = input.requestId;
     return this.#run(() => {
+      if (requestId !== undefined) {
+        for (const existing of this.#entries.values()) {
+          if (existing.requestId === requestId) return { ...existing };
+        }
+      }
       const now = this.#now();
-      const entry: OutboxEntry = { id: randomUUID(), kind: input.kind, payload, state: 'queued', revision: 1, seq: this.#nextSeq, createdAt: now, updatedAt: now };
+      const entry: OutboxEntry = {
+        id: randomUUID(), kind: input.kind, payload, state: 'queued', revision: 1, seq: this.#nextSeq,
+        createdAt: now, updatedAt: now, ...(requestId === undefined ? {} : { requestId }),
+      };
       this.#write([...this.#entries.values(), entry], this.#nextSeq + 1);
       this.#entries.set(entry.id, entry);
       this.#nextSeq += 1;
