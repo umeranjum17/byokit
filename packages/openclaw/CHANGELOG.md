@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.13.0 (2026-10-14)
+
+- FEAT: OpenClaw kit S8 `kit.removeAccount(member, id)`: a member-agent account goes through `models.authLogout` with its sealed profileIds, then an empty provider `list` (still listed stops with nothing dropped and says the account is still signing in), then its entry is dropped; an account agent goes through `byokit.accounts clear`, an empty `list` (a profile still listed after clear stops with nothing deleted and says the account is still signing in), `agents.delete` with `deleteFiles: false`, removal of its `<root>/state/agents/<agent>` dir, then the entry. Removal is refused `busy` while a run holds the agent and the member stays ready. On every `prepare` and after the sealed auth store restores, the kit removes each `<member>--<hex6>` state dir that a removal recorded as gone and no index names; a legacy member's own dir is never recorded and stays. `byokit.accounts clear` takes an optional `provider` that clears only that provider; a seal failure on a member-agent sign-in clears only that provider, and when that clear is refused the add reports failed with its credential still on the member agent.
+- SECURITY: `kit.removeAccount` re-seals the live credential store at once while the engine runs, so `auth-store.sealed` and `auth-store.objects/` stop holding the removed profile immediately instead of keeping it until the next stop; a late engine write of the removed agent is swept on the next `prepare` or sealed restore. Durable removal tombstones also exclude late refreshes from stop-time sealing and prune removed-agent entries and objects from older sealed stores before restore.
+- FIX: Changing the wrap mode (for example turning on dual wrapping) now reseals every engine store under the new mode on the next stop, including unchanged ones, so a later restore with the OS keyring locked opens them. Since 0.12.0 unchanged stores kept their old keyring-only wrap and that restore failed with `AuthStoreUnreadableError` (`invalid-snapshot`).
+
 ## 0.12.0 (2026-10-13)
 
 - FIX: an unsealed API key that a failed `addKey` could not clear (the gateway refused the clear after a restart ran late) is now dropped at the kit's first ready after start, so it no longer stays in the member's `byokit-key-<member>` store until the next add. A key whose ready marker exists is never cleared, and a sweep the gateway interrupts runs again on the next ready.
