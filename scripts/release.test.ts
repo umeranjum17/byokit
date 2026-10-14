@@ -1,8 +1,8 @@
-// Tests for scripts/release.ts: cascade, order and release notes, plus the lint
-// and prepare CLIs in a throwaway git repo. No network.
+// Tests for scripts/release.ts: cascade, order and release notes, plus the lint,
+// prepare and publish CLIs in a throwaway git repo. No network.
 import { strict as assert } from "node:assert";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -213,4 +213,59 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
     ]);
     assert.equal(git("status", "--porcelain").trim(), "");
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// A throwaway repo whose local origin/main sits one merge ahead of a detached
+// HEAD: the state the publish step of a workflow_run finds when a later merge
+// landed on main after that run's CI passed.
+function supersededRepo(): { dir: string; originMain: string; git: (...args: string[]) => string; run: (env?: Record<string, string>) => SpawnSyncReturns<string> } {
+  // The bare remote sits outside the repo, where `git status` cannot see it.
+  const parent = mkdtempSync(join(tmpdir(), "release-publish-"));
+  const dir = join(parent, "repo");
+  const bare = join(parent, "origin.git");
+  mkdirSync(join(dir, "scripts"), { recursive: true });
+  copyFileSync(join(root, "scripts/release.ts"), join(dir, "scripts/release.ts"));
+  assert.equal(spawnSync("git", ["init", "-q", "--bare", bare]).status, 0);
+  const git = (...args: string[]): string => {
+    const r = spawnSync("git", ["-c", "user.name=Umer", "-c", "user.email=umer@example.invalid", "-c", "commit.gpgsign=false", ...args], { cwd: dir, encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout.trim();
+  };
+  git("init", "-q", "-b", "main");
+  git("remote", "add", "origin", bare);
+  git("add", "."); git("commit", "-qm", "base");
+  git("push", "-q", "origin", "main");
+  git("commit", "-q", "--allow-empty", "-m", "later merge on main");
+  const originMain = git("rev-parse", "HEAD");
+  git("push", "-q", "origin", "main");
+  git("checkout", "-q", "HEAD~1"); // detached at the sha CI passed, before the later merge
+  const run = (env: Record<string, string> = {}): SpawnSyncReturns<string> =>
+    spawnSync(process.execPath, ["scripts/release.ts", "publish"], { cwd: dir, encoding: "utf8", env: { ...process.env, ...env } });
+  return { dir, originMain, git, run };
+}
+
+test("publish CLI exits clean when a later merge supersedes the workflow_run sha", () => {
+  const repo = supersededRepo();
+  try {
+    const superseded = repo.run({ GITHUB_EVENT_NAME: "workflow_run" });
+    assert.equal(superseded.status, 0, superseded.stderr);
+    assert.match(superseded.stdout, new RegExp(`superseded by ${repo.originMain}`));
+  } finally { rmSync(repo.dir, { recursive: true, force: true }); }
+});
+
+test("publish CLI still fails every other HEAD mismatch", () => {
+  const repo = supersededRepo();
+  try {
+    // A manual dispatch on the same stale sha still fails, as a head not on main does.
+    for (const env of [{ GITHUB_EVENT_NAME: "workflow_dispatch" }, {}]) {
+      const refused = repo.run(env);
+      assert.equal(refused.status, 1);
+      assert.match(refused.stderr, /publish refuses: HEAD != origin\/main/);
+    }
+    repo.git("checkout", "-q", "-b", "off-main");
+    repo.git("commit", "-q", "--allow-empty", "-m", "commit never merged");
+    const offMain = repo.run({ GITHUB_EVENT_NAME: "workflow_run" });
+    assert.equal(offMain.status, 1);
+    assert.match(offMain.stderr, /publish refuses: HEAD != origin\/main/);
+  } finally { rmSync(repo.dir, { recursive: true, force: true }); }
 });
