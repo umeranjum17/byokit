@@ -1,0 +1,1 @@
+- FEAT: Managed CLI `pick(provider, { prefer? })` chooses the `ready`, not-resting account with the most room from `@byokit/usage` (Claude `{folder, headers}`, Codex `usageSource`), lets `prefer` win, ranks an unknown reading after a known one and keeps list order on ties, and returns every row with its reading (`room`, `windows`, `readAt`) for the pool view.
