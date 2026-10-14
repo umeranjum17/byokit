@@ -110,6 +110,7 @@
   "account.another": "another account",
   "account.signOutFirst": "To add a different {provider} account, sign out of {provider} in your browser first.",
   "account.legacyMember": "This person needs a new profile before adding more accounts.",
+  "account.indexDamaged": "The account list for {member} couldn't be opened, so those accounts are paused. Add the account again to fix this.",
   "move.unsupported": "This conversation has not started yet, so there is nothing to move.",
   "move.busy": "Wait for this conversation to finish before moving it.",
   "move.notReady": "Sign in to {name} first.",

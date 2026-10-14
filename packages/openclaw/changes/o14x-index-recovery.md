@@ -1,0 +1,1 @@
+- FIX: A damaged `accounts/<member>.json` index now quarantines only that member: its agents are held back (never restored, swept or resealed away) while the other members restore, start and persist normally, the kit reports words `account.indexDamaged`, and a re-add rewrites a good index. A removed account's data still never returns through the gap.

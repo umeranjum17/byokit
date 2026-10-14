@@ -84,11 +84,7 @@ const priorOf = (model: unknown): string => {
 };
 
 const indexPath = (root: string, member: Member): string => join(root, 'accounts', `${member}.json`);
-const readIndex = (root: string, member: Member): IndexFile => {
-  let text: string;
-  try { text = readFileSync(indexPath(root, member), 'utf8'); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return empty(); throw error; }
-  const file = JSON.parse(text) as Partial<IndexFile>;
+const normalizeIndex = (file: Partial<IndexFile>): IndexFile => {
   if (!file || typeof file !== 'object' || file.v !== 1) return empty();
   const accounts: Record<string, IndexEntry> = {};
   for (const [id, entry] of Object.entries(file.accounts ?? {})) if (validEntry(entry)) accounts[id] = entry;
@@ -100,6 +96,27 @@ const readIndex = (root: string, member: Member): IndexFile => {
   const gone = Array.isArray(file.gone) ? file.gone.filter((a): a is string => typeof a === 'string' && ACCOUNT_AGENT.test(a)) : [];
   return { v: 1, accounts, defaults, ...(gone.length ? { gone } : {}) };
 };
+/** Load one member's index. `damaged` means the file exists but is not JSON; the bytes are left alone for repair. */
+export function loadIndex(root: string, member: Member): { file: IndexFile; damaged: boolean } {
+  let text: string;
+  try { text = readFileSync(indexPath(root, member), 'utf8'); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { file: empty(), damaged: false }; throw error; }
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); }
+  catch { return { file: empty(), damaged: true }; }
+  return { file: normalizeIndex(parsed as Partial<IndexFile>), damaged: false };
+}
+const readIndex = (root: string, member: Member): IndexFile => {
+  const loaded = loadIndex(root, member);
+  if (loaded.damaged) throw new Error(words('account.indexDamaged', { member }));
+  return loaded.file;
+};
+/** True when `agent` is the member agent or an `<member>--<hex6>` account agent of a damaged index. */
+export function heldBackAgent(agent: string, damaged: ReadonlySet<string>): boolean {
+  if (damaged.has(agent)) return true;
+  if (!ACCOUNT_AGENT.test(agent)) return false;
+  return damaged.has(agent.slice(0, agent.lastIndexOf('--')));
+}
 
 // Attribution (5.15, O14m): the member an agent id or `agent:<agent>:<tail>` session key belongs to. A member agent is its
 // own, and so is an agent whose workspace the kit created for it (a legacy member id may end in `--<hex6>`); any other
@@ -118,35 +135,53 @@ export function memberOfAccount(root: string, ref: string): Member | undefined {
   }
 }
 
-// Every agent any member's index names. An index that cannot be read or parsed throws: its accounts are unknown,
-// so no sweep may run.
-function indexedAgents(root: string): { named: Set<string>; gone: Set<string> } {
+// Every agent any readable member's index names. An unreadable `accounts/<member>.json` quarantines only that
+// member (held back: not restored, not swept, not resealed away); other members keep restoring, starting and
+// persisting. The damaged file is never deleted — re-add rewrites a good index.
+function indexedAgents(root: string): { named: Set<string>; gone: Set<string>; damaged: Set<string> } {
   const named = new Set<string>();
   const gone = new Set<string>();
+  const damaged = new Set<string>();
   let files: string[];
   try { files = readdirSync(join(root, 'accounts')); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { named, gone }; throw error; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { named, gone, damaged }; throw error; }
   for (const file of files) {
     if (!file.endsWith('.json')) continue;
+    const member = file.slice(0, -'.json'.length);
+    let text: string;
+    try { text = readFileSync(join(root, 'accounts', file), 'utf8'); }
+    catch { if (MEMBER_ID.test(member)) damaged.add(member); continue; }
     let parsed: Partial<IndexFile>;
-    try { parsed = JSON.parse(readFileSync(join(root, 'accounts', file), 'utf8')) as Partial<IndexFile>; }
-    catch (error) { throw new Error(`account index is unreadable: accounts/${file}`, { cause: error }); }
+    try { parsed = JSON.parse(text) as Partial<IndexFile>; }
+    catch {
+      if (MEMBER_ID.test(member)) damaged.add(member);
+      continue;
+    }
     for (const entry of Object.values(parsed.accounts ?? {})) if (typeof entry?.agent === 'string') named.add(entry.agent);
     for (const agent of Array.isArray(parsed.gone) ? parsed.gone : []) if (typeof agent === 'string') gone.add(agent);
   }
-  return { named, gone };
+  return { named, gone, damaged };
+}
+
+/** Members whose `accounts/<member>.json` exists but is not readable JSON. */
+export function damagedAccountMembers(root: string): Set<string> {
+  return indexedAgents(root).damaged;
 }
 
 // Durable removal tombstones, except ids an index now names again. Shared by the live and sealed-store sweeps.
+// A damaged member contributes no tombstones and never expands the blast radius of another member's removal.
 export function removedAccountAgents(root: string): Set<string> {
-  const { named, gone } = indexedAgents(root);
-  return new Set([...gone].filter((agent) => ACCOUNT_AGENT.test(agent) && !named.has(agent)));
+  const { named, gone, damaged } = indexedAgents(root);
+  return new Set([...gone].filter((agent) => ACCOUNT_AGENT.test(agent) && !named.has(agent) && !heldBackAgent(agent, damaged)));
 }
 
 // Removes each `<root>/state/agents/<member>--<hex6>` directory that a removal recorded as gone and no index names.
 // Only recorded directories go: a legacy member's own directory is never recorded, so it stays. The directories are
-// listed before the index is read: each listed one was created after its entry was written.
-export function sweepOrphans(root: string): void {
+// listed before the index is read: each listed one was created after its entry was written. Damaged members' agents
+// are never swept (their gone list is unknown); `log` reports each damaged index once.
+export function sweepOrphans(root: string, log?: (line: string) => void): void {
+  const { damaged } = indexedAgents(root);
+  for (const member of damaged) log?.(words('account.indexDamaged', { member }));
   let dirs: string[];
   try { dirs = readdirSync(join(root, 'state', 'agents')); }
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
@@ -182,7 +217,15 @@ export function createAccounts(ctx: {
   remove(member: Member, id: AccountId): Promise<void>;
 } {
   const path = (member: Member): string => indexPath(ctx.root, member);
-  const read = (member: Member): IndexFile => readIndex(ctx.root, member);
+  const read = (member: Member): IndexFile => {
+    const loaded = loadIndex(ctx.root, member);
+    if (loaded.damaged) {
+      const message = words('account.indexDamaged', { member });
+      ctx.log?.(message);
+      throw new Error(message);
+    }
+    return loaded.file;
+  };
   // Accounts whose sign-in is running, as `<member>\n<id>`, counted per add: listed `signing` until the last one ends.
   const signing = new Map<string, number>();
   // The index file's own lock, apart from any agent's: a run's shared hold on the member agent never blocks an edit.
@@ -573,9 +616,16 @@ export function createAccounts(ctx: {
     edit(member, (file) => { const entry = file.accounts[id]; if (entry) entry.until = until; });
 
   const agentDir = (agent: string): string => join(ctx.root, 'state', 'agents', agent);
-  // Index edits take the index lock, as listing's own write does.
+  // Index edits take the index lock, as listing's own write does. A damaged index starts empty and is rewritten
+  // (re-add's repair path); the bad bytes are replaced, never left as the live index after a successful write.
   const edit = (member: Member, fn: (file: IndexFile) => void): Promise<void> =>
-    ctx.locks.exclusive([indexLock(member)], async () => { const file = read(member); fn(file); write(member, file); });
+    ctx.locks.exclusive([indexLock(member)], async () => {
+      const loaded = loadIndex(ctx.root, member);
+      if (loaded.damaged) ctx.log?.(words('account.indexDamaged', { member }));
+      const file = loaded.damaged ? empty() : loaded.file;
+      fn(file);
+      write(member, file);
+    });
   const identityOf = async (agentId: string): Promise<string | undefined> => {
     const { file } = await ctx.request('agents.files.get', { agentId, name: IDENTITY }) as { file: { missing?: boolean; content?: string } };
     return file.missing ? undefined : file.content;
