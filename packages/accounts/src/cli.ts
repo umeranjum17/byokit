@@ -291,16 +291,16 @@ export function cliAccounts(options: CliOptions) {
       return { ...account, name: r.name.trim() || (r.provider === 'pi' ? account.name : suggestName(info.email, r.provider)), state: info.signedIn ? 'ready' : signing && !info.why ? 'signing' : 'signed_out', ...(info.why ? { why: info.why } : {}), ...(info.email ? { email: info.email } : {}), ...(info.plan ? { plan: info.plan } : {}) };
     });
   }
-  // A managed folder stays for the runtime, but its login files go with the account.
-  function forget(r: Row) {
+  function discard(r: Row, login: boolean) {
     if (managed(r)) {
       rmSync(pending(r), { force: true }); rmSync(complete(r), { force: true });
-      for (const file of ['.credentials.json', '.claude.json']) rmSync(join(r.folder, file), { force: true });
+      if (login) for (const file of ['.credentials.json', '.claude.json']) rmSync(join(r.folder, file), { force: true });
     } else rmSync(r.folder, { recursive: true, force: true });
   }
-  async function remove(id: string) {
-    return serial(id, async () => { const r = row(id); forget(r); save(load().filter((v) => v.id !== id), r.provider); created.delete(id); });
+  async function drop(id: string, login: boolean) {
+    return serial(id, async () => { const r = row(id); discard(r, login); save(load().filter((v) => v.id !== id), r.provider); created.delete(id); });
   }
+  function remove(id: string) { return drop(id, true); }
   type Added = { account: CliAccount; signIn: SignInCommand };
   function add(provider: 'pi', metadata: { piProvider: PiProvider }): Promise<Added>;
   function add(provider: 'claude' | 'codex'): Promise<Added>;
@@ -321,7 +321,7 @@ export function cliAccounts(options: CliOptions) {
       if (!safe(r)) throw new CliAccountError('prepare-failed');
       save([...load(), r], provider); created.add(r.id);
       return { account: { id: r.id, provider, name: r.name || (provider === 'pi' ? piRoutes.find(v => v.upstream.id === r.piProvider)!.name : suggestName(undefined, provider)), billing: 'subscription', state: 'signing', ...(r.piProvider ? { piProvider: r.piProvider } : {}), ...(r.adoptedFrom ? { adoptedFrom: r.adoptedFrom } : {}), addedAt: r.addedAt }, signIn };
-    } catch { forget(r); throw new CliAccountError('prepare-failed'); }
+    } catch { discard(r, false); throw new CliAccountError('prepare-failed'); }
   }
   return {
     list: async (): Promise<CliAccount[]> => Promise.all(load().filter((r) => !r.found && !r.id.startsWith('found-')).map((r) => status(r.id))),
@@ -345,7 +345,7 @@ export function cliAccounts(options: CliOptions) {
     },
     status,
     async cancel(id: string): Promise<{ removed: boolean }> {
-      if (created.has(id)) { await remove(id); return { removed: true }; }
+      if (created.has(id)) { await drop(id, false); return { removed: true }; }
       return serial(id, async () => { const r = row(id); rmSync(pending(r), { force: true }); return { removed: false }; });
     },
     async rename(id: string, name: string): Promise<CliAccount> {

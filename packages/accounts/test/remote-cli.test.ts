@@ -728,3 +728,25 @@ test('removing a managed Claude account deletes its login files and keeps the fo
   assert.equal(existsSync(folder), true);
   assert.deepEqual(await cli.list(), []);
 });
+
+test('a login whose status does not confirm keeps its login files', { timeout: 10_000 }, async () => {
+  const root = scratchDir('remote-unconfirmed-keeps-login');
+  const bins = join(root, 'bins'); mkdirSync(bins, { recursive: true });
+  const bin = join(bins, 'claude-unconfirmed');
+  const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
+  const home = join(stateDir, 'home'); mkdirSync(home);
+  const folder = join(home, '.claude');
+  writeFileSync(bin, `#!${process.execPath}
+const fs = require('node:fs');
+if (process.argv[2] === 'auth' && process.argv[3] === 'login') fs.writeFileSync(${JSON.stringify(join(folder, '.credentials.json'))}, '{}');
+if (process.argv[2] === 'auth' && process.argv[3] === 'status') console.log(JSON.stringify({ loggedIn: false }));
+`, { mode: 0o755 });
+  const cli = cliAccounts({ stateDir, bins: { claude: bin }, env: { HOME: home, PATH: '/unused' }, managedFolders: { claude: folder } });
+  const host = remoteCliHost({ cli, bins: { claude: bin }, waitCapMs: 60_000 });
+  try {
+    const started = await host.start('claude');
+    assert.equal(started.ok ? 'ok' : started.error, 'failed');
+    assert.equal(existsSync(join(folder, '.credentials.json')), true, 'the unconfirmed login is not destroyed');
+    assert.deepEqual(await cli.list(), []);
+  } finally { await host.close(); }
+});
