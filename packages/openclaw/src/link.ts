@@ -328,24 +328,17 @@ export function openclawLink(
         // A superseded attempt (still activating past its commit point) never writes over the newer one's view.
         let drive: ReturnType<OpenClawKit['signIn']> | undefined;
         const current = () => drive !== undefined && drives.get(key) === drive;
-        drive = kit.signIn(member, { authChoice: route.choice, via: args.via }, (next) => {
-          if (current()) latest.set(key, next);
-        });
+        drive = kit.signIn(member, { authChoice: route.choice, via: args.via }, (next) => { if (current()) latest.set(key, next); });
         drives.set(key, drive);
-        void drive.done.then(
-          (done) => { if (current()) { latest.set(key, done); drives.delete(key); } },
-          () => { if (current()) drives.delete(key); },
-        );
+        void drive.done.then( (done) => { if (current()) { latest.set(key, done); drives.delete(key); } }, () => { if (current()) drives.delete(key); }, );
         return latest.get(key);
       }
       case 'oc.signin.view': {
         if (typeof args.provider !== 'string') throw new Error('oc.signin.view needs { provider }');
         // `ready` is the member's account (signed in to this provider), not the engine: `phaseOf` reads it as done.
         const key = `${member}:${args.provider}`;
-        // Native Claude credentials can appear before this attempt's live activation finishes, so only a settled attempt is ready.
-        const native = args.provider === 'claude-cli';
-        const ready = kit.state.phase === 'ready' && await kit.signedIn(member, args.provider)
-          && (!native || (!drives.has(key) && latest.get(key)?.state !== 'failed'));
+        // Native Claude is ready only once this attempt's live activation settles.
+        const native = args.provider === 'claude-cli'; const ready = kit.state.phase === 'ready' && await kit.signedIn(member, args.provider) && (!native || (!drives.has(key) && latest.get(key)?.state !== 'failed'));
         // A finished sign-in whose account is gone since (signed out anywhere, or dropped by the engine) is no
         // sign-in to show: without this the view says done while `ready` says no, which phaseOf reads as opening.
         if (!ready && !drives.has(key) && latest.get(key)?.state === 'done') latest.delete(key);

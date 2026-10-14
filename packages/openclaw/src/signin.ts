@@ -15,8 +15,7 @@ export type SignInCtx = {
   authStatus?: (agentId: string, refresh: boolean, native: boolean) => ReturnType<typeof authStatus>;
   ensure(member: Member): Promise<{ agentId: string }>;
   callbackPort: number;
-  nativeClaudeLogin?(): ReturnType<typeof remoteCliHost>;
-  resetNativeClaudeLogin?(): Promise<void>;
+  nativeClaudeLogin?(): ReturnType<typeof remoteCliHost>; resetNativeClaudeLogin?(): Promise<void>;
   onDisconnect?(fn: () => void): () => void;
   authConfig(): string;
   restarted(authBefore: string | undefined, signal?: AbortSignal): Promise<boolean>;
@@ -83,16 +82,13 @@ export function signIn(
   };
   let server: Server | undefined;
   let sessionId = '';
-  let native: ReturnType<typeof remoteCliHost> | undefined;
-  let nativeId: string | undefined;
+  let native: ReturnType<typeof remoteCliHost> | undefined; let nativeId: string | undefined;
   let starting: Promise<unknown> | undefined;
   let releasing: Promise<void> | undefined;
   let settleStart!: () => void;
   const startingSettled = new Promise<void>((resolve) => { settleStart = resolve; });
   let over = false;
-  // The commit point of the native and key drives: set just before `setup.activate`; from then on cancel() leaves
-  // settling to the engine's answer.
-  let committed = false;
+  let committed = false; // the commit point of the native and key drives: set just before setup.activate
   let recovering = false;
   let offDisconnect: (() => void) | undefined;
   let agentId: string | undefined;
@@ -184,8 +180,8 @@ export function signIn(
   };
   const cancel = (): void => {
     // Stop the drive now; the start itself is never aborted, and release waits for it to settle before cancelling,
-    // so the gateway's one setup admission is freed by a cancel that the engine can actually find. A committed
-    // activation is not finished here: the drive returns once the engine answers, so its result stands.
+    // so the gateway's one setup admission is freed by a cancel that the engine can actually find. An activation in
+    // flight is not finished here: the drive returns once the engine answers, so cleanup follows the engine's answer.
     if (signal.aborted) return;
     owner.abort();
     void (async () => { await release(); if (!committed) await finish(cancelled()); })();
@@ -231,7 +227,7 @@ export function signIn(
       before = profiles(await authStatus(ctx.request, agentId).catch(() => undefined), false);
       if (signal.aborted) return cancelled();
     }
-    // Native login is driven through unmodified Claude Code. The pin does not expose this
+    // Native login is completed by the person in unmodified Claude Code. The pin does not expose this
     // choice via auth.start; activation verifies the CLI route and persists it only after a live test succeeds.
     // A key-entry choice (API key or plan key) is not an auth.start login either: the pin's Gateway sets it up only
     // from the pasted key through typed activation, and refuses it there ("provider setup is not available").
@@ -239,43 +235,25 @@ export function signIn(
       settleStart();
       let apiKey: string | undefined;
       if (o.authChoice === 'anthropic-cli') {
-        const detected = async () => {
-          const value = await ctx.request('openclaw.setup.detect', { agentId }, { timeoutMs: STATUS_MS, signal }) as {
-            candidates?: { kind?: string; credentials?: boolean }[];
-          };
-          return value.candidates?.some(candidate => candidate.kind === 'claude-cli' && candidate.credentials === true);
-        };
+        const detected = async () => { const value = await ctx.request('openclaw.setup.detect', { agentId }, { timeoutMs: STATUS_MS, signal }) as {
+          candidates?: { kind?: string; credentials?: boolean }[];
+        }; return value.candidates?.some(candidate => candidate.kind === 'claude-cli' && candidate.credentials === true); };
         native = ctx.nativeClaudeLogin?.();
         if (!await detected()) {
           if (!native) return { state: 'failed', via, why: 'failed', error: 'Claude Code sign-in is not available on this engine.' };
-          let started = await native.start('claude', { signal });
-          let ready = false;
-          if (!started.ok && started.error === 'already') {
-            ready = Boolean(await detected());
-            if (!ready && ctx.resetNativeClaudeLogin) {
-              if (signal.aborted || native.signal.aborted) return cancelled();
-              await ctx.resetNativeClaudeLogin();
-              started = await native.start('claude', { signal });
-            }
-          }
+          let started = await native.start('claude', { signal }); let ready = false;
+          if (!started.ok && started.error === 'already') { ready = Boolean(await detected());
+            if (!ready && ctx.resetNativeClaudeLogin) { if (signal.aborted || native.signal.aborted) return cancelled(); await ctx.resetNativeClaudeLogin(); started = await native.start('claude', { signal }); } }
           if (!ready) {
-            if (!started.ok) return { state: 'failed', via,
-              why: started.error === 'busy' ? 'busy' : started.error === 'cancelled' ? 'declined' : 'failed', error: started.words };
-            nativeId = started.signIn.id;
-            if (signal.aborted) { await native.cancel(nativeId); return cancelled(); }
+            if (!started.ok) return { state: 'failed', via, why: started.error === 'busy' ? 'busy' : started.error === 'cancelled' ? 'declined' : 'failed', error: started.words };
+            nativeId = started.signIn.id; if (signal.aborted) { await native.cancel(nativeId); return cancelled(); }
             let pasteFailed = false;
-            pasteIn = text => { void native!.paste(nativeId!, text).catch((error: unknown) => {
-              if ((error as { remoteCliProblem?: unknown }).remoteCliProblem === 'unknown') return;
-              pasteFailed = true; void native!.cancel(nativeId!).catch(() => {});
-            }); };
-            say({ url: started.signIn.verificationUri, prompt: 'Paste the code from the sign-in page' });
-            if (returned !== undefined) { pasteIn(returned); returned = undefined; }
-            const result = await native.wait(nativeId);
-            pasteIn = undefined;
+            pasteIn = text => { void native!.paste(nativeId!, text).catch((error: unknown) => { if ((error as { remoteCliProblem?: unknown }).remoteCliProblem === 'unknown') return; pasteFailed = true; void native!.cancel(nativeId!).catch(() => {}); }); };
+            say({ url: started.signIn.verificationUri, prompt: 'Paste the code from the sign-in page' }); if (returned !== undefined) { pasteIn(returned); returned = undefined; }
+            const result = await native.wait(nativeId); pasteIn = undefined;
             if (signal.aborted) return cancelled();
             if (pasteFailed) return { state: 'failed', via, why: 'failed', error: 'The sign-in code could not be sent. Try again.' };
-            if (!result.ok) return { state: 'failed', via,
-              why: result.error === 'expired' ? 'expired' : result.error === 'cancelled' ? 'declined' : 'failed', error: result.words };
+            if (!result.ok) return { state: 'failed', via, why: result.error === 'expired' ? 'expired' : result.error === 'cancelled' ? 'declined' : 'failed', error: result.words };
             if (!await detected()) return { state: 'failed', via, why: 'failed', error: 'Claude Code is still signed out on this engine. Try again.' };
           }
         }
@@ -293,20 +271,13 @@ export function signIn(
         if (!apiKey) return { state: 'failed', via, why: signal.aborted ? 'declined' : 'expired' };
         secret = apiKey.trim() || undefined;
       }
-      // The commit point: a phone cancel or host shutdown that landed before it activates nothing. Done waits for the
-      // gateway restart an `auth` change causes (activation.ts). For Claude the engine's answer alone decides from
-      // here and only host shutdown cuts the wait short; a late restart has persisted the route, so it says saved. A
-      // key's cancel still ends its wait and declines, and a late key keeps the shared words: the add path removes it.
-      if (signal.aborted || native?.signal.aborted) return cancelled();
-      committed = true;
-      const result = await activate(ctx, {
-        agentId, kind: apiKey === undefined ? 'claude-cli' : 'api-key',
-        ...(apiKey === undefined ? {} : { authChoice: o.authChoice, apiKey }),
-      }, { timeoutMs: PULL_MS, signal: apiKey === undefined ? native?.signal : signal });
+      // The commit point: a phone cancel or host shutdown that landed before it activates nothing. Done waits for the gateway restart an `auth` change causes (activation.ts).
+      // For Claude only host shutdown cuts that wait; a late restart has persisted the route and says saved. A key's cancel still declines its wait; a late key keeps the shared words.
+      if (signal.aborted || native?.signal.aborted) return cancelled(); committed = true;
+      const result = await activate(ctx, { agentId, kind: apiKey === undefined ? 'claude-cli' : 'api-key', ...(apiKey === undefined ? {} : { authChoice: o.authChoice, apiKey }), }, { timeoutMs: PULL_MS, signal: apiKey === undefined ? native?.signal : signal });
       if (apiKey !== undefined && signal.aborted) return cancelled();
       if (result.late) return { state: 'failed', via, why: 'failed', error: apiKey === undefined ? words('signin.savedNotRestarted') : LATE_RESTART };
-      if (!result.ok) return { state: 'failed', via, why: 'failed',
-        error: apiKey === undefined ? clean(result.error ?? 'Claude Code activation failed') : keyFailed(result.status) };
+      if (!result.ok) return { state: 'failed', via, why: 'failed', error: apiKey === undefined ? clean(result.error ?? 'Claude Code activation failed') : keyFailed(result.status) };
       return { state: 'done', via };
     }
     // The client chooses the wizard id; cancellation waits for the engine to register it.

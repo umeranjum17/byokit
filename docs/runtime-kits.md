@@ -32,14 +32,11 @@ surface (OpenClaw Gateway operator protocol; Herdr socket API and CLI), so no co
 They share connection adapters (`link`, `relay`, `discover`, `seal`, `ui`) and conventions, never a
 lowest-common-denominator interface. `@byokit/accounts` keeps serving direct-provider apps (including Ownvoice); its
 multi-account shapes (`Account`, `Room`, `RunSelection`, `Pick` as `AccountPick`) are restated structurally by this kit (5.15), never
-imported. The one exception is native CLI sign-in (`signIn` `anthropic-cli`): the kit imports `cliAccounts` and `remoteCliHost` from `@byokit/accounts/cli`
-for that path only, as stated in the next section. CLI sign-in status lives in `@byokit/herdr` `agentStatus` (B5) and, for its managed Claude/Codex/Pi folders, `@byokit/accounts/cli` `status`; 6.6 names which one gates a move (MS-S2).
+imported. CLI sign-in status lives in `@byokit/herdr` `agentStatus` (B5) and, for its managed Claude/Codex/Pi folders, `@byokit/accounts/cli` `status`; 6.6 names which one gates a move (MS-S2). Native CLI sign-in (`anthropic-cli`) is the only other accounts use: `cliAccounts` and `remoteCliHost`, named below.
 
 Out of scope for the build phase: releasing (firstmate/owner runs `release.yml`), muxr adoption (section 10), any
 operated service, and any change to `@byokit/accounts`, `link`, `relay`, `discover`, `seal`, `decide` or `ui`
-source, except `@byokit/accounts/cli` `launch` (MS-S2, 6.6), and, for native CLI sign-in only, the `cliAccounts`
-`managedFolders` option, the `folderOf(id)` accessor, the `remoteCliHost` `start` signal and `close()`, and the sign-in lock helper `signInLock`.
-The kit's only `@byokit/accounts` dependency is the `@byokit/accounts/cli` import of `cliAccounts` and `remoteCliHost`; no other accounts surface is imported.
+source, except `@byokit/accounts/cli` `launch` (MS-S2, 6.6) and the native sign-in surface (`managedFolders`, `folderOf`, `remoteCliHost`, `signInLock`).
 
 ## 2. Decisions
 
@@ -766,45 +763,16 @@ key (subscription); `microsoft-foundry-entra` is Entra cloud credentials, not an
 (`unknown`). A sensitive wizard text step (`setup-token`) is answered from the paste channel without echo (B8).
 Until those packages merge, the table above is what ships.
 
-**signIn(member, { authChoice, via, signal? }, on)** — provider-owned sign-in drive:
-Native `anthropic-cli` first asks the engine's `setup.detect`. If its isolated Claude folder is signed out,
-the kit starts unmodified `claude auth login --claudeai` in the exact engine HOME and `CLAUDE_CONFIG_DIR`,
-using Accounts' remote CLI driver and a narrow `cliAccounts.managedFolders` option, restricted to explicit
-app-owned folders inside its state directory. Its roster references that exact folder, never a second grant.
-Cancellation removes only roster/marker bookkeeping, never the engine folder. During settlement a ready native
-status wins over a phone cancel at the host: the row stays ready. The native host exposes its single lifetime `AbortSignal`; `close()` aborts it before awaiting cleanup.
+**signIn(member, { authChoice, via, signal? }, on)** — provider-owned wizard drive:
+Native `anthropic-cli` runs unmodified `claude auth login --claudeai` in the engine's exact HOME and `CLAUDE_CONFIG_DIR`, through Accounts' remote CLI driver and a `cliAccounts.managedFolders` option limited to app-owned folders; cancel removes only roster bookkeeping, never the folder or grant, and a ready native status wins over a phone cancel during settlement.
 The `anthropic-cli` and key-entry drives have one commit point, the `setup.activate` call:
-1. Prepare: detection (`setup.detect`, passed the phone signal), the native login, or the key paste. A phone cancel,
-   or host shutdown, here ends `why: 'declined'` once the native login is released; nothing is activated.
-2. Commit: immediately before `setup.activate`, a phone cancel or host shutdown that has landed still ends declined
-   with no activation call. Otherwise the drive is committed and calls `setup.activate` once.
-3. After commit the drive settles on the engine's answer. A refusal is `failed` with its words. For Claude a phone
-   cancel no longer affects the result: an ok activation is `done` once its restart is confirmed, or, when the restart
-   runs late or host shutdown ends the wait, `failed` with `signin.savedNotRestarted` (the route is persisted); never
-   declined after commit. A key's phone cancel still ends its restart wait and declines, and a late key restart is
-   `failed` with the shared `LATE_RESTART` text; the add path cleans the key up either way (below).
-`cancel()` always settles `done` exactly once: before commit as soon as the native login is released, after it once
-the engine answers the activation. A ready native row may be activated without a new login: an `already` result proceeds to engine detection. If the engine still reports signed out, the engine clears only that stale ready Claude roster row (not its managed folder or grant) and starts one fresh native login; it never loops automatic logins. The engine verifies readiness
-again after the native login finishes. The waiting view carries the native verification address and a plain paste-code
-prompt. `paste` writes one returned code to that CLI's stdin; cancel/expiry stop only that login. CLI output
-and credentials are never forwarded, logged, copied or read by the kit. A successful native exit is checked
-again through the engine, then existing `setup.activate { kind: 'claude-cli' }` live-tests and persists the route;
-only successful activation/restart is `done`. Concurrent native logins to one engine are refused as busy. A `signing` row left by an earlier login is reused only when its
-sign-in lock (`signInLock`: the `.byokit-signin-lock` directory the shell command also takes) is free or its holder PID
-(`.byokit-signin-holder`: the shell records its native child; the remote driver records its HOST process PID at claim) is dead, and no in-host session for the provider is still unsettled;
-a live, unreadable or missing holder file is busy (including a legacy shell's holderless lock; no unproven lock is stolen).
-A shell wrapper's exit alone is not liveness proof. The remote lock is held from claim until its managed row is settled, not merely until the child exits:
-the remote driver writes the host's PID before spawning and keeps it unchanged from claim through settlement (a lock stays busy while the host lives, and reads reclaimable if the host dies), then settles without any phone `wait`: exit 0 writes the completion marker and reads native status, and only a ready status keeps the login; any other exit or child error settles a failure (cancelling the row). The holder file and the lock are removed together, only after settlement. A remote start never reuses a row whose child exited 0 AND produced a ready sign-in; an exit 0 without ready status is a settled failure whose row MAY be reused. A pending settlement owns admission, so the next start is busy until it finishes.
-A failed holder write releases the newly acquired lock and reports a plain failure without spawning a native child; a freshly added row is cancelled, while an existing row is retained for retry.
-The remote driver attaches child supervision at spawn; waits share one child-exit promise rather than adding a listener per poll. Settlement and unlock failures are total, sanitized failed results even without a phone waiter: no detached rejection may crash the host. Unremoved locks remain busy. Session eviction uses completed settlement, never an early result, so shutdown still owns unfinished cleanup.
-The kit reads a `signing` row's folder through `cliAccounts`' `folderOf(id)` (the managed folder itself, never a launch-env key) when it claims that row's lock.
-The phone uses the existing link start/view/paste/cancel operations; credentials stay on the engine machine.
-For the native Claude route, a link sign-in view reports `ready: false` while its drive is active or its latest
-attempt failed, even if native credential detection already succeeds; other providers keep their signed-in readiness. The drive's successful live activation, not credential presence,
-is what completes that phone attempt. Passive provider status remains the engine's native readiness read.
-Both Claude and ChatGPT are plan sign-ins. Remote ChatGPT uses `openai-device-code` (`via: 'code'`): the
-engine's own wizard polls its provider and writes its grant; no kit localhost callback listener is created.
-Other choices use the provider-owned wizard:
+1. Prepare: detection (`setup.detect`, passed the phone signal), the native login or the key paste. A phone cancel or host shutdown here ends `why: 'declined'`; nothing is activated.
+2. Commit: immediately before `setup.activate`, a cancel or shutdown that has already landed still ends declined with no activation call; otherwise the drive is committed and calls `setup.activate` once.
+3. After commit the drive settles on the engine's answer and a phone cancel no longer declines it. Claude is `done` once its restart is confirmed, or `failed` with `signin.savedNotRestarted` when the restart runs late or host shutdown ends the wait. A key's cancel still declines its restart wait; a late key restart is `failed` with `LATE_RESTART`.
+`cancel()` always settles `done` exactly once: before commit as soon as the native login is released, after commit once the engine answers the activation.
+A native sign-in view reports `ready: false` while its drive is active or failed; the successful live activation, not credential presence, completes the attempt.
+A stale ready Claude row is cleared (roster only, never its folder or grant) and one fresh login starts; there is no automatic loop.
+A `signing` row is reused only when its `signInLock` is free or its holder PID is dead; a live, unreadable or missing holder stays busy.
 `ensureMember`; `openclaw.setup.auth.start { sessionId: 'byokit-' + uuid, agentId, authChoice }` (60 s); pull steps
 only with `wizard.next` (120 s for ordinary steps, max 200 turns; never `wizard.status`); a `deviceCode` step,
 or a `note` step whose text carries the code, → view `{ code, url, expiresAt?, message? }` then acknowledge
@@ -822,9 +790,9 @@ A `keyEntry` choice (a plan key such as `opencode-go`) never starts the wizard, 
 the agent's model. A failed key-entry sign-in shows only the kit's words (`API key activation failed`, or `This key type is not available on this engine.` when the engine refuses the key type); the engine's text never reaches the view. Activation (this one and `anthropic-cli`'s) writes
 `auth`, which the pin applies by restarting the gateway once its requests drain; when the activation changed config
 `auth` and a spawned engine restarts for it, `done` waits for that restart to begin and the kit to be ready again,
-within 60 s (event-driven, not polled). Past that the sign-in ends `why: 'failed'` with the late-restart words above (a key cancelled during the wait ends
-`why: 'declined'`), and the add is cleaned up either way: a new agent is discarded, a member agent
-clears only this provider's profile and its index entry. The same wait and cleanup apply to `addKey` (below). A key cancelled during the activation request waits for the engine's answer before the cleanup, and ends `why: 'declined'`. Adds of one provider for one member take turns until each settles. Done means sealed.
+within 60 s (event-driven, not polled). Past that the sign-in ends `why: 'failed'` with the words that the engine took too long and to try again (cancelled
+during the wait it ends `why: 'declined'`), and the add is cleaned up either way: a new agent is discarded, a member agent
+clears only this provider's profile and its index entry. The same wait and cleanup apply to `addKey` (below). A cancel during the activation request waits for the engine's answer before the cleanup, and ends `why: 'declined'`. Adds of one provider for one member take turns until each settles. Done means sealed.
 A run started on done uses the new sign-in.
 A run prepares its models from configured facts and the static catalog only (the pin's run path; live discovery
 feeds `models.list view: 'all'`, never a run): a live-only OpenCode Go model (Muse) resolves once
