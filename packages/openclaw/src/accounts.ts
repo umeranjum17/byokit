@@ -1,9 +1,10 @@
 // The per-member account index (5.15, O14 step S5): `<root>/accounts/<member>.json` (0600, whole-file temp
 // plus rename) is the only kit state: `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?,
-// who? } }, defaults, gone? }`, where `gone` names the agent dirs a removal left for the orphan sweep. No credential,
-// token, email or engine line. Listing, rename, defaults, models, room, adding with its identity merge (O14 steps
-// S6, S7), the start-of-run pick (S10), session binding (S11), moving a conversation (S12) and removal with its
-// orphan sweep (S8) live here.
+// who?, priorModel? } }, defaults, gone? }`, where `priorModel` is the member agent's primary before a member-agent
+// sign-in pinned it (empty when none), and `gone` names the agent dirs a removal left for the orphan sweep. No
+// credential, token, email or engine line. Listing, rename, defaults, models, room, adding with its identity merge
+// (O14 steps S6, S7), the start-of-run pick (S10), session binding (S11), moving a conversation (S12) and removal
+// with its orphan sweep (S8) live here.
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -45,7 +46,8 @@ export const modelsOf = (provider: string, answer: unknown): ModelInfo[] => {
   return out;
 };
 
-type IndexEntry = { agent: string; name: string; route: string; addedAt: number; until?: number; model?: string; who?: string };
+type IndexEntry = { agent: string; name: string; route: string; addedAt: number; until?: number; model?: string; who?: string;
+  priorModel?: string };
 type IndexFile = { v: 1; accounts: Record<string, IndexEntry>; defaults: Defaults; gone?: string[] };
 
 type LiveProfile = { provider?: string; profileId?: string; type?: string; status?: string; who?: string };
@@ -71,7 +73,15 @@ const validEntry = (v: unknown): v is IndexEntry => !!v && typeof v === 'object'
   && typeof (v as IndexEntry).route === 'string' && Number.isFinite((v as IndexEntry).addedAt)
   && ((v as IndexEntry).until === undefined || Number.isFinite((v as IndexEntry).until))
   && ((v as IndexEntry).model === undefined || typeof (v as IndexEntry).model === 'string')
-  && ((v as IndexEntry).who === undefined || typeof (v as IndexEntry).who === 'string');
+  && ((v as IndexEntry).who === undefined || typeof (v as IndexEntry).who === 'string')
+  && ((v as IndexEntry).priorModel === undefined || typeof (v as IndexEntry).priorModel === 'string');
+/** The member agent's primary as a durable index string; empty when there was none (or it is not a string primary). */
+const priorOf = (model: unknown): string => {
+  if (typeof model === 'string') return model;
+  if (model && typeof model === 'object' && typeof (model as { primary?: unknown }).primary === 'string')
+    return (model as { primary: string }).primary;
+  return '';
+};
 
 const indexPath = (root: string, member: Member): string => join(root, 'accounts', `${member}.json`);
 const readIndex = (root: string, member: Member): IndexFile => {
@@ -563,10 +573,50 @@ export function createAccounts(ctx: {
     edit(member, (file) => { const entry = file.accounts[id]; if (entry) entry.until = until; });
 
   const agentDir = (agent: string): string => join(ctx.root, 'state', 'agents', agent);
-  // Removing (5.15): a member-agent account goes through `models.authLogout` with its sealed profileIds, then its
-  // entry is dropped. An account agent goes through `clear`, an empty `list`, `agents.delete` with
-  // `deleteFiles: false`, removal of its state dir, then the entry is dropped. Refused `busy` while a run holds
-  // the agent; the member agent stays ready (only the named provider is logged out or cleared).
+  // Index edits take the index lock, as listing's own write does.
+  const edit = (member: Member, fn: (file: IndexFile) => void): Promise<void> =>
+    ctx.locks.exclusive([indexLock(member)], async () => { const file = read(member); fn(file); write(member, file); });
+  const identityOf = async (agentId: string): Promise<string | undefined> => {
+    const { file } = await ctx.request('agents.files.get', { agentId, name: IDENTITY }) as { file: { missing?: boolean; content?: string } };
+    return file.missing ? undefined : file.content;
+  };
+  const restoreIdentity = async (memberAgent: string, before: string | undefined): Promise<void> => {
+    if (before !== undefined && await identityOf(memberAgent) !== before)
+      await ctx.request('agents.files.set', { agentId: memberAgent, name: IDENTITY, content: before });
+  };
+  const readModel = async (agentId: string): Promise<unknown> => {
+    const got = await ctx.request('config.get') as { config?: { agents?: { entries?: Record<string, { model?: unknown }> } } };
+    return got.config?.agents?.entries?.[agentId]?.model;
+  };
+  // A merge patch cannot delete a key: with no prior primary, `agents.update { model: null }` clears the pin so the
+  // engine default applies. A write that lands between the read and the patch moves the hash: try once more.
+  const restoreModel = async (memberAgent: string, model: unknown): Promise<void> => {
+    const clear = async (): Promise<void> => {
+      await ctx.request('agents.update', { agentId: memberAgent, model: null });
+    };
+    const patch = async (): Promise<void> => {
+      const { hash } = await ctx.request('config.get') as { hash: string };
+      await ctx.request('config.patch', { raw: JSON.stringify({ agents: { entries: { [memberAgent]: { model } } } }), baseHash: hash });
+    };
+    try {
+      if (model === undefined || model === null) { await clear().catch(() => clear()); return; }
+      await patch().catch(() => patch());
+    } catch (error) {
+      // A damaged prior must not leave the removed provider's pin: fall back to clearing.
+      if (model !== undefined && model !== null) {
+        try { await clear().catch(() => clear()); }
+        catch (clearError) {
+          ctx.log?.(`addAccount: ${memberAgent} model pin is not cleared: ${clearError instanceof Error ? clearError.message : String(clearError)}`);
+        }
+      }
+      ctx.log?.(`addAccount: ${memberAgent} model is not restored: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+  // Removing (5.15): a member-agent account goes through `models.authLogout` with its sealed profileIds, restores or
+  // clears the member primary from `priorModel`, then drops its entry. An account agent goes through `clear`, an
+  // empty `list`, `agents.delete` with `deleteFiles: false`, removal of its state dir, then the entry is dropped.
+  // Refused `busy` while a run holds the agent; the member agent stays ready (only the named provider is logged out
+  // or cleared).
   const providerProfileIds = async (agentId: string, provider: string): Promise<string[]> => {
     const listed = await ctx.request('byokit.accounts', { action: 'list', agentId }) as { ok?: boolean; profiles?: { profileId?: string; provider?: string }[] };
     if (listed.ok !== true || !Array.isArray(listed.profiles)) throw new Error('removeAccount: the sign-ins could not be read');
@@ -587,6 +637,9 @@ export function createAccounts(ctx: {
         if (profileIds.length) await ctx.request('models.authLogout', { provider, agentId: agent, profileIds });
         if ((await providerProfileIds(agent, provider)).length) throw new Error('removeAccount: the account is still signing in');
         const file = read(member);
+        const prior = file.accounts[id]?.priorModel;
+        // Restore the pre-sign-in primary (or clear the pin) before dropping the entry; failure must not block removal.
+        await restoreModel(memberAgent, typeof prior === 'string' && prior ? prior : undefined);
         dropEntry(file, id);
         write(member, file);
         // The live store changed: re-seal at once so the sealed copy stops holding the removed profile.
@@ -613,36 +666,6 @@ export function createAccounts(ctx: {
       await ctx.reseal?.();
     });
   }
-
-  // Index edits take the index lock, as listing's own write does.
-  const edit = (member: Member, fn: (file: IndexFile) => void): Promise<void> =>
-    ctx.locks.exclusive([indexLock(member)], async () => { const file = read(member); fn(file); write(member, file); });
-  const identityOf = async (agentId: string): Promise<string | undefined> => {
-    const { file } = await ctx.request('agents.files.get', { agentId, name: IDENTITY }) as { file: { missing?: boolean; content?: string } };
-    return file.missing ? undefined : file.content;
-  };
-  const restoreIdentity = async (memberAgent: string, before: string | undefined): Promise<void> => {
-    if (before !== undefined && await identityOf(memberAgent) !== before)
-      await ctx.request('agents.files.set', { agentId: memberAgent, name: IDENTITY, content: before });
-  };
-  const readModel = async (agentId: string): Promise<unknown> => {
-    const got = await ctx.request('config.get') as { config?: { agents?: { entries?: Record<string, { model?: unknown }> } } };
-    return got.config?.agents?.entries?.[agentId]?.model;
-  };
-  // ponytail: a merge patch cannot delete a key, so a member with no model entry before its sign-in keeps the pinned one.
-  const restoreModel = async (memberAgent: string, model: unknown): Promise<void> => {
-    if (model === undefined) { ctx.log?.(`addAccount: ${memberAgent} had no model entry to restore`); return; }
-    // A config write that lands between the read and the patch moves the hash: read and patch once more.
-    const patch = async (): Promise<void> => {
-      const { hash } = await ctx.request('config.get') as { hash: string };
-      await ctx.request('config.patch', { raw: JSON.stringify({ agents: { entries: { [memberAgent]: { model } } } }), baseHash: hash });
-    };
-    try {
-      await patch().catch(() => patch());
-    } catch (error) {
-      ctx.log?.(`addAccount: ${memberAgent} model is not restored: ${error instanceof Error ? error.message : String(error)}`);
-    }
-  };
   const onGateway = (agent: string): Promise<boolean> => untilListed(ctx.request, agent)
     .then(() => true, () => (ctx.request('agents.list') as Promise<{ agents: { id: string }[] }>)
       .then((r) => r.agents.some((a) => a.id === agent)));
@@ -691,15 +714,22 @@ export function createAccounts(ctx: {
         fresh = await holdsProvider();
         if (fresh) releaseAdd();
       }
-      // The member agent's primary model before this sign-in or any merge on it: restored when its profile moves away.
+      // The member agent's primary before this sign-in or any merge on it: restored when its profile moves away or
+      // the member-agent account is removed. Durable on the member entry as `priorModel` (empty when none).
       const memberModel = await readModel(memberAgent);
-      const entryOf = (file: IndexFile, agent: string): IndexEntry => ({ agent, route: route.choice, addedAt: Date.now(),
-        name: name ?? `${route.label} ${Object.values(file.accounts).filter((e) => e.route === route.choice).length + 1}` });
+      const entryOf = (file: IndexFile, agent: string, prior?: string): IndexEntry => ({ agent, route: route.choice, addedAt: Date.now(),
+        name: name ?? `${route.label} ${Object.values(file.accounts).filter((e) => e.route === route.choice).length + 1}`,
+        ...(prior !== undefined ? { priorModel: prior } : {}) });
       let id: AccountId = provider;
       let agent = memberAgent;
       let added = false;
       if (!fresh) {
-        await edit(member, (file) => { if (!file.accounts[id]) { file.accounts[id] = entryOf(file, agent); added = true; } });
+        const prior = priorOf(memberModel);
+        await edit(member, (file) => {
+          if (!file.accounts[id]) { file.accounts[id] = entryOf(file, agent, prior); added = true; return; }
+          // Keep the first pre-sign-in primary across a later re-sign-in of the same member row.
+          if (file.accounts[id]!.priorModel === undefined) file.accounts[id]!.priorModel = prior;
+        });
       } else {
         // `<member>--<hex6>`, drawn again while that agent exists; its entry is written before the agent.
         const roster = new Set((await ctx.request('agents.list') as { agents: { id: string }[] }).agents.map((a) => a.id));
