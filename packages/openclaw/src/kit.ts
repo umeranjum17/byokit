@@ -698,6 +698,7 @@ export class OpenClawKit {
     this.admission = createAuthStatus(this.engine.root, (method, params, options) => this.request()(method, params, options));
     this.keys = createKeys({ root: this.engine.root,
       prepareOwner: (agentId) => this.prepareKeyOwner(agentId),
+      indexLane: (member, route) => this.indexKeyLane(member, route),
       restarting: () => this.engineRestarting(),
       request: (method, params, options) => this.request()(method, params, options),
       ensure: (member) => this.ensureMember(member),
@@ -1061,17 +1062,17 @@ export class OpenClawKit {
 
   /** Save an explicitly supplied API key (billed per use) in this member's separate key agent. */
   addKey(agentId: Member, o: { authChoice: string; apiKey: string; model?: string }): AddKeyHandle {
-    const handle = this.keys.add(agentId, o);
-    // Index the lane as `<provider>.key` on ok, and sync live catalogs after a successful save (#541).
-    const done = handle.then(async (result) => {
-      if (result.status === 'ok') {
-        if (this.accountsCtl) await this.accountsCtl.key(agentId, o.authChoice);
-        else this.o.log?.('addKey: the account index is not ready, so the key lane is not indexed');
-        this.syncCatalogs();
-      }
-      return result;
-    });
-    return Object.assign(done, { cancel: () => handle.cancel() });
+    return this.keys.add(agentId, o);
+  }
+
+  // The lane's index entry follows its sealed key. A failed write is logged and never fails the add; the start sweep repairs it.
+  private async indexKeyLane(member: Member, route: RouteView): Promise<void> {
+    if (!this.accountsCtl) {
+      this.o.log?.('addKey: the account index is not ready, so the key lane is indexed by the next start sweep');
+      return;
+    }
+    await this.accountsCtl.key(member, route).catch((error: unknown) =>
+      this.o.log?.(`addKey: the key lane is not indexed yet: ${error instanceof Error ? error.message : String(error)}`));
   }
 
   private async prepareKeyOwner(agentId: string): Promise<void> {

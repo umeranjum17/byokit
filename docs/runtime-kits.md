@@ -1002,7 +1002,7 @@ the engine. External retained sources are touched only when explicitly passed to
   without diagnostics. Ordinary runs and their admission policy are unchanged; there is no per-run cold refresh.
   Catalog or control failures never become a claim that the key is invalid. A failed add may leave an empty reserved key agent; it clears the attempted key best-effort and never leaves a ready marker.
   A non-auth, non-billing probe status (timeout, rate limit, format, unknown) is `retry` with its reason (`network`, `busy`, `inference`), never `invalid`.
-- The `byokit.keys` plugin actions are `prepare`, `seal`, `ready` and `clear` (`clear` drops the unsealed key a failed add left; `plugin/keys.js`). The kit's sweep runs at its first ready after start and sweeps each `byokit-key-<member>` agent under that member's lock: it clears a key only when `ready` reports the marker absent (`absent: true`), so a sealed key survives and an add that seals mid-sweep keeps its key. A refused read or clear leaves the sweep incomplete, and the next ready of that kit instance runs it again; a completed sweep never reruns.
+- The `byokit.keys` plugin actions are `prepare`, `seal`, `ready` and `clear` (`clear` drops the unsealed key a failed add left; `plugin/keys.js`). The kit's sweep runs at its first ready after start and sweeps each `byokit-key-<member>` agent under that member's lock: it clears a key only when `ready` reports the marker absent (`absent: true`), so a sealed key survives and an add that seals mid-sweep keeps its key. A sealed lane is indexed there as `<provider>.key` (the sealed model's provider), under the same member lock. A refused read or clear leaves the sweep incomplete, and the next ready of that kit instance runs it again; a completed sweep never reruns.
 - The engine has no strict per-run auth-profile pin. Key isolation is by agent: a member's normal agent never
   receives a key from `addKey`. A reserved `byokit-key-<member>` agent has its own workspace and credential store;
   the `byokit-key-` prefix is not a member id. Key creation waits for `agents.list` visibility, exactly as member creation
@@ -1723,8 +1723,13 @@ local part is only a suggestion the app offers (`@byokit/ui` `nameSuggestions`),
 `copyToAgents: false`), indexed once as `<provider>.key`. `addKey(member, { authChoice, apiKey, model? })` accepts
 only routes with `keyEntry` (else `not_included`), activates typed `openclaw.setup.activate { kind: 'api-key',
 agentId: byokit-key-<member>, authChoice, apiKey }` (180 s) on that lane, seals it, records its saved model, and
-indexes the lane as `<provider>.key` (replacing whatever `<*.key>` entry the member already held, keeping
-`addedAt`). A new key replaces the old one on the same agent; there is no `<member>--<hex6>` agent per later key.
+indexes the lane as `<provider>.key` once the key seals (replacing whatever `<*.key>` entry the member already held,
+keeping `addedAt`). A new key replaces the old one on the same agent; there is no `<member>--<hex6>` agent per later
+key. A key is replaced by `addKey`, never removed: the lane row is listed, and `removeAccount` refuses it. The index
+follows the sealed key: a failed index write is logged and never changes an `ok`, and the start sweep (the
+`byokit.keys` bullet in §5.8) indexes each sealed lane again, so a missed write is repaired at the next start. A lane sealed before this index (its
+`byokit-key-<member>` agent already exists) is indexed as `<provider>.key` by that sweep, keeping its workspace
+(`key-workspaces/<member>`) and sessions.
 Returns an `AddKeyHandle` (thenable `AddKeyResult` with `cancel()`; 5.8). `cancel()` stops a pending add and clears
 any partial profile (`retry`/`busy`); it never calls `wizard.cancel`. Any result but `ok` leaves no ready key and no
 index entry for that attempt. A key the engine accepted that cannot be sealed (a late restart or a failed seal) is

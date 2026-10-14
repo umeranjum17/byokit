@@ -14,7 +14,7 @@ import { createLocks } from './locks.ts';
 import { providerOf, resolveSelection } from './pick.ts';
 import { agentOf, memberOf as baseMemberOf } from './attribution.ts';
 import { KEY_PREFIX, MEMBER_ID, NEW_MEMBER_ID, keyAgentId, untilListed } from './members.ts';
-import { routes, routeFor } from './routes.ts';
+import { routes, routeFor, type RouteView } from './routes.ts';
 import { words } from './words.ts';
 import type { Account, AccountId, AccountPick, Defaults, GatewayTransport, Member, ModelInfo, MoveResult, Room, RoomSpan, RunSelection, SignInOptions, SignInState, SignInView } from './types.ts';
 
@@ -313,7 +313,7 @@ export function createAccounts(ctx: {
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;
   bind(member: Member, sessionKey: string): Promise<Binding | undefined>;
   keyRefusal(member: Member, binding: Binding): Promise<string | undefined>;
-  key(member: Member, route: string): Promise<void>;
+  key(member: Member, route: Pick<RouteView, 'choice' | 'provider' | 'label'>): Promise<void>;
   pick(member: Member, sel: RunSelection, skip?: readonly AccountId[], binding?: Binding): Promise<{ pick: AccountPick; agent?: string }>;
   rest(member: Member, id: AccountId, until: number): Promise<void>;
   move(member: Member, sessionKey: string, to: AccountId): Promise<MoveResult>;
@@ -755,19 +755,16 @@ export function createAccounts(ctx: {
   // The API-key lane's index entry (5.15): one per member, `<provider>.key` on the `byokit-key-<member>` agent.
   // A new key replaces the old one: whatever lane entry the member holds is dropped first, keeping its `addedAt`.
   // The key itself is never stored: only the agent, the route choice and the name.
-  async function key(member: Member, route: string): Promise<void> {
+  async function key(member: Member, route: Pick<RouteView, 'choice' | 'provider' | 'label'>): Promise<void> {
     check(member);
     const lane = keyAgentId(member);
-    const found = routes().find((r) => r.choice === route && r.keyEntry);
-    if (!found) { ctx.log?.(`addKey: ${route} is not a key route`); return; }
-    await ctx.ensure(member);
     return ctx.locks.exclusive([indexLock(member)], async () => {
       const loaded = loadIndex(ctx.root, member);
       if (loaded.damaged) ctx.log?.(words('account.indexDamaged', { member }));
       const file = loaded.damaged ? empty() : loaded.file;
       const kept = Object.values(file.accounts).find((e) => e.agent === lane)?.addedAt;
       for (const [other, e] of Object.entries(file.accounts)) if (e.agent === lane) delete file.accounts[other];
-      file.accounts[`${found.provider}.key`] = { agent: lane, name: found.label, route: found.choice, addedAt: kept ?? Date.now() };
+      file.accounts[`${route.provider}.key`] = { agent: lane, name: route.label, route: route.choice, addedAt: kept ?? Date.now() };
       write(member, file);
     });
   }

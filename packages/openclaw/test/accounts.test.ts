@@ -1156,6 +1156,34 @@ test('a key add whose activation throws clears the key it may have stored and re
   }
 });
 
+test('a key lane sealed before the index shipped is indexed by the start sweep and binds its conversations', async () => {
+  const stateDir = scratchDir('key-lane-backfill');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-before' }), { status: 'ok' });
+  } finally {
+    await kit.stop();
+  }
+  // The lane is sealed but its `openai.key` entry is gone, as a lane sealed before the index leaves it.
+  const file = JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')) as { accounts: Record<string, unknown> };
+  delete file.accounts['openai.key'];
+  writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(file));
+  const again = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await again.start();
+    for (let i = 0; i < 200 && (await again.accounts('m1')).length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual((await again.accounts('m1')).map((a) => [a.id, a.provider, a.billing, a.state]), [['openai.key', 'openai', 'api', 'ready']]);
+    const paid = 'This conversation uses OpenAI API Key, which is billed per use. Choose OpenAI API Key to keep going.';
+    const pick = await again.pick('m1', { account: 'auto' }, { sessionKey: `agent:${keyAgentId('m1')}:chat:k` });
+    assert.ok(!pick.ok && pick.code === 'paid' && pick.reason === paid, JSON.stringify(pick));
+  } finally {
+    await again.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('session binding: a run stays on the account that holds its session; pick equals the run; bound and paid refuse', async () => {
   const stateDir = scratchDir('o14k-binding');
   const fake = fakeGateway();

@@ -1,7 +1,8 @@
 import { join } from 'node:path';
 import { activate, type ActivationCtx } from './activation.ts';
 import { keyAgentId, MEMBER_ID, KEY_PREFIX, untilListed } from './members.ts';
-import { routes } from './routes.ts';
+import { providerOf } from './pick.ts';
+import { routes, type RouteView } from './routes.ts';
 import { modelsOf } from './accounts.ts';
 import { LIVE_CATALOGS } from './constants.ts';
 import type { Member, ModelInfo } from './types.ts';
@@ -20,6 +21,7 @@ export function createKeys(ctx: ActivationCtx & {
   ensure(member: Member): Promise<{ agentId: string }>;
   restarting?(): boolean;
   prepareOwner(agentId: string): Promise<void>;
+  indexLane(member: Member, route: RouteView): Promise<void>;
 }) {
   // Serialize key replacement and key runs, so an in-flight run never sees a half-installed replacement.
   const tails = new Map<string, Promise<unknown>>();
@@ -124,8 +126,9 @@ export function createKeys(ctx: ActivationCtx & {
             if (ac.signal.aborted) return abandon(cancelled());
             if (o.model !== undefined && LIVE_CATALOGS.includes(route.provider) && !(await registered(route.provider, o.model)))
               return abandon(failure('retry', 'model'));
-            if ((await control(member, 'seal', undefined, o.model)).ok) return { status: 'ok' };
-            return abandon(failure('retry', 'engine'));
+            if (!(await control(member, 'seal', undefined, o.model)).ok) return abandon(failure('retry', 'engine'));
+            await ctx.indexLane(member, route);
+            return { status: 'ok' };
           } catch (error) {
             const reason = errorReason(error, sent);
             if (sent) return abandon(failure('retry', reason));
@@ -165,7 +168,11 @@ export function createKeys(ctx: ActivationCtx & {
         if (!check(member)) continue;
         await exclusive(member, async () => {
           const ready = await control(member, 'ready').catch(() => undefined);
-          if (ready?.ok === true) return;
+          if (ready?.ok === true) {
+            const route = routes().find((r) => r.keyEntry && r.readiness === 'ready' && r.provider === providerOf(ready.model ?? ''));
+            if (route) await ctx.indexLane(member, route);
+            return;
+          }
           if (ready?.absent !== true) { complete = false; return; }
           const cleared = await control(member, 'clear').catch(() => undefined);
           if (cleared?.ok !== true) complete = false;
