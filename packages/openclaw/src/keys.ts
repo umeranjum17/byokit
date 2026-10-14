@@ -1,7 +1,6 @@
 import { join } from 'node:path';
 import { activate, type ActivationCtx } from './activation.ts';
 import { keyAgentId, MEMBER_ID, KEY_PREFIX, untilListed } from './members.ts';
-import { providerOf } from './pick.ts';
 import { routes, type RouteView } from './routes.ts';
 import { modelsOf } from './accounts.ts';
 import { LIVE_CATALOGS } from './constants.ts';
@@ -22,6 +21,7 @@ export function createKeys(ctx: ActivationCtx & {
   restarting?(): boolean;
   prepareOwner(agentId: string): Promise<void>;
   indexLane(member: Member, route: RouteView): Promise<void>;
+  backfillLane(member: Member, model: string | undefined): Promise<void>;
 }) {
   // Serialize key replacement and key runs, so an in-flight run never sees a half-installed replacement.
   const tails = new Map<string, Promise<unknown>>();
@@ -169,8 +169,7 @@ export function createKeys(ctx: ActivationCtx & {
         await exclusive(member, async () => {
           const ready = await control(member, 'ready').catch(() => undefined);
           if (ready?.ok === true) {
-            const route = routes().find((r) => r.keyEntry && r.readiness === 'ready' && r.provider === providerOf(ready.model ?? ''));
-            if (route) await ctx.indexLane(member, route);
+            await ctx.backfillLane(member, ready.model);
             return;
           }
           if (ready?.absent !== true) { complete = false; return; }

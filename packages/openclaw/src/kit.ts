@@ -699,6 +699,7 @@ export class OpenClawKit {
     this.keys = createKeys({ root: this.engine.root,
       prepareOwner: (agentId) => this.prepareKeyOwner(agentId),
       indexLane: (member, route) => this.indexKeyLane(member, route),
+      backfillLane: (member, model) => this.backfillKeyLane(member, model),
       restarting: () => this.engineRestarting(),
       request: (method, params, options) => this.request()(method, params, options),
       ensure: (member) => this.ensureMember(member),
@@ -1073,6 +1074,18 @@ export class OpenClawKit {
     }
     await this.accountsCtl.key(member, route).catch((error: unknown) =>
       this.o.log?.(`addKey: the key lane is not indexed yet: ${error instanceof Error ? error.message : String(error)}`));
+  }
+
+  // The start sweep's backfill: a sealed lane is indexed only when its model's provider has exactly one key route.
+  private async backfillKeyLane(member: Member, model: string | undefined): Promise<void> {
+    const provider = model ? providerOf(model) : undefined;
+    const found = routeTable().filter((r) => r.keyEntry && r.readiness === 'ready' && r.provider === provider);
+    if (found.length !== 1) {
+      this.o.log?.(`key lane ${member}: ${provider ?? 'no model'} has no single key route, so it is not indexed; add the key again to index it`);
+      return;
+    }
+    await this.accountsCtl?.backfill(member, found[0]!).catch((error: unknown) =>
+      this.o.log?.(`key lane ${member}: not indexed yet: ${error instanceof Error ? error.message : String(error)}`));
   }
 
   private async prepareKeyOwner(agentId: string): Promise<void> {

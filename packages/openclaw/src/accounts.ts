@@ -314,6 +314,7 @@ export function createAccounts(ctx: {
   bind(member: Member, sessionKey: string): Promise<Binding | undefined>;
   keyRefusal(member: Member, binding: Binding): Promise<string | undefined>;
   key(member: Member, route: Pick<RouteView, 'choice' | 'provider' | 'label'>): Promise<void>;
+  backfill(member: Member, route: Pick<RouteView, 'choice' | 'provider' | 'label'>): Promise<void>;
   pick(member: Member, sel: RunSelection, skip?: readonly AccountId[], binding?: Binding): Promise<{ pick: AccountPick; agent?: string }>;
   rest(member: Member, id: AccountId, until: number): Promise<void>;
   move(member: Member, sessionKey: string, to: AccountId): Promise<MoveResult>;
@@ -769,6 +770,19 @@ export function createAccounts(ctx: {
     });
   }
 
+  // The start sweep's backfill: writes the lane entry only when the lane holds none, and never rewrites a damaged index.
+  async function backfill(member: Member, route: Pick<RouteView, 'choice' | 'provider' | 'label'>): Promise<void> {
+    check(member);
+    const lane = keyAgentId(member);
+    return ctx.locks.exclusive([indexLock(member)], async () => {
+      const loaded = loadIndex(ctx.root, member);
+      if (loaded.damaged) { ctx.log?.(words('account.indexDamaged', { member })); return; }
+      if (Object.values(loaded.file.accounts).some((e) => e.agent === lane)) return;
+      loaded.file.accounts[`${route.provider}.key`] = { agent: lane, name: route.label, route: route.choice, addedAt: Date.now() };
+      write(member, loaded.file);
+    });
+  }
+
   // Index edits take the index lock, as listing's own write does. A damaged index starts empty and is rewritten
   // (re-add's repair path); the bad bytes are replaced, never left as the live index after a successful write.
   const edit = (member: Member, fn: (file: IndexFile) => void): Promise<void> =>
@@ -1093,5 +1107,5 @@ export function createAccounts(ctx: {
     }
   }
 
-  return { list, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, key, pick, rest, move, remove };
+  return { list, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, key, backfill, pick, rest, move, remove };
 }

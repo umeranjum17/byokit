@@ -1184,6 +1184,34 @@ test('a key lane sealed before the index shipped is indexed by the start sweep a
   }
 });
 
+test('a multi-route key lane keeps its chosen route across a restart: route and label do not change', async () => {
+  const stateDir = scratchDir('key-lane-multi-route');
+  const fake = fakeGateway();
+  const before = await (async () => {
+    const first = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+    try {
+      await first.start();
+      assert.deepEqual(await first.addKey('m1', { authChoice: 'minimax-cn-api', apiKey: 'CANARY-MINIMAX-KEY' }), { status: 'ok' });
+      return await first.accounts('m1');
+    } finally {
+      await first.stop();
+    }
+  })();
+  assert.deepEqual(before.map((a) => [a.id, a.route, a.billing]), [['minimax.key', 'minimax-cn-api', 'api']]);
+  const sweeps = () => fake.calls.filter((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'ready').length;
+  const from = sweeps();
+  const again = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await again.start();
+    for (let i = 0; i < 200 && sweeps() === from; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(await again.accounts('m1'), before);
+  } finally {
+    await again.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('session binding: a run stays on the account that holds its session; pick equals the run; bound and paid refuse', async () => {
   const stateDir = scratchDir('o14k-binding');
   const fake = fakeGateway();
