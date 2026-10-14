@@ -2322,3 +2322,120 @@ test('removeAccount is refused busy while an account sign-in is pending, and the
     rmSync(stateDir, { recursive: true, force: true });
   }
 });
+
+// A damaged index quarantines only that member: its agents are held back (never restored, never swept, never
+// resealed away), the other members restore, start and persist normally, and the kit reports words
+// `account.indexDamaged`. Rewriting a good index restores the held-back agents.
+test('a damaged index quarantines only that member, and a repaired index restores it', async () => {
+  const stateDir = scratchDir('o14x-index-recovery');
+  const fake = fakeGateway();
+  const authSeal = hostKeySeal({ key: new Uint8Array(32).fill(11) });
+  const lines: string[] = [];
+  const log = (line: string): void => { lines.push(line); };
+  const root = join(stateDir, 'openclaw');
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal, log });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    assert.equal((await kit.signIn('m2', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    assert.equal((await kit.signIn('m3', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const plant = (dir: string, text: string): void => {
+      mkdirSync(join(root, 'state', 'agents', dir, 'agent'), { recursive: true });
+      writeFileSync(join(root, 'state', 'agents', dir, 'agent', 'auth.json'), text);
+    };
+    plant(agent, 'held-back-marker');
+    plant('m2', 'm2-marker');
+    await kit.stop();
+
+    const goodIndex = readFileSync(indexOf(stateDir, 'm1'), 'utf8');
+    writeFileSync(indexOf(stateDir, 'm1'), '{');
+    const kit2 = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal, log });
+    try {
+      await kit2.start();
+      assert.deepEqual((await kit2.accounts('m2')).map((a) => a.id), ['openai']);
+      assert.deepEqual((await kit2.accounts('m3')).map((a) => a.id), ['openai']);
+      const damaged = words('account.indexDamaged', { member: 'm1' });
+      await assert.rejects(kit2.accounts('m1'), (error: Error) => error.message === damaged);
+      assert.ok(lines.some((line) => line.includes(damaged)), 'the kit reports the damaged index');
+      assert.equal(readFileSync(indexOf(stateDir, 'm1'), 'utf8'), '{', 'the damaged index is kept, not deleted');
+      assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'the quarantined agent is held back, not restored');
+      assert.equal(readFileSync(join(root, 'state', 'agents', 'm2', 'agent', 'auth.json'), 'utf8'), 'm2-marker');
+      await kit2.stop();
+      const sealed = JSON.parse(authSeal.decryptString(readFileSync(join(root, 'auth-store.sealed')))) as
+        { files: [string, string][] };
+      assert.ok(sealed.files.some(([path]) => path.includes(agent)), 'the held-back file stays sealed, not deleted');
+    } finally { await kit2.stop(); }
+
+    writeFileSync(indexOf(stateDir, 'm1'), goodIndex);
+    const kit3 = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal, log });
+    try {
+      await kit3.start();
+      assert.deepEqual((await kit3.accounts('m1')).map((a) => a.id).sort(), ['openai', second.id].sort());
+      assert.equal(readFileSync(join(root, 'state', 'agents', agent, 'agent', 'auth.json'), 'utf8'), 'held-back-marker');
+    } finally { await kit3.stop(); }
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+// Fail closed across the quarantine: a removed account's data never returns while another member's index is
+// damaged, the good member's sweep still runs, and a re-add rewrites the damaged index.
+test('removed-account data never returns with a damaged index, and a re-add rewrites it', async () => {
+  const stateDir = scratchDir('o14x-index-removed');
+  const fake = fakeGateway();
+  const authSeal = hostKeySeal({ key: new Uint8Array(32).fill(12) });
+  const root = join(stateDir, 'openclaw');
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const live = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await live.done).view.state, 'done');
+    const held = `m1--${live.id.slice('openai.'.length)}`;
+    assert.equal((await kit.signIn('m2', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const gone = await kit.addAccount('m2', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await gone.done).view.state, 'done');
+    const removed = `m2--${gone.id.slice('openai.'.length)}`;
+    await kit.removeAccount('m2', gone.id);
+    await kit.stop();
+
+    writeFileSync(indexOf(stateDir, 'm1'), '{not json');
+    const late = (dir: string, text: string): void => {
+      mkdirSync(join(root, 'state', 'agents', dir, 'agent'), { recursive: true });
+      writeFileSync(join(root, 'state', 'agents', dir, 'agent', 'auth.json'), text);
+    };
+    late(held, 'late-live');
+    late(removed, 'late-removed');
+    const kit2 = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+    try {
+      await kit2.start();
+      assert.ok(!existsSync(join(root, 'state', 'agents', removed)), 'the good member removed agent is still swept');
+      assert.equal(readFileSync(join(root, 'state', 'agents', held, 'agent', 'auth.json'), 'utf8'), 'late-live');
+      assert.deepEqual((await kit2.accounts('m2')).map((a) => a.id), ['openai']);
+      await assert.rejects(kit2.accounts('m1'), (error: Error) =>
+        error.message === words('account.indexDamaged', { member: 'm1' }));
+      await kit2.stop();
+      const sealed = JSON.parse(authSeal.decryptString(readFileSync(join(root, 'auth-store.sealed')))) as
+        { files: [string, string][] };
+      assert.ok(!sealed.files.some(([path]) => path.includes(removed)), 'the removed agent leaves no sealed file');
+      for (const [, data] of sealed.files)
+        assert.notEqual(Buffer.from(data, 'base64').toString(), 'late-live', 'the held-back write is never resealed');
+    } finally { await kit2.stop(); }
+
+    const kit3 = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+    try {
+      await kit3.start();
+      const readded = await kit3.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+      assert.equal((await readded.done).view.state, 'done');
+      assert.doesNotThrow(() => JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')), 'the re-add rewrites a good index');
+      assert.ok((await kit3.accounts('m1')).some((a) => a.id === readded.id));
+    } finally { await kit3.stop(); }
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});

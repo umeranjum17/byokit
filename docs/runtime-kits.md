@@ -1736,7 +1736,7 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
   `agents.delete { agentId, deleteFiles: false }` (with `true` the pin moves files to a trash path it never reports)
   when the engine roster names the agent; the kit then removes `<root>/state/agents/<agentId>` (the agent's store and
   sessions) itself, never the shared workspace, and drops the entry. When the roster does not name the agent, only the
-  directory removal and the entry drop run.   A write the engine lands even later cannot be ruled out by a bounded
+  directory removal and the entry drop run. A write the engine lands even later cannot be ruled out by a bounded
   check, so the kit also removes, on every `prepare` and again after the sealed auth store restores (before launch),
   each `<root>/state/agents/<member>--[0-9a-f]{6}` directory that a removal recorded as `gone` in its member's index
   file and that no index names. A member-agent removal also records its provider in that index's `dropped` list; the same
@@ -2770,13 +2770,13 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 | `oc.abort` | `{ sessionKey, auth? }` | `null` (key must be the member's, D9) |
 | `oc.artifacts` *view* | `{ sessionKey, runId? }` | `ArtifactsResult` (5.8.2; key must be the member's, D9) |
 | `oc.artifact` (stream) | `{ sessionKey, id, offset?, sha256? }` | `ArtifactFrame` lines: `head`, `chunk`s from `offset`, `end` (5.8.2; key must be the member's, D9; a refusal is the `end` frame) |
-| `oc.accounts` *view* | — | `Account[]` (5.15) |
+| `oc.accounts` (not shipped) | — | the link refuses it as an unknown op; listing is `kit.accounts` |
 | `oc.account.add` (not shipped) | — | the link refuses it as an unknown op; account adding is `kit.addAccount`, which refuses `key` (keys are host-only) |
-| `oc.account.view` *view* | `{ id }` | `{ ready, view: SignInView \| null }` for `toAccountView` |
-| `oc.account.paste` | `{ id, text }` | `null` |
-| `oc.account.cancel` | `{ id }` | `null` |
-| `oc.account.rename` | `{ id, name }` | `Account` |
-| `oc.account.remove` | `{ id }` | `null` |
+| `oc.account.view` (not shipped) | — | the link refuses it as an unknown op; account sign-in view is on the `kit.addAccount` handle |
+| `oc.account.paste` (not shipped) | — | the link refuses it as an unknown op; paste is on the `kit.addAccount` handle |
+| `oc.account.cancel` (not shipped) | — | the link refuses it as an unknown op; cancel is on the `kit.addAccount` handle |
+| `oc.account.rename` (not shipped) | — | the link refuses it as an unknown op; renaming is `kit.renameAccount` |
+| `oc.account.remove` (not shipped) | — | the link refuses it as an unknown op; removal is `kit.removeAccount` |
 | `oc.models` *view* | `{ id }` | `ModelInfo[]` |
 | `oc.room` *view* | `{ id, demand? }` | `Room` |
 | `oc.defaults` *view* | — | `Defaults` |
