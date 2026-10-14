@@ -1233,6 +1233,22 @@ test('a key lane whose index entry is missing is indexed again on the next conne
   }
 });
 
+test('a key added while the member index is damaged leaves the damaged index unwritten and still seals the key', async () => {
+  const stateDir = scratchDir('key-lane-damaged-index');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-one' }), { status: 'ok' });
+    writeFileSync(indexOf(stateDir, 'm1'), '{damaged');
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-two' }), { status: 'ok' });
+    assert.equal(readFileSync(indexOf(stateDir, 'm1'), 'utf8'), '{damaged');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('an API-key run on a legacy API-billed account binding is refused: no run on the lane or the legacy agent', async () => {
   const stateDir = scratchDir('o14-legacy-api-binding');
   const fake = fakeGateway();

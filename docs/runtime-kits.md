@@ -999,7 +999,7 @@ the engine. External retained sources are touched only when explicitly passed to
   returns `[]` and queries no agent (no engine discovery). Other routes list no models. A chosen model must be available in that key lane's catalog, never borrowed from the ordinary member. Before returning `ok`, `addKey` awaits catalog synchronization, then prepares that key agent's
   full-catalog owner with `models.authStatus { agentId: 'byokit-key-<member>', refresh: true }`, once under its key lock.
   A thrown or unavailable preparation reply clears the attempted key best-effort and returns `{ status: 'retry', reason: 'engine' }`
-  without diagnostics. Ordinary runs and their admission policy are unchanged; there is no per-run cold refresh.
+  without diagnostics. A failed or cancelled replacement also drops the previous key, so the lane reads signed out until the user adds a key again. Ordinary runs and their admission policy are unchanged; there is no per-run cold refresh.
   Catalog or control failures never become a claim that the key is invalid. A failed add may leave an empty reserved key agent; it clears the attempted key best-effort and never leaves a ready marker.
   A non-auth, non-billing probe status (timeout, rate limit, format, unknown) is `retry` with its reason (`network`, `busy`, `inference`), never `invalid`.
 - The `byokit.keys` plugin actions are `prepare`, `seal`, `ready` and `clear` (`clear` drops the unsealed key a failed add left; `plugin/keys.js`). The kit's sweep runs at every connect and sweeps each `byokit-key-<member>` agent under that member's lock. It clears a key only when `ready` reports the marker absent (`absent: true`), so a sealed key survives and an add that seals mid-sweep keeps its key; the clear runs until a sweep completes, then never again. The backfill runs at every connect: a lane that already holds an index entry is never touched, and a sealed lane with no entry is indexed as `<provider>.key` only when its sealed model's provider has exactly one ready key route. A provider with several key routes, or a marker with no model, is logged at each connect and left unindexed until the key is added again. A refused read or clear leaves the sweep incomplete, and the next connect runs the clear again.
@@ -1731,10 +1731,10 @@ follows the sealed key: a failed index write is logged and never changes an `ok`
 `byokit.keys` bullet in §5.8) backfills a missing entry for a single-route provider, so a missed write is repaired at
 the next connect. A lane sealed before this index (its `byokit-key-<member>` agent already exists) is indexed as
 `<provider>.key` by that sweep, keeping its workspace (`key-workspaces/<member>`) and sessions; a multi-route provider's
-lane is indexed when its key is added again.
+lane is indexed when its key is added again; until then its conversations are not bound to the lane, so a non-key run on one of them starts a new session on the member agent.
 Returns an `AddKeyHandle` (thenable `AddKeyResult` with `cancel()`; 5.8). `cancel()` stops a pending add and clears
 any partial profile (`retry`/`busy`); it never calls `wizard.cancel`. Any result but `ok` leaves no ready key and no
-index entry for that attempt. A key the engine accepted that cannot be sealed (a late restart or a failed seal) is
+index entry for that attempt, and a failed or cancelled replacement drops the previous key (the lane reads signed out until a key is added again). A key the engine accepted that cannot be sealed (a late restart or a failed seal) is
 cleared and returns `retry`, never `invalid`; if that clear is refused, the kit's start sweep (the `byokit.keys`
 bullet in §5.8) clears it. The key never reaches kit storage, the index, logs, errors or a return value, and is never
 sent over a link (`kit.addAccount` refuses `key`; no link op adds an account yet). `agent:byokit-key-<member>:` keys

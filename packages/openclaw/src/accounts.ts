@@ -761,8 +761,8 @@ export function createAccounts(ctx: {
     const lane = keyAgentId(member);
     return ctx.locks.exclusive([indexLock(member)], async () => {
       const loaded = loadIndex(ctx.root, member);
-      if (loaded.damaged) ctx.log?.(words('account.indexDamaged', { member }));
-      const file = loaded.damaged ? empty() : loaded.file;
+      if (loaded.damaged) { ctx.log?.(words('account.indexDamaged', { member })); return; }
+      const file = loaded.file;
       const kept = Object.values(file.accounts).find((e) => e.agent === lane)?.addedAt;
       for (const [other, e] of Object.entries(file.accounts)) if (e.agent === lane) delete file.accounts[other];
       file.accounts[`${route.provider}.key`] = laneEntry(member, route, kept ?? Date.now());
