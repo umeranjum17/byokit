@@ -56,6 +56,10 @@
     "./opencode-go": {
       "types": "./dist/opencode-go.d.ts",
       "default": "./dist/opencode-go.js"
+    },
+    "./ollama-pro": {
+      "types": "./dist/ollama-pro.d.ts",
+      "default": "./dist/ollama-pro.js"
     }
   },
   "files": [

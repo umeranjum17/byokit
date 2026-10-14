@@ -1212,6 +1212,32 @@
     }
   },
   {
+    "id": "ollama-pro:plan_key",
+    "provider": "ollama-pro",
+    "name": "Ollama Pro",
+    "company": "Ollama",
+    "label": "Uses your Ollama Pro plan",
+    "aliases": [
+      "ollama-cloud"
+    ],
+    "via": "plan_key",
+    "billing": "subscription",
+    "billingFrom": "source",
+    "offer": "default",
+    "platforms": {
+      "node": "yes",
+      "browser": "yes",
+      "rn": "yes"
+    },
+    "upstream": {
+      "surface": "accounts",
+      "id": "ollama-pro",
+      "method": "OLLAMA_API_KEY",
+      "revision": "@earendil-works/pi-ai@0.87.1",
+      "flow": "present"
+    }
+  },
+  {
     "id": "openai:browser",
     "provider": "openai",
     "name": "ChatGPT",
