@@ -11,7 +11,7 @@ import type { AccountLike } from './multi.ts';
 import routes from './routes.json' with { type: 'json' };
 export { remoteCliHost, remoteCliState, type RemoteCliHostOptions } from './remote-cli-host.ts';
 
-export type CliProvider = 'claude' | 'codex' | 'pi' | 'opencode';
+export type CliProvider = 'claude' | 'codex' | 'pi' | 'opencode' | 'kimi';
 /** Published Pi subscription OAuth provider id, validated against the route catalogue. */
 export type PiProvider = string;
 /** Shared selection surface; the CLI entry remains Node-only. */
@@ -49,7 +49,7 @@ export class CliAccountError extends Error {
 type Row = { id: string; provider: CliProvider; name: string; folder: string; found: boolean; piProvider?: PiProvider; adoptedFrom?: string; addedAt?: number };
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === 'string' && !v.includes('\0');
-const providers: CliProvider[] = ['claude', 'codex', 'pi', 'opencode'];
+const providers: CliProvider[] = ['claude', 'codex', 'pi', 'opencode', 'kimi'];
 const piRoutes = routes.filter(r => r.upstream.surface === 'accounts' && r.billing === 'subscription' && r.upstream.flow === 'present' && (r.via === 'browser' || r.via === 'code'));
 const validPiProvider = (p: unknown): p is PiProvider => text(p) && piRoutes.some(r => r.upstream.id === p);
 const shed = {
@@ -57,8 +57,10 @@ const shed = {
   codex: ['OPENAI_API_KEY', 'CODEX_API_KEY'],
   pi: ['PI_CODING_AGENT_SESSION_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'],
   opencode: ['OPENCODE_API_KEY', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'],
+  // Kimi Code stores OAuth under KIMI_CODE_HOME; unset key/path overrides so a host key cannot replace the managed login.
+  kimi: ['KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_CODE_CREDENTIALS', 'KIMI_CREDENTIALS', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'],
 };
-const folderVar = (p: CliProvider) => p === 'claude' ? 'CLAUDE_CONFIG_DIR' : p === 'pi' ? 'PI_CODING_AGENT_DIR' : p === 'opencode' ? 'OPENCODE_CONFIG_DIR' : 'CODEX_HOME';
+const folderVar = (p: CliProvider) => p === 'claude' ? 'CLAUDE_CONFIG_DIR' : p === 'pi' ? 'PI_CODING_AGENT_DIR' : p === 'opencode' ? 'OPENCODE_CONFIG_DIR' : p === 'kimi' ? 'KIMI_CODE_HOME' : 'CODEX_HOME';
 const quote = (v: string) => `'${v.replaceAll("'", "'\\''")}'`;
 const complete = (r: Row) => join(r.folder, '.byokit-signin-complete');
 const pending = (r: Row) => join(r.folder, '.byokit-signin-pending');
@@ -129,7 +131,7 @@ export type NativePiAccount = {
 export function nativePiAccount(options: { stateDir: string; folder: string; bin: string; home: string }): NativePiAccount {
   if (!record(options) || [options.stateDir, options.folder, options.bin, options.home].some(v => !text(v) || !isAbsolute(v))) throw new CliAccountError('bad-option');
   const stateDir = resolve(options.stateDir); const parent = join(stateDir, 'pi'); const folder = resolve(options.folder);
-  for (const path of ['.claude', '.codex', '.pi']) {
+  for (const path of ['.claude', '.codex', '.pi', '.kimi-code']) {
     const own = join(resolve(options.home), path);
     if (stateDir === own || stateDir.startsWith(own + '/')) throw new CliAccountError('bad-option');
   }
@@ -157,7 +159,7 @@ export function cliAccounts(options: CliOptions) {
   if (options.historyFrom && (!record(options.historyFrom) || Object.entries(options.historyFrom).some(([p, path]) => !providers.includes(p as CliProvider) || !text(path) || !isAbsolute(path)))) throw new CliAccountError('bad-option');
   if (options.keyStore !== undefined && (!record(options.keyStore) || typeof (options.keyStore as Keystore).get !== 'function' || typeof (options.keyStore as Keystore).set !== 'function' || typeof (options.keyStore as Keystore).delete !== 'function')) throw new CliAccountError('bad-option');
   const stateDir = resolve(options.stateDir); const env = { ...options.env }; const bins = { ...options.bins }; const history = { ...options.historyFrom };
-  const ownsDefaultLogin = (path: string) => ['.claude', '.codex', '.pi'].some((p) => { const own = join(resolve(env.HOME), p); return path === own || path.startsWith(own + '/'); });
+  const ownsDefaultLogin = (path: string) => ['.claude', '.codex', '.pi', '.kimi-code'].some((p) => { const own = join(resolve(env.HOME), p); return path === own || path.startsWith(own + '/'); });
   const managedFolders = Object.fromEntries(Object.entries(options.managedFolders ?? {}).filter(([, folder]) => folder !== undefined)) as { claude?: string; codex?: string };
   // The login files each native CLI keeps in its own folder; remove deletes these and keeps the folder.
   const managedLoginFiles: Partial<Record<CliProvider, string[]>> = { claude: ['.credentials.json', '.claude.json'], codex: ['auth.json'] };
@@ -261,7 +263,11 @@ export function cliAccounts(options: CliOptions) {
     // OpenCode has no native login to spawn: the app collects the plan key with hidden typing and
     // completes the sign-in with saveKey. The shell is a no-op; the key never enters argv or env.
     if (r.provider === 'opencode') return { argv: [], env: spawnEnv(r), completion: complete(r), shell: ':', instruction: { words: 'cli.opencodeKey' } };
-    const argv = r.provider === 'pi' ? [binary('pi')] : r.provider === 'claude' ? [binary(r.provider), 'auth', 'login', '--claudeai'] : [binary(r.provider), 'login', '--device-auth'];
+    // Kimi Code: public `kimi login` (no flags) writes OAuth under KIMI_CODE_HOME; completion on exit 0.
+    const argv = r.provider === 'pi' ? [binary('pi')]
+      : r.provider === 'claude' ? [binary(r.provider), 'auth', 'login', '--claudeai']
+      : r.provider === 'kimi' ? [binary(r.provider), 'login']
+      : [binary(r.provider), 'login', '--device-auth'];
     const passed = spawnEnv(r); const completion = complete(r); const { lock, holder } = signInLock(r.folder);
     const login = ['/usr/bin/env', '-i', ...Object.entries(passed).map(([k, v]) => `${k}=${v}`), ...argv].map(quote).join(' ');
     // Record the CLI, not its wrapper: a crashed shell must not make a still-running login reusable.
@@ -329,7 +335,8 @@ export function cliAccounts(options: CliOptions) {
   }
   function suggestName(email: string | undefined, provider: CliProvider): string {
     const first = email?.split('@')[0]?.split(/[._-]+/).find(Boolean);
-    return first ? (first[0].toUpperCase() + first.slice(1).toLowerCase()).slice(0, 64) : provider === 'claude' ? 'Claude' : provider === 'pi' ? 'Pi' : provider === 'opencode' ? 'OpenCode' : 'Codex';
+    if (first) return (first[0].toUpperCase() + first.slice(1).toLowerCase()).slice(0, 64);
+    return provider === 'claude' ? 'Claude' : provider === 'pi' ? 'Pi' : provider === 'opencode' ? 'OpenCode' : provider === 'kimi' ? 'Kimi' : 'Codex';
   }
   async function status(id: string): Promise<CliAccount> {
     return serial(id, async () => {
@@ -348,6 +355,15 @@ export function cliAccounts(options: CliOptions) {
         if (saved && marker(pending(r))) rmSync(pending(r), { force: true });
         const keySigning = marker(pending(r)) && !saved;
         return { ...account, name: r.name.trim() || suggestName(undefined, r.provider), state: saved ? 'ready' : keySigning ? 'signing' : 'signed_out' };
+      }
+      if (r.provider === 'kimi') {
+        // No documented non-secret status command (kinds/herdr); `kimi login` exit 0 writes the
+        // kit completion marker, and that marker is the signed-in signal. Never open credentials/.
+        const signing = marker(pending(r)) && !marker(complete(r));
+        if (signing) return { ...account, state: 'signing' };
+        const signedIn = marker(complete(r));
+        if (marker(pending(r)) && signedIn) rmSync(pending(r), { force: true });
+        return { ...account, name: r.name.trim() || suggestName(undefined, r.provider), state: signedIn ? 'ready' : 'signed_out' };
       }
       const signing = marker(pending(r)) && !marker(complete(r));
       if (signing && r.provider !== 'pi') return { ...account, state: 'signing' };
@@ -416,7 +432,7 @@ export function cliAccounts(options: CliOptions) {
   function remove(id: string) { return drop(id, true); }
   type Added = { account: CliAccount; signIn: SignInCommand };
   function add(provider: 'pi', metadata: { piProvider: PiProvider }): Promise<Added>;
-  function add(provider: 'claude' | 'codex' | 'opencode'): Promise<Added>;
+  function add(provider: 'claude' | 'codex' | 'opencode' | 'kimi'): Promise<Added>;
   function add(provider: CliProvider, metadata?: { piProvider?: PiProvider }): Promise<Added> { return addManaged(provider, metadata); }
   async function addManaged(provider: CliProvider, metadata?: { piProvider?: PiProvider }, adopted?: Row): Promise<Added> {
     if (!providers.includes(provider) || (provider === 'pi' && !validPiProvider(metadata?.piProvider))) throw new CliAccountError('bad-option');
@@ -486,7 +502,8 @@ export function cliAccounts(options: CliOptions) {
     kinds: (provider: CliProvider): string[] => providers.includes(provider) ? [provider] : [],
     resumeArgs(kind: string, ref: { kind: 'id' | 'path'; value: string }): string[] {
       if (!record(ref) || !text(ref.value) || !ref.value || ref.value.startsWith('-') || !providers.includes(kind as CliProvider) || (ref.kind !== 'id' && (kind !== 'pi' || ref.kind !== 'path'))) throw new CliAccountError('kind-mismatch');
-      return kind === 'pi' || kind === 'opencode' ? ['--session', ref.value] : kind === 'claude' ? ['--resume', ref.value] : ['resume', ref.value];
+      // kinds.json: pi/opencode/kimi `--session`, claude `--resume`, codex `resume`.
+      return kind === 'pi' || kind === 'opencode' || kind === 'kimi' ? ['--session', ref.value] : kind === 'claude' ? ['--resume', ref.value] : ['resume', ref.value];
     },
     usageSource(id: string): { provider: 'codex'; bin: string; home: string; env: Record<string, string> } | undefined {
       const r = row(id); return r.provider === 'codex' ? { provider: 'codex', bin: binary('codex'), home: r.folder, env: spawnEnv(r) } : undefined;
