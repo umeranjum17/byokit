@@ -3,10 +3,11 @@
 // who? } }, defaults, gone? }`, where `gone` names the agent dirs a removal left for the orphan sweep. No credential,
 // token, email or engine line. Listing, rename, defaults, models, room, adding with its identity merge (O14 steps
 // S6, S7), the start-of-run pick (S10), session binding (S11), moving a conversation (S12) and removal with its
-// orphan sweep (S8) live here.
+// orphan sweep (S8: account-agent dirs plus unnamed member-store auth profiles) live here.
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { createLocks } from './locks.ts';
 import { providerOf, resolveSelection } from './pick.ts';
 import { agentOf, memberOf as baseMemberOf } from './attribution.ts';
@@ -133,18 +134,109 @@ export function removedAccountAgents(root: string): Set<string> {
   return new Set([...gone].filter((agent) => ACCOUNT_AGENT.test(agent) && !named.has(agent)));
 }
 
-// Removes each `<root>/state/agents/<member>--<hex6>` directory that a removal recorded as gone and no index names.
-// Only recorded directories go: a legacy member's own directory is never recorded, so it stays. The directories are
-// listed before the index is read: each listed one was created after its entry was written.
+// Providers each member index names on that member's own agent (not on `<member>--<hex6>` account agents).
+function memberAgentProviders(root: string): Map<string, Set<string>> {
+  const named = new Map<string, Set<string>>();
+  let files: string[];
+  try { files = readdirSync(join(root, 'accounts')); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return named; throw error; }
+  for (const file of files) {
+    if (!file.endsWith('.json')) continue;
+    const member = file.slice(0, -'.json'.length);
+    let parsed: Partial<IndexFile>;
+    try { parsed = JSON.parse(readFileSync(join(root, 'accounts', file), 'utf8')) as Partial<IndexFile>; }
+    catch (error) { throw new Error(`account index is unreadable: accounts/${file}`, { cause: error }); }
+    const keep = new Set<string>();
+    for (const [id, entry] of Object.entries(parsed.accounts ?? {})) {
+      if (typeof entry?.agent !== 'string' || entry.agent !== member || !id) continue;
+      keep.add(id.split('.')[0]!);
+    }
+    named.set(member, keep);
+  }
+  return named;
+}
+
+type MemberAuthStore = {
+  profiles?: Record<string, { provider?: string } & Record<string, unknown>>;
+  order?: Record<string, unknown>;
+  lastGood?: Record<string, unknown>;
+};
+
+// Drop profiles (and their order / lastGood marks) whose provider no member-agent index entry names.
+function dropUnnamedProfiles(store: MemberAuthStore, keep: Set<string>): boolean {
+  let changed = false;
+  const profiles = store.profiles && typeof store.profiles === 'object' ? store.profiles : {};
+  for (const [profileId, profile] of Object.entries(profiles)) {
+    if (typeof profile?.provider === 'string' && keep.has(profile.provider)) continue;
+    delete profiles[profileId];
+    changed = true;
+  }
+  store.profiles = profiles;
+  if (store.order && typeof store.order === 'object') {
+    for (const provider of Object.keys(store.order)) {
+      if (keep.has(provider)) continue;
+      delete store.order[provider];
+      changed = true;
+    }
+  }
+  if (store.lastGood && typeof store.lastGood === 'object') {
+    for (const provider of Object.keys(store.lastGood)) {
+      if (keep.has(provider)) continue;
+      delete store.lastGood[provider];
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function putAuthProfilesJson(path: string, store: MemberAuthStore): void {
+  const staging = `${path}.staging-${process.pid}`;
+  writeFileSync(staging, JSON.stringify(store), { mode: 0o600 });
+  renameSync(staging, path);
+  try { chmodSync(path, 0o600); } catch { /* best-effort mode */ }
+}
+
+// A late token refresh after authLogout can rewrite the member agent's store; prepare drops any profile the index
+// no longer names so listing cannot synthesize the removed account back.
+function sweepMemberAuthProfiles(root: string): void {
+  for (const [member, keep] of memberAgentProviders(root)) {
+    const agentDir = join(root, 'state', 'agents', member, 'agent');
+    const jsonPath = join(agentDir, 'auth-profiles.json');
+    if (existsSync(jsonPath)) {
+      try {
+        const store = JSON.parse(readFileSync(jsonPath, 'utf8')) as MemberAuthStore;
+        if (store && typeof store === 'object' && dropUnnamedProfiles(store, keep)) putAuthProfilesJson(jsonPath, store);
+      } catch { /* leave an unreadable store alone; prepare must still finish */ }
+    }
+    const dbPath = join(agentDir, 'openclaw-agent.sqlite');
+    if (!existsSync(dbPath)) continue;
+    try {
+      const db = new DatabaseSync(dbPath);
+      try {
+        const row = db.prepare('SELECT store_json FROM auth_profile_store').get() as { store_json?: string } | undefined;
+        if (typeof row?.store_json !== 'string') continue;
+        const store = JSON.parse(row.store_json) as MemberAuthStore;
+        if (!store || typeof store !== 'object' || !dropUnnamedProfiles(store, keep)) continue;
+        db.prepare('UPDATE auth_profile_store SET store_json = ?').run(JSON.stringify(store));
+      } finally { db.close(); }
+    } catch { /* leave an unreadable native store alone */ }
+  }
+}
+
+// Removes each `<root>/state/agents/<member>--<hex6>` directory that a removal recorded as gone and no index names,
+// and drops member-agent auth profiles that no index entry names. Only recorded account-agent directories go: a legacy
+// member's own directory is never recorded, so it stays. The directories are listed before the index is read: each
+// listed one was created after its entry was written.
 export function sweepOrphans(root: string): void {
-  let dirs: string[];
+  let dirs: string[] = [];
   try { dirs = readdirSync(join(root, 'state', 'agents')); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
   const gone = removedAccountAgents(root);
   for (const dir of dirs) {
     if (!gone.has(dir)) continue;
     rmSync(join(root, 'state', 'agents', dir), { recursive: true, force: true });
   }
+  sweepMemberAuthProfiles(root);
 }
 
 export function createAccounts(ctx: {

@@ -48,6 +48,11 @@ try {
   assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'the late file is swept on prepare');
   console.log('late file swept on prepare: true');
 
+  // Keep a second member-agent account so prepare can prove it survives a late openai write-back.
+  const go = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
+  go.paste('CANARY-GO-MEMBER-LATE-REFRESH');
+  assert.equal((await go.done).view.state, 'done');
+
   // Member leg: authLogout carries the sealed profileIds, then the entry.
   const authBefore = fake.calls.filter((c) => c.method === 'models.authLogout').length;
   await kit.removeAccount('m1', 'openai');
@@ -57,7 +62,27 @@ try {
   assert.equal(auth[0].params.agentId, 'm1');
   assert.ok(Array.isArray(auth[0].params.profileIds) && auth[0].params.profileIds.length > 0, 'with its sealed profile');
   assert.ok(!('openai' in index()), 'the member entry is dropped');
+  assert.ok('opencode-go' in index(), 'the other member account stays');
   console.log('member account removed through authLogout with profileIds: true');
+
+  // Late member-store refresh: write openai back into the member agent store; prepare must drop it.
+  const memberStore = join(root, 'state', 'agents', 'm1', 'agent', 'auth-profiles.json');
+  mkdirSync(join(memberStore, '..'), { recursive: true });
+  writeFileSync(memberStore, JSON.stringify({
+    version: 1,
+    profiles: {
+      'openai:default': { type: 'oauth', provider: 'openai', access: 'late-access', refresh: 'late-refresh' },
+      'opencode-go:default': { type: 'api_key', provider: 'opencode-go', key: 'kept-on-member' },
+    },
+    order: { openai: ['openai:default'], 'opencode-go': ['opencode-go:default'] },
+  }));
+  await kit.prepare();
+  const swept = JSON.parse(readFileSync(memberStore, 'utf8'));
+  assert.equal(swept.profiles['openai:default'], undefined, 'late member refresh gone');
+  assert.equal(swept.profiles['opencode-go:default']?.provider, 'opencode-go', 'remaining member profile stays');
+  assert.ok(!('openai' in index()), 'removed account stays out of the index');
+  assert.ok('opencode-go' in index(), 'remaining account intact');
+  console.log('late member-store refresh swept on prepare: true');
   console.log('REMOVE-ACCOUNT OK');
 } finally {
   await kit.stop();
