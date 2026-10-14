@@ -482,8 +482,9 @@ saved Go plan key reads as signed out. Use the handle only where the sign-in liv
 `provider: 'opencode-go'`; decide refuses it on any other route.
 
 For a BYOKit-only call that does not go through `Accounts` members, `openCodeGoPlanAccount(store)` from
-`@byokit/accounts/opencode-go` resolves the same route from one `@byokit/secrets` entry per route (written by
-managed-CLI `saveKey`, deleted by `logout`). It never reads OpenCode's own `auth.json`.
+`@byokit/accounts/opencode-go` resolves the same route from one `@byokit/secrets` entry per route
+(`accounts.opencode:plan_key:opencode-go`). Managed-CLI `saveKey` writes a separate per-account entry
+and does not populate this portable route entry. It never reads OpenCode's own `auth.json`.
 
 
 ## Desktop credential storage security
@@ -786,7 +787,7 @@ If the host does not supply a provider executable, its managed rows remain visib
 
 The `accounts-v1.json` `{version:1,accounts:[{id,provider,name,folder,found,addedAt?}]}` and `auto-terms-v1.json` `{acknowledged:true}` encodings stay at version 1, with 0600 files and atomic replacement. A stored `addedAt` is authoritative, and a managed row without one derives it at read time from its folder's `birthtimeMs` (or the earliest of `ctimeMs`/`mtimeMs` when birthtime is unavailable, `lstat` only), so pre-existing same-email logins stay distinguishable without rewriting the roster. The kit preserves but excludes `found-*` and `found:true` rows, which belong to the host's default-login adapter. Legacy managed rows without kit completion sidecars retain their native signed-in status; new or re-signing rows require the completion marker. Symlinked account folders and records outside the provider/hex layout (or the host's explicit `managedFolders`) are refused.
 
-`usageSource(id)` returns a Codex Source for `@byokit/usage`; Claude and OpenCode return `undefined`, and Claude's usage Source is `{provider:'claude', folder:set.CLAUDE_CONFIG_DIR, headers}` in a usage reader whose `stateDir` is the same managed root. `kinds` serves only the matching native agent (`claude`, `codex`, `pi` or `opencode`). `resumeArgs` accepts an `id` conversation reference for Claude/Codex/Pi and also a `path` for Pi; OpenCode refuses resume (use the plan route). `launchArgs(id)` supplies Pi's selected `--provider` and is empty for Claude/Codex/OpenCode. `termsAcknowledged` and `acknowledgeTerms` keep the host's existing terms bit; they do not gate sign-in. `suggestName` uses the first part of an email, falling back to the provider's name.
+`usageSource(id)` returns a Codex Source for `@byokit/usage`; Claude and OpenCode return `undefined`, and Claude's usage Source is `{provider:'claude', folder:set.CLAUDE_CONFIG_DIR, headers}` in a usage reader whose `stateDir` is the same managed root. `kinds` serves only the matching native agent (`claude`, `codex`, `pi` or `opencode`). `resumeArgs` accepts an `id` conversation reference for Claude/Codex/Pi/OpenCode (`--session` for Pi and OpenCode) and also a `path` for Pi. `launchArgs(id)` supplies Pi's selected `--provider` and is empty for Claude/Codex/OpenCode. `termsAcknowledged` and `acknowledgeTerms` keep the host's existing terms bit; they do not gate sign-in. `suggestName` uses the first part of an email, falling back to the provider's name.
 
 `launchEnv({ base?, account?, set?, unset? })` copies `base` (default: `process.env`), removes
 provider namespaces derived from the catalogue and inherited API keys, then applies account settings
@@ -846,11 +847,11 @@ Found rows remain read-only host records. `signInAgain('found-*')` and managed l
 
 ### Managed OpenCode (plan key)
 
-OpenCode has no native login to spawn. Pass a device-owned `keyStore` from `@byokit/secrets`; `add('opencode')` returns a `signing` row whose `signIn` carries empty `argv`, a no-op `shell`, and `instruction.words: 'cli.opencodeKey'`. The app collects the plan key with hidden typing and finishes with `saveKey(id, key)`. That writes one `@byokit/secrets` entry per route (`accounts.opencode:plan_key:opencode-go`); the key never enters argv, an env line, a file outside the store, or a log. `status` is `ready` when the entry exists. `logout(id)` deletes it and leaves a signed-out row; `remove` deletes the entry with the folder. `launch` sets `OPENCODE_CONFIG_DIR` to the managed folder and unsets OpenCode credential overrides. Never read OpenCode's own `auth.json`.
+OpenCode has no native login to spawn. Pass a device-owned `keyStore` from `@byokit/secrets`; `add('opencode')` returns a `signing` row whose `signIn` carries empty `argv`, a no-op `shell`, and `instruction.words: 'cli.opencodeKey'`. The app collects the plan key with hidden typing and finishes with `saveKey(id, key)`. That writes one `@byokit/secrets` entry per managed account (`accounts.opencode:plan_key:opencode-go.<accountId>`); two accounts keep distinct keys. The key never enters argv, an env line, a file outside the store, or a log. `status` is `ready` when that account's entry exists. `logout(id)` deletes it and leaves a signed-out row; `remove` deletes the entry with the folder. `launch` sets `OPENCODE_CONFIG_DIR` to the managed folder and unsets OpenCode credential overrides. `resumeArgs('opencode', { kind: 'id', value })` returns `['--session', value]`. Never read OpenCode's own `auth.json`. The portable `openCodeGoPlanAccount(store)` route still uses one entry per route (`accounts.opencode:plan_key:opencode-go`) and is unchanged.
 
 ```ts
 import { cliAccounts } from '@byokit/accounts/cli';
-import { openCodeGoPlanAccount } from '@byokit/accounts/opencode-go';
+import { OPENCODE_GO_PLAN_ROUTE, openCodeGoPlanAccount, readOpenCodePlanKey } from '@byokit/accounts/opencode-go';
 import type { Keystore } from '@byokit/secrets';
 
 declare const stateDir: string;
@@ -867,11 +868,11 @@ const { account, signIn } = await plans.add('opencode');
 const ready = await plans.saveKey(account.id, hiddenPlanKey);
 const launch = await plans.launch(ready.id); // OPENCODE_CONFIG_DIR; unset OPENCODE_API_KEY
 if (!launch.ok) console.log(launch.code, launch.message);
-// BYOKit-only live call: the route resolves the same store entry (no hand-exported key).
-const go = openCodeGoPlanAccount(keyStore);
-const key = await go.access(new AbortController().signal); // host-only; never log
-await plans.logout(account.id); // deletes the stored key
-void key;
+const resume = plans.resumeArgs('opencode', { kind: 'id', value: 'ses_1' }); // ['--session', 'ses_1']
+// This account's key (host-only; never log). Portable openCodeGoPlanAccount stays on the route-only entry.
+const key = await readOpenCodePlanKey(keyStore, OPENCODE_GO_PLAN_ROUTE, 'OpenCode', ready.id);
+await plans.logout(account.id); // deletes this account's stored key
+void openCodeGoPlanAccount; void resume; void key;
 ```
 
 ## Scripted sign-in stand-in

@@ -10,33 +10,39 @@ export type OpenCodeGoAccount = {
   access(signal: AbortSignal): Promise<string>;
 };
 
-/** The plan-key route this seam keeps: one @byokit/secrets entry per route. */
+/** The plan-key route this seam keeps. Portable callers keep one store entry per route; managed CLI
+ * accounts append the account id so two accounts each keep their own key. */
 export const OPENCODE_GO_PLAN_ROUTE = 'opencode:plan_key:opencode-go';
 
-/** The secrets entry holding a plan route's key. The key never lives in argv, an env line, a file
- * outside the store, or a log; this name carries only the route, never the key. */
-export function openCodePlanKeyEntry(route: string = OPENCODE_GO_PLAN_ROUTE): string {
+/** The secrets entry holding a plan key. With only `route`, the name is `accounts.<route>` (portable
+ * `openCodeGoPlanAccount`). With `accountId`, it is `accounts.<route>.<accountId>` (managed CLI).
+ * The name carries only ids, never the key. */
+export function openCodePlanKeyEntry(route: string = OPENCODE_GO_PLAN_ROUTE, accountId?: string): string {
   if (typeof route !== 'string' || !route || route.includes('\0') || route.length > 256) throw new Error(say('cli.badOption'));
+  if (accountId !== undefined) {
+    if (typeof accountId !== 'string' || !accountId || accountId.includes('\0') || accountId.length > 256) throw new Error(say('cli.badOption'));
+    return `accounts.${route}.${accountId}`;
+  }
   return `accounts.${route}`;
 }
 
-/** Save a plan route's key (the app collects it with hidden typing; this call never logs it). */
-export async function saveOpenCodePlanKey(store: Keystore, key: string, route: string = OPENCODE_GO_PLAN_ROUTE): Promise<void> {
+/** Save a plan key (the app collects it with hidden typing; this call never logs it). */
+export async function saveOpenCodePlanKey(store: Keystore, key: string, route: string = OPENCODE_GO_PLAN_ROUTE, accountId?: string): Promise<void> {
   if (!store || typeof key !== 'string' || !key.trim()) throw new Error(say('cli.badOption'));
-  await store.set(openCodePlanKeyEntry(route), key);
+  await store.set(openCodePlanKeyEntry(route, accountId), key);
 }
 
-/** Read a plan route's saved key. A missing key fails with words, never with key material. */
-export async function readOpenCodePlanKey(store: Keystore | undefined, route: string = OPENCODE_GO_PLAN_ROUTE, name = 'OpenCode'): Promise<string> {
-  const key = await store?.get(openCodePlanKeyEntry(route));
+/** Read a saved plan key. A missing key fails with words, never with key material. */
+export async function readOpenCodePlanKey(store: Keystore | undefined, route: string = OPENCODE_GO_PLAN_ROUTE, name = 'OpenCode', accountId?: string): Promise<string> {
+  const key = await store?.get(openCodePlanKeyEntry(route, accountId));
   if (typeof key !== 'string' || !key) throw new Error(say('cli.missingPlanKey', { name }));
   return key;
 }
 
-/** Delete a plan route's saved key. A missing entry is already signed out, not a failure. */
-export async function deleteOpenCodePlanKey(store: Keystore | undefined, route: string = OPENCODE_GO_PLAN_ROUTE): Promise<void> {
+/** Delete a saved plan key. A missing entry is already signed out, not a failure. */
+export async function deleteOpenCodePlanKey(store: Keystore | undefined, route: string = OPENCODE_GO_PLAN_ROUTE, accountId?: string): Promise<void> {
   if (!store) return;
-  await store.delete(openCodePlanKeyEntry(route));
+  await store.delete(openCodePlanKeyEntry(route, accountId));
 }
 
 /** The plan route's own handle: resolves its key from the store on every use, so a BYOKit-only live
