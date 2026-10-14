@@ -1,0 +1,1 @@
+- FIX: Changing the wrap mode (for example turning on dual wrapping) now reseals every engine store under the new mode on the next stop, including unchanged ones, so a later restore with the OS keyring locked opens them. Since 0.12.0 unchanged stores kept their old keyring-only wrap and that restore failed with `AuthStoreUnreadableError` (`invalid-snapshot`).
