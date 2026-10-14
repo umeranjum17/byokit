@@ -1,5 +1,7 @@
 # @byokit/statusbar
 
+> **New home:** [`@platform-kits/statusbar`](https://www.npmjs.com/package/@platform-kits/statusbar). New work goes there.
+
 One ongoing job the person started, shown as a status-bar chip on Android 16 (a Live Update: a promoted ongoing
 notification), as an Expo module. It has a counts-only copy for the lock screen and screen sharing, up to three actions
 that need the phone unlocked, and a dismissal that sticks until the job ends. On iOS, the web, Node and Android below

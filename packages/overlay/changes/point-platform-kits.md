@@ -1,0 +1,1 @@
+- **Deprecated:** new home is `@platform-kits/overlay`; new work goes there.
