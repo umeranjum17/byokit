@@ -46,9 +46,10 @@ for §5.1–5.5 and §5.7 plus install and supervise (§8: `install`, `update`, 
 (M4), the keyless Boat tailnet join (§9.1), the SSH VM adapter (M2), the Hetzner first slice,
 and account link (`claim()`, §11.5). Idle sleep and wake-on-open land in M7 (manual `sleep()` and
 `wake()` are already here).
-The package is publishable, but its first release waits on the recorded live claim proof:
-the fake sign-in routes follow the documented contract ([auth.md](https://boat.dev/auth.md)),
-yet no live register or claim call has run, and whether a claimed key's scopes allow create,
+The package is ready to publish (files, exports, README); it stays private until the
+recorded live claim proof passes, then one PR removes `private`. The fake sign-in routes
+follow the documented contract ([auth.md](https://boat.dev/auth.md)), yet no live register
+or claim call has run, and whether a claimed key's scopes allow create,
 install and hosting is unverified (M6). Until that proof passes, the app keeps `setup.makeKey`.
 
 The library reads no environment variable. Every spawned process gets an env built from nothing.
