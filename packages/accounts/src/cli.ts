@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { identity, type Identity } from '@byokit/usage';
 import type { Keystore } from '@byokit/secrets';
 import { clock, say } from './words.ts';
-import { deleteOpenCodePlanKey, readOpenCodePlanKey, saveOpenCodePlanKey } from './opencode-go.ts';
+import { OPENCODE_GO_PLAN_ROUTE, deleteOpenCodePlanKey, readOpenCodePlanKey, saveOpenCodePlanKey } from './opencode-go.ts';
 import { launchEnv as cleanLaunchEnv } from './isolate.ts';
 import type { AccountLike } from './multi.ts';
 import routes from './routes.json' with { type: 'json' };
@@ -25,7 +25,8 @@ export type CliOptions = {
   managedFolders?: { claude?: string; codex?: string };
   prepare?: (folder: string, provider: CliProvider) => Promise<void>;
   /** Device-owned secrets backend for key-based providers (OpenCode): `saveKey` writes the plan key
-   * here, one entry per route, and `logout` deletes it. The key never enters argv, env, a file or a log. */
+   * here, one entry per managed account, and `logout` deletes that account's entry. The key never
+   * enters argv, env, a file or a log. */
   keyStore?: Keystore;
 };
 export type CliLaunchResult =
@@ -339,10 +340,10 @@ export function cliAccounts(options: CliOptions) {
       const rest = activeRest(r.id);
       if (rest) return { ...account, state: 'resting', until: rest.until };
       if (r.provider === 'opencode') {
-        // No native probe: readiness is the saved plan key. A missing or unreadable store reads
-        // signed out, never a failure, and a saved key ends the pending cycle like a native login.
+        // No native probe: readiness is this account's saved plan key. A missing or unreadable store
+        // reads signed out, never a failure, and a saved key ends the pending cycle like a native login.
         let saved = false;
-        try { await readOpenCodePlanKey(options.keyStore); saved = true; }
+        try { await readOpenCodePlanKey(options.keyStore, OPENCODE_GO_PLAN_ROUTE, 'OpenCode', r.id); saved = true; }
         catch { saved = false; }
         if (saved && marker(pending(r))) rmSync(pending(r), { force: true });
         const keySigning = marker(pending(r)) && !saved;
@@ -367,7 +368,7 @@ export function cliAccounts(options: CliOptions) {
       const r = row(id);
       if (login && signInHeld(r.folder)) throw new CliAccountError('prepare-failed');
       // The plan key lives outside the folder, so delete it first: no orphaned secret survives the row.
-      if (r.provider === 'opencode') await deleteOpenCodePlanKey(options.keyStore);
+      if (r.provider === 'opencode') await deleteOpenCodePlanKey(options.keyStore, OPENCODE_GO_PLAN_ROUTE, r.id);
       discard(r, login); save(load().filter((v) => v.id !== id), r.provider); created.delete(id);
       saveRests(loadRests().filter((v) => v.id !== id));
     });
@@ -389,24 +390,24 @@ export function cliAccounts(options: CliOptions) {
     return status(id);
   }
   /** Save an OpenCode plan key (collected with hidden typing) into the secrets store, one entry per
-   * route. The key never enters argv, env, a file outside the store, or a log. */
+   * managed account. The key never enters argv, env, a file outside the store, or a log. */
   async function saveKey(id: string, key: string): Promise<CliAccount> {
     await serial(id, async () => {
       const r = row(id);
       if (r.provider !== 'opencode') throw new CliAccountError('kind-mismatch');
       if (!options.keyStore || typeof key !== 'string' || !key.trim()) throw new CliAccountError('bad-option');
-      try { await saveOpenCodePlanKey(options.keyStore, key); }
+      try { await saveOpenCodePlanKey(options.keyStore, key, OPENCODE_GO_PLAN_ROUTE, r.id); }
       catch { throw new CliAccountError('prepare-failed'); }
       rmSync(pending(r), { force: true });
     });
     return status(id);
   }
-  /** Delete an OpenCode plan key from the secrets store; the row stays as a signed-out account. */
+  /** Delete this account's OpenCode plan key from the secrets store; the row stays signed out. */
   async function logout(id: string): Promise<CliAccount> {
     await serial(id, async () => {
       const r = row(id);
       if (r.provider !== 'opencode') throw new CliAccountError('kind-mismatch');
-      try { await deleteOpenCodePlanKey(options.keyStore); }
+      try { await deleteOpenCodePlanKey(options.keyStore, OPENCODE_GO_PLAN_ROUTE, r.id); }
       catch { throw new CliAccountError('prepare-failed'); }
       rmSync(pending(r), { force: true });
     });
@@ -485,9 +486,7 @@ export function cliAccounts(options: CliOptions) {
     kinds: (provider: CliProvider): string[] => providers.includes(provider) ? [provider] : [],
     resumeArgs(kind: string, ref: { kind: 'id' | 'path'; value: string }): string[] {
       if (!record(ref) || !text(ref.value) || !ref.value || ref.value.startsWith('-') || !providers.includes(kind as CliProvider) || (ref.kind !== 'id' && (kind !== 'pi' || ref.kind !== 'path'))) throw new CliAccountError('kind-mismatch');
-      // OpenCode's native resume shape is not pinned here: resume through the plan route, not a guessed argv.
-      if (kind === 'opencode') throw new CliAccountError('kind-mismatch');
-      return kind === 'pi' ? ['--session', ref.value] : kind === 'claude' ? ['--resume', ref.value] : ['resume', ref.value];
+      return kind === 'pi' || kind === 'opencode' ? ['--session', ref.value] : kind === 'claude' ? ['--resume', ref.value] : ['resume', ref.value];
     },
     usageSource(id: string): { provider: 'codex'; bin: string; home: string; env: Record<string, string> } | undefined {
       const r = row(id); return r.provider === 'codex' ? { provider: 'codex', bin: binary('codex'), home: r.folder, env: spawnEnv(r) } : undefined;
