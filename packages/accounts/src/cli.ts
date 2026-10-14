@@ -22,7 +22,7 @@ export type CliOptions = {
   env: { PATH: string; HOME: string } & Record<string, string>;
   historyFrom?: Partial<Record<CliProvider, string>>;
   /** Explicit runtime-owned folders inside stateDir; never removed with roster bookkeeping. */
-  managedFolders?: { claude?: string };
+  managedFolders?: { claude?: string; codex?: string };
   prepare?: (folder: string, provider: CliProvider) => Promise<void>;
   /** Device-owned secrets backend for key-based providers (OpenCode): `saveKey` writes the plan key
    * here, one entry per route, and `logout` deletes it. The key never enters argv, env, a file or a log. */
@@ -157,11 +157,13 @@ export function cliAccounts(options: CliOptions) {
   if (options.keyStore !== undefined && (!record(options.keyStore) || typeof (options.keyStore as Keystore).get !== 'function' || typeof (options.keyStore as Keystore).set !== 'function' || typeof (options.keyStore as Keystore).delete !== 'function')) throw new CliAccountError('bad-option');
   const stateDir = resolve(options.stateDir); const env = { ...options.env }; const bins = { ...options.bins }; const history = { ...options.historyFrom };
   const ownsDefaultLogin = (path: string) => ['.claude', '.codex', '.pi'].some((p) => { const own = join(resolve(env.HOME), p); return path === own || path.startsWith(own + '/'); });
-  const managedFolders = Object.fromEntries(Object.entries(options.managedFolders ?? {}).filter(([, folder]) => folder !== undefined)) as { claude?: string };
+  const managedFolders = Object.fromEntries(Object.entries(options.managedFolders ?? {}).filter(([, folder]) => folder !== undefined)) as { claude?: string; codex?: string };
+  // The login files each native CLI keeps in its own folder; remove deletes these and keeps the folder.
+  const managedLoginFiles: Partial<Record<CliProvider, string[]>> = { claude: ['.credentials.json', '.claude.json'], codex: ['auth.json'] };
   if (options.managedFolders && (!record(options.managedFolders) || Object.entries(managedFolders).some(([p, folder]) =>
-    p !== 'claude' || !text(folder) || resolve(folder) !== folder || !folder.startsWith(stateDir + '/') || ownsDefaultLogin(folder)
+    (p !== 'claude' && p !== 'codex') || !text(folder) || resolve(folder) !== folder || !folder.startsWith(stateDir + '/') || ownsDefaultLogin(folder)
     || !directory(dirname(folder)) || realpathSync(dirname(folder)) !== dirname(folder)))) throw new CliAccountError('bad-option');
-  const managed = (r: Row) => r.provider === 'claude' && managedFolders.claude === r.folder;
+  const managed = (r: Row) => (r.provider === 'claude' || r.provider === 'codex') && managedFolders[r.provider] === r.folder;
   if (ownsDefaultLogin(stateDir)) throw new CliAccountError('bad-option');
   // Parents must already be app-owned. Never follow a state/provider/folder symlink.
   try { if (realpathSync(dirname(stateDir)) !== dirname(stateDir)) throw new CliAccountError('bad-option'); }
@@ -357,7 +359,7 @@ export function cliAccounts(options: CliOptions) {
   function discard(r: Row, login: boolean) {
     if (managed(r)) {
       rmSync(pending(r), { force: true }); rmSync(complete(r), { force: true });
-      if (login) for (const file of ['.credentials.json', '.claude.json']) rmSync(join(r.folder, file), { force: true });
+      if (login) for (const file of managedLoginFiles[r.provider] ?? []) rmSync(join(r.folder, file), { force: true });
     } else rmSync(r.folder, { recursive: true, force: true });
   }
   async function drop(id: string, login: boolean) {
@@ -420,7 +422,7 @@ export function cliAccounts(options: CliOptions) {
     binary(provider);
     const parent = join(stateDir, provider); if (!directory(stateDir) || !directory(parent, true)) throw new CliAccountError('bad-option');
     chmodSync(parent, 0o700);
-    const r: Row = { id: `pa_${randomBytes(9).toString('hex')}`, provider, name: adopted?.name ?? '', folder: provider === 'claude' && managedFolders.claude || join(parent, randomBytes(8).toString('hex')), found: false, addedAt: stampAddedAt(),
+    const r: Row = { id: `pa_${randomBytes(9).toString('hex')}`, provider, name: adopted?.name ?? '', folder: (provider === 'claude' || provider === 'codex') && managedFolders[provider] || join(parent, randomBytes(8).toString('hex')), found: false, addedAt: stampAddedAt(),
       ...(provider === 'pi' ? { piProvider: metadata!.piProvider } : {}), ...(adopted ? { adoptedFrom: adopted.id } : {}) };
     if (managed(r) && load().some(row => row.folder === r.folder)) throw new CliAccountError('prepare-failed');
     if (!directory(r.folder, true)) throw new CliAccountError('bad-option');

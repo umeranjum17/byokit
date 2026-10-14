@@ -603,14 +603,36 @@ test('an undefined managed folder entry is treated as absent', async () => {
   assert.ok(cli.folderOf(added.account.id).startsWith(join(stateDir, 'claude') + '/'));
 });
 
-test('managed folders are Claude-only; a Codex folder is refused', () => {
+test('a runtime-owned Codex folder receives the ChatGPT sign-in the engine reads', async () => {
   const root = scratchDir('remote-managed-codex');
-  const native = fakeClaude(join(root, 'bins'));
+  const codex = fakeCodex(join(root, 'bins'));
   const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
   const home = join(stateDir, 'home'); mkdirSync(home);
-  mkdirSync(join(stateDir, 'codex'));
+  const folder = join(stateDir, 'codex-home'); mkdirSync(folder);
+  const bins = { codex: codex.bin };
+  const cli = cliAccounts({ stateDir, bins, env: { HOME: home, PATH: '/unused' }, managedFolders: { codex: folder } });
+  const host = remoteCliHost({ cli, bins });
+  const started = await host.start('codex');
+  assert.equal(started.ok, true);
+  if (!started.ok) return;
+  assert.equal(cli.launchEnv(started.signIn.id).set.CODEX_HOME, folder);
+  assert.deepEqual(await host.wait(started.signIn.id), { ok: true, provider: 'codex' });
+  assert.ok(existsSync(join(folder, 'granted')), 'the ChatGPT login lands in the runtime-owned folder');
+  assert.equal(cli.folderOf(started.signIn.id), folder);
+  writeFileSync(join(folder, 'auth.json'), '{}');
+  await cli.remove(started.signIn.id);
+  assert.ok(!existsSync(join(folder, 'auth.json')), 'remove deletes the Codex login file');
+  assert.ok(existsSync(folder), 'remove keeps the runtime-owned folder');
+  await host.close();
+});
+
+test('a managed Codex folder that is the default Codex login is refused at construction', () => {
+  const root = scratchDir('remote-managed-codex-default');
+  const native = fakeCodex(join(root, 'bins'));
+  const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
+  const home = join(stateDir, 'home'); mkdirSync(home);
   assert.throws(() => cliAccounts({ stateDir, bins: { codex: native.bin }, env: { HOME: home, PATH: '/unused' },
-    managedFolders: { codex: join(stateDir, 'codex', 'managed') } } as never), { code: 'bad-option' });
+    managedFolders: { codex: join(home, '.codex') } }), { code: 'bad-option' });
 });
 
 test('a paste into a native child that already closed its stdin fails plainly and cannot crash the host', { timeout: 10_000 }, async () => {
