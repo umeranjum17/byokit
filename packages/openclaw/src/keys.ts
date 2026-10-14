@@ -12,6 +12,8 @@ import type { Member, ModelInfo } from './types.ts';
 export type KeyFailureReason = 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy';
 export type AddKeyResult = { status: 'ok' } |
   { status: 'invalid' | 'not_included' | 'retry'; reason: KeyFailureReason };
+/** The add resolves like a Promise; `cancel()` stops a pending add and clears any partial key (retry/busy). */
+export type AddKeyHandle = Promise<AddKeyResult> & { cancel(): void };
 
 export function createKeys(ctx: ActivationCtx & {
   root: string;
@@ -76,50 +78,62 @@ export function createKeys(ctx: ActivationCtx & {
   return {
     models,
     exclusive,
-    async add(member: Member, o: { authChoice: string; apiKey: string; model?: string }): Promise<AddKeyResult> {
-      if (!check(member)) throw new Error('Choose your own member.');
-      if (!o.apiKey.trim()) return failure('invalid', 'empty');
-      const route = routes().find((r) => r.choice === o.authChoice && r.keyEntry && r.readiness === 'ready');
-      if (!route || (o.model !== undefined && !LIVE_CATALOGS.includes(route.provider))) return failure('not_included', 'model');
-      return exclusive(member, async () => {
-        let sent = false;
-        // A key the engine may have taken but not sealed is cleared (prepare already emptied the agent); if the clear
-        // does not reach the engine, the key stays unsealed and unusable until the next key add or kit start, so runs
-        // fail closed.
-        const abandon = async (result: AddKeyResult): Promise<AddKeyResult> => {
-          await control(member, 'clear').catch(() => undefined);
-          return result;
-        };
-        try {
-          await ctx.ensure(member);
-          const agentId = keyAgentId(member);
-          const list = await ctx.request('agents.list') as { agents: { id: string }[] };
-          if (!list.agents.some((a) => a.id === agentId))
-            await ctx.request('agents.create', { name: agentId, workspace: join(ctx.root, 'key-workspaces', member) });
-          // Creation answers before the runtime roster/owners publish, just as for ordinary members.
-          await untilListed(ctx.request, agentId);
-          if (!(await control(member, 'prepare', route.provider)).ok) return failure('retry', 'engine');
-          // The public pin's typed API-key path, never a CLI-login import. Discard the engine's lines/errors.
-          sent = true;
-          const result = await activate(ctx, { kind: 'api-key', agentId, authChoice: o.authChoice, apiKey: o.apiKey },
-            { timeoutMs: 180_000 });
-          if (!result.ok && !result.late) return abandon(probeResult(result.status));
-          if (result.late) return abandon(failure('retry', 'busy'));
-          if (o.model !== undefined && !(await models(member, o)).some((m) => m.id === o.model && m.available))
-            return abandon(failure('not_included', 'model'));
-          // Prepare before publishing the ready marker: failed preparation remains unusable even if clear fails.
-          try { await ctx.prepareOwner(agentId); }
-          catch { return abandon(failure('retry', 'engine')); }
-          if (o.model !== undefined && LIVE_CATALOGS.includes(route.provider) && !(await registered(route.provider, o.model)))
-            return abandon(failure('retry', 'model'));
-          if ((await control(member, 'seal', undefined, o.model)).ok) return { status: 'ok' };
-          return abandon(failure('retry', 'engine'));
-        } catch (error) {
-          const reason = errorReason(error, sent);
-          if (sent) return abandon(failure('retry', reason));
-          return failure('retry', reason);
-        }
-      });
+    add(member: Member, o: { authChoice: string; apiKey: string; model?: string }): AddKeyHandle {
+      const ac = new AbortController();
+      const cancel = (): void => { if (!ac.signal.aborted) ac.abort(); };
+      const done = (async (): Promise<AddKeyResult> => {
+        if (!check(member)) throw new Error('Choose your own member.');
+        if (!o.apiKey.trim()) return failure('invalid', 'empty');
+        const route = routes().find((r) => r.choice === o.authChoice && r.keyEntry && r.readiness === 'ready');
+        if (!route || (o.model !== undefined && !LIVE_CATALOGS.includes(route.provider))) return failure('not_included', 'model');
+        if (ac.signal.aborted) return failure('retry', 'busy');
+        return exclusive(member, async () => {
+          let sent = false;
+          // A key the engine may have taken but not sealed is cleared (prepare already emptied the agent); if the clear
+          // does not reach the engine, the key stays unsealed and unusable until the next key add or kit start, so runs
+          // fail closed.
+          const abandon = async (result: AddKeyResult): Promise<AddKeyResult> => {
+            await control(member, 'clear').catch(() => undefined);
+            return result;
+          };
+          const cancelled = () => failure('retry', 'busy');
+          try {
+            if (ac.signal.aborted) return cancelled();
+            await ctx.ensure(member);
+            const agentId = keyAgentId(member);
+            const list = await ctx.request('agents.list') as { agents: { id: string }[] };
+            if (!list.agents.some((a) => a.id === agentId))
+              await ctx.request('agents.create', { name: agentId, workspace: join(ctx.root, 'key-workspaces', member) });
+            // Creation answers before the runtime roster/owners publish, just as for ordinary members.
+            await untilListed(ctx.request, agentId);
+            if (ac.signal.aborted) return cancelled();
+            if (!(await control(member, 'prepare', route.provider)).ok) return failure('retry', 'engine');
+            // The public pin's typed API-key path, never a CLI-login import. Discard the engine's lines/errors.
+            sent = true;
+            if (ac.signal.aborted) return abandon(cancelled());
+            const result = await activate(ctx, { kind: 'api-key', agentId, authChoice: o.authChoice, apiKey: o.apiKey },
+              { timeoutMs: 180_000, signal: ac.signal });
+            if (ac.signal.aborted) return abandon(cancelled());
+            if (!result.ok && !result.late) return abandon(probeResult(result.status));
+            if (result.late) return abandon(failure('retry', 'busy'));
+            if (o.model !== undefined && !(await models(member, o)).some((m) => m.id === o.model && m.available))
+              return abandon(failure('not_included', 'model'));
+            // Prepare before publishing the ready marker: failed preparation remains unusable even if clear fails.
+            try { await ctx.prepareOwner(agentId); }
+            catch { return abandon(failure('retry', 'engine')); }
+            if (ac.signal.aborted) return abandon(cancelled());
+            if (o.model !== undefined && LIVE_CATALOGS.includes(route.provider) && !(await registered(route.provider, o.model)))
+              return abandon(failure('retry', 'model'));
+            if ((await control(member, 'seal', undefined, o.model)).ok) return { status: 'ok' };
+            return abandon(failure('retry', 'engine'));
+          } catch (error) {
+            const reason = errorReason(error, sent);
+            if (sent) return abandon(failure('retry', reason));
+            return failure('retry', reason);
+          }
+        });
+      })();
+      return Object.assign(done, { cancel });
     },
     async ready(member: Member, o: { once?: boolean } = {}): Promise<{ agentId: string; model: string } | undefined> {
       if (!check(member)) return undefined;

@@ -145,8 +145,9 @@ returns what that run would choose now, refusals included, without running. `ste
 `sessionKey` while its run is live.
 
 
-For an owner who explicitly offers keys, `kit.addKey('ana', { authChoice: 'openai-api-key', apiKey })` returns
-`{ status: 'ok' }` or `{ status: 'invalid' | 'not_included' | 'retry', reason }`.
+For an owner who explicitly offers keys, `kit.addKey('ana', { authChoice: 'openai-api-key', apiKey })` is a thenable
+handle: `await` it for `{ status: 'ok' }` or `{ status: 'invalid' | 'not_included' | 'retry', reason }`, and call
+`cancel()` to stop a pending add (clears any partial key; settles `retry`/`busy`).
 `reason` is `auth` (provider refused the key) or `billing` (the provider's billing refused it; the kit words it and never passes
 provider text): both are `invalid`, and an unchanged key must not be retried. `empty` is a blank key, rejected locally before any
 provider call, also `invalid`. `model` is an unsupported route or unknown model (`not_included`), or a live model the engine did not
@@ -199,8 +200,9 @@ non-text/tool frame as an end.
 Live readiness reads (`providers`, `signedIn`, or device `state()`) prepare admission for the next run, avoiding
 redundant checks while authority remains reusable. `providerStatus(member)` returns `undefined` for unknown
 status rather than `[]`; `providers` maps unknown to `[]`, and `signedIn` to `false`. `signedIn(member, provider)`
-is also true when the member holds a ready API key for that provider (`addKey`), while `providers` lists only the
-member's own sign-ins, the ones a run without `auth: 'apiKey'` uses; a key run passes `auth: 'apiKey'`.
+is also true when the member holds a ready API key for that provider (`addKey`), including after an engine restart
+that retains the key profile on `byokit-key-<member>`, while `providers` lists only the member's own sign-ins, the
+ones a run without `auth: 'apiKey'` uses; a key run passes `auth: 'apiKey'`.
 See [the admission contract](../../docs/runtime-kits.md#58-runs-members-and-streams) for lifetime, expiry,
 file witnesses, invalidation and remote-revocation limits.
 Tool events carry the engine's call `id`, the `input` on `start` and the `output` and `error` on `end`. A run that
