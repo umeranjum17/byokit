@@ -2766,13 +2766,13 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 | `oc.abort` | `{ sessionKey, auth? }` | `null` (key must be the member's, D9) |
 | `oc.artifacts` *view* | `{ sessionKey, runId? }` | `ArtifactsResult` (5.8.2; key must be the member's, D9) |
 | `oc.artifact` (stream) | `{ sessionKey, id, offset?, sha256? }` | `ArtifactFrame` lines: `head`, `chunk`s from `offset`, `end` (5.8.2; key must be the member's, D9; a refusal is the `end` frame) |
-| `oc.accounts` *view* | — | `Account[]` (5.15) |
+| `oc.accounts` (not shipped) | — | the link refuses it as an unknown op; listing is `kit.accounts` |
 | `oc.account.add` (not shipped) | — | the link refuses it as an unknown op; account adding is `kit.addAccount`, which refuses `key` (keys are host-only) |
-| `oc.account.view` *view* | `{ id }` | `{ ready, view: SignInView \| null }` for `toAccountView` |
-| `oc.account.paste` | `{ id, text }` | `null` |
-| `oc.account.cancel` | `{ id }` | `null` |
-| `oc.account.rename` | `{ id, name }` | `Account` |
-| `oc.account.remove` | `{ id }` | `null` |
+| `oc.account.view` (not shipped) | — | the link refuses it as an unknown op; account sign-in view is on the `kit.addAccount` handle |
+| `oc.account.paste` (not shipped) | — | the link refuses it as an unknown op; paste is on the `kit.addAccount` handle |
+| `oc.account.cancel` (not shipped) | — | the link refuses it as an unknown op; cancel is on the `kit.addAccount` handle |
+| `oc.account.rename` (not shipped) | — | the link refuses it as an unknown op; renaming is `kit.renameAccount` |
+| `oc.account.remove` (not shipped) | — | the link refuses it as an unknown op; removal is `kit.removeAccount` |
 | `oc.models` *view* | `{ id }` | `ModelInfo[]` |
 | `oc.room` *view* | `{ id, demand? }` | `Room` |
 | `oc.defaults` *view* | — | `Defaults` |
