@@ -945,6 +945,8 @@ export class OpenClawKit {
       // Public readiness/sign-in reads stay live; their fresh result can prepare the next run's admission.
       authStatus: (agentId, refresh, native) => this.admission.read(agentId, refresh, native, false),
       ensure: (member) => this.ensureMember(member), callbackPort: this.o.callbackPort ?? 1455,
+      nativeClaudeLogin: () => this.engine.nativeClaudeLogin(),
+      resetNativeClaudeLogin: () => this.engine.resetNativeClaudeLogin(),
       onDisconnect: (fn) => { this.signInDisconnects.add(fn); return () => { this.signInDisconnects.delete(fn); }; },
       authConfig: () => this.authSnapshot(),
       restarted: (authBefore, signal) => this.restarted(authBefore, signal) };

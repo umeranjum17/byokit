@@ -32,11 +32,11 @@ surface (OpenClaw Gateway operator protocol; Herdr socket API and CLI), so no co
 They share connection adapters (`link`, `relay`, `discover`, `seal`, `ui`) and conventions, never a
 lowest-common-denominator interface. `@byokit/accounts` keeps serving direct-provider apps (including Ownvoice); its
 multi-account shapes (`Account`, `Room`, `RunSelection`, `Pick` as `AccountPick`) are restated structurally by this kit (5.15), never
-imported. CLI sign-in status lives in `@byokit/herdr` `agentStatus` (B5) and, for its managed Claude/Codex/Pi folders, `@byokit/accounts/cli` `status`; 6.6 names which one gates a move (MS-S2).
+imported. CLI sign-in status lives in `@byokit/herdr` `agentStatus` (B5) and, for its managed Claude/Codex/Pi folders, `@byokit/accounts/cli` `status`; 6.6 names which one gates a move (MS-S2). Native CLI sign-in (`anthropic-cli`) is the only other accounts use: `cliAccounts` and `remoteCliHost`, named below.
 
 Out of scope for the build phase: releasing (firstmate/owner runs `release.yml`), muxr adoption (section 10), any
 operated service, and any change to `@byokit/accounts`, `link`, `relay`, `discover`, `seal`, `decide` or `ui`
-source, except `@byokit/accounts/cli` `launch` (MS-S2, 6.6).
+source, except `@byokit/accounts/cli` `launch` (MS-S2, 6.6) and the native sign-in surface (`managedFolders`, `folderOf`, `remoteCliHost`, `signInLock`).
 
 ## 2. Decisions
 
@@ -295,10 +295,10 @@ packages/openclaw/
 
 `package.json`: `exports` `.` → `dist/index.js`, `./device` → `dist/device.js` (with `react-native` and `browser`
 conditions pointing at the same file), `./link` → `dist/link.js`, `./testing` → `dist/testing/index.js`; `files`:
-`dist`, `engine`, `plugin`, `policy`, `README.md`, `LICENSE`. Dependencies (exact): `@openclaw/gateway-client`
-`2026.8.35`, `@openclaw/gateway-protocol` `2026.8.35`, `@byokit/pair` (current `0.3.1`), `@byokit/relay` (current
-`0.1.3`), `@byokit/discover` (current `0.2.0`), `@byokit/seal` (current `0.1.0`), `ws` `8.21.3`. Dev: `@byokit/ui`
-(assignability test only).
+`dist`, `engine`, `plugin`, `policy`, `README.md`, `LICENSE`. Dependencies (exact pins in
+`packages/openclaw/package.json`): `@openclaw/gateway-client` and `@openclaw/gateway-protocol` (`2026.8.35`),
+`@byokit/pair`, `@byokit/relay`, `@byokit/discover`, `@byokit/seal`, `@byokit/secrets`, `@byokit/accounts` (its
+`/cli` entry drives the native Claude login, 5.7), `ws`. Dev: `@byokit/ui` (assignability test only).
 
 ### 5.2 Public types (`src/types.ts`)
 
@@ -552,7 +552,8 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
    `needs-update/version`. Then start the bridge socket; state `ready`.
 3. **Crash**: on child exit while not stopping: drop the transport, state `restarting` with
    `retryAt = now + min(30 s, 1 s × 2^failures)`, then `start()` again; failures reset on a successful handshake.
-4. **stop()**: stop transport; SIGTERM **each pid the kit itself spawned**, by pid and never a process group;
+4. **stop()**: first close an in-flight native Claude sign-in host and await a pending stale-row reset, then stop
+   transport; SIGTERM **each pid the kit itself spawned**, by pid and never a process group;
    wait 3 s; SIGKILL the same recorded pids; wait 3 s; await exit; close the bridge socket and delete it. The
    recorded list is the whole authority: every spawn (`npm ci`, the gateway) is entered when it starts and
    dropped when it exits, and a negative pid is never passed to `kill`. A group id belongs to whoever holds
@@ -764,6 +765,15 @@ key (subscription); `microsoft-foundry-entra` is Entra cloud credentials, not an
 Until those packages merge, the table above is what ships.
 
 **signIn(member, { authChoice, via, signal? }, on)** — provider-owned wizard drive:
+Native `anthropic-cli` runs unmodified `claude auth login --claudeai` with the engine's `CLAUDE_CONFIG_DIR` in its own login HOME (`<root>/login-home`: Accounts refuses a folder that is its HOME's default login), through Accounts' remote CLI driver and a `cliAccounts.managedFolders` option limited to app-owned folders; cancel removes only roster bookkeeping, never the folder or grant.
+The `anthropic-cli` and key-entry drives have one commit point, the `setup.activate` call:
+1. Prepare: detection (`setup.detect`, passed the phone signal), the native login or the key paste. A phone cancel here ends `why: 'declined'` for either drive; a host shutdown declines the native drive the same way, while a key paste activates nothing and its wait ends at the paste timeout.
+2. Commit: immediately before `setup.activate`, a cancel — or, for the native drive, a host shutdown — that has already landed still ends declined with no activation call; otherwise the drive is committed and calls `setup.activate` once.
+3. After commit the drive settles on the engine's answer and a phone cancel no longer declines it. Claude is `done` once its restart is confirmed, or `failed` with `signin.savedNotRestarted` when the restart runs late or host shutdown ends the wait. A key's cancel still declines its restart wait; a late key restart is `failed` with `LATE_RESTART`.
+`cancel()` always settles `done` exactly once: before commit as soon as the native login is released, after commit once the engine answers the activation.
+A native sign-in view reports `ready: false` while its drive is active or failed; the successful live activation, not credential presence, completes the attempt.
+A stale ready Claude row is cleared through Accounts, which deletes that folder's Claude login files (`.credentials.json`, `.claude.json`) but keeps the folder, and one fresh login starts; there is no automatic loop.
+A `signing` row is reused only when its `signInLock` is free or its holder PID is dead; a live, unreadable or missing holder stays busy.
 `ensureMember`; `openclaw.setup.auth.start { sessionId: 'byokit-' + uuid, agentId, authChoice }` (60 s); pull steps
 only with `wizard.next` (120 s for ordinary steps, max 200 turns; never `wizard.status`); a `deviceCode` step,
 or a `note` step whose text carries the code, → view `{ code, url, expiresAt?, message? }` then acknowledge
@@ -1410,6 +1420,7 @@ export declare function openNotice(data: Record<string, unknown>, seed: Uint8Arr
 | `signin.returned` | Thanks. Finishing the sign-in — you can go back to the app now. |
 | `signin.busy` | Another sign-in is already in progress. Finish or cancel it, then try again. |
 | `signin.cancelled` | Sign-in cancelled. You can start again whenever you are ready. |
+| `signin.savedNotRestarted` | Your Claude sign-in was saved, but the engine did not restart in time. Try again. |
 | `signin.expired` | The sign-in took too long. Start it again. |
 | `approval.ask` | {helper} wants to {summary}. Allow it? |
 | `approval.expired` | Nobody answered in time, so this wasn't allowed. |

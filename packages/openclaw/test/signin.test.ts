@@ -4,14 +4,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setImmediate as turn, setTimeout as delay } from 'node:timers/promises';
 import { providers, signIn, type SignInCtx } from '../src/signin.ts';
 import { OpenClawKit } from '../src/kit.ts';
+import { Engine } from '../src/engine.ts';
 import { openclawLink } from '../src/link.ts';
 import { scratchDir } from '../../test-support.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
+import { hostKeySeal } from '../../secrets/src/index.ts';
 import { words } from '../src/words.ts';
 import type { GatewayTransport, SignInView } from '../src/types.ts';
 
@@ -609,3 +611,131 @@ test('a key activation whose restart does not finish fails retryably and keeps i
     error: 'The engine took too long to restart after this sign-in. Nothing was kept; try again.' });
   assert.ok(!JSON.stringify(view).includes(secret));
 });
+
+// A fake `claude` in the engine's bin: checks the engine folder, its own login HOME and env, prints a sign-in address, takes one code (`wrong-code` is declined). Status waits for `status-release` unless `held`.
+function fakeClaude(root: string, held = false) {
+  const bin = join(root, 'bin'), folder = join(root, 'openclaw/home/.claude'), granted = join(folder, 'granted'); mkdirSync(bin, { recursive: true }); writeFileSync(join(root, 'mode'), 'success'); if (!held) writeFileSync(join(root, 'status-release'), '');
+  writeFileSync(join(bin, 'claude'), `#!${process.execPath}
+const fs = require('node:fs'), path = require('node:path'), f = (n) => path.join(${JSON.stringify(root)}, n), folder = ${JSON.stringify(folder)}, granted = path.join(folder, 'granted');
+if (process.env.CLAUDE_CONFIG_DIR !== folder || process.env.HOME !== path.join(folder, '../../login-home') || 'OPENCLAW_GATEWAY_TOKEN' in process.env || 'BYOKIT_BRIDGE_SOCK' in process.env) process.exit(3);
+if (process.argv[3] === 'status') { fs.writeFileSync(f('status-inflight'), ''); const answer = () => fs.existsSync(f('status-release')) ? (console.log(JSON.stringify({ loggedIn: fs.existsSync(granted) })), process.exit()) : setTimeout(answer, 10); answer(); }
+else if (process.argv.slice(2).join(' ') !== 'auth login --claudeai') process.exit(2);
+else { fs.appendFileSync(f('logins'), 'login\\n'); console.log('If the browser did not open, visit: https://claude.example.test/authorize');
+  if (fs.readFileSync(f('mode'), 'utf8') === 'expired') setTimeout(() => { console.log('code expired'); process.exit(1); }, 200);
+  else { process.stdin.setEncoding('utf8'); process.stdin.once('data', (code) => { if (code.trim() === 'wrong-code') { console.log('code declined'); process.exit(1); } fs.writeFileSync(granted, 'signed in'); process.exit(0); }); } }
+`, { mode: 0o700 });
+  return { bin, folder, granted, logins: join(root, 'logins'), mode: join(root, 'mode'), inflight: join(root, 'status-inflight'), release: join(root, 'status-release') }; }
+const grant = { id: 'phone', name: 'Umer', key: '', role: 'control' as const, created: 0 };
+const poll = async (done: () => boolean) => { for (let i = 0; !done() && i < 300; i++) await delay(10); return done(); };
+// The phone's side of a kit: link calls for one provider, a read of its view, and a wait for a view condition.
+const phone = (kit: OpenClawKit, provider = 'claude-cli') => {
+  const api = openclawLink(kit, { memberOf: () => 'umer' }), call = (op: string, args: object = {}) => api.handle!({ op, args: { provider, ...args } }, grant);
+  const read = () => call('oc.signin.view') as Promise<{ ready: boolean; view: SignInView }>;
+  const until = async (done: (view?: SignInView | null) => boolean) => { let v = await read(); for (let i = 0; !done(v.view) && i < 300; i++) { await delay(10); v = await read(); } assert.ok(done(v.view), 'the phone sign-in did not settle'); return v; };
+  return { call, read, until }; };
+// A kit whose engine bin holds the fake `claude`, over a fake gateway with the scripted methods.
+const kitFor = (root: string, script: Parameters<typeof fakeGateway>[0], over: Partial<ConstructorParameters<typeof OpenClawKit>[0]> = {}) => new OpenClawKit({ stateDir: root, enginePath: [join(root, 'bin')], spawnEngine: false, transport: fakeGateway(script).factory, ...over });
+
+test('phone native Claude login uses the engine folder; wrong code, expiry and cancellation never activate', { timeout: 30_000 }, async () => {
+  const root = scratchDir('native-phone'), claude = fakeClaude(root), why: Record<string, string> = { expired: 'expired', cancel: 'declined' };
+  let activated = false, release!: () => void; const hold = new Promise<void>((resolve) => { release = resolve; }); // Sealed: a sealed engine creates its own home and still reaches the waiting address.
+  const kit = kitFor(root, {
+    'openclaw.setup.detect': () => ({ candidates: [{ kind: 'claude-cli', credentials: existsSync(claude.granted) }] }),
+    'openclaw.setup.activate': async (p) => { assert.equal(p.kind, 'claude-cli'); assert.ok(existsSync(claude.granted)); await hold; activated = true; return { ok: true }; },
+    'models.authStatus': () => ({ providers: existsSync(claude.granted) ? ['claude-cli'] : [] }) }, { authSeal: hostKeySeal({ key: new Uint8Array(32).fill(7) }) });
+  try { await kit.start(); const { call, read, until } = phone(kit);
+    for (const mode of ['wrong', 'expired', 'cancel', 'success']) { writeFileSync(claude.mode, mode); await call('oc.signin.start', { via: 'browser' });
+      const waiting = await until((view) => Boolean(view?.url)); assert.equal(waiting.view.url, 'https://claude.example.test/authorize'); assert.match(waiting.view.prompt!, /Paste the code/);
+      if (mode === 'cancel') await call('oc.signin.cancel'); else if (mode !== 'expired') await call('oc.signin.paste', { text: mode === 'wrong' ? 'wrong-code' : 'synthetic-returned-code' });
+      if (mode === 'success') { assert.ok(await poll(() => existsSync(claude.granted))); assert.equal((await read()).ready, false, 'native credentials are not a completed activation'); release(); }
+      const end = await until((view) => view?.state === 'done' || view?.state === 'failed');
+      assert.equal(end.view.state, mode === 'success' ? 'done' : 'failed'); assert.equal(activated, mode === 'success'); if (why[mode]) assert.equal(end.view.why, why[mode]);
+      assert.ok(existsSync(claude.folder) && !JSON.stringify(end).includes('synthetic-returned-code'), 'cancel keeps the engine folder; the code never shows'); }
+    assert.equal((await read()).ready, true, 'readiness is read back through the engine'); assert.deepEqual(await kit.providers('umer'), ['claude-cli']);
+  } finally { release(); await kit.stop(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('an earlier phone attempt finishing its committed activation never overwrites the newer attempt', { timeout: 15_000 }, async () => {
+  const root = scratchDir('native-superseded'), holds: ((value: { ok: boolean }) => void)[] = [];
+  const kit = kitFor(root, { 'openclaw.setup.detect': () => ({ candidates: [{ kind: 'claude-cli', credentials: true }] }), 'openclaw.setup.activate': () => new Promise((resolve) => { holds.push(resolve); }), 'models.authStatus': () => ({ providers: ['claude-cli'] }) });
+  try { await kit.start(); const { call, read } = phone(kit);
+    await call('oc.signin.start', { via: 'browser' }); assert.ok(await poll(() => holds.length >= 1));
+    await call('oc.signin.cancel'); await call('oc.signin.start', { via: 'browser' }); assert.ok(await poll(() => holds.length >= 2)); // a cancel past the commit point leaves attempt one activating
+    holds[0]!({ ok: true }); await delay(50); assert.deepEqual(await read(), { ready: false, view: { state: 'waiting', via: 'browser' } }, 'the newer attempt still owns the view');
+    holds[1]!({ ok: true }); for (let i = 0; (await read()).view?.state === 'waiting' && i < 300; i++) await delay(10);
+    assert.deepEqual(await read(), { ready: true, view: { state: 'done', via: 'browser' } });
+  } finally { for (const hold of holds) hold({ ok: true }); await kit.stop(); rmSync(root, { recursive: true, force: true }); }
+});
+
+for (const action of ['paste', 'cancel', 'shutdown'] as const) test(`native Claude settlement: ${action} after exit`, { timeout: 30_000 }, async () => {
+  const root = scratchDir('native-paste-after-exit'), claude = fakeClaude(root, true);
+  let activated = false, release!: () => void; const hold = new Promise<void>((resolve) => { release = resolve; });
+  const kit = kitFor(root, {
+    'openclaw.setup.detect': () => ({ candidates: [{ kind: 'claude-cli', credentials: existsSync(claude.granted) }] }),
+    'openclaw.setup.activate': async () => { activated = true; await hold; return { ok: true }; },
+    'models.authStatus': () => ({ providers: existsSync(claude.granted) ? ['claude-cli'] : [] }) });
+  try { await kit.start(); const { call, read, until } = phone(kit); await call('oc.signin.start', { via: 'browser' }); assert.equal((await until((view) => Boolean(view?.url))).view.url, 'https://claude.example.test/authorize');
+    await call('oc.signin.paste', { text: 'synthetic-returned-code' }); assert.ok(await poll(() => existsSync(claude.inflight)), 'the CLI exited and its status read is in flight');
+    if (action === 'shutdown') { const stopping = kit.stop(); writeFileSync(claude.release, ''); await stopping;
+      assert.equal((await until((view) => view?.state === 'failed')).view.state, 'failed', 'shutdown still wins over late native readiness'); assert.equal(activated, false, 'a stopped engine is never activated'); return; }
+    await call(action === 'paste' ? 'oc.signin.paste' : 'oc.signin.cancel', { text: 'late-code' }); writeFileSync(claude.release, '');
+    if (action === 'cancel') { assert.equal((await until((view) => view?.state === 'failed')).view.why, 'declined', 'a cancel before the commit point declines even a ready native row'); assert.equal(activated, false, 'and never activates it'); return; }
+    assert.equal((await until((view) => activated || view?.state === 'failed')).view.state, 'waiting', 'a late paste does not end a ready native row');
+    assert.equal(activated, true, 'ready settlement continues into activation'); assert.equal((await read()).ready, false, 'activation still owns completion');
+    release(); const end = await until((view) => view?.state === 'done' || view?.state === 'failed');
+    assert.equal(end.view.state, 'done'); assert.ok(!JSON.stringify(end).includes('late-code')); assert.equal((await read()).ready, true);
+  } finally { writeFileSync(claude.release, ''); release(); await kit.stop(); rmSync(root, { recursive: true, force: true }); }
+});
+
+for (const action of ['shutdown-ready', 'stale-ready']) test(`native Claude recovery: ${action}`, { timeout: 15_000 }, async () => {
+  const root = scratchDir('native-ready-recovery'), claude = fakeClaude(root);
+  const engine = new Engine({ stateDir: root, enginePath: [claude.bin], spawnEngine: false, pluginId: 'byokit', tools: [], onState() {}, onExit() {} });
+  let seenReady!: () => void, releaseDetect!: () => void, missOnce = false;
+  const ready = new Promise<void>((resolve) => { seenReady = resolve; }), detection = new Promise<void>((resolve) => { releaseDetect = resolve; });
+  const logins = () => existsSync(claude.logins) ? readFileSync(claude.logins, 'utf8').trim().split('\n').length : 0;
+  const fake = scripted({
+    'openclaw.setup.detect': async () => { if (missOnce) { missOnce = false; return { candidates: [] }; }
+      if (action === 'shutdown-ready' && existsSync(claude.granted)) { seenReady(); await detection; }
+      return { candidates: [{ kind: 'claude-cli', credentials: existsSync(claude.granted) && (action !== 'stale-ready' || logins() === 2) }] }; },
+    'openclaw.setup.activate': () => { assert.ok(existsSync(claude.granted)); return { ok: true }; } });
+  // The launch resolves with its view once the address shows, or with its end if the drive ends first.
+  const launch = (context: SignInCtx) => { let shown!: (v: SignInView) => void; const waiting = new Promise<SignInView>((resolve) => { shown = resolve; });
+    const handle = signIn(context, 'm1', { authChoice: 'anthropic-cli' }, (v) => { if (v.url) shown(v); }); return { handle, waiting: Promise.race([waiting, handle.done]) }; };
+  try { await engine.prepare(); const context = ctx(fake, { nativeClaudeLogin: () => engine.nativeClaudeLogin(), resetNativeClaudeLogin: () => engine.resetNativeClaudeLogin(),
+      restarted: async (_, signal) => { assert.ok(signal); assert.equal(signal.aborted, false); return true; } });
+    const first = launch(context); assert.equal((await first.waiting).state, 'waiting'); first.handle.paste('synthetic-code');
+    if (action === 'shutdown-ready') {
+      await ready; // Native wait settled ready; only the independent engine detection is held.
+      const native = engine.nativeClaudeLogin(); const stopping = engine.stop(); releaseDetect(); // Real engine lifecycle, while the scripted gateway is still reachable.
+      assert.equal((await first.handle.done).state, 'failed'); await stopping;
+      assert.equal(native.signal.aborted, true); assert.ok(!fake.methods().includes('openclaw.setup.activate'), 'shutdown beginning prevents activation after readiness');
+    } else {
+      assert.equal((await first.handle.done).state, 'failed', 'engine and native readiness disagree'); assert.equal(logins(), 1);
+      const second = launch(context); assert.equal((await second.waiting).state, 'waiting', 'stale ready bookkeeping must not trap the phone at already');
+      assert.equal(readFileSync(claude.granted, 'utf8'), 'signed in', "the fake's own marker file survives the reset");
+      second.handle.paste('synthetic-code'); assert.equal((await second.handle.done).state, 'done'); assert.equal(logins(), 2, 'one fresh login, never an automatic loop');
+      assert.equal(fake.methods().filter((m) => m === 'openclaw.setup.activate').length, 1);
+      missOnce = true; // start sees already, then the independent engine detection succeeds.
+      assert.equal((await launch(context).handle.done).state, 'done', 'a usable already row activates without logging in again'); assert.equal(logins(), 2);
+    }
+  } finally { releaseDetect(); await engine.stop(); rmSync(root, { recursive: true, force: true }); }
+});
+
+test('a phone cancel before the commit point activates nothing; after it the engine answer decides', { timeout: 15_000 }, async (t) => {
+  for (const row of ['before detection', 'during detection', 'restart confirmed', 'restart late'] as const) await t.test(row, async () => {
+    const root = scratchDir('native-commit'), granted = join(root, 'granted'); writeFileSync(granted, 'signed in');
+    const seen: { answerDetect?: (value: unknown) => void; detectSignal?: AbortSignal; finishRestart?: (ok: boolean) => void } = {};
+    const fake = scripted({
+      'openclaw.setup.detect': (_, o) => row === 'during detection' ? new Promise((resolve) => { seen.answerDetect = resolve; seen.detectSignal = o.signal; }) : { candidates: [{ kind: 'claude-cli', credentials: true }] },
+      'openclaw.setup.activate': () => ({ ok: true }) });
+    const drive = signIn(ctx(fake, { restarted: () => new Promise<boolean>((resolve) => { seen.finishRestart = resolve; }) }), 'm1', { authChoice: 'anthropic-cli' }, () => {});
+    const activating = row.startsWith('restart');
+    if (row === 'during detection') { assert.ok(await poll(() => Boolean(seen.answerDetect)), 'detection is pending when the phone cancels');
+      drive.cancel(); assert.equal(seen.detectSignal?.aborted, true, 'the cancel aborts the pending detection'); seen.answerDetect!({ candidates: [{ kind: 'claude-cli', credentials: true }] }); }
+    else if (activating) { assert.ok(await poll(() => Boolean(seen.finishRestart)), 'the route is activated and its restart is pending'); drive.cancel(); seen.finishRestart!(row === 'restart confirmed'); } else drive.cancel();
+    assert.deepEqual(await drive.done, row === 'restart confirmed' ? { state: 'done', via: 'browser' }
+      : row === 'restart late' ? { state: 'failed', via: 'browser', why: 'failed', error: words('signin.savedNotRestarted') } : { state: 'failed', via: 'browser', why: 'declined', error: words('signin.cancelled') });
+    assert.equal(fake.methods().includes('openclaw.setup.activate'), activating, 'only a cancel after the commit point leaves an activation');
+    assert.equal(readFileSync(granted, 'utf8'), 'signed in', 'the native grant is kept');
+  }); });
+
