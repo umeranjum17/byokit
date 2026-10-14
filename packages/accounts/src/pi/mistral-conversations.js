@@ -1,7 +1,7 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   shortHash
-} from "./chunk-QJQ5SDE2.js";
+} from "./chunk-HOZNWAQG.js";
 import {
   buildBaseOptions,
   getJsonSchemaToolParameters,
@@ -9,7 +9,7 @@ import {
   resolveJsonSchemaStrictSampling,
   sanitizeSurrogates,
   transformMessages
-} from "./chunk-VUCNMX7O.js";
+} from "./chunk-VZSF4MVH.js";
 import {
   calculateCost,
   clampThinkingLevel,
@@ -17,17 +17,54 @@ import {
   getSystemMessageText,
   renderSystemMessageUpdate,
   resolveTranscript
-} from "./chunk-PDUG4NYC.js";
+} from "./chunk-2HB4SJL3.js";
 import {
   parseStreamingJson
-} from "./chunk-FHNSO4GF.js";
+} from "./chunk-AT2YCN4O.js";
 import {
   headersToRecord
-} from "./chunk-MIDDHJH2.js";
+} from "./chunk-VXRRDOKP.js";
 import {
   AssistantMessageEventStream
-} from "./chunk-JTGIYXAQ.js";
-import "./chunk-XD4THNNI.js";
+} from "./chunk-JK2DMSVJ.js";
+import "./chunk-JOZQDPST.js";
+
+// node_modules/@earendil-works/pi-ai/dist/utils/abort-signals.js
+function combineAbortSignals(signals) {
+  const activeSignals = signals.filter((signal) => signal !== void 0);
+  if (activeSignals.length === 0) {
+    return { cleanup: () => {
+    } };
+  }
+  if (activeSignals.length === 1) {
+    return { signal: activeSignals[0], cleanup: () => {
+    } };
+  }
+  const controller = new AbortController();
+  const listeners = [];
+  const abort = (signal) => {
+    if (!controller.signal.aborted) {
+      controller.abort(signal.reason);
+    }
+  };
+  for (const signal of activeSignals) {
+    if (signal.aborted) {
+      abort(signal);
+      break;
+    }
+    const listener = () => abort(signal);
+    signal.addEventListener("abort", listener, { once: true });
+    listeners.push({ signal, listener });
+  }
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      for (const { signal, listener } of listeners) {
+        signal.removeEventListener("abort", listener);
+      }
+    }
+  };
+}
 
 // node_modules/@earendil-works/pi-ai/dist/api/mistral-conversations.js
 var MISTRAL_TOOL_CALL_ID_LENGTH = 9;
@@ -51,7 +88,7 @@ var stream = (model, context, options) => {
       }
       const mistralStream = await requestMistralStream(model, payload, apiKey, options);
       stream2.push({ type: "start", partial: output });
-      await consumeChatStream(model, output, stream2, mistralStream);
+      await consumeChatStream(model, output, stream2, mistralStream, options?.onProviderStreamEvent);
       if (options?.signal?.aborted) {
         throw new Error("Request was aborted");
       }
@@ -86,11 +123,12 @@ var streamSimple = (model, context, options) => {
   };
   const clampedReasoning = options?.reasoning ? clampThinkingLevel(model, options.reasoning) : void 0;
   const reasoning = clampedReasoning === "off" ? void 0 : clampedReasoning;
-  const shouldUseReasoning = model.reasoning && reasoning !== void 0;
+  const effortMap = model.reasoning ? model.thinkingLevelMap : void 0;
+  const reasoningEffort = effortMap ? reasoning ? effortMap[reasoning] ?? "high" : effortMap.off ?? void 0 : void 0;
   return stream(model, context, {
     ...base,
-    promptMode: shouldUseReasoning && usesPromptModeReasoning(model) ? "reasoning" : void 0,
-    reasoningEffort: shouldUseReasoning && usesReasoningEffort(model) ? mapReasoningEffort(model, reasoning) : void 0
+    promptMode: model.reasoning && !effortMap && reasoning ? "reasoning" : void 0,
+    reasoningEffort
   });
 };
 function createOutput(model) {
@@ -172,14 +210,25 @@ async function requestMistralStream(model, payload, apiKey, options) {
   baseUrl.pathname = `${baseUrl.pathname.replace(/\/+$/u, "")}/`;
   const url = new URL("v1/chat/completions", baseUrl);
   const headers = buildMistralHeaders(model, apiKey, options);
-  const timeoutSignal = AbortSignal.timeout(options?.timeoutMs ?? 6e4);
-  const signal = options?.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
-  const response = await (options?.fetch ?? globalThis.fetch)(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(toMistralWirePayload(payload)),
-    signal
-  });
+  const timeoutMs = options?.timeoutMs ?? 6e4;
+  const headerTimeoutSignal = AbortSignal.timeout(timeoutMs);
+  const combinedSignal = combineAbortSignals([options?.signal, headerTimeoutSignal]);
+  let response;
+  try {
+    response = await (options?.fetch ?? globalThis.fetch)(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(toMistralWirePayload(payload)),
+      signal: combinedSignal.signal
+    });
+  } catch (error) {
+    if (headerTimeoutSignal.aborted && !options?.signal?.aborted) {
+      throw new Error(`Mistral response headers timed out after ${timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    combinedSignal.cleanup();
+  }
   await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
   if (!response.ok) {
     const body = await response.text();
@@ -188,7 +237,7 @@ async function requestMistralStream(model, payload, apiKey, options) {
   if (!response.body) {
     throw new Error("Mistral response has no body");
   }
-  return readMistralEvents(response.body, signal);
+  return readMistralEvents(response.body, options?.signal);
 }
 var MistralHttpError = class extends Error {
   statusCode;
@@ -302,13 +351,13 @@ async function* readMistralEvents(body, signal) {
     void reader.cancel().catch(() => {
     });
   };
-  signal.addEventListener("abort", onAbort, { once: true });
+  signal?.addEventListener("abort", onAbort, { once: true });
   try {
     while (true) {
-      if (signal.aborted)
+      if (signal?.aborted)
         throw signal.reason;
       const { done, value } = await reader.read();
-      if (signal.aborted)
+      if (signal?.aborted)
         throw signal.reason;
       buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
       let boundary = findMistralEventBoundary(buffer);
@@ -330,7 +379,7 @@ async function* readMistralEvents(body, signal) {
         yield event;
     }
   } finally {
-    signal.removeEventListener("abort", onAbort);
+    signal?.removeEventListener("abort", onAbort);
     try {
       await reader.cancel();
     } catch {
@@ -389,7 +438,7 @@ function getMistralCachedPromptTokens(usage, promptTokens) {
   const cachedTokens = typeof rawCachedTokens === "number" && Number.isFinite(rawCachedTokens) ? rawCachedTokens : 0;
   return Math.min(promptTokens, Math.max(0, cachedTokens));
 }
-async function consumeChatStream(model, output, stream2, mistralStream) {
+async function consumeChatStream(model, output, stream2, mistralStream, onProviderStreamEvent) {
   let currentBlock = null;
   const blocks = output.content;
   const blockIndex = () => blocks.length - 1;
@@ -417,6 +466,7 @@ async function consumeChatStream(model, output, stream2, mistralStream) {
   };
   for await (const event of mistralStream) {
     const chunk = event.data;
+    await onProviderStreamEvent?.(chunk, model);
     output.responseId ||= chunk.id;
     if (chunk.usage) {
       const promptTokens = chunk.usage.prompt_tokens || 0;
@@ -445,6 +495,8 @@ async function consumeChatStream(model, output, stream2, mistralStream) {
       for (const item of contentItems) {
         if (typeof item === "string") {
           const textDelta = sanitizeSurrogates(item);
+          if (!textDelta)
+            continue;
           if (!currentBlock || currentBlock.type !== "text") {
             finishCurrentBlock(currentBlock);
             currentBlock = { type: "text", text: "" };
@@ -482,6 +534,8 @@ async function consumeChatStream(model, output, stream2, mistralStream) {
         }
         if (item.type === "text") {
           const textDelta = sanitizeSurrogates(item.text ?? "");
+          if (!textDelta)
+            continue;
           if (!currentBlock || currentBlock.type !== "text") {
             finishCurrentBlock(currentBlock);
             currentBlock = { type: "text", text: "" };
@@ -683,15 +737,6 @@ function buildToolResultText(text, hasImages, supportsImages, isError) {
   }
   return isError ? "[tool error] (no tool output)" : "(no tool output)";
 }
-function usesReasoningEffort(model) {
-  return model.id === "mistral-small-2603" || model.id === "mistral-small-latest" || model.id.startsWith("mistral-medium-") || model.id === "zai-glm-5-2";
-}
-function usesPromptModeReasoning(model) {
-  return model.reasoning && !usesReasoningEffort(model);
-}
-function mapReasoningEffort(model, level) {
-  return model.thinkingLevelMap?.[level] ?? "high";
-}
 function mapToolChoice(choice) {
   if (!choice)
     return void 0;
@@ -715,7 +760,7 @@ function mapChatStopReason(reason) {
     case "tool_calls":
       return { stopReason: "toolUse" };
     case "error":
-      return { stopReason: "error", errorMessage: "Provider stopped with: error" };
+      return { stopReason: "error", errorMessage: "Provider stopped with: error (server error)" };
     default:
       return { stopReason: "error", errorMessage: `Provider stopped with: ${reason}` };
   }

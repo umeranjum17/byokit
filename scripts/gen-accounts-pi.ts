@@ -17,7 +17,7 @@ const sha256 = (bytes: string | Uint8Array) => createHash('sha256').update(bytes
 // shape it cannot anchor (a call/index receiver) is left for the artifact gate to reject, never mis-rewritten. An
 // aborted signal still rejects as aborted and the host app's globals are never touched. This keeps the fix at the
 // one place Pi is bundled (here); a Pi bump re-runs this transform over the new sources.
-export const patchName = 'hermes-throwIfAborted';
+export const patchName = 'hermes-throwIfAborted+portable-node-preload';
 const throwIfAbortedGuard = 'function __byokitPiThrowIfAborted(signal) {\n  if (signal == null || !signal.aborted) return;\n  throw signal.reason !== void 0 ? signal.reason : Object.assign(new Error("The operation was aborted"), { name: "AbortError" });\n}\n';
 const throwIfAbortedCall = /(?<![\w$.)\]])([A-Za-z_$][\w$]*(?:\s*\??\.\s*[A-Za-z_$][\w$]*)*)\s*\??\.throwIfAborted\s*(?:\?\.)?\s*\(\s*\)/g;
 export function patchBundledThrowIfAborted(text: string): string {
@@ -27,11 +27,24 @@ export function patchBundledThrowIfAborted(text: string): string {
   const at = patched.lastIndexOf(marker);
   return at < 0 ? patched + throwIfAbortedGuard : patched.slice(0, at) + throwIfAbortedGuard + patched.slice(at);
 }
+// env-api-keys eagerly dynamicImport("node:fs"|os|path) when process.versions.node is set. The neutral
+// bundle's __require shim throws in ESM ("Dynamic require is not supported"); catch at the helper so
+// callers keep null helpers and authContext stays app-supplied.
+export function patchBundledNodePreload(text: string): string {
+  let out = text;
+  const dyn = 'var dynamicImport = (specifier) => Promise.resolve().then(() => __toESM(__require(__rewriteRelativeImportExtension(specifier))));';
+  const dynPatched = 'var dynamicImport = (specifier) => Promise.resolve().then(() => __toESM(__require(__rewriteRelativeImportExtension(specifier)))).catch(() => ({}));';
+  if (out.includes(dyn)) out = out.split(dyn).join(dynPatched);
+  const nodeMod = 'var importNodeModule = (specifier) => Promise.resolve().then(() => __toESM(__require(__rewriteRelativeImportExtension(specifier))));';
+  const nodeModPatched = 'var importNodeModule = (specifier) => Promise.resolve().then(() => __toESM(__require(__rewriteRelativeImportExtension(specifier)))).catch(() => ({}));';
+  if (out.includes(nodeMod)) out = out.split(nodeMod).join(nodeModPatched);
+  return out;
+}
 // Verified published registry record; this repo's lock entry can omit resolved/integrity.
 // A pin bump must verify this record again, not silently label new inputs with old provenance.
-const registry = { version: '0.87.1', tarball: 'https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.87.1.tgz',
-  integrity: 'sha512-X/3PfQBnnoeVdO9Cv8zHghUMglzlgNZYGNzoPnbRoGnHl3Rw3TlA2UKSUB7BRHUOxMryHXYa8dnjWZlbRheDZA==',
-  gitHead: 'f07218c4d4bbc12bef056a7058c3dd49dfe41abe' };
+const registry = { version: '1.2.0', tarball: 'https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-1.2.0.tgz',
+  integrity: 'sha512-U5/1zXqfV1on7/9sbez03tT4Ru49Lvfb4+zXSDK3DBKF5cRk6KxvAOTOY3HJ4jimlZth+rs7vbJqN6iBQAoNuQ==',
+  gitHead: '06a466935536f8c9bcacb2d5efc0fc021be1bdff' };
 
 export async function generatePi(): Promise<Map<string, string>> {
   const accounts = json('packages/accounts/package.json');
@@ -51,7 +64,9 @@ export async function generatePi(): Promise<Map<string, string>> {
     banner: { js: `// @earendil-works/pi-ai@${pin} (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.` } };
   const result = await build({ ...options, absWorkingDir: root, write: false, metafile: true, logLevel: 'error' });
   const files = new Map(result.outputFiles.map((f) => [relative(piDir, f.path), f.text]));
-  for (const [name, text] of files) if (name.endsWith('.js')) files.set(name, patchBundledThrowIfAborted(text));
+  for (const [name, text] of files) if (name.endsWith('.js')) {
+    files.set(name, patchBundledNodePreload(patchBundledThrowIfAborted(text)));
+  }
   for (const name of Object.keys(entryPoints)) files.set(`${name}.d.ts`, name === 'core'
     ? "export { createModels, createProvider } from '@earendil-works/pi-ai';\n"
     : `export * from '@earendil-works/pi-ai/${name === 'cloudflare-stream' ? 'providers' : 'api'}/${name}';\n`);
@@ -59,10 +74,11 @@ export async function generatePi(): Promise<Map<string, string>> {
   const outputs = [...files].sort(([a], [b]) => a.localeCompare(b)).map(([path, text]) => ({ path, sha256: sha256(text) }));
   const externals = [...new Set(Object.values(result.metafile.outputs).flatMap((output) => output.imports.filter((i) => i.external).map((i) => i.path)))].sort();
   const patchSites = [...files].filter(([name]) => name.endsWith('.js')).reduce((n, [, text]) => n + [...text.matchAll(/__byokitPiThrowIfAborted\(/g)].length, 0);
+  const preloadSites = [...files].filter(([name]) => name.endsWith('.js')).reduce((n, [, text]) => n + [...text.matchAll(/\.catch\(\(\) => \(\{\}\)\)/g)].length, 0);
   files.set('PROVENANCE.json', JSON.stringify({ package: pi.name, version: pin, tarball: registry.tarball, integrity: registry.integrity,
     gitHead: registry.gitHead, license: pi.license, copyright: 'Copyright (c) 2025 Mario Zechner',
-    patch: { name: patchName, helper: '__byokitPiThrowIfAborted', sites: patchSites,
-      reason: 'Hermes (React Native) lacks AbortSignal.prototype.throwIfAborted; every bundled call is rewritten to a local guard that throws the abort reason (else AbortError) when the signal is aborted. Re-applied on every regenerate, so a Pi pin bump keeps it.' },
+    patch: { name: patchName, helper: '__byokitPiThrowIfAborted', sites: patchSites, preloadCatchSites: preloadSites,
+      reason: 'Hermes lacks AbortSignal.prototype.throwIfAborted (local guard). Eager node:fs/os/path preloads in the neutral bundle catch __require failures so portable ESM does not reject after a green stream. Re-applied on every regenerate.' },
     esbuild: version, options, externals, inputs, outputs }, null, 2) + '\n');
   return files;
 }

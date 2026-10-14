@@ -1,51 +1,56 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   convertResponsesMessages,
   convertResponsesTools,
   processResponsesStream
-} from "./chunk-2GZLPZSK.js";
+} from "./chunk-SVEGEFBM.js";
 import {
   clampOpenAIPromptCacheKey
-} from "./chunk-OTOLD7QS.js";
+} from "./chunk-IOKXVMI3.js";
 import {
   buildCopilotDynamicHeaders,
   hasCopilotVisionInput
-} from "./chunk-FJMJCJSO.js";
+} from "./chunk-T2VSXZNQ.js";
 import {
   formatProviderError,
   normalizeProviderError
-} from "./chunk-W3IKEFGN.js";
+} from "./chunk-E54CWL3Z.js";
 import {
   retryProviderRequest
-} from "./chunk-3TVGBGLJ.js";
-import "./chunk-QJQ5SDE2.js";
+} from "./chunk-B7RY6CKU.js";
+import "./chunk-HOZNWAQG.js";
 import {
   buildBaseOptions,
   createGrammarToolInputProperties,
-  getPiUserAgent
-} from "./chunk-VUCNMX7O.js";
+  getPiUserAgent,
+  resolveSamplingParams
+} from "./chunk-VZSF4MVH.js";
 import {
   clampThinkingLevel,
   getDeclaredTools,
   resolveTranscript,
   resolveTranscriptTools
-} from "./chunk-PDUG4NYC.js";
+} from "./chunk-2HB4SJL3.js";
 import {
   getProviderEnvValue
-} from "./chunk-RGJXTNZI.js";
-import "./chunk-FHNSO4GF.js";
+} from "./chunk-TAO7TECG.js";
+import "./chunk-AT2YCN4O.js";
 import {
   headersToRecord
-} from "./chunk-MIDDHJH2.js";
+} from "./chunk-VXRRDOKP.js";
 import {
   AssistantMessageEventStream
-} from "./chunk-JTGIYXAQ.js";
-import "./chunk-XD4THNNI.js";
+} from "./chunk-JK2DMSVJ.js";
+import "./chunk-JOZQDPST.js";
 
 // node_modules/@earendil-works/pi-ai/dist/api/openai-responses.js
 import OpenAI from "openai";
 var OPENAI_TOOL_CALL_PROVIDERS = /* @__PURE__ */ new Set(["openai", "openai-codex", "opencode"]);
 var OPENAI_RESPONSES_MIN_OUTPUT_TOKENS = 16;
+var CHATGPT_USAGE_URL = "https://chatgpt.com/settings/usage";
+function isChatGPTSignIn(model, apiKey) {
+  return model.provider === "openai" && model.baseUrl === "https://api.openai.com/v1" && apiKey !== void 0 && !apiKey.startsWith("sk-");
+}
 function hasHeader(headers, name) {
   if (!headers)
     return false;
@@ -147,6 +152,7 @@ var stream = (model, context, options) => {
       await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
       stream2.push({ type: "start", partial: output });
       await processResponsesStream(openaiStream, output, stream2, model, {
+        onProviderStreamEvent: options?.onProviderStreamEvent,
         serviceTier: options?.serviceTier,
         grammarToolInputProperties,
         applyServiceTierPricing: (usage, serviceTier) => applyServiceTierPricing(usage, serviceTier, model)
@@ -169,7 +175,9 @@ var stream = (model, context, options) => {
         delete block.customInput;
       }
       output.stopReason = options?.signal?.aborted ? "aborted" : "error";
-      output.errorMessage = formatProviderError(normalizeProviderError(error), `${model.provider === "openai" ? "OpenAI" : model.provider} API error`);
+      const errorMessage = formatProviderError(normalizeProviderError(error), `${model.provider === "openai" ? "OpenAI" : model.provider} API error`);
+      output.errorMessage = errorMessage.includes("subscription_sharing_usage_limit_exceeded") ? `${errorMessage}
+Check your ChatGPT usage: ${CHATGPT_USAGE_URL}` : errorMessage;
       stream2.push({ type: "error", reason: output.stopReason, error: output });
       stream2.end();
     }
@@ -234,19 +242,20 @@ function buildParams(model, context, options, compat = getCompat(model), grammar
     }
   });
   const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
+  const omitUnsupportedFields = isChatGPTSignIn(model, options?.apiKey);
   const params = {
     model: model.id,
     input: messages,
     stream: true,
     prompt_cache_key: cacheRetention === "none" ? void 0 : clampOpenAIPromptCacheKey(options?.sessionId),
-    prompt_cache_retention: getPromptCacheRetention(compat, cacheRetention),
-    prompt_cache_options: getPromptCacheOptions(compat, cacheRetention),
+    prompt_cache_retention: omitUnsupportedFields ? void 0 : getPromptCacheRetention(compat, cacheRetention),
+    prompt_cache_options: omitUnsupportedFields ? void 0 : getPromptCacheOptions(compat, cacheRetention),
     store: false
   };
-  if (options?.maxTokens && compat.supportsMaxOutputTokens) {
+  if (options?.maxTokens && compat.supportsMaxOutputTokens && !omitUnsupportedFields) {
     params.max_output_tokens = Math.max(options.maxTokens, OPENAI_RESPONSES_MIN_OUTPUT_TOKENS);
   }
-  if (options?.temperature !== void 0) {
+  if (options?.temperature !== void 0 && !omitUnsupportedFields) {
     params.temperature = options?.temperature;
   }
   if (options?.serviceTier !== void 0) {
@@ -261,9 +270,10 @@ function buildParams(model, context, options, compat = getCompat(model), grammar
   if (options?.toolChoice !== void 0) {
     params.tool_choice = options.toolChoice;
   }
+  const reasoningEffort = options?.reasoningEffort ?? (options?.reasoningSummary ? "medium" : void 0);
   if (model.reasoning) {
-    if (options?.reasoningEffort || options?.reasoningSummary) {
-      const effort = options?.reasoningEffort ? model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort : "medium";
+    if (reasoningEffort) {
+      const effort = options?.reasoningEffort ? model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort : reasoningEffort;
       params.reasoning = {
         effort,
         summary: options?.reasoningSummary || "auto"
@@ -277,8 +287,9 @@ function buildParams(model, context, options, compat = getCompat(model), grammar
     if (model.provider === "xai")
       params.include = ["reasoning.encrypted_content"];
   }
-  if (options?.samplingParams) {
-    Object.assign(params, options.samplingParams);
+  const samplingParams = resolveSamplingParams(model, reasoningEffort ?? "off", options?.samplingParams);
+  if (samplingParams) {
+    Object.assign(params, samplingParams);
   }
   return params;
 }
@@ -287,6 +298,7 @@ function getServiceTierCostMultiplier(model, serviceTier) {
     case "flex":
       return 0.5;
     case "priority":
+    case "fast":
       return model.id === "gpt-5.5" ? 2.5 : 2;
     default:
       return 1;

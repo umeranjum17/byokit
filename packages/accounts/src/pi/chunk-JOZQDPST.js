@@ -1,4 +1,4 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -32,4 +32,4 @@ export {
   __require,
   __toESM
 };
-//# sourceMappingURL=chunk-XD4THNNI.js.map
+//# sourceMappingURL=chunk-JOZQDPST.js.map

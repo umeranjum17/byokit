@@ -1,11 +1,11 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   buildCopilotDynamicHeaders,
   hasCopilotVisionInput
-} from "./chunk-FJMJCJSO.js";
+} from "./chunk-T2VSXZNQ.js";
 import {
   retryProviderRequest
-} from "./chunk-3TVGBGLJ.js";
+} from "./chunk-B7RY6CKU.js";
 import {
   adjustMaxTokensForThinking,
   buildBaseOptions,
@@ -15,35 +15,71 @@ import {
   resolveJsonSchemaStrictSampling,
   sanitizeSurrogates,
   transformMessages
-} from "./chunk-VUCNMX7O.js";
+} from "./chunk-VZSF4MVH.js";
 import {
   calculateCost,
   getCurrentTools,
-  getDeclaredTools,
   getInitialSystemMessage,
   getSystemMessageText,
-  hasToolRedefinitions,
   renderSystemMessageUpdate,
   resolveTranscript
-} from "./chunk-PDUG4NYC.js";
+} from "./chunk-2HB4SJL3.js";
 import {
   getProviderEnvValue
-} from "./chunk-RGJXTNZI.js";
+} from "./chunk-TAO7TECG.js";
 import {
   parseJsonWithRepair,
   parseStreamingJson
-} from "./chunk-FHNSO4GF.js";
+} from "./chunk-AT2YCN4O.js";
 import {
   headersToRecord
-} from "./chunk-MIDDHJH2.js";
+} from "./chunk-VXRRDOKP.js";
 import {
   AssistantMessageEventStream,
   appendAssistantMessageDiagnostic
-} from "./chunk-JTGIYXAQ.js";
-import "./chunk-XD4THNNI.js";
+} from "./chunk-JK2DMSVJ.js";
+import {
+  __require,
+  __toESM
+} from "./chunk-JOZQDPST.js";
 
 // node_modules/@earendil-works/pi-ai/dist/api/anthropic-messages.js
-import Anthropic from "@anthropic-ai/sdk";
+import Anthropic, {} from "@anthropic-ai/sdk";
+
+// node_modules/@earendil-works/pi-ai/dist/env-api-keys.js
+var __rewriteRelativeImportExtension = function(path, preserveJsx) {
+  if (typeof path === "string" && /^\.\.?\//.test(path)) {
+    return path.replace(/\.(tsx)$|((?:\.d)?)((?:\.[^./]+?)?)\.([cm]?)ts$/i, function(m, tsx, d, ext, cm) {
+      return tsx ? preserveJsx ? ".jsx" : ".js" : d && (!ext || !cm) ? m : d + ext + "." + cm.toLowerCase() + "js";
+    });
+  }
+  return path;
+};
+var _existsSync = null;
+var _homedir = null;
+var _join = null;
+var dynamicImport = (specifier) => Promise.resolve().then(() => __toESM(__require(__rewriteRelativeImportExtension(specifier)))).catch(() => ({}));
+var NODE_FS_SPECIFIER = "node:fs";
+var NODE_OS_SPECIFIER = "node:os";
+var NODE_PATH_SPECIFIER = "node:path";
+if (typeof process !== "undefined" && (process.versions?.node || process.versions?.bun)) {
+  dynamicImport(NODE_FS_SPECIFIER).then((m) => {
+    _existsSync = m.existsSync;
+  });
+  dynamicImport(NODE_OS_SPECIFIER).then((m) => {
+    _homedir = m.homedir;
+  });
+  dynamicImport(NODE_PATH_SPECIFIER).then((m) => {
+    _join = m.join;
+  });
+}
+var ANTHROPIC_FEDERATION_RULE_ID_ENV = "ANTHROPIC_FEDERATION_RULE_ID";
+var ANTHROPIC_ORGANIZATION_ID_ENV = "ANTHROPIC_ORGANIZATION_ID";
+var ANTHROPIC_SERVICE_ACCOUNT_ID_ENV = "ANTHROPIC_SERVICE_ACCOUNT_ID";
+var ANTHROPIC_IDENTITY_TOKEN_FILE_ENV = "ANTHROPIC_IDENTITY_TOKEN_FILE";
+var ANTHROPIC_WORKSPACE_ID_ENV = "ANTHROPIC_WORKSPACE_ID";
+
+// node_modules/@earendil-works/pi-ai/dist/api/anthropic-messages.js
 function resolveCacheRetention(cacheRetention, env) {
   if (cacheRetention) {
     return cacheRetention;
@@ -130,7 +166,7 @@ var INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
 var SERVER_SIDE_FALLBACK_BETA = "server-side-fallback-2026-07-01";
 var MID_CONVERSATION_OUTPUT_CONFIG_BETA = "mid-conversation-output-config-2026-07-01";
 var THINKING_BINDING_CONTROLS_BETA = "thinking-binding-controls-2026-08-01";
-var MID_CONVERSATION_TOOL_CHANGES_BETA = "mid-conversation-tool-changes-2026-07-01";
+var INLINE_TOOLS_BETA = "inline-tools-2026-09-15";
 var DEFERRED_TOOL_PLACEHOLDER = {
   name: "__pi_deferred_placeholder__",
   description: "Reserved placeholder. Never available. Never call this.",
@@ -177,14 +213,38 @@ function hasHeader(headers, name) {
   }
   return false;
 }
-function assertRequestAuth(provider, apiKey, headers) {
-  if (apiKey)
-    return;
-  if (hasHeader(headers, "authorization") || hasHeader(headers, "x-api-key") || hasHeader(headers, "cf-aig-authorization")) {
-    return;
-  }
-  throw new Error(`No API key for provider: ${provider}`);
+function hasRequestAuth(apiKey, headers) {
+  return !!apiKey || hasHeader(headers, "authorization") || hasHeader(headers, "x-api-key") || hasHeader(headers, "cf-aig-authorization");
 }
+function assertRequestAuth(provider, apiKey, headers) {
+  if (!hasRequestAuth(apiKey, headers))
+    throw new Error(`No API key for provider: ${provider}`);
+}
+var PiAnthropic = class extends Anthropic {
+  _shouldResolveDefaultCredentials() {
+    return false;
+  }
+};
+function getAnthropicFederation(model, apiKey, headers, env) {
+  if (model.provider !== "anthropic" || hasRequestAuth(apiKey, headers))
+    return void 0;
+  const federationRuleId = getProviderEnvValue(ANTHROPIC_FEDERATION_RULE_ID_ENV, env);
+  const organizationId = getProviderEnvValue(ANTHROPIC_ORGANIZATION_ID_ENV, env);
+  const identityTokenFile = getProviderEnvValue(ANTHROPIC_IDENTITY_TOKEN_FILE_ENV, env);
+  if (!federationRuleId || !organizationId || !identityTokenFile)
+    return void 0;
+  return {
+    organization_id: organizationId,
+    workspace_id: getProviderEnvValue(ANTHROPIC_WORKSPACE_ID_ENV, env),
+    authentication: {
+      type: "oidc_federation",
+      federation_rule_id: federationRuleId,
+      service_account_id: getProviderEnvValue(ANTHROPIC_SERVICE_ACCOUNT_ID_ENV, env),
+      identity_token: { source: "file", path: identityTokenFile }
+    }
+  };
+}
+var federationClient;
 var ANTHROPIC_MESSAGE_EVENTS = /* @__PURE__ */ new Set([
   "message_start",
   "message_delta",
@@ -366,7 +426,9 @@ var stream = (model, context, options) => {
         isOAuth = false;
       } else {
         const apiKey = options?.apiKey;
-        assertRequestAuth(model.provider, apiKey, options?.headers);
+        const federation = getAnthropicFederation(model, apiKey, options?.headers, options?.env);
+        if (!federation)
+          assertRequestAuth(model.provider, apiKey, options?.headers);
         let copilotDynamicHeaders;
         if (model.provider === "github-copilot") {
           const hasImages = hasCopilotVisionInput(normalizedContext.messages);
@@ -377,29 +439,54 @@ var stream = (model, context, options) => {
         }
         const cacheRetention = resolveCacheRetention(options?.cacheRetention, options?.env);
         const cacheSessionId = cacheRetention === "none" ? void 0 : options?.sessionId;
-        const created = createClient(model, apiKey, options?.headers, options?.fetch, copilotDynamicHeaders, cacheSessionId);
+        const created = createClient(model, apiKey, options?.headers, options?.fetch, copilotDynamicHeaders, cacheSessionId, federation);
         client = created.client;
         isOAuth = created.isOAuthToken;
-      }
-      let params = buildParams(model, normalizedContext, isOAuth, options);
-      const nextParams = await options?.onPayload?.(params, model);
-      if (nextParams !== void 0) {
-        params = { ...nextParams, stream: true };
       }
       const requestOptions = {
         ...options?.signal ? { signal: options.signal } : {},
         ...options?.timeoutMs !== void 0 ? { timeout: options.timeoutMs } : {},
         maxRetries: 0
       };
-      const response = await retryProviderRequest(() => client.beta.messages.create(params, requestOptions).asResponse(), {
-        maxRetries: options?.maxRetries,
-        maxRetryDelayMs: options?.maxRetryDelayMs,
-        signal: options?.signal
-      });
+      let disablePreferredStrictTools = false;
+      let response;
+      for (; ; ) {
+        __byokitPiThrowIfAborted(options?.signal);
+        const built = buildParams(model, normalizedContext, isOAuth, options, disablePreferredStrictTools);
+        let params = built.params;
+        const nextParams = await options?.onPayload?.(params, model);
+        if (nextParams !== void 0) {
+          params = { ...nextParams, stream: true };
+        }
+        try {
+          response = await retryProviderRequest(() => client.beta.messages.create(params, requestOptions).asResponse(), {
+            maxRetries: options?.maxRetries,
+            maxRetryDelayMs: options?.maxRetryDelayMs,
+            signal: options?.signal
+          });
+          break;
+        } catch (error) {
+          if (options?.signal?.aborted || disablePreferredStrictTools || !built.hasPreferredStrictTools || !(error instanceof Anthropic.APIError) || error.status !== 400 || error.type !== "invalid_request_error" || ![
+            "The compiled grammar is too large",
+            "Too many strict tools (",
+            "Schemas contains too many parameters with union types ("
+          ].some((message) => error.message.includes(message))) {
+            throw error;
+          }
+          disablePreferredStrictTools = true;
+          appendAssistantMessageDiagnostic(output, {
+            type: "anthropic_strict_tools_fallback",
+            timestamp: Date.now(),
+            error: { message: error.message },
+            details: { reason: "strict_tool_limits_exceeded" }
+          });
+        }
+      }
       await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
       stream2.push({ type: "start", partial: output });
       const blocks = output.content;
       for await (const event of iterateAnthropicEvents(response, options?.signal)) {
+        await options?.onProviderStreamEvent?.(event, model);
         if (event.type === "message_start") {
           output.responseId = event.message.id;
           const transformations = event.message.input_transformations;
@@ -564,6 +651,10 @@ var stream = (model, context, options) => {
             if (event.usage.cache_creation_input_tokens != null) {
               output.usage.cacheWrite = event.usage.cache_creation_input_tokens;
             }
+            const cacheCreation = event.usage.cache_creation;
+            if (cacheCreation?.ephemeral_1h_input_tokens != null) {
+              output.usage.cacheWrite1h = cacheCreation.ephemeral_1h_input_tokens;
+            }
             const thinkingTokens = event.usage.output_tokens_details?.thinking_tokens;
             if (thinkingTokens != null) {
               output.usage.reasoning = thinkingTokens;
@@ -627,7 +718,9 @@ function mapThinkingLevelToEffort(model, level) {
   }
 }
 var streamSimple = (model, context, options) => {
-  assertRequestAuth(model.provider, options?.apiKey, options?.headers);
+  if (!getAnthropicFederation(model, options?.apiKey, options?.headers, options?.env)) {
+    assertRequestAuth(model.provider, options?.apiKey, options?.headers);
+  }
   const base = {
     ...buildBaseOptions(model, context, options, options?.apiKey),
     toolChoice: options?.toolChoice
@@ -658,9 +751,9 @@ var streamSimple = (model, context, options) => {
 function isOAuthToken(apiKey) {
   return apiKey.includes("sk-ant-oat");
 }
-function createClient(model, apiKey, optionsHeaders, fetch, dynamicHeaders, sessionId) {
+function createClient(model, apiKey, optionsHeaders, fetch, dynamicHeaders, sessionId, federation) {
   if (model.provider === "github-copilot") {
-    const client2 = new Anthropic({
+    const client2 = new PiAnthropic({
       apiKey: null,
       authToken: apiKey ?? null,
       baseURL: model.baseUrl,
@@ -674,7 +767,7 @@ function createClient(model, apiKey, optionsHeaders, fetch, dynamicHeaders, sess
     return { client: client2, isOAuthToken: false };
   }
   if (apiKey && isOAuthToken(apiKey)) {
-    const client2 = new Anthropic({
+    const client2 = new PiAnthropic({
       apiKey: null,
       authToken: apiKey,
       baseURL: model.baseUrl,
@@ -699,7 +792,22 @@ function createClient(model, apiKey, optionsHeaders, fetch, dynamicHeaders, sess
     accept: "application/json",
     "anthropic-dangerous-direct-browser-access": "true"
   }, sessionAffinityHeaders, model.headers, optionsHeaders);
-  const client = new Anthropic({
+  if (federation) {
+    const key = JSON.stringify([model.baseUrl, federation]);
+    if (federationClient?.key !== key || federationClient.fetch !== fetch) {
+      const client2 = new PiAnthropic({
+        apiKey: null,
+        authToken: null,
+        config: federation,
+        baseURL: model.baseUrl,
+        dangerouslyAllowBrowser: true,
+        fetch
+      });
+      federationClient = { key, fetch, client: client2 };
+    }
+    return { client: federationClient.client.withOptions({ defaultHeaders }), isOAuthToken: false };
+  }
+  const client = new PiAnthropic({
     apiKey: apiKey ?? null,
     authToken: null,
     baseURL: model.baseUrl,
@@ -738,19 +846,30 @@ function getBetaFeatures(model, context, isOAuthToken2, nativeToolChanges, optio
     features.push(MID_CONVERSATION_OUTPUT_CONFIG_BETA, THINKING_BINDING_CONTROLS_BETA);
   }
   if (nativeToolChanges)
-    features.push(MID_CONVERSATION_TOOL_CHANGES_BETA);
+    features.push(INLINE_TOOLS_BETA);
   return [...new Set(features)];
 }
-function buildParams(model, context, isOAuthToken2, options) {
+function buildParams(model, context, isOAuthToken2, options, disablePreferredStrictTools = false) {
   const { cacheControl } = getCacheControl(model, options?.cacheRetention, options?.env);
   const compat = getAnthropicCompat(model);
   const initialSystemMessage = getInitialSystemMessage(context.messages);
   const initialSystemText = initialSystemMessage ? getSystemMessageText(initialSystemMessage) : "";
   const transformedMessages = transformMessages(context.messages, model, normalizeToolCallId);
   const conversationMessages = initialSystemMessage ? transformedMessages.slice(1) : transformedMessages;
+  let hasPreferredStrictTools = false;
+  const convertToolDefinitions = (tools, toolCacheControl2) => {
+    const definitions = convertTools(tools, isOAuthToken2, compat.supportsEagerToolInputStreaming, compat.supportsStrictTools, toolCacheControl2, disablePreferredStrictTools);
+    if (definitions.some((definition, index) => {
+      const config = tools[index].constrainedSampling;
+      return definition.strict === true && config && config.type === "json_schema" && config.strict === "prefer";
+    })) {
+      hasPreferredStrictTools = true;
+    }
+    return definitions;
+  };
   const initialTools = initialSystemMessage?.toolsAdded ?? [];
-  const nativeToolChanges = compat.supportsMidConvoSystemMessages && compat.supportsMidConvoToolChanges && initialTools.length > 0 && !hasToolRedefinitions(context.messages);
-  const converted = convertMessages(conversationMessages, isOAuthToken2, cacheControl, compat.allowEmptySignature, model.compat?.supportsMidConvoEffort === true ? model.provider : void 0, nativeToolChanges);
+  const nativeToolChanges = compat.supportsMidConvoSystemMessages && compat.supportsMidConvoToolChanges && initialTools.length > 0;
+  const converted = convertMessages(conversationMessages, isOAuthToken2, cacheControl, compat.allowEmptySignature, model.compat?.supportsMidConvoEffort === true ? model.provider : void 0, nativeToolChanges ? convertToolDefinitions : void 0);
   const activeEffort = options?.effort ?? "high";
   const betaFeatures = getBetaFeatures(model, context, isOAuthToken2, nativeToolChanges, options);
   const params = {
@@ -789,17 +908,11 @@ function buildParams(model, context, isOAuthToken2, options) {
   }
   const toolCacheControl = compat.supportsCacheControlOnTools ? cacheControl : void 0;
   if (nativeToolChanges) {
-    const initialNames = new Set(initialTools.map((tool) => tool.name));
-    const laterTools = getDeclaredTools(context.messages).filter((tool) => !initialNames.has(tool.name));
-    params.tools = [
-      ...convertTools(initialTools, isOAuthToken2, compat.supportsEagerToolInputStreaming, compat.supportsStrictTools, toolCacheControl),
-      DEFERRED_TOOL_PLACEHOLDER,
-      ...convertTools(laterTools, isOAuthToken2, compat.supportsEagerToolInputStreaming, compat.supportsStrictTools).map((tool) => ({ ...tool, defer_loading: true }))
-    ];
+    params.tools = [...convertToolDefinitions(initialTools, toolCacheControl), DEFERRED_TOOL_PLACEHOLDER];
   } else {
     const tools = getCurrentTools(context.messages);
     if (tools.length > 0) {
-      params.tools = convertTools(tools, isOAuthToken2, compat.supportsEagerToolInputStreaming, compat.supportsStrictTools, toolCacheControl);
+      params.tools = convertToolDefinitions(tools, toolCacheControl);
     }
   }
   if (model.compat?.supportsMidConvoEffort === true) {
@@ -845,7 +958,7 @@ function buildParams(model, context, isOAuthToken2, options) {
   if (allowedFallbackModels && allowedFallbackModels.length > 0) {
     params.fallbacks = allowedFallbackModels.map((fallback) => ({ model: fallback.model }));
   }
-  return params;
+  return { params, hasPreferredStrictTools };
 }
 function normalizeToolCallId(id) {
   return id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
@@ -858,7 +971,7 @@ function convertToolResult(msg) {
     is_error: msg.isError
   };
 }
-function convertMessages(transformedMessages, isOAuthToken2, cacheControl, allowEmptySignature = false, managedProvider, nativeToolChanges = false) {
+function convertMessages(transformedMessages, isOAuthToken2, cacheControl, allowEmptySignature = false, managedProvider, convertToolDefinitions) {
   const params = [];
   const assistantLevels = /* @__PURE__ */ new Map();
   const pendingSystemMessages = [];
@@ -873,18 +986,19 @@ function convertMessages(transformedMessages, isOAuthToken2, cacheControl, allow
       const blocks = [];
       if (text.length > 0)
         blocks.push({ type: "text", text: sanitizeSurrogates(text) });
-      if (nativeToolChanges) {
+      if (convertToolDefinitions) {
+        const added = msg.toolsAdded ?? [];
+        const redefined = new Set(added.map((tool) => tool.name));
         for (const tool of msg.toolsRemoved ?? []) {
+          if (redefined.has(tool.name))
+            continue;
           blocks.push({
             type: "tool_removal",
             tool: { type: "tool_reference", name: isOAuthToken2 ? toClaudeCodeName(tool.name) : tool.name }
           });
         }
-        for (const tool of msg.toolsAdded ?? []) {
-          blocks.push({
-            type: "tool_addition",
-            tool: { type: "tool_reference", name: isOAuthToken2 ? toClaudeCodeName(tool.name) : tool.name }
-          });
+        for (const definition of convertToolDefinitions(added)) {
+          blocks.push({ type: "tool_addition", tool: { type: "tool_definition", definition } });
         }
       }
       if (blocks.length > 0)
@@ -1040,11 +1154,46 @@ function insertThinkingLevelMessages(converted, activeEffort) {
 function shouldUseFineGrainedToolStreamingBeta(model, context) {
   return getCurrentTools(context.messages).length > 0 && !getAnthropicCompat(model).supportsEagerToolInputStreaming;
 }
-function convertTools(tools, isOAuthToken2, supportsEagerToolInputStreaming, supportsStrictTools, cacheControl) {
+var ANTHROPIC_STRICT_UNSUPPORTED_KEYWORDS = /* @__PURE__ */ new Set([
+  "minimum",
+  "maximum",
+  "exclusiveMinimum",
+  "exclusiveMaximum",
+  "multipleOf",
+  "maxItems",
+  "uniqueItems",
+  "minContains",
+  "maxContains",
+  "minProperties",
+  "maxProperties"
+]);
+var ANTHROPIC_STRICT_STRING_FORMATS = /* @__PURE__ */ new Set([
+  "date-time",
+  "time",
+  "date",
+  "duration",
+  "email",
+  "hostname",
+  "uri",
+  "ipv4",
+  "ipv6",
+  "uuid"
+]);
+var isAnthropicStrictUnsupportedKeyword = (key, value) => {
+  if (ANTHROPIC_STRICT_UNSUPPORTED_KEYWORDS.has(key))
+    return true;
+  if (key === "minItems")
+    return value !== 0 && value !== 1;
+  if (key === "format")
+    return typeof value !== "string" || !ANTHROPIC_STRICT_STRING_FORMATS.has(value);
+  return false;
+};
+function convertTools(tools, isOAuthToken2, supportsEagerToolInputStreaming, supportsStrictTools, cacheControl, disablePreferredStrictTools = false) {
   if (!tools)
     return [];
   return tools.map((tool, index) => {
-    const strict = resolveJsonSchemaStrictSampling(tool, supportsStrictTools);
+    const config = tool.constrainedSampling;
+    const strict = disablePreferredStrictTools && config && config.type === "json_schema" && config.strict === "prefer" ? void 0 : resolveJsonSchemaStrictSampling(tool, supportsStrictTools, isAnthropicStrictUnsupportedKeyword);
     const parameters = getJsonSchemaToolParameters(tool, strict);
     const schema = parameters;
     const legacyInputSchema = {
@@ -1094,4 +1243,8 @@ export {
   stream,
   streamSimple
 };
+function __byokitPiThrowIfAborted(signal) {
+  if (signal == null || !signal.aborted) return;
+  throw signal.reason !== void 0 ? signal.reason : Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
+}
 //# sourceMappingURL=anthropic-messages.js.map

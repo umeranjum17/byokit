@@ -1,7 +1,8 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
+  clampThinkingLevel,
   getSystemMessageText
-} from "./chunk-PDUG4NYC.js";
+} from "./chunk-2HB4SJL3.js";
 
 // node_modules/@earendil-works/pi-ai/dist/utils/pi-user-agent.js
 function loadNodeOs() {
@@ -59,13 +60,20 @@ function schemaAllowsNull(schema) {
     return true;
   return Array.isArray(schema.anyOf) && schema.anyOf.some((variant) => schemaAllowsNull(variant));
 }
-function makeJsonSchemaNodeStrict(schema) {
+function makeJsonSchemaNodeStrict(schema, isUnsupportedKeyword) {
   if (!isJsonSchemaObject(schema)) {
     throw new UnsupportedStrictJsonSchemaError("boolean schemas are unsupported");
   }
   for (const key of UNSUPPORTED_STRICT_SCHEMA_KEYS) {
     if (schema[key] !== void 0) {
       throw new UnsupportedStrictJsonSchemaError(`${key} schemas are unsupported`);
+    }
+  }
+  if (isUnsupportedKeyword) {
+    for (const [key, value] of Object.entries(schema)) {
+      if (isUnsupportedKeyword(key, value)) {
+        throw new UnsupportedStrictJsonSchemaError(`${key}: ${JSON.stringify(value)} is unsupported`);
+      }
     }
   }
   if (schema.anyOf !== void 0) {
@@ -76,14 +84,14 @@ function makeJsonSchemaNodeStrict(schema) {
       if (isStructuredSchema(variant)) {
         throw new UnsupportedStrictJsonSchemaError("object and array unions are unsupported");
       }
-      makeJsonSchemaNodeStrict(variant);
+      makeJsonSchemaNodeStrict(variant, isUnsupportedKeyword);
     }
   }
   if (schema.items !== void 0) {
     if (Array.isArray(schema.items)) {
       throw new UnsupportedStrictJsonSchemaError("tuple schemas are unsupported");
     }
-    makeJsonSchemaNodeStrict(schema.items);
+    makeJsonSchemaNodeStrict(schema.items, isUnsupportedKeyword);
   }
   const isObjectSchema = schema.type === "object";
   if (schema.properties !== void 0 && !isObjectSchema) {
@@ -107,7 +115,7 @@ function makeJsonSchemaNodeStrict(schema) {
     throw new UnsupportedStrictJsonSchemaError("required contains an unknown property");
   }
   for (const [key, property] of Object.entries(properties)) {
-    makeJsonSchemaNodeStrict(property);
+    makeJsonSchemaNodeStrict(property, isUnsupportedKeyword);
     if (!required.has(key) && !schemaAllowsNull(property)) {
       properties[key] = { anyOf: [property, { type: "null" }] };
     }
@@ -115,12 +123,12 @@ function makeJsonSchemaNodeStrict(schema) {
   schema.required = propertyNames;
   schema.additionalProperties = false;
 }
-function makeStrictJsonSchema(schema) {
+function makeStrictJsonSchema(schema, isUnsupportedKeyword) {
   const cloned = structuredClone(schema);
   if (!isJsonSchemaObject(cloned)) {
     throw new UnsupportedStrictJsonSchemaError("root schema must have type object");
   }
-  makeJsonSchemaNodeStrict(cloned);
+  makeJsonSchemaNodeStrict(cloned, isUnsupportedKeyword);
   if (cloned.type !== "object") {
     throw new UnsupportedStrictJsonSchemaError("root schema must have type object");
   }
@@ -178,13 +186,13 @@ function inferGrammarInputProperty(tool) {
   }
   return inputProperty;
 }
-function resolveJsonSchemaStrictSampling(tool, supportsStrictMode) {
+function resolveJsonSchemaStrictSampling(tool, supportsStrictMode, isUnsupportedKeyword) {
   const config = tool.constrainedSampling;
   if (!config || config.type !== "json_schema")
     return void 0;
   if (supportsStrictMode) {
     try {
-      makeStrictJsonSchema(tool.parameters);
+      makeStrictJsonSchema(tool.parameters, isUnsupportedKeyword);
       return true;
     } catch (error) {
       if (!(error instanceof UnsupportedStrictJsonSchemaError))
@@ -237,7 +245,7 @@ function createGrammarToolInputProperties(tools, supportsOpenAIGrammarTools) {
 }
 
 // node_modules/@earendil-works/pi-ai/dist/utils/estimate.js
-var CHARS_PER_TOKEN = 4;
+var CHARS_PER_TOKEN = 3.5;
 var ESTIMATED_IMAGE_CHARS = 4800;
 function calculateContextTokens(usage) {
   return usage.totalTokens || usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
@@ -330,8 +338,13 @@ function clampMaxTokensToContext(model, context, maxTokens) {
   const available = model.contextWindow - estimateContextTokens(context).tokens - CONTEXT_SAFETY_TOKENS;
   return Math.min(maxTokens, Math.max(MIN_MAX_TOKENS, available));
 }
+function resolveSamplingParams(model, thinkingLevel, requestParams) {
+  const effectiveThinkingLevel = clampThinkingLevel(model, thinkingLevel);
+  const thinkingLevelParams = model.samplingParamsByThinkingLevel?.[effectiveThinkingLevel];
+  return model.samplingParams || thinkingLevelParams || requestParams ? { ...model.samplingParams, ...thinkingLevelParams, ...requestParams } : void 0;
+}
 function buildBaseOptions(model, context, options, apiKey) {
-  const samplingParams = model.samplingParams || options?.samplingParams ? { ...model.samplingParams, ...options?.samplingParams } : void 0;
+  const samplingParams = resolveSamplingParams(model, options?.reasoning ?? "off", options?.samplingParams);
   return {
     temperature: options?.temperature,
     samplingParams,
@@ -346,6 +359,7 @@ function buildBaseOptions(model, context, options, apiKey) {
     headers: options?.headers,
     onPayload: options?.onPayload,
     onResponse: options?.onResponse,
+    onProviderStreamEvent: options?.onProviderStreamEvent,
     timeoutMs: options?.timeoutMs,
     websocketConnectTimeoutMs: options?.websocketConnectTimeoutMs,
     maxRetries: options?.maxRetries,
@@ -555,10 +569,11 @@ export {
   resolveGrammarConstrainedSampling,
   createGrammarToolInputProperties,
   clampMaxTokensToContext,
+  resolveSamplingParams,
   buildBaseOptions,
   thinkingBudgetForLevel,
   clampThinkingBudgetToAnswerRoom,
   adjustMaxTokensForThinking,
   transformMessages
 };
-//# sourceMappingURL=chunk-VUCNMX7O.js.map
+//# sourceMappingURL=chunk-VZSF4MVH.js.map

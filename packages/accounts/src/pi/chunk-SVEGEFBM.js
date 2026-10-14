@@ -1,7 +1,7 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   shortHash
-} from "./chunk-QJQ5SDE2.js";
+} from "./chunk-HOZNWAQG.js";
 import {
   appendGrammarToolInputJsonDelta,
   getGrammarToolInput,
@@ -10,17 +10,17 @@ import {
   resolveJsonSchemaStrictSampling,
   sanitizeSurrogates,
   transformMessages
-} from "./chunk-VUCNMX7O.js";
+} from "./chunk-VZSF4MVH.js";
 import {
   calculateCost,
   getSystemMessageText,
   renderSystemMessageUpdate,
   resolveTranscript,
   resolveTranscriptTools
-} from "./chunk-PDUG4NYC.js";
+} from "./chunk-2HB4SJL3.js";
 import {
   parseStreamingJson
-} from "./chunk-FHNSO4GF.js";
+} from "./chunk-AT2YCN4O.js";
 
 // node_modules/@earendil-works/pi-ai/dist/api/openai-responses-shared.js
 function encodeTextSignatureV1(id, phase) {
@@ -205,7 +205,8 @@ function convertResponsesMessages(model, context, allowedToolCallProviders, opti
           const [callId, itemIdRaw] = toolCall.id.split("|");
           const customInputProperty = options?.grammarToolInputProperties?.get(toolCall.name);
           let itemId = itemIdRaw;
-          if (isDifferentModel && itemId?.startsWith("fc_") || customInputProperty === void 0 && !itemId?.startsWith("fc_")) {
+          const itemIdPrefix = customInputProperty === void 0 ? "fc_" : "ctc_";
+          if (isDifferentModel || !itemId?.startsWith(itemIdPrefix)) {
             itemId = void 0;
           }
           if (customInputProperty !== void 0) {
@@ -453,6 +454,7 @@ async function processResponsesStream(openaiStream, output, stream, model, optio
     }
   };
   for await (const event of openaiStream) {
+    await options?.onProviderStreamEvent?.(event, model);
     if (event.type === "response.created") {
       output.responseId = event.response.id;
     } else if (event.type === "response.output_item.added") {
@@ -609,6 +611,16 @@ async function processResponsesStream(openaiStream, output, stream, model, optio
   if (!sawTerminalResponseEvent) {
     throw new Error("OpenAI Responses stream ended before a terminal response event");
   }
+  if (output.stopReason === "toolUse") {
+    for (const block of output.content) {
+      if (block.type !== "toolCall")
+        continue;
+      const toolCall = block;
+      if (toolCall.partialJson !== void 0 || toolCall.customInput !== void 0) {
+        throw new Error(`OpenAI Responses stream completed with an unfinished tool call: ${toolCall.name} (${toolCall.id})`);
+      }
+    }
+  }
 }
 function mapStopReason(status, incompleteReason) {
   if (!status)
@@ -643,4 +655,4 @@ export {
   convertResponsesTools,
   processResponsesStream
 };
-//# sourceMappingURL=chunk-2GZLPZSK.js.map
+//# sourceMappingURL=chunk-SVEGEFBM.js.map

@@ -1,0 +1,7 @@
+{
+  "version": 3,
+  "sources": ["../../../../node_modules/@earendil-works/pi-ai/src/utils/headers.ts"],
+  "sourcesContent": ["import type { ProviderHeaders } from \"../types.ts\";\n\nexport function headersToRecord(headers: Headers): Record<string, string> {\n\tconst result: Record<string, string> = {};\n\tfor (const [key, value] of headers.entries()) {\n\t\tresult[key] = value;\n\t}\n\treturn result;\n}\n\nexport function providerHeadersToRecord(\n\t...headerSources: (ProviderHeaders | undefined)[]\n): Record<string, string> | undefined {\n\tconst merged = new Map<string, [string, string]>();\n\tfor (const source of headerSources) {\n\t\tfor (const [name, value] of Object.entries(source ?? {})) {\n\t\t\tconst normalizedName = name.toLowerCase();\n\t\t\tmerged.delete(normalizedName);\n\t\t\tif (value !== null) merged.set(normalizedName, [name, value]);\n\t\t}\n\t}\n\treturn merged.size > 0 ? Object.fromEntries(merged.values()) : undefined;\n}\n"],
+  "mappings": ";;;AAEM,SAAU,gBAAgB,SAAgB;AAC/C,QAAM,SAAiC,CAAA;AACvC,aAAW,CAAC,KAAK,KAAK,KAAK,QAAQ,QAAO,GAAI;AAC7C,WAAO,GAAG,IAAI;EACf;AACA,SAAO;AACR;AAEM,SAAU,2BACZ,eAA8C;AAEjD,QAAM,SAAS,oBAAI,IAAG;AACtB,aAAW,UAAU,eAAe;AACnC,eAAW,CAAC,MAAM,KAAK,KAAK,OAAO,QAAQ,UAAU,CAAA,CAAE,GAAG;AACzD,YAAM,iBAAiB,KAAK,YAAW;AACvC,aAAO,OAAO,cAAc;AAC5B,UAAI,UAAU;AAAM,eAAO,IAAI,gBAAgB,CAAC,MAAM,KAAK,CAAC;IAC7D;EACD;AACA,SAAO,OAAO,OAAO,IAAI,OAAO,YAAY,OAAO,OAAM,CAAE,IAAI;AAChE;",
+  "names": []
+}

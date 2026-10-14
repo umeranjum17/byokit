@@ -1,20 +1,20 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   getProviderEnvValue
-} from "./chunk-RGJXTNZI.js";
+} from "./chunk-TAO7TECG.js";
 import {
   parseStreamingJson
-} from "./chunk-FHNSO4GF.js";
+} from "./chunk-AT2YCN4O.js";
 import {
   headersToRecord,
   providerHeadersToRecord
-} from "./chunk-MIDDHJH2.js";
+} from "./chunk-VXRRDOKP.js";
 import {
   AssistantMessageEventStream,
   appendAssistantMessageDiagnostic,
   createAssistantMessageDiagnostic
-} from "./chunk-JTGIYXAQ.js";
-import "./chunk-XD4THNNI.js";
+} from "./chunk-JK2DMSVJ.js";
+import "./chunk-JOZQDPST.js";
 
 // node_modules/@earendil-works/pi-ai/dist/api/pi-messages.js
 var PiMessagesResponseError = class extends Error {
@@ -283,6 +283,7 @@ var stream = (model, context, options) => {
         throw new Error(`${model.provider} response has no body`);
       }
       for await (const piEvent of readPiMessagesEvents(response.body)) {
+        await options?.onProviderStreamEvent?.(piEvent, model);
         const event = convertEvent(piEvent);
         eventStream.push(event);
         if (event.type === "done" || event.type === "error") {

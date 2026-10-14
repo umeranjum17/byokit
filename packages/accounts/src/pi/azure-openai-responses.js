@@ -1,48 +1,49 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   convertResponsesMessages,
   convertResponsesTools,
   processResponsesStream
-} from "./chunk-2GZLPZSK.js";
+} from "./chunk-SVEGEFBM.js";
 import {
   clampOpenAIPromptCacheKey
-} from "./chunk-OTOLD7QS.js";
+} from "./chunk-IOKXVMI3.js";
 import {
   formatProviderError,
   normalizeProviderError
-} from "./chunk-W3IKEFGN.js";
+} from "./chunk-E54CWL3Z.js";
 import {
   retryProviderRequest
-} from "./chunk-3TVGBGLJ.js";
-import "./chunk-QJQ5SDE2.js";
+} from "./chunk-B7RY6CKU.js";
+import "./chunk-HOZNWAQG.js";
 import {
   buildBaseOptions,
   createGrammarToolInputProperties,
-  getPiUserAgent
-} from "./chunk-VUCNMX7O.js";
+  getPiUserAgent,
+  resolveSamplingParams
+} from "./chunk-VZSF4MVH.js";
 import {
   clampThinkingLevel,
   getDeclaredTools,
   resolveTranscript,
   resolveTranscriptTools
-} from "./chunk-PDUG4NYC.js";
+} from "./chunk-2HB4SJL3.js";
 import {
   getProviderEnvValue
-} from "./chunk-RGJXTNZI.js";
-import "./chunk-FHNSO4GF.js";
+} from "./chunk-TAO7TECG.js";
+import "./chunk-AT2YCN4O.js";
 import {
   headersToRecord
-} from "./chunk-MIDDHJH2.js";
+} from "./chunk-VXRRDOKP.js";
 import {
   AssistantMessageEventStream
-} from "./chunk-JTGIYXAQ.js";
-import "./chunk-XD4THNNI.js";
+} from "./chunk-JK2DMSVJ.js";
+import "./chunk-JOZQDPST.js";
 
 // node_modules/@earendil-works/pi-ai/dist/api/azure-openai-responses.js
 import { AzureOpenAI } from "openai";
+
+// node_modules/@earendil-works/pi-ai/dist/api/azure-openai-config.js
 var DEFAULT_AZURE_API_VERSION = "v1";
-var AZURE_TOOL_CALL_PROVIDERS = /* @__PURE__ */ new Set(["openai", "openai-codex", "opencode", "azure-openai-responses"]);
-var OPENAI_RESPONSES_MIN_OUTPUT_TOKENS = 16;
 function parseDeploymentNameMap(value) {
   const map = /* @__PURE__ */ new Map();
   if (!value)
@@ -65,6 +66,50 @@ function resolveDeploymentName(model, options) {
   const mappedDeployment = parseDeploymentNameMap(getProviderEnvValue("AZURE_OPENAI_DEPLOYMENT_NAME_MAP", options?.env)).get(model.id);
   return mappedDeployment || model.id;
 }
+function normalizeAzureBaseUrl(baseUrl) {
+  const trimmed = baseUrl.trim().replace(/\/+$/, "");
+  let url;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    throw new Error(`Invalid Azure OpenAI base URL: ${baseUrl}`);
+  }
+  const isAzureHost = url.hostname.endsWith(".openai.azure.com") || url.hostname.endsWith(".cognitiveservices.azure.com") || url.hostname.endsWith(".ai.azure.com");
+  const normalizedPath = url.pathname.replace(/\/+$/, "");
+  if (isAzureHost && (normalizedPath === "" || normalizedPath === "/" || normalizedPath === "/openai" || normalizedPath === "/openai/v1/responses")) {
+    url.pathname = "/openai/v1";
+    url.search = "";
+  }
+  return url.toString().replace(/\/+$/, "");
+}
+function buildDefaultBaseUrl(resourceName) {
+  return `https://${resourceName}.openai.azure.com/openai/v1`;
+}
+function resolveAzureBaseUrl(model, options) {
+  const baseUrl = options?.azureBaseUrl?.trim() || getProviderEnvValue("AZURE_OPENAI_BASE_URL", options?.env)?.trim() || void 0;
+  const resourceName = options?.azureResourceName || getProviderEnvValue("AZURE_OPENAI_RESOURCE_NAME", options?.env);
+  let resolvedBaseUrl = baseUrl;
+  if (!resolvedBaseUrl && resourceName) {
+    resolvedBaseUrl = buildDefaultBaseUrl(resourceName);
+  }
+  if (!resolvedBaseUrl && model.baseUrl) {
+    resolvedBaseUrl = model.baseUrl;
+  }
+  if (!resolvedBaseUrl) {
+    throw new Error("Azure OpenAI base URL is required. Set AZURE_OPENAI_BASE_URL or AZURE_OPENAI_RESOURCE_NAME, or pass azureBaseUrl, azureResourceName, or model.baseUrl.");
+  }
+  return normalizeAzureBaseUrl(resolvedBaseUrl);
+}
+function resolveAzureConfig(model, options) {
+  return {
+    baseUrl: resolveAzureBaseUrl(model, options),
+    apiVersion: options?.azureApiVersion || getProviderEnvValue("AZURE_OPENAI_API_VERSION", options?.env) || DEFAULT_AZURE_API_VERSION
+  };
+}
+
+// node_modules/@earendil-works/pi-ai/dist/api/azure-openai-responses.js
+var AZURE_TOOL_CALL_PROVIDERS = /* @__PURE__ */ new Set(["openai", "openai-codex", "opencode", "azure"]);
+var OPENAI_RESPONSES_MIN_OUTPUT_TOKENS = 16;
 function formatAzureOpenAIError(error) {
   return formatProviderError(normalizeProviderError(error), "Azure OpenAI API error");
 }
@@ -114,7 +159,10 @@ var stream = (model, context, options) => {
       });
       await options?.onResponse?.({ status: response.status, headers: headersToRecord(response.headers) }, model);
       stream2.push({ type: "start", partial: output });
-      await processResponsesStream(openaiStream, output, stream2, model, { grammarToolInputProperties });
+      await processResponsesStream(openaiStream, output, stream2, model, {
+        onProviderStreamEvent: options?.onProviderStreamEvent,
+        grammarToolInputProperties
+      });
       if (options?.signal?.aborted) {
         throw new Error("Request was aborted");
       }
@@ -156,44 +204,6 @@ var streamSimple = (model, context, options) => {
     reasoningEffort
   });
 };
-function normalizeAzureBaseUrl(baseUrl) {
-  const trimmed = baseUrl.trim().replace(/\/+$/, "");
-  let url;
-  try {
-    url = new URL(trimmed);
-  } catch {
-    throw new Error(`Invalid Azure OpenAI base URL: ${baseUrl}`);
-  }
-  const isAzureHost = url.hostname.endsWith(".openai.azure.com") || url.hostname.endsWith(".cognitiveservices.azure.com") || url.hostname.endsWith(".ai.azure.com");
-  const normalizedPath = url.pathname.replace(/\/+$/, "");
-  if (isAzureHost && (normalizedPath === "" || normalizedPath === "/" || normalizedPath === "/openai" || normalizedPath === "/openai/v1/responses")) {
-    url.pathname = "/openai/v1";
-    url.search = "";
-  }
-  return url.toString().replace(/\/+$/, "");
-}
-function buildDefaultBaseUrl(resourceName) {
-  return `https://${resourceName}.openai.azure.com/openai/v1`;
-}
-function resolveAzureConfig(model, options) {
-  const apiVersion = options?.azureApiVersion || getProviderEnvValue("AZURE_OPENAI_API_VERSION", options?.env) || DEFAULT_AZURE_API_VERSION;
-  const baseUrl = options?.azureBaseUrl?.trim() || getProviderEnvValue("AZURE_OPENAI_BASE_URL", options?.env)?.trim() || void 0;
-  const resourceName = options?.azureResourceName || getProviderEnvValue("AZURE_OPENAI_RESOURCE_NAME", options?.env);
-  let resolvedBaseUrl = baseUrl;
-  if (!resolvedBaseUrl && resourceName) {
-    resolvedBaseUrl = buildDefaultBaseUrl(resourceName);
-  }
-  if (!resolvedBaseUrl && model.baseUrl) {
-    resolvedBaseUrl = model.baseUrl;
-  }
-  if (!resolvedBaseUrl) {
-    throw new Error("Azure OpenAI base URL is required. Set AZURE_OPENAI_BASE_URL or AZURE_OPENAI_RESOURCE_NAME, or pass azureBaseUrl, azureResourceName, or model.baseUrl.");
-  }
-  return {
-    baseUrl: normalizeAzureBaseUrl(resolvedBaseUrl),
-    apiVersion
-  };
-}
 function createClient(model, apiKey, options) {
   const headers = { "User-Agent": getPiUserAgent(), ...model.headers };
   if (options?.headers) {
@@ -245,9 +255,10 @@ function buildParams(model, context, options, deploymentName, grammarToolInputPr
   if (options?.toolChoice !== void 0) {
     params.tool_choice = options.toolChoice;
   }
+  const reasoningEffort = options?.reasoningEffort ?? (options?.reasoningSummary ? "medium" : void 0);
   if (model.reasoning) {
-    if (options?.reasoningEffort || options?.reasoningSummary) {
-      const effort = options?.reasoningEffort ? model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort : "medium";
+    if (reasoningEffort) {
+      const effort = options?.reasoningEffort ? model.thinkingLevelMap?.[options.reasoningEffort] ?? options.reasoningEffort : reasoningEffort;
       params.reasoning = {
         effort,
         summary: options?.reasoningSummary || "auto"
@@ -259,8 +270,9 @@ function buildParams(model, context, options, deploymentName, grammarToolInputPr
       };
     }
   }
-  if (options?.samplingParams) {
-    Object.assign(params, options.samplingParams);
+  const samplingParams = resolveSamplingParams(model, reasoningEffort ?? "off", options?.samplingParams);
+  if (samplingParams) {
+    Object.assign(params, samplingParams);
   }
   return params;
 }

@@ -1,0 +1,6 @@
+- CHORE: Pin `@earendil-works/pi-ai` to 1.2.0 (with matching openai / `@anthropic-ai/sdk` pins); regenerate routes and portable Pi artifacts.
+- ChatGPT OAuth follows the upstream split: browser/paste map to provider `openai`, device stays on `openai-codex` (public route ids unchanged).
+- Cloud Azure upstream id renamed from `azure-openai-responses` to `azure` (route id `azure:key` unchanged).
+- Ollama Pro `ollama-pro:plan_key` stays kit-owned (pin dropped the provider); streams via openai-completions at `https://ollama.com/v1`.
+- TypeSafe `typesafe:key` added from the pin (catalogue row already present).
+- Claude browser OAuth prefers callback port 53692 then falls back to a free port (upstream #10571); portable Pi artifacts catch failed node:fs/os/path preloads.

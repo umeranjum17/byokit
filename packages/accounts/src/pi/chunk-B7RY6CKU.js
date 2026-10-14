@@ -1,4 +1,4 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 
 // node_modules/@earendil-works/pi-ai/dist/utils/provider-retry.js
 var DEFAULT_MAX_RETRY_DELAY_MS = 6e4;
@@ -28,14 +28,15 @@ function getRetryDelayMs(error, retryIndex, maxRetryDelayMs) {
   const retryAfterMs = error.headers?.get("retry-after-ms");
   if (retryAfterMs) {
     const value = Number.parseFloat(retryAfterMs);
-    if (!Number.isNaN(value))
+    if (Number.isFinite(value))
       return validateServerRetryDelayMs(value, maxRetryDelayMs, error.message);
   }
   const retryAfter = error.headers?.get("retry-after");
   if (retryAfter) {
     const seconds = Number.parseFloat(retryAfter);
     const delayMs = Number.isNaN(seconds) ? Date.parse(retryAfter) - Date.now() : seconds * 1e3;
-    return validateServerRetryDelayMs(delayMs, maxRetryDelayMs, error.message);
+    if (Number.isFinite(delayMs))
+      return validateServerRetryDelayMs(delayMs, maxRetryDelayMs, error.message);
   }
   const exponentialDelay = Math.min(0.5 * 2 ** retryIndex, 8) * 1e3;
   return exponentialDelay * (1 - Math.random() * 0.25);
@@ -73,6 +74,8 @@ async function retryProviderRequest(request, options = {}) {
         throw createAbortError();
       if (retriesRemaining <= 0 || !isProviderError(error) || !isRetryableProviderError(error))
         throw error;
+      if (error.status !== void 0 && options.noRetryStatuses?.includes(error.status))
+        throw error;
       const retryIndex = maxRetries - retriesRemaining;
       retriesRemaining--;
       await abortableSleep(getRetryDelayMs(error, retryIndex, options.maxRetryDelayMs), options.signal);
@@ -83,4 +86,4 @@ async function retryProviderRequest(request, options = {}) {
 export {
   retryProviderRequest
 };
-//# sourceMappingURL=chunk-3TVGBGLJ.js.map
+//# sourceMappingURL=chunk-B7RY6CKU.js.map
