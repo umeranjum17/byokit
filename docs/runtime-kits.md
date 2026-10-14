@@ -328,7 +328,7 @@ export interface RunSpec<S extends OutputSchema | undefined = OutputSchema | und
   model?: string;                                              // 'provider/model' (5.8); with `account`, a model of that account
   account?: AccountRef | 'default' | 'auto';                   // 5.15; absent = the session's account, else as before
   needs?: string[];                                            // 5.15: other models the run may call
-  auth?: 'apiKey';                                             // 5.15: the member's newest API-key account
+  auth?: 'apiKey';                                             // 5.15: the member's key-lane account
   tools?: string[];                                            // app tools (KitOptions.tools names) this run may call
   register?: boolean;                                          // default true: the bridge recognizes this run
 }
@@ -988,7 +988,7 @@ the engine. External retained sources are touched only when explicitly passed to
   a probe reply in an unexpected format or an unknown probe failure `inference`, a typed request-validation refusal (`INVALID_REQUEST`) `inference`, other control or preparation failures `engine`, and a retryable unavailable or restarting engine `busy`.
   A member that is not the caller's own throws, as `ensureMember` does, instead of returning a result. Failures carry only fixed discriminants: no engine lines, raw errors, key fragments or headers.
   `retry` means the activation may have taken the key but it was not sealed (late restart, seal failure, thrown request);
-  the key agent is cleared best-effort, and a clear the engine refuses is swept at the kit's next start (the `byokit.keys` line below), so runs fail closed meanwhile.
+  the key agent is cleared best-effort, and a clear the engine refuses is swept at the kit's next connect (the `byokit.keys` line below), so runs fail closed meanwhile.
   A restart or not-ready gateway before the engine saw the key is `busy` with `retry` (nothing was sent). Only routes whose pinned
   manifests allow manual secrets for text inference expose `keyEntry`; every route carries `revision` and `checked`.
   The optional `model` is Go-only: it applies only to a live-catalog route (`LIVE_CATALOGS`, today `opencode-go`) and is a full `provider/model` id from that route's catalog, checked after activation makes live discovery
@@ -1497,13 +1497,14 @@ O14 a member runs only on its own sign-ins, and one that never signed in reads `
   only read through another member's agent stop applying, Isolation above). It never
   holds an API key, and it holds at most one sign-in per provider (a second `signIn` to the same provider replaces
   the first when sealed).
-- Every further account is agent `<member>--<hex6>` (6 random lowercase hex digits; drawn again when that id exists),
+- Every further sign-in account is agent `<member>--<hex6>` (6 random lowercase hex digits; drawn again when that id exists),
   id `<provider>.<hex6>`, created with `agents.create { name: '<member>--<hex6>', workspace: <the member's workspace> }`
   (the engine derives the id from `name`; the kit checks the returned `agentId`). The pin rewrites the shared
   workspace's `IDENTITY.md` Name line on create, so the kit reads that file on the member agent before
   (`agents.files.get`) and writes it back if changed (`agents.files.set`). All of a member's accounts share the
   member's workspace (files, memory, skills); only credentials and session history are per account. The first account
-  agent turns the fleet `agents.ownership: 'explicit'`; every kit request already names its `agentId`.
+  agent turns the fleet `agents.ownership: 'explicit'`; every kit request already names its `agentId`. An API key is
+  not such an agent: it lives on the member's one reserved key lane (API keys).
 - `<root>/accounts/<member>.json` (0600, written whole through a temp file and rename) is the only kit state:
   `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?, who?, priorModel? } }, defaults: Defaults }`
   (`model` only for an API key: the model saved with it; `priorModel` only for a member-agent subscription account:
@@ -1512,13 +1513,13 @@ O14 a member runs only on its own sign-ins, and one that never signed in reads `
   so a later sign-in can be matched; `list` also records a live profile's `who` on a row that lacks one, and a member
   row follows its live profile's `who` when they differ). It holds no credential, token, email or engine line. An
   entry is written before its agent is created, so an agent is one of the member's accounts **only** when the member's index names it
-  and its id is exactly `<member>--[0-9a-f]{6}`; an unindexed agent of that shape is never listed, and an entry whose
+  and its id is exactly `<member>--[0-9a-f]{6}` or, for an API key, the key lane (API keys); an unindexed agent of that shape is never listed, and an entry whose
   agent and `<root>/state/agents/<agent>` directory are both gone is dropped on the next write (an entry whose
   directory remains is finished by `removeAccount`). A member-agent account with no entry (signed in before O14) gets one on
   first list: `addedAt: 0`, `route` = `routeFor(provider, 'browser')`, else the provider's first pinned subscription
   choice, `who` from `byokit.accounts list`.
 - `accounts(member)` lists member-agent accounts first (by `addedAt`, then provider id), then account agents by
-  `addedAt`. The member agent's accounts come from `byokit.accounts list` (its own store), never from
+  `addedAt`, then the member's key lane (API keys). The member agent's accounts come from `byokit.accounts list` (its own store), never from
   `models.authStatus` (merged). `state`: `signing` during its sign-in; `resting` while `until > now`; else from its
   local profile: `ready` for a usable one, `needs_again` when expired, `signed_out` when missing; `not_included` when
   its route is no longer in `routes.json`.
@@ -1594,7 +1595,7 @@ has no bindings) is the accounts a conversation may use (Runs steps 1-2); absent
 
 `'default'` is the default account when `ready` and in `bound`, else Auto unless `defaults.auto === false`, else
 the first `ready` subscription candidate (a default outside `bound` is treated as not ready; its row has `out:
-'bound'`). `auth: 'apiKey'` is the id of the member's newest API-key account (API keys). A chosen id that
+'bound'`). `auth: 'apiKey'` is the member's key-lane account (API keys). A chosen id that
 is not the member's → `unknown_account`; a chosen (or `ready` default) account lacking a demanded model →
 `not_included`. `AccountPick.model` is `sel.model`, else (API key) its saved model, else `defaults.model` when that account lists it,
 else its first model that is available and neither resting nor signed out (a signed-out-only list is used only when no
@@ -1735,7 +1736,7 @@ lane is indexed when its key is added again; until then its conversations are no
 Returns an `AddKeyHandle` (thenable `AddKeyResult` with `cancel()`; 5.8). `cancel()` stops a pending add and clears
 any partial profile (`retry`/`busy`); it never calls `wizard.cancel`. Any result but `ok` leaves no ready key and no
 index entry for that attempt, and a failed or cancelled replacement drops the previous key (the lane reads signed out until a key is added again). A key the engine accepted that cannot be sealed (a late restart or a failed seal) is
-cleared and returns `retry`, never `invalid`; if that clear is refused, the kit's start sweep (the `byokit.keys`
+cleared and returns `retry`, never `invalid`; if that clear is refused, the connect sweep (the `byokit.keys`
 bullet in §5.8) clears it. The key never reaches kit storage, the index, logs, errors or a return value, and is never
 sent over a link (`kit.addAccount` refuses `key`; no link op adds an account yet). `agent:byokit-key-<member>:` keys
 are that member's (D9, matched exactly); `byokit.keys ready`/`prepare` serve only that lane. `RunSpec.auth: 'apiKey'`

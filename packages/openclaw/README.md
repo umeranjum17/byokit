@@ -139,8 +139,8 @@ A conversation keeps its account: a later run on the same `sessionKey` stays on 
 whatever `account` says. Naming another account ends `{ ok: false, kind: 'other' }` with words to show (`account.bound`).
 A conversation on an API-key account continues only when that account is named (`account.paid`). Both end after the
 binding read and before any room, model or agent request (a refusal reads the account listing once when the index is
-cold); an `auth: 'apiKey'` run first reads its key (`byokit.keys ready`), continues only an API-billed conversation and
-is refused other bindings the same way (`account.bound`). `kit.pick(member, { account, model?, needs? }, { sessionKey })`
+cold); an `auth: 'apiKey'` run first reads its key (`byokit.keys ready`), continues only its own key-lane conversation
+(`byokit-key-<member>`) and is refused other bindings the same way (`account.bound`). `kit.pick(member, { account, model?, needs? }, { sessionKey })`
 returns what that run would choose now, refusals included, without running. `steer` and `abort` accept the same
 `sessionKey` while its run is live.
 
