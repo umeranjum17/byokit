@@ -9,7 +9,8 @@ import { outputSchema, type OutputSchema, type SchemaOutput } from './output.ts'
 import { words } from './words.ts';
 import { classify } from './classify.ts';
 import { providerOf } from './pick.ts';
-import type { AccountPick, GatewayTransport, Member, PlanWindow, RunEnd, RunEvent, RunSpec, RunUsage } from './types.ts';
+import { catalogModelOf, clampThinking, levelsOf, type CatalogModel } from './thinking.ts';
+import type { AccountPick, GatewayTransport, Member, PlanWindow, RunEnd, RunEvent, RunSpec, RunUsage, ThinkingReport } from './types.ts';
 
 // The gateway gives up on a silent run after an hour; we wait ten minutes longer for the reply frame itself.
 const WAIT_MS = 3_600_000;
@@ -211,6 +212,18 @@ export function createRuns(ctx: {
       return { ...end, until };
     }
   };
+  const thinkingOf = async (picked: { provider: string; model: string } | undefined, asked: RunSpec['thinking']): Promise<ThinkingReport | undefined> => {
+    if (asked === undefined) return undefined;
+    if (!picked) return { asked, used: asked };
+    try {
+      const snap = await ctx.request('config.get', {}) as {
+        config?: { models?: { providers?: Record<string, { models?: CatalogModel[] }> } };
+      };
+      return clampThinking(asked, levelsOf(catalogModelOf(snap.config?.models?.providers, picked.provider, picked.model)));
+    } catch {
+      return { asked, used: asked };
+    }
+  };
   const start = async <const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on: ((e: RunEvent) => void) | undefined, t: {
     agentId: string; sessionKey: string; idempotencyKey: string; system: string; picked?: { provider: string; model: string };
     output?: ReturnType<typeof outputSchema>; chosen?: Extract<AccountPick, { ok: true }>;
@@ -264,7 +277,9 @@ export function createRuns(ctx: {
           return { ok: false, kind: 'signed-out', message: `${picked.provider} is not signed in for ${spec.member}` };
       }
       // One `agent` request: its interim `accepted` frame names the run, its final frame (after the run) carries the
-      // run's usage. The wait below still decides how the run ended.
+      // run's usage. The wait below still decides how the run ended. Thinking is clamped to the catalog before the
+      // request so an unsupported level (e.g. Muse's off/high/max) never fails the engine.
+      const thinking = await thinkingOf(picked, spec.thinking);
       let accepted!: (payload: unknown) => void;
       const ack = new Promise<unknown>((resolve) => { accepted = resolve; });
       // The run id is taken as the accepted frame lands, so no event read after it is missed.
@@ -284,7 +299,7 @@ export function createRuns(ctx: {
         ...(picked ?? {}),
         ...(system ? { extraSystemPrompt: system } : {}),
         ...(spec.images ? { attachments: spec.images.map((image) => ({ mimeType: image.mimeType, content: image.data })) } : {}),
-        ...(spec.thinking ? { thinking: spec.thinking } : {}),
+        ...(thinking !== undefined ? { thinking: thinking.used } : {}),
       }, { expectFinal: true, timeoutMs: WAIT_CLIENT_MS, onAccepted });
       final.catch(() => {}); // a late failure is the wait's to report
       const started = await Promise.race([ack, final]) as { runId: string };
@@ -318,7 +333,8 @@ export function createRuns(ctx: {
         const reported = typeof agentMeta.provider === 'string' && typeof agentMeta.model === 'string'
           ? `${agentMeta.provider}/${agentMeta.model}`.toLowerCase() : '';
         return { ok: true, text, ...(parsed ? { data: parsed.data as SchemaOutput<S> } : {}), ...(usage ? { usage } : {}), ...(planWindow ? { planWindow } : {}),
-          ...(chosen ? { account: chosen.account.id, model: chosen.model || reported } : {}) };
+          ...(chosen ? { account: chosen.account.id, model: chosen.model || reported } : {}),
+          ...(thinking ? { thinking } : {}) };
       }
       if (result.stopReason === 'aborted' || (abortedByEngine && result.status !== 'ok')) return { ok: false, aborted: true };
       const message = typeof result.error === 'string' ? result.error

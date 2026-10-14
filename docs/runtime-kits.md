@@ -347,9 +347,13 @@ export type RunUsage = { input?: number; output?: number; cacheRead?: number; ca
   reasoning?: number; total?: number; costUsd?: number };      // the engine's run total
 export type PlanWindow = { provider: string; plan?: string;
   windows: { label: string; usedPercent: number; resetAt?: number }[] };   // usedPercent 0-100, resetAt epoch ms
+export type ThinkingAsked = 'off' | 'low' | 'medium' | 'high';
+export type ThinkingUsed = ThinkingAsked | 'minimal' | 'xhigh' | 'max';
+export type ThinkingReport = { asked: ThinkingAsked; used: ThinkingUsed };
 export type RunEnd<T = unknown> =
   | { ok: true; text: string; data?: T; usage?: RunUsage; planWindow?: PlanWindow;   // data: validated schema; usage/window: engine reports
-      account?: AccountId; model?: string }                    // both exactly when the run used an account (5.15)
+      account?: AccountId; model?: string;                     // both exactly when the run used an account (5.15)
+      thinking?: ThinkingReport }                              // when the run asked for thinking; used may be clamped to the catalog
   | { ok: false; aborted: true }
   | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other' | 'output'; until?: number; message: string };
 export type SignInView = {
@@ -885,13 +889,18 @@ the engine. External retained sources are touched only when explicitly passed to
   when present with its type); the pin's `update`, `input_delta` and `review` phases are progress inside the pair and
   are not forwarded. Pin facts: the kit's `tool-events` cap makes the connection that sent `agent` a tool-event
   recipient, and that copy is never stripped by verbose level; `args` has its strings redacted, `result` text
-  content is capped at 8000 characters by the engine. Request `agent { agentId, sessionKey, message,
+  content is capped at 8000 characters by the engine. When `spec.thinking` is set, the kit reads that model's
+  supported levels from `config.models.providers` (the same catalog live sync already wrote: `compat.supportedReasoningEfforts`
+  or `thinkingLevelMap`); if the asked level is listed it is sent unchanged, otherwise the nearest still-reasoning
+  level rounding up (e.g. `low`/`medium` → `high` when only `off`/`high`/`max` exist), never to `off` unless asked;
+  no catalog levels for the model passes the asked level through. The ok end carries `thinking: { asked, used }`;
+  `words('run.thinkingClamped')` is the notice when they differ. Request `agent { agentId, sessionKey, message,
   extraSystemPrompt, idempotencyKey: spec.idempotencyKey ?? uuid, attachments?, thinking?, provider?, model? }` with `expectFinal`: the
   interim `status: 'accepted'` frame names the run (its `runId` is taken as it lands) and emits `{ type: 'started' }`
   once, before subsequent stream events. Native lifecycle start does not double-emit; cached final/in-flight replays
   without an accepted frame do not invent a start. Acceptance is not completion. Then `agent.wait { runId,
   timeoutMs: 3_600_000 }` (client timeout 3_610_000) decides the end as before. `status === 'ok'` → final text event
-  and `{ ok: true, text, usage?, planWindow? }`. Silent/empty terminal dispositions produce empty text. Otherwise
+  and `{ ok: true, text, usage?, planWindow?, thinking? }`. Silent/empty terminal dispositions produce empty text. Otherwise
   text comes from string `result.payloads[].text` fields in the `agent` final frame, joined in order with two
   newlines (including explicit empty strings); absent payload text falls back to the last assistant stream
   text, then terminal text, then empty text. The terminal snapshot is sanitized and capped at 4096 characters
