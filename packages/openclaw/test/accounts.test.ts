@@ -9,7 +9,10 @@
 // The S11 binding (O14k): a second run on one app key stays on the account that holds its session, pick equals the run's
 // account event (unbound, bound to an account agent, bound to the member agent), a bound key refuses another id and an
 // API-key conversation refuses 'auto' with no request but the binding read, an API-key run refuses a subscription- or
-// member-bound conversation, and steer and abort reach the engine key.
+// member-bound conversation, and steer and abort reach the engine key. The key lane is indexed as `<provider>.key`
+// (a new key replaces the old one, the key never reaches the index), so a key-held conversation stays bound and an
+// API-billed binding continues on its lane account; a member-bound conversation holding no indexed account ends
+// signed-out with plain words.
 // The S12 move (O14l): kit.move forks the conversation onto the target account's agent and deletes the source. Pass: the
 // user and tool rows are in the target, the source is gone, the next run on the app key continues there; busy while live
 // (the kit's map, or the engine's hasActiveRun), start_failed with the source untouched, close_failed with both kept, and
@@ -1240,34 +1243,46 @@ test('session binding: a run stays on the account that holds its session; pick e
       [['sessions.steer', `agent:${agent}:chat:1`], ['chat.abort', `agent:${agent}:chat:1`]]);
 
     // An API-key conversation: only its own id continues it; 'auto', 'default', no account and another id refuse.
-    const keyAgent = 'm1--a0a0a0';
-    await kit.call('agents.create', { name: keyAgent, workspace: join(stateDir, 'openclaw', 'workspaces', 'm1') });
-    await kit.call('openclaw.setup.activate', { kind: 'api-key', agentId: keyAgent, authChoice: 'apiKey', apiKey: 'sk-test' });
-    const file = indexOf(stateDir, 'm1');
-    const stored = JSON.parse(readFileSync(file, 'utf8')) as { accounts: Record<string, unknown> };
-    stored.accounts['anthropic.a0a0a0'] = { agent: keyAgent, name: 'Key', route: 'apiKey', addedAt: Date.now() };
-    writeFileSync(file, JSON.stringify(stored, null, 2) + '\n');
-    chmodSync(file, 0o600);
-    const keyed = await same('agent:m1:chat:k', 'anthropic.a0a0a0');
-    assert.deepEqual(keyed.requests.map((r) => [r.agentId, r.sessionKey]), [[keyAgent, `agent:${keyAgent}:chat:k`]]);
-    const paid = 'This conversation uses Key, which is billed per use. Choose Key to keep going.';
-    for (const account of ['auto', 'default', undefined, 'openai']) await refuses('agent:m1:chat:k', account, 'paid', paid);
-    const kept = await run({ sessionKey: 'agent:m1:chat:k', account: 'anthropic.a0a0a0' });
-    assert.ok(kept.end.ok && kept.end.account === 'anthropic.a0a0a0', JSON.stringify(kept.end));
-    // An API-key run continues only an API-billed conversation: a subscription- or member-bound one is refused, with no agent request.
     assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-test' }), { status: 'ok' });
+    const laneAgent = keyAgentId('m1');
+    // The lane is indexed once as `<provider>.key`, replacing nothing else; the key itself never reaches the index.
+    const laneText = readFileSync(indexOf(stateDir, 'm1'), 'utf8');
+    assert.ok(!laneText.includes('sk-test'), 'the key never reaches the index');
+    const laneEntry = (JSON.parse(laneText) as { accounts: Record<string, Record<string, unknown>> }).accounts['openai.key'];
+    assert.equal(laneEntry?.agent, laneAgent);
+    assert.equal(laneEntry?.route, 'openai-api-key');
+    assert.ok(typeof laneEntry?.addedAt === 'number');
+    const laneRow = (await kit.accounts('m1')).find((a) => a.id === 'openai.key');
+    assert.deepEqual([laneRow?.provider, laneRow?.billing, laneRow?.state], ['openai', 'api', 'ready']);
+    const keyed = await same('agent:m1:chat:k', 'openai.key');
+    assert.deepEqual(keyed.requests.map((r) => [r.agentId, r.sessionKey]), [[laneAgent, `agent:${laneAgent}:chat:k`]]);
+    const paid = 'This conversation uses OpenAI API Key, which is billed per use. Choose OpenAI API Key to keep going.';
+    for (const account of ['auto', 'default', undefined, 'openai']) await refuses('agent:m1:chat:k', account, 'paid', paid);
+    const kept = await run({ sessionKey: 'agent:m1:chat:k', account: 'openai.key' });
+    assert.ok(kept.end.ok && kept.end.account === 'openai.key', JSON.stringify(kept.end));
+    assert.deepEqual(kept.requests.map((r) => [r.agentId, r.sessionKey]), [[laneAgent, `agent:${laneAgent}:chat:k`]]);
+    // An API-key run continues only an API-billed conversation: a subscription- or member-bound one is refused, with no agent request.
     const keyRun =(sessionKey: string) => kit.run({ member: 'm1', sessionKey, message: 'hello', auth: 'apiKey' });
     const keyRefusal = (name: string) => ({ ok: false, kind: 'other', message: `This conversation uses ${name}. Move it to switch accounts.` });
     const keyFrom = fake.calls.length;
     assert.deepEqual(await keyRun('agent:m1:chat:1'), keyRefusal(names[second.id]!));
     assert.deepEqual(await keyRun('agent:m1:chat:m'), keyRefusal(names.openai!));
     assert.deepEqual(fake.calls.slice(keyFrom).filter((c) => c.method === 'agent'), []);
-    // An API-billed conversation continues on the key, and an unbound key starts there.
+    // An API-billed binding continues on its indexed lane account, on the same session: no split history.
+    // An unbound key starts there too.
     assert.ok((await keyRun('agent:m1:chat:k')).ok);
     assert.ok((await keyRun('agent:m1:chat:new')).ok);
-    const keyLane = keyAgentId('m1');
     assert.deepEqual(agentCalls().slice(-2).map((c) => { const p = c.params as { agentId: string; sessionKey: string }; return [p.agentId, p.sessionKey]; }),
-      [[keyLane, `agent:${keyLane}:chat:k`], [keyLane, `agent:${keyLane}:chat:new`]]);
+      [[laneAgent, `agent:${laneAgent}:chat:k`], [laneAgent, `agent:${laneAgent}:chat:new`]]);
+    // A new key replaces the old one on the same lane: no `<member>--<hex6>` agent per later key.
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'apiKey', apiKey: 'sk-test-2' }), { status: 'ok' });
+    const replaced = (JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')) as { accounts: Record<string, { agent: string }> }).accounts;
+    assert.deepEqual(Object.keys(replaced).filter((id) => replaced[id]!.agent === laneAgent), ['anthropic.key']);
+    const roster = (await kit.call('agents.list', {}) as { agents: { id: string }[] }).agents.map((a) => a.id);
+    assert.ok(!roster.some((id) => id.startsWith('m1--') && id !== agent), 'no account agent per later key');
+    assert.ok((await keyRun('agent:m1:chat:k2')).ok, 'the replacement key runs');
+    const scanned = JSON.stringify([readFileSync(indexOf(stateDir, 'm1'), 'utf8'), await kit.accounts('m1')]);
+    for (const canary of ['sk-test', 'sk-test-2']) assert.ok(!scanned.includes(canary), `the index leaks ${canary}`);
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });
@@ -1289,6 +1304,16 @@ test('session binding: a member-bound conversation that holds no account names a
     const end = await kit.run({ member: 'm2', sessionKey: 'agent:m2:chat:y', message: 'hello', account: 'openai.abcdef' });
     assert.deepEqual(end, { ok: false, kind: 'other', message: 'This conversation uses another account. Move it to switch accounts.' });
     assert.deepEqual(fake.calls.slice(from).filter((c) => c.method === 'agent'), []);
+    // With 'auto' or 'default' the same conversation ends signed-out, with plain words: its member agent holds
+    // no indexed account, so naming the signed-in provider would mislead. Pick agrees.
+    const plain = 'No account in this conversation is signed in.';
+    for (const account of ['auto', 'default'] as const) {
+      const auto = await kit.run({ member: 'm2', sessionKey: 'agent:m2:chat:y', message: 'hello', account });
+      assert.deepEqual(auto, { ok: false, kind: 'signed-out', message: plain });
+    }
+    assert.deepEqual(await kit.pick('m2', { account: 'auto' }, { sessionKey: 'agent:m2:chat:y' }),
+      { ok: false, code: 'none', reason: plain,
+        considered: [{ id: 'openai.abcdef', left: 'unknown', age: 'unknown', confidence: 'unknown', reason: 'bound', out: 'bound' }] });
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });

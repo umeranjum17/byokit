@@ -142,6 +142,9 @@ export function resolveSelection(accounts: readonly Account[], defaults: Default
   const rests = eligible.filter((c) => c.row.out === 'resting');
   if (rests.length)
     return restingPick(rests.reduce((a, b) => ((b.row.until ?? Infinity) < (a.row.until ?? Infinity) ? b : a)));
+  // An empty `bound` (a member-agent conversation holding no indexed account) names no provider: every account is
+  // signed in somewhere else, so the provider-specific sentence would mislead.
+  if (bound !== undefined && !bound.length) return { ok: false, code: 'none', reason: words('auto.noneBound'), considered };
   return { ok: false, code: 'none', reason: words('auto.none', { provider: provider ?? '' }), considered };
 
   function finish(account: Account, row: Considered, how: 'chosen' | 'default' | 'auto', why: PickWhy): AccountPick {

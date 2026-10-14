@@ -1052,8 +1052,14 @@ export class OpenClawKit {
   }
 
   /** Save an explicitly supplied API key (billed per use) in this member's separate key agent. */
-  addKey(agentId: Member, o: { authChoice: string; apiKey: string; model?: string }): Promise<AddKeyResult> {
-    return this.keys.add(agentId, o);
+  async addKey(agentId: Member, o: { authChoice: string; apiKey: string; model?: string }): Promise<AddKeyResult> {
+    const result = await this.keys.add(agentId, o);
+    // The lane is indexed as the member's `<provider>.key` account, replacing the previous key's entry.
+    if (result.status === 'ok') {
+      if (this.accountsCtl) await this.accountsCtl.key(agentId, o.authChoice);
+      else this.o.log?.('addKey: the account index is not ready, so the key lane is not indexed');
+    }
+    return result;
   }
 
   private async prepareKeyOwner(agentId: string): Promise<void> {

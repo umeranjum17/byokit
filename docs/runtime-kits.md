@@ -1427,7 +1427,8 @@ sign-in (`viewStore`), never a separately sealed copy of the credential.
 kit's modules use TypeScript's `Pick<T, K>`:
 
 ```ts
-export type AccountId = string;      // '<provider>': the member agent's sign-in; '<provider>.<hex6>': agent '<member>--<hex6>'
+export type AccountId = string;      // '<provider>': the member agent's sign-in; '<provider>.<hex6>': agent '<member>--<hex6>';
+                                     // '<provider>.key': the member's single API-key lane agent `byokit-key-<member>`
 export type AccountRef = AccountId;  // always starts with a provider id, so never 'default' or 'auto'
 export type SignInState = 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included';
 export type Account = { id: AccountId; provider: string; route: string;        // route = Route.choice it signed in with
@@ -1629,20 +1630,25 @@ cache.
 **Runs.** Every run first finds the account its session is bound to, whatever `spec.account` says:
 
 1. Binding: a key `agent:<member>--<hex6>:<tail>` of an indexed account agent is bound to that account. A key
+   `agent:byokit-key-<member>:<tail>` of the indexed key lane is bound to its `<provider>.key` account. A key
    `agent:<member>:<tail>` is bound to whichever of the member's agents holds `agent:<that agent>:<tail>`, found with
-   `sessions.resolve { key, agentId, allowMissing: true }` per agent (member agent first; `missing: true` = not there);
-   a session on the member agent is bound to the member agent (any of its accounts). A key found nowhere is unbound.
-2. Bound to an account agent: `spec.account` absent, `'default'` or `'auto'` resolve to it (Choosing treats it as a
+   `sessions.resolve { key, agentId, allowMissing: true }` per agent (member agent first, then the key lane, then the
+   account agents; `missing: true` = not there); a session on the member agent is bound to the member agent (any of its
+   accounts). A key found nowhere is unbound.
+2. Bound to an account agent or the key lane: `spec.account` absent, `'default'` or `'auto'` resolve to it (Choosing treats it as a
    chosen id with `bound` = that account, so a demand it lacks ends `plan` before any request), and a different id is
    refused before any request (`code: 'bound'`, words `account.bound`: move the conversation first). When that account bills `api`,
    only its own id or `auth: 'apiKey'` may continue it; anything else is refused the same way (`code: 'paid'`, words
    `account.paid`).
    Bound to the member agent with `spec.account` set: `'auto'` and `'default'` choose only among the member agent's
-   own accounts (`bound` = those), and an id on another agent is refused with `account.bound`.
+   own accounts (`bound` = those), and an id on another agent is refused with `account.bound`. An empty `bound` (the
+   member agent holds no indexed account) ends Choosing `none` with words `auto.noneBound` ("No account in this
+   conversation is signed in."), never the provider-specific `auto.none`.
    An `auth: 'apiKey'` run on a conversation bound to a subscription account or to the member agent is refused the same
-   way (`code: 'bound'`, words `account.bound`); on an API-billed binding it continues on the key. An API-key run first
-   reads the key (`byokit.keys ready`), then the binding (step 1); the refusals here read the index, and the account
-   listing once when it is cold; no room, model or agent request precedes them.
+   way (`code: 'bound'`, words `account.bound`); on the indexed key-lane binding (or any API-billed binding) it continues
+   on that lane's account, same session. An API-key run first reads the key (`byokit.keys ready`), then the binding
+   (step 1); the refusals here read the index, and the account listing once when it is cold; no room, model or agent
+   request precedes them.
 3. Bound to the member agent, or unbound, with `spec.account` absent and `spec.needs` absent or empty: exactly today's 5.8
    behavior on the member agent (existing requests stay byte-identical). A non-empty `spec.needs` with `spec.account`
    absent resolves as `account: 'default'`.
@@ -1706,19 +1712,20 @@ it never decides which account a sign-in belongs to, and a changed email changes
 AccountId }> }>`, where `done.id` is the account the sign-in ended in. `name` defaults to `<label> <n>`; the email's
 local part is only a suggestion the app offers (`@byokit/ui` `nameSuggestions`), so the index never holds it.
 
-**API keys.** `addKey(member, { authChoice, apiKey, model? })` accepts only routes with `keyEntry` (else
-`not_included`), writes the index entry, creates a new account agent, calls typed `openclaw.setup.activate { kind:
-'api-key', agentId, authChoice, apiKey }` (180 s), seals it, records its saved model, and returns `AddKeyResult` (`{ status, reason }`, 5.8); any result but `ok` leaves nothing behind. A key the engine accepted that cannot be sealed (a late
-restart or a failed seal) is cleared and returns `retry`, never `invalid`; if that clear is refused, the kit's start sweep
-(the `byokit.keys` bullet in §5.8) clears it. Every key is a new account (keys add, never replace; a key is replaced by
-`removeAccount` then `addKey`). The key never reaches kit storage, the index, logs,
-errors or a return value, and is never sent over a link (`kit.addAccount` refuses `key`; no link op adds an account yet). `RunSpec.auth: 'apiKey'`
-means `account: <the member's newest api account>` and runs its saved model, or a supplied model of the same
-provider (5.8); another provider ends `kind: 'plan'`.
-If the key lane's `byokit-key-<member>` agent already exists (it shipped before O14): it is indexed as account
-`<provider>.key`, keeps its workspace (`key-workspaces/<member>`) and sessions, `agent:byokit-key-<member>:` keys are
-that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it, and every later key is a
-`<member>--<hex6>` agent. That lane's per-member serialization of key runs is replaced by the locks below.
+**API keys.** One key lane per member: reserved agent `byokit-key-<member>` (workspace `key-workspaces/<member>`,
+`copyToAgents: false`), indexed once as `<provider>.key`. `addKey(member, { authChoice, apiKey, model? })` accepts
+only routes with `keyEntry` (else `not_included`), activates typed `openclaw.setup.activate { kind: 'api-key',
+agentId: byokit-key-<member>, authChoice, apiKey }` (180 s) on that lane, seals it, records its saved model, and
+indexes the lane as `<provider>.key` (replacing whatever `<*.key>` entry the member already held, keeping
+`addedAt`). A new key replaces the old one on the same agent; there is no `<member>--<hex6>` agent per later key.
+Returns `AddKeyResult` (`{ status, reason }`, 5.8); any result but `ok` leaves no ready key and no index entry for
+that attempt. A key the engine accepted that cannot be sealed (a late restart or a failed seal) is cleared and
+returns `retry`, never `invalid`; if that clear is refused, the kit's start sweep (the `byokit.keys` bullet in §5.8)
+clears it. The key never reaches kit storage, the index, logs, errors or a return value, and is never sent over a
+link (`kit.addAccount` refuses `key`; no link op adds an account yet). `agent:byokit-key-<member>:` keys are that
+member's (D9, matched exactly); `byokit.keys ready`/`prepare` serve only that lane. `RunSpec.auth: 'apiKey'` runs
+on the lane with its saved model, or a supplied model of the same provider (5.8); another provider ends
+`kind: 'plan'`. Per-member serialization of key runs uses the locks below.
 
 **Other operations.**
 
@@ -3240,7 +3247,9 @@ its fixture; `@byokit/ui` `AccountsSource` (for `fits`) · version: openclaw nex
   in `accounts()`, views, `considered`, words, errors, events or link frames; an email appears only as
   `Account.email`, never in `considered`, words, errors, events or the index; an unindexed `<member>--<hex6>` agent is never listed or reachable; `removeAccount`
   refuses while live, never touches the member agent's sign-in, and leaves no profile behind; `move` forks then
-  deletes, `busy` while live, `close_failed` keeps both; `addKey` failure leaves no agent; the index file is 0600;
+  deletes, `busy` while live, `close_failed` keeps both; one key lane per member indexed as `<provider>.key` (a new
+  key replaces the old one on `byokit-key-<member>`, no `<member>--<hex6>` per later key; `addKey` failure leaves no
+  ready key and no index entry for that attempt; the key never reaches the index, logs or link); the index file is 0600;
   a same-identity re-sign-in (and `again`) leaves the existing account's
   default-model run working; a canary token held by two accounts never appears in the index, `accounts()`, views, words, errors, events or link
   frames; with no account agents, every existing test's requests stay byte-identical; an existing old-rule member id

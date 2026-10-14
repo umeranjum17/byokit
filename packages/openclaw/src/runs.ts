@@ -136,7 +136,7 @@ export function createRuns(ctx: {
     const tail = spec.sessionKey.slice(spec.sessionKey.indexOf(':', 'agent:'.length) + 1);
     // Runs step 1 (5.15): every run first finds the account its session is bound to, the API-key lane included.
     const binding = ctx.accounts ? await ctx.accounts.bind(spec.member, spec.sessionKey) : undefined;
-    // Step 2 on the API-key lane: only an API-billed conversation continues on its key; any other binding is refused.
+    // Step 2 on the API-key lane: its own lane binding (and any API-billed binding) continues; any other is refused.
     if (keyAgent && ctx.accounts && binding) {
       const message = await ctx.accounts.keyRefusal(spec.member, binding);
       if (message !== undefined) return { ok: false, kind: 'other', message };
