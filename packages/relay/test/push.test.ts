@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createECDH, randomBytes } from 'node:crypto';
-import { isAllowedEndpoint, isExpoToken } from '../src/index.ts';
+import { isAllowedEndpoint, isExpoToken, type RelayState } from '../src/index.ts';
 import { hostClient, paired, sleep, startHost, startRelay, until } from './helpers.ts';
 
 test('push endpoints must be public https push services: no internal, private or credentialed addresses', () => {
@@ -81,6 +81,28 @@ test('a host notifies its devices by Web Push and Expo; gone subscriptions are p
   await p.client.notify({ id: 'evt-2', title: 'Agent update', body: 'Done' });
   assert.ok(!r.saved()!.push.some((s) => 'expo' in s), 'DeviceNotRegistered prunes the token');
   await assert.rejects(p.client.notify({ id: 'bad id!', title: 't', body: 'b' }), /bad notification/);
+});
+
+// Persisted with push: a new Relay on the same state must refuse a retried id (restart must not deliver twice).
+test('a new Relay on the same state refuses a duplicate notification id', async () => {
+  const world = pushWorld();
+  let saved: RelayState | undefined;
+  const store = { load: () => saved, save: (s: RelayState) => { saved = s; } };
+  const first = await startRelay({ store, push: { fetch: world.fetch } });
+  const p = await paired(first);
+  await p.client.subscribe('phone', { expo: 'ExponentPushToken[phone]' });
+  assert.deepEqual(await p.client.notify({ id: 'X', title: 'Agent update' }), { sent: 1 });
+  assert.equal(world.sent.length, 1);
+  assert.deepEqual(saved!.sent?.[p.host.id], ['X']);
+  first.stop();
+
+  const second = await startRelay({ store, push: { fetch: world.fetch } });
+  const host = await startHost(p.host.keys, p.grants);
+  const h = hostClient(host, second.ws);
+  await until(() => h.client.status === 'online');
+  const before = world.sent.length;
+  assert.deepEqual(await h.client.notify({ id: 'X', title: 'Agent update' }), { sent: 0, duplicate: true });
+  assert.equal(world.sent.length, before);
 });
 
 // A kit's ids are base64url, which may start with `-` or `_`; each is a notification id, so the relay must send it.
