@@ -295,10 +295,10 @@ packages/openclaw/
 
 `package.json`: `exports` `.` → `dist/index.js`, `./device` → `dist/device.js` (with `react-native` and `browser`
 conditions pointing at the same file), `./link` → `dist/link.js`, `./testing` → `dist/testing/index.js`; `files`:
-`dist`, `engine`, `plugin`, `policy`, `README.md`, `LICENSE`. Dependencies (exact): `@openclaw/gateway-client`
-`2026.8.35`, `@openclaw/gateway-protocol` `2026.8.35`, `@byokit/pair` (current `0.3.1`), `@byokit/relay` (current
-`0.1.3`), `@byokit/discover` (current `0.2.0`), `@byokit/seal` (current `0.1.0`), `ws` `8.21.3`. Dev: `@byokit/ui`
-(assignability test only).
+`dist`, `engine`, `plugin`, `policy`, `README.md`, `LICENSE`. Dependencies (exact pins in
+`packages/openclaw/package.json`): `@openclaw/gateway-client` and `@openclaw/gateway-protocol` (`2026.8.35`),
+`@byokit/pair`, `@byokit/relay`, `@byokit/discover`, `@byokit/seal`, `@byokit/secrets`, `@byokit/accounts` (its
+`/cli` entry drives the native Claude login, 5.7), `ws`. Dev: `@byokit/ui` (assignability test only).
 
 ### 5.2 Public types (`src/types.ts`)
 
@@ -552,7 +552,8 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
    `needs-update/version`. Then start the bridge socket; state `ready`.
 3. **Crash**: on child exit while not stopping: drop the transport, state `restarting` with
    `retryAt = now + min(30 s, 1 s × 2^failures)`, then `start()` again; failures reset on a successful handshake.
-4. **stop()**: stop transport; SIGTERM **each pid the kit itself spawned**, by pid and never a process group;
+4. **stop()**: first close an in-flight native Claude sign-in host and await a pending stale-row reset, then stop
+   transport; SIGTERM **each pid the kit itself spawned**, by pid and never a process group;
    wait 3 s; SIGKILL the same recorded pids; wait 3 s; await exit; close the bridge socket and delete it. The
    recorded list is the whole authority: every spawn (`npm ci`, the gateway) is entered when it starts and
    dropped when it exits, and a negative pid is never passed to `kill`. A group id belongs to whoever holds

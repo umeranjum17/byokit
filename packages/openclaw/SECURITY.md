@@ -89,8 +89,12 @@ already copied credentials or erase snapshots/backups.
 
 `src/engine.ts` builds the gateway/doctor environment explicitly: HOME, XDG,
 provider-tool homes, tmp, config and state paths point into the app's tree. It does
-not forward shell API keys, `NODE_OPTIONS` or shell environment snapshots. The
-gateway binds `127.0.0.1` on its own port, uses token authentication and a signed
+not forward shell API keys, `NODE_OPTIONS` or shell environment snapshots. The native
+Claude sign-in child (`claude auth login`, started through `@byokit/accounts/cli`) gets
+the same treatment: its env is only `PATH`, its own login HOME
+(`openclaw/login-home`), `LANG`, `TMPDIR` and the `XDG_*` variables — never the gateway
+token or the bridge socket. The gateway binds `127.0.0.1` on its own port, uses token
+authentication and a signed
 device identity, and disables Control UI, discovery, channels, automatic updates
 and default remote memory search. Loopback is a reachability restriction, not a
 substitute for authentication against other local processes.
