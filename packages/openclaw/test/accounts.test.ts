@@ -1268,7 +1268,7 @@ test('an API-key run on a legacy API-billed account binding is refused: no run o
     const from = fake.calls.length;
     const end = await kit.run({ member: 'm1', sessionKey: session, message: 'again', auth: 'apiKey' });
     assert.equal(end.ok, false);
-    assert.equal(end.ok === false && end.kind, 'other');
+    assert.equal(end.ok === false && 'kind' in end && end.kind, 'other');
     assert.deepEqual(fake.calls.slice(from).filter((c) => c.method === 'agent'), []);
   } finally {
     await kit.stop();
