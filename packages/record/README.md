@@ -1,5 +1,7 @@
 # @byokit/record
 
+> **New home:** [`@platform-kits/record`](https://www.npmjs.com/package/@platform-kits/record). New work goes there.
+
 Record a screen into a local take, then make an MP4. `Capture` drives the open
 [recorder protocol v1](../../docs/capability-kits.md#6-recorder-protocol-v1).
 It now includes a real Linux X11 recorder. Passing an absolute `bin` selects an external recorder instead.

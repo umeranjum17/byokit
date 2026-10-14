@@ -2,6 +2,7 @@
   "name": "@byokit/overlay",
   "version": "0.3.0",
   "description": "Deprecated: renamed to @byokit/bubble. Re-exports @byokit/bubble unchanged through 0.3.x; removed in 0.4.0.",
+  "deprecated": "New home: @platform-kits/overlay. New work goes there.",
   "license": "Apache-2.0",
   "type": "module",
   "repository": {

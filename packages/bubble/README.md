@@ -1,5 +1,7 @@
 # @byokit/bubble
 
+> **New home:** [`@platform-kits/overlay`](https://www.npmjs.com/package/@platform-kits/overlay). New work goes there.
+
 A floating bubble over other apps on Android, as an Expo module: a panel (a React component the app registers) that
 opens on tap, per-app visibility rules, a tap log with no text in it, and an optional focused-field reader through the
 app's own accessibility service. On iOS, the web and Node it reports `unsupported`
