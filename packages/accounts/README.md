@@ -747,7 +747,7 @@ contain no credentials. This does not connect native CLI account stores or quali
 
 ## Managed CLI accounts (Node only)
 
-`@byokit/accounts/cli` exports `cliAccounts`, `CliAccountError`, `CliProvider`, `PiProvider`, `CliAccount`, `CliOptions`, `CliLaunchResult`, `CliPick`, `CliPickRow`, `SignInCommand` and `VIBE_API_KEY_ROUTE`. `CliProvider` is `claude` | `codex` | `pi` | `opencode` | `kimi` | `vibe`. Accounts use subscription billing. The portable entries and the `Accounts` class retain their existing sign-in flows.
+`@byokit/accounts/cli` exports `cliAccounts`, `poolPrepare`, `CliAccountError`, `CliProvider`, `PiProvider`, `CliAccount`, `CliOptions`, `CliLaunchResult`, `CliPick`, `CliPickRow`, `SignInCommand` and `VIBE_API_KEY_ROUTE`. `CliProvider` is `claude` | `codex` | `pi` | `opencode` | `kimi` | `vibe`. Accounts use subscription billing. The portable entries and the `Accounts` class retain their existing sign-in flows.
 
 `CliAccount` extends the portable chooser's `AccountLike`. Pass normalized usage through `@byokit/usage`'s `roomOf(reading, nowMs)` when selecting an account, preserving millisecond reset times and the original measurement time. Managed rows also carry `addedAt` (the epoch-millisecond time the login was added), so two logins that share an email stay distinguishable.
 
@@ -807,6 +807,35 @@ of `cliAccounts.launchEnv(id)`. PATH, HOME and locale remain unless explicitly u
 `{ env, unset }` lists removed names for shells which already inherited them. An explicit `set` is
 a host opt-in; never put its credential values in terminal commands or logs. `isolate(dir)` retains
 its directory return value but no longer changes global environment variables.
+
+### The `byokit-accounts` command
+
+The package ships one `bin`, `byokit-accounts`, for a person who keeps several CLI accounts and wants one list to read and one switch to use. It is a thin front end: every answer comes from `cliAccounts.status`, `cliAccounts.pick` and `cliAccounts.rest`/`unrest`, so the fleet's pick and the person's list can never disagree, and nothing else holds account state. Every command prints JSON and never a secret. It reads `<stateDir>/pool.json` — the tool's absolute CLI binary paths, `HOME` and `PATH` — and `--state <dir>` names the pool folder that holds it:
+
+```json
+{
+  "bins": { "claude": "/usr/local/bin/claude", "codex": "/usr/local/bin/codex", "pi": "/usr/local/bin/pi" },
+  "home": "/home/umer",
+  "path": "/usr/local/bin:/usr/bin:/bin"
+}
+```
+
+```sh
+byokit-accounts list --json --state ~/.local/state/byokit-pool   # one row per account: id, tool, name, state,
+                                                                 # restUntil, why, room, windows, readAt
+byokit-accounts add claude --state ~/.local/state/byokit-pool     # { account, signIn }: run signIn.shell, or argv+env
+byokit-accounts add pi --provider openai-codex --state <dir>      # Pi needs the subscription provider id
+byokit-accounts status <id> --state <dir>
+byokit-accounts pick codex --json --state <dir>                   # { ok, id, room, rows, set, unset } for one launch
+byokit-accounts rest <id> --until 45m --why rate_limit --state <dir>
+byokit-accounts unrest <id> --state <dir>
+```
+
+Exit code is 0 on success and non-zero with one plain sentence on error; `pick` with no candidate exits 1 while still printing every row, so a caller refuses the spawn and can say who is resting. `--until` takes epoch milliseconds, an ISO time or a short wait (`45m`); without it a rest lasts an hour (the rate-limit fallback in `limits.ts`), and `--why` defaults to `manual`.
+
+`poolPrepare({ home })` is the `prepare` callback the command passes to `cliAccounts`, and any pool host can pass it too. A new account folder shares only the plan's non-secret names from the person's own default folder for that tool: Claude links `skills/` and `agents/` and copies `settings.json`; Codex links `agents/`, `rules/` and `AGENTS.md` when present and copies `config.toml`; Pi links `extensions/` and `skills/` and copies `settings.json`. A name the person does not have is skipped, never created. Sign-in files (`.claude.json`, `.credentials.json`, `auth.json`, `trust.json`), session stores, sqlite stores, logs and Pi's `models.json` are never linked or copied, and the history name BYOKit already linked (`projects`, or `sessions`) is left alone.
+
+**A relaunch is a new launch, not a mid-run rotation.** The pool picks an account once, before the process starts; it never swaps an account inside a running session. Moving a worker to another account means stopping it and starting it again, which calls `pick` once more and therefore skips any account that is resting.
 
 ### Native Pi and found-row boundaries
 
