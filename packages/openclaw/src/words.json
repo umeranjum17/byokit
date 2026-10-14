@@ -116,5 +116,6 @@
   "move.notReady": "Sign in to {name} first.",
   "move.closeFailed": "This conversation now continues on {name}, but its earlier copy could not be removed.",
   "move.taken": "{name} already holds a conversation under this name, so nothing was moved.",
-  "run.moved": "This conversation just moved to another account. Send it again to continue there."
+  "run.moved": "This conversation just moved to another account. Send it again to continue there.",
+  "run.thinkingClamped": "Thinking set to {used} because this model does not support {asked}."
 }

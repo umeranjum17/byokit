@@ -4,7 +4,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import { createRuns } from '../src/runs.ts';
-import type { GatewayTransport, Member, RunEvent, OutputSchema } from '../src/types.ts';
+import type { CatalogModel } from '../src/thinking.ts';
+import { words } from '../src/words.ts';
+import type { GatewayTransport, Member, RunEvent, OutputSchema, ThinkingAsked } from '../src/types.ts';
 
 /** createRuns wired to a fresh fake: a recording bridge double and a live-listener counter around the transport. */
 function harness(reply?: string) {
@@ -71,6 +73,61 @@ test('the Codex "Next reset in N min/hours" wording carries its stated deadline;
   assert.ok(!end.ok && 'kind' in end, JSON.stringify(end));
   assert.equal(end.kind, 'resting');
   assert.equal('until' in end, false);
+});
+
+/** createRuns with a catalog model row for opencode-go/<id>, capturing the agent thinking value. */
+function thinkingHarness(catalog: CatalogModel | undefined) {
+  const agents: Record<string, unknown>[] = [];
+  const request: GatewayTransport['request'] = async (method, params, opts) => {
+    if (method === 'config.get') {
+      return { hash: 'h', config: catalog
+        ? { models: { providers: { 'opencode-go': { models: [catalog] } } } }
+        : {} };
+    }
+    if (method === 'models.authStatus') return { providers: [{ provider: 'opencode-go', status: 'ok' }] };
+    if (method === 'agents.list') return { agents: [{ id: 'm1' }] };
+    if (method === 'agents.create') return {};
+    if (method === 'agent') {
+      agents.push(params as Record<string, unknown>);
+      opts?.onAccepted?.({ runId: 'r1', status: 'accepted' });
+      return { runId: 'r1', status: 'ok', result: { payloads: [{ text: 'ok' }], meta: {} } };
+    }
+    if (method === 'agent.wait') return { status: 'ok', terminalReply: { text: 'ok' } };
+    throw new Error(`unexpected ${method}`);
+  };
+  const runs = createRuns({
+    routes: new Map(), request, onEvent: () => () => {},
+    ensure: async (member) => ({ agentId: member }),
+    bridge: { register: () => () => {} }, tools: new Set(),
+  });
+  return { runs, agents };
+}
+
+test('thinking clamp: catalog unsupported levels round up; supported and unknown catalogs pass through; off stays off', async () => {
+  const muse: CatalogModel = { id: 'muse-spark-1.3-contributor',
+    compat: { supportedReasoningEfforts: ['high', 'max'] } };
+  const cases: { catalog: CatalogModel | undefined; asked: ThinkingAsked; used: string }[] = [
+    { catalog: muse, asked: 'low', used: 'high' },
+    { catalog: muse, asked: 'medium', used: 'high' },
+    { catalog: muse, asked: 'high', used: 'high' },
+    { catalog: muse, asked: 'off', used: 'off' },
+    { catalog: undefined, asked: 'low', used: 'low' },
+    { catalog: { id: 'muse-spark-1.3-contributor' }, asked: 'low', used: 'low' },
+  ];
+  for (const c of cases) {
+    const h = thinkingHarness(c.catalog);
+    const end = await h.runs.run({
+      member: 'm1', sessionKey: 'agent:m1:think', message: 'hi',
+      model: 'opencode-go/muse-spark-1.3-contributor', thinking: c.asked,
+    });
+    assert.ok(end.ok, JSON.stringify(end));
+    assert.deepEqual(end.thinking, { asked: c.asked, used: c.used });
+    assert.equal(h.agents[0]?.thinking, c.used);
+    if (c.asked !== c.used) {
+      assert.match(words('run.thinkingClamped', { asked: c.asked, used: c.used }),
+        new RegExp(`${c.used}.*${c.asked}`));
+    }
+  }
 });
 
 test('a malformed account or an @profile pin is refused before any request', async () => {

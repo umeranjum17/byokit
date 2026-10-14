@@ -2048,6 +2048,58 @@ test('a member sign-in that lands again during logout is refused, keeps its entr
   } finally { rmSync(stateDir, { recursive: true, force: true }); }
 });
 
+// Member remove restores the pre-sign-in primary (or clears the pin when there was none); an account-agent remove
+// leaves the member primary alone.
+test('removeAccount restores or clears the member primary model', async () => {
+  const stateDir = scratchDir('o14h-remove-model');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  type Cfg = { hash: string; config: { agents: { entries: Record<string, { model?: unknown }> } } };
+  const configOf = async (): Promise<Cfg> => await kit.call('config.get', {}) as Cfg;
+  const modelOf = async (agentId: string) => (await configOf()).config.agents.entries[agentId]?.model;
+  try {
+    await kit.start();
+    await kit.ensureMember('m1');
+    // Prior model: add then remove restores it; the index carried priorModel.
+    await kit.call('config.patch', { raw: JSON.stringify({ agents: { ownership: 'explicit',
+      entries: { m1: { model: 'openai/before-sign-in' } } } }),
+      baseHash: (await configOf()).hash });
+    assert.equal((await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {}).then((h) => h.done)).view.state, 'done');
+    assert.match(String(await modelOf('m1')), /@openai:default/, 'sign-in pins the member primary');
+    assert.equal(JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts.openai.priorModel, 'openai/before-sign-in');
+    await kit.removeAccount('m1', 'openai');
+    assert.equal(await modelOf('m1'), 'openai/before-sign-in', 'remove restores the prior primary');
+    assert.ok(!('openai' in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts));
+
+    // No prior model: remove clears the pin so the engine default applies.
+    // Clear the restored primary so this sign-in records an empty priorModel.
+    await kit.call('agents.update', { agentId: 'm1', model: null });
+    assert.equal(await modelOf('m1'), undefined);
+    assert.equal((await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {}).then((h) => h.done)).view.state, 'done');
+    assert.equal(JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts.openai.priorModel, '');
+    const clearsBefore = fake.calls.filter((c) => c.method === 'agents.update'
+      && (c.params as { model?: unknown }).model === null).length;
+    await kit.removeAccount('m1', 'openai');
+    assert.ok(fake.calls.filter((c) => c.method === 'agents.update'
+      && (c.params as { model?: unknown }).model === null).length > clearsBefore, 'empty prior clears via agents.update');
+    assert.equal(await modelOf('m1'), undefined, 'the pin is gone');
+
+    // Account-agent remove leaves the member primary unchanged.
+    await kit.call('config.patch', { raw: JSON.stringify({ agents: { entries: { m1: { model: 'openai/member-stays' } } } }),
+      baseHash: (await configOf()).hash });
+    assert.equal((await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {}).then((h) => h.done)).view.state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const before = await modelOf('m1');
+    await kit.removeAccount('m1', second.id);
+    assert.equal(await modelOf('m1'), before, 'removing an account agent does not touch the member primary');
+    assert.ok('openai' in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts, 'the member account stays');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('removeAccount is refused busy while a run holds the account agent or the member agent live, and keeps the entry', async () => {
   const stateDir = scratchDir('o14h-remove-live');
   const fake = fakeGateway();

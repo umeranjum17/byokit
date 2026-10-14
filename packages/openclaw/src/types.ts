@@ -96,9 +96,15 @@ export type PlanWindow = {
   windows: { label: string; usedPercent: number; resetAt?: number }[]; // usedPercent 0-100; resetAt epoch ms
 };
 
+/** Thinking levels a run may ask for (`RunSpec.thinking`) and the level the kit actually sent. */
+export type ThinkingAsked = 'off' | 'low' | 'medium' | 'high';
+export type ThinkingUsed = ThinkingAsked | 'minimal' | 'xhigh' | 'max';
+export type ThinkingReport = { asked: ThinkingAsked; used: ThinkingUsed };
+
 export type RunEnd<T = unknown> =
   | { ok: true; text: string; data?: T; usage?: RunUsage; planWindow?: PlanWindow; // data: validated schema; usage/window: engine reports
-    account?: AccountId; model?: string } // both exactly when the run used an account (5.15); model '' only when neither the pick nor the engine names one
+    account?: AccountId; model?: string; // both exactly when the run used an account (5.15); model '' only when neither the pick nor the engine names one
+    thinking?: ThinkingReport } // present when the run asked for a thinking level; used may be clamped to the catalog
   | { ok: false; aborted: true }
   | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other' | 'output'; until?: number; message: string };
 
