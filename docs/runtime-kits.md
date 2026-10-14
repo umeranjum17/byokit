@@ -1582,7 +1582,8 @@ has no bindings) is the accounts a conversation may use (Runs steps 1-2); absent
    with a later `until` → `out: 'resting'` with `until`; any other state → `out: 'state'`); `billing:
    'subscription'` (else `out: 'billing'`): an API-key account is used only when chosen (by id, by
    `defaults.account`, or `auth: 'apiKey'`), never by Auto or a default fallback; a kit-only `lanes` list marks the
-   member's key-lane accounts, which carry `out: 'key'` outside `bound` and unnamed. With a demand, only accounts whose
+   member's key-lane accounts: an unnamed key-lane row `bound` does not exclude is `out: 'key'`, whatever its state,
+   so Auto or a default fallback never starts on one. With a demand, only accounts whose
    `models` list every demanded model (else `out: 'model'` with `missing`); without, those of the default account's
    provider, else of the first provider in list order (else `out: 'provider'`). The first matching `out` in that order
    is the row's.
@@ -1593,7 +1594,8 @@ has no bindings) is the accounts a conversation may use (Runs steps 1-2); absent
    exhausted accounts. A known reading without `at` keeps its tier; only its `age` is `'unknown'`.
 4. Tier C (`tier: 'exhausted'`): every account exhausted: the earliest `resetsAt`, started anyway.
 5. Nothing eligible: when some candidate is resting (`out: 'resting'`), `{ ok: false, code: 'resting', account, until }`
-   for the earliest `until`; otherwise `{ ok: false, code: 'none' }`.
+   for the earliest `until`; otherwise `{ ok: false, code: 'none' }`, whose reason is `auto.keyOnly` when every listed
+   account is a key lane, `auto.noneBound` when `bound` is empty, else the provider-specific `auto.none`.
 
 `'default'` is the default account when `ready` and in `bound`, else Auto unless `defaults.auto === false`, else
 the first `ready` subscription candidate (a default outside `bound` is treated as not ready; its row has `out:
@@ -1815,6 +1817,7 @@ runs on the lane with its saved model, or a supplied model of the same provider 
 | `auto.refillsNoTime` | All {provider} accounts are out of room. {name} refills first. |
 | `auto.terms` | Auto may use either of a provider's accounts. |
 | `auto.none` | No signed-in {provider} account. |
+| `auto.keyOnly` | Auto never uses a saved key. Choose the key to run on it. |
 | `room.unknown` | Room left unknown |
 | `room.session` | {left} left this session |
 | `room.week` | {left} left this week |

@@ -40,9 +40,9 @@ function considerRows(accounts: readonly Account[], room: (a: Account) => Room, 
     if (r.left !== 'unknown') { row.span = r.span; if (finite(r.resetsAt)) row.resetsAt = r.resetsAt; }
     if (bound !== undefined && !bound.includes(account.id)) row.out = 'bound';
     if (!row.out && account.id !== named) {
-      if (account.state === 'resting' && finite(account.until) && account.until > nowMs) { row.out = 'resting'; row.until = account.until; }
+      if (lanes?.includes(account.id) && !bound?.includes(account.id)) row.out = 'key';
+      else if (account.state === 'resting' && finite(account.until) && account.until > nowMs) { row.out = 'resting'; row.until = account.until; }
       else if (account.state !== 'ready' && !(account.state === 'resting' && finite(account.until) && account.until <= nowMs)) row.out = 'state';
-      else if (lanes?.includes(account.id) && !bound?.includes(account.id)) row.out = 'key';
       else if (account.billing !== 'subscription') row.out = 'billing';
     }
     if (!row.out && models) {
@@ -148,6 +148,9 @@ export function resolveSelection(accounts: readonly Account[], defaults: Default
   // An empty `bound` (a member-agent conversation holding no indexed account) names no provider: every account is
   // signed in somewhere else, so the provider-specific sentence would mislead.
   if (bound !== undefined && !bound.length) return { ok: false, code: 'none', reason: words('auto.noneBound'), considered };
+  // Every listed account is a key lane: the provider-specific sentence would name a signed-in key as missing.
+  if (lanes?.length && rows.length > 0 && rows.every((c) => lanes.includes(c.account.id)))
+    return { ok: false, code: 'none', reason: words('auto.keyOnly'), considered };
   return { ok: false, code: 'none', reason: words('auto.none', { provider: provider ?? '' }), considered };
 
   function finish(account: Account, row: Considered, how: 'chosen' | 'default' | 'auto', why: PickWhy): AccountPick {

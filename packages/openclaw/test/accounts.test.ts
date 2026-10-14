@@ -1229,6 +1229,34 @@ test('an unbound conversation never starts on a subscription-billed key lane by 
     const pick = await kit.pick('m1', { account: 'auto' }, { sessionKey: 'agent:m1:chat:new' });
     assert.ok(!pick.ok && pick.code === 'none', JSON.stringify(pick));
     assert.equal(pick.considered.find((r) => r.id === 'opencode-go.key')?.out, 'key');
+    assert.equal(pick.reason, 'Auto never uses a saved key. Choose the key to run on it.');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a resting key lane the member holds alone is never an Auto resting account', async () => {
+  const stateDir = scratchDir('key-lane-resting-auto');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'CANARY-KEY-RESTING' }), { status: 'ok' });
+    const until = Date.now() + 60_000;
+    const file = JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')) as { accounts: Record<string, { until?: number }> };
+    file.accounts['openai.key']!.until = until;
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(file));
+    const from = fake.calls.length;
+    const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:new', message: 'hello', account: 'auto' });
+    assert.equal(end.ok, false);
+    assert.equal(end.ok === false && 'kind' in end && end.kind, 'signed-out');
+    assert.deepEqual(fake.calls.slice(from).filter((c) => c.method === 'agent'), []);
+    const pick = await kit.pick('m1', { account: 'auto' }, { sessionKey: 'agent:m1:chat:new' });
+    assert.ok(!pick.ok && pick.code === 'none', JSON.stringify(pick));
+    assert.equal(pick.considered.find((r) => r.id === 'openai.key')?.out, 'key');
+    const kept = JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')) as { accounts: Record<string, { until?: number }> };
+    assert.equal(kept.accounts['openai.key']?.until, until, 'the run writes no rest until for the lane');
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });
