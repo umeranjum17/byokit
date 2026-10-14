@@ -1455,14 +1455,14 @@ export type RunSelection = { account: AccountRef | 'default' | 'auto'; model?: s
   provider?: string };               // limits the choice to one provider; absent = the saved default's provider
 export type Defaults = { account?: AccountId; model?: string; auto?: boolean };
 export type Considered = { id: AccountId;
-  out?: 'state' | 'resting' | 'billing' | 'model' | 'provider' | 'bound';   // why it is not a candidate; absent = one
+  out?: 'state' | 'resting' | 'billing' | 'model' | 'provider' | 'bound' | 'key';   // why it is not a candidate; absent = one
   until?: number;                                      // out 'resting': until when
   missing?: string;                                    // out 'model': the first demanded 'provider/model' it lacks
   tier?: 'room' | 'unknown' | 'exhausted';            // candidates only: Choosing's tier A, B or C
   left: number | 'unknown'; span?: RoomSpan; resetsAt?: number;
   age: number | 'unknown';                            // ms from the reading's `at` to nowMs
   confidence: 'known' | 'stale' | 'unknown';             // known timestamp, older than 24h, or unmeasured/undated
-  reason: PickWhy | 'state' | 'resting' | 'billing' | 'model' | 'provider' | 'bound' };
+  reason: PickWhy | 'state' | 'resting' | 'billing' | 'model' | 'provider' | 'bound' | 'key' };
 export type PickWhy = 'chosen' | 'default' | 'first_ready' | 'only' | 'most_room' | 'earlier_reset' | 'list_order' |
   'no_reading' | 'refills_first';
 export type AccountPick =
@@ -1582,7 +1582,7 @@ has no bindings) is the accounts a conversation may use (Runs steps 1-2); absent
    with a later `until` → `out: 'resting'` with `until`; any other state → `out: 'state'`); `billing:
    'subscription'` (else `out: 'billing'`): an API-key account is used only when chosen (by id, by
    `defaults.account`, or `auth: 'apiKey'`), never by Auto or a default fallback; a kit-only `lanes` list marks the
-   member's key-lane accounts, which carry the same `out: 'billing'` outside `bound` and unnamed. With a demand, only accounts whose
+   member's key-lane accounts, which carry `out: 'key'` outside `bound` and unnamed. With a demand, only accounts whose
    `models` list every demanded model (else `out: 'model'` with `missing`); without, those of the default account's
    provider, else of the first provider in list order (else `out: 'provider'`). The first matching `out` in that order
    is the row's.
@@ -1826,6 +1826,7 @@ runs on the lane with its saved model, or a supplied model of the same provider 
 | `pick.out.model` | Doesn't include {model} |
 | `pick.out.provider` | A different service |
 | `pick.out.bound` | This conversation uses another account |
+| `pick.out.key` | A saved key, so used only when you choose it. |
 | `pick.why.chosen` | You chose {name}. |
 | `pick.why.default` | {name} is your default. |
 | `pick.why.first_ready` | Your default isn't ready, so {name}, the first ready account. |

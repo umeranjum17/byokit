@@ -1228,7 +1228,7 @@ test('an unbound conversation never starts on a subscription-billed key lane by 
     assert.deepEqual(fake.calls.slice(from).filter((c) => c.method === 'agent'), []);
     const pick = await kit.pick('m1', { account: 'auto' }, { sessionKey: 'agent:m1:chat:new' });
     assert.ok(!pick.ok && pick.code === 'none', JSON.stringify(pick));
-    assert.equal(pick.considered.find((r) => r.id === 'opencode-go.key')?.out, 'billing');
+    assert.equal(pick.considered.find((r) => r.id === 'opencode-go.key')?.out, 'key');
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });

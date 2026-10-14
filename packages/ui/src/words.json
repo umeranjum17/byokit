@@ -75,6 +75,7 @@
   "picker.out.billing": "Pay per use, so picked only when you choose it",
   "picker.out.model": "Doesn't include this run's model",
   "picker.out.provider": "A different service",
+  "picker.out.key": "A saved key, so picked only when you choose it",
   "move.to": "Move to {name}",
   "move.failed": "Couldn't move to {name}"
 }

@@ -93,6 +93,7 @@
   "pick.out.model": "Doesn't include {model}",
   "pick.out.provider": "A different service",
   "pick.out.bound": "This conversation uses another account",
+  "pick.out.key": "A saved key, so used only when you choose it.",
   "pick.why.chosen": "You chose {name}.",
   "pick.why.default": "{name} is your default.",
   "pick.why.first_ready": "Your default isn't ready, so {name}, the first ready account.",

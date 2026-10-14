@@ -25,7 +25,7 @@ const clock = (t: number) => (new Date(t).toDateString() === new Date().toDateSt
 // `bound` (kit only) is the accounts a conversation may use; an account outside it is never a candidate, even when
 // the selection names it, and its row carries `out: 'bound'`. An account the selection names is judged only on
 // `bound` and the demand, so an API-key or resting account it names carries no `billing`/`resting` `out`.
-// `lanes` (kit only) are the member's key-lane accounts: outside `bound` and unnamed, one carries `out: 'billing'`,
+// `lanes` (kit only) are the member's key-lane accounts: outside `bound` and unnamed, one carries `out: 'key'`,
 // so Auto and a default fallback never start on a key lane.
 function considerRows(accounts: readonly Account[], room: (a: Account) => Room, nowMs: number,
   demand: readonly string[] = [], models?: (a: Account) => readonly ModelInfo[] | undefined, provider?: string,
@@ -42,7 +42,8 @@ function considerRows(accounts: readonly Account[], room: (a: Account) => Room, 
     if (!row.out && account.id !== named) {
       if (account.state === 'resting' && finite(account.until) && account.until > nowMs) { row.out = 'resting'; row.until = account.until; }
       else if (account.state !== 'ready' && !(account.state === 'resting' && finite(account.until) && account.until <= nowMs)) row.out = 'state';
-      else if (account.billing !== 'subscription' || (lanes?.includes(account.id) && !bound?.includes(account.id))) row.out = 'billing';
+      else if (lanes?.includes(account.id) && !bound?.includes(account.id)) row.out = 'key';
+      else if (account.billing !== 'subscription') row.out = 'billing';
     }
     if (!row.out && models) {
       const listed = models(account) ?? [];
