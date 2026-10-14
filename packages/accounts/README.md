@@ -747,7 +747,7 @@ contain no credentials. This does not connect native CLI account stores or quali
 
 ## Managed CLI accounts (Node only)
 
-`@byokit/accounts/cli` exports `cliAccounts`, `CliAccountError`, `CliProvider`, `PiProvider`, `CliAccount`, `CliOptions`, `CliLaunchResult`, `SignInCommand` and `VIBE_API_KEY_ROUTE`. `CliProvider` is `claude` | `codex` | `pi` | `opencode` | `kimi` | `vibe`. Accounts use subscription billing. The portable entries and the `Accounts` class retain their existing sign-in flows.
+`@byokit/accounts/cli` exports `cliAccounts`, `CliAccountError`, `CliProvider`, `PiProvider`, `CliAccount`, `CliOptions`, `CliLaunchResult`, `CliPick`, `CliPickRow`, `SignInCommand` and `VIBE_API_KEY_ROUTE`. `CliProvider` is `claude` | `codex` | `pi` | `opencode` | `kimi` | `vibe`. Accounts use subscription billing. The portable entries and the `Accounts` class retain their existing sign-in flows.
 
 `CliAccount` extends the portable chooser's `AccountLike`. Pass normalized usage through `@byokit/usage`'s `roomOf(reading, nowMs)` when selecting an account, preserving millisecond reset times and the original measurement time. Managed rows also carry `addedAt` (the epoch-millisecond time the login was added), so two logins that share an email stay distinguishable.
 
@@ -788,6 +788,17 @@ If the host does not supply a provider executable, its managed rows remain visib
 The `accounts-v1.json` `{version:1,accounts:[{id,provider,name,folder,found,addedAt?}]}` and `auto-terms-v1.json` `{acknowledged:true}` encodings stay at version 1, with 0600 files and atomic replacement. A stored `addedAt` is authoritative, and a managed row without one derives it at read time from its folder's `birthtimeMs` (or the earliest of `ctimeMs`/`mtimeMs` when birthtime is unavailable, `lstat` only), so pre-existing same-email logins stay distinguishable without rewriting the roster. The kit preserves but excludes `found-*` and `found:true` rows, which belong to the host's default-login adapter. Legacy managed rows without kit completion sidecars retain their native signed-in status; new or re-signing rows require the completion marker. Symlinked account folders and records outside the provider/hex layout (or the host's explicit `managedFolders`) are refused.
 
 `usageSource(id)` returns a Codex Source for `@byokit/usage`; Claude, OpenCode, Kimi and Vibe return `undefined`, and Claude's usage Source is `{provider:'claude', folder:set.CLAUDE_CONFIG_DIR, headers}` in a usage reader whose `stateDir` is the same managed root. `kinds` serves only the matching native agent (`claude`, `codex`, `pi`, `opencode`, `kimi` or `vibe`). `resumeArgs` accepts an `id` conversation reference for Claude/Codex/Pi/OpenCode/Kimi/Vibe (`--session` for Pi, OpenCode and Kimi, `--resume` for Claude and Vibe) and also a `path` for Pi. `launchArgs(id)` supplies Pi's selected `--provider` and is empty for Claude/Codex/OpenCode/Kimi/Vibe. `termsAcknowledged` and `acknowledgeTerms` keep the host's existing terms bit; they do not gate sign-in. `suggestName` uses the first part of an email, falling back to the provider's name.
+
+`pick(provider, { prefer? })` answers which managed account of that tool a run should start on, and returns the rows a pool view lists. Candidates are that tool's rows in state `ready` that are not resting. `prefer` (an account id) wins while that account is ready. Otherwise the most room left wins, a row with an unknown reading ranks after a row with a known one, and equal room keeps list order. Room comes from `@byokit/usage` through one reader: a Claude row reads `{provider:'claude', folder, headers}` with the app's `claudeHeaders` option, and a Codex row reads `usageSource(id)` (`{bin, home}`). Pass `usage` to hand `pick` the app's own reader; without it, `pick` builds one on `stateDir`. Without `claudeHeaders`, or for a tool a later lane adds, room is unknown. A reading is never zero for a missing one, and a resting or signed-out row is never read. Returned rows carry only `{ account, room, windows, readAt? }` and never a credential. A tool with no candidate returns `{ ok: false, code: 'none', reason, rows }` and still lists every row.
+
+```ts
+import { cliAccounts } from '@byokit/accounts/cli';
+const accounts = cliAccounts({ stateDir: '/app/state/plans', bins: { claude: '/app/bin/claude' },
+  env: { HOME: '/app/home', PATH: '/app/bin' } });
+const picked = await accounts.pick('claude', { prefer: 'pa_9f2c1a' });
+if (picked.ok) console.log(picked.account.name, picked.room.left); // Work 72
+else console.log(picked.reason, picked.rows.length);
+```
 
 `launchEnv({ base?, account?, set?, unset? })` copies `base` (default: `process.env`), removes
 provider namespaces derived from the catalogue and inherited API keys, then applies account settings

@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, readSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { identity, type Identity } from '@byokit/usage';
+import { identity, roomOf, usage, type Identity, type Reading, type Room, type Source, type Usage } from '@byokit/usage';
 import type { Keystore } from '@byokit/secrets';
 import { clock, say } from './words.ts';
 import { OPENCODE_GO_PLAN_ROUTE, deleteOpenCodePlanKey, readOpenCodePlanKey, saveOpenCodePlanKey } from './opencode-go.ts';
@@ -28,11 +28,22 @@ export type CliOptions = {
    * here, one entry per managed account, and `logout` deletes that account's entry. The key never
    * enters argv, env, a file or a log. */
   keyStore?: Keystore;
+  /** The app's own `@byokit/usage` reader for `pick`. Omitted, each `pick` uses an internal reader on
+   * `stateDir`, so readings and the app's account roster stay in one root. */
+  usage?: Usage;
+  /** Claude's two app-passed headers for the managed-folder usage source (the kit never invents a
+   * client identity). Without them, Claude room is unknown. */
+  claudeHeaders?: { 'anthropic-beta': string; 'User-Agent': string };
 };
 export type CliLaunchResult =
   | { ok: true; account: CliAccount; set: Record<string, string>; unset: string[] }
   | { ok: false; code: 'signed_out' | 'not_included' | 'resting'; account: CliAccount; message: string };
 export type CliRest = { until: number; why: string };
+/** One managed row of a provider with its room reading, for `pick` and the `list` view of the same rows. */
+export type CliPickRow = { account: CliAccount; room: Room; windows: Reading['windows']; readAt?: number };
+export type CliPick =
+  | { ok: true; account: CliAccount; room: Room; rows: CliPickRow[] }
+  | { ok: false; code: 'none'; reason: string; rows: CliPickRow[] };
 export type SignInCommand = { argv: string[]; env: Record<string, string>; completion: string; shell: string;
   /** Display in the TUI; never pass this as an initial model message. OpenCode and Vibe have no native
    * login to spawn: their instruction asks for a hidden key entry instead, and `saveKey` completes it. */
@@ -163,6 +174,8 @@ export function cliAccounts(options: CliOptions) {
   if (Object.entries(options.bins).some(([p, bin]) => !providers.includes(p as CliProvider) || !text(bin) || !isAbsolute(bin))) throw new CliAccountError('bad-option');
   if (options.historyFrom && (!record(options.historyFrom) || Object.entries(options.historyFrom).some(([p, path]) => !providers.includes(p as CliProvider) || !text(path) || !isAbsolute(path)))) throw new CliAccountError('bad-option');
   if (options.keyStore !== undefined && (!record(options.keyStore) || typeof (options.keyStore as Keystore).get !== 'function' || typeof (options.keyStore as Keystore).set !== 'function' || typeof (options.keyStore as Keystore).delete !== 'function')) throw new CliAccountError('bad-option');
+  if (options.usage !== undefined && (!record(options.usage) || typeof (options.usage as Usage).read !== 'function' || typeof (options.usage as Usage).connected !== 'function')) throw new CliAccountError('bad-option');
+  if (options.claudeHeaders !== undefined && (!record(options.claudeHeaders) || ['anthropic-beta', 'User-Agent'].some((key) => !text((options.claudeHeaders as Record<string, unknown>)[key]) || (options.claudeHeaders as Record<string, string>)[key].length > 1024))) throw new CliAccountError('bad-option');
   const stateDir = resolve(options.stateDir); const env = { ...options.env }; const bins = { ...options.bins }; const history = { ...options.historyFrom };
   const ownsDefaultLogin = (path: string) => ['.claude', '.codex', '.pi', '.kimi-code', '.vibe'].some((p) => { const own = join(resolve(env.HOME), p); return path === own || path.startsWith(own + '/'); });
   const managedFolders = Object.fromEntries(Object.entries(options.managedFolders ?? {}).filter(([, folder]) => folder !== undefined)) as { claude?: string; codex?: string };
@@ -172,6 +185,15 @@ export function cliAccounts(options: CliOptions) {
     (p !== 'claude' && p !== 'codex') || !text(folder) || resolve(folder) !== folder || !folder.startsWith(stateDir + '/') || ownsDefaultLogin(folder)
     || !directory(dirname(folder)) || realpathSync(dirname(folder)) !== dirname(folder)))) throw new CliAccountError('bad-option');
   const managed = (r: Row) => (r.provider === 'claude' || r.provider === 'codex') && managedFolders[r.provider] === r.folder;
+  const unknownRoom = (): Room => ({ left: 'unknown', freshness: 'unknown' });
+  let reader: Usage | undefined;
+  const roomReader = () => reader ??= options.usage ?? usage({ stateDir });
+  const codexSource = (r: Row) => ({ provider: 'codex' as const, bin: binary('codex'), home: r.folder, env: spawnEnv(r) });
+  /** The one usage source for a ready row; a provider whose reader is a later lane stays unknown. */
+  function roomSource(r: Row): Source | undefined {
+    if (r.provider === 'codex') return codexSource(r);
+    return r.provider === 'claude' && options.claudeHeaders ? { provider: 'claude', folder: r.folder, headers: options.claudeHeaders } : undefined;
+  }
   if (ownsDefaultLogin(stateDir)) throw new CliAccountError('bad-option');
   // Parents must already be app-owned. Never follow a state/provider/folder symlink.
   try { if (realpathSync(dirname(stateDir)) !== dirname(stateDir)) throw new CliAccountError('bad-option'); }
@@ -512,7 +534,29 @@ export function cliAccounts(options: CliOptions) {
       return kind === 'pi' || kind === 'opencode' || kind === 'kimi' ? ['--session', ref.value] : kind === 'claude' || kind === 'vibe' ? ['--resume', ref.value] : ['resume', ref.value];
     },
     usageSource(id: string): { provider: 'codex'; bin: string; home: string; env: Record<string, string> } | undefined {
-      const r = row(id); return r.provider === 'codex' ? { provider: 'codex', bin: binary('codex'), home: r.folder, env: spawnEnv(r) } : undefined;
+      const r = row(id); return r.provider === 'codex' ? codexSource(r) : undefined;
+    },
+    /** The account a run of this provider should use, and every row of that provider with its reading.
+     * Candidates are `ready` and not resting; `prefer` wins while that account is ready; otherwise the
+     * most room wins, an unknown reading ranks after a known one, and ties keep list order. */
+    async pick(provider: CliProvider, options: { prefer?: string } = {}): Promise<CliPick> {
+      if (!providers.includes(provider) || !record(options) || (options.prefer !== undefined && (!text(options.prefer) || !options.prefer))) throw new CliAccountError('bad-option');
+      const rows: CliPickRow[] = [];
+      for (const r of load().filter((v) => !v.found && !v.id.startsWith('found-') && v.provider === provider)) {
+        const account = await status(r.id);
+        // Read room only for an account this run could use; a signed-out or resting row carries no reading.
+        const source = account.state === 'ready' ? roomSource(r) : undefined;
+        if (!source) { rows.push({ account, room: unknownRoom(), windows: [] }); continue; }
+        const nowMs = Date.now();
+        const reading = await roomReader().read(source, { nowMs });
+        rows.push({ account, room: roomOf(reading, nowMs), windows: reading.windows, ...(reading.at !== undefined ? { readAt: reading.at } : {}) });
+      }
+      const ready = rows.filter((r) => r.account.state === 'ready');
+      const chosen = ready.find((r) => r.account.id === options.prefer)
+        ?? ready.filter((r) => r.room.left !== 'unknown').sort((a, b) => Number(b.room.left) - Number(a.room.left))[0]
+        ?? ready[0];
+      if (!chosen) return { ok: false, code: 'none', reason: say('pick.none', { provider }), rows };
+      return { ok: true, account: chosen.account, room: chosen.room, rows };
     },
     termsAcknowledged: (): boolean => { if (!directory(stateDir)) throw new CliAccountError('bad-option'); const saved = json(join(stateDir, 'auto-terms-v1.json')); return record(saved) && saved.acknowledged === true; },
     acknowledgeTerms: () => atomic(join(stateDir, 'auto-terms-v1.json'), { acknowledged: true }),

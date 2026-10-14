@@ -50,6 +50,7 @@
   "pick.out.provider": "A different service",
   "pick.out.bound": "This conversation uses another account",
   "pick.unknownAccount": "That account is no longer in your list.",
+  "pick.none": "No {provider} account can take a run right now.",
   "pick.noModel": "That account doesn't include a model for this run.",
   "pick.why.chosen": "You chose {name}.",
   "pick.why.default": "{name} is your default.",
