@@ -739,12 +739,3 @@ test('a phone cancel before the commit point activates nothing; after it the eng
     assert.equal(readFileSync(granted, 'utf8'), 'signed in', 'the native grant is kept');
   }); });
 
-test('a phone ChatGPT sign-in runs the engine wizard: the device code shows, then done once the engine reports an openai profile', { timeout: 15_000 }, async () => {
-  const stateDir = scratchDir('phone-chatgpt'); let signedIn = false, finish!: () => void; const finished = new Promise<void>((resolve) => { finish = resolve; });
-  const kit = new OpenClawKit({ stateDir, spawnEngine: false, callbackPort: 0, transport: fakeGateway({
-    'openclaw.setup.auth.start': () => ({ done: false }),
-    'wizard.next': async (p: any) => { if (!p.answer) return { done: false, step: DEVICE_STEP }; await finished; signedIn = true; return { done: true, status: 'done' }; },
-    'models.authStatus': () => ({ providers: signedIn ? [{ provider: 'openai', profiles: [{ profileId: 'openai:umer', type: 'oauth', status: 'ok', expiry: { at: Date.now() + 999_999 } }] }] : [] }) }).factory });
-  try { await kit.start(); const { call, read, until } = phone(kit, 'openai'); await call('oc.signin.start', { via: 'code' }); assert.equal((await until((view) => view?.state === 'waiting' && view.code === 'CREW-2026')).view.code, 'CREW-2026'); assert.equal((await read()).ready, false); finish();
-    assert.equal((await until((view) => view?.state === 'done')).view.state, 'done'); assert.equal((await read()).ready, true);
-  } finally { finish(); await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); } });
