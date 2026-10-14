@@ -119,6 +119,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [accounts-claude-refresh](./accounts-claude-refresh.md) — transient refresh (no answer, 5xx, passing 401) keeps the sign-in, retry rotates the same grant, invalid_grant signs out.
 - [accounts-claude-respond-select](./accounts-claude-respond-select.md) — `respond` `select` on two Claude plan accounts: each select answers with its own bearer, a 429 rests only it, its expiry signs out only it, the primary stays ready.
 - [accounts-cli-logins](./accounts-cli-logins.md) — two managed CLI logins with one email differ by persisted `addedAt`, driven through the built `@byokit/accounts/cli` against fake native binaries.
+- [accounts-cli-rests](./accounts-cli-rests.md) — managed CLI `rest`/`unrest` persist breaks in `rests-v1.json`; `status` returns `resting`, `launch` refuses until the time passes, expiry and corrupt rewrite.
 - [accounts-cli-opencode](./accounts-cli-opencode.md) — managed OpenCode add/saveKey/logout/launch and `openCodeGoPlanAccount` against a Map-backed secrets store; canary leak-checked out of evidence.
 - [accounts-cli-remote-signin](./accounts-cli-remote-signin.md) — read-only CLI state plus device-code / link-and-paste-code sign-in over a paired link through the built `@byokit/accounts/cli`, fake native binaries and a live read-only leg with no sign-in.
 - [accounts-refresh-refusal](./accounts-refresh-refusal.md) — passing 401 at `access` or `recheck` keeps the ChatGPT sign-in, retry rotates, a revoked grant signs out.

@@ -4,7 +4,7 @@ import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openS
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { identity, type Identity } from '@byokit/usage';
 import type { Keystore } from '@byokit/secrets';
-import { say } from './words.ts';
+import { clock, say } from './words.ts';
 import { deleteOpenCodePlanKey, readOpenCodePlanKey, saveOpenCodePlanKey } from './opencode-go.ts';
 import { launchEnv as cleanLaunchEnv } from './isolate.ts';
 import type { AccountLike } from './multi.ts';
@@ -28,7 +28,8 @@ export type CliOptions = {
 };
 export type CliLaunchResult =
   | { ok: true; account: CliAccount; set: Record<string, string>; unset: string[] }
-  | { ok: false; code: 'signed_out' | 'not_included'; account: CliAccount; message: string };
+  | { ok: false; code: 'signed_out' | 'not_included' | 'resting'; account: CliAccount; message: string };
+export type CliRest = { until: number; why: string };
 export type SignInCommand = { argv: string[]; env: Record<string, string>; completion: string; shell: string;
   /** Display in the TUI; never pass this as an initial model message. OpenCode has no native login to
    * spawn: its instruction asks for a hidden plan-key entry instead, and `saveKey` completes it. */
@@ -139,10 +140,39 @@ export function cliAccounts(options: CliOptions) {
   if (!directory(stateDir, true)) throw new CliAccountError('bad-option');
   chmodSync(stateDir, 0o700);
   const file = join(stateDir, 'accounts-v1.json');
+  const restsFile = join(stateDir, 'rests-v1.json');
+  type RestRow = { id: string; until: number; why: string };
   const created = new Set<string>(); const operations = new Map<string, Promise<unknown>>();
   // Monotonic so two logins added in the same millisecond still come back with different `addedAt`.
   let lastAddedAt = 0;
   const stampAddedAt = () => { const now = Date.now(); lastAddedAt = now > lastAddedAt ? now : lastAddedAt + 1; return lastAddedAt; };
+  const restWhy = (v: unknown): v is string => text(v) && !!v && v.length <= 64 && !/[\x00-\x1f\x7f]/.test(v);
+  function parseRests(saved: unknown, nowMs: number): RestRow[] | undefined {
+    if (!record(saved) || saved.version !== 1 || !Array.isArray(saved.rests)) return undefined;
+    const seen = new Set<string>(); const rows: RestRow[] = [];
+    for (const candidate of saved.rests) {
+      if (!record(candidate) || !text(candidate.id) || !candidate.id || candidate.id.length > 128 || seen.has(candidate.id)
+        || typeof candidate.until !== 'number' || !Number.isSafeInteger(candidate.until) || candidate.until < 0 || !restWhy(candidate.why)) return undefined;
+      seen.add(candidate.id);
+      if (candidate.until > nowMs) rows.push({ id: candidate.id, until: candidate.until, why: candidate.why });
+    }
+    return rows;
+  }
+  function loadRests(nowMs = Date.now()): RestRow[] {
+    if (!directory(stateDir) || realpathSync(stateDir) !== stateDir) throw new CliAccountError('bad-option');
+    const saved = json(restsFile);
+    if (saved === undefined) {
+      try { if (lstatSync(restsFile).isFile()) { atomic(restsFile, { version: 1, rests: [] }); return []; } }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new CliAccountError('prepare-failed'); }
+      return [];
+    }
+    const rows = parseRests(saved, nowMs);
+    if (rows === undefined) { atomic(restsFile, { version: 1, rests: [] }); return []; }
+    return rows;
+  }
+  const saveRests = (rows: RestRow[], nowMs = Date.now()) =>
+    atomic(restsFile, { version: 1, rests: rows.filter((r) => r.until > nowMs) });
+  const activeRest = (id: string, nowMs = Date.now()) => loadRests(nowMs).find((r) => r.id === id);
   function safe(r: Row): boolean {
     const parent = join(stateDir, r.provider);
     return resolve(r.folder) === r.folder && r.folder.startsWith(parent + '/') && /^[a-f0-9]+$/.test(r.folder.slice(parent.length + 1)) && directory(stateDir) && realpathSync(stateDir) === stateDir && directory(parent) && directory(r.folder);
@@ -272,6 +302,8 @@ export function cliAccounts(options: CliOptions) {
       const account = { id: r.id, provider: r.provider, name: r.name.trim() || (r.provider === 'pi' ? piRoutes.find(v => v.upstream.id === r.piProvider)!.name : suggestName(undefined, r.provider)), billing: 'subscription' as const,
         ...(r.piProvider ? { piProvider: r.piProvider } : {}), ...(r.adoptedFrom ? { adoptedFrom: r.adoptedFrom } : {}), ...(r.addedAt !== undefined ? { addedAt: r.addedAt } : {}) };
       if (!bins[r.provider]) return { ...account, state: 'not_included' };
+      const rest = activeRest(r.id);
+      if (rest) return { ...account, state: 'resting', until: rest.until };
       if (r.provider === 'opencode') {
         // No native probe: readiness is the saved plan key. A missing or unreadable store reads
         // signed out, never a failure, and a saved key ends the pending cycle like a native login.
@@ -296,7 +328,24 @@ export function cliAccounts(options: CliOptions) {
       // The plan key lives outside the folder, so delete it first: no orphaned secret survives the row.
       if (r.provider === 'opencode') await deleteOpenCodePlanKey(options.keyStore);
       rmSync(r.folder, { recursive: true, force: true }); save(load().filter((v) => v.id !== id), r.provider); created.delete(id);
+      saveRests(loadRests().filter((v) => v.id !== id));
     });
+  }
+  async function rest(id: string, opts: CliRest): Promise<CliAccount> {
+    if (!record(opts) || typeof opts.until !== 'number' || !Number.isSafeInteger(opts.until) || opts.until < 0 || !restWhy(opts.why)) throw new CliAccountError('bad-option');
+    await serial(id, async () => {
+      row(id); // refuse unknown ids before writing
+      const nowMs = Date.now();
+      saveRests([...loadRests(nowMs).filter((v) => v.id !== id), { id, until: opts.until, why: opts.why }], nowMs);
+    });
+    return status(id);
+  }
+  async function unrest(id: string): Promise<CliAccount> {
+    await serial(id, async () => {
+      row(id);
+      saveRests(loadRests().filter((v) => v.id !== id));
+    });
+    return status(id);
   }
   /** Save an OpenCode plan key (collected with hidden typing) into the secrets store, one entry per
    * route. The key never enters argv, env, a file outside the store, or a log. */
@@ -364,6 +413,8 @@ export function cliAccounts(options: CliOptions) {
       return begin(row(id));
     },
     status,
+    rest,
+    unrest,
     saveKey,
     logout,
     async cancel(id: string): Promise<{ removed: boolean }> {
@@ -379,6 +430,9 @@ export function cliAccounts(options: CliOptions) {
     async launch(id: string): Promise<CliLaunchResult> {
       const account = await status(id);
       if (account.state === 'ready') return { ok: true, account, ...launch(row(id)) };
+      if (account.state === 'resting' && account.until) {
+        return { ok: false, code: 'resting', account, message: say('status.resting', { name: account.name, until: clock(account.until) }) };
+      }
       const code = account.state === 'not_included' ? 'not_included' : 'signed_out';
       return { ok: false, code, account, message: say(code === 'not_included' ? 'cli.notIncluded' : 'cli.signedOut', { name: account.name }) };
     },

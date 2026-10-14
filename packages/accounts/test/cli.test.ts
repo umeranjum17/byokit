@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, readlinkSync, readdirSync, statSyn
 import { join } from 'node:path';
 import { cliAccounts, nativePiAccount, CliAccountError, type CliProvider } from '../src/cli.ts';
 import { resolveSelection } from '../src/multi.ts';
+import { clock, say } from '../src/words.ts';
 import { roomOf } from '@byokit/usage';
 import { scratchDir } from '../../test-support.ts';
 
@@ -373,4 +374,42 @@ test('pre-existing same-email rows stay distinguishable through derived addedAt'
   assert.ok(rows.every((r) => typeof r.addedAt === 'number' && Number.isSafeInteger(r.addedAt) && r.addedAt > 0), 'every legacy managed row derives a millisecond addedAt');
   assert.notEqual(rows[0].addedAt, rows[1].addedAt, 'derived values separate the two same-email rows');
   assert.equal(readFileSync(join(stateDir, 'accounts-v1.json'), 'utf8'), body, 'deriving at read time never rewrites the roster');
+});
+
+test('persisted rest: status resting, launch refused, expiry, mode 0600, corrupt rewrite', async () => {
+  const root = scratchDir('cli-rests'); const stateDir = join(root, 'plans');
+  const claude = fake(join(root, 'bins'), 'claude');
+  const env = { HOME: join(root, 'home'), PATH: '/unused' };
+  const kit = cliAccounts({ stateDir, bins: { claude: claude.bin }, env });
+  const { account, signIn } = await kit.add('claude');
+  writeFileSync(signIn.completion, 'complete', { mode: 0o600 });
+  await kit.rename(account.id, 'Work');
+  assert.equal((await kit.status(account.id)).state, 'ready');
+  const until = Date.now() + 3_600_000;
+  const resting = await kit.rest(account.id, { until, why: 'rate_limit' });
+  assert.equal(resting.state, 'resting');
+  assert.equal(resting.until, until);
+  const restsPath = join(stateDir, 'rests-v1.json');
+  assert.equal(statSync(restsPath).mode & 0o777, 0o600);
+  assert.deepEqual(JSON.parse(readFileSync(restsPath, 'utf8')), { version: 1, rests: [{ id: account.id, until, why: 'rate_limit' }] });
+  const refused = await kit.launch(account.id);
+  assert.equal(refused.ok, false);
+  if (!refused.ok) {
+    assert.equal(refused.code, 'resting');
+    assert.equal(refused.message, say('status.resting', { name: 'Work', until: clock(until) }));
+    assert.ok(!('set' in refused) && !('unset' in refused));
+  }
+  // Expired rests read as not resting; the next write prunes them.
+  writeFileSync(restsPath, JSON.stringify({ version: 1, rests: [{ id: account.id, until: Date.now() - 1, why: 'rate_limit' }] }), { mode: 0o600 });
+  assert.equal((await kit.status(account.id)).state, 'ready');
+  const ready = await kit.launch(account.id);
+  assert.equal(ready.ok, true);
+  await kit.rest(account.id, { until: Date.now() + 60_000, why: 'rate_limit' });
+  assert.deepEqual(JSON.parse(readFileSync(restsPath, 'utf8')).rests.map((r: { id: string }) => r.id), [account.id], 'expired rows are pruned on write');
+  await kit.unrest(account.id);
+  assert.equal((await kit.status(account.id)).state, 'ready');
+  writeFileSync(restsPath, '{not-json', { mode: 0o600 });
+  assert.equal((await kit.status(account.id)).state, 'ready', 'corrupt rests file reads as no rests');
+  assert.deepEqual(JSON.parse(readFileSync(restsPath, 'utf8')), { version: 1, rests: [] });
+  assert.equal(statSync(restsPath).mode & 0o777, 0o600);
 });
