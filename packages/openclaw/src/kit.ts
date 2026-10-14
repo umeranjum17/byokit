@@ -987,8 +987,11 @@ export class OpenClawKit {
     return startSignIn(this.signInCtx(), member, o, on);
   }
 
-  signOut(member: Member, provider: string): Promise<void> {
-    return engineSignOut(this.signInCtx(), member, provider);
+  async signOut(member: Member, provider: string): Promise<void> {
+    await engineSignOut(this.signInCtx(), member, provider);
+    // The saved key lives on its own `byokit-key-<member>` agent, which the member-agent logout never reaches: without
+    // this, a key of that provider stays sealed and ready and the member reads signed in again after a restart.
+    await this.keys.remove(member, { provider });
   }
 
   // The member an agent id or session key belongs to, through the account index (5.15, O14m). Reads the index file, so it
@@ -1064,6 +1067,13 @@ export class OpenClawKit {
   /** Save an explicitly supplied API key (billed per use) in this member's separate key agent. */
   addKey(agentId: Member, o: { authChoice: string; apiKey: string; model?: string }): AddKeyHandle {
     return this.keys.add(agentId, o);
+  }
+
+  /** Remove this member's saved key (the `byokit-key-<member>` lane: its credential store and ready marker), so
+   * `signedIn` is false for it and a restart cannot revive it. `provider` removes only that provider's saved key;
+   * with no saved key the call resolves without doing anything. */
+  removeKey(member: Member, o?: { provider?: string }): Promise<void> {
+    return this.keys.remove(member, o);
   }
 
   private async prepareKeyOwner(agentId: string): Promise<void> {

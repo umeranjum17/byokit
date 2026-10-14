@@ -475,7 +475,12 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     },
     'byokit.keys': (p) => {
       const id = `byokit-key-${p.member}`;
-      if (p.action === 'prepare' || p.action === 'clear') { keys.delete(id); ensureAgent(id).providers = []; return { ok: true }; }
+      if (p.action === 'prepare' || p.action === 'clear') {
+        // As the shipped plugin: a clear of a lane that was never created has nothing to drop and reports absent.
+        const lane = keys.has(id) || agents.has(id);
+        keys.delete(id); ensureAgent(id).providers = [];
+        return lane ? { ok: true } : { ok: false, absent: true };
+      }
       const key = keys.get(id);
       if (!key) return { ok: false, absent: true };
       if (p.action === 'seal') { key.sealed = true; if (typeof p.model === 'string') key.model = p.model; return { ok: true }; }

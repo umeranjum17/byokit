@@ -469,7 +469,8 @@ export declare class OpenClawKit {
   signedIn(member: Member, provider: string): Promise<boolean>;
   signIn(member: Member, o: { authChoice: string; via?: 'browser' | 'code' }, on: (v: SignInView) => void):
     { paste(text: string): void; cancel(): void; done: Promise<SignInView> };
-  signOut(member: Member, provider: string): Promise<void>;
+  signOut(member: Member, provider: string): Promise<void>;   // also removes that provider's saved key
+  removeKey(member: Member, o?: { provider?: string }): Promise<void>;   // clears the `byokit-key-<member>` lane
   migrateRetainedLogin(member: Member, source: RetainedLogin): Promise<'staged' | 'nothing' | 'failed'>;
   confirmRetainedLogin(member: Member, source: RetainedLogin): Promise<boolean>;
   // accounts (5.15)
@@ -478,6 +479,7 @@ export declare class OpenClawKit {
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
     done: Promise<{ view: SignInView; id: AccountId }> }>;
   addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string }): AddKeyHandle;
+  removeKey(member: Member, o?: { provider?: string }): Promise<void>;   // 5.8: clears the saved key lane
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account>;
   removeAccount(member: Member, id: AccountId): Promise<void>;
   models(member: Member, id: AccountId | { authChoice: string }): Promise<ModelInfo[]>;
@@ -825,6 +827,17 @@ that runs use. `providers` stays the member agent's sign-ins, the ones a run wit
 **signOut**: `models.authLogout { provider, agentId, profileIds }` with the agent's own profiles of that provider
 (`byokit.accounts list`; from O14, 5.15). `signIn`, `signedIn`, `providers` and `signOut` address the
 member agent, whose sign-in to a provider is that provider's first account (5.15); `addAccount` adds any further one.
+A saved key is not a member-agent profile: after the logout, `signOut` also calls `removeKey(member, { provider })`, so
+a key of that provider goes with it and the member does not read signed in again after a restart. A saved key of
+another provider is untouched.
+
+**removeKey**: `removeKey(member, o?)` clears the member's saved key lane, the reserved `byokit-key-<member>` agent:
+the `byokit.keys clear` action empties its auth-profile store and deletes its ready marker, so `signedIn` is false for
+that provider and the lane stays signed out across an engine restart (nothing revives a key with no marker, and the
+start sweep sees it removed). With `provider`, the key is removed only when the ready marker's saved model names that
+provider. Removal of a lane with no saved key is a no-op that resolves; the shipped handler answers such a `clear` with
+`{ ok: false, absent: true }` and any other refusal throws `The key could not be removed.`. Serialized with adds and
+key runs under the member's key lock, like `addKey`.
 
 **Credential sealing**: `authSeal` takes the `@byokit/secrets` `SealingAdapter` interface (non-interactive OS keyring with automatic persistent host-key fallback, or an explicit host-owned key),
 the runtime kit delegates key management to that adapter. Opening follows the envelope mode, never the
@@ -1012,7 +1025,8 @@ the engine. External retained sources are touched only when explicitly passed to
   without diagnostics. Ordinary runs and their admission policy are unchanged; there is no per-run cold refresh.
   Catalog or control failures never become a claim that the key is invalid. A failed add may leave an empty reserved key agent; it clears the attempted key best-effort and never leaves a ready marker.
   A non-auth, non-billing probe status (timeout, rate limit, format, unknown) is `retry` with its reason (`network`, `busy`, `inference`), never `invalid`.
-- The `byokit.keys` plugin actions are `prepare`, `seal`, `ready` and `clear` (`clear` drops the unsealed key a failed add left; `plugin/keys.js`). The kit's sweep runs at its first ready after start and sweeps each `byokit-key-<member>` agent under that member's lock: it clears a key only when `ready` reports the marker absent (`absent: true`), so a sealed key survives and an add that seals mid-sweep keeps its key. A refused read or clear leaves the sweep incomplete, and the next ready of that kit instance runs it again; a completed sweep never reruns.
+- The `byokit.keys` plugin actions are `prepare`, `seal`, `ready` and `clear` (`clear` drops the unsealed key a failed add left; `plugin/keys.js`). A `clear` for a lane that is not there (no `byokit-key-<member>` entry) answers `{ ok: false, absent: true }`: nothing is left to drop, which is what makes removing an unsaved key a no-op. The kit's sweep runs at its first ready after start and sweeps each `byokit-key-<member>` agent under that member's lock: it clears a key only when `ready` reports the marker absent (`absent: true`), so a sealed key survives and an add that seals mid-sweep keeps its key. A refused read or clear leaves the sweep incomplete, and the next ready of that kit instance runs it again; a completed sweep never reruns.
+- Removing a saved key is public: `removeKey(member, o?)` (5.8) clears that member's key lane so `signedIn` is false and a restart does not revive it; `signOut(member, provider)` calls it for that provider after the member-agent logout.
 - The engine has no strict per-run auth-profile pin. Key isolation is by agent: a member's normal agent never
   receives a key from `addKey`. A reserved `byokit-key-<member>` agent has its own workspace and credential store;
   the `byokit-key-` prefix is not a member id. Key creation waits for `agents.list` visibility, exactly as member creation
