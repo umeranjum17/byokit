@@ -72,14 +72,14 @@
     "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"
   },
   "dependencies": {
-    "@byokit/usage": "0.8.0",
-    "@earendil-works/pi-ai": "0.87.1",
+    "@anthropic-ai/sdk": "0.129.0",
     "@byokit/secrets": "0.5.1",
-    "openai": "6.40.0",
-    "@anthropic-ai/sdk": "0.124.0",
+    "@byokit/usage": "0.8.0",
+    "@earendil-works/pi-ai": "1.2.0",
     "@google/genai": "2.21.0",
-    "partial-json": "0.1.7",
     "@modelcontextprotocol/sdk": "1.31.0",
+    "openai": "7.19.0",
+    "partial-json": "0.1.7",
     "undici-types": "7.16.0"
   },
   "publishConfig": {

@@ -1,7 +1,7 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   __require
-} from "./chunk-XD4THNNI.js";
+} from "./chunk-JOZQDPST.js";
 
 // node_modules/@earendil-works/pi-ai/dist/utils/provider-env.js
 var procEnvCache = null;
@@ -32,4 +32,4 @@ function getProviderEnvValue(name, env) {
 export {
   getProviderEnvValue
 };
-//# sourceMappingURL=chunk-RGJXTNZI.js.map
+//# sourceMappingURL=chunk-TAO7TECG.js.map

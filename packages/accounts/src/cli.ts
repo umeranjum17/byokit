@@ -98,7 +98,7 @@ export type NativePiAccount = {
   launch: { set: { PI_CODING_AGENT_DIR: string }; unset: string[] };
   resumeArgs(ref: { kind: 'id' | 'path'; value: string }): string[];
 };
-/** Read-only Pi 0.87.1 launch descriptor; no grant reads, sign-in or readiness claim. */
+/** Read-only Pi 1.2.0 launch descriptor; no grant reads, sign-in or readiness claim. */
 export function nativePiAccount(options: { stateDir: string; folder: string; bin: string; home: string }): NativePiAccount {
   if (!record(options) || [options.stateDir, options.folder, options.bin, options.home].some(v => !text(v) || !isAbsolute(v))) throw new CliAccountError('bad-option');
   const stateDir = resolve(options.stateDir); const parent = join(stateDir, 'pi'); const folder = resolve(options.folder);

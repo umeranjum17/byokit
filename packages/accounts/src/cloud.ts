@@ -24,7 +24,7 @@ export class CloudAccountError extends Error {
     this.code = code;
   }
 }
-const providers = new Set(['amazon-bedrock', 'google-vertex', 'azure-openai-responses', 'cloudflare-ai-gateway', 'cloudflare-workers-ai']);
+const providers = new Set(['amazon-bedrock', 'google-vertex', 'azure', 'cloudflare-ai-gateway', 'cloudflare-workers-ai']);
 const value = (v: unknown): v is string => typeof v === 'string' && !!v.trim() && !/[\0\r\n]/.test(v);
 const path = (v: unknown): v is string => value(v) && /^(\/|[A-Za-z]:[\\/])/.test(v);
 
@@ -59,7 +59,7 @@ export function cloudSelection(provider: string, o: CloudOptions, host: RouteHos
       if (o.keyFile !== undefined) copy('keyFile', true, true);
       else copy('home', true, true);
     } else throw new CloudAccountError('invalid_selection');
-  } else if (r.upstream.id === 'azure-openai-responses') copy('baseUrl', true);
+  } else if (r.upstream.id === 'azure') copy('baseUrl', true);
   else if (r.upstream.id.startsWith('cloudflare-')) {
     if (r.upstream.method === 'workers-binding') { copy('binding', true); copy('gatewayId', true); copy('baseUrl', true); }
     else {
@@ -88,7 +88,7 @@ export function cloudCredential(a: CloudAccount): ApiKeyCredential & { byokitClo
   if (a.project) env.GOOGLE_CLOUD_PROJECT = a.project;
   if (a.location) env.GOOGLE_CLOUD_LOCATION = a.location;
   if (a.keyFile) env.GOOGLE_APPLICATION_CREDENTIALS = a.keyFile;
-  if (a.baseUrl && a.upstream === 'azure-openai-responses') env.AZURE_OPENAI_BASE_URL = a.baseUrl;
+  if (a.baseUrl && a.upstream === 'azure') env.AZURE_OPENAI_BASE_URL = a.baseUrl;
   if (a.accountId) env.CLOUDFLARE_ACCOUNT_ID = a.accountId;
   if (a.gatewayId) env.CLOUDFLARE_GATEWAY_ID = a.gatewayId;
   if (a.method === 'skip-auth') env.AWS_BEDROCK_SKIP_AUTH = '1';

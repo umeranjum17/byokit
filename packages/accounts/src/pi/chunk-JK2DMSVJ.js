@@ -1,4 +1,4 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 
 // node_modules/@earendil-works/pi-ai/dist/utils/event-stream.js
 var FifoQueue = class {
@@ -77,6 +77,8 @@ var EventStream = class {
   }
 };
 var AssistantMessageEventStream = class extends EventStream {
+  #startedAt = Date.now();
+  #startedAtMonotonic = performance.now();
   constructor() {
     super((event) => event.type === "done" || event.type === "error", (event) => {
       if (event.type === "done") {
@@ -86,6 +88,23 @@ var AssistantMessageEventStream = class extends EventStream {
       }
       throw new Error("Unexpected event type for final result");
     });
+  }
+  push(event) {
+    if (event.type === "done")
+      this.#time(event.message);
+    else if (event.type === "error")
+      this.#time(event.error);
+    super.push(event);
+  }
+  end(result) {
+    if (result !== void 0)
+      this.#time(result);
+    super.end(result);
+  }
+  #time(message) {
+    if (this.done || message.durationMs !== void 0 || message.timestamp < this.#startedAt)
+      return;
+    message.durationMs = Math.max(0, Math.round(performance.now() - this.#startedAtMonotonic));
   }
 };
 
@@ -121,4 +140,4 @@ export {
   createAssistantMessageDiagnostic,
   appendAssistantMessageDiagnostic
 };
-//# sourceMappingURL=chunk-JTGIYXAQ.js.map
+//# sourceMappingURL=chunk-JK2DMSVJ.js.map
