@@ -1,9 +1,10 @@
 // The per-member account index (5.15, O14 step S5): `<root>/accounts/<member>.json` (0600, whole-file temp
 // plus rename) is the only kit state: `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?,
-// who? } }, defaults, gone? }`, where `gone` names the agent dirs a removal left for the orphan sweep. No credential,
+// who? } }, defaults, gone?, dropped? }`, where `gone` names account-agent dirs a removal left for the orphan sweep
+// and `dropped` names providers removed from the member agent so a late refresh cannot restore them. No credential,
 // token, email or engine line. Listing, rename, defaults, models, room, adding with its identity merge (O14 steps
 // S6, S7), the start-of-run pick (S10), session binding (S11), moving a conversation (S12) and removal with its
-// orphan sweep (S8: account-agent dirs plus unnamed member-store auth profiles) live here.
+// orphan sweep (S8) live here.
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
@@ -47,7 +48,7 @@ export const modelsOf = (provider: string, answer: unknown): ModelInfo[] => {
 };
 
 type IndexEntry = { agent: string; name: string; route: string; addedAt: number; until?: number; model?: string; who?: string };
-type IndexFile = { v: 1; accounts: Record<string, IndexEntry>; defaults: Defaults; gone?: string[] };
+type IndexFile = { v: 1; accounts: Record<string, IndexEntry>; defaults: Defaults; gone?: string[]; dropped?: string[] };
 
 type LiveProfile = { provider?: string; profileId?: string; type?: string; status?: string; who?: string };
 const ACCOUNT_AGENT = /^[a-z][a-z0-9-]{0,31}--[0-9a-f]{6}$/;
@@ -89,7 +90,9 @@ const readIndex = (root: string, member: Member): IndexFile => {
   if (typeof raw.model === 'string') defaults.model = raw.model;
   if (typeof raw.auto === 'boolean') defaults.auto = raw.auto;
   const gone = Array.isArray(file.gone) ? file.gone.filter((a): a is string => typeof a === 'string' && ACCOUNT_AGENT.test(a)) : [];
-  return { v: 1, accounts, defaults, ...(gone.length ? { gone } : {}) };
+  const dropped = Array.isArray(file.dropped)
+    ? file.dropped.filter((p): p is string => typeof p === 'string' && !!p && !p.includes('.')) : [];
+  return { v: 1, accounts, defaults, ...(gone.length ? { gone } : {}), ...(dropped.length ? { dropped } : {}) };
 };
 
 // Attribution (5.15, O14m): the member an agent id or `agent:<agent>:<tail>` session key belongs to. A member agent is its
@@ -134,26 +137,33 @@ export function removedAccountAgents(root: string): Set<string> {
   return new Set([...gone].filter((agent) => ACCOUNT_AGENT.test(agent) && !named.has(agent)));
 }
 
-// Providers each member index names on that member's own agent (not on `<member>--<hex6>` account agents).
-function memberAgentProviders(root: string): Map<string, Set<string>> {
-  const named = new Map<string, Set<string>>();
+// Providers a removal recorded as dropped from the member agent, except ones an index entry on that member agent names
+// again. Parallel to `gone` for account-agent directories: only an intentional removeAccount tombstone is swept, so a
+// live subscription that listing synthesizes from the store is never cleared just because the index omitted it.
+function droppedMemberProviders(root: string): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
   let files: string[];
   try { files = readdirSync(join(root, 'accounts')); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return named; throw error; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return out; throw error; }
   for (const file of files) {
     if (!file.endsWith('.json')) continue;
     const member = file.slice(0, -'.json'.length);
     let parsed: Partial<IndexFile>;
     try { parsed = JSON.parse(readFileSync(join(root, 'accounts', file), 'utf8')) as Partial<IndexFile>; }
     catch (error) { throw new Error(`account index is unreadable: accounts/${file}`, { cause: error }); }
-    const keep = new Set<string>();
+    const named = new Set<string>();
     for (const [id, entry] of Object.entries(parsed.accounts ?? {})) {
       if (typeof entry?.agent !== 'string' || entry.agent !== member || !id) continue;
-      keep.add(id.split('.')[0]!);
+      named.add(id.split('.')[0]!);
     }
-    named.set(member, keep);
+    const drop = new Set<string>();
+    for (const provider of Array.isArray(parsed.dropped) ? parsed.dropped : []) {
+      if (typeof provider !== 'string' || !provider || provider.includes('.') || named.has(provider)) continue;
+      drop.add(provider);
+    }
+    if (drop.size) out.set(member, drop);
   }
-  return named;
+  return out;
 }
 
 type MemberAuthStore = {
@@ -162,26 +172,26 @@ type MemberAuthStore = {
   lastGood?: Record<string, unknown>;
 };
 
-// Drop profiles (and their order / lastGood marks) whose provider no member-agent index entry names.
-function dropUnnamedProfiles(store: MemberAuthStore, keep: Set<string>): boolean {
+// Drop profiles (and their order / lastGood marks) whose provider is in `drop`.
+function dropProviders(store: MemberAuthStore, drop: Set<string>): boolean {
   let changed = false;
   const profiles = store.profiles && typeof store.profiles === 'object' ? store.profiles : {};
   for (const [profileId, profile] of Object.entries(profiles)) {
-    if (typeof profile?.provider === 'string' && keep.has(profile.provider)) continue;
+    if (typeof profile?.provider === 'string' && !drop.has(profile.provider)) continue;
     delete profiles[profileId];
     changed = true;
   }
   store.profiles = profiles;
   if (store.order && typeof store.order === 'object') {
     for (const provider of Object.keys(store.order)) {
-      if (keep.has(provider)) continue;
+      if (!drop.has(provider)) continue;
       delete store.order[provider];
       changed = true;
     }
   }
   if (store.lastGood && typeof store.lastGood === 'object') {
     for (const provider of Object.keys(store.lastGood)) {
-      if (keep.has(provider)) continue;
+      if (!drop.has(provider)) continue;
       delete store.lastGood[provider];
       changed = true;
     }
@@ -196,16 +206,16 @@ function putAuthProfilesJson(path: string, store: MemberAuthStore): void {
   try { chmodSync(path, 0o600); } catch { /* best-effort mode */ }
 }
 
-// A late token refresh after authLogout can rewrite the member agent's store; prepare drops any profile the index
-// no longer names so listing cannot synthesize the removed account back.
+// A late token refresh after authLogout can rewrite the member agent's store; prepare drops only providers a removal
+// recorded as `dropped` (and no member-agent index entry names again).
 function sweepMemberAuthProfiles(root: string): void {
-  for (const [member, keep] of memberAgentProviders(root)) {
+  for (const [member, drop] of droppedMemberProviders(root)) {
     const agentDir = join(root, 'state', 'agents', member, 'agent');
     const jsonPath = join(agentDir, 'auth-profiles.json');
     if (existsSync(jsonPath)) {
       try {
         const store = JSON.parse(readFileSync(jsonPath, 'utf8')) as MemberAuthStore;
-        if (store && typeof store === 'object' && dropUnnamedProfiles(store, keep)) putAuthProfilesJson(jsonPath, store);
+        if (store && typeof store === 'object' && dropProviders(store, drop)) putAuthProfilesJson(jsonPath, store);
       } catch { /* leave an unreadable store alone; prepare must still finish */ }
     }
     const dbPath = join(agentDir, 'openclaw-agent.sqlite');
@@ -216,7 +226,7 @@ function sweepMemberAuthProfiles(root: string): void {
         const row = db.prepare('SELECT store_json FROM auth_profile_store').get() as { store_json?: string } | undefined;
         if (typeof row?.store_json !== 'string') continue;
         const store = JSON.parse(row.store_json) as MemberAuthStore;
-        if (!store || typeof store !== 'object' || !dropUnnamedProfiles(store, keep)) continue;
+        if (!store || typeof store !== 'object' || !dropProviders(store, drop)) continue;
         db.prepare('UPDATE auth_profile_store SET store_json = ?').run(JSON.stringify(store));
       } finally { db.close(); }
     } catch { /* leave an unreadable native store alone */ }
@@ -224,9 +234,9 @@ function sweepMemberAuthProfiles(root: string): void {
 }
 
 // Removes each `<root>/state/agents/<member>--<hex6>` directory that a removal recorded as gone and no index names,
-// and drops member-agent auth profiles that no index entry names. Only recorded account-agent directories go: a legacy
-// member's own directory is never recorded, so it stays. The directories are listed before the index is read: each
-// listed one was created after its entry was written.
+// and drops member-agent auth profiles a removal recorded as `dropped`. Only recorded account-agent directories go: a
+// legacy member's own directory is never recorded, so it stays. The directories are listed before the index is read:
+// each listed one was created after its entry was written.
 export function sweepOrphans(root: string): void {
   let dirs: string[] = [];
   try { dirs = readdirSync(join(root, 'state', 'agents')); }
@@ -277,6 +287,14 @@ export function createAccounts(ctx: {
     if (file.defaults.account === id) delete file.defaults.account;
   };
   const markGone = (file: IndexFile, agent: string): void => { if (!file.gone?.includes(agent)) file.gone = [...(file.gone ?? []), agent]; };
+  const markDropped = (file: IndexFile, provider: string): void => {
+    if (!file.dropped?.includes(provider)) file.dropped = [...(file.dropped ?? []), provider];
+  };
+  const clearDropped = (file: IndexFile, provider: string): void => {
+    if (!file.dropped?.includes(provider)) return;
+    file.dropped = file.dropped.filter((p) => p !== provider);
+    if (!file.dropped.length) delete file.dropped;
+  };
   const write = (member: Member, file: IndexFile): void => {
     mkdirSync(join(ctx.root, 'accounts'), { recursive: true, mode: 0o700 });
     const tmp = `${path(member)}.${randomUUID()}.tmp`;
@@ -319,6 +337,8 @@ export function createAccounts(ctx: {
     const memberRows: Account[] = [];
     const seen = new Set<string>();
     for (const [provider, profiles] of [...byProvider.entries()].sort(([a], [b]) => a < b ? -1 : 1)) {
+      // A removeAccount tombstone wins until the person signs in again: do not synthesize the removed row back.
+      if (file.dropped?.includes(provider)) continue;
       let entry = file.accounts[provider];
       if (!entry || entry.agent !== agentId) {
         const route = entry?.agent === agentId && typeof entry.route === 'string' ? entry.route : synthesizedRoute(provider);
@@ -680,6 +700,7 @@ export function createAccounts(ctx: {
         if ((await providerProfileIds(agent, provider)).length) throw new Error('removeAccount: the account is still signing in');
         const file = read(member);
         dropEntry(file, id);
+        markDropped(file, provider);
         write(member, file);
         // The live store changed: re-seal at once so the sealed copy stops holding the removed profile.
         await ctx.reseal?.();
@@ -791,7 +812,10 @@ export function createAccounts(ctx: {
       let agent = memberAgent;
       let added = false;
       if (!fresh) {
-        await edit(member, (file) => { if (!file.accounts[id]) { file.accounts[id] = entryOf(file, agent); added = true; } });
+        await edit(member, (file) => {
+          if (!file.accounts[id]) { file.accounts[id] = entryOf(file, agent); added = true; }
+          clearDropped(file, provider);
+        });
       } else {
         // `<member>--<hex6>`, drawn again while that agent exists; its entry is written before the agent.
         const roster = new Set((await ctx.request('agents.list') as { agents: { id: string }[] }).agents.map((a) => a.id));

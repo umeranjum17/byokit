@@ -1722,10 +1722,11 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
   directory removal and the entry drop run.   A write the engine lands even later cannot be ruled out by a bounded
   check, so the kit also removes, on every `prepare` and again after the sealed auth store restores (before launch),
   each `<root>/state/agents/<member>--[0-9a-f]{6}` directory that a removal recorded as `gone` in its member's index
-  file and that no index names. The same prepare sweep also drops auth profiles from each member agent's own store
-  (`auth-profiles.json` and the native `auth_profile_store`) whose provider no index entry on that member agent names,
-  so a late token refresh after `authLogout` cannot bring a removed member-agent account back. Nothing else is swept: a
-  legacy member's own directory is never recorded, so it stays.
+  file and that no index names. A member-agent removal also records its provider in that index's `dropped` list; the same
+  prepare sweep removes that provider's auth profiles from the member agent's own store (`auth-profiles.json` and the
+  native `auth_profile_store`) while no index entry on that member agent names it again, so a late token refresh after
+  `authLogout` cannot bring the removed account back. A live member sign-in the index has not yet named is never swept.
+  Nothing else is swept: a legacy member's own directory is never recorded, so it stays.
   Either path then re-seals the live auth store at once while the engine runs (`AuthStore.reseal`), so
   `auth-store.sealed` and `auth-store.objects/` stop holding the removed profile without waiting for stop. The
   re-seal never reads the live databases: each keeps its last sealed copy until stop, when `persist` seals them.

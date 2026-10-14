@@ -2066,8 +2066,11 @@ test('prepare sweeps a late member-store refresh of a removed account', async ()
     const keptAgent = second.id;
     assert.deepEqual((await kit.accounts('m1')).map((a) => a.id).sort(), ['openai', 'opencode-go', keptAgent].sort());
     await kit.removeAccount('m1', 'openai');
-    const indexAfter = JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')) as { accounts: Record<string, unknown> };
+    const indexAfter = JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')) as {
+      accounts: Record<string, unknown>; dropped?: string[];
+    };
     assert.ok(!('openai' in indexAfter.accounts));
+    assert.deepEqual(indexAfter.dropped, ['openai'], 'removal tombstones the member provider');
     assert.ok('opencode-go' in indexAfter.accounts, 'the other member account stays');
     assert.ok(keptAgent in indexAfter.accounts, 'and the account agent stays');
     const memberStore = join(root, 'state', 'agents', 'm1', 'agent', 'auth-profiles.json');
