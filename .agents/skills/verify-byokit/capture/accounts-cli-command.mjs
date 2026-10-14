@@ -1,9 +1,10 @@
-// Built bin (dist/accounts-cli.js) in a real child process: pool.json, fake native CLIs, list/pick/rest/unrest
-// and the folder prepare. No secret may reach an answer, and a new folder must share only the plan's names.
+// Built bin (dist/accounts-cli.js) in a real child process: pool.json, fake native CLIs, list/pick/rest/unrest,
+// the plain table, readings-v1.json with `--cached`, use/prefer-v1.json and env. No secret may reach an
+// answer, and a new folder must share only the plan's names.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -112,6 +113,80 @@ try {
   assert.equal(unknown.status, 1);
   assert.match(unknown.stderr, /Choose an account from the list\./);
   console.log('cli-command-unknown:', unknown.stderr.trim());
+
+  // A second Codex account, so a stored preference has something to win against.
+  const second = add('codex'); finish(second);
+  const chosen = () => JSON.parse(run('pick', 'codex', '--json').stdout).id;
+  assert.equal(chosen(), chatgpt.id, 'ties keep roster order before any `use`');
+
+  // use: one tool preference in prefer-v1.json (0600), the table says it in plain words, and pick obeys it.
+  const used = run('use', second.id);
+  assert.equal(used.status, 0, used.stderr);
+  const usedRow = JSON.parse(used.stdout);
+  assert.deepEqual([usedRow.ok, usedRow.tool, usedRow.id, usedRow.preferred], [true, 'codex', second.id, true]);
+  assert.equal(typeof usedRow.name, 'string');
+  const preferFile = join(stateDir, 'prefer-v1.json');
+  assert.equal(statSync(preferFile).mode & 0o777, 0o600);
+  assert.deepEqual(JSON.parse(readFileSync(preferFile, 'utf8')), { version: 1, tools: { codex: second.id } });
+  assert.equal(chosen(), second.id, 'the stored account wins while it is ready');
+  const marked = JSON.parse(run('list', '--json').stdout).filter((r) => r.preferred === true);
+  assert.deepEqual(marked.map((r) => r.id), [second.id], 'exactly the stored row is preferred');
+  assert.equal(JSON.parse(readFileSync(preferFile, 'utf8')).tools.codex, second.id);
+  console.log('cli-command-use:', second.id, 'preferred, prefer-v1.json 0600');
+
+  // The plain table: aligned rows, the same ids, the word `preferred`, and no colour code.
+  const tableOut = run('list');
+  assert.equal(tableOut.status, 0, tableOut.stderr);
+  assert.match(tableOut.stdout, /^id\s+tool\s+name\s+state\s+room\s+reset\s+note\n/);
+  assert.doesNotMatch(tableOut.stdout, /\u001b\[/);
+  assert.match(tableOut.stdout.split('\n').find((l) => l.startsWith(second.id)), /preferred/);
+  assert.doesNotMatch(tableOut.stdout.split('\n').find((l) => l.startsWith(chatgpt.id)), /preferred/);
+  assert.doesNotMatch(tableOut.stdout, /private-fake-token/);
+  console.log('cli-command-table:\n' + tableOut.stdout.trimEnd());
+
+  // A stored account that rests falls back to the normal order; the clear ends the preference.
+  assert.equal(run('rest', second.id, '--until', '45m').status, 0);
+  assert.equal(chosen(), chatgpt.id, 'a resting stored account is not a candidate');
+  assert.equal(run('unrest', second.id).status, 0);
+  assert.equal(chosen(), second.id);
+  assert.equal(run('use', '--clear', 'codex').status, 0);
+  assert.deepEqual(JSON.parse(readFileSync(preferFile, 'utf8')), { version: 1, tools: {} });
+  const before = readFileSync(preferFile, 'utf8');
+  const noop = run('use', '--clear', 'claude');
+  assert.equal(noop.status, 0, noop.stderr);
+  assert.equal(readFileSync(preferFile, 'utf8'), before, 'a clear with no entry changes nothing');
+  console.log('cli-command-use-clear:', 'fallback, clear, no-op clear');
+
+  // env: folder paths only, and a real shell applying them, with the reader moved away.
+  renameSync(claudeBin, claudeBin + '.away');
+  const env = run('env', claude.id);
+  assert.equal(env.status, 0, env.stderr);
+  assert.match(env.stdout, /^export CLAUDE_CONFIG_DIR='/m);
+  assert.match(env.stdout, /^unset ANTHROPIC_API_KEY$/m);
+  assert.doesNotMatch(env.stdout, /private-fake-token/);
+  const script = ['export ANTHROPIC_API_KEY=canary',
+    `eval "$(${[process.execPath, BIN, 'env', claude.id, '--state', stateDir].map((v) => `'${v}'`).join(' ')})"`,
+    `printf '%s|%s' "$CLAUDE_CONFIG_DIR" "${'${ANTHROPIC_API_KEY-unset}'}"`].join('\n');
+  const shell = spawnSync('/bin/sh', ['-c', script], { encoding: 'utf8' });
+  assert.equal(shell.status, 0, shell.stderr);
+  assert.equal(shell.stdout, `${claude.folder}|unset`, 'a shell applies the folder and drops the override');
+  renameSync(claudeBin + '.away', claudeBin);
+  console.log('cli-command-env:', shell.stdout, 'no key, no read');
+
+  // cached: the last reading of every row, from the file alone, with no reader left to run.
+  const savedRows = JSON.parse(run('list', '--json').stdout);
+  const readings = join(stateDir, 'readings-v1.json');
+  assert.equal(statSync(readings).mode & 0o777, 0o600);
+  assert.doesNotMatch(readFileSync(readings, 'utf8'), /private-fake-token/);
+  const ran = join(root, 'reader-ran');
+  writeFileSync(codex.bin, `#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(ran)}, 'x');\n`, { mode: 0o755 });
+  const cached = run('list', '--json', '--cached');
+  assert.equal(cached.status, 0, cached.stderr);
+  assert.deepEqual(JSON.parse(cached.stdout), savedRows, 'the saved reading comes back whole');
+  assert.equal(existsSync(ran), false, 'no reader ran for the cached list');
+  run('list', '--json');
+  assert.ok(existsSync(ran), 'a live list does run its reader');
+  console.log('cli-command-cached:', savedRows.length, 'rows from readings-v1.json, no reader');
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

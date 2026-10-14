@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, readlinkSync, readdirSync, realpathSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readlinkSync, readdirSync, realpathSync, rmSync, existsSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cliAccounts } from '../src/cli.ts';
@@ -54,6 +54,10 @@ function run(stateDir: string, ...args: string[]) {
 
 const kitOf = (f: Fixture) => cliAccounts({ stateDir: f.stateDir, bins: f.bins, env: { HOME: f.home, PATH: '/unused' }, claudeHeaders: HEADERS });
 
+/** One argument a shell reads back exactly. */
+const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+const json = (raw: string) => JSON.parse(raw) as Record<string, unknown>;
+
 /** Add one account through the command and finish its native sign-in, as the person's shell would. */
 function ready(f: Fixture, tool: 'claude' | 'codex') {
   const added = run(f.stateDir, 'add', tool);
@@ -76,7 +80,7 @@ test('list --json: one reading row per account, and never a secret', async () =>
   assert.deepEqual(rows.map((r) => r.tool), ['claude', 'codex'], 'one row per account, roster order');
   assert.deepEqual(rows.map((r) => r.id), [claude.id, chatgpt.id]);
   assert.ok(rows.every((r) => r.state === 'ready'));
-  const allowed = new Set(['id', 'tool', 'name', 'state', 'restUntil', 'why', 'email', 'plan', 'addedAt', 'room', 'windows', 'readAt']);
+  const allowed = new Set(['id', 'tool', 'name', 'state', 'restUntil', 'why', 'email', 'plan', 'addedAt', 'room', 'windows', 'readAt', 'stale', 'preferred']);
   for (const row of rows) for (const key of Object.keys(row)) assert.ok(allowed.has(key), `unexpected row field ${key}`);
   assert.doesNotMatch(listed.stdout, /private-fake-token/, 'no native output reaches a row');
 
@@ -87,6 +91,17 @@ test('list --json: one reading row per account, and never a secret', async () =>
   assert.deepEqual((codex.windows as { usedPercent: number }[]).map((w) => w.usedPercent), [90]);
   assert.ok(typeof codex.readAt === 'number' && Date.now() - codex.readAt < 60_000);
   assert.equal((rows.find((r) => r.tool === 'claude')!.room as { left: string }).left, 'unknown');
+  // A fresh reading is not stale; a row with no reading at all is.
+  assert.equal(codex.stale, false);
+  assert.equal(rows.find((r) => r.tool === 'claude')!.stale, true);
+  assert.ok(rows.every((r) => !('preferred' in r)), 'nothing is preferred until `use` names one');
+
+  // Both saved files are 0600 and carry rows and ids only: never a key value.
+  assert.equal(run(f.stateDir, 'use', claude.id).status, 0);
+  for (const name of ['readings-v1.json', 'prefer-v1.json']) {
+    assert.equal(statSync(join(f.stateDir, name)).mode & 0o777, 0o600, name);
+    assert.doesNotMatch(readFileSync(join(f.stateDir, name), 'utf8'), /private-fake-token/, `${name} holds no key`);
+  }
 });
 
 test('pick --json: the same account, the same env and the same rows as cliAccounts.pick', async () => {
@@ -153,6 +168,99 @@ test('rest and unrest round trip through the command and the file B1 persists', 
   assert.equal(unknown.status, 1);
   assert.equal(unknown.stdout, '');
   assert.match(unknown.stderr, /Choose an account from the list\./);
+});
+
+test('list --json --cached answers from the saved readings file with no reader running', () => {
+  const f = fixture('accounts-command-cached');
+  ready(f, 'claude');
+  ready(f, 'codex');
+  const live = run(f.stateDir, 'list', '--json');
+  assert.equal(live.status, 0, live.stderr);
+  assert.equal(statSync(join(f.stateDir, 'readings-v1.json')).mode & 0o777, 0o600);
+
+  // A reader that records every run: `--cached` must not trip it, a live list must.
+  const ran = join(f.root, 'reader-ran');
+  writeFileSync(f.bins.codex, `#!${process.execPath}\nrequire('node:fs').appendFileSync(${JSON.stringify(ran)}, 'x');\n`, { mode: 0o755 });
+
+  const cached = run(f.stateDir, 'list', '--json', '--cached');
+  assert.equal(cached.status, 0, cached.stderr);
+  assert.deepEqual(json(cached.stdout), json(live.stdout), 'the saved reading comes back whole, field for field');
+  assert.equal(existsSync(ran), false, 'no reader ran for the cached list');
+  assert.match(run(f.stateDir, 'list', '--cached').stdout, /^id\s+tool\s+name\s+state\s+room\s+reset\s+note\n/);
+
+  run(f.stateDir, 'list', '--json');
+  assert.ok(existsSync(ran), 'a live list runs its reader');
+});
+
+test('use keeps one account per tool, and pick falls back while it rests', () => {
+  const f = fixture('accounts-command-use');
+  const first = ready(f, 'codex');
+  const second = ready(f, 'codex');
+  const picked = (args: string[]) => json(run(f.stateDir, ...args).stdout);
+  assert.equal(picked(['pick', 'codex', '--json']).id, first.id, 'ties keep list order');
+
+  const use = run(f.stateDir, 'use', second.id);
+  assert.equal(use.status, 0, use.stderr);
+  const used = json(use.stdout);
+  assert.deepEqual([used.ok, used.tool, used.id, used.preferred], [true, 'codex', second.id, true]);
+  assert.equal(typeof used.name, 'string');
+  const prefer = join(f.stateDir, 'prefer-v1.json');
+  assert.equal(statSync(prefer).mode & 0o777, 0o600);
+  assert.deepEqual(json(readFileSync(prefer, 'utf8')), { version: 1, tools: { codex: second.id } });
+  assert.equal(picked(['pick', 'codex', '--json']).id, second.id, 'the stored account wins while it is ready');
+
+  // Exactly one row carries the marker, and the plain table says the same in words.
+  const rows = picked(['list', '--json']) as unknown as { id: string; preferred?: boolean }[];
+  assert.deepEqual(rows.filter((r) => r.preferred === true).map((r) => r.id), [second.id]);
+  assert.equal(rows.filter((r) => 'preferred' in r).length, 1);
+  const lines = run(f.stateDir, 'list').stdout.split('\n');
+  assert.match(lines.find((l) => l.startsWith(second.id))!, /preferred/);
+  assert.doesNotMatch(lines.find((l) => l.startsWith(first.id))!, /preferred/);
+  assert.doesNotMatch(lines.join('\n'), /\u001b\[/, 'plain words, no colour codes');
+
+  // A stored account that rests is no longer a candidate; the normal order takes over, and it comes back.
+  assert.equal(run(f.stateDir, 'rest', second.id, '--until', String(Date.now() + 3_600_000), '--why', 'rate_limit').status, 0);
+  assert.equal(picked(['pick', 'codex', '--json']).id, first.id);
+  assert.equal(run(f.stateDir, 'unrest', second.id).status, 0);
+  assert.equal(picked(['pick', 'codex', '--json']).id, second.id, 'the preference was kept');
+
+  const cleared = run(f.stateDir, 'use', '--clear', 'codex');
+  assert.equal(cleared.status, 0, cleared.stderr);
+  assert.deepEqual(json(cleared.stdout), { ok: true, tool: 'codex', cleared: true });
+  assert.deepEqual(json(readFileSync(prefer, 'utf8')), { version: 1, tools: {} });
+  assert.equal(picked(['pick', 'codex', '--json']).id, first.id);
+
+  // A clear for a tool with no entry succeeds and changes nothing, and an unknown id is refused.
+  const before = readFileSync(prefer, 'utf8');
+  const noop = run(f.stateDir, 'use', '--clear', 'claude');
+  assert.equal(noop.status, 0, noop.stderr);
+  assert.equal(readFileSync(prefer, 'utf8'), before);
+  const unknown = run(f.stateDir, 'use', 'pa_missing');
+  assert.equal(unknown.status, 1);
+  assert.equal(unknown.stdout, '');
+  assert.match(unknown.stderr, /Choose an account from the list\./);
+
+  // `pick` saved the same rows a list would, so a cached list never needs a reader.
+  const saved = json(readFileSync(join(f.stateDir, 'readings-v1.json'), 'utf8')) as unknown as { rows: { id: string }[] };
+  assert.deepEqual(saved.rows.map((r) => r.id).sort(), [first.id, second.id].sort());
+});
+
+test('env prints folder exports and unsets that a shell applies, from the roster alone', () => {
+  const f = fixture('accounts-command-env');
+  const claude = ready(f, 'claude');
+  rmSync(f.bins.claude, { force: true });
+  const printed = run(f.stateDir, 'env', claude.id);
+  assert.equal(printed.status, 0, printed.stderr);
+  assert.match(printed.stdout, new RegExp(`^export CLAUDE_CONFIG_DIR=${quote(claude.folder)}$`, 'm'));
+  assert.match(printed.stdout, /^unset ANTHROPIC_API_KEY$/m);
+  assert.doesNotMatch(printed.stdout, /private-fake-token/);
+
+  const evalLine = [process.execPath, BIN, 'env', claude.id, '--state', f.stateDir].map(quote).join(' ');
+  const script = ['export ANTHROPIC_API_KEY=canary', 'export CLAUDE_CODE_USE_BEDROCK=1', `eval "$(${evalLine})"`,
+    `printf '%s|%s|%s' "$CLAUDE_CONFIG_DIR" "${'${ANTHROPIC_API_KEY-unset}'}" "${'${CLAUDE_CODE_USE_BEDROCK-unset}'}"`].join('\n');
+  const shell = spawnSync('/bin/sh', ['-c', script], { encoding: 'utf8' });
+  assert.equal(shell.status, 0, shell.stderr);
+  assert.equal(shell.stdout, `${claude.folder}|unset|unset`);
 });
 
 test('a new folder shares only the plan table, never a sign-in file', () => {

@@ -810,7 +810,7 @@ its directory return value but no longer changes global environment variables.
 
 ### The `byokit-accounts` command
 
-The package ships one `bin`, `byokit-accounts`, for a person who keeps several CLI accounts and wants one list to read and one switch to use. It is a thin front end: every answer comes from `cliAccounts.status`, `cliAccounts.pick` and `cliAccounts.rest`/`unrest`, so the fleet's pick and the person's list can never disagree, and nothing else holds account state. Every command prints JSON and never a secret. It reads `<stateDir>/pool.json` — the tool's absolute CLI binary paths, `HOME` and `PATH` — and `--state <dir>` names the pool folder that holds it:
+The package ships one `bin`, `byokit-accounts`, for a person who keeps several CLI accounts and wants one list to read and one switch to use. It is a thin front end: every answer comes from `cliAccounts.status`, `cliAccounts.pick`, `cliAccounts.preferOf`/`setPrefer` and `cliAccounts.rest`/`unrest`, so the fleet's pick and the person's list can never disagree, and nothing else holds account state. Every command prints JSON and never a secret, except `list` without `--json` (a plain aligned table) and `env` (shell `export`/`unset` lines carrying folder paths only). It reads `<stateDir>/pool.json` — the tool's absolute CLI binary paths, `HOME` and `PATH` — and `--state <dir>` names the pool folder that holds it:
 
 ```json
 {
@@ -821,15 +821,22 @@ The package ships one `bin`, `byokit-accounts`, for a person who keeps several C
 ```
 
 ```sh
-byokit-accounts list --json --state ~/.local/state/byokit-pool   # one row per account: id, tool, name, state,
-                                                                 # restUntil, why, room, windows, readAt
+byokit-accounts list --state ~/.local/state/byokit-pool         # plain table: id, tool, name, state, room, reset, note
+byokit-accounts list --json --state <dir>                       # one row per account: id, tool, name, state, restUntil,
+                                                                # why, room, windows, readAt, stale, preferred
+byokit-accounts list --json --cached --state <dir>               # the same rows from the saved reading, with no read at all
 byokit-accounts add claude --state ~/.local/state/byokit-pool     # { account, signIn }: run signIn.shell, or argv+env
 byokit-accounts add pi --provider openai-codex --state <dir>      # Pi needs the subscription provider id
 byokit-accounts status <id> --state <dir>
 byokit-accounts pick codex --json --state <dir>                   # { ok, id, room, rows, set, unset } for one launch
+byokit-accounts use <id> --state <dir>                            # the fleet's pick uses this account while it is ready
+byokit-accounts use --clear codex --state <dir>                   # ends that tool's preference
+byokit-accounts env <id> --state <dir>                            # eval "$(byokit-accounts env <id>)" sets the folder
 byokit-accounts rest <id> --until 45m --why rate_limit --state <dir>
 byokit-accounts unrest <id> --state <dir>
 ```
+
+`list` and `pick` save the last reading of every row to `<stateDir>/readings-v1.json` after each read — the file whole, through a temporary file in the same folder, renamed over the old one, mode 0600, never a secret — and `list --json --cached` answers from that same file with no read at all. `list --json` adds two fields to each row: `preferred`, present as `true` on exactly the one row a tool's stored account names and absent on every other, and `stale`, which uses the age rule `@byokit/usage` applies to a stored reading (older than a day), with a row that has no `readAt` stale too because it has no reading. `use <id>` finds that account's tool and stores `<tool> -> <id>` in `<stateDir>/prefer-v1.json` (the same atomic 0600 write), which `pick` passes through its existing `prefer` option, so the stored account wins only while it is `ready` and not resting; `use --clear <tool>` removes that tool's entry and succeeds, changing nothing, when there is none. `env <id>` reuses `launchEnv(id)` and prints `export`/`unset` lines with folder paths only.
 
 Exit code is 0 on success and non-zero with one plain sentence on error; `pick` with no candidate exits 1 while still printing every row, so a caller refuses the spawn and can say who is resting. `--until` takes epoch milliseconds, an ISO time or a short wait (`45m`); without it a rest lasts an hour (the rate-limit fallback in `limits.ts`), and `--why` defaults to `manual`.
 

@@ -234,6 +234,24 @@ export function cliAccounts(options: CliOptions) {
   }
   const saveRests = (rows: RestRow[], nowMs = Date.now()) =>
     atomic(restsFile, { version: 1, rests: rows.filter((r) => r.until > nowMs) });
+  // `<tool> -> <id>`: the account the person's own `use` keeps for the fleet. Only ids, never a secret.
+  const preferFile = join(stateDir, 'prefer-v1.json');
+  type PreferRecord = { version: 1; tools: Partial<Record<CliProvider, string>> };
+  function parsePrefer(saved: unknown): PreferRecord['tools'] | undefined {
+    if (!record(saved) || saved.version !== 1 || !record(saved.tools)) return undefined;
+    const tools: PreferRecord['tools'] = {};
+    for (const [tool, id] of Object.entries(saved.tools)) {
+      if (!providers.includes(tool as CliProvider) || !text(id) || !id || id.length > 128) return undefined;
+      tools[tool as CliProvider] = id;
+    }
+    return tools;
+  }
+  function loadPrefer(): PreferRecord['tools'] {
+    if (!directory(stateDir) || realpathSync(stateDir) !== stateDir) throw new CliAccountError('bad-option');
+    const saved = json(preferFile);
+    return saved === undefined ? {} : parsePrefer(saved) ?? {};
+  }
+  const savePrefer = (tools: PreferRecord['tools']) => atomic(preferFile, { version: 1, tools });
   const activeRest = (id: string, nowMs = Date.now()) => loadRests(nowMs).find((r) => r.id === id);
   function safe(r: Row): boolean {
     const parent = join(stateDir, r.provider);
@@ -526,6 +544,20 @@ export function cliAccounts(options: CliOptions) {
       return { ok: false, code, account, message: say(code === 'not_included' ? 'cli.notIncluded' : 'cli.signedOut', { name: account.name }) };
     },
     launchEnv: (id: string) => launch(row(id)),
+    /** The account a tool's stored `use` names, or undefined. */
+    preferOf: (provider: CliProvider): string | undefined => {
+      if (!providers.includes(provider)) throw new CliAccountError('bad-option');
+      return loadPrefer()[provider];
+    },
+    /** Store the account `use <id>` prefers for a tool, or clear it with `use --clear <tool>`. A clear
+     * for a tool with no entry succeeds and changes nothing. */
+    setPrefer: (provider: CliProvider, id?: string): void => {
+      if (!providers.includes(provider) || (id !== undefined && (!text(id) || !id || id.length > 128))) throw new CliAccountError('bad-option');
+      const tools = { ...loadPrefer() };
+      if (id === undefined && !(provider in tools)) return;
+      if (id === undefined) delete tools[provider]; else tools[provider] = id;
+      savePrefer(tools);
+    },
     folderOf: (id: string): string => row(id).folder,
     launchArgs: (id: string): string[] => { const r = row(id); return r.provider === 'pi' ? ['--provider', r.piProvider!] : []; },
     kinds: (provider: CliProvider): string[] => providers.includes(provider) ? [provider] : [],
@@ -542,6 +574,8 @@ export function cliAccounts(options: CliOptions) {
      * most room wins, an unknown reading ranks after a known one, and ties keep list order. */
     async pick(provider: CliProvider, options: { prefer?: string } = {}): Promise<CliPick> {
       if (!providers.includes(provider) || !record(options) || (options.prefer !== undefined && (!text(options.prefer) || !options.prefer))) throw new CliAccountError('bad-option');
+      // The person's own `use` for this tool, unless the caller named an account explicitly.
+      const prefer = options.prefer ?? loadPrefer()[provider];
       const rows: CliPickRow[] = [];
       for (const r of load().filter((v) => !v.found && !v.id.startsWith('found-') && v.provider === provider)) {
         const account = await status(r.id);
@@ -553,7 +587,7 @@ export function cliAccounts(options: CliOptions) {
         rows.push({ account, room: roomOf(reading, nowMs), windows: reading.windows, ...(reading.at !== undefined ? { readAt: reading.at } : {}) });
       }
       const ready = rows.filter((r) => r.account.state === 'ready');
-      const chosen = ready.find((r) => r.account.id === options.prefer)
+      const chosen = ready.find((r) => r.account.id === prefer)
         ?? ready.filter((r) => r.room.left !== 'unknown').sort((a, b) => Number(b.room.left) - Number(a.room.left))[0]
         ?? ready[0];
       if (!chosen) return { ok: false, code: 'none', reason: say('pick.none', { provider }), rows };

@@ -1,20 +1,24 @@
 #!/usr/bin/env node
 // `byokit-accounts` — one source of truth for the CLI accounts a pool owner keeps. `list` and `pick` read the
 // same rows `cliAccounts` already produces, so the fleet's pick and the captain's list never disagree. Every
-// answer is JSON and never carries a secret. Reads `<stateDir>/pool.json`: the absolute path of each CLI
-// binary, plus HOME and PATH. Exit 0 ok, 2 usage, 1 anything else, always with a plain message.
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+// answer is JSON and never carries a secret, except the plain `list` table and `eval "$(byokit-accounts env
+// <id>)"`, which carry folder paths only. Reads `<stateDir>/pool.json`: the absolute path of each CLI
+// binary, plus HOME and PATH. Writes `<stateDir>/readings-v1.json` after every read, so `list --json
+// --cached` answers with no read at all. Exit 0 ok, 2 usage, 1 anything else, always with a plain message.
+import { randomUUID } from 'node:crypto';
+import { existsSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Room, Window } from '@byokit/usage';
 import { CliAccountError, cliAccounts, type CliAccount, type CliPickRow, type CliProvider } from './cli.ts';
 import { REST_MS } from './limits.ts';
 import { poolPrepare } from './prepare.ts';
+import { clock } from './words.ts';
 
 export type CliIo = { stdout(s: string): void; stderr(s: string): void };
 
 const PROVIDERS: CliProvider[] = ['claude', 'codex', 'pi', 'opencode', 'kimi', 'vibe'];
-const USAGE = 'byokit-accounts <list|add|status|pick|rest|unrest> [--state <dir>] ...';
+const USAGE = 'byokit-accounts <list|add|status|pick|use|env|rest|unrest> [--state <dir>] [--json] [--cached] ...';
 /** The command's own two Claude headers; a pool row's room and its Windows need a client that says who it is. */
 const CLAUDE_HEADERS = { 'anthropic-beta': 'oauth-2025-04-20', 'User-Agent': 'byokit-accounts' };
 
@@ -27,16 +31,18 @@ export type PoolRow = {
   room?: Room; windows?: Window[]; readAt?: number;
 };
 
-type Flags = { state?: string; until?: string; why?: string; provider?: string; prefer?: string; json: boolean };
+type Flags = { state?: string; until?: string; why?: string; provider?: string; prefer?: string; json: boolean; cached: boolean; clear: boolean };
 type Args = { command?: string; words: string[]; flags: Flags };
 
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 export function parse(argv: string[]): Args {
-  const words: string[] = []; const flags: Flags = { json: false };
+  const words: string[] = []; const flags: Flags = { json: false, cached: false, clear: false };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!;
     if (arg === '--json') { flags.json = true; continue; }
+    if (arg === '--cached') { flags.cached = true; continue; }
+    if (arg === '--clear') { flags.clear = true; continue; }
     const name = /^--(state|until|why|provider|prefer)$/.exec(arg)?.[1];
     if (name) {
       const value = argv[++i];
@@ -89,6 +95,43 @@ function kitFor(stateDir: string, config: PoolConfig) {
   });
 }
 
+/** The same age rule `@byokit/usage` applies to a stored reading: older than a day is stale. A row with
+ * no `readAt` has no reading, so it is stale too. */
+const STALE_MS = 86_400_000;
+export const isStale = (readAt: number | undefined, nowMs: number): boolean =>
+  readAt === undefined || !Number.isFinite(readAt) || nowMs > readAt + STALE_MS;
+
+/** One listed row: the reading row plus the two fields only a listing adds, never a secret. */
+export type ListedRow = PoolRow & { stale: boolean; preferred?: true };
+
+/** The last reading of every row: `list` and `pick` write it whole, `list --json --cached` answers from it. */
+export type ReadingsRecord = { version: 1; rows: PoolRow[] };
+
+const readingsFile = (stateDir: string) => join(stateDir, 'readings-v1.json');
+const savedRow = (v: unknown): v is PoolRow => record(v) && typeof v.id === 'string' && typeof v.tool === 'string'
+  && typeof v.name === 'string' && typeof v.state === 'string';
+
+/** Every saved row, whole. An unreadable or older file answers nothing rather than guessing. */
+export function loadReadings(stateDir: string): PoolRow[] {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(readingsFile(stateDir), 'utf8'));
+    if (!record(raw) || raw.version !== 1 || !Array.isArray(raw.rows)) return [];
+    return raw.rows.filter(savedRow);
+  } catch { return []; }
+}
+
+/** Replace this tool's rows with the ones just read, keep the other tools', and write the file whole through
+ * a temporary file in the same folder, renamed over the old one, 0600. */
+export function saveReadings(stateDir: string, rows: PoolRow[]): void {
+  const tools = new Set(rows.map((row) => row.tool));
+  const file = readingsFile(stateDir); const tmp = `${file}.${randomUUID()}.tmp`;
+  try {
+    const kept = loadReadings(stateDir).filter((row) => !tools.has(row.tool));
+    writeFileSync(tmp, JSON.stringify({ version: 1, rows: [...kept, ...rows] } satisfies ReadingsRecord), { mode: 0o600, flag: 'wx' });
+    renameSync(tmp, file);
+  } finally { rmSync(tmp, { force: true }); }
+}
+
 export function rowOf(account: CliAccount): PoolRow {
   return { id: account.id, tool: account.provider, name: account.name, state: account.state,
     ...(account.until !== undefined ? { restUntil: account.until } : {}), ...(account.why !== undefined ? { why: account.why } : {}),
@@ -112,6 +155,36 @@ function toolArg(value: string | undefined): CliProvider {
   return value as CliProvider;
 }
 
+/** A value a shell reads back exactly: folder paths only, so nothing a secret can hide in. */
+const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+
+const roomText = (room: Room | undefined): string => room === undefined || room.left === 'unknown' ? 'unknown' : `${room.left}%`;
+
+/** The reading's own reset, else the tightest window's reset, else nothing. */
+const resetText = (row: PoolRow): string => {
+  const room = row.room;
+  const at = room !== undefined && 'resetsAt' in room && room.resetsAt !== undefined ? room.resetsAt
+    : row.windows?.map((w) => w.resetsAt).filter((t): t is number => typeof t === 'number').sort((a, b) => a - b)[0];
+  return at === undefined ? '-' : clock(at);
+};
+
+/** Plain words for the one note a row carries: the account this tool prefers, and its rest. */
+const noteText = (row: ListedRow): string => {
+  const notes: string[] = [];
+  if (row.preferred === true) notes.push('preferred');
+  if (row.state === 'resting' && row.restUntil !== undefined) notes.push(`resting until ${clock(row.restUntil)}`);
+  return notes.join(', ');
+};
+
+/** One plain aligned line per account: no colour, no jargon, never a secret. */
+export function table(rows: ListedRow[]): string {
+  const head = ['id', 'tool', 'name', 'state', 'room', 'reset', 'note'];
+  const cells = rows.map((row): string[] => [row.id, row.tool, row.name, row.state, roomText(row.room), resetText(row), noteText(row)]);
+  const widths = head.map((label, i) => Math.max(label.length, ...cells.map((row) => row[i]!.length)));
+  const line = (values: string[]) => values.map((value, i) => value.padEnd(widths[i]!)).join('  ').trimEnd();
+  return `${[line(head), line(widths.map((w) => '-'.repeat(w))), ...cells.map(line)].join('\n')}\n`;
+}
+
 export async function main(argv: string[], io: CliIo): Promise<number> {
   const emit = (value: unknown) => io.stdout(`${JSON.stringify(value, null, 2)}\n`);
   try {
@@ -120,12 +193,22 @@ export async function main(argv: string[], io: CliIo): Promise<number> {
     if (!isAbsolute(stateDir)) throw new UsageError('--state must be an absolute path');
     const config = readPool(stateDir);
     const kit = kitFor(stateDir, config);
+    /** The rows a listing adds `stale` and `preferred` to, in one place for the live and cached paths. */
+    const listed = (rows: PoolRow[], nowMs: number = Date.now()): ListedRow[] => rows.map((row) => ({
+      ...row, stale: isStale(row.readAt, nowMs), ...(row.id === kit.preferOf(row.tool) ? { preferred: true as const } : {}) }));
+    /** Every tool's rows, saved whole so `list --json --cached` can answer them without a read. */
+    const readAll = async (): Promise<PoolRow[]> => {
+      const read: PoolRow[] = [];
+      // Every tool is asked the same question `pick` answers, so `list` is those rows and nothing else.
+      for (const tool of PROVIDERS) read.push(...(await kit.pick(tool)).rows.map(readingRow));
+      saveReadings(stateDir, read);
+      return read;
+    };
     switch (args.command) {
       case 'list': {
-        const rows: PoolRow[] = [];
-        // Every tool is asked the same question `pick` answers, so `list` is those rows and nothing else.
-        for (const tool of PROVIDERS) rows.push(...(await kit.pick(tool)).rows.map(readingRow));
-        emit(rows);
+        // `--cached` answers from the saved file alone: no binary runs and no reading is taken.
+        const rendered = listed(args.flags.cached ? loadReadings(stateDir) : await readAll());
+        if (args.flags.json) emit(rendered); else io.stdout(table(rendered));
         return 0;
       }
       case 'status': {
@@ -135,15 +218,38 @@ export async function main(argv: string[], io: CliIo): Promise<number> {
       case 'pick': {
         const tool = toolArg(args.words[0]);
         const picked = await kit.pick(tool, args.flags.prefer === undefined ? {} : { prefer: args.flags.prefer });
+        const saved = picked.rows.map(readingRow);
+        const rows = listed(saved);
+        saveReadings(stateDir, saved);
         if (!picked.ok) {
-          emit({ ok: false, tool, reason: picked.reason, rows: picked.rows.map(readingRow) });
+          emit({ ok: false, tool, reason: picked.reason, rows });
           io.stderr(`error: ${picked.reason}\n`);
           return 1;
         }
         emit({ ok: true, id: picked.account.id, tool, name: picked.account.name, room: picked.room,
-          windows: picked.rows.find((r) => r.account.id === picked.account.id)?.windows ?? [], rows: picked.rows.map(readingRow),
+          windows: picked.rows.find((r) => r.account.id === picked.account.id)?.windows ?? [], rows,
           readAt: picked.rows.find((r) => r.account.id === picked.account.id)?.readAt,
           ...kit.launchEnv(picked.account.id) });
+        return 0;
+      }
+      case 'use': {
+        // `use --clear <tool>` ends a tool's preference; it succeeds even when there is none.
+        if (args.flags.clear) {
+          const tool = toolArg(args.words[0]);
+          kit.setPrefer(tool);
+          emit({ ok: true, tool, cleared: true });
+          return 0;
+        }
+        const account = await kit.status(needed(args.words[0], 'use needs an account id, or --clear <tool>'));
+        kit.setPrefer(account.provider, account.id);
+        emit({ ok: true, tool: account.provider, id: account.id, name: account.name, preferred: true });
+        return 0;
+      }
+      case 'env': {
+        // Folder paths only, for `eval "$(byokit-accounts env <id>)"`: no key, no read, no secret.
+        const env = kit.launchEnv(needed(args.words[0], 'env needs an account id'));
+        for (const [key, value] of Object.entries(env.set)) io.stdout(`export ${key}=${shellQuote(value)}\n`);
+        for (const key of env.unset) io.stdout(`unset ${key}\n`);
         return 0;
       }
       case 'add': {
