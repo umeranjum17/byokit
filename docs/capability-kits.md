@@ -1,5 +1,7 @@
 # Capability kits: `@byokit/write`, `@byokit/record`, `@byokit/overlay`, `@byokit/secrets`, `@byokit/statusbar`, `@byokit/push` and `@byokit/share`
 
+**Pointer:** bubble/overlay, status bar and record now live as `@platform-kits/overlay`, `@platform-kits/statusbar` and `@platform-kits/record`. New work goes there.
+
 Foundation spec and builder breakdown. Status: **design approved for build (BK-0); the `write` and `record`
 scaffolds are in the repo with frozen signatures, `@byokit/secrets` (section 11) is implemented,
 and nothing else here is implemented yet. `@byokit/share` (section 14) has its TypeScript

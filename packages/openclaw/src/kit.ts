@@ -21,7 +21,7 @@ import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLo
 import { createRuns, signedInProviders } from './runs.ts';
 import { authStatus, createAuthStatus } from './auth-status.ts';
 import { outputSchema } from './output.ts';
-import { createKeys, type AddKeyResult } from './keys.ts';
+import { createKeys, type AddKeyHandle } from './keys.ts';
 import { routes as routeTable, type RouteView } from './routes.ts';
 import { providerOf } from './pick.ts';
 import { signIn as startSignIn, signOut as engineSignOut, type SignInCtx } from './signin.ts';
@@ -964,9 +964,17 @@ export class OpenClawKit {
   }
 
   /** A member sign-in to `provider`, or a ready key (5.8) whose saved model is that provider's. */
-  signedIn(member: Member, provider: string): Promise<boolean> {
-    return this.providers(member).then(async (names) => names.includes(provider)
-      || providerOf((await this.keys.ready(member, { once: true }))?.model ?? '') === provider).catch(() => false);
+  async signedIn(member: Member, provider: string): Promise<boolean> {
+    // The key probe stands alone: a member-agent admission failure after an engine restart must not hide a sealed key.
+    const keyReady = async (): Promise<boolean> => {
+      try {
+        return providerOf((await this.keys.ready(member, { once: true }))?.model ?? '') === provider;
+      } catch { return false; }
+    };
+    try {
+      if ((await this.providers(member)).includes(provider)) return true;
+    } catch { /* key probe below */ }
+    return keyReady();
   }
 
   signIn(
@@ -1052,14 +1060,18 @@ export class OpenClawKit {
   }
 
   /** Save an explicitly supplied API key (billed per use) in this member's separate key agent. */
-  async addKey(agentId: Member, o: { authChoice: string; apiKey: string; model?: string }): Promise<AddKeyResult> {
-    const result = await this.keys.add(agentId, o);
-    // The lane is indexed as the member's `<provider>.key` account, replacing the previous key's entry.
-    if (result.status === 'ok') {
-      if (this.accountsCtl) await this.accountsCtl.key(agentId, o.authChoice);
-      else this.o.log?.('addKey: the account index is not ready, so the key lane is not indexed');
-    }
-    return result;
+  addKey(agentId: Member, o: { authChoice: string; apiKey: string; model?: string }): AddKeyHandle {
+    const handle = this.keys.add(agentId, o);
+    // Index the lane as `<provider>.key` on ok, and sync live catalogs after a successful save (#541).
+    const done = handle.then(async (result) => {
+      if (result.status === 'ok') {
+        if (this.accountsCtl) await this.accountsCtl.key(agentId, o.authChoice);
+        else this.o.log?.('addKey: the account index is not ready, so the key lane is not indexed');
+        this.syncCatalogs();
+      }
+      return result;
+    });
+    return Object.assign(done, { cancel: () => handle.cancel() });
   }
 
   private async prepareKeyOwner(agentId: string): Promise<void> {

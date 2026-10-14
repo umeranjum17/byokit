@@ -1,0 +1,1 @@
+- **Deprecated:** new home is `@platform-kits/record`; new work goes there.

@@ -419,6 +419,9 @@ import type { Approval, ArtifactBytes, ArtifactRefusal, ArtifactsResult, CallOpt
 import type { SealingAdapter } from '@byokit/secrets';
 type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
+type AddKeyResult = { status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry';
+  reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' };
+type AddKeyHandle = Promise<AddKeyResult> & { cancel(): void };   // cancel clears a pending add (retry/busy)
 
 export type KitOptions = {
   stateDir: string;
@@ -474,7 +477,7 @@ export declare class OpenClawKit {
   addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId },
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
     done: Promise<{ view: SignInView; id: AccountId }> }>;
-  addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string }): Promise<AddKeyResult>;
+  addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string }): AddKeyHandle;
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account>;
   removeAccount(member: Member, id: AccountId): Promise<void>;
   models(member: Member, id: AccountId | { authChoice: string }): Promise<ModelInfo[]>;
@@ -805,9 +808,10 @@ Mapping to `SignInView.why`: setup-admission-busy error → `busy`; person cance
 **providerStatus / signedIn / providers**: live readiness reads; see 5.8 for the usable-provider rule,
 native Claude detection, unknown-status mapping and admission snapshots. `signedIn(member, provider)` is also true
 when the member's key agent holds a ready key (`byokit.keys ready`) whose saved model is that provider's (5.8 API
-keys), so an app that added only a key sees it. That probe is a single `byokit.keys ready` read with no transient retry,
-so during a gateway restart `signedIn` answers `false` at once rather than waiting out the 60 s retry that runs use.
-`providers` stays the member agent's sign-ins, the ones a run without `auth: 'apiKey'` uses.
+keys), so an app that added only a key sees it after an engine restart as well as in the same session. The key probe
+does not depend on the member-agent admission read succeeding. That probe is a single `byokit.keys ready` read with no
+transient retry, so during a gateway restart `signedIn` answers `false` at once rather than waiting out the 60 s retry
+that runs use. `providers` stays the member agent's sign-ins, the ones a run without `auth: 'apiKey'` uses.
 **signOut**: `models.authLogout { provider, agentId, profileIds }` with the agent's own profiles of that provider
 (`byokit.accounts list`; from O14, 5.15). `signIn`, `signedIn`, `providers` and `signOut` address the
 member agent, whose sign-in to a provider is that provider's first account (5.15); `addAccount` adds any further one.
@@ -976,6 +980,8 @@ the engine. External retained sources are touched only when explicitly passed to
   Absent, the request is unchanged and the engine uses its own selection.
 - API keys are opt-in, labelled **API key (billed per use)**, and every API route retains `offer: false`.
   `addKey(member, { authChoice, apiKey, model? })` uses typed `openclaw.setup.activate` with `kind: 'api-key'` only.
+  It returns an `AddKeyHandle`: a thenable `AddKeyResult` with `cancel()` that stops a pending add, clears any partial
+  key best-effort, and settles `retry`/`busy` (no wizard.cancel; key activation is not a wizard session).
   `AddKeyResult` is `{ status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry'; reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' }`.
   `invalid` only means the provider refused the key (`auth`, from the typed activation probe status), the provider's billing refused it (`billing`, the same no-retry outcome: an unchanged key is not retried), or the key was blank (`empty`, checked locally before any provider call).
   An unsupported route or unknown chosen model is `not_included` with `model`. Every other failure is `retry`: timeout/transport `network`,
@@ -1262,8 +1268,9 @@ type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early'
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
 type AddKeyResult = { status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry';
   reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' };   // 5.8, fixed discriminants only
+type AddKeyHandle = Promise<AddKeyResult> & { cancel(): void };   // 5.8; cancel clears a pending add (retry/busy)
 interface OpenClawKit {   // 5.3 signatures; the built kit has addKey and the account methods through removeAccount, the rest lands with O14
-  addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string }): Promise<AddKeyResult>;
+  addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string }): AddKeyHandle;
   addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId },
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
     done: Promise<{ view: SignInView; id: AccountId }> }>;
@@ -1718,13 +1725,14 @@ only routes with `keyEntry` (else `not_included`), activates typed `openclaw.set
 agentId: byokit-key-<member>, authChoice, apiKey }` (180 s) on that lane, seals it, records its saved model, and
 indexes the lane as `<provider>.key` (replacing whatever `<*.key>` entry the member already held, keeping
 `addedAt`). A new key replaces the old one on the same agent; there is no `<member>--<hex6>` agent per later key.
-Returns `AddKeyResult` (`{ status, reason }`, 5.8); any result but `ok` leaves no ready key and no index entry for
-that attempt. A key the engine accepted that cannot be sealed (a late restart or a failed seal) is cleared and
-returns `retry`, never `invalid`; if that clear is refused, the kit's start sweep (the `byokit.keys` bullet in §5.8)
-clears it. The key never reaches kit storage, the index, logs, errors or a return value, and is never sent over a
-link (`kit.addAccount` refuses `key`; no link op adds an account yet). `agent:byokit-key-<member>:` keys are that
-member's (D9, matched exactly); `byokit.keys ready`/`prepare` serve only that lane. `RunSpec.auth: 'apiKey'` runs
-on the lane with its saved model, or a supplied model of the same provider (5.8); another provider ends
+Returns an `AddKeyHandle` (thenable `AddKeyResult` with `cancel()`; 5.8). `cancel()` stops a pending add and clears
+any partial profile (`retry`/`busy`); it never calls `wizard.cancel`. Any result but `ok` leaves no ready key and no
+index entry for that attempt. A key the engine accepted that cannot be sealed (a late restart or a failed seal) is
+cleared and returns `retry`, never `invalid`; if that clear is refused, the kit's start sweep (the `byokit.keys`
+bullet in §5.8) clears it. The key never reaches kit storage, the index, logs, errors or a return value, and is never
+sent over a link (`kit.addAccount` refuses `key`; no link op adds an account yet). `agent:byokit-key-<member>:` keys
+are that member's (D9, matched exactly); `byokit.keys ready`/`prepare` serve only that lane. `RunSpec.auth: 'apiKey'`
+runs on the lane with its saved model, or a supplied model of the same provider (5.8); another provider ends
 `kind: 'plan'`. Per-member serialization of key runs uses the locks below.
 
 **Other operations.**
@@ -1746,7 +1754,11 @@ on the lane with its saved model, or a supplied model of the same provider (5.8)
   directory removal and the entry drop run. A write the engine lands even later cannot be ruled out by a bounded
   check, so the kit also removes, on every `prepare` and again after the sealed auth store restores (before launch),
   each `<root>/state/agents/<member>--[0-9a-f]{6}` directory that a removal recorded as `gone` in its member's index
-  file and that no index names. Nothing else is swept: a legacy member's own directory is never recorded, so it stays.
+  file and that no index names. A member-agent removal also records its provider in that index's `dropped` list; the same
+  prepare sweep removes that provider's auth profiles from the member agent's own store (`auth-profiles.json` and the
+  native `auth_profile_store`) while no index entry on that member agent names it again, so a late token refresh after
+  `authLogout` cannot bring the removed account back. A live member sign-in the index has not yet named is never swept.
+  Nothing else is swept: a legacy member's own directory is never recorded, so it stays.
   Either path then re-seals the live auth store at once while the engine runs (`AuthStore.reseal`), so
   `auth-store.sealed` and `auth-store.objects/` stop holding the removed profile without waiting for stop. The
   re-seal never reads the live databases: each keeps its last sealed copy until stop, when `persist` seals them.
