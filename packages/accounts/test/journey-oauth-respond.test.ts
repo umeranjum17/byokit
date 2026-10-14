@@ -110,8 +110,7 @@ test('two Grok accounts each answer with their own sign-in; a 429 rests only tha
     assert.ok(expired instanceof ResponseError && expired.kind === 'signed_out', 'signed out, typed');
     assert.equal(xai.requests.length, sent, 'no request after a refused refresh');
     assert.equal(await store.read('xai'), undefined, "Work's sign-in is gone");
-    assert.notEqual((await accounts.status(1, work)).state, 'ready');
-    assert.equal((await accounts.status(1, personal)).state, 'resting', 'Personal is untouched');
+    assert.deepEqual((await accounts.list(1)).map((r) => [r.id, r.state]), [[personal, 'resting']], 'only Work is gone; Personal still rests');
     seen.push(expired, expired.message);
 
     // Neither token appears anywhere a person or an app reads.
