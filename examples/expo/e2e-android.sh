@@ -20,7 +20,8 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 [ -d android ] || CI=1 npx expo prebuild --platform android --no-install
-(cd android && EXPO_PUBLIC_OPENAI_BASE="http://10.0.2.2:$port" NODE_ENV=production ./gradlew assembleRelease --rerun-tasks -q)
+(cd android && EXPO_PUBLIC_OPENAI_BASE="http://10.0.2.2:$port" EXPO_PUBLIC_DEVICE_BASE="http://10.0.2.2:$port" \
+  EXPO_PUBLIC_CLAUDE_BASE="http://10.0.2.2:$port" NODE_ENV=production ./gradlew assembleRelease --rerun-tasks -q)
 
 node ../../packages/accounts/src/testing/mock-openai.ts "$port" >"$log" 2>&1 &
 mock=$!
@@ -35,12 +36,17 @@ scroll() {
   size=$(a shell wm size | tail -1 | grep -oE '[0-9]+x[0-9]+')
   w=${size%x*}; h=${size#*x}
   if [ "$1" = down ]; then from=$((h * 3 / 4)); to=$((h / 4)); else from=$((h / 4)); to=$((h * 3 / 4)); fi
-  a shell input swipe "$((w / 2))" "$from" "$((w / 2))" "$to" 300
+  # Swipe in the screen's side margin: a drag that starts on a text field scrolls the field, not the page.
+  a shell input swipe "$((w / 20))" "$from" "$((w / 20))" "$to" 300
 }
 seek() {
   for direction in up down; do
     for _ in $(seq 16); do
-      screen | grep -q "resource-id=\"$1\"" && return
+      # RN may expose off-screen nodes with inverted clipped bounds. Only use a
+      # positive on-screen rectangle, and tap the coordinates from this same dump.
+      xy=$(screen | tr '>' '\n' | grep "resource-id=\"$1\"" | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p' |
+        awk '$3 > $1 && $4 > $2 { print int(($1+$3)/2), int(($2+$4)/2); exit }')
+      [ -n "$xy" ] && return
       scroll "$direction"
     done
   done
@@ -48,8 +54,6 @@ seek() {
 }
 tap() {
   seek "$1"
-  xy=$(screen | grep -o "resource-id=\"$1\"[^>]*bounds=\"[^\"]*\"" | sed 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]"/\1 \2 \3 \4/' | awk '{print int(($1+$3)/2), int(($2+$4)/2)}')
-  [ -n "$xy" ] || { echo "no $1 on screen: $(words)" >&2; exit 1; }
   a shell input tap $xy
 }
 expect() {
@@ -89,9 +93,23 @@ fi
 node e2e-host.mts "$((port + 1))" >"$hostlog" 2>&1 &
 host=$!
 for _ in $(seq 20); do grep -q '^offer ' "$hostlog" && break; sleep 1; done
+offer=$(sed -n 's/^offer //p' "$hostlog")
 tap offer
-a shell input text "$(sed -n 's/^offer //p' "$hostlog")"
-a shell input keyevent 111 # close the keyboard
+# Let the controlled React Native input settle between chunks; closing the keyboard
+# immediately after one long injection can cut off its final characters.
+for chunk in $(printf '%s\n' "$offer" | fold -w 64); do
+  a shell input text "$chunk"
+  sleep 0.2
+done
+# Keep the keyboard open until the native field acknowledges the entire offer.
+held=''
+for _ in $(seq 20); do
+  held=$(value offer)
+  [ "$held" = "$offer" ] && break
+  sleep 1
+done
+[ "$held" = "$offer" ] || { echo "FAILED, pairing offer has ${#held} characters, expected ${#offer}" >&2; exit 1; }
+a shell input keyevent 111 # close the keyboard only after the field has settled
 tap pair
 expect "This device is paired with Kitchen computer."
 expect "Connected to Kitchen computer."
@@ -156,3 +174,7 @@ expect "ChatGPT isn't signed in yet."
 grep -q "POST /oauth/revoke" "$log" && echo "ok: sign-out ended the sign-in at the stand-in OpenAI"
 grep -q "POST /oauth/token refresh_token" "$log" && echo "ok: refreshed"
 echo "passed on $serial"
+# The maintained verify skill adds the account/picker native journey only when requested.
+if [ -n "${EXPO_ACCOUNTS_EVIDENCE:-}" ]; then
+  . ../../.agents/skills/verify-byokit/capture/expo-account-journey.sh
+fi

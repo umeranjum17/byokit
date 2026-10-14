@@ -6,7 +6,7 @@
 // at the stand-in OpenAI and a link host on this computer (see e2e-android.sh):
 //   EXPO_PUBLIC_OPENAI_BASE=http://10.0.2.2:21455 npx expo run:android   (after `npm run mock` in this folder)
 //   EXPO_PUBLIC_DEVICE_BASE / EXPO_PUBLIC_CLAUDE_BASE override the device-flow and Claude plan endpoints; unset uses the real providers.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { UsageDemo } from './UsageDemo.tsx';
 import { CloudM6Demo } from './CloudM6Demo.tsx';
 import { ScreenDemo } from './ScreenDemo.tsx';
@@ -24,7 +24,7 @@ import { boxKeyPairFromSeed, openBox, openSecretBox, sealBox, sealSecretBox, sig
 import { forgettableStore, pairInput, pairingGeneration } from './pairing.ts';
 import { setupKey, setupProvider, setupWords } from './cloud-setup.ts';
 import { errorWords, MachineError, type MachineStore } from '@byokit/cloud';
-import { linkWords, pairingView, useConnect, useSignIn, type PairPhase, type UseSignIn } from '@byokit/ui';
+import { accountsSource, linkWords, pairingView, useAccounts, useConnect, useModelPicker, useSignIn, type ModelPickerSource, type PairPhase, type UseModelPicker, type UseSignIn } from '@byokit/ui';
 import { overlay, stateWords, type OverlayState } from '@byokit/bubble';
 import { stateWords as chipWords, status as chip } from '@byokit/statusbar';
 import { focusedField } from '@byokit/bubble/focused-field';
@@ -93,7 +93,7 @@ function SignInSheet({ k, options, onClose }: { k: string; options: UseSignIn; o
 }
 
 /** Ask the signed-in plan, the answer streaming in; then (ChatGPT) a yes/no decision on the same question. */
-function Ask({ k }: { k: string }) {
+function Ask({ k, picker }: { k: string; picker: UseModelPicker }) {
   const s = useStyles();
   const { name } = PROVIDERS[k];
   const [question, setQuestion] = useState('');
@@ -101,28 +101,92 @@ function Ask({ k }: { k: string }) {
   const [decision, setDecision] = useState('');
   const ask = async () => {
     setAnswer(''); setDecision('');
+    const chosen = picker.picker;
+    if (!chosen?.ok) {
+      setAnswer(chosen?.rows.find((r) => r.selected)?.detail || 'Choose an available account.');
+      return;
+    }
+    const select = { account: chosen.account! };
+    const model = chosen.model!;
     const onText = (d: string) => setAnswer((a) => a + d);
     try {
       if (k === 'claude') {
-        setAnswer(await accounts.respond(ME, { provider: 'claude', model: PROVIDERS.claude.models.strong, max_tokens: 1024,
+        setAnswer(await accounts.respond(ME, { provider: 'claude', select, model, max_tokens: 1024,
           system: 'Answer in a few short sentences.', messages: [{ role: 'user', content: question }], onText }));
         return;
       }
-      const finished = await accounts.respond(ME, { instructions: 'Answer in one short sentence.', input: question, onText });
+      const finished = await accounts.respond(ME, { select, model, instructions: 'Answer in one short sentence.', input: question, onText });
       setAnswer(finished);
       const { urgent } = await decide({ text: question }, { urgent: { kind: 'yesno', question: 'Does this need doing today?' } }, {
         privacy: 'may-leave',
-        backends: [answerer({ name: 'chatgpt', leaves: true, ask: (p, signal) => accounts.respond(ME, { instructions: 'Reply with JSON only.', input: p, signal }) })],
+        backends: [answerer({ name: 'chatgpt', leaves: true, ask: (p, signal) => accounts.respond(ME, { select, model, instructions: 'Reply with JSON only.', input: p, signal }) })],
       });
       setDecision(urgent.abstained ? 'Not sure if it needs doing today.' : urgent.answer ? 'Needs doing today.' : 'Can wait.');
     } catch (e: any) { setAnswer(e.message); }
   };
   return (
-    <View style={s.sheet}>
+    <>
       <TextInput testID={tid(k, 'question')} value={question} onChangeText={setQuestion} placeholder={`Ask ${name} something`} style={s.input} />
       <Button id={tid(k, 'ask')} label="Ask" onPress={ask} />
       {!!answer && <Text testID={tid(k, 'answer')} style={s.words}>{answer}</Text>}
       {!!decision && <Text testID="decision" style={s.small}>{decision}</Text>}
+    </>
+  );
+}
+
+/** Both hooks read the same provider scope; the kit owns room words, Auto and refusal reasons.
+ * No usage reader is configured here, so room is honestly unknown, never an invented percentage. */
+function providerSource(k: string): ModelPickerSource {
+  const room = () => ({ left: 'unknown' as const });
+  const base = accountsSource(accounts, ME, room);
+  return { ...base,
+    accounts: async () => (await base.accounts()).filter((a) => a.provider === k),
+    auto: () => accounts.pick(ME, { account: 'auto', provider: k }, room) };
+}
+
+function ProviderAccounts({ k, connected }: { k: string; connected: boolean }) {
+  const s = useStyles();
+  const source = useMemo(() => providerSource(k), [k]);
+  const list = useAccounts(source);
+  const pick = useModelPicker(source);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    refreshers.set(`rooms:${k}`, () => { void list.refresh(); void pick.refresh(); });
+    return () => { refreshers.delete(`rooms:${k}`); };
+  }, [k, list.refresh, pick.refresh]);
+  const view = pick.picker;
+  const chosen = view?.rows.find((r) => r.selected);
+  const error = list.error ?? pick.error;
+  if (!list.rows.length && !error) return null;
+  return (
+    <View testID={tid(k, 'accounts')} style={s.sheet}>
+      <Text style={s.name}>Accounts</Text>
+      {[...list.rows].sort((a, b) => Number(b.state === 'ready') - Number(a.state === 'ready')).map((r) => <View key={r.id}>
+        <Text style={s.words}>{r.title}</Text>
+        <Text style={s.small}>{r.state === 'ready' ? 'Ready · ' : ''}{r.detail}</Text>
+      </View>)}
+      {!!error && <Text style={s.words}>{error instanceof Error ? error.message : String(error)}</Text>}
+      {!!view && <>
+        <Pressable testID={tid(k, 'picker')} accessibilityRole="button" accessibilityState={{ expanded: open }}
+          style={s.choice} onPress={() => setOpen(!open)}>
+          <Text style={s.words}>{chosen?.title ?? 'Choose an account and model'} {open ? '−' : '+'}</Text>
+        </Pressable>
+        {open && view.rows.map((r, i) => <View key={r.key}>
+          <Pressable testID={tid(k, `pick-${i}`)} accessibilityRole="button" style={s.choice}
+            accessibilityState={{ selected: r.selected, disabled: r.disabled }} disabled={r.disabled}
+            onPress={() => pick.select({ account: r.key })}>
+            <Text style={s.words}>{r.selected ? '✓ ' : ''}{r.title}</Text>
+            {!!r.detail && <Text style={s.small}>{r.detail}</Text>}
+          </Pressable>
+          {r.kind === 'account' && r.models.map((m, j) => <Pressable key={m.id} testID={tid(k, `model-${i}-${j}`)}
+            accessibilityRole="button" style={s.choice} accessibilityState={{ selected: r.selected && m.selected }}
+            onPress={() => pick.select({ account: r.key, model: m.id })}>
+            <Text style={s.small}>{r.selected && m.selected ? '✓ ' : ''}{m.name}{m.available ? '' : ` · ${r.detail || 'Unavailable'}`}</Text>
+          </Pressable>)}
+        </View>)}
+        {!open && !!chosen?.detail && <Text testID={tid(k, 'pick-reason')} style={s.small}>{chosen.detail}</Text>}
+      </>}
+      {connected && (k === 'chatgpt' || k === 'claude') && <Ask k={k} picker={pick} />}
     </View>
   );
 }
@@ -152,9 +216,9 @@ function Plan({ k, options, onPick, onClose }: { k: string; options?: UseSignIn;
       <Text testID={tid(k, 'status')} style={s.small}>{status?.words ?? '…'}</Text>
       {!!plan?.email && <Text testID={tid(k, 'who')} style={s.small}>Signed in as {plan.email}</Text>}
       {!!note && <Text testID={tid(k, 'note')} style={s.small}>{note}</Text>}
+      {!options && <ProviderAccounts k={k} connected={signedIn(status)} />}
       {options ? <SignInSheet key={k} k={k} options={options} onClose={() => { onClose(); refresh(); }} />
         : signedIn(status) ? <>
-          {(k === 'chatgpt' || k === 'claude') && <Ask k={k} />}
           {k === 'chatgpt' && <Button id="recheck" label="Check the sign-in" onPress={async () => {
             // Forces a refresh (the token rotates): what the app does when ChatGPT turns a request away.
             setNote((await accounts.recheck(ME, k)) ? 'Still signed in: the sign-in was refreshed.' : 'Signed out.');
@@ -434,7 +498,10 @@ function KitDemo() {
     } catch (e) { setSealed(`Seal failed: ${String(e)}`); }
   };
   useEffect(() => {
-    accounts.onChange = (_member, key) => { refreshers.get(key)?.(); };
+    accounts.onChange = (_member, key) => {
+      refreshers.get(key)?.();
+      for (const [id, refresh] of refreshers) if (id.startsWith('rooms:')) refresh();
+    };
     Promise.all(accounts.providers.map((p) => accounts.signedIn(ME, p.key))).then(() => accounts.keepFresh([ME]));
   }, []);
   return (
@@ -467,6 +534,7 @@ const s = StyleSheet.create({
   title: { fontSize: 24, fontWeight: '600' },
   card: { gap: 10, padding: 16, borderRadius: 16, borderWidth: 1, borderColor: '#e4e2dc', backgroundColor: '#fff' },
   row: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+  choice: { minHeight: 44, paddingVertical: 10, gap: 4 },
   name: { fontSize: 19, fontWeight: '600' },
   badge: { fontSize: 13, fontWeight: '600', backgroundColor: '#ecebe6', borderRadius: 99, paddingHorizontal: 10, paddingVertical: 3, overflow: 'hidden' },
   quiet: { fontSize: 15, color: '#6b6a66', textDecorationLine: 'underline', paddingVertical: 6 },
