@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setImmediate as turn, setTimeout as delay } from 'node:timers/promises';
 import { cliAccounts, remoteCliHost, signInLock } from '../src/cli.ts';
@@ -672,4 +672,59 @@ test('a login that prints no code fails to start without a row', async () => {
   assert.equal(started.error, 'failed');
   assert.deepEqual(await cli.list(), []);
   repliesClean(seen);
+});
+
+test('a managed folder with history signs in again after a cancel', async () => {
+  const root = scratchDir('remote-managed-history-again');
+  const native = fakeClaude(join(root, 'bins'));
+  const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
+  const home = join(stateDir, 'home'); mkdirSync(home);
+  const folder = join(home, '.claude');
+  const history = join(root, 'history'); mkdirSync(history);
+  const cli = cliAccounts({ stateDir, bins: { claude: native.bin }, env: { HOME: home, PATH: '/unused' }, managedFolders: { claude: folder }, historyFrom: { claude: history } });
+  const first = await cli.add('claude');
+  assert.equal((await cli.cancel(first.account.id)).removed, true);
+  const again = await cli.add('claude');
+  assert.equal(again.account.state, 'signing');
+  assert.equal(readlinkSync(join(folder, 'projects')), history);
+});
+
+test('a login that exits 0 before printing a URL reports ready, not a failure', { timeout: 10_000 }, async () => {
+  const root = scratchDir('remote-silent-success');
+  const bins = join(root, 'bins'); mkdirSync(bins, { recursive: true });
+  const bin = join(bins, 'claude-silent');
+  const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
+  const home = join(stateDir, 'home'); mkdirSync(home);
+  const folder = join(home, '.claude');
+  const granted = join(folder, 'granted');
+  writeFileSync(bin, `#!${process.execPath}
+const fs = require('node:fs');
+if (process.argv[2] === 'auth' && process.argv[3] === 'login') fs.writeFileSync(${JSON.stringify(granted)}, '');
+if (process.argv[2] === 'auth' && process.argv[3] === 'status') console.log(JSON.stringify(fs.existsSync(${JSON.stringify(granted)}) ? { loggedIn: true, email: ${JSON.stringify(EMAIL)} } : { loggedIn: false }));
+`, { mode: 0o755 });
+  const cli = cliAccounts({ stateDir, bins: { claude: bin }, env: { HOME: home, PATH: '/unused' }, managedFolders: { claude: folder } });
+  const host = remoteCliHost({ cli, bins: { claude: bin }, waitCapMs: 60_000 });
+  try {
+    const started = await host.start('claude');
+    assert.equal(started.ok ? 'ok' : started.error, 'already', 'the settled login is reported as signed in');
+    assert.equal((await cli.list())[0]?.state, 'ready');
+    assert.ok(existsSync(join(folder, '.byokit-signin-complete')));
+  } finally { await host.close(); }
+});
+
+test('removing a managed Claude account deletes its login files and keeps the folder', async () => {
+  const root = scratchDir('remote-managed-remove-login');
+  const native = fakeClaude(join(root, 'bins'));
+  const stateDir = join(root, 'runtime'); mkdirSync(stateDir);
+  const home = join(stateDir, 'home'); mkdirSync(home);
+  const folder = join(home, '.claude');
+  const cli = cliAccounts({ stateDir, bins: { claude: native.bin }, env: { HOME: home, PATH: '/unused' }, managedFolders: { claude: folder } });
+  const added = await cli.add('claude');
+  writeFileSync(join(folder, '.credentials.json'), '{}');
+  writeFileSync(join(folder, '.claude.json'), '{}');
+  await cli.remove(added.account.id);
+  assert.equal(existsSync(join(folder, '.credentials.json')), false);
+  assert.equal(existsSync(join(folder, '.claude.json')), false);
+  assert.equal(existsSync(folder), true);
+  assert.deepEqual(await cli.list(), []);
 });

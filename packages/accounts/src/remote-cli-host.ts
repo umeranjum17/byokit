@@ -292,9 +292,8 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     }
     signal?.removeEventListener('abort', abort);
     if (!found || signal?.aborted) {
-      const failure = fail(provider, signal?.aborted ? 'cancelled' : 'failed');
-      await stop(session, failure);
-      return failure;
+      const result = await stop(session, fail(provider, signal?.aborted ? 'cancelled' : 'failed'));
+      return result.ok ? fail(provider, 'already') : result;
     }
     shown = true;
     session.display = { id, provider, ...found };

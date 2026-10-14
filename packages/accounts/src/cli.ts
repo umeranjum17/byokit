@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readlinkSync, readSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { identity, type Identity } from '@byokit/usage';
 import { say } from './words.ts';
@@ -63,6 +63,14 @@ function marker(file: string): boolean {
     if (!stat.isFile() || stat.isSymbolicLink()) throw new CliAccountError('bad-option');
     return true;
   } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; }
+}
+// A managed folder outlives its roster row, so an existing history link (or a real history directory) is kept.
+function historyLink(source: string, link: string) {
+  let stat: ReturnType<typeof lstatSync> | undefined;
+  try { stat = lstatSync(link); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  if (stat && (!stat.isSymbolicLink() || readlinkSync(link) === source)) return;
+  if (stat) unlinkSync(link);
+  symlinkSync(source, link, 'dir');
 }
 function json(file: string): unknown {
   let fd: number | undefined;
@@ -283,9 +291,15 @@ export function cliAccounts(options: CliOptions) {
       return { ...account, name: r.name.trim() || (r.provider === 'pi' ? account.name : suggestName(info.email, r.provider)), state: info.signedIn ? 'ready' : signing && !info.why ? 'signing' : 'signed_out', ...(info.why ? { why: info.why } : {}), ...(info.email ? { email: info.email } : {}), ...(info.plan ? { plan: info.plan } : {}) };
     });
   }
+  // A managed folder stays for the runtime, but its login files go with the account.
+  function forget(r: Row) {
+    if (managed(r)) {
+      rmSync(pending(r), { force: true }); rmSync(complete(r), { force: true });
+      for (const file of ['.credentials.json', '.claude.json']) rmSync(join(r.folder, file), { force: true });
+    } else rmSync(r.folder, { recursive: true, force: true });
+  }
   async function remove(id: string) {
-    return serial(id, async () => { const r = row(id); if (managed(r)) { rmSync(pending(r), { force: true }); rmSync(complete(r), { force: true }); }
-      else rmSync(r.folder, { recursive: true, force: true }); save(load().filter((v) => v.id !== id), r.provider); created.delete(id); });
+    return serial(id, async () => { const r = row(id); forget(r); save(load().filter((v) => v.id !== id), r.provider); created.delete(id); });
   }
   type Added = { account: CliAccount; signIn: SignInCommand };
   function add(provider: 'pi', metadata: { piProvider: PiProvider }): Promise<Added>;
@@ -301,14 +315,13 @@ export function cliAccounts(options: CliOptions) {
     if (managed(r) && load().some(row => row.folder === r.folder)) throw new CliAccountError('prepare-failed');
     if (!directory(r.folder, true)) throw new CliAccountError('bad-option');
     try {
-      if (history[provider]) symlinkSync(history[provider]!, join(r.folder, provider === 'claude' ? 'projects' : 'sessions'), 'dir');
+      if (history[provider]) historyLink(history[provider]!, join(r.folder, provider === 'claude' ? 'projects' : 'sessions'));
       const signIn = begin(r);
       await options.prepare?.(r.folder, provider);
       if (!safe(r)) throw new CliAccountError('prepare-failed');
       save([...load(), r], provider); created.add(r.id);
       return { account: { id: r.id, provider, name: r.name || (provider === 'pi' ? piRoutes.find(v => v.upstream.id === r.piProvider)!.name : suggestName(undefined, provider)), billing: 'subscription', state: 'signing', ...(r.piProvider ? { piProvider: r.piProvider } : {}), ...(r.adoptedFrom ? { adoptedFrom: r.adoptedFrom } : {}), addedAt: r.addedAt }, signIn };
-    } catch { if (managed(r)) { rmSync(pending(r), { force: true }); rmSync(complete(r), { force: true }); }
-      else rmSync(r.folder, { recursive: true, force: true }); throw new CliAccountError('prepare-failed'); }
+    } catch { forget(r); throw new CliAccountError('prepare-failed'); }
   }
   return {
     list: async (): Promise<CliAccount[]> => Promise.all(load().filter((r) => !r.found && !r.id.startsWith('found-')).map((r) => status(r.id))),
