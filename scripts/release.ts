@@ -373,6 +373,14 @@ function sh(cmd: string, args: string[], opts: { cwd?: string; stdio?: "inherit"
   return r.stdout ?? "";
 }
 
+// True when `ancestor` is reachable from `descendant` in history (equal counts);
+// an unknown ref fails closed as not-an-ancestor.
+function isAncestor(ancestor: string, descendant: string): boolean {
+  if (ancestor === "" || descendant === "") return false;
+  const r = spawnSync("git", ["merge-base", "--is-ancestor", ancestor, descendant], { cwd: root, encoding: "utf8" });
+  return r.status === 0;
+}
+
 function npmView(args: string[]): { ok: boolean; out: string; err: string } {
   const r = spawnSync("npm", ["view", ...args], { cwd: root, encoding: "utf8" });
   return { ok: r.status === 0, out: r.stdout ?? "", err: r.stderr ?? "" };
@@ -576,17 +584,25 @@ function cmdPublish(rest: string[]): void {
   if (dirty && !dryRun) throw new Error("publish refuses a dirty tree");
   if (dirty) console.log("warning: dirty tree (dry-run)");
   let head = sh("git", ["rev-parse", "HEAD"]).trim();
-  void head;
+  let originMain = "";
   let onMain = false;
   try {
     sh("git", ["fetch", "origin", "main"]);
     head = sh("git", ["rev-parse", "HEAD"]).trim();
-    const originMain = sh("git", ["rev-parse", "origin/main"]).trim();
+    originMain = sh("git", ["rev-parse", "origin/main"]).trim();
     onMain = head === originMain;
   } catch {
     onMain = false;
   }
-  if (!onMain && !dryRun) throw new Error("publish refuses: HEAD != origin/main");
+  if (!onMain && !dryRun) {
+    // A workflow_run whose CI sha a later merge already superseded: that merge's
+    // own run publishes, so this one exits clean instead of failing.
+    if (process.env.GITHUB_EVENT_NAME === "workflow_run" && isAncestor(head, originMain)) {
+      console.log(`superseded by ${originMain}`);
+      return;
+    }
+    throw new Error("publish refuses: HEAD != origin/main");
+  }
   if (!onMain) console.log("warning: HEAD != origin/main (dry-run)");
   // CI gate: check, browser, engine, react-native and android passed on this sha.
   let ciOk = false;
