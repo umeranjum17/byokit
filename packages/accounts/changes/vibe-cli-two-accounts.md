@@ -1,0 +1,1 @@
+- FEAT: Managed Vibe CLI keeps one `@byokit/secrets` API-key entry per account (`accounts.vibe:key.<accountId>`), so two accounts launch under distinct `VIBE_HOME` folders and resume independently (`resumeArgs` → `--resume`); the owner's `~/.vibe` and `MISTRAL_API_KEY` override are never used.

@@ -11,7 +11,7 @@ import type { AccountLike } from './multi.ts';
 import routes from './routes.json' with { type: 'json' };
 export { remoteCliHost, remoteCliState, type RemoteCliHostOptions } from './remote-cli-host.ts';
 
-export type CliProvider = 'claude' | 'codex' | 'pi' | 'opencode' | 'kimi';
+export type CliProvider = 'claude' | 'codex' | 'pi' | 'opencode' | 'kimi' | 'vibe';
 /** Published Pi subscription OAuth provider id, validated against the route catalogue. */
 export type PiProvider = string;
 /** Shared selection surface; the CLI entry remains Node-only. */
@@ -24,7 +24,7 @@ export type CliOptions = {
   /** Explicit runtime-owned folders inside stateDir; never removed with roster bookkeeping. */
   managedFolders?: { claude?: string; codex?: string };
   prepare?: (folder: string, provider: CliProvider) => Promise<void>;
-  /** Device-owned secrets backend for key-based providers (OpenCode): `saveKey` writes the plan key
+  /** Device-owned secrets backend for key-based providers (OpenCode, Vibe): `saveKey` writes the key
    * here, one entry per managed account, and `logout` deletes that account's entry. The key never
    * enters argv, env, a file or a log. */
   keyStore?: Keystore;
@@ -34,10 +34,12 @@ export type CliLaunchResult =
   | { ok: false; code: 'signed_out' | 'not_included' | 'resting'; account: CliAccount; message: string };
 export type CliRest = { until: number; why: string };
 export type SignInCommand = { argv: string[]; env: Record<string, string>; completion: string; shell: string;
-  /** Display in the TUI; never pass this as an initial model message. OpenCode has no native login to
-   * spawn: its instruction asks for a hidden plan-key entry instead, and `saveKey` completes it. */
-  instruction?: { words: 'cli.piLogin'; command: `/login ${string}` } | { words: 'cli.opencodeKey' };
+  /** Display in the TUI; never pass this as an initial model message. OpenCode and Vibe have no native
+   * login to spawn: their instruction asks for a hidden key entry instead, and `saveKey` completes it. */
+  instruction?: { words: 'cli.piLogin'; command: `/login ${string}` } | { words: 'cli.opencodeKey' } | { words: 'cli.vibeKey' };
 };
+/** Secrets route for managed Vibe API keys (`accounts.vibe:key.<accountId>`). */
+export const VIBE_API_KEY_ROUTE = 'vibe:key';
 export class CliAccountError extends Error {
   override name = 'CliAccountError';
   readonly code: 'unknown-account' | 'invalid-name' | 'kind-mismatch' | 'prepare-failed' | 'bad-option';
@@ -49,7 +51,7 @@ export class CliAccountError extends Error {
 type Row = { id: string; provider: CliProvider; name: string; folder: string; found: boolean; piProvider?: PiProvider; adoptedFrom?: string; addedAt?: number };
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === 'string' && !v.includes('\0');
-const providers: CliProvider[] = ['claude', 'codex', 'pi', 'opencode', 'kimi'];
+const providers: CliProvider[] = ['claude', 'codex', 'pi', 'opencode', 'kimi', 'vibe'];
 const piRoutes = routes.filter(r => r.upstream.surface === 'accounts' && r.billing === 'subscription' && r.upstream.flow === 'present' && (r.via === 'browser' || r.via === 'code'));
 const validPiProvider = (p: unknown): p is PiProvider => text(p) && piRoutes.some(r => r.upstream.id === p);
 const shed = {
@@ -59,8 +61,11 @@ const shed = {
   opencode: ['OPENCODE_API_KEY', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'],
   // Kimi Code stores OAuth under KIMI_CODE_HOME; unset key/path overrides so a host key cannot replace the managed login.
   kimi: ['KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_CODE_CREDENTIALS', 'KIMI_CREDENTIALS', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'],
+  vibe: ['MISTRAL_API_KEY'],
 };
-const folderVar = (p: CliProvider) => p === 'claude' ? 'CLAUDE_CONFIG_DIR' : p === 'pi' ? 'PI_CODING_AGENT_DIR' : p === 'opencode' ? 'OPENCODE_CONFIG_DIR' : p === 'kimi' ? 'KIMI_CODE_HOME' : 'CODEX_HOME';
+const folderVar = (p: CliProvider) => p === 'claude' ? 'CLAUDE_CONFIG_DIR' : p === 'pi' ? 'PI_CODING_AGENT_DIR' : p === 'opencode' ? 'OPENCODE_CONFIG_DIR' : p === 'kimi' ? 'KIMI_CODE_HOME' : p === 'vibe' ? 'VIBE_HOME' : 'CODEX_HOME';
+const keyRoute = (p: 'opencode' | 'vibe') => p === 'opencode' ? OPENCODE_GO_PLAN_ROUTE : VIBE_API_KEY_ROUTE;
+const keyLabel = (p: 'opencode' | 'vibe') => p === 'opencode' ? 'OpenCode' : 'Vibe';
 const quote = (v: string) => `'${v.replaceAll("'", "'\\''")}'`;
 const complete = (r: Row) => join(r.folder, '.byokit-signin-complete');
 const pending = (r: Row) => join(r.folder, '.byokit-signin-pending');
@@ -159,7 +164,7 @@ export function cliAccounts(options: CliOptions) {
   if (options.historyFrom && (!record(options.historyFrom) || Object.entries(options.historyFrom).some(([p, path]) => !providers.includes(p as CliProvider) || !text(path) || !isAbsolute(path)))) throw new CliAccountError('bad-option');
   if (options.keyStore !== undefined && (!record(options.keyStore) || typeof (options.keyStore as Keystore).get !== 'function' || typeof (options.keyStore as Keystore).set !== 'function' || typeof (options.keyStore as Keystore).delete !== 'function')) throw new CliAccountError('bad-option');
   const stateDir = resolve(options.stateDir); const env = { ...options.env }; const bins = { ...options.bins }; const history = { ...options.historyFrom };
-  const ownsDefaultLogin = (path: string) => ['.claude', '.codex', '.pi', '.kimi-code'].some((p) => { const own = join(resolve(env.HOME), p); return path === own || path.startsWith(own + '/'); });
+  const ownsDefaultLogin = (path: string) => ['.claude', '.codex', '.pi', '.kimi-code', '.vibe'].some((p) => { const own = join(resolve(env.HOME), p); return path === own || path.startsWith(own + '/'); });
   const managedFolders = Object.fromEntries(Object.entries(options.managedFolders ?? {}).filter(([, folder]) => folder !== undefined)) as { claude?: string; codex?: string };
   // The login files each native CLI keeps in its own folder; remove deletes these and keeps the folder.
   const managedLoginFiles: Partial<Record<CliProvider, string[]>> = { claude: ['.credentials.json', '.claude.json'], codex: ['auth.json'] };
@@ -260,9 +265,10 @@ export function cliAccounts(options: CliOptions) {
     return cleanLaunchEnv({ base: env, account: launch(r) }).env;
   }
   function command(r: Row): SignInCommand {
-    // OpenCode has no native login to spawn: the app collects the plan key with hidden typing and
+    // OpenCode and Vibe have no native login to spawn: the app collects the key with hidden typing and
     // completes the sign-in with saveKey. The shell is a no-op; the key never enters argv or env.
     if (r.provider === 'opencode') return { argv: [], env: spawnEnv(r), completion: complete(r), shell: ':', instruction: { words: 'cli.opencodeKey' } };
+    if (r.provider === 'vibe') return { argv: [], env: spawnEnv(r), completion: complete(r), shell: ':', instruction: { words: 'cli.vibeKey' } };
     // Kimi Code: public `kimi login` (no flags) writes OAuth under KIMI_CODE_HOME; completion on exit 0.
     const argv = r.provider === 'pi' ? [binary('pi')]
       : r.provider === 'claude' ? [binary(r.provider), 'auth', 'login', '--claudeai']
@@ -336,7 +342,7 @@ export function cliAccounts(options: CliOptions) {
   function suggestName(email: string | undefined, provider: CliProvider): string {
     const first = email?.split('@')[0]?.split(/[._-]+/).find(Boolean);
     if (first) return (first[0].toUpperCase() + first.slice(1).toLowerCase()).slice(0, 64);
-    return provider === 'claude' ? 'Claude' : provider === 'pi' ? 'Pi' : provider === 'opencode' ? 'OpenCode' : provider === 'kimi' ? 'Kimi' : 'Codex';
+    return provider === 'claude' ? 'Claude' : provider === 'pi' ? 'Pi' : provider === 'opencode' ? 'OpenCode' : provider === 'kimi' ? 'Kimi' : provider === 'vibe' ? 'Vibe' : 'Codex';
   }
   async function status(id: string): Promise<CliAccount> {
     return serial(id, async () => {
@@ -346,11 +352,11 @@ export function cliAccounts(options: CliOptions) {
       if (!bins[r.provider]) return { ...account, state: 'not_included' };
       const rest = activeRest(r.id);
       if (rest) return { ...account, state: 'resting', until: rest.until };
-      if (r.provider === 'opencode') {
-        // No native probe: readiness is this account's saved plan key. A missing or unreadable store
+      if (r.provider === 'opencode' || r.provider === 'vibe') {
+        // No native probe: readiness is this account's saved key. A missing or unreadable store
         // reads signed out, never a failure, and a saved key ends the pending cycle like a native login.
         let saved = false;
-        try { await readOpenCodePlanKey(options.keyStore, OPENCODE_GO_PLAN_ROUTE, 'OpenCode', r.id); saved = true; }
+        try { await readOpenCodePlanKey(options.keyStore, keyRoute(r.provider), keyLabel(r.provider), r.id); saved = true; }
         catch { saved = false; }
         if (saved && marker(pending(r))) rmSync(pending(r), { force: true });
         const keySigning = marker(pending(r)) && !saved;
@@ -383,8 +389,8 @@ export function cliAccounts(options: CliOptions) {
     return serial(id, async () => {
       const r = row(id);
       if (login && signInHeld(r.folder)) throw new CliAccountError('prepare-failed');
-      // The plan key lives outside the folder, so delete it first: no orphaned secret survives the row.
-      if (r.provider === 'opencode') await deleteOpenCodePlanKey(options.keyStore, OPENCODE_GO_PLAN_ROUTE, r.id);
+      // The key lives outside the folder, so delete it first: no orphaned secret survives the row.
+      if (r.provider === 'opencode' || r.provider === 'vibe') await deleteOpenCodePlanKey(options.keyStore, keyRoute(r.provider), r.id);
       discard(r, login); save(load().filter((v) => v.id !== id), r.provider); created.delete(id);
       saveRests(loadRests().filter((v) => v.id !== id));
     });
@@ -405,25 +411,25 @@ export function cliAccounts(options: CliOptions) {
     });
     return status(id);
   }
-  /** Save an OpenCode plan key (collected with hidden typing) into the secrets store, one entry per
-   * managed account. The key never enters argv, env, a file outside the store, or a log. */
+  /** Save an OpenCode plan key or Vibe API key (collected with hidden typing) into the secrets store,
+   * one entry per managed account. The key never enters argv, env, a file outside the store, or a log. */
   async function saveKey(id: string, key: string): Promise<CliAccount> {
     await serial(id, async () => {
       const r = row(id);
-      if (r.provider !== 'opencode') throw new CliAccountError('kind-mismatch');
+      if (r.provider !== 'opencode' && r.provider !== 'vibe') throw new CliAccountError('kind-mismatch');
       if (!options.keyStore || typeof key !== 'string' || !key.trim()) throw new CliAccountError('bad-option');
-      try { await saveOpenCodePlanKey(options.keyStore, key, OPENCODE_GO_PLAN_ROUTE, r.id); }
+      try { await saveOpenCodePlanKey(options.keyStore, key, keyRoute(r.provider), r.id); }
       catch { throw new CliAccountError('prepare-failed'); }
       rmSync(pending(r), { force: true });
     });
     return status(id);
   }
-  /** Delete this account's OpenCode plan key from the secrets store; the row stays signed out. */
+  /** Delete this account's stored key from the secrets store; the row stays signed out. */
   async function logout(id: string): Promise<CliAccount> {
     await serial(id, async () => {
       const r = row(id);
-      if (r.provider !== 'opencode') throw new CliAccountError('kind-mismatch');
-      try { await deleteOpenCodePlanKey(options.keyStore, OPENCODE_GO_PLAN_ROUTE, r.id); }
+      if (r.provider !== 'opencode' && r.provider !== 'vibe') throw new CliAccountError('kind-mismatch');
+      try { await deleteOpenCodePlanKey(options.keyStore, keyRoute(r.provider), r.id); }
       catch { throw new CliAccountError('prepare-failed'); }
       rmSync(pending(r), { force: true });
     });
@@ -432,7 +438,7 @@ export function cliAccounts(options: CliOptions) {
   function remove(id: string) { return drop(id, true); }
   type Added = { account: CliAccount; signIn: SignInCommand };
   function add(provider: 'pi', metadata: { piProvider: PiProvider }): Promise<Added>;
-  function add(provider: 'claude' | 'codex' | 'opencode' | 'kimi'): Promise<Added>;
+  function add(provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'vibe'): Promise<Added>;
   function add(provider: CliProvider, metadata?: { piProvider?: PiProvider }): Promise<Added> { return addManaged(provider, metadata); }
   async function addManaged(provider: CliProvider, metadata?: { piProvider?: PiProvider }, adopted?: Row): Promise<Added> {
     if (!providers.includes(provider) || (provider === 'pi' && !validPiProvider(metadata?.piProvider))) throw new CliAccountError('bad-option');
@@ -502,8 +508,8 @@ export function cliAccounts(options: CliOptions) {
     kinds: (provider: CliProvider): string[] => providers.includes(provider) ? [provider] : [],
     resumeArgs(kind: string, ref: { kind: 'id' | 'path'; value: string }): string[] {
       if (!record(ref) || !text(ref.value) || !ref.value || ref.value.startsWith('-') || !providers.includes(kind as CliProvider) || (ref.kind !== 'id' && (kind !== 'pi' || ref.kind !== 'path'))) throw new CliAccountError('kind-mismatch');
-      // kinds.json: pi/opencode/kimi `--session`, claude `--resume`, codex `resume`.
-      return kind === 'pi' || kind === 'opencode' || kind === 'kimi' ? ['--session', ref.value] : kind === 'claude' ? ['--resume', ref.value] : ['resume', ref.value];
+      // kinds.json: pi/opencode/kimi `--session`, claude/vibe `--resume`, codex `resume`.
+      return kind === 'pi' || kind === 'opencode' || kind === 'kimi' ? ['--session', ref.value] : kind === 'claude' || kind === 'vibe' ? ['--resume', ref.value] : ['resume', ref.value];
     },
     usageSource(id: string): { provider: 'codex'; bin: string; home: string; env: Record<string, string> } | undefined {
       const r = row(id); return r.provider === 'codex' ? { provider: 'codex', bin: binary('codex'), home: r.folder, env: spawnEnv(r) } : undefined;

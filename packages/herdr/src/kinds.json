@@ -499,5 +499,29 @@
       "revision": "065ef9d6a531c49fb8bee7e818ef837065b21ee9",
       "source": "src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs"
     }
+  },
+  {
+    "kind": "vibe",
+    "aliases": [
+      "mistral-vibe",
+      "mistral vibe"
+    ],
+    "folderVar": "VIBE_HOME",
+    "resume": true,
+    "sessionKinds": [
+      "id"
+    ],
+    "resumeArgs": [
+      "--resume",
+      "{session}"
+    ],
+    "loginLabel": "Sign in to this account on this computer",
+    "billing": "unknown",
+    "offer": "explicit",
+    "upstream": {
+      "version": "docs",
+      "revision": "mistral-docs-vibe-cli-configuration",
+      "source": "https://docs.mistral.ai/vibe/code/cli/configuration; https://docs.mistral.ai/vibe/code/cli/work-with-cli; https://docs.mistral.ai/vibe/code/cli/api-keys-profiles"
+    }
   }
 ]
