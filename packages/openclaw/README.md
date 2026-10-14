@@ -190,7 +190,9 @@ reported as successful cancellation. Healthy cancellation ends the run as define
 
 A run spec also takes `system`, `images` (`{ data, mimeType }[]`), `thinking` and `tools`, a subset of the app tools
 (`KitOptions.tools` names) this run may call; any other app tool is refused at the gate before `ToolHost.gate` sees
-it. Run events report `started` when the Gateway accepts the request (not when it finishes), and forward
+it. An unsupported `thinking` level is mapped to the nearest catalog-supported one that still reasons (rounding up;
+never silently to `off`), and an ok end reports `thinking: { asked, used }` — use `words('run.thinkingClamped')`
+when they differ. Run events report `started` when the Gateway accepts the request (not when it finishes), and forward
 actual `thinking` progress as `{ type: 'thinking', tokens }`. Silent routes invent no progress; cached replays
 without a new accepted frame emit no `started`. Handle these frames explicitly rather than treating every
 non-text/tool frame as an end.
