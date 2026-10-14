@@ -481,6 +481,10 @@ own store and the handle exposes none. Billing is `subscription`, with no API-ke
 saved Go plan key reads as signed out. Use the handle only where the sign-in lives. The handle carries
 `provider: 'opencode-go'`; decide refuses it on any other route.
 
+For a BYOKit-only call that does not go through `Accounts` members, `openCodeGoPlanAccount(store)` from
+`@byokit/accounts/opencode-go` resolves the same route from one `@byokit/secrets` entry per route (written by
+managed-CLI `saveKey`, deleted by `logout`). It never reads OpenCode's own `auth.json`.
+
 
 ## Desktop credential storage security
 
@@ -742,7 +746,7 @@ contain no credentials. This does not connect native CLI account stores or quali
 
 ## Managed CLI accounts (Node only)
 
-`@byokit/accounts/cli` exports `cliAccounts`, `CliAccountError`, `CliProvider`, `PiProvider`, `CliAccount`, `CliOptions`, `CliLaunchResult` and `SignInCommand`. Accounts use subscription billing. The portable entries and the `Accounts` class retain their existing sign-in flows.
+`@byokit/accounts/cli` exports `cliAccounts`, `CliAccountError`, `CliProvider`, `PiProvider`, `CliAccount`, `CliOptions`, `CliLaunchResult` and `SignInCommand`. `CliProvider` is `claude` | `codex` | `pi` | `opencode`. Accounts use subscription billing. The portable entries and the `Accounts` class retain their existing sign-in flows.
 
 `CliAccount` extends the portable chooser's `AccountLike`. Pass normalized usage through `@byokit/usage`'s `roomOf(reading, nowMs)` when selecting an account, preserving millisecond reset times and the original measurement time. Managed rows also carry `addedAt` (the epoch-millisecond time the login was added), so two logins that share an email stay distinguishable.
 
@@ -780,7 +784,7 @@ If the host does not supply a provider executable, its managed rows remain visib
 
 The `accounts-v1.json` `{version:1,accounts:[{id,provider,name,folder,found,addedAt?}]}` and `auto-terms-v1.json` `{acknowledged:true}` encodings stay at version 1, with 0600 files and atomic replacement. A stored `addedAt` is authoritative, and a managed row without one derives it at read time from its folder's `birthtimeMs` (or the earliest of `ctimeMs`/`mtimeMs` when birthtime is unavailable, `lstat` only), so pre-existing same-email logins stay distinguishable without rewriting the roster. The kit preserves but excludes `found-*` and `found:true` rows, which belong to the host's default-login adapter. Legacy managed rows without kit completion sidecars retain their native signed-in status; new or re-signing rows require the completion marker. Symlinked account folders and records outside the provider/hex layout are refused.
 
-`usageSource(id)` returns a Codex Source for `@byokit/usage`; Claude returns `undefined`, and its usage Source is `{provider:'claude', folder:set.CLAUDE_CONFIG_DIR, headers}` in a usage reader whose `stateDir` is the same managed root. `kinds` serves only the matching native agent (`claude`, `codex` or `pi`). `resumeArgs` accepts an `id` conversation reference for these kinds and also a `path` for Pi; `launchArgs(id)` supplies Pi's selected `--provider` and is empty for Claude/Codex. `termsAcknowledged` and `acknowledgeTerms` keep the host's existing terms bit; they do not gate sign-in. `suggestName` uses the first part of an email, falling back to the provider's name.
+`usageSource(id)` returns a Codex Source for `@byokit/usage`; Claude and OpenCode return `undefined`, and Claude's usage Source is `{provider:'claude', folder:set.CLAUDE_CONFIG_DIR, headers}` in a usage reader whose `stateDir` is the same managed root. `kinds` serves only the matching native agent (`claude`, `codex`, `pi` or `opencode`). `resumeArgs` accepts an `id` conversation reference for Claude/Codex/Pi and also a `path` for Pi; OpenCode refuses resume (use the plan route). `launchArgs(id)` supplies Pi's selected `--provider` and is empty for Claude/Codex/OpenCode. `termsAcknowledged` and `acknowledgeTerms` keep the host's existing terms bit; they do not gate sign-in. `suggestName` uses the first part of an email, falling back to the provider's name.
 
 `launchEnv({ base?, account?, set?, unset? })` copies `base` (default: `process.env`), removes
 provider namespaces derived from the catalogue and inherited API keys, then applies account settings
@@ -837,6 +841,36 @@ const argv = pi.resumeArgs({ kind: 'path', value: sessionPath });
 Pi uses its own `auth.json` in `PI_CODING_AGENT_DIR`; a Claude managed folder alone does **not** select the same account in Pi. Do not advertise `kinds('claude')` as including Pi, pass a Claude grant to Pi, or fall back to the person's default Pi folder. This contract has offline fixture coverage; it does not claim live login or native working-pane handoff qualification.
 
 Found rows remain read-only host records. `signInAgain('found-*')` and managed launch operations still reject them with `unknown-account`. For an explicitly selected found row, call `adopt(foundId, { piProvider? })` (required on first Pi adoption). It reads only roster metadata, creates a **new empty managed folder**, and returns `{ account, signIn }`. Nothing reads, writes or copies the source/default login; the original row stays unchanged. The host maps the found selection to the returned managed `account.id` and may collapse the old row using `account.adoptedFrom`. Concurrent/repeated adoption reuses that managed identity and its sign-in cycle; unknown/non-found ids are refused. Stop the sign-in tab before cancellation: `cancel(newId)` removes the new row/folder in the creating instance, while after restart it only clears pending and retains the named identity. No implicit adoption happens through status or Auto.
+
+### Managed OpenCode (plan key)
+
+OpenCode has no native login to spawn. Pass a device-owned `keyStore` from `@byokit/secrets`; `add('opencode')` returns a `signing` row whose `signIn` carries empty `argv`, a no-op `shell`, and `instruction.words: 'cli.opencodeKey'`. The app collects the plan key with hidden typing and finishes with `saveKey(id, key)`. That writes one `@byokit/secrets` entry per route (`accounts.opencode:plan_key:opencode-go`); the key never enters argv, an env line, a file outside the store, or a log. `status` is `ready` when the entry exists. `logout(id)` deletes it and leaves a signed-out row; `remove` deletes the entry with the folder. `launch` sets `OPENCODE_CONFIG_DIR` to the managed folder and unsets OpenCode credential overrides. Never read OpenCode's own `auth.json`.
+
+```ts
+import { cliAccounts } from '@byokit/accounts/cli';
+import { openCodeGoPlanAccount } from '@byokit/accounts/opencode-go';
+import type { Keystore } from '@byokit/secrets';
+
+declare const stateDir: string;
+declare const opencodeBin: string;
+declare const env: { HOME: string; PATH: string };
+declare const keyStore: Keystore;
+declare const hiddenPlanKey: string; // collected with hidden typing; never argv/env/log
+
+const plans = cliAccounts({
+  stateDir, bins: { opencode: opencodeBin }, env, keyStore,
+});
+const { account, signIn } = await plans.add('opencode');
+// Show signIn.instruction (cli.opencodeKey); do not spawn argv (it is empty).
+const ready = await plans.saveKey(account.id, hiddenPlanKey);
+const launch = await plans.launch(ready.id); // OPENCODE_CONFIG_DIR; unset OPENCODE_API_KEY
+if (!launch.ok) console.log(launch.code, launch.message);
+// BYOKit-only live call: the route resolves the same store entry (no hand-exported key).
+const go = openCodeGoPlanAccount(keyStore);
+const key = await go.access(new AbortController().signal); // host-only; never log
+await plans.logout(account.id); // deletes the stored key
+void key;
+```
 
 ## Scripted sign-in stand-in
 
@@ -1092,15 +1126,16 @@ A phone signs an agent CLI in on a paired computer over `@byokit/pair`: the host
 login there (Codex's device code, Claude's link-and-paste-code), sends only the verification URL, the
 user code and the expiry to the phone, the phone shows them, and the host reports success or one plain
 failure. The credential is written only by the CLI on the computer; it never reaches the phone and is
-never logged. Read-only state names each CLI's subscription sign-in without secrets. Pi has no headless
-login, so it reports "not supported here" while its state still reads. Each CLI's own terms apply.
+never logged. Read-only state names each CLI's subscription sign-in without secrets. Pi and OpenCode have
+no headless login over the link (OpenCode's plan key is pasted in the computer's app via `saveKey`), so
+they report "not supported here" while their state still reads. Each CLI's own terms apply.
 
 ```ts
 import { remoteCliDevice } from '@byokit/accounts';
 import { cliAccounts, remoteCliHost } from '@byokit/accounts/cli';
 
 declare const stateDir: string;
-declare const bins: { claude: string; codex: string; pi: string };
+declare const bins: { claude: string; codex: string; pi: string; opencode: string };
 declare const env: { PATH: string; HOME: string };
 declare const link: { status: string; request(op: string, args?: unknown): Promise<unknown> };
 declare function showCode(signIn: { verificationUri: string; userCode?: string }): void;
