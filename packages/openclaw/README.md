@@ -179,6 +179,13 @@ With no choice, today's starter stays.
 The saved model is used when a run's `model` is omitted; any other model of the same provider (`provider/model`) runs too,
 and another provider ends `plan`. Key runs have separate history. To steer or stop
 one, pass `{ auth: 'apiKey' }` to `steer` or `abort` too (the device helpers accept the same option).
+`kit.removeKey('ana')` removes that saved key: the key agent's credential store and its ready marker go, so
+`signedIn('ana', 'opencode-go')` is false and stays false across an engine restart (a removed key is not a partial
+state the next start revives). `removeKey('ana', { provider })` removes the saved key only when it is that provider's;
+with no saved key the call resolves without doing anything. `signOut('ana', provider)` removes that provider's saved
+key too, through the same call: the key lane is a separate agent, so the member-agent logout alone would leave it
+sealed and ready and the member would read signed in again after a restart. A sign-out of another provider leaves
+the saved key alone. [`@byokit/ui/kits`](../ui/README.md) redraws the key option from `signedIn`.
 Ordinary runs never enter the key agent, even when the subscription is resting. This agent boundary is necessary
 because the engine's profile pins can rotate. The `byokit-key-` member prefix is reserved. Adding another key
 replaces the previous key; a failed replacement leaves this option unavailable. If the normal agent already has
@@ -384,7 +391,7 @@ Entries:
 
 | Export | What it does |
 | --- | --- |
-| `OpenClawKit` (`.`) | Prepares, starts, supervises and stops the engine. `call` / `callDynamic` pass through to the Gateway, `onEvent` listens. Helpers: `ensureMember`, `routes`, `providers`, `signedIn`, `signIn`, `signOut`, `migrateRetainedLogin`, `confirmRetainedLogin`, `toolNames`, `run`, `steer`, `abort`, `approvals`, `onApproval`, `decide`, `allowOnce`, `disallowOnce`, `patchConfig`, `getConfigKey`, `setConfigKey`, `memoryLimited`, `doctorContext` |
+| `OpenClawKit` (`.`) | Prepares, starts, supervises and stops the engine. `call` / `callDynamic` pass through to the Gateway, `onEvent` listens. Helpers: `ensureMember`, `routes`, `providers`, `signedIn`, `signIn`, `signOut`, `removeKey`, `migrateRetainedLogin`, `confirmRetainedLogin`, `toolNames`, `run`, `steer`, `abort`, `approvals`, `onApproval`, `decide`, `allowOnce`, `disallowOnce`, `patchConfig`, `getConfigKey`, `setConfigKey`, `memoryLimited`, `doctorContext` |
 | `ENGINE_VERSION`, `PROTOCOL_VERSION`, `OPERATOR_SCOPES` (`.`) | The pinned engine version, its protocol and the operator scopes the kit connects with |
 | `KitOptions`, `RunSpec`, `RunEvent`, `RunEnd`, `RunUsage`, `PlanWindow`, `Route`, `Approval`, `Decision`, `ToolSpec`, `ToolHost`, `KitState`, ... (`.`) | Public types (docs/runtime-kits.md §5.2) |
 | `GatewayMethods`, `GatewayMethod`, `GatewayParams`, `GatewayResult`, `GatewayEventName`, `GatewayEventPayload` (`.`) | The generated pass-through tables, so an app can write its own generic wrapper over `call` / `onEvent` once |

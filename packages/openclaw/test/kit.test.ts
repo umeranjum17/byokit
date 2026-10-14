@@ -627,6 +627,50 @@ test('after an engine restart signedIn still recognises a sealed key profile', a
   } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
+test('removeKey clears the saved key lane and it stays cleared across a restart', async () => {
+  const stateDir = scratchDir('o4-key-remove');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-REMOVE-KEY-313' }), { status: 'ok' });
+    assert.equal(await kit.signedIn('m1', 'opencode-go'), true);
+    await kit.removeKey('m1');
+    assert.equal(await kit.signedIn('m1', 'opencode-go'), false);
+    assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }),
+      { ok: false, absent: true });
+    await kit.stop();
+    const restarted = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+    try {
+      await restarted.start();
+      assert.equal(await restarted.signedIn('m1', 'opencode-go'), false, 'a removed key never comes back after a restart');
+      assert.deepEqual(await restarted.run({ member: 'm1', sessionKey: 'agent:m1:chat', auth: 'apiKey', message: 'Hello' }),
+        { ok: false, kind: 'signed-out', message: 'Add an API key to use this option.' });
+    } finally { await restarted.stop(); }
+  } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('removeKey and signOut leave no key behind, and signOut spares another provider’s key', async () => {
+  const stateDir = scratchDir('o4-key-signout');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+  try {
+    await kit.start();
+    await kit.removeKey('m3'); // nothing saved: already removed
+    await kit.signOut('m3', 'openai');
+    assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm3', action: 'ready' }),
+      { ok: false, absent: true });
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-SIGNOUT-KEY-417' }), { status: 'ok' });
+    await kit.signOut('m1', 'anthropic'); // another provider's sign-out never drops this key
+    assert.equal(await kit.signedIn('m1', 'opencode-go'), true);
+    await kit.signOut('m1', 'opencode-go');
+    assert.equal(await kit.signedIn('m1', 'opencode-go'), false, 'signing out of the plan-key provider removes its key');
+    assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }),
+      { ok: false, absent: true });
+    assert.equal(JSON.stringify(fake.calls).includes('CANARY-SIGNOUT-KEY-417'), false);
+  } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 test('addKey cancel stops a pending add and leaves no partial profile', async () => {
   const stateDir = scratchDir('o4-key-cancel');
   const fake = fakeGateway();
