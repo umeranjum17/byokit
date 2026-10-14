@@ -1,6 +1,8 @@
 <h1 align="center">@byokit/overlay</h1>
 
-<p align="center"><strong>Deprecated: renamed to <a href="../bubble"><code>@byokit/bubble</code></a>.</strong></p>
+<p align="center"><strong>New home: <a href="https://www.npmjs.com/package/@platform-kits/overlay"><code>@platform-kits/overlay</code></a>. New work goes there.</strong></p>
+
+<p align="center"><strong>Also deprecated in this repo: renamed to <a href="../bubble"><code>@byokit/bubble</code></a>.</strong></p>
 
 This package re-exports `@byokit/bubble` unchanged, `@byokit/overlay`, `@byokit/overlay/focused-field` and
 `@byokit/overlay/screen-frame` alike, so

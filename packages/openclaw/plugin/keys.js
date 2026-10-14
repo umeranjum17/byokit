@@ -88,7 +88,11 @@ export function registerKeys(api) {
       const at = typeof primary === 'string' ? primary.lastIndexOf('@') : -1;
       if (at < 1) { respond(true, { ok: false }); return; }
       const profileId = primary.slice(at + 1);
-      const model = primary.slice(0, at);
+      const model = params.model ?? primary.slice(0, at);
+      // The kit checks the route catalog before seal; a direct call still cannot cross the activated provider.
+      if (typeof model !== 'string' || !model || model.split('/')[0] !== primary.split('/')[0]) {
+        respond(true, { ok: false }); return;
+      }
       let found = false;
       const sealed = await updateAuthProfileStoreWithLock({ agentDir: keyDir,
         saveOptions: { filterExternalAuthProfiles: false, syncExternalCli: false },

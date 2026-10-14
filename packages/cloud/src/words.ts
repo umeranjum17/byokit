@@ -59,10 +59,14 @@ const ERROR_KEY: Record<MachineErrorCode, WordKey> = {
   unsupported: 'error.app',
   confirm: 'error.app',
   'bad-recipe': 'error.app',
+  'no-snapshot': 'error.noSnapshot',
+  busy: 'error.app',
 };
 
+/** The words.json key for a kit failure (section 12 table); setup()'s failed cause. */
+export const errorKey = (e: MachineError): WordKey =>
+  e.code === 'needs-root' && !e.extra.command ? 'host.needsAdmin' : ERROR_KEY[e.code];
+
 /** The sentence to show for a kit failure (section 12 table). */
-export const errorWords = (e: MachineError, vars: { app: string; label: string }): string => {
-  if (e.code === 'needs-root' && !e.extra.command) return words('host.needsAdmin', vars);
-  return words(ERROR_KEY[e.code], vars);
-};
+export const errorWords = (e: MachineError, vars: { app: string; label: string }): string =>
+  words(errorKey(e), vars);

@@ -5,7 +5,7 @@ import { appendFileSync, mkdirSync, readFileSync, renameSync, writeFileSync } fr
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { hostname } from 'node:os';
 import { join, resolve } from 'node:path';
-import { createInterface } from 'node:readline';
+import { createInterface, type Interface } from 'node:readline';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -57,7 +57,8 @@ const options: KitOptions = {
   stateDir: state,
   tools: [demoNote],
   host: tools,
-  config: { plugins: { allow: ['openai'] } }, // the plugin of the one route this app signs in with (ChatGPT)
+  // Sign-in stays driven by the kit's own route list (kit.routes()): no plugin pin here, so every default
+  // subscription route (ChatGPT, OpenCode Go, …) is offered.
   onState: (s) => {
     const now = stateWords(s);
     if (now && now !== said) console.log(now);
@@ -88,10 +89,12 @@ async function fakeSignIn() {
       return { done: true, status: 'done' };
     },
     'wizard.cancel': (p: { sessionId: string }) => { answered.delete(p.sessionId); return { status: 'cancelled' }; },
-    'openclaw.setup.activate': (p: { authChoice?: string; apiKey?: string }) => {
+    'openclaw.setup.activate': (p: { agentId?: string; authChoice?: string; apiKey?: string }) => {
       if (p.authChoice !== 'opencode-go') return { ok: false, status: 'unavailable' };
       if (p.apiKey === 'wrong-key') return { ok: false, status: 'invalid' };
       planKey = true;
+      // The engine stores the key as the agent's profile and points its model at it; the sign-in's seal reads that.
+      gateway!.seedProfile(String(p.agentId), 'opencode-go:default', { provider: 'opencode-go', type: 'api_key', key: String(p.apiKey) });
       return { ok: true, status: 'ok', modelRef: 'opencode-go/fake-key-model' };
     },
     // The pin lists each signed-in provider with its profiles (5.15): signOut passes those profileIds.
@@ -118,12 +121,19 @@ const grants: GrantStore = grantFile;
 const ingress = jsonFile<ServeIngress | null>(join(state, 'ingress.json'), null);
 
 // Pairing asks the person here, one device at a time: a second one asking meanwhile is turned away, and a question
-// nobody answers ends with the pairing window. An Enter with no question open shows fresh codes.
-const input = createInterface({ input: process.stdin });
+// nobody answers ends with the pairing window. An Enter with no question open shows fresh codes; `add <choice>` signs
+// one in here (a plan key is typed hidden, and stays on this computer). Every choice is the kit's own route list.
 let asking: ((line: string) => void) | undefined;
 let closed = false;
-input.on('line', (line) => { const answer = asking; asking = undefined; if (answer) answer(line); else showCodes(); });
-input.on('close', () => { closed = true; asking?.(''); });
+function openInput(): Interface {
+  const rl = createInterface({ input: process.stdin });
+  rl.on('line', (line) => { const answer = asking; asking = undefined; if (answer) answer(line); else void command(line); });
+  rl.on('close', () => { if (rl !== input) return; closed = true; asking?.(''); });
+  return rl;
+}
+// Undefined only while a plan key sign-in hides the terminal (hideInput): the line interface is closed then, so it
+// neither echoes the keys nor takes the Enter or Ctrl-C.
+let input: Interface | undefined = openInput();
 const ask = (question: string) => new Promise<string>((resolve) => {
   process.stdout.write(question);
   const answer = (line: string) => { clearTimeout(timer); if (asking === answer) asking = undefined; resolve(line); };
@@ -158,8 +168,8 @@ const host = await Host.open({
   name: flags.name,
   grants,
   confirm: async (p) => {
-    if (closed || asking) {
-      console.log(`\n${p.name} wants to pair, but ${closed ? 'nobody can answer here' : 'another device is waiting'}: turned away.`);
+    if (closed || asking || !input) {
+      console.log(`\n${p.name} wants to pair, but ${closed ? 'nobody can answer here' : 'this computer is busy with a sign-in, try again in a minute'}: turned away.`);
       return false;
     }
     console.log(`\n${p.name} wants to pair. Check it shows these two words: ${p.words}`);
@@ -222,11 +232,115 @@ function showCodes() {
   console.log('Codes last five minutes. Press Enter for new ones.');
 }
 
+// Sign-ins at this computer, from the kit's own route list. A code or browser choice signs in from the phone page;
+// a plan key (OpenCode Go) is pasted here, typed hidden, and is stored only on this computer.
+async function command(line: string): Promise<void> {
+  const [cmd, arg] = line.trim().split(/\s+/, 2);
+  if (cmd === 'add' && arg) {
+    await addChoice(arg);
+    return;
+  }
+  showCodes();
+}
+
+async function addChoice(choice: string): Promise<void> {
+  if (kit.state.phase !== 'ready') { console.log(stateWords(kit.state)); return; }
+  const route = kit.routes().find((r) => r.choice === choice);
+  if (!route || !route.offer) { console.log(`This computer offers no account named ${choice}.`); return; }
+  if (!route.keyEntry) { console.log(`Sign in to ${route.label} from the phone page, under Plans.`); return; }
+  console.log(`Adding ${route.label}.`);
+  hideInput();
+  try {
+    const added = await kit.addAccount(MEMBER, { authChoice: choice }, () => {}).catch((e) => {
+      console.log(e instanceof Error ? e.message : String(e));
+      return undefined;
+    });
+    if (!added) return;
+    const secret = await readSecret(`Paste the ${route.label} key (typed input stays hidden): `);
+    if (!secret) { added.cancel(); console.log('Cancelled.'); return; }
+    added.paste(secret);
+    const { view } = await added.done;
+    // The pasted key is out of scope past this line; the kit never carries one in a view or error.
+    console.log(view.state === 'done' ? `Signed in to ${route.label}.` : (view.error ?? 'Sign-in failed. Try again.'));
+  } finally {
+    await showInput();
+  }
+}
+
+// From the start of a plan-key sign-in until showInput: the line interface is closed and raw mode switches the
+// terminal's echo off, so keys typed meanwhile stay queued where nothing reads them. showInput drops that queue
+// while the terminal still echoes nothing, so a pasted key is never echoed back or run as a command, on success,
+// on failure, or on cancel. Ctrl-C anywhere in the window quits through quitOnCancel, like SIGINT outside it.
+// Without a terminal there is nothing to hide from, and the line is read echoed through
+// `asking` instead.
+function hideInput(): void {
+  if (!process.stdin.isTTY) return;
+  const rl = input;
+  input = undefined;
+  rl?.close();
+  process.stdin.setRawMode(true);
+  // While raw mode is on, Ctrl-C arrives as a byte, not SIGINT: quit like the SIGINT handler does.
+  process.stdin.on('data', quitOnCancel);
+  process.stdin.resume();
+}
+
+// A 0x03 byte anywhere in the hidden window stops the app, the same as SIGINT outside it.
+function quitOnCancel(chunk: Buffer): void {
+  if (chunk.toString('utf8').includes('\u0003')) void stop();
+}
+
+async function showInput(): Promise<void> {
+  if (!process.stdin.isTTY) return;
+  const stdin = process.stdin;
+  stdin.removeListener('data', quitOnCancel);
+  await new Promise<void>((resolve) => {
+    const drop = () => {};
+    stdin.on('data', drop);
+    stdin.resume();
+    // Queued bytes arrive on the next turns; raw mode is still on, so nothing echoes.
+    setImmediate(() => setImmediate(() => {
+      stdin.removeListener('data', drop);
+      stdin.pause();
+      resolve();
+    }));
+  });
+  stdin.setRawMode(false);
+  input ??= openInput();
+}
+
+function readSecret(prompt: string): Promise<string> {
+  process.stdout.write(prompt);
+  const stdin = process.stdin;
+  if (!stdin.isTTY) {
+    return new Promise((resolve) => { asking = (line) => { resolve(line.trim()); }; });
+  }
+  return new Promise((resolve) => {
+    stdin.resume();
+    let text = '';
+    const finish = (value: string) => {
+      stdin.removeListener('data', onData);
+      stdin.pause();
+      process.stdout.write('\n');
+      resolve(value);
+    };
+    const onData = (chunk: Buffer) => {
+      for (const ch of chunk.toString('utf8')) {
+        if (ch === '\n' || ch === '\r') { finish(text); return; }
+        // A 0x03 byte never reaches this loop: quitOnCancel stops the app first.
+        if (ch === '\u007f' || ch === '\b') { text = text.slice(0, -1); continue; }
+        if (ch >= ' ' && ch !== '\u007f') text += ch;
+      }
+    };
+    stdin.on('data', onData);
+  });
+}
+
+console.log('Type `add <choice>` to sign in at this computer, Enter for fresh codes.');
 showCodes();
 kit.start().catch(() => {}); // a failed start is already said in words above; the page shows it too
 
 const stop = async () => {
-  input.close();
+  input?.close();
   await kit.stop().catch(() => {});
   relay?.stop();
   host.close();

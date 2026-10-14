@@ -155,8 +155,10 @@ export function openclawLink(
     if (grant.expires !== undefined) {
       const timer = setTimeout(() => {
         const current = seen.get(grant.id);
-        if (current?.expires !== undefined && current.expires > Date.now()) memberOf(current);
-        else void revoke(grant.id).catch(() => {});
+        if (current?.expires !== undefined && current.expires > Date.now()) {
+          try { memberOf(current); return; } catch { /* refused at the boundary: revoke below, never throw from a timer */ }
+        }
+        void revoke(grant.id).catch(() => {});
       }, Math.min(grant.expires - Date.now(), 2 ** 31 - 1));
       timer.unref(); expiry.set(grant.id, timer);
     }

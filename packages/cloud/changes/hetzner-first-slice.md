@@ -1,0 +1,2 @@
+- Add the Node-only Hetzner Cloud first slice: API-loaded shared sizes and prices, the app's own project/token, create/status/confirmed deletion, an SSH-22-only IPv4 provider firewall with failed-setup cleanup, pinned SSH and unchanged HostRecipe bootstrap. Copies and start/stop remain follow-up work; stopped servers still bill.
+- Removing a machine destroys its server before sweeping unused kit-labelled firewalls, even if its firewall was detached or changed. SSH exec/write/hostKey still refuse an unsafe firewall with typed re-attach-or-remove guidance.

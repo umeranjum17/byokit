@@ -1,4 +1,4 @@
-// `./testing` entry (Node only): the fake provider and the contract suite.
+// `./testing` entry (Node only): the fake providers and the contract suite.
 export { FakeMachine, fakeMachine, parseCommand, splitCommand } from './fake-machine.ts';
 export type { ParsedCommand, RunOptions, RunResult, ShowFields, FakeUnit, FakeFile, FakeDir, RunRecord } from './fake-machine.ts';
 export { fakeProvider, memoryStore } from './fake-provider.ts';
@@ -6,4 +6,6 @@ export type { FakeCall, FakeControl, FakeProviderOptions } from './fake-provider
 export { machineContract } from './contract.ts';
 export type { MachineBench, MachineContractTestContext, TestFn } from './contract.ts';
 export { startFakeSandboxServer } from './fake-sandbox-server.ts';
-export type { SandboxRequest, SandboxServer, SandboxServerOptions } from './fake-sandbox-server.ts';
+export { startFakeHetznerServer } from './fake-hetzner-server.ts';
+export { setupFakeSsh } from './fake-ssh.ts';
+export type { SandboxRequest, SandboxServer, SandboxServerOptions, ClaimPollStep } from './fake-sandbox-server.ts';

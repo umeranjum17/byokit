@@ -1,0 +1,1 @@
+- FEAT: Optional `requestId` on `enqueue` (same length rule as `kind`) makes a retried enqueue return the existing entry in any state and add nothing; the id is persisted with no expiry so a phone reconnect cannot double-send.

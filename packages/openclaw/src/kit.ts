@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { PROTOCOL_VERSION } from './constants.ts';
+import { PROTOCOL_VERSION, LIVE_CATALOGS } from './constants.ts';
 import { atomic } from './engine-patches.ts';
 import { Approvals } from './approvals.ts';
 import { Bridge } from './bridge.ts';
@@ -19,9 +19,9 @@ import { createLocks } from './locks.ts';
 import { keyAgentId, KEY_PREFIX, MEMBER_ID } from './members.ts';
 import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLogin } from './migrate.ts';
 import { createRuns, signedInProviders } from './runs.ts';
-import { createAuthStatus } from './auth-status.ts';
+import { authStatus, createAuthStatus } from './auth-status.ts';
 import { outputSchema } from './output.ts';
-import { createKeys, type AddKeyResult } from './keys.ts';
+import { createKeys, type AddKeyHandle } from './keys.ts';
 import { routes as routeTable, type RouteView } from './routes.ts';
 import { providerOf } from './pick.ts';
 import { signIn as startSignIn, signOut as engineSignOut, type SignInCtx } from './signin.ts';
@@ -100,8 +100,6 @@ export type RetainedLogin = { path: string } | { record: Record<string, unknown>
 
 /** The engine's learning-mode config key (5.6 "Engine learning state"). */
 const LEARNING_KEY = 'skills.workshop.autonomous.mode';
-// Providers whose live catalog the kit registers (5.6); registering fixes a provider's catalog membership.
-const LIVE_CATALOGS = ['opencode-go'];
 const RESTART_MS = 60_000;
 
 const operatorMethods = new Set<string>([
@@ -699,6 +697,7 @@ export class OpenClawKit {
       onState: (s) => this.setState(s), onExit: () => this.closed('engine exited') });
     this.admission = createAuthStatus(this.engine.root, (method, params, options) => this.request()(method, params, options));
     this.keys = createKeys({ root: this.engine.root,
+      prepareOwner: (agentId) => this.prepareKeyOwner(agentId),
       restarting: () => this.engineRestarting(),
       request: (method, params, options) => this.request()(method, params, options),
       ensure: (member) => this.ensureMember(member),
@@ -784,7 +783,7 @@ export class OpenClawKit {
       this.accountsCtl = createAccounts({ request: (method, params, o) => this.request()(method, params, o), root: this.engine.root,
         ensure: (member) => this.ensureMember(member), locks: this.locks,
         signIn: (agentId, o, on, fresh) => startSignIn({ ...this.signInCtx(), ensure: async () => ({ agentId }), fresh }, agentId, o, on),
-        routes: this.routeMap, log: this.o.log });
+        routes: this.routeMap, log: this.o.log, reseal: () => this.engine.authStore.reseal() });
       // The fail-closed tool bridge feeds the kit's single Approval surface (5.9, O5).
       await this.bridge.start();
       this.off.push(transport.onEvent((e) => this.approvalsCtl.handleEvent(e)));
@@ -967,9 +966,17 @@ export class OpenClawKit {
   }
 
   /** A member sign-in to `provider`, or a ready key (5.8) whose saved model is that provider's. */
-  signedIn(member: Member, provider: string): Promise<boolean> {
-    return this.providers(member).then(async (names) => names.includes(provider)
-      || providerOf((await this.keys.ready(member, { once: true }))?.model ?? '') === provider).catch(() => false);
+  async signedIn(member: Member, provider: string): Promise<boolean> {
+    // The key probe stands alone: a member-agent admission failure after an engine restart must not hide a sealed key.
+    const keyReady = async (): Promise<boolean> => {
+      try {
+        return providerOf((await this.keys.ready(member, { once: true }))?.model ?? '') === provider;
+      } catch { return false; }
+    };
+    try {
+      if ((await this.providers(member)).includes(provider)) return true;
+    } catch { /* key probe below */ }
+    return keyReady();
   }
 
   signIn(
@@ -990,15 +997,16 @@ export class OpenClawKit {
     return memberOfAccount(this.engine.root, ref);
   }
 
-  // accounts (5.15, O14 steps S5, S6 and S9-S12): the per-member index with listing, adding, defaults, rename, models
-  // and room; `run({ account })` and `pick` choose among them, held to the account a session is bound to, and `move`
-  // carries a conversation to another account. Removing arrives in a later step.
+  // accounts (5.15, O14 steps S5, S6 and S8-S12): the per-member index with listing, adding, defaults, rename, models
+  // and room; `run({ account })` and `pick` choose among them, held to the account a session is bound to, `move`
+  // carries a conversation to another account, and `removeAccount` deletes one.
   accounts(member: Member): Promise<Account[]> {
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.accountsCtl.list(member);
   }
 
-  models(member: Member, id: AccountId): Promise<ModelInfo[]> {
+  models(member: Member, id: AccountId | { authChoice: string }): Promise<ModelInfo[]> {
+    if (typeof id !== 'string') return this.keys.models(member, id);
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.accountsCtl.models(member, id);
   }
@@ -1036,6 +1044,13 @@ export class OpenClawKit {
     return this.accountsCtl.rename(member, id, name);
   }
 
+  /** Remove one account: a member-agent account through `authLogout` with its profileIds, an account agent through
+   * `clear`, an empty `list`, `agents.delete` with `deleteFiles: false`, removal of its state dir, then the entry. */
+  removeAccount(member: Member, id: AccountId): Promise<void> {
+    if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
+    return this.accountsCtl.remove(member, id);
+  }
+
   defaults(member: Member): Promise<Defaults> {
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.accountsCtl.defaults(member);
@@ -1047,8 +1062,14 @@ export class OpenClawKit {
   }
 
   /** Save an explicitly supplied API key (billed per use) in this member's separate key agent. */
-  addKey(agentId: Member, o: { authChoice: string; apiKey: string }): Promise<AddKeyResult> {
-    return this.keys.add(agentId, o).then((r) => { if (r === 'ok') this.syncCatalogs(); return r; });
+  addKey(agentId: Member, o: { authChoice: string; apiKey: string; model?: string }): AddKeyHandle {
+    return this.keys.add(agentId, o);
+  }
+
+  private async prepareKeyOwner(agentId: string): Promise<void> {
+    this.syncCatalogs();
+    await this.catalogs;
+    if ((await authStatus(this.request(), agentId, true)).unavailable) throw new Error('Key owner unavailable.');
   }
 
   // Live provider catalogs (5.6): registers each live model with its api from the provider's catalog data, so

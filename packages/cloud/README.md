@@ -35,18 +35,46 @@ Model sign-in happens on the machine, inside the aggregator — credentials are 
 the person's computer. One person, one provider account, one machine per app install.
 
 Entries: `.` is portable (Node, Electron, React Native); `./ssh` is Node only (an already-rented
-Linux machine over the `ssh` binary the app passes by absolute path); `./idle` runs on the machine
-inside the host process; `./testing` is Node only (the fake provider and the contract suite).
+Linux machine over the `ssh` binary the app passes by absolute path); `./hetzner` is Node only
+(the Hetzner Cloud first slice below); `./idle` runs on the machine inside the host process;
+`./testing` is Node only (the fake providers and the contract suite).
 
-**Status: in development.** This is the M3 build ([spec](../../docs/cloud-kit.md) §14):
+**Status: in development.** This is the M8 build ([spec](../../docs/cloud-kit.md) §14):
 frozen types, words, pure parts (`renderUnit`, recipe checks, node argv, cost), `machine()`
 for §5.1–5.5 and §5.7 plus install and supervise (§8: `install`, `update`, `host`,
 `logs`, `deliver`), `status()` (§5.9), the fake provider and the contract suite, the Boat adapter
-(M4), and the SSH VM adapter (M2). Idle sleep and wake-on-open land in M7 (manual `sleep()` and
-`wake()` are already here), account link in M8.
-The package stays private until the recorded real-provider run (M6).
+(M4), the keyless Boat tailnet join (§9.1), the SSH VM adapter (M2), the Hetzner first slice,
+and account link (`claim()`, §11.5). Idle sleep and wake-on-open land in M7 (manual `sleep()` and
+`wake()` are already here).
+The package is ready to publish (files, exports, README); it stays private until the
+recorded live claim proof passes, then one PR removes `private`. The fake sign-in routes
+follow the documented contract ([auth.md](https://boat.dev/auth.md)), yet no live register
+or claim call has run, and whether a claimed key's scopes allow create,
+install and hosting is unverified (M6). Until that proof passes, the app keeps `setup.makeKey`.
 
 The library reads no environment variable. Every spawned process gets an env built from nothing.
+
+## Saved copies, reset and disk space
+
+A machine made with `keepCopies: true` keeps saved copies of itself. `snapshot()` saves one and
+keeps only the newest three of the kit's own copies (`snapshot({ keep })` to change it; Boat keeps
+10 for free, then bills each). `scheduleSnapshots({ everyMs, onResult })` saves a copy when the newest is
+older than `everyMs`, on a timer while the app runs, and resolves `{ stop() }` (await it; it rejects at once on a bad
+recipe, a missing machine, or a machine or provider without copies). The kit has no hosted
+scheduler, so nothing saves while the app is closed.
+`restore(id)` rebuilds the machine from a copy; everything changed since is lost, so the app
+confirms first with `words('snapshot.restore', { date })`. A copy that is gone rejects
+`no-snapshot`; a save, reset or remove while another of these runs on the same machine rejects `busy`. `disk()` resolves `{ usedGb, totalGb }` for `words('disk.used', ...)`.
+
+```ts
+import { words, type Machine } from '@byokit/cloud';
+
+export async function reset(m: Machine, confirm: (s: string) => Promise<boolean>) {
+  const [last] = await m.snapshots();
+  if (last === undefined || !(await confirm(words('snapshot.restore', { date: last.at.slice(0, 10) })))) return null;
+  return m.restore(last.id); // the machine is new: the app checks tailnet() before it dials it
+}
+```
 
 ## Boat adapter
 
@@ -71,10 +99,190 @@ The stored provider id stays `sandbox-api`, so existing machine records continue
 work. Credentials, cost rules and the M6 spending and publication gates are
 unchanged ([provider contract](../../docs/cloud-kit.md#6-boat-adapter-srcboatts)).
 
+## Hetzner adapter (first slice)
+
+`await hetzner(options)` from `@byokit/cloud/hetzner` returns a Node-only `Provider`
+plus `hostKey(ref)`. Pass `baseUrl` (the Hetzner Cloud API root), `label`, a stable
+`project` id from the app, `location`, a current Ubuntu/Debian `image` name,
+`publicKey` (ed25519), `key` (the app's ephemeral API-token callback), the same
+`store` used by `machine()`, and `ssh: { ssh, keyPath, stateDir }` (absolute paths).
+The app supplies its own key and token; the adapter never uses ambient credentials.
+
+Sizes and prices are loaded from the API, including IPv4 and excluding VAT. Shared
+available types are sorted smallest first; choose `provider.sizes()[0].id`. Creation
+uses cloud-init to prepare `/home/user` and public-key SSH; then the unchanged
+`m.install(recipe)` bootstraps the host. Before installation, show the fingerprint
+from `await provider.hostKey(ref)` and call its `confirm()` only with the person's
+approval. SSH is pinned per server; a later changed key is refused, never repinned.
+
+```ts
+import { hetzner, type HetznerOptions } from '@byokit/cloud/hetzner';
+import { machine } from '@byokit/cloud';
+
+export async function connectHetzner(options: HetznerOptions) {
+  const provider = await hetzner(options);
+  const m = machine({ provider, store: options.store });
+  const ref = await m.create({ name: 'tracker', size: provider.sizes()[0].id, keepCopies: false });
+  return { m, ref, hostKey: await provider.hostKey(ref) };
+}
+```
+
+The token is project-scoped, but Hetzner has no account-read endpoint: `project` is
+an app-supplied identity, not API-verified. Saved refs are also checked with this
+token through `/servers/{id}`. A 404 is treated as a server deleted in the console:
+`account()` accepts its ref so `remove()` can forget it and sweep its unused firewalls,
+while `status()` and `state()` keep rejecting `wrong-account` until then. Known limit:
+Hetzner answers 404 for a server outside the current token's project too, so a token
+from another project under the same app project id makes a live server look deleted;
+keep the app project id in step with the token. An unreachable or 5xx create response
+is reconciled by unique name plus operation label before cleanup. Create makes a dedicated
+Hetzner Cloud Firewall **before** the server and attaches it in the server-create request: its only
+inbound rule is **SSH 22/tcp on IPv4**. Every app port stays closed publicly; recipe
+installation never adds a rule. Exec/write/hostKey require the attached, applied
+SSH-only app firewall; a typed `provider` refusal says to re-attach it or remove the
+machine. Tailnet-only SSH is a later step; public SSH 22 remains for bootstrap.
+
+If attachment or subsequent setup fails, the adapter deletes the allocated server,
+its primary IPs and firewall, then returns a typed failure. If cleanup itself fails,
+`extra.machine`, `extra.firewall` and `extra.operation` identify the remaining cleanup
+scope; do not provision a replacement until that cleanup is completed. Delete confirms
+the server and automatically allocated primary IPs are gone, then sweeps every
+unused kit-labelled firewall for that machine name, attached or detached before
+deletion. Firewall changes never block server removal; changed IP ownership/auto-delete
+still refuses deletion.
+
+This slice offers create, status, SSH exec/write, host bootstrap and confirmed delete.
+It refuses `keepCopies: true` and enables **no paid backups or snapshots**. Start/stop
+are a follow-up. **A stopped Hetzner server still bills**; stopping is not deletion or
+a backup. API prices remain a list estimate, not an invoice. Without usage,
+`machine.cost()` uses the app's `monthlyEntered` amount or the first (smallest) price's
+monthly cap; record a larger selected size's cap explicitly. It does not measure
+elapsed Hetzner spend. `provider.url`, usage, plan and scoped keys are absent.
+
+## Your own tailnet
+
+`await m.joinTailnet({ hostname: 'umer-cloud' }, showStep)` installs the pinned, SHA256-checked Tailscale release as root and starts it.
+`showStep` receives `open-page` with the sign-in link (approve it on your phone), or `approve` when the
+tailnet must approve the machine (with or without a sign-in link), then `joined` with the MagicDNS name. `await m.tailnet()` reads `joined`, `needs-login`, `needs-approval`, `starting` or `off` without joining.
+This slice supports keyless Boat joins only. Passing `authKey` is a typed `unsupported` refusal:
+Boat's emulated stdin writes a temporary file, which must never carry a join key.
+
+When there is no TUN device, the daemon uses userspace networking. The app binds its host to
+loopback and its root recipe configures `tailscale serve --bg --tcp=<port> tcp://127.0.0.1:<port>`;
+joining alone does not expose a service. Advertise the tailnet name, never a provider URL.
+Tailscale state stays under `/etc/tailscale` across Boat wakes and is included in disk copies, so a copy currently carries the source's node identity. Clearing it before a copy's first start is planned follow-up ([copy policy](../../docs/cloud-kit.md#91-join-and-status)).
+The phone must be on the same tailnet; encrypted pairing is still required.
+
+**SECURITY: No public app port is opened by default.** Create, install, host and join never call
+`url()` or `/host`. Explicit `m.url(port)` makes that port public, including opening the provider
+firewall. Do not reuse a previously exposed sandbox as a fresh private-only machine: the public
+API has no unhost route. Private tailnet reachability and public-port refusal still need live proof.
+
+## Connect an existing Boat computer
+
+Call `provider.list!()` to offer existing computers; never rent another as a fallback.
+After the person picks one, show `words('adopt.confirm', { app })`. Only on approval call
+`m.adopt(selected, { confirmId: selected.id, recipe })`. It installs and returns the saved
+ref, using the recipe's name rather than Boat's display name. No direct store edits are needed.
+
+Adoption checks account, live identity and running state, and refuses existing files,
+services, run users or redirected directories rather than taking them over. Choose a fresh
+workDir and app name. It does not wake or convert the computer. Its existing snapshot setting
+is retained; missing snapshot information disables sleep/copies conservatively.
+If installation fails, the selected ref stays saved: retry `m.install(recipe)`, not create
+or adopt. The app must keep the same consented recipe for that retry. Installation can execute
+the recipe's admin steps; adoption is not a sandbox for an untrusted installer.
+
+## Setup step stream
+
+`setup({ provider, store, recipe, pick, confirmId, onLine, pair })` drives one existing-computer
+connect as steps for the connect screen: `checking-access`, `listing`, `inspecting` (the picked machine
+passed the adoption guards and is saved), `installing` (`onLine` carries its lines), `pairing` (the app's
+Pair-ready gate; skipped without `pair`), then `ready`. Each step is emitted after its real result, shown
+with `words('setup.<step>', { app, label })`. A rejection ends the stream with one `failed` step (`at` the
+phase, `cause` a words key via `errorKey`, `retryable` whether a repeat may pass): re-run `setup()` with
+the same arguments and it resumes at install on the saved machine instead of renting another.
+
+```ts
+import { setup, words, type HostRecipe, type MachineRef, type MachineStore, type Provider } from '@byokit/cloud';
+
+export async function connect(
+  provider: Provider, store: MachineStore, recipe: HostRecipe,
+  pick: (listed: MachineRef[]) => MachineRef, confirmId: string,
+  pair: (ref: MachineRef) => Promise<void>, show: (s: string) => void,
+) {
+  const vars = { app: 'Tracker', label: 'Boat' };
+  for await (const s of setup({ provider, store, recipe, pick, confirmId, pair })) {
+    show(s.step === 'failed' ? words(s.cause, vars) : words(`setup.${s.step}`, vars));
+  }
+}
+```
+
+## Enrol the owner's phone
+
+`pairEnrol(m, recipe, phoneKey)` is the `setup()` `pair` gate for exact-phone enrollment: it hands
+the one authenticated phone's 32-byte public key to the machine through provider delivery
+(`deliverPhoneKey`, inbox file `phone.bin` at 0600), and the machine's host process binds it with
+`Host.enrol` (`bindPhoneKey`). No new pairing crypto, and the key never travels in `run.env`,
+`run.argv`, logs or error text, so the recipe guard keeps refusing `KEY`-looking names unchanged.
+The first phone wins and the binding survives restarts: the same key rebinds idempotently while any
+other key is refused. Shown with the existing `setup.pairing` words.
+
+```ts
+import { machine, pairEnrol, setup, type HostRecipe, type MachineRef, type MachineStore, type Provider } from '@byokit/cloud';
+
+export async function connectPhone(
+  provider: Provider, store: MachineStore, recipe: HostRecipe,
+  pick: (listed: MachineRef[]) => MachineRef, confirmId: string, phoneKey: Uint8Array,
+) {
+  const m = machine({ provider, store });
+  for await (const s of setup({ provider, store, recipe, pick, confirmId, pair: pairEnrol(m, recipe, phoneKey) })) {
+    if (s.step === 'ready') return s.ref;
+    if (s.step === 'failed') throw new Error(s.at);
+  }
+  throw new Error('connect ended without ready');
+}
+```
+
+```ts
+import { bindPhoneKey } from '@byokit/cloud';
+import { Host } from '@byokit/pair';
+
+export async function bindOwner(host: Host, delivered: Uint8Array) {
+  return bindPhoneKey(host, delivered, 'Phone'); // { id, bound }: false when this phone was already bound
+}
+```
+
+## Link without pasting a key
+
+`claim({ baseUrl, email })` links the provider account through the provider's own
+sign-in: it yields `open-page` with the sign-in link, then `type-code` with the code the
+person types there (the code never comes back), then `waiting` while the provider is
+polled, then `done` with the key, its expiry and scopes. Save the key as
+`MachineRecord.providerKey`. There is no refresh: when it nears expiry, `keyWords` warns
+and the app runs `claim()` again. A `failed` step ends the run; show `claim.refused` for
+`refused`, `claim.expired` for `expired`, `state.unknown` for `unreachable` and
+`state.failed` for `provider`, or fall back to `setup.makeKey`.
+
+```ts
+import { claim, words } from '@byokit/cloud';
+
+export async function link(baseUrl: string, email: string, open: (url: string) => void): Promise<string | null> {
+  for await (const s of claim({ baseUrl, email })) {
+    if (s.step === 'open-page') open(s.url);
+    else if (s.step === 'type-code') open(s.url); // show s.code beside it for the person to type
+    else if (s.step === 'done') return s.key;
+    else if (s.step === 'failed' && s.why === 'expired') open(words('claim.expired', { label: 'Boat' }));
+  }
+  return null;
+}
+```
+
 ## Recipes
 
 The app supplies its host program and installer as a `HostRecipe`, and the kit writes
-and owns exactly one systemd unit per app (`byokit-<name>.service`, `Restart=always`):
+and owns exactly one systemd unit per app (`byokit-<name>.service`, `Restart=always`). Joining a
+tailnet adds the machine's own `tailscaled` unit, which is not an app unit:
 a system unit on Boat (only the home and `/etc` survive sleep), a user unit
 plus `loginctl enable-linger` on an SSH VM (so the kit needs no root there unless the
 recipe asks for it), and a system unit with `User=` when the recipe sets `user`.

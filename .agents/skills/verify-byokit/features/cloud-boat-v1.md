@@ -10,7 +10,10 @@ A consumer app rents and drives a Boat cloud computer through the built `@byokit
 - `boat-write`: a file write is byte-identical and sends `encoding: 'base64'`.
 - `boat-remove`: delete sends `X-Ascii-Confirm-Delete: <id>` and waits for `operation.status` `completed` or `blocked`.
 - `boat-plan`: `plan` maps `sandboxPlanKey`/`subscriptionTrialEndsAt` (`key`/`why` are absent — no public route/field).
+- `boat-existing`: list, consent-gated adoption, collision refusal, and failed-install retry without another rental.
 - `boat-error`: a wrong key is a typed `unauthorized` and the key never appears in the message.
+- `boat-tailnet`: keyless `joinTailnet` emits the phone login link then a validated MagicDNS name; status distinguishes joined/needs-login/off and refuses malformed answers. Boat join keys are rejected before exec or file writes.
+- `boat-private-bootstrap`: create + install + host + join make zero `/host` calls; `url()` is explicit public exposure, never bootstrap.
 
 ## How to get to it (user POV)
 
@@ -64,6 +67,37 @@ try {
   await server.close();
 }
 ```
+
+### Existing-computer journey
+
+Run the maintained built-public-entry consumer journey, including the refusal extremes:
+
+```sh
+sh scripts/test.sh packages/cloud/test/journey-cloud.test.ts
+```
+
+The two existing-computer journeys use fake Boat fetch/loopback only: list all pages, omit
+view-only computers, reject malformed replies, verify account/live id/consent before writes,
+refuse files/units/symlink parents, fail installation then retry `install` on the saved ref,
+and assert no create or resume after selection. A second app adopts successfully on a fresh
+directory and unit. Capture command/output outside the checkout in `test-own.txt`.
+No paid Boat run or real key is authorized or proved.
+
+### Tailnet journey
+
+The maintained journey imports the built public entries, drives the real Boat adapter over the existing
+loopback HTTP bench, installs an app to running, relays a synthetic phone approval, and asserts no public hosting
+request and no join-key transmission. The remote Tailscale daemon/installer are stand-ins; this proves the SDK
+contract, not real Tailscale, TUN selection, provider ingress or phone login.
+
+Live qualification belongs to the authorized Boat lab: root installation, actual absence of `/dev/net/tun`,
+userspace daemon, owner phone approval, MagicDNS, and an app served privately through `tailscale serve` (not Funnel).
+Probe the disposable app listener locally and on the provider public address from outside; require no response
+and no hosted app URL. Keep refusal vs timeout distinct. Delete after each run; follow the supervising shared
+spend ledger (USD 10 warning, USD 15 stop; two machines maximum). Do not read ambient keys or stage a join key.
+The phone must already be on the same tailnet. Until this is recorded, report live qualification as pending.
+The Expo M6 lab now uses a direct encrypted pair socket on loopback plus private Serve, not a public relay URL;
+its physical capture remains pending owner sign-in, never qualified by the loopback journey.
 
 ## Gotchas
 

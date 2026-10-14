@@ -350,9 +350,13 @@ export type RunUsage = { input?: number; output?: number; cacheRead?: number; ca
   reasoning?: number; total?: number; costUsd?: number };      // the engine's run total
 export type PlanWindow = { provider: string; plan?: string;
   windows: { label: string; usedPercent: number; resetAt?: number }[] };   // usedPercent 0-100, resetAt epoch ms
+export type ThinkingAsked = 'off' | 'low' | 'medium' | 'high';
+export type ThinkingUsed = ThinkingAsked | 'minimal' | 'xhigh' | 'max';
+export type ThinkingReport = { asked: ThinkingAsked; used: ThinkingUsed };
 export type RunEnd<T = unknown> =
   | { ok: true; text: string; data?: T; usage?: RunUsage; planWindow?: PlanWindow;   // data: validated schema; usage/window: engine reports
-      account?: AccountId; model?: string }                    // both exactly when the run used an account (5.15)
+      account?: AccountId; model?: string;                     // both exactly when the run used an account (5.15)
+      thinking?: ThinkingReport }                              // when the run asked for thinking; used may be clamped to the catalog
   | { ok: false; aborted: true }
   | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other' | 'output'; until?: number; message: string };
 export type SignInView = {
@@ -418,6 +422,9 @@ import type { Approval, ArtifactBytes, ArtifactRefusal, ArtifactsResult, CallOpt
 import type { SealingAdapter } from '@byokit/secrets';
 type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
+type AddKeyResult = { status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry';
+  reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' };
+type AddKeyHandle = Promise<AddKeyResult> & { cancel(): void };   // cancel clears a pending add (retry/busy)
 
 export type KitOptions = {
   stateDir: string;
@@ -473,10 +480,10 @@ export declare class OpenClawKit {
   addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId },
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
     done: Promise<{ view: SignInView; id: AccountId }> }>;
-  addKey(member: Member, o: { authChoice: string; apiKey: string; name?: string }): Promise<'ok' | 'invalid' | 'not_included' | 'retry'>;
+  addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string }): AddKeyHandle;
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account>;
   removeAccount(member: Member, id: AccountId): Promise<void>;
-  models(member: Member, id: AccountId): Promise<ModelInfo[]>;
+  models(member: Member, id: AccountId | { authChoice: string }): Promise<ModelInfo[]>;
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;   // demand: 'provider/model' ids (5.15)
   defaults(member: Member): Promise<Defaults>;
   setDefaults(member: Member, d: Defaults): Promise<void>;
@@ -822,8 +829,8 @@ A run started on done uses the new sign-in.
 A run prepares its models from configured facts and the static catalog only (the pin's run path; live discovery
 feeds `models.list view: 'all'`, never a run): a live-only OpenCode Go model (Muse) resolves once
 `models.providers['opencode-go'].models` lists it with its upstream API (`openai-responses` for Muse), which the kit
-writes from the plan's live catalog (5.6 Live provider catalogs) unless `KitOptions.config` sets that list. The pin's
-opencode-go stream wrapper sends `x-opencode-session` (the run's session id) on every request, the activation probe included.
+writes from the plan's live catalog (5.6 Live provider catalogs) unless `KitOptions.config` sets that list. The kit owns the
+`x-opencode-session` guarantee through its pinned engine: the opencode-go stream wrapper sends `x-opencode-session` (the run's session id) on every request, the activation probe included.
 Every exit short of done calls `wizard.cancel { sessionId }` for **its own** session. For `via: 'browser'` with
 `authChoice` `openai`, the kit holds `127.0.0.1:<callbackPort>` for the sign-in's life: any request pastes
 `http://<host><url>` into the wizard and answers a plain page (words key `signin.returned`); if the port is taken
@@ -842,9 +849,10 @@ Mapping to `SignInView.why`: setup-admission-busy error → `busy`; person cance
 **providerStatus / signedIn / providers**: live readiness reads; see 5.8 for the usable-provider rule,
 native Claude detection, unknown-status mapping and admission snapshots. `signedIn(member, provider)` is also true
 when the member's key agent holds a ready key (`byokit.keys ready`) whose saved model is that provider's (5.8 API
-keys), so an app that added only a key sees it. That probe is a single `byokit.keys ready` read with no transient retry,
-so during a gateway restart `signedIn` answers `false` at once rather than waiting out the 60 s retry that runs use.
-`providers` stays the member agent's sign-ins, the ones a run without `auth: 'apiKey'` uses.
+keys), so an app that added only a key sees it after an engine restart as well as in the same session. The key probe
+does not depend on the member-agent admission read succeeding. That probe is a single `byokit.keys ready` read with no
+transient retry, so during a gateway restart `signedIn` answers `false` at once rather than waiting out the 60 s retry
+that runs use. `providers` stays the member agent's sign-ins, the ones a run without `auth: 'apiKey'` uses.
 **signOut**: `models.authLogout { provider, agentId, profileIds }` with the agent's own profiles of that provider
 (`byokit.accounts list`; from O14, 5.15). `signIn`, `signedIn`, `providers` and `signOut` address the
 member agent, whose sign-in to a provider is that provider's first account (5.15); `addAccount` adds any further one.
@@ -926,13 +934,18 @@ the engine. External retained sources are touched only when explicitly passed to
   when present with its type); the pin's `update`, `input_delta` and `review` phases are progress inside the pair and
   are not forwarded. Pin facts: the kit's `tool-events` cap makes the connection that sent `agent` a tool-event
   recipient, and that copy is never stripped by verbose level; `args` has its strings redacted, `result` text
-  content is capped at 8000 characters by the engine. Request `agent { agentId, sessionKey, message,
+  content is capped at 8000 characters by the engine. When `spec.thinking` is set, the kit reads that model's
+  supported levels from `config.models.providers` (the same catalog live sync already wrote: `compat.supportedReasoningEfforts`
+  or `thinkingLevelMap`); if the asked level is listed it is sent unchanged, otherwise the nearest still-reasoning
+  level rounding up (e.g. `low`/`medium` → `high` when only `off`/`high`/`max` exist), never to `off` unless asked;
+  no catalog levels for the model passes the asked level through. The ok end carries `thinking: { asked, used }`;
+  `words('run.thinkingClamped')` is the notice when they differ. Request `agent { agentId, sessionKey, message,
   extraSystemPrompt, idempotencyKey: spec.idempotencyKey ?? uuid, attachments?, thinking?, provider?, model? }` with `expectFinal`: the
   interim `status: 'accepted'` frame names the run (its `runId` is taken as it lands) and emits `{ type: 'started' }`
   once, before subsequent stream events. Native lifecycle start does not double-emit; cached final/in-flight replays
   without an accepted frame do not invent a start. Acceptance is not completion. Then `agent.wait { runId,
   timeoutMs: 3_600_000 }` (client timeout 3_610_000) decides the end as before. `status === 'ok'` → final text event
-  and `{ ok: true, text, usage?, planWindow? }`. Silent/empty terminal dispositions produce empty text. Otherwise
+  and `{ ok: true, text, usage?, planWindow?, thinking? }`. Silent/empty terminal dispositions produce empty text. Otherwise
   text comes from string `result.payloads[].text` fields in the `agent` final frame, joined in order with two
   newlines (including explicit empty strings); absent payload text falls back to the last assistant stream
   text, then terminal text, then empty text. The terminal snapshot is sanitized and capped at 4096 characters
@@ -1007,27 +1020,50 @@ the engine. External retained sources are touched only when explicitly passed to
   account; every further account is its own agent holding a scoped view of the shared grant (5.15).
   Absent, the request is unchanged and the engine uses its own selection.
 - API keys are opt-in, labelled **API key (billed per use)**, and every API route retains `offer: false`.
-  `addKey(member, { authChoice, apiKey })` uses typed `openclaw.setup.activate` with `kind: 'api-key'` only.
-  It returns `ok | invalid | not_included | retry`, never engine lines, errors or credentials. `retry`: the engine may have taken the key
-  but the gateway restart ran late, the seal failed, or the activation threw after it was sent (timeout, lost transport); the key agent is cleared best-effort, and a clear the engine refuses is swept at the kit's next start (the `byokit.keys` line below). A restart or not-ready gateway before the engine saw the key is also `retry` (nothing was sent). Only routes whose pinned
+  `addKey(member, { authChoice, apiKey, model? })` uses typed `openclaw.setup.activate` with `kind: 'api-key'` only.
+  It returns an `AddKeyHandle`: a thenable `AddKeyResult` with `cancel()` that stops a pending add, clears any partial
+  key best-effort, and settles `retry`/`busy` (no wizard.cancel; key activation is not a wizard session).
+  `AddKeyResult` is `{ status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry'; reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' }`.
+  `invalid` only means the provider refused the key (`auth`, from the typed activation probe status), the provider's billing refused it (`billing`, the same no-retry outcome: an unchanged key is not retried), or the key was blank (`empty`, checked locally before any provider call).
+  An unsupported route or unknown chosen model is `not_included` with `model`. Every other failure is `retry`: timeout/transport `network`,
+  a probe reply in an unexpected format or an unknown probe failure `inference`, a typed request-validation refusal (`INVALID_REQUEST`) `inference`, other control or preparation failures `engine`, and a retryable unavailable or restarting engine `busy`.
+  A member that is not the caller's own throws, as `ensureMember` does, instead of returning a result. Failures carry only fixed discriminants: no engine lines, raw errors, key fragments or headers.
+  `retry` means the activation may have taken the key but it was not sealed (late restart, seal failure, thrown request);
+  the key agent is cleared best-effort, and a clear the engine refuses is swept at the kit's next start (the `byokit.keys` line below), so runs fail closed meanwhile.
+  A restart or not-ready gateway before the engine saw the key is `busy` with `retry` (nothing was sent). Only routes whose pinned
   manifests allow manual secrets for text inference expose `keyEntry`; every route carries `revision` and `checked`.
+  The optional `model` is Go-only: it applies only to a live-catalog route (`LIVE_CATALOGS`, today `opencode-go`) and is a full `provider/model` id from that route's catalog, checked after activation makes live discovery
+  available, then saved in the key lane's sealed selection. A `model` on any other route returns `{ status: 'not_included', reason: 'model' }` before activation. An unknown model clears the attempted replacement and returns
+  `{ status: 'not_included', reason: 'model' }`. Absent, the engine's current starter model stays. For a live-catalog provider, the chosen
+  full id must also be in the engine's registered `models.providers[provider].models` list, checked after preparation and before anything is sealed; otherwise the add clears the attempt and returns `{ status: 'retry', reason: 'model' }`. The public
+  `models(member, { authChoice })` exposes the Go live provider catalog once a key is saved, not a second catalog; before a key exists it
+  returns `[]` and queries no agent (no engine discovery). Other routes list no models. A chosen model must be available in that key lane's catalog, never borrowed from the ordinary member. Before returning `ok`, `addKey` awaits catalog synchronization, then prepares that key agent's
+  full-catalog owner with `models.authStatus { agentId: 'byokit-key-<member>', refresh: true }`, once under its key lock.
+  A thrown or unavailable preparation reply clears the attempted key best-effort and returns `{ status: 'retry', reason: 'engine' }`
+  without diagnostics. Ordinary runs and their admission policy are unchanged; there is no per-run cold refresh.
+  Catalog or control failures never become a claim that the key is invalid. A failed add may leave an empty reserved key agent; it clears the attempted key best-effort and never leaves a ready marker.
+  A non-auth, non-billing probe status (timeout, rate limit, format, unknown) is `retry` with its reason (`network`, `busy`, `inference`), never `invalid`.
 - The `byokit.keys` plugin actions are `prepare`, `seal`, `ready` and `clear` (`clear` drops the unsealed key a failed add left; `plugin/keys.js`). The kit's sweep runs at its first ready after start and sweeps each `byokit-key-<member>` agent under that member's lock: it clears a key only when `ready` reports the marker absent (`absent: true`), so a sealed key survives and an add that seals mid-sweep keeps its key. A refused read or clear leaves the sweep incomplete, and the next ready of that kit instance runs it again; a completed sweep never reruns.
 - The engine has no strict per-run auth-profile pin. Key isolation is by agent: a member's normal agent never
   receives a key from `addKey`. A reserved `byokit-key-<member>` agent has its own workspace and credential store;
-  the `byokit-key-` prefix is not a member id. Its key is `copyToAgents: false`. The plugin seals the local store
+  the `byokit-key-` prefix is not a member id. Key creation waits for `agents.list` visibility, exactly as member creation
+  does, before activation can use that agent's prepared runtime owner. Its key is `copyToAgents: false`. The plugin seals the local store
   to exactly the selected key and a local auth order containing only that profile; no shared/global order is mutated.
   The normal agent's local order lists only its OAuth sign-ins, excluding paid keys. The pin prunes empty
   local orders on save; with no sign-ins the normal agent's store contains no key profile to try. The normal agent's model selection and auth pin are unchanged by activation on the key agent. If the normal
   store already contains an API key from pass-through calls, adding a key is refused without deleting it.
 - `RunSpec.auth: 'apiKey'` explicitly routes to that member's key agent and its selected model. Key runs keep
   separate session history (`agent:byokit-key-<member>:...`) and app tool gates still see the original member.
+  The key-agent override enters the same explicit-model admission as an ordinary member run: `models.authStatus`
+  on that agent, then `refresh: true` once if the typed response says the prepared owner/auth snapshot is unavailable.
+  An available auth snapshot is not itself proof that the engine's full model-catalog generation is compatible.
   A missing, removed or unsealed key fails with a plain `signed-out` result before an engine run. Removal leaves
   no eligible fallback profile. Key replacement and key runs are serialized per member. `steer` and `abort` take the same optional
   `{ auth: 'apiKey' }` to address that separate history (host and device). A supplied model must
   be the selected key model's provider (`provider/model`); another provider ends `plan`. A key pays for its
   provider's models, not one: a Go plan key runs every Go model, and the engine refuses a model its catalog does
-  not list. This is smaller than a model choice in `addKey`, which would need a model picker before the key is known
-  and a re-add to change it. Absent, the selected key model runs. Ordinary runs never enter the key agent.
+  not list. `addKey` may save a Go catalog model as the default for this lane. Absent a run override, that saved model runs.
+  Ordinary runs never enter the key agent.
   `addKey` invalidates the old key before checking a replacement; a failed replacement leaves the key option
   unavailable. Key entry and its result are represented by the framework-free `ui/kits` key card view.
 - `classify(message)` (`src/classify.ts`) = Crewhouse `classifyText` mapped `rate_limit|overloaded → resting`,
@@ -1271,14 +1307,17 @@ import type { AccountView, Approval, ArtifactBytes, ArtifactFrame, ArtifactPiece
 declare function outputSchema(value: unknown): { prompt: string; parse(text: string): { data: unknown } | undefined };
 type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
-interface OpenClawKit {   // 5.3 signatures; the built kit has addKey and addAccount, the rest lands with O14
-  addKey(member: Member, o: { authChoice: string; apiKey: string; name?: string }): Promise<'ok' | 'invalid' | 'not_included' | 'retry'>;
+type AddKeyResult = { status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry';
+  reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' };   // 5.8, fixed discriminants only
+type AddKeyHandle = Promise<AddKeyResult> & { cancel(): void };   // 5.8; cancel clears a pending add (retry/busy)
+interface OpenClawKit {   // 5.3 signatures; the built kit has addKey and the account methods through removeAccount, the rest lands with O14
+  addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string }): AddKeyHandle;
   addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId },
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
     done: Promise<{ view: SignInView; id: AccountId }> }>;
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account>;
   removeAccount(member: Member, id: AccountId): Promise<void>;
-  models(member: Member, id: AccountId): Promise<ModelInfo[]>;
+  models(member: Member, id: AccountId | { authChoice: string }): Promise<ModelInfo[]>;
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;
   defaults(member: Member): Promise<Defaults>;
   setDefaults(member: Member, d: Defaults): Promise<void>;
@@ -1507,8 +1546,10 @@ O14 a member runs only on its own sign-ins, and one that never signed in reads `
   member's workspace (files, memory, skills); only credentials and session history are per account. The first account
   agent turns the fleet `agents.ownership: 'explicit'`; every kit request already names its `agentId`.
 - `<root>/accounts/<member>.json` (0600, written whole through a temp file and rename) is the only kit state:
-  `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?, who? } }, defaults: Defaults }` (`model`
-  only for an API key: the model saved with it; `who` the sign-in identity from `seal`, Sealing, kept after a sign-out
+  `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?, who?, priorModel? } }, defaults: Defaults }`
+  (`model` only for an API key: the model saved with it; `priorModel` only for a member-agent subscription account:
+  the member agent's primary model before that sign-in pinned it, empty string when there was none, so
+  `removeAccount` can restore or clear it; `who` the sign-in identity from `seal`, Sealing, kept after a sign-out
   so a later sign-in can be matched; `list` also records a live profile's `who` on a row that lacks one, and a member
   row follows its live profile's `who` when they differ). It holds no credential, token, email or engine line. An
   entry is written before its agent is created, so an agent is one of the member's accounts **only** when the member's index names it
@@ -1553,10 +1594,13 @@ using the plugin SDK's `resolveAgentDir` and local-only `updateAuthProfileStoreW
   old profile), then clears it from `from` (the grant stays shared and agents hold views only; D11 holds). It answers
   `{ ok: false }`, changing nothing, unless `from`'s profile carries exactly that `who`. Without the rewrite
   the pin would keep pinning the deleted profile on every run with the agent's default model.
-- Before any sign-in on an existing agent the kit notes that agent's primary model (`config.get`); when the sign-in's
-  profile is adopted away or cleared from it, the kit restores that primary model (the pin's sign-in rewrote it).
-- `clear { agentId, provider? }`: removes every profile from the agent's own store; with `provider`, only that provider's
-  profiles, order and last-good entry (a member agent keeps its other providers' sign-ins).
+- Before any sign-in on an existing agent the kit notes that agent's primary model (`config.get`) and, when the
+  sign-in is the member agent's first of that provider, stores it on the new index entry as `priorModel` (empty
+  string when there was none). When the sign-in's profile is adopted away or cleared from the member agent
+  (`removeAccount` included), the kit restores that primary (`config.patch`); when there was none, or the stored
+  value is missing or damaged, it removes the pin (`agents.update { model: null }`, because a merge patch cannot
+  delete a key) so the engine default applies. A restore failure never blocks removal.
+- `clear { agentId }`: removes every profile from the agent's own store. `clear { agentId, provider }` removes only that provider's profiles, order entry and last-good mark, leaving every other provider's sign-in alone (a failed member-agent sign-in's cleanup uses this; `removeAccount`'s member path uses `models.authLogout` with its sealed profileIds; the bare form is the account-agent path).
 
 `@byokit/accounts`' structural `roomOf(windows, at, resetUnit?)` keeps legacy reset seconds as its default;
 normalized `@byokit/usage` 0.2.0+ windows use epoch milliseconds and must pass `resetUnit: 'milliseconds'`
@@ -1703,16 +1747,19 @@ it never decides which account a sign-in belongs to, and a changed email changes
 - The roster or the member's profiles unreadable when the sign-in is sealed: no merge; the sign-in stays its own row
   (logged, not failed).
 - A signed-out member row (the member agent holds no credential of that `who`; it keeps its index `who`) is not a holder: it is never adopted into, collapsed or removed; the person removes it. Account rows are holders while their agent is on the roster.
-- A new agent whose sign-in fails, expires or is cancelled is removed with its index entry.
+- A new agent whose sign-in fails, expires or is cancelled is removed with its index entry. A member agent whose seal
+  fails on a non-fresh add is cleared of that provider only (`clear { agentId, provider }`); when that clear is refused
+  the add fails, saying the credential is still on the member agent, and nothing retries it.
 
 `addAccount` resolves once the target is known: `Promise<{ id; paste; cancel; done: Promise<{ view: SignInView; id:
 AccountId }> }>`, where `done.id` is the account the sign-in ended in. `name` defaults to `<label> <n>`; the email's
 local part is only a suggestion the app offers (`@byokit/ui` `nameSuggestions`), so the index never holds it.
 
-**API keys.** `addKey(member, { authChoice, apiKey, name? })` accepts only routes with `keyEntry` (else
+**API keys.** `addKey(member, { authChoice, apiKey, model? })` accepts only routes with `keyEntry` (else
 `not_included`), writes the index entry, creates a new account agent, calls typed `openclaw.setup.activate { kind:
-'api-key', agentId, authChoice, apiKey }` (180 s), seals it, records its saved model, and returns `'ok' | 'invalid' |
-'not_included' | 'retry'`; any result but `ok` leaves nothing behind. A key the engine accepted that cannot be sealed (a late
+'api-key', agentId, authChoice, apiKey }` (180 s), seals it, records its saved model, and returns an `AddKeyHandle`
+(thenable `AddKeyResult` with `cancel()`; 5.8). `cancel()` stops a pending add and clears any partial profile
+(`retry`/`busy`); it never calls `wizard.cancel`. Any result but `ok` leaves nothing behind. A key the engine accepted that cannot be sealed (a late
 restart or a failed seal) is cleared and returns `retry`, never `invalid`; if that clear is refused, the kit's start sweep
 (the `byokit.keys` bullet in §5.8) clears it. Every key is a new account (keys add, never replace; a key is replaced by
 `removeAccount` then `addKey`). The key never reaches kit storage, the index, logs,
@@ -1728,20 +1775,32 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
 
 - `renameAccount` writes the index. `defaults`/`setDefaults` read and write it; a default naming a removed account is
   dropped.
-- `removeAccount(member, id)`: a member-agent account is `models.authLogout { provider, agentId: member, profileIds:
-  <its sealed profile> }`, then its entry is dropped. An account agent: refused (`busy`) while a run is live on it;
-  `byokit.accounts clear`, then `byokit.accounts list` must answer no profile of any type, order or expiry (a
-  profile the engine refreshed during `clear` lands whole before or after it, under the same store lock, which O14's
-  engine job confirms: `clear` again, once; still listed → stop with the error, nothing deleted);
-  `agents.delete { agentId, deleteFiles: false }` (with `true` the pin moves files to a trash path it never reports);
-  the kit then removes `<root>/state/agents/<agentId>` (the agent's store and sessions) itself, never the shared
-  workspace, and checks it is gone (recreated by a late write → removed once more; still there → stop with the error,
-  the entry kept). The entry is dropped only when the directory is gone; `removeAccount` on an entry whose agent is
-  already gone removes the directory and then the entry. A write the engine lands even later cannot be ruled out by a
-  bounded check, so on `prepare` and after every removal the kit also removes each
-  `<root>/state/agents/<member>--[0-9a-f]{6}` directory that no index names and no engine agent owns (an entry is
-  written before its agent is created, so an account being added is never swept). The account's
-  sessions go with it; `move` first keeps one.
+- `removeAccount(member, id)`: refused (`busy`) for either kind while a run is live on the agent or its sign-in is
+  pending. A member-agent account is `models.authLogout { provider, agentId: member, profileIds: <its sealed profile> }`,
+  then `byokit.accounts list` must show no profile of that provider (still listed → stop with the error "still
+  signing in", nothing dropped), then the member agent's primary is restored from the entry's `priorModel` (or the
+  pin removed when that value is empty, missing or damaged; a restore failure is logged and removal continues),
+  then its entry is dropped. An account agent: `byokit.accounts clear`, then
+  `byokit.accounts list` must answer no profile of any type, order or expiry (a profile the engine refreshed during
+  `clear` lands whole before or after it, under the same store lock; still listed → stop with the error "still
+  signing in", nothing deleted, no retry);
+  `agents.delete { agentId, deleteFiles: false }` (with `true` the pin moves files to a trash path it never reports)
+  when the engine roster names the agent; the kit then removes `<root>/state/agents/<agentId>` (the agent's store and
+  sessions) itself, never the shared workspace, and drops the entry. When the roster does not name the agent, only the
+  directory removal and the entry drop run. A write the engine lands even later cannot be ruled out by a bounded
+  check, so the kit also removes, on every `prepare` and again after the sealed auth store restores (before launch),
+  each `<root>/state/agents/<member>--[0-9a-f]{6}` directory that a removal recorded as `gone` in its member's index
+  file and that no index names. A member-agent removal also records its provider in that index's `dropped` list; the same
+  prepare sweep removes that provider's auth profiles from the member agent's own store (`auth-profiles.json` and the
+  native `auth_profile_store`) while no index entry on that member agent names it again, so a late token refresh after
+  `authLogout` cannot bring the removed account back. A live member sign-in the index has not yet named is never swept.
+  Nothing else is swept: a legacy member's own directory is never recorded, so it stays.
+  Either path then re-seals the live auth store at once while the engine runs (`AuthStore.reseal`), so
+  `auth-store.sealed` and `auth-store.objects/` stop holding the removed profile without waiting for stop. The
+  re-seal never reads the live databases: each keeps its last sealed copy until stop, when `persist` seals them.
+  The same `gone` tombstones exclude a later refresh from every persisted snapshot and object; the next `prepare`
+  also prunes previously sealed entries and objects of those removed agents before they can be restored.
+  The account's sessions go with it; `move` first keeps one.
 - `models(member, id)`: `models.list { agentId, view: 'default' }` rows of the account's provider, mapped `id =
   'provider/model'`, `available`, `unavailableReason` `missing-auth`/`auth-failed` → `why: 'signed_out'`, `cooldown`
   → `why: 'resting'` with `until = unavailableUntil`. The pin reports no per-plan availability, so `why: 'plan'` only
@@ -2762,13 +2821,13 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 | `oc.abort` | `{ sessionKey, auth? }` | `null` (key must be the member's, D9) |
 | `oc.artifacts` *view* | `{ sessionKey, runId? }` | `ArtifactsResult` (5.8.2; key must be the member's, D9) |
 | `oc.artifact` (stream) | `{ sessionKey, id, offset?, sha256? }` | `ArtifactFrame` lines: `head`, `chunk`s from `offset`, `end` (5.8.2; key must be the member's, D9; a refusal is the `end` frame) |
-| `oc.accounts` *view* | — | `Account[]` (5.15) |
+| `oc.accounts` (not shipped) | — | the link refuses it as an unknown op; listing is `kit.accounts` |
 | `oc.account.add` (not shipped) | — | the link refuses it as an unknown op; account adding is `kit.addAccount`, which refuses `key` (keys are host-only) |
-| `oc.account.view` *view* | `{ id }` | `{ ready, view: SignInView \| null }` for `toAccountView` |
-| `oc.account.paste` | `{ id, text }` | `null` |
-| `oc.account.cancel` | `{ id }` | `null` |
-| `oc.account.rename` | `{ id, name }` | `Account` |
-| `oc.account.remove` | `{ id }` | `null` |
+| `oc.account.view` (not shipped) | — | the link refuses it as an unknown op; account sign-in view is on the `kit.addAccount` handle |
+| `oc.account.paste` (not shipped) | — | the link refuses it as an unknown op; paste is on the `kit.addAccount` handle |
+| `oc.account.cancel` (not shipped) | — | the link refuses it as an unknown op; cancel is on the `kit.addAccount` handle |
+| `oc.account.rename` (not shipped) | — | the link refuses it as an unknown op; renaming is `kit.renameAccount` |
+| `oc.account.remove` (not shipped) | — | the link refuses it as an unknown op; removal is `kit.removeAccount` |
 | `oc.models` *view* | `{ id }` | `ModelInfo[]` |
 | `oc.room` *view* | `{ id, demand? }` | `Room` |
 | `oc.defaults` *view* | — | `Defaults` |
@@ -2928,8 +2987,8 @@ examples/herdr-kit/     package.json  host.ts  web/index.html  web/app.ts  READM
 - `package.json`: `"private": true`, dependencies on the kit and `@byokit/pair`, `@byokit/discover`, `@byokit/relay`,
   `@byokit/ui`, `@byokit/seal` at exact published versions, `esbuild` (dev) to bundle `web/app.ts`. Scripts: `start` (`node
   host.ts`), `build:web`, `test` (`node --test e2e.test.ts`). Not part of the root workspaces.
-- `host.ts` (OpenClaw): `new OpenClawKit({ stateDir: './.state', tools: [demo_note], host,
-  config: { plugins: { allow: ['openai'] } } })` where `demo_note`
+- `host.ts` (OpenClaw): `new OpenClawKit({ stateDir: './.state', tools: [demo_note], host })` (no plugin pin: sign-in
+  offers the kit's route list) where `demo_note`
   (`{ text: string }`) is gated `{ ask: { summary: 'save a note' } }` and appends to `./.state/notes.txt`;
   `hostKeyFile('./.state/link-key.json')`; link `Host` with `openclawLink(kit, { memberOf: () => 'me' })`, grants
   in `./.state/grants.json`; `serve({ host, port: 7310 })`; also serves `web/` over plain HTTP on the same port;
@@ -2947,21 +3006,20 @@ examples/herdr-kit/     package.json  host.ts  web/index.html  web/app.ts  READM
   `hd.events`, blocked list with key buttons `Enter`, `y`, `n`, `Esc`. Plain DOM, no framework. Works in a phone browser over LAN/Tailscale.
 - `README.md`, minutes to working: prerequisites (Node 22.18; Herdr example: Herdr 0.9.1 installed; OpenClaw example:
   the first start downloads and installs the pinned engine, a few minutes, then runs offline except for the model),
-  `npm i`, `npm start`, open the printed address on the phone, pair, sign in (OpenClaw: the "ChatGPT Device Pairing — sign in with a code" row under Plans;
-  Herdr: log in inside the agent's pane), send a message, approve. Includes a troubleshooting table keyed by the
-  words sentences.
+  `npm i`, `npm start`, open the printed address on the phone, pair, sign in (OpenClaw: the "ChatGPT Device Pairing —
+  sign in with a code" row under Plans, or a plan key added at the computer with `add <choice>`; Herdr: log in inside the agent's pane), send a message, approve. Includes a troubleshooting table keyed by the words sentences.
 - `e2e.test.ts` (CI, `browser` job): packs the workspace packages (`npm pack -w …`), installs the tarballs into a temp
   copy of the example (proving the published shape), starts `host.ts` with the kit's fake (`BYOKIT_EXAMPLE_FAKE=1`
   switches to `fakeGateway()` / `startFakeHerdr()` — the only env read, in example code, not library code), drives
-  headless Chromium through pair → sign in (fake device code) → run with streamed text → approval Allow → result
-  (Herdr: pair → start agent → prompt → receipt → `ask permission` blocked → answer `y` → idle), and asserts the
+  headless Chromium through pair → sign in (fake device code) → run with streamed text and its usage line →
+  approval Allow → result (Herdr: pair → start agent → prompt → receipt → `ask permission` blocked → answer `y` → idle), and asserts the
   person-visible text equals `words.json` sentences. Away from home: a loopback `Relay` whose push `fetch` is a
   recorder, a Node device pairing by `findHost` + `pairWithCode`, registering a notice key and an Expo token; the
   pushed message must carry the generic title, none of the approval's or question's text, and open only with the
   device's own seed (OpenClaw: Allow through `/relay/v1/push/action` saves the note).
 - `LIVE.md`: the manual end-to-end proof, run once per kit release in the isolated lab: real engine (OpenClaw) with a
-  real ChatGPT sign-in in the lab's retained test home, phone pairing over Tailscale, run + approval; real Herdr
-  v0.9.1 in `own` mode (under a `--herdr-lab` brief) with one agent CLI signed in inside the lab home. Record date,
+  real ChatGPT sign-in (or an OpenCode Go plan key) in the lab's retained test home, phone pairing over Tailscale,
+  run + approval; real Herdr v0.9.1 in `own` mode (under a `--herdr-lab` brief) with one agent CLI signed in inside the lab home. Record date,
   versions and screenshots path in the PR.
 
 ## 9. Tests, CI and isolation

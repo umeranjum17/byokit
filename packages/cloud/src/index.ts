@@ -3,6 +3,10 @@
 // integration (docs/cloud-kit.md). Portable entry: no `node:*` import.
 
 export { machine } from './machine.ts';
+export { setup } from './setup.ts';
+export type { SetupStep, SetupStepName } from './setup.ts';
+export { PHONE_KEY_FILE, bindPhoneKey, deliverPhoneKey, pairEnrol } from './enrol.ts';
+export type { EnrolHost } from './enrol.ts';
 export { status } from './status.ts';
 export type { Status } from './status.ts';
 export { boat } from './boat.ts';
@@ -14,9 +18,9 @@ export { wakeResolve } from './wake.ts';
 export { MachineError } from './errors.ts';
 export type { MachineErrorCode } from './errors.ts';
 export { estimate } from './cost.ts';
-export { words, stateWords, hostWords, keyWords, errorWords, WORDS } from './words.ts';
+export { words, stateWords, hostWords, keyWords, errorWords, errorKey, WORDS } from './words.ts';
 export type { WordKey } from './words.ts';
 export type {
-  AsleepWhy, Cost, ExecResult, HostRecipe, HostState, KeyInfo, Machine, MachineRecord, MachineRef,
-  MachineState, MachineStore, Plan, Price, Provider, Size, Usage,
+  AsleepWhy, Cost, Disk, ExecResult, HostRecipe, HostState, KeyInfo, Machine, MachineRecord, MachineRef,
+  MachineState, MachineStore, Plan, Price, Provider, Size, Snapshot, Tailnet, TailnetStep, Usage,
 } from './types.ts';

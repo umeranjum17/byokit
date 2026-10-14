@@ -19,6 +19,7 @@ export type MachineBench = {
   store: { load(): Promise<import('../types.ts').MachineRecord | null>; save(r: import('../types.ts').MachineRecord): Promise<void> };
   fake?: FakeControl;
   installs: boolean;
+  keepCopies?: boolean; // A create-capable adapter may not yet support copies.
 };
 
 export type MachineContractTestContext = {
@@ -52,9 +53,9 @@ export function machineContract(make: () => Promise<MachineBench>, o?: { test?: 
   const createMachine = async (bench: MachineBench): Promise<Machine> => machine({ provider: bench.provider, store: bench.store });
 
   // A provider without `create` (the SSH VM) adopts the machine that already
-  // exists, which needs `keepCopies: false` (5.2 step 4); every other bench
-  // creates with copies on.
-  const keepCopiesFor = (bench: MachineBench): boolean => bench.provider.create !== undefined;
+  // exists, which needs `keepCopies: false` (5.2 step 4); a bench may set
+  // `keepCopies` itself, and every other bench creates with copies on.
+  const keepCopiesFor = (bench: MachineBench): boolean => bench.keepCopies ?? bench.provider.create !== undefined;
 
   const rejectCode = async (p: Promise<unknown>, code: string): Promise<MachineError> => {
     try {
@@ -107,7 +108,7 @@ export function machineContract(make: () => Promise<MachineBench>, o?: { test?: 
     const bench = await make();
     if (bench.provider.remove === undefined) return t.skip('no remove method');
     const m = await createMachine(bench);
-    const ref = await m.create({ name: 'web', size: 'small', keepCopies: true });
+    const ref = await m.create({ name: 'web', size: 'small', keepCopies: keepCopiesFor(bench) });
     await rejectCode(m.remove('wrong'), 'confirm');
     assert.deepEqual(m.ref, ref);
     await m.remove(ref.id);

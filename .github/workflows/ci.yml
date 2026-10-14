@@ -280,7 +280,7 @@ jobs:
         working-directory: examples/expo
       - run: npm run typecheck
         working-directory: examples/expo
-      - run: sh scripts/test.sh examples/expo/pairing.test.ts examples/expo/cloud-m6.test.ts examples/expo/cloud-setup.test.ts examples/expo/infer-probe.test.ts examples/expo/infer-binding.test.ts
+      - run: sh scripts/test.sh examples/expo/pairing.test.ts examples/expo/cloud-m6.test.ts examples/expo/cloud-m6-demo.test.ts examples/expo/cloud-setup.test.ts examples/expo/infer-probe.test.ts examples/expo/infer-binding.test.ts
       - run: node examples/expo/cold-accounts.ts
       - run: npx expo export --platform android --platform ios --output-dir dist
         working-directory: examples/expo
@@ -544,6 +544,8 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

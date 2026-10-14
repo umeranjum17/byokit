@@ -17,11 +17,12 @@
 import { mock, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { Engine } from '../src/engine.ts';
+import { hostKeySeal } from '../../secrets/src/index.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { memberOfAccount } from '../src/accounts.ts';
 import { openclawLink } from '../src/link.ts';
@@ -977,7 +978,7 @@ test('a key add whose gateway restarts 10 s after activation is ok, and its key 
     await flush();
     t.mock.timers.tick(1_000);
     await flush();
-    assert.equal(await pending, 'ok');
+    assert.deepEqual(await pending, { status: 'ok' });
     assert.ok(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'));
   } finally {
     await kit.stop();
@@ -996,7 +997,7 @@ test('a key add whose gateway never restarts returns retry and clears the key it
     await flush();
     t.mock.timers.tick(60_000);
     await flush();
-    assert.equal(await pending, 'retry');
+    assert.deepEqual(await pending, { status: 'retry', reason: 'busy' });
     assert.ok(!fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'));
     assert.ok(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'clear'));
   } finally {
@@ -1013,7 +1014,7 @@ test('a key add that finds the gateway restarting before the engine saw the key 
   try {
     await kit.start();
     fake.drop('gateway restart');
-    assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-PRE-ACCEPT' }), 'retry');
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-PRE-ACCEPT' }), { status: 'retry', reason: 'busy' });
     assert.ok(!fake.calls.some((c) => c.method === 'openclaw.setup.activate'));
   } finally {
     await kit.stop();
@@ -1089,7 +1090,7 @@ test('a key add whose gateway restart fails after activation returns retry, not 
     await flush();
     t.mock.timers.tick(1_000);
     await flush();
-    assert.equal(await pending, 'retry');
+    assert.deepEqual(await pending, { status: 'retry', reason: 'busy' });
     assert.ok(!fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'));
     const probe = fake.factory({ port: 0, token: 'test', identityPath: '', bridgeSock: '' });
     assert.deepEqual(await probe.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
@@ -1127,8 +1128,8 @@ test('a key add for a choice the engine cannot set up is not_included and leaves
   const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
   try {
     await kit.start();
-    assert.equal(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-working' }), 'ok');
-    assert.equal(await kit.addKey('m1', { authChoice: 'fal-api-key', apiKey: 'CANARY-KEY-FAL' }), 'not_included');
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-working' }), { status: 'ok' });
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'fal-api-key', apiKey: 'CANARY-KEY-FAL' }), { status: 'not_included', reason: 'model' });
     assert.equal((await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }) as { ok: boolean }).ok, true);
   } finally {
     await kit.stop();
@@ -1143,7 +1144,7 @@ test('a key add whose activation throws clears the key it may have stored and re
   const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
   try {
     await kit.start();
-    assert.equal(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-THROWS' }), 'retry');
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-THROWS' }), { status: 'retry', reason: 'engine' });
     assert.ok(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'clear'));
     assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
   } finally {
@@ -1254,7 +1255,7 @@ test('session binding: a run stays on the account that holds its session; pick e
     const kept = await run({ sessionKey: 'agent:m1:chat:k', account: 'anthropic.a0a0a0' });
     assert.ok(kept.end.ok && kept.end.account === 'anthropic.a0a0a0', JSON.stringify(kept.end));
     // An API-key run continues only an API-billed conversation: a subscription- or member-bound one is refused, with no agent request.
-    assert.equal(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-test' }), 'ok');
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-test' }), { status: 'ok' });
     const keyRun =(sessionKey: string) => kit.run({ member: 'm1', sessionKey, message: 'hello', auth: 'apiKey' });
     const keyRefusal = (name: string) => ({ ok: false, kind: 'other', message: `This conversation uses ${name}. Move it to switch accounts.` });
     const keyFrom = fake.calls.length;
@@ -1433,6 +1434,124 @@ test('move: the transcript forks onto the target and the source goes; busy, star
   } finally {
     release();
     await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+// S8 (O14h): removeAccount and the orphan sweep. A member-agent account goes through authLogout with profileIds;
+// an account agent through clear, an empty list, agents.delete with deleteFiles:false, removal of its state dir,
+// then the entry. Removal is refused busy while live; the member stays ready. A late refresh racing clear is
+// cleared again; a file written after removal is swept on the next prepare. A seal failure on a non-fresh add
+// clears only that provider on the member agent.
+test('removeAccount and the orphan sweep', async () => {
+  const stateDir = scratchDir('o14h-remove');
+  const fake = fakeGateway();
+  const root = join(stateDir, 'openclaw');
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done, { state: 'done', via: 'browser' });
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    assert.deepEqual((await kit.accounts('m1')).map((a) => a.id).sort(), ['openai', second.id].sort());
+
+    // Busy: a live run holds the agent's shared lock, so removal is refused and the member stays ready.
+    fake.setUsage('m1', 'openai', [{ label: 'session', usedPercent: 80 }]);
+    fake.setUsage(agent, 'openai', [{ label: 'session', usedPercent: 10 }]);
+    for (const id of ['openai', second.id]) await kit.room('m1', id);
+    let started!: () => void;
+    const running = new Promise<void>((resolve) => { started = resolve; });
+    const pending = kit.run({ member: 'm1', sessionKey: 'agent:m1:remove-busy', message: 'hello', account: second.id },
+      (e) => { if (e.type === 'started') started(); });
+    await running;
+    await assert.rejects(kit.removeAccount('m1', second.id), /removeAccount: busy/);
+    assert.ok(second.id in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts, 'a busy refusal keeps the entry');
+    assert.ok((await kit.call('agents.list', {})).agents.some((a) => a.id === agent), 'and the account agent');
+    assert.equal((await kit.accounts('m1')).find((a) => a.id === 'openai')?.state, 'ready', 'the member stays ready');
+    assert.ok((await pending).ok, 'the live run finishes');
+
+    // A refresh racing clear: after the first clear the engine lands one expired profile with no order; the removal
+    // refuses with nothing deleted, and a retry clears it and drops the entry with no file left.
+    let clears = 0;
+    const racing: typeof fake.factory = (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, request: async (method, params, o) => {
+        const answer = await transport.request(method, params, o);
+        if (method === 'byokit.accounts' && (params as { action?: string; agentId?: string }).action === 'clear'
+          && (params as { agentId?: string }).agentId === agent && clears++ === 0)
+          fake.refresh(agent, 'openai', { order: false, expires: Date.now() - 1_000 });
+        return answer;
+      } };
+    };
+    await kit.stop();
+    const kit2 = new OpenClawKit({ stateDir, transport: racing, spawnEngine: false, callbackPort: 0 });
+    try {
+      await kit2.start();
+      const deleteCalls = () => fake.calls.filter((c) => c.method === 'agents.delete');
+      const deletesBefore = deleteCalls().length;
+      await assert.rejects(kit2.removeAccount('m1', second.id), /still signing in/, 'a refresh that lands after clear refuses removal');
+      assert.ok(second.id in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts, 'and keeps the entry');
+      assert.equal(deleteCalls().length, deletesBefore, 'and deletes nothing');
+      await kit2.removeAccount('m1', second.id);
+      assert.ok(clears >= 1, 'clear raced a refresh');
+      const deletes = deleteCalls().slice(deletesBefore);
+      assert.equal(deletes.length, 1);
+      assert.deepEqual((deletes[0]!.params as { deleteFiles?: boolean }).deleteFiles, false);
+      assert.ok(!(await kit2.call('agents.list', {})).agents.some((a) => a.id === agent), 'the agent is gone');
+      assert.ok(!(second.id in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts), 'and its entry');
+      assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'and its state dir');
+      assert.equal((await kit2.accounts('m1')).find((a) => a.id === 'openai')?.state, 'ready');
+
+      // A file the engine lands after removal is swept on the next prepare.
+      const late = join(root, 'state', 'agents', agent, 'agent', 'late.json');
+      mkdirSync(join(late, '..'), { recursive: true });
+      writeFileSync(late, '{}');
+      await kit2.prepare();
+      assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'the late file is swept on prepare');
+
+      // The member-agent account goes through authLogout with its sealed profileIds, then the entry.
+      const authCalls = () => fake.calls.filter((c) => c.method === 'models.authLogout');
+      const authBefore = authCalls().length;
+      await kit2.removeAccount('m1', 'openai');
+      const auth = authCalls().slice(authBefore);
+      assert.equal(auth.length, 1);
+      const logout = auth[0]!.params as { provider?: string; agentId?: string; profileIds?: unknown };
+      assert.equal(logout.provider, 'openai');
+      assert.equal(logout.agentId, 'm1');
+      assert.ok(Array.isArray(logout.profileIds) && logout.profileIds.length > 0, 'with its sealed profile');
+      assert.ok(!('openai' in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts), 'the member entry is dropped');
+    } finally { await kit2.stop(); }
+
+    // A seal failure on a non-fresh add clears only that provider on the member agent: listing hides the
+    // credential and runs cannot use it.
+    let seals = 0;
+    const failing: typeof fake.factory = (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, request: async (method, params, o) => {
+        if (method === 'byokit.accounts' && (params as { action?: string }).action === 'seal' && seals++ === 0)
+          return { ok: false };
+        return transport.request(method, params, o);
+      } };
+    };
+    const kit3 = new OpenClawKit({ stateDir, transport: failing, spawnEngine: false, callbackPort: 0 });
+    try {
+      await kit3.start();
+      await kit3.ensureMember('m2');
+      const failed = await kit3.addAccount('m2', { authChoice: 'openai', via: 'browser' }, () => {});
+      assert.equal((await failed.done).view.state, 'failed');
+      const held = await kit3.callDynamic('byokit.accounts', { action: 'list', agentId: 'm2' }) as
+        { ok: boolean; profiles: { provider: string }[] };
+      assert.deepEqual(held.profiles.filter((p) => p.provider === 'openai'), [], 'the failed credential is cleared');
+      assert.ok(!(await kit3.accounts('m2')).some((a) => a.id === 'openai'), 'listing hides it');
+      const scoped = fake.calls.filter((c) => c.method === 'byokit.accounts'
+        && (c.params as { action?: string; provider?: string }).action === 'clear'
+        && (c.params as { agentId?: string }).agentId === 'm2');
+      assert.ok(scoped.some((c) => (c.params as { provider?: string }).provider === 'openai'),
+        'the member is cleared provider-scoped, not wiped');
+    } finally { await kit3.stop(); }
+  } finally {
+    try { await kit.stop(); } catch { /* already stopped for the racing leg */ }
     rmSync(stateDir, { recursive: true, force: true });
   }
 });
@@ -1716,6 +1835,605 @@ test('attribution and link frames: account agent under the member, unindexed unr
     const text = frames.join('\n');
     for (const canary of [canaryWho, 'canary-o14m-shared', 'canary-o14m-other'])
       assert.ok(!text.includes(canary), `link frame leaks ${canary}`);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+// A removal that dies right after agents.delete (off the roster, entry and state dir still on disk) finishes on retry.
+test('a removal that dies after agents.delete finishes on retry', async () => {
+  const stateDir = scratchDir('o14h-retry');
+  const fake = fakeGateway();
+  const root = join(stateDir, 'openclaw');
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done, { state: 'done', via: 'browser' });
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    await kit.stop();
+    const agentDir = join(root, 'state', 'agents', agent);
+    mkdirSync(join(agentDir, 'agent'), { recursive: true });
+    writeFileSync(join(agentDir, 'agent', 'auth.json'), '{}');
+
+    let crashed = false;
+    const dying: typeof fake.factory = (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, request: async (method, params, o) => {
+        const answer = await transport.request(method, params, o);
+        if (method === 'agents.delete' && !crashed) { crashed = true; throw new Error('process died after agents.delete'); }
+        return answer;
+      } };
+    };
+    const kit2 = new OpenClawKit({ stateDir, transport: dying, spawnEngine: false, callbackPort: 0 });
+    try {
+      await kit2.start();
+      await assert.rejects(kit2.removeAccount('m1', second.id), /process died after agents.delete/);
+    } finally { await kit2.stop(); }
+    assert.ok(second.id in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts, 'the entry remains');
+    assert.ok(existsSync(agentDir), 'the state dir remains');
+
+    const kit3 = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+    try {
+      await kit3.start();
+      await kit3.removeAccount('m1', second.id);
+      assert.ok(!(second.id in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts), 'the retry drops the entry');
+      assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'and removes the state dir');
+    } finally { await kit3.stop(); }
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+// Fail closed (O14h): an index that cannot be parsed sweeps nothing, and a member-agent removal whose sign-in list
+// cannot be read deletes no entry and logs out nothing.
+test('an unreadable index sweeps nothing, and a removal whose list fails deletes nothing', async () => {
+  const stateDir = scratchDir('o14h-fail-closed');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agentDir = join(stateDir, 'openclaw', 'state', 'agents', `m1--${second.id.slice('openai.'.length)}`);
+    mkdirSync(join(agentDir, 'agent'), { recursive: true });
+    writeFileSync(join(agentDir, 'agent', 'auth.json'), '{}');
+    await kit.stop();
+
+    const index = readFileSync(indexOf(stateDir, 'm1'), 'utf8');
+    writeFileSync(indexOf(stateDir, 'm1'), '{');
+    const kit2 = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+    try {
+      await kit2.prepare();
+      assert.ok(existsSync(agentDir), 'the unreadable index keeps the account agent');
+    } finally { await kit2.stop(); }
+
+    writeFileSync(indexOf(stateDir, 'm1'), index);
+    let listing = false;
+    const failingList: typeof fake.factory = (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, request: async (method, params, o) => {
+        if (listing && method === 'byokit.accounts' && (params as { action?: string }).action === 'list') return { ok: false };
+        return transport.request(method, params, o);
+      } };
+    };
+    const kit3 = new OpenClawKit({ stateDir, transport: failingList, spawnEngine: false, callbackPort: 0 });
+    try {
+      await kit3.start();
+      const logoutsBefore = fake.calls.filter((c) => c.method === 'models.authLogout').length;
+      listing = true;
+      await assert.rejects(kit3.removeAccount('m1', 'openai'), /could not be read/);
+      listing = false;
+      assert.equal(fake.calls.filter((c) => c.method === 'models.authLogout').length, logoutsBefore, 'nothing is logged out');
+      assert.ok('openai' in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts, 'and the entry stays');
+    } finally { await kit3.stop(); }
+  } finally { rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('prepare keeps a legacy member dir even when its owner has an index, and removes only a recorded account dir', async () => {
+  const stateDir = scratchDir('o14h-legacy-sweep');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    await kit.accounts('m1');
+    assert.ok(existsSync(indexOf(stateDir, 'm1')), 'm1 has an index');
+    await kit.stop();
+    const agents = join(stateDir, 'openclaw', 'state', 'agents');
+    const legacy = join(agents, 'ops--a1b2c3', 'agent', 'auth.json');
+    const removed = join(agents, 'm1--abcdef', 'agent', 'auth.json');
+    for (const file of [legacy, removed]) { mkdirSync(join(file, '..'), { recursive: true }); writeFileSync(file, '{}'); }
+    mkdirSync(join(stateDir, 'openclaw', 'accounts'), { recursive: true });
+    writeFileSync(indexOf(stateDir, 'ops'), JSON.stringify({ v: 1, accounts: {}, defaults: {} }, null, 2) + '\n');
+    const file = indexOf(stateDir, 'm1');
+    writeFileSync(file, JSON.stringify({ ...JSON.parse(readFileSync(file, 'utf8')), gone: ['m1--abcdef'] }, null, 2) + '\n');
+    const kit2 = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+    try {
+      await kit2.prepare();
+      assert.ok(existsSync(legacy), 'the legacy member keeps its sign-in');
+      assert.ok(!existsSync(join(agents, 'm1--abcdef')), 'a removed account dir is swept');
+    } finally { await kit2.stop(); }
+  } finally { rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a late write to a removed account dir is swept after a sealed restore, before launch', async () => {
+  const stateDir = scratchDir('o14h-sealed-sweep');
+  const fake = fakeGateway();
+  const authSeal = hostKeySeal({ key: new Uint8Array(32).fill(9) });
+  const agents = join(stateDir, 'openclaw', 'state', 'agents');
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    await kit.removeAccount('m1', second.id);
+    const late = join(agents, agent, 'agent', 'auth.json');
+    mkdirSync(join(late, '..'), { recursive: true });
+    writeFileSync(late, '{}');
+    await kit.stop();
+    const kit2 = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+    try {
+      await kit2.start();
+      assert.ok(!existsSync(join(agents, agent)), 'the removed agent leaves no file after the sealed restore');
+    } finally { await kit2.stop(); }
+  } finally { rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('removing an account while the engine runs survives a SQLite journal that vanishes during the reseal', async () => {
+  const stateDir = scratchDir('o14h-journal-vanish');
+  const fake = fakeGateway();
+  const base = hostKeySeal({ key: new Uint8Array(32).fill(7) });
+  let vanish: string | undefined;
+  const authSeal = {
+    encryptString: (text: string) => {
+      if (vanish) { rmSync(vanish, { force: true }); vanish = undefined; }
+      return base.encryptString(text);
+    },
+    decryptString: (data: Buffer) => base.decryptString(data),
+  };
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const live = join(stateDir, 'openclaw', 'state', 'agents', 'm1', 'agent');
+    mkdirSync(live, { recursive: true });
+    writeFileSync(join(live, 'openclaw-agent.sqlite'), 'live-db');
+    writeFileSync(join(live, 'openclaw-agent.sqlite-journal'), 'live-journal');
+    vanish = join(live, 'openclaw-agent.sqlite-journal');
+    await kit.removeAccount('m1', second.id);
+    assert.equal(vanish, undefined, 'the reseal ran and the journal was deleted before it was read');
+    assert.ok(!(second.id in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts), 'the removal committed');
+    assert.equal(readFileSync(join(live, 'openclaw-agent.sqlite'), 'utf8'), 'live-db');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a member sign-in that lands again during logout is refused, keeps its entry, and a retry clears it', async () => {
+  const stateDir = scratchDir('o14h-member-relogin');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    assert.ok((await kit.accounts('m1')).some((a) => a.id === 'openai'));
+    await kit.stop();
+    let logouts = 0;
+    const relogin: typeof fake.factory = (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, request: async (method, params, o) => {
+        const answer = await transport.request(method, params, o);
+        if (method === 'models.authLogout' && logouts++ === 0) fake.refresh('m1', 'openai');
+        return answer;
+      } };
+    };
+    const kit2 = new OpenClawKit({ stateDir, transport: relogin, spawnEngine: false, callbackPort: 0 });
+    try {
+      await kit2.start();
+      await assert.rejects(kit2.removeAccount('m1', 'openai'), /still signing in/, 'a profile that lands again refuses removal');
+      assert.ok('openai' in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts, 'and keeps the entry');
+      await kit2.removeAccount('m1', 'openai');
+      assert.equal(logouts, 2, 'the retry logs the landed profile out too');
+      assert.ok(!('openai' in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts), 'and the retry drops the entry');
+    } finally { await kit2.stop(); }
+  } finally { rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+// Member remove restores the pre-sign-in primary (or clears the pin when there was none); an account-agent remove
+// leaves the member primary alone.
+test('removeAccount restores or clears the member primary model', async () => {
+  const stateDir = scratchDir('o14h-remove-model');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  type Cfg = { hash: string; config: { agents: { entries: Record<string, { model?: unknown }> } } };
+  const configOf = async (): Promise<Cfg> => await kit.call('config.get', {}) as Cfg;
+  const modelOf = async (agentId: string) => (await configOf()).config.agents.entries[agentId]?.model;
+  try {
+    await kit.start();
+    await kit.ensureMember('m1');
+    // Prior model: add then remove restores it; the index carried priorModel.
+    await kit.call('config.patch', { raw: JSON.stringify({ agents: { ownership: 'explicit',
+      entries: { m1: { model: 'openai/before-sign-in' } } } }),
+      baseHash: (await configOf()).hash });
+    assert.equal((await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {}).then((h) => h.done)).view.state, 'done');
+    assert.match(String(await modelOf('m1')), /@openai:default/, 'sign-in pins the member primary');
+    assert.equal(JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts.openai.priorModel, 'openai/before-sign-in');
+    await kit.removeAccount('m1', 'openai');
+    assert.equal(await modelOf('m1'), 'openai/before-sign-in', 'remove restores the prior primary');
+    assert.ok(!('openai' in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts));
+
+    // No prior model: remove clears the pin so the engine default applies.
+    // Clear the restored primary so this sign-in records an empty priorModel.
+    await kit.call('agents.update', { agentId: 'm1', model: null });
+    assert.equal(await modelOf('m1'), undefined);
+    assert.equal((await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {}).then((h) => h.done)).view.state, 'done');
+    assert.equal(JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts.openai.priorModel, '');
+    const clearsBefore = fake.calls.filter((c) => c.method === 'agents.update'
+      && (c.params as { model?: unknown }).model === null).length;
+    await kit.removeAccount('m1', 'openai');
+    assert.ok(fake.calls.filter((c) => c.method === 'agents.update'
+      && (c.params as { model?: unknown }).model === null).length > clearsBefore, 'empty prior clears via agents.update');
+    assert.equal(await modelOf('m1'), undefined, 'the pin is gone');
+
+    // Account-agent remove leaves the member primary unchanged.
+    await kit.call('config.patch', { raw: JSON.stringify({ agents: { entries: { m1: { model: 'openai/member-stays' } } } }),
+      baseHash: (await configOf()).hash });
+    assert.equal((await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {}).then((h) => h.done)).view.state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const before = await modelOf('m1');
+    await kit.removeAccount('m1', second.id);
+    assert.equal(await modelOf('m1'), before, 'removing an account agent does not touch the member primary');
+    assert.ok('openai' in JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')).accounts, 'the member account stays');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+// A late token refresh after member-agent authLogout can rewrite state/agents/<member>; prepare must drop that
+// profile so listing cannot synthesize the removed account, while every other account stays.
+test('prepare sweeps a late member-store refresh of a removed account', async () => {
+  const stateDir = scratchDir('o14h-member-late-refresh');
+  const fake = fakeGateway();
+  const root = join(stateDir, 'openclaw');
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const go = await kit.addAccount('m1', { authChoice: 'opencode-go' }, () => {});
+    go.paste('CANARY-GO-MEMBER-LATE-REFRESH');
+    assert.equal((await go.done).view.state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const keptAgent = second.id;
+    assert.deepEqual((await kit.accounts('m1')).map((a) => a.id).sort(), ['openai', 'opencode-go', keptAgent].sort());
+    await kit.removeAccount('m1', 'openai');
+    const indexAfter = JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')) as {
+      accounts: Record<string, unknown>; dropped?: string[];
+    };
+    assert.ok(!('openai' in indexAfter.accounts));
+    assert.deepEqual(indexAfter.dropped, ['openai'], 'removal tombstones the member provider');
+    assert.ok('opencode-go' in indexAfter.accounts, 'the other member account stays');
+    assert.ok(keptAgent in indexAfter.accounts, 'and the account agent stays');
+    const memberStore = join(root, 'state', 'agents', 'm1', 'agent', 'auth-profiles.json');
+    mkdirSync(join(memberStore, '..'), { recursive: true });
+    writeFileSync(memberStore, JSON.stringify({
+      version: 1,
+      profiles: {
+        'openai:default': { type: 'oauth', provider: 'openai', access: 'late-access', refresh: 'late-refresh' },
+        'opencode-go:default': { type: 'api_key', provider: 'opencode-go', key: 'kept-on-member' },
+      },
+      order: { openai: ['openai:default'], 'opencode-go': ['opencode-go:default'] },
+    }));
+    await kit.prepare();
+    const swept = JSON.parse(readFileSync(memberStore, 'utf8')) as {
+      profiles: Record<string, { provider?: string }>;
+      order?: Record<string, unknown>;
+    };
+    assert.equal(swept.profiles['openai:default'], undefined, 'the late member refresh is gone');
+    assert.equal(swept.profiles['opencode-go:default']?.provider, 'opencode-go', 'the remaining member profile stays');
+    assert.deepEqual(swept.order, { 'opencode-go': ['opencode-go:default'] });
+    const index = JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')) as { accounts: Record<string, unknown> };
+    assert.ok(!('openai' in index.accounts), 'the removed member account stays out of the index');
+    assert.ok('opencode-go' in index.accounts, 'the remaining member account entry is intact');
+    assert.ok(keptAgent in index.accounts, 'and the account agent entry is intact');
+    const listed = (await kit.accounts('m1')).map((a) => a.id).sort();
+    assert.deepEqual(listed, ['opencode-go', keptAgent].sort());
+
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('removeAccount is refused busy while a run holds the account agent or the member agent live, and keeps the entry', async () => {
+  const stateDir = scratchDir('o14h-remove-live');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    fake.setUsage('m1', 'openai', [{ label: 'session', usedPercent: 80 }]);
+    fake.setUsage(agent, 'openai', [{ label: 'session', usedPercent: 10 }]);
+    for (const id of ['openai', second.id]) await kit.room('m1', id);
+    const refusedWhileLive = async (account: string, liveAgent: string) => {
+      let started!: () => void;
+      const running = new Promise<void>((resolve) => { started = resolve; });
+      const pending = kit.run({ member: 'm1', sessionKey: `agent:m1:live-${account}`, message: 'hello', account },
+        (e) => { if (e.type === 'started') started(); });
+      await running;
+      await assert.rejects(kit.removeAccount('m1', account), /removeAccount: busy/);
+      assert.ok((await kit.accounts('m1')).some((a) => a.id === account), 'the entry stays');
+      assert.ok((await kit.call('agents.list', {})).agents.some((a) => a.id === liveAgent), 'and the agent');
+      assert.ok((await pending).ok, 'the live run finishes');
+    };
+    await refusedWhileLive(second.id, agent);
+    await refusedWhileLive('openai', 'm1');
+    assert.equal((await kit.accounts('m1')).find((a) => a.id === 'openai')?.state, 'ready', 'the member stays ready');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a reseal during a run leaves the sealed databases as they were and drops only the removed agent\'s', async () => {
+  const stateDir = scratchDir('o14h-reseal-db');
+  const fake = fakeGateway();
+  const authSeal = hostKeySeal({ key: new Uint8Array(32).fill(5) });
+  const root = join(stateDir, 'openclaw');
+  const objects = join(root, 'auth-store.objects');
+  const sealedObjects = () => new Map(readdirSync(objects).map((name) => [name, readFileSync(join(objects, name))] as const));
+  const databaseText = (bytes: Buffer) => Buffer.from((JSON.parse(authSeal.decryptString(bytes)) as { data: string }).data, 'base64').toString();
+  const plant = (agent: string, text: string) => {
+    const dir = join(root, 'state', 'agents', agent, 'agent');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'openclaw-agent.sqlite'), text);
+  };
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    plant('m1', 'member-db-v1');
+    plant(agent, 'removed-db');
+    await kit.stop();
+    const before = sealedObjects();
+    assert.ok([...before.values()].some((bytes) => databaseText(bytes) === 'removed-db'), 'both databases are sealed at stop');
+
+    const running = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+    try {
+      await running.start();
+      writeFileSync(join(root, 'state', 'agents', 'm1', 'agent', 'openclaw-agent.sqlite'), 'member-db-v2');
+      await running.removeAccount('m1', second.id);
+      const after = sealedObjects();
+      assert.equal([...before.keys()].filter((name) => !after.has(name)).length, 1, 'only the removed agent database is dropped');
+      for (const [name, bytes] of after) assert.deepEqual(bytes, before.get(name), 'the other sealed databases are not rewritten');
+      assert.deepEqual([...after.values()].map(databaseText).sort(), ['member-db-v1'], 'no removed-agent or live database is sealed mid-run');
+    } finally { await running.stop(); }
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a v:2 snapshot that drops a removed account re-seals as v:1 on restore', async () => {
+  const stateDir = scratchDir('o14h-v2-tombstone');
+  const fake = fakeGateway();
+  const authSeal = hostKeySeal({ key: new Uint8Array(32).fill(6) });
+  const root = join(stateDir, 'openclaw');
+  const blob = join(root, 'auth-store.sealed');
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    mkdirSync(join(root, 'state', 'agents', agent, 'agent'), { recursive: true });
+    writeFileSync(join(root, 'state', 'agents', agent, 'agent', 'auth-profiles.json'), '{}');
+    await kit.stop();
+    const index = JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8'));
+    delete index.accounts[second.id];
+    index.gone = [agent];
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(index));
+    const snap = JSON.parse(authSeal.decryptString(readFileSync(blob))) as { v: number; dirs: string[]; files: [string, string][] };
+    assert.ok(snap.files.some(([path]) => path.includes(agent)), 'the sealed snapshot still holds the account agent profile');
+    writeFileSync(blob, authSeal.encryptString(JSON.stringify({ ...snap, v: 2 })));
+    const kit2 = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+    try {
+      await kit2.start();
+      assert.equal((JSON.parse(authSeal.decryptString(readFileSync(blob))) as { v: number }).v, 1, 're-sealed as v: 1');
+      assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'and the removed agent dir is gone');
+    } finally { await kit2.stop(); }
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('a failed member-agent seal says the credential is still there when its clear is refused', async () => {
+  const stateDir = scratchDir('o14h-seal-clear-refused');
+  const fake = fakeGateway();
+  let seals = 0;
+  const refusing: typeof fake.factory = (ctx) => {
+    const transport = fake.factory(ctx);
+    return { ...transport, request: async (method, params, o) => {
+      const { action, provider } = (params ?? {}) as { action?: string; provider?: string };
+      if (method === 'byokit.accounts' && action === 'seal' && seals++ === 0) return { ok: false };
+      if (method === 'byokit.accounts' && action === 'clear' && provider === 'openai') return { ok: false };
+      return transport.request(method, params, o);
+    } };
+  };
+  const kit = new OpenClawKit({ stateDir, transport: refusing, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    await kit.ensureMember('m2');
+    const failed = await kit.addAccount('m2', { authChoice: 'openai', via: 'browser' }, () => {});
+    const { view } = await failed.done;
+    assert.equal(view.state, 'failed');
+    assert.match(view.error ?? '', /still on the member agent/);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('removeAccount is refused busy while an account sign-in is pending, and the entry stays', async () => {
+  const stateDir = scratchDir('o14h-remove-pending');
+  const fake = fakeGateway();
+  let holding = false;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const holdingTransport: typeof fake.factory = (ctx) => {
+    const transport = fake.factory(ctx);
+    return { ...transport, request: async (method, params, o) => {
+      if (method === 'openclaw.setup.auth.start' && holding) await gate;
+      return transport.request(method, params, o);
+    } };
+  };
+  const kit = new OpenClawKit({ stateDir, transport: holdingTransport, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done, { state: 'done', via: 'browser' });
+    holding = true;
+    const pending = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    await assert.rejects(kit.removeAccount('m1', pending.id), /busy/);
+    assert.ok((await kit.accounts('m1')).some((a) => a.id === pending.id), 'the entry stays');
+    holding = false;
+    release();
+    assert.equal((await pending.done).view.state, 'done');
+    assert.ok((await kit.accounts('m1')).some((a) => a.id === pending.id), 'the signed-in entry stays');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+// A damaged index quarantines only that member: its agents are held back (never restored, never swept, never
+// resealed away), the other members restore, start and persist normally, and the kit reports words
+// `account.indexDamaged`. Rewriting a good index restores the held-back agents.
+test('a damaged index quarantines only that member, and a repaired index restores it', async () => {
+  const stateDir = scratchDir('o14x-index-recovery');
+  const fake = fakeGateway();
+  const authSeal = hostKeySeal({ key: new Uint8Array(32).fill(11) });
+  const lines: string[] = [];
+  const log = (line: string): void => { lines.push(line); };
+  const root = join(stateDir, 'openclaw');
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal, log });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    assert.equal((await kit.signIn('m2', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    assert.equal((await kit.signIn('m3', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const plant = (dir: string, text: string): void => {
+      mkdirSync(join(root, 'state', 'agents', dir, 'agent'), { recursive: true });
+      writeFileSync(join(root, 'state', 'agents', dir, 'agent', 'auth.json'), text);
+    };
+    plant(agent, 'held-back-marker');
+    plant('m2', 'm2-marker');
+    await kit.stop();
+
+    const goodIndex = readFileSync(indexOf(stateDir, 'm1'), 'utf8');
+    writeFileSync(indexOf(stateDir, 'm1'), '{');
+    const kit2 = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal, log });
+    try {
+      await kit2.start();
+      assert.deepEqual((await kit2.accounts('m2')).map((a) => a.id), ['openai']);
+      assert.deepEqual((await kit2.accounts('m3')).map((a) => a.id), ['openai']);
+      const damaged = words('account.indexDamaged', { member: 'm1' });
+      await assert.rejects(kit2.accounts('m1'), (error: Error) => error.message === damaged);
+      assert.ok(lines.some((line) => line.includes(damaged)), 'the kit reports the damaged index');
+      assert.equal(readFileSync(indexOf(stateDir, 'm1'), 'utf8'), '{', 'the damaged index is kept, not deleted');
+      assert.ok(!existsSync(join(root, 'state', 'agents', agent)), 'the quarantined agent is held back, not restored');
+      assert.equal(readFileSync(join(root, 'state', 'agents', 'm2', 'agent', 'auth.json'), 'utf8'), 'm2-marker');
+      await kit2.stop();
+      const sealed = JSON.parse(authSeal.decryptString(readFileSync(join(root, 'auth-store.sealed')))) as
+        { files: [string, string][] };
+      assert.ok(sealed.files.some(([path]) => path.includes(agent)), 'the held-back file stays sealed, not deleted');
+    } finally { await kit2.stop(); }
+
+    writeFileSync(indexOf(stateDir, 'm1'), goodIndex);
+    const kit3 = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal, log });
+    try {
+      await kit3.start();
+      assert.deepEqual((await kit3.accounts('m1')).map((a) => a.id).sort(), ['openai', second.id].sort());
+      assert.equal(readFileSync(join(root, 'state', 'agents', agent, 'agent', 'auth.json'), 'utf8'), 'held-back-marker');
+    } finally { await kit3.stop(); }
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+// Fail closed across the quarantine: a removed account's data never returns while another member's index is
+// damaged, the good member's sweep still runs, and a re-add rewrites the damaged index.
+test('removed-account data never returns with a damaged index, and a re-add rewrites it', async () => {
+  const stateDir = scratchDir('o14x-index-removed');
+  const fake = fakeGateway();
+  const authSeal = hostKeySeal({ key: new Uint8Array(32).fill(12) });
+  const root = join(stateDir, 'openclaw');
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const live = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await live.done).view.state, 'done');
+    const held = `m1--${live.id.slice('openai.'.length)}`;
+    assert.equal((await kit.signIn('m2', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const gone = await kit.addAccount('m2', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await gone.done).view.state, 'done');
+    const removed = `m2--${gone.id.slice('openai.'.length)}`;
+    await kit.removeAccount('m2', gone.id);
+    await kit.stop();
+
+    writeFileSync(indexOf(stateDir, 'm1'), '{not json');
+    const late = (dir: string, text: string): void => {
+      mkdirSync(join(root, 'state', 'agents', dir, 'agent'), { recursive: true });
+      writeFileSync(join(root, 'state', 'agents', dir, 'agent', 'auth.json'), text);
+    };
+    late(held, 'late-live');
+    late(removed, 'late-removed');
+    const kit2 = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+    try {
+      await kit2.start();
+      assert.ok(!existsSync(join(root, 'state', 'agents', removed)), 'the good member removed agent is still swept');
+      assert.equal(readFileSync(join(root, 'state', 'agents', held, 'agent', 'auth.json'), 'utf8'), 'late-live');
+      assert.deepEqual((await kit2.accounts('m2')).map((a) => a.id), ['openai']);
+      await assert.rejects(kit2.accounts('m1'), (error: Error) =>
+        error.message === words('account.indexDamaged', { member: 'm1' }));
+      await kit2.stop();
+      const sealed = JSON.parse(authSeal.decryptString(readFileSync(join(root, 'auth-store.sealed')))) as
+        { files: [string, string][] };
+      assert.ok(!sealed.files.some(([path]) => path.includes(removed)), 'the removed agent leaves no sealed file');
+      for (const [, data] of sealed.files)
+        assert.notEqual(Buffer.from(data, 'base64').toString(), 'late-live', 'the held-back write is never resealed');
+    } finally { await kit2.stop(); }
+
+    const kit3 = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0, authSeal });
+    try {
+      await kit3.start();
+      const readded = await kit3.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+      assert.equal((await readded.done).view.state, 'done');
+      assert.doesNotThrow(() => JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')), 'the re-add rewrites a good index');
+      assert.ok((await kit3.accounts('m1')).some((a) => a.id === readded.id));
+    } finally { await kit3.stop(); }
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });

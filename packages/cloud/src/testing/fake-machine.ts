@@ -148,8 +148,9 @@ export class FakeMachine {
         ? { code: 0, stdout: '', stderr: '', timedOut: false }
         : { code: 1, stdout: '', stderr: 'polkit refused enable-linger', timedOut: false };
     }
-    if (cmd === 'test' && rest.length === 2 && rest[0] === '-e') {
-      const known = [...this.units.values()].some((u) => u.path === rest[1]) || this.files.has(rest[1]);
+    if (cmd === 'test' && rest.length === 2 && (rest[0] === '-e' || rest[0] === '-L')) {
+      const known = rest[0] === '-L' ? this.symlinks.has(rest[1])
+        : [...this.units.values()].some((u) => u.path === rest[1]) || this.files.has(rest[1]) || this.dirs.has(rest[1]);
       return { code: known ? 0 : 1, stdout: '', stderr: '', timedOut: false };
     }
     if (cmd === 'systemctl') {

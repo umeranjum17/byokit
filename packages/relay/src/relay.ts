@@ -24,8 +24,9 @@ export type Enrolment = { id: string; hash: string; name?: string; expires: numb
  *  and the key is public material, safe to store and show to the owner. */
 export type ProvisionBinding = { account: string; deviceKey: string; deviceName?: string; role?: 'control' | 'view' };
 /** Everything the relay keeps. Save it where only the relay can read it; never restore an old copy automatically, as it
- *  could bring back a revoked host. */
-export type RelayState = { hosts: HostRecord[]; enrolments: Enrolment[]; push: PushRecord[]; vapid?: Vapid };
+ *  could bring back a revoked host. `sent` is recent delivered notification ids per host (same bound as the live
+ *  dedupe list), so a restart refuses a retried id. */
+export type RelayState = { hosts: HostRecord[]; enrolments: Enrolment[]; push: PushRecord[]; vapid?: Vapid; sent?: Record<string, string[]> };
 export type RelayStore = { load(): RelayState | undefined | Promise<RelayState | undefined>; save(s: RelayState): void | Promise<void> };
 
 /** A daily quiet window in UTC (`{ start: '22:00', end: '07:00' }`); overnight windows wrap midnight.
@@ -163,6 +164,9 @@ export class Relay {
     this.opts = opts;
     this.state = state;
     this.pushHosts = pushHosts(opts.push?.hosts);
+    for (const [host, ids] of Object.entries(state.sent ?? {})) {
+      if (Array.isArray(ids)) this.sent.set(host, ids.slice(-DEDUP));
+    }
   }
 
   static async open(opts: RelayOptions = {}): Promise<Relay> {
@@ -172,7 +176,13 @@ export class Relay {
     }
     if (opts.quietHours) quietMinutes(opts.quietHours.start), quietMinutes(opts.quietHours.end);
     const s = await opts.store?.load();
-    const state: RelayState = { hosts: [...(s?.hosts ?? [])], enrolments: [...(s?.enrolments ?? [])], push: [...(s?.push ?? [])], vapid: s?.vapid };
+    const sent = Object.fromEntries(Object.entries(s?.sent ?? {})
+      .filter((e): e is [string, string[]] => Array.isArray(e[1]))
+      .map(([host, ids]) => [host, ids.slice(-DEDUP)]));
+    const state: RelayState = {
+      hosts: [...(s?.hosts ?? [])], enrolments: [...(s?.enrolments ?? [])], push: [...(s?.push ?? [])], vapid: s?.vapid,
+      ...(Object.keys(sent).length ? { sent } : {}),
+    };
     const relay = new Relay(opts, state);
     if (opts.quietHours) relay.quiet = { start: quietMinutes(opts.quietHours.start), end: quietMinutes(opts.quietHours.end) };
     if (!state.vapid) await relay.change((s) => { s.vapid = vapidKeys(); });
@@ -320,6 +330,10 @@ export class Relay {
       const present = s.hosts.some((h) => h.id === id);
       s.hosts = s.hosts.filter((h) => h.id !== id);
       s.push = s.push.filter((p) => p.host !== id);
+      if (s.sent && id in s.sent) {
+        const { [id]: _drop, ...rest } = s.sent;
+        s.sent = Object.keys(rest).length ? rest : undefined;
+      }
       return present;
     });
     for (const [c, v] of this.codes) if (v.host === id) this.codes.delete(c);
@@ -568,7 +582,6 @@ export class Relay {
 
   private async sendNow(host: string, n: Notification): Promise<object> {
     const seen = this.sent.get(host) ?? [];
-    // ponytail: remembered in memory, so a relay restart can deliver a retried notification twice.
     if (seen.includes(n.id) || this.pending.get(host)?.has(n.id)) return { sent: 0, duplicate: true };
     const pending = this.pending.get(host) ?? new Set<string>();
     this.pending.set(host, pending);
@@ -590,11 +603,14 @@ export class Relay {
       subs, n, action, vapid: this.state.vapid!, subject: this.opts.push?.subject ?? 'https://github.com/umeranjum17/byokit',
       fetch: this.opts.push?.fetch ?? fetch, hosts: this.pushHosts,
     });
-    if (sent > 0) this.sent.set(host, [...(this.sent.get(host) ?? []), n.id].slice(-DEDUP)); // only once a push service took it, so a retry can succeed
-    if (gone.length || invalid.length) {
+    // Only once a push service took it, so a retry can succeed; persist with push so a restart refuses the same id.
+    const ids = sent > 0 ? [...(this.sent.get(host) ?? []), n.id].slice(-DEDUP) : undefined;
+    if (ids) this.sent.set(host, ids);
+    if (ids || gone.length || invalid.length) {
       const removed = new Set([...gone, ...invalid].map((p) => JSON.stringify(p)));
       await this.change((s) => {
-        s.push = s.push.filter((p) => !removed.has(JSON.stringify(p)));
+        if (ids) s.sent = { ...s.sent, [host]: ids };
+        if (gone.length || invalid.length) s.push = s.push.filter((p) => !removed.has(JSON.stringify(p)));
       });
     }
     return { sent };

@@ -16,6 +16,7 @@ export { WORDS, billingWords, callbackPage, clock, failure, planLabel, say, sign
 export { chatgptPlan, UnsupportedAccountError, type ChatGPTPlanAccount, type ChatGPTRespondAccount, type ChatGPTPlanSession } from './chatgpt-plan.ts';
 
 export type { OpenCodeGoAccount } from './opencode-go.ts';
+export type { OllamaProAccount } from './ollama-pro.ts';
 
 export { anthropic, anthropicSseReader, AnthropicIncompleteError, type AnthropicAsk, type AnthropicCacheControl, type AnthropicContent, type AnthropicImage, type AnthropicMessage, type AnthropicOptions, type AnthropicRequest, type AnthropicResponse, type AnthropicResult, type AnthropicStreamEvent, type AnthropicText, type AnthropicThinking, type AnthropicTool, type AnthropicToolChoice, type AnthropicToolUse, type AnthropicUsage } from './anthropic.ts';
 

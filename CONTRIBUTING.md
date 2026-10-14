@@ -157,15 +157,11 @@ cascades: published dependents get a patch plus copies of its `SECURITY:`/`FIX:`
 Two phases, because publishing happens only from merged main:
 
 1. **prepare** (on a branch, becomes a normal PR): `npm run release -- prepare link=patch relay=minor [--dry-run]`
-2. **publish** (on merged main): `npm run release -- publish [--dry-run]`
-
+2. **publish** (automatic): `release.yml` runs when CI passes on merged main and publishes every version not yet on npm, so a release is just a merged version-bump PR. A merge that bumps no version exits clean with nothing pending.
+A `workflow_run` whose CI sha a later merge already superseded (HEAD an ancestor of, but not equal to, `origin/main`) exits clean with a `superseded by <sha>` note, because that merge's own run publishes; every other HEAD mismatch, a manual dispatch included, still fails.
 Publish only publishes versions not yet on npm, so feature PRs keep versions unchanged and their fragments and existing Unreleased changes wait for the next prepare PR.
 
-Publish locally with the machine's npm session (npm's own 2FA prompt comes through; the script never takes
-an OTP or token), or dispatch `release.yml` (OIDC trusted publishing with provenance, no stored token) once
-the packages' trusted publishers name this repository and workflow file. The first publish of a new package is
-local, then `npm trust github` configures its publisher. `private: true` holds a package back (the unfinished
-kits); the PR that finishes one removes it.
+`release.yml` publishes through OIDC trusted publishing with provenance and no stored token, once each package's trusted publisher names this repository and workflow file; until it does, the publish step fails for that package, which is expected. The first publish of a new package is local with the machine's npm session (npm's own 2FA prompt comes through; the script never takes an OTP or token), then `npm trust github` configures its publisher. `release.yml` can also be dispatched by hand (dry run by default). `private: true` holds a package back (the unfinished kits); the PR that finishes one removes it.
 
 To relay notes to consumers after a publish:
 

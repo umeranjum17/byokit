@@ -454,6 +454,7 @@ subscription handle for `openai({ auth: 'account', account: handle, model })` in
 It routes requests through `Accounts.respond`, which keeps tokens in the app's store and refreshes them
 before use. The handle contains no credentials, follows sign-out, and needs no additional sign-in or
 API key (billed per use). ChatGPT remains offered by default. Use the handle only where the sign-in lives.
+The handle carries `provider: 'chatgpt'`; decide refuses it on any other route.
 
 ## Official ChatGPT plan token-sharing adapter
 
@@ -477,7 +478,12 @@ After the member's Go plan key is saved through its key route
 `accounts.opencodeGo(member)` returns a member-bound subscription handle for `opencodeGo({ account: handle, model })`
 in `@byokit/decide`. It reads the member's own saved plan key on every request, so the key stays in the app's
 own store and the handle exposes none. Billing is `subscription`, with no API-key fallback; a member with no
-saved Go plan key reads as signed out. Use the handle only where the sign-in lives.
+saved Go plan key reads as signed out. Use the handle only where the sign-in lives. The handle carries
+`provider: 'opencode-go'`; decide refuses it on any other route.
+
+For a BYOKit-only call that does not go through `Accounts` members, `openCodeGoPlanAccount(store)` from
+`@byokit/accounts/opencode-go` resolves the same route from one `@byokit/secrets` entry per route (written by
+managed-CLI `saveKey`, deleted by `logout`). It never reads OpenCode's own `auth.json`.
 
 
 ## Desktop credential storage security
@@ -740,7 +746,7 @@ contain no credentials. This does not connect native CLI account stores or quali
 
 ## Managed CLI accounts (Node only)
 
-`@byokit/accounts/cli` exports `cliAccounts`, `CliAccountError`, `CliProvider`, `PiProvider`, `CliAccount`, `CliOptions`, `CliLaunchResult` and `SignInCommand`. Accounts use subscription billing. The portable entries and the `Accounts` class retain their existing sign-in flows.
+`@byokit/accounts/cli` exports `cliAccounts`, `CliAccountError`, `CliProvider`, `PiProvider`, `CliAccount`, `CliOptions`, `CliLaunchResult` and `SignInCommand`. `CliProvider` is `claude` | `codex` | `pi` | `opencode`. Accounts use subscription billing. The portable entries and the `Accounts` class retain their existing sign-in flows.
 
 `CliAccount` extends the portable chooser's `AccountLike`. Pass normalized usage through `@byokit/usage`'s `roomOf(reading, nowMs)` when selecting an account, preserving millisecond reset times and the original measurement time. Managed rows also carry `addedAt` (the epoch-millisecond time the login was added), so two logins that share an email stay distinguishable.
 
@@ -764,13 +770,15 @@ if (launch.ok) {
 } else console.log(launch.code, launch.message);
 ```
 
-`stateDir` must be an absolute app-owned directory with an existing parent. The kit creates it at 0700 and creates private `<provider>/<hex>` account folders below it. A runtime whose own Claude folder must receive the login can pass `managedFolders: { claude?: absoluteFolder }`: the folder must be inside `stateDir`, have an existing non-symlink parent, and not be symlinked itself. One roster row references that folder; `cancel`, `remove` and failed preparation remove only its roster/marker bookkeeping, never the runtime's folder or credentials. `bins` are absolute paths; PATH is never used to find the CLI. Status and login use an environment built from nothing plus the app's `env`, after removing provider credential overrides and adding the managed-folder variable. Pass proxy or temporary-directory settings explicitly if needed. `launchEnv` returns the folder variable in `set` and the provider overrides in `unset`; hosts must apply both so a stray API key (billed per use) cannot override the chosen subscription.
+`stateDir` must be an absolute app-owned directory with an existing parent. The kit creates it at 0700 and creates private `<provider>/<hex>` account folders below it. A runtime whose own Claude or Codex folder must receive the login can pass `managedFolders: { claude?: absoluteFolder, codex?: absoluteFolder }`: the folder must be inside `stateDir`, outside the default login folders (`~/.claude`, `~/.codex`, `~/.pi`), have an existing non-symlink parent, and not be symlinked itself (it is created at 0700 when missing). One roster row references that folder; `cancel` and failed preparation remove only its roster/marker bookkeeping; `remove` also deletes the login files the CLI keeps in that folder (Claude Code: `.credentials.json`, `.claude.json`; Codex: `auth.json`). None of them removes the runtime's folder. `bins` are absolute paths; PATH is never used to find the CLI. Status and login use an environment built from nothing plus the app's `env`, after removing provider credential overrides and adding the managed-folder variable. Pass proxy or temporary-directory settings explicitly if needed. `launchEnv` returns the folder variable in `set` and the provider overrides in `unset`; hosts must apply both so a stray API key (billed per use) cannot override the chosen subscription.
 
-**Signed-out launch (MS-S3).** `launchEnv(id)` remains a low-level env descriptor for any account, not a readiness check. Agent starts use `launch(id): Promise<{ ok: true; account; set; unset } | { ok: false; code: 'signed_out' | 'not_included'; account; message }>`, which owns launch readiness: it runs `status(id)` (serialized per account) and returns the env only for `ready`. `signed_out` and `signing` refuse with `code: 'signed_out'` and words `cli.signedOut` "Sign in to {name} first." (the account's name); `not_included` (no executable supplied) refuses with `code: 'not_included'` and words `cli.notIncluded` "{name} can't start on this computer yet."; a refusal carries no env. A refused launch starts nothing: the host never retries without the env or on the computer's own sign-in. The check is not a lock and only picks the words: an account that signs out between `launch` and the agent start still never reaches the default login through the kit, because that start carries the same env as a ready one (managed folder variable set, provider overrides unset), so the CLI looks for its login in that folder and shows its own sign-in there. Herdr `moveToAccount` gates on herdr's `agentStatus` instead (Claude and Codex only, [runtime-kits 6.6](../../docs/runtime-kits.md)); herdr `move` has no check of its own, so the host calls `launch` and passes its `set`/`unset`.
+**Signed-out launch (MS-S3).** `launchEnv(id)` remains a low-level env descriptor for any account, not a readiness check. Agent starts use `launch(id): Promise<{ ok: true; account; set; unset } | { ok: false; code: 'signed_out' | 'not_included' | 'resting'; account; message }>`, which owns launch readiness: it runs `status(id)` (serialized per account) and returns the env only for `ready`. `signed_out` and `signing` refuse with `code: 'signed_out'` and words `cli.signedOut` "Sign in to {name} first." (the account's name); `not_included` (no executable supplied) refuses with `code: 'not_included'` and words `cli.notIncluded` "{name} can't start on this computer yet."; a refusal carries no env. A refused launch starts nothing: the host never retries without the env or on the computer's own sign-in. The check is not a lock and only picks the words: an account that signs out between `launch` and the agent start still never reaches the default login through the kit, because that start carries the same env as a ready one (managed folder variable set, provider overrides unset), so the CLI looks for its login in that folder and shows its own sign-in there. Herdr `moveToAccount` gates on herdr's `agentStatus` instead (Claude and Codex only, [runtime-kits 6.6](../../docs/runtime-kits.md)); herdr `move` has no check of its own, so the host calls `launch` and passes its `set`/`unset`.
 
-`add` returns a `signing` account and the native login command. For Claude/Codex, a pending row's `status` stays `signing` until the completion marker exists, including after a host restart, and does not run a second native client during pending sign-in. Pi uses an auth-check probe instead (below). The shell uses a private per-folder lock and marks completion only after successful login. Stop the app's sign-in tab before `cancel` or `remove`; the kit does not supervise that tab. `signInAgain` reuses a pending command or starts a new completion cycle; if an account operation is already in flight it throws `prepare-failed`, so await that operation before retrying. Native CLIs own their refresh transactions; the kit neither copies credentials nor refreshes grants. The shell records its native child's PID beside the shared lock; the remote driver records its HOST PID before spawn and keeps it unchanged through settlement. A remote retry reclaims a dead holder's lock, but a live holder or an unreadable/legacy holderless lock remains busy. A shell wrapper's crash cannot hide a live child. The remote lock is released only after its row settles, and the holder file names the live host while it settles: a child that exits 0 with no phone waiter gets its completion marker and native status read first, so a later start never reuses a row whose login already succeeded. A child that exits 0 without a ready status is a settled failure, and its row may be reused. During settlement, ready native status wins over a phone cancel: both result and row stay ready. Host shutdown still cancels and waits for settlement. The host's read-only `signal` aborts immediately when `close()` begins, even after ready settlement, so native consumers can close activation admission independently of phone cancel. A failed initial holder write releases the claim without spawning a child and removes a freshly added row. Detached settlement or cleanup failures return a plain failed result, not an unhandled rejection; an unremoved lock stays busy. Only fully settled sessions are evicted. `folderOf(id)` returns a row's managed folder path. Stop the native process before manually clearing an unproven managed lock.
+**Rest.** `rest(id, { until, why })` persists a short break for that managed account in `<stateDir>/rests-v1.json` (0600, atomic); `status` then returns `resting` with that `until`, and `launch` refuses with `code: 'resting'` and words `status.resting` until the time passes. `unrest(id)` clears it. Expired rows read as not resting and are pruned on the next write; a corrupt rests file reads as no rests and is rewritten empty.
 
-`list` probes managed folders concurrently; `status`, `rename`, `remove` and `cancel` serialize operations per account. Only signed-in state (`ready` or `signed_out`), email and plan come from native status output; no credential file is opened and raw CLI errors and output are discarded. `rename` accepts a trimmed name of 1–64 characters. `cancel` removes only folders added by this instance; for existing accounts it ends the pending completion cycle without deleting the account. `remove` deletes only a validated managed folder. `historyFrom` creates a history symlink inside that folder; it never creates or writes the target, even when it is missing. A throwing `prepare` rolls back the new folder.
+`add` returns a `signing` account and the native login command. For Claude/Codex, a pending row's `status` stays `signing` until the completion marker exists, including after a host restart, and does not run a second native client during pending sign-in. Pi uses an auth-check probe instead (below). The shell uses a private per-folder lock and marks completion only after successful login. Stop the app's sign-in tab before `cancel` or `remove`; the kit does not supervise that tab. `signInAgain` reuses a pending command or starts a new completion cycle; if an account operation is already in flight it throws `prepare-failed`, so await that operation before retrying. Native CLIs own their refresh transactions; the kit neither copies credentials nor refreshes grants. Shell and remote sign-ins share one lock per managed folder: a live or unproven holder keeps the folder `busy` to other starts, and a dead holder's lock is reclaimed by the next start. If the host crashes mid-sign-in, its native login may keep running; the next start can then reclaim the lock and a second login into the same folder is last-writer-wins. Stop the native process before manually clearing an unproven managed lock. During remote settlement, a login that verifies ready wins over a phone cancel: the result and row stay ready. A login that exits 0 without verifying ready is a plain `failed` result, and its row may be reused. Host shutdown still cancels and waits for settlement, and the host's read-only `signal` aborts as soon as `close()` begins, even after ready settlement. Detached settlement or cleanup failures return a plain failed result, not an unhandled rejection. `folderOf(id)` returns a row's managed folder path.
+
+`list` probes managed folders concurrently; `status`, `rename`, `remove` and `cancel` serialize operations per account. Only signed-in state (`ready` or `signed_out`), email and plan come from native status output; no credential file is opened and raw CLI errors and output are discarded. `rename` accepts a trimmed name of 1–64 characters. `cancel` removes only folders added by this instance; for existing accounts it ends the pending completion cycle without deleting the account. `remove` deletes only a validated non-managed folder; for a managed folder it deletes the login files and keeps the folder. It refuses with `prepare-failed` while that folder's sign-in lock has a live holder, so cancel the sign-in first. `historyFrom` creates a history symlink inside that folder; it never creates or writes the target, even when it is missing. A reused folder that already has a real `projects/` or `sessions/` directory keeps it and stays unlinked. A throwing `prepare` rolls back the new folder.
 
 Native status reads resolve within 15 seconds. Claude stdout is capped at 256 KB and identity JSON at 64 KB; the shared Codex client caps stdout at 64 KB. Timeout or excess output terminates only that owned child, with SIGTERM followed by SIGKILL after one second if it is still alive.
 
@@ -778,7 +786,7 @@ If the host does not supply a provider executable, its managed rows remain visib
 
 The `accounts-v1.json` `{version:1,accounts:[{id,provider,name,folder,found,addedAt?}]}` and `auto-terms-v1.json` `{acknowledged:true}` encodings stay at version 1, with 0600 files and atomic replacement. A stored `addedAt` is authoritative, and a managed row without one derives it at read time from its folder's `birthtimeMs` (or the earliest of `ctimeMs`/`mtimeMs` when birthtime is unavailable, `lstat` only), so pre-existing same-email logins stay distinguishable without rewriting the roster. The kit preserves but excludes `found-*` and `found:true` rows, which belong to the host's default-login adapter. Legacy managed rows without kit completion sidecars retain their native signed-in status; new or re-signing rows require the completion marker. Symlinked account folders and records outside the provider/hex layout (or the host's explicit `managedFolders`) are refused.
 
-`usageSource(id)` returns a Codex Source for `@byokit/usage`; Claude returns `undefined`, and its usage Source is `{provider:'claude', folder:set.CLAUDE_CONFIG_DIR, headers}` in a usage reader whose `stateDir` is the same managed root. `kinds` serves only the matching native agent (`claude`, `codex` or `pi`). `resumeArgs` accepts an `id` conversation reference for these kinds and also a `path` for Pi; `launchArgs(id)` supplies Pi's selected `--provider` and is empty for Claude/Codex. `termsAcknowledged` and `acknowledgeTerms` keep the host's existing terms bit; they do not gate sign-in. `suggestName` uses the first part of an email, falling back to the provider's name.
+`usageSource(id)` returns a Codex Source for `@byokit/usage`; Claude and OpenCode return `undefined`, and Claude's usage Source is `{provider:'claude', folder:set.CLAUDE_CONFIG_DIR, headers}` in a usage reader whose `stateDir` is the same managed root. `kinds` serves only the matching native agent (`claude`, `codex`, `pi` or `opencode`). `resumeArgs` accepts an `id` conversation reference for Claude/Codex/Pi and also a `path` for Pi; OpenCode refuses resume (use the plan route). `launchArgs(id)` supplies Pi's selected `--provider` and is empty for Claude/Codex/OpenCode. `termsAcknowledged` and `acknowledgeTerms` keep the host's existing terms bit; they do not gate sign-in. `suggestName` uses the first part of an email, falling back to the provider's name.
 
 `launchEnv({ base?, account?, set?, unset? })` copies `base` (default: `process.env`), removes
 provider namespaces derived from the catalogue and inherited API keys, then applies account settings
@@ -835,6 +843,36 @@ const argv = pi.resumeArgs({ kind: 'path', value: sessionPath });
 Pi uses its own `auth.json` in `PI_CODING_AGENT_DIR`; a Claude managed folder alone does **not** select the same account in Pi. Do not advertise `kinds('claude')` as including Pi, pass a Claude grant to Pi, or fall back to the person's default Pi folder. This contract has offline fixture coverage; it does not claim live login or native working-pane handoff qualification.
 
 Found rows remain read-only host records. `signInAgain('found-*')` and managed launch operations still reject them with `unknown-account`. For an explicitly selected found row, call `adopt(foundId, { piProvider? })` (required on first Pi adoption). It reads only roster metadata, creates a **new empty managed folder**, and returns `{ account, signIn }`. Nothing reads, writes or copies the source/default login; the original row stays unchanged. The host maps the found selection to the returned managed `account.id` and may collapse the old row using `account.adoptedFrom`. Concurrent/repeated adoption reuses that managed identity and its sign-in cycle; unknown/non-found ids are refused. Stop the sign-in tab before cancellation: `cancel(newId)` removes the new row/folder in the creating instance, while after restart it only clears pending and retains the named identity. No implicit adoption happens through status or Auto.
+
+### Managed OpenCode (plan key)
+
+OpenCode has no native login to spawn. Pass a device-owned `keyStore` from `@byokit/secrets`; `add('opencode')` returns a `signing` row whose `signIn` carries empty `argv`, a no-op `shell`, and `instruction.words: 'cli.opencodeKey'`. The app collects the plan key with hidden typing and finishes with `saveKey(id, key)`. That writes one `@byokit/secrets` entry per route (`accounts.opencode:plan_key:opencode-go`); the key never enters argv, an env line, a file outside the store, or a log. `status` is `ready` when the entry exists. `logout(id)` deletes it and leaves a signed-out row; `remove` deletes the entry with the folder. `launch` sets `OPENCODE_CONFIG_DIR` to the managed folder and unsets OpenCode credential overrides. Never read OpenCode's own `auth.json`.
+
+```ts
+import { cliAccounts } from '@byokit/accounts/cli';
+import { openCodeGoPlanAccount } from '@byokit/accounts/opencode-go';
+import type { Keystore } from '@byokit/secrets';
+
+declare const stateDir: string;
+declare const opencodeBin: string;
+declare const env: { HOME: string; PATH: string };
+declare const keyStore: Keystore;
+declare const hiddenPlanKey: string; // collected with hidden typing; never argv/env/log
+
+const plans = cliAccounts({
+  stateDir, bins: { opencode: opencodeBin }, env, keyStore,
+});
+const { account, signIn } = await plans.add('opencode');
+// Show signIn.instruction (cli.opencodeKey); do not spawn argv (it is empty).
+const ready = await plans.saveKey(account.id, hiddenPlanKey);
+const launch = await plans.launch(ready.id); // OPENCODE_CONFIG_DIR; unset OPENCODE_API_KEY
+if (!launch.ok) console.log(launch.code, launch.message);
+// BYOKit-only live call: the route resolves the same store entry (no hand-exported key).
+const go = openCodeGoPlanAccount(keyStore);
+const key = await go.access(new AbortController().signal); // host-only; never log
+await plans.logout(account.id); // deletes the stored key
+void key;
+```
 
 ## Scripted sign-in stand-in
 
@@ -1090,17 +1128,18 @@ A phone signs an agent CLI in on a paired computer over `@byokit/pair`: the host
 login there (Codex's device code, Claude's link-and-paste-code), sends only the verification URL, the
 user code and the expiry to the phone, the phone shows them, and the host reports success or one plain
 failure. The credential is written only by the CLI on the computer; it never reaches the phone and is
-never logged. Read-only state names each CLI's subscription sign-in without secrets. Pi has no headless
-login, so it reports "not supported here" while its state still reads. Each CLI's own terms apply.
+never logged. Read-only state names each CLI's subscription sign-in without secrets. Pi and OpenCode have
+no headless login over the link (OpenCode's plan key is pasted in the computer's app via `saveKey`), so
+they report "not supported here" while their state still reads. Each CLI's own terms apply.
 `start(provider, { signal })` cancels its attempt when the signal aborts, and `close()` cancels every
-unfinished attempt and waits for its native child to exit; a host stops with `close()`.
+unfinished attempt and waits for its native child to exit; a host stops with `close()`. A raw client that starts a remote sign-in and never calls `wait` keeps that account busy until the host closes or restarts; the engine path always calls `wait`. One host process per `stateDir` is supported; several hosts on one `stateDir` are not.
 
 ```ts
 import { remoteCliDevice } from '@byokit/accounts';
 import { cliAccounts, remoteCliHost } from '@byokit/accounts/cli';
 
 declare const stateDir: string;
-declare const bins: { claude: string; codex: string; pi: string };
+declare const bins: { claude: string; codex: string; pi: string; opencode: string };
 declare const env: { PATH: string; HOME: string };
 declare const link: { status: string; request(op: string, args?: unknown): Promise<unknown> };
 declare function showCode(signIn: { verificationUri: string; userCode?: string }): void;

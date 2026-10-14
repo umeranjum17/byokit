@@ -45,12 +45,12 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D-1 | The name is `@byokit/cloud`, a capability word. Rejected: a provider's name (capability-kits D-B), `sandbox` (already means OpenClaw's agent sandbox), `cloud` and `hosted` (read as a service BYOKit runs), `host` (collides with link's `Host`), `remote` (vague). |
 | D-2 | Third-party adapters keep the provider's name: `boat()` is the Boat adapter; `sshVm()` describes the provider-independent SSH transport. Docs name Boat and fixtures use `boat.test`, mapped to loopback. The provider's label still comes from the app at run time. `sandboxApi()` remains a deprecated alias with the same signature; the persisted provider id remains `sandbox-api` for existing records and install behavior. No default provider or URL is added. |
 | D-3 | A capability kit, not a third aggregator. It sits beside `@byokit/openclaw` and `@byokit/herdr`: the app still picks one runtime kit, and that kit runs inside the app's host process on the machine exactly as it does at home. `@byokit/cloud` only decides where that process runs. It imports no other kit and no kit imports it. `@byokit/accounts` is untouched. |
-| D-4 | Two adapters behind one `Provider` type (4). **Boat**: create, sleep, wake, snapshot, fork, remove, exec, write and an HTTPS URL per port, over `fetch` with no vendor SDK. **SSH VM**: any rented Linux machine the person already created; exec, write, install and supervise only, through the `ssh` binary the app passes by absolute path. Optional `Provider` methods an adapter cannot do are absent, and the UI hides that action. |
-| D-5 | Types in section 4 are frozen at M1. A change is a spec change first: stop and ask. |
-| D-6 | Entries. `.` is portable (Node, Electron, React Native): everything 3.1's `index.ts` re-exports (types, `machine()`, `boat()` (and deprecated `sandboxApi()`), `claim()` (M8), `MachineError`, `estimate()`, the words helpers and M7's `wakeResolve()`); no `node:*` import. `./ssh` is Node only (`sshVm()`, `sshHostKey()`). `./idle` (M7: `idle()`, `stopSelf()`) runs on the machine inside the host process and is portable. `./testing` is Node only: the fake provider and the contract suite. No other entries. The Boat adapter does not run from a web page (15.1), so browsers and PWAs set up from the phone app or a desktop app. |
+| D-4 | Adapters behind one `Provider` type (4). **Boat**: create, sleep, wake, snapshot, fork, remove, exec, write and an HTTPS URL per port, over `fetch` with no vendor SDK. **SSH VM**: any rented Linux machine the person already created; exec, write, install and supervise only, through the `ssh` binary the app passes by absolute path. **Hetzner** (first slice, below): Node only; create, status and confirmed delete over the Hetzner Cloud API with the app's own token; no sleep, wake or copies yet. Optional `Provider` methods an adapter cannot do are absent, and the UI hides that action. |
+| D-5 | Types in section 4 are frozen at M1. A change is a spec change first: stop and ask. The approved tailnet amendment (4.6, 9; 2026-10-13) adds `joinTailnet` and `tailnet`; Boat keyed joins remain unsupported until a credential-safe stdin transport exists. |
+| D-6 | Entries. `.` is portable (Node, Electron, React Native): everything 3.1's `index.ts` re-exports (types, `machine()`, `boat()` (and deprecated `sandboxApi()`), `claim()` (M8), `MachineError`, `estimate()`, the words helpers and M7's `wakeResolve()`); no `node:*` import. `./ssh` is Node only (`sshVm()`, `sshHostKey()`). `./hetzner` is Node only (`hetzner()`, first slice below). `./idle` (M7: `idle()`, `stopSelf()`) runs on the machine inside the host process and is portable. `./testing` is Node only: the fake providers and the contract suite. No other entries. The Boat adapter does not run from a web page (15.1), so browsers and PWAs set up from the phone app or a desktop app. |
 | D-7 | One person, one provider account, one machine per app install. The kit refuses a `MachineRef` whose `account` differs from `provider.account()`. An app operator provisioning on its own account for users is pooling and is not supported. |
 | D-8 | Model credentials are signed in on the machine, inside the aggregator (11). They are never copied from the person's computer and never pass through the provider's own credential features. Sandboxes are created with nothing of the person's passed in (`noEnv: true`). |
-| D-9 | Reach: the person's own `@byokit/relay` runs on the machine beside the host (the relay README's "self-hosted, beside one host" model). Phones pair with the unchanged `@byokit/link`, whose Noise IK with a pinned host key is the only gate. No provider access token goes in any URL (9). |
+| D-9 | Reach: the person's own tailnet, with no hosted relay or public app port. The bootstrap advertises the tailnet name, never a provider public URL. Pairing encryption and pinned host keys stay unchanged. Neither the kit nor a host bootstrap automatically calls `url()` or the provider's `/host`; `url()` is an explicit public-exposure escape hatch (9). |
 | D-10 | v1 is always-on. Sleep and wake-on-open are designed here (5.4, 14 M7) and ship only after the real-provider proof (M6). |
 | D-11 | Library code reads no environment variable (capability-kits D-G). Every spawned process gets an env built from nothing; argv is an array. |
 | D-12 | Words. `src/words.json` holds the section 12 sentences, tested against the repo's banned-jargon expression (the one `packages/herdr/test/words.test.ts` uses). UI code shows `words(key, vars)`; it never builds sentences from states or codes. |
@@ -69,7 +69,7 @@ amended (kit-conventions Precedence).
 person's device: app UI ── @byokit/cloud (create, install, wake, cost, words) ── provider REST API | ssh
 the machine:     byokit-<app>.service → the app's host process (unchanged)
                    ├─ its ONE runtime kit: @byokit/openclaw (bots) | @byokit/herdr (terminals)
-                   ├─ @byokit/link host + the person's own @byokit/relay  ← phone / web
+                   ├─ encrypted app host over the person's own tailnet  ← phone / web
                    └─ (M7) @byokit/cloud/idle
 ```
 
@@ -86,10 +86,12 @@ the machine:     byokit-<app>.service → the app's host process (unchanged)
 packages/cloud/
   package.json  tsconfig.json  README.md  CHANGELOG.md  LICENSE
   src/
-    index.ts          # '.' re-exports everything 4.1, 4.2 and 4.3 declare for '.'
+    index.ts          # '.' re-exports everything 4.1, 4.2, 4.3, 4.5 and 5.12 declare for '.'
     types.ts          # section 4, verbatim
     errors.ts         # MachineError (4.2)
     machine.ts        # machine() (5)
+    enrol.ts          # phone-key enrol (5.12), portable
+    tailnet.ts        # joinTailnet(), tailnet() (9.1)
     status.ts         # status(), the one read a phone polls (5.9)
     unit.ts           # renderUnit(), quoting (8.4), pure
     recipe.ts         # recipe checks (8.1), range compare, FNV-1a marker hash, pure
@@ -98,6 +100,7 @@ packages/cloud/
     boat.ts           # boat() (6)
     sandbox-api.ts    # deprecated compatibility re-export of boat()
     ssh.ts            # './ssh': sshVm(), sshHostKey() (7)
+    hetzner.ts        # './hetzner': hetzner(), first slice (6, Hetzner first slice)
     claim.ts          # claim() (G1, M8)
     wake.ts           # wakeResolve() (M7)
     idle.ts           # './idle' (M7)
@@ -303,11 +306,95 @@ export type ClaimStep =
   | { step: 'waiting' }
   | { step: 'done'; key: string; expires: string | null; scopes: readonly string[] }
   | { step: 'failed'; why: 'refused' | 'expired' | 'unreachable' | 'provider' }
-export function claim(o: { baseUrl: string; fetch?: typeof fetch; signal?: AbortSignal }): AsyncIterable<ClaimStep>
+export function claim(o: { baseUrl: string; email: string; fetch?: typeof fetch; signal?: AbortSignal }): AsyncIterable<ClaimStep>
 ```
 
 `MachineErrorCode` (4.2) also gains `'needs-root'` (G5b, G7: root steps on an SSH VM without passwordless sudo;
 `extra.command` holds the lines to run).
+
+### 4.4 Snapshot additions (K3)
+
+The app's cloud computer page offers "Reset Computer" (rebuild from a saved copy) and its disk space. Every member
+is optional or new, so nothing in 4.1 or 4.3 changes meaning; they are frozen with them. Behaviour is 5.10.
+
+```ts
+// types.ts
+export type Snapshot = { id: string; at: string }                          // a copy the kit saved of this machine; `at` is ISO
+export type Disk = { usedGb: number; totalGb: number }                     // the root file system, decimal GB to one decimal
+export interface Provider { /* 4.1 and 4.3 members */
+  snapshots?(m: MachineRef): Promise<Snapshot[]>                          // the kit's ready copies of this machine only
+  deleteSnapshot?(m: MachineRef, id: string): Promise<void>               // rejects 'no-snapshot' for any other id
+  restore?(m: MachineRef, id: string, o: { idempotencyKey: string; replaced(next: MachineRef): Promise<void> }): Promise<MachineRef>
+}
+export interface Machine { /* 4.1 and 4.3 members */
+  snapshots(): Promise<Snapshot[]>                                        // newest first
+  snapshot(o?: { keep?: number }): Promise<Snapshot & { pruneError?: MachineError }>  // keep defaults to 3
+  scheduleSnapshots(o: { everyMs: number; keep?: number; onResult?(result: Snapshot | null | Error): void }): Promise<{ stop(): void }>
+  restore(id: string): Promise<void>                                      // "Reset Computer"
+  disk(): Promise<Disk>
+}
+```
+
+`MachineErrorCode` (4.2) gains `'no-snapshot'`: a restore or delete of an id that is not one of this machine's ready
+copies; and `'busy'`: a save, reset or remove while another of these runs on the same machine (it changes nothing).
+
+Where this differs from the first suggested shape, and why:
+- `snapshot()` takes `keep`, not a `label`. The provider's named snapshots carry no free-text field, and a name is
+  `[a-z0-9-]` of at most 63 characters with about 20 left after the kit's prefix, so a label would need a store of
+  its own. The app shows each copy's date.
+- `Provider.restore` takes a `replaced` callback. On Boat a restore is a new machine with a new id; the callback lets
+  `Machine` save the new ref before the old machine is deleted, so a failure after that point never leaves the store
+  pointing at a deleted machine.
+- The auto-snapshot policy is a call the app makes, `scheduleSnapshots({ everyMs, keep, onResult })`, not stored state (5.10).
+
+### 4.5 Setup step stream (K-PROGRESS)
+
+The connect screen never infers success from log prose or elapsed time. `setup()` reports one step per real result
+over the 5.2a paths, for the app to show with `words()` (5.11).
+
+```ts
+// src/setup.ts, exported from '.'
+export type SetupStepName = 'checking-access' | 'listing' | 'inspecting' | 'installing' | 'pairing';
+export type SetupStep =
+  | { step: 'checking-access'; account: string }   // provider.account() returned
+  | { step: 'listing'; machines: MachineRef[] }    // provider.list() returned
+  | { step: 'inspecting'; ref: MachineRef }        // the picked machine passed the 5.2a guards and is saved
+  | { step: 'installing'; ref: MachineRef }        // install(recipe) resolved
+  | { step: 'pairing' }                            // the app's pair gate resolved
+  | { step: 'ready'; ref: MachineRef }
+  | { step: 'failed'; at: SetupStepName; cause: WordKey; retryable: boolean };
+export function setup(o: {
+  provider: Provider; store: MachineStore; recipe: HostRecipe;
+  pick: (listed: MachineRef[]) => MachineRef;      // the app's choice from the listing event
+  confirmId: string;                               // must equal the picked id (5.2a)
+  onLine?: (line: string) => void;                 // install lines, in order
+  pair?: (ref: MachineRef) => Promise<void>;       // the app's Pair-ready gate; absent skips pairing
+}): AsyncGenerator<SetupStep>
+```
+
+`Machine.adopt` gains an optional `onLine` in its options, passed to its install; nothing else in 4.1 changes.
+`src/words.ts` gains `errorKey(e: MachineError): WordKey`, the key `errorWords` shows (12).
+
+### 4.6 Approved tailnet additions (2026-10-13)
+
+```ts
+export type TailnetStep =
+  | { step: 'open-page'; url: string }
+  | { step: 'approve'; name: string }
+  | { step: 'joined'; name: string }
+export type Tailnet = { state: 'joined' | 'needs-login' | 'needs-approval' | 'off' | 'starting'; name: string | null }
+export interface Machine {
+  joinTailnet(o: { hostname: string; authKey?: string }, onStep?: (s: TailnetStep) => void): Promise<{ name: string }>
+  tailnet(): Promise<Tailnet>
+}
+```
+
+Both methods follow 5.1's load/account/ref checks. This slice implements keyless Boat joins only; a Boat
+`authKey` (even an empty string) rejects `MachineError('unsupported')` before any remote exec with the
+`tailnet.signInOnPhone` words (sign in on the phone instead). A join on another adapter rejects the same error
+before any exec with `tailnet.unsupported` ("This cloud computer cannot join your private network yet."). Boat
+emulates exec input using a temporary file (6.4), so it is **not** a credential-safe input path. Never pass a join key into it or embed one in command text.
+Hetzner/SSH joining and a private stdin transport are follow-ups, not weaker implementations of this rule.
 
 ## 5. `Machine` (`src/machine.ts`)
 
@@ -322,7 +409,7 @@ export function claim(o: { baseUrl: string; fetch?: typeof fetch; signal?: Abort
 - Every method checks in this order: load; `wrong-account`; `no-machine`; the method's own argument checks (a bad
   `port`, `lines`, `file` or recipe rejects `bad-recipe`); then whether the provider has the optional method it needs
   (`unsupported`).
-- `create` and `plan` need no ref. Every other method rejects `MachineError('no-machine')` when `ref` is null:
+- `create`, `adopt` and `plan` need no ref. Every other method rejects `MachineError('no-machine')` when `ref` is null:
   `state`, `wake`, `sleep`, `install`, `update`, `host`, `logs`, `url`, `cost`, `remove`, `why` and `deliver`.
 
 ### 5.2 `create`
@@ -342,11 +429,34 @@ export function claim(o: { baseUrl: string; fetch?: typeof fetch; signal?: Abort
    `unreachable` otherwise).
 5. The returned ref is saved (5.1), then returned.
 
+### 5.2a Existing computers (K-EXISTING)
+
+`Provider.list?(): Promise<MachineRef[]>` lists existing computers without changing them.
+`Machine.adopt(ref, { confirmId, recipe }): Promise<MachineRef>` works even when the provider
+also has `create`. The app shows `adopt.confirm` and calls it only after installation consent;
+`confirmId` must equal the selected id. No create, wake, conversion or paid fallback is allowed.
+The kit checks the stored and selected account, confirms the id in a fresh provider list,
+uses its live `keepCopies`, and requires status `on`. A missing id rejects `no-machine`;
+a mismatched confirmation rejects `confirm`. The recipe supplies the app's unit name.
+Before saving or installing, probe Linux/home and refuse `exists` for an existing workDir,
+workDir symlink ancestor, either unit path, root marker or requested run user. No existing
+installation is taken over. Probe failures propagate. Save the selected ref, then reuse
+`install(recipe)`. A failed install keeps that ref so the app retries with `install`, never create.
+An occupied store refuses `exists`; adoption shares the existing exclusive-operation lock.
+
+Boat lists `GET /sandboxes`, following `pageInfo.nextCursor` while `hasMore`; malformed
+pages reject `provider`. Only owner access (or omitted access for older personal responses)
+is offered. Each ref uses the authenticated `/me` account, sandbox id, a safe name `computer`
+(replaced by the recipe name at adoption), and `snapshots === true` for `keepCopies`.
+No desktop URL, environment, logins or other secret-bearing response fields leave the adapter.
+
 ### 5.3 `state`, `url`, `remove`
 
 - `state()`: `provider.status(ref)`.
 - `url(port)`: `provider.url?.(ref, port) ?? null` (a missing method resolves `null`, not an error). `port` is an
-  integer 1-65535.
+  integer 1-65535. **Calling `url()` makes that port public**, including opening the provider firewall. Boat has no
+  unhost route, so the port stays public for that sandbox's life. The kit and the muxr recipes never call it. It is never
+  called automatically by create, install, update, host or join; the default bootstrap uses the tailnet instead.
 - `remove(confirm)`: `confirm !== ref.id` rejects `confirm`. `provider.remove` missing rejects `unsupported`. Otherwise
   `provider.remove(ref, confirm)`, then save `ref: null`. `remove` is irreversible; the app calls it only from a person's
   explicit action on a screen that shows the machine's name.
@@ -413,6 +523,84 @@ machine left `on` between the two reads), `status` resolves that state with `hos
 Rejections are `state()`'s and `host()`'s (`no-machine` after `remove`); the app shows `errorWords`.
 Boat's `create` resolves before the machine is on, so an app polls `status` until `on` before `install`.
 
+### 5.10 Snapshots, reset and disk (K3)
+
+Checks run in 5.1 order; every method needs a ref. `snapshots` rejects `unsupported` when the provider lacks `snapshots`;
+`snapshot` and `scheduleSnapshots` when it lacks `snapshot`, `snapshots` or `deleteSnapshot`; and `restore` when it
+lacks `snapshots` or `restore`. `snapshot`, `scheduleSnapshots` and `restore` also reject `unsupported` when
+`ref.keepCopies` is false: the
+provider keeps no copy of such a machine. The SSH VM has none of these members. A VM provider's server snapshots
+land with that provider's adapter, behind the same members (follow-up).
+
+- `snapshots()`: `provider.snapshots(ref)`, sorted newest first by `at`.
+- `snapshot({ keep = 3 })`: `keep` is an integer of at least 1, else `bad-recipe`. `provider.snapshot(ref, <12
+  random base36>)` resolves once the copy is ready; `snapshots()` must then list it (else reject `provider`). Only
+  after that, every listed copy past the newest `keep` is deleted with `provider.deleteSnapshot`, never the new one.
+  Pruning touches only what `provider.snapshots` lists, the kit's own copies of this machine (6.1 names them), so a
+  copy the kit did not make is never deleted. Resolves the new copy. A prune that fails does not fail the save: the
+  copy is still resolved, with `pruneError` set to the provider's error, and the next save prunes again.
+- `scheduleSnapshots({ everyMs, keep = 3, onResult })`: `everyMs` is an integer from 1 to 2147483647 (the timer's
+  limit, about 24.8 days), else `bad-recipe`; `keep` is an integer of at least 1. It rejects at creation, before any
+  timer starts: `bad-recipe`, `no-machine`, and `unsupported` (as `snapshot`). It resolves `{ stop() }` and runs a
+  check from the app's own process. The first check is `everyMs` after the call; each later check is `everyMs`
+  after the previous one has finished, so a copy is never judged before it is `everyMs` old and a daily schedule
+  saves daily. A check resolves `null` while the newest copy is younger than `everyMs`; otherwise it saves a copy with `snapshot({ keep })` and then reports that copy. Each outcome goes to
+  `onResult`: the saved copy (with any `pruneError`), `null`, or the `Error` the check rejected with. Checks never
+  overlap, the timer never throws or rejects out of itself, and it is unref'd where the platform has `unref`. A check
+  that finds no machine (it was removed) reports its `no-machine` error once and the schedule stops itself. A device
+  clock behind the provider's delays copies until it catches up and never makes an extra one. **Still
+  no hosted scheduler:** the kit runs only while the app runs, nothing runs on the machine (a timer there would need
+  a provider key on the machine, inside the very copies it makes; M7's scoped keys are not built), and a machine
+  nobody opens gets no new copies and keeps its last ones.
+- One save, reset or remove runs at a time per machine store: `snapshot`, a scheduled save, `restore` or `remove`
+  called while another of these runs rejects `busy` and changes nothing (a scheduled check reports it and tries
+  again next time).
+- `restore(id)`: `id` must be one of `snapshots()`, else reject `no-snapshot`. The kit asks no question: the app
+  confirms first, showing `snapshot.restore` with the copy's date, which says that everything changed since then is
+  lost. Then `provider.restore(ref, id, { idempotencyKey, replaced })` with a new `byokit-<name>-<16 base36>` key,
+  retried up to 3 times with the same key on `unreachable` only (as `create`); `replaced(next)` saves `next` (5.1).
+  A replacement that does not come on, or is not saved, is deleted, retried up to 3 times on any error after the 1, 2
+  and 4 s waits, and the old machine is kept, so nothing unreferenced keeps billing. If that still fails, the call
+  rejects with the original error's code, `extra.sandbox` set to the replacement's id, and a message that the
+  replacement may still bill. Once `next` is saved, the old machine is deleted, retried the same way. If it still
+  fails, the store keeps `next` and the call rejects `provider` with `extra.sandbox` set to the old id, and a message
+  that the old machine may still bill.
+  On Boat the ref's `id` changes, so the app checks the private route again with `tailnet()` (9.1); it does not call
+  `url(port)`, which would make a port public. `update(recipe)` rewrites `installed.json` with the new id (8.3 step 6).
+- A restore is the same machine, so it keeps its identity (its tailnet node included): the adapter stops the old
+  machine before the new one starts, so the two never run at once. A `failed` machine cannot be stopped and is the
+  one a person resets, so it is not stopped first; an `asleep` or `gone` one needs no stop. A machine made from a
+  copy or a fork as a *second* machine keeps its tailnet node identity today; clearing that state before its first start
+  is planned follow-up (9.1 copy policy).
+- `disk()`: one `exec` of `df -P -k /`; `usedGb` and `totalGb` are the second line's used and total 1024-blocks in
+  decimal GB (bytes / 1e9), rounded to one decimal. A non-zero exit or an unreadable line rejects `provider`. Like
+  every command it needs the machine on. Words: `disk.used`.
+- The bill: the free copies and their price are 15.1's. `keep` defaults to 3 so the kit stays inside the free ones.
+
+### 5.11 Setup step stream (K-PROGRESS)
+
+`setup()` drives one existing-computer connect (5.2a) as an async iterable: checking-access
+(`provider.account()`), listing (`provider.list()`; absent reads as a non-retryable listing failure), the
+app's `pick`, inspecting plus installing (`Machine.adopt` with the consented recipe; `onLine` carries the
+install lines), the `pair` gate, then ready. No step is emitted before its result: no timer percentages and
+no log-text inference. Claim/publish, the public route and console setup are out of scope (phone-key enrol is 5.12).
+- A rejection yields one `failed` step and ends the stream: `at` is the phase whose call failed, `cause` is
+  `errorKey` of the error (a non-`MachineError` reads `error.app`), and `retryable` is true only for
+  `unreachable`, `timeout`, `provider`, `balance` and `busy`. An adopt failure after the ref was saved reads
+  `installing`; before that it reads `inspecting`; `busy` always reads `inspecting`.
+- A retry calls `setup()` again with the same arguments: when the store already holds the picked machine
+  (`exists`), the stream resumes at install on that ref. Install stays idempotent, so a re-run on an installed
+  machine reinstalls rather than reporting work it did not do.
+
+### 5.12 Phone-key enrol (K-ENROL)
+
+`src/enrol.ts` (portable, in `.`) binds exactly the one authenticated phone, with no new pairing crypto and no secret-bearing recipe field: the setup device hands the phone's 32-byte public key to the machine through provider delivery, and the machine's host process binds it with `Host.enrol`.
+`PHONE_KEY_FILE` (`'phone.bin'`) is the one inbox file; `deliverPhoneKey(machine, recipe, key)` checks 32 bytes and calls `machine.deliver(recipe, PHONE_KEY_FILE, key)`.
+The key travels only as delivery bytes: never in `run.env`, `run.argv`, files outside the inbox, logs or error text, so the 8.1 `KEY`/`TOKEN`/`SECRET`/`PASSWORD` refusal stays unchanged.
+`bindPhoneKey(host, key, name?)` runs on the machine inside the host process against a structural host (`devices()` and `enrol()` only, so the real `Host` fits with no kit-to-kit import): it checks 32 bytes, resolves `{ id, bound: false }` when a `kind: 'phone'` grant already holds that key, rejects `exists` when one holds another key, and otherwise calls `host.enrol({ key, name, role: 'control', kind: 'phone' })` and resolves `{ id, bound: true }`.
+First writer wins and restart-safe: the durable grant store is the binding record, so after a restart the same key rebinds idempotently and any other key is still refused.
+`pairEnrol(machine, recipe, key)` is the `setup()` `pair` gate: it delivers and resolves, so the stream emits the existing `pairing` step (shown with `setup.pairing`; no new words) before `ready`.
+
 ## 6. Boat adapter (`src/boat.ts`)
 
 `boat()` speaks one public REST shape (15.1) over `o.fetch ?? globalThis.fetch`. Every request sends
@@ -428,9 +616,12 @@ Boat's `create` resolves before the machine is on, so an app polls `status` unti
 | `status` | `GET /sandboxes/{id}` | `sandbox.info` nests the sandbox; the state is `sandbox.state`. Mapping in 6.2. |
 | `wake` | `POST /sandboxes/{id}/resume` `{ttlSeconds: null}` | **No `noEnv` field** (6.3). Then polls `status` every 2 s until `on` (resolve), `failed` or `gone` (reject `provider`), or 5 minutes (reject `timeout`). |
 | `sleep` | `POST /sandboxes/{id}/stop` | The provider takes a final snapshot; if that fails the stop aborts and the machine keeps running, which the kit reports as the `provider` error it returns. The stop is asynchronous, so it then polls `status` every 2 s until `asleep` or `gone` (`failed` rejects `provider`), or 5 minutes (reject `timeout`). |
-| `snapshot` | `POST /named-snapshots` `{sandboxId, name}`, then poll `GET /named-snapshots/{name}` every 2 s until `snapshot.status` is `ready` (`failed` rejects `provider`), or 5 minutes (reject `timeout`) | The kit names copies `byokit-<ref.name>-<name>`. At most 10 exist per account; an 11th rejects `provider`. |
+| `snapshot` | `POST /named-snapshots` `{sandboxId, name}`, then poll `GET /named-snapshots/{name}` every 2 s until `snapshot.status` is `ready` (`failed` rejects `provider`), or 5 minutes (reject `timeout`) | The kit names copies `byokit-<ref.name>-<name>`. Past the free copies (15.1) a save needs credit; without it the provider answers 402 `credit_required`, which rejects `balance` and deletes nothing. |
 | `fork` | `POST /sandboxes/{id}/fork` `{ttlSeconds: null}` + `Idempotency-Key` | The public `sandbox.forking` response carries the new id at the top level. A fork does not inherit the source's TTL: without `ttlSeconds: null` it stops after 1 h. A fork of a no-env source is always no-env, so no `noEnv` field. |
-| `remove` | `DELETE /sandboxes/{id}` + header `X-Ascii-Confirm-Delete: <id>`; poll `GET /deletion-operations/{op}` every 2 s until `operation.status` is `completed` or `blocked`, or 5 minutes (reject `timeout`); then `GET /named-snapshots` and `DELETE /named-snapshots/{name}` for every name starting `byokit-<ref.name>-` | Named snapshots survive a sandbox delete; without the second step the sign-ins inside them outlive it. A 404 on the sandbox counts as already deleted and the snapshot step still runs. `blocked` is terminal for the adapter: the operation is accepted and the sandbox is gone from every list, while a blocked stage can persist by design. |
+| `remove` | `DELETE /sandboxes/{id}` + header `X-Ascii-Confirm-Delete: <id>`; poll `GET /deletion-operations/{op}` every 2 s until `operation.status` is `completed` or `blocked`, or 5 minutes (reject `timeout`); then `GET /named-snapshots` and `DELETE /named-snapshots/{name}` for every name the `snapshots` rule keeps for this machine (`byokit-<ref.name>-` plus one dashless word, so `web` never deletes `web-two`'s copies) | Named snapshots survive a sandbox delete; without the second step the sign-ins inside them outlive it. A 404 on the sandbox counts as already deleted and the snapshot step still runs. `blocked` is terminal for the adapter: the operation is accepted and the sandbox is gone from every list, while a blocked stage can persist by design. |
+| `snapshots` (K3) | `GET /named-snapshots` | Keeps the entries with `status: 'ready'` whose name is `byokit-<ref.name>-` followed by `[a-z0-9]+` with no further dash, so a machine never lists another machine's copies when one name starts with the other (`web` never lists `web-two`'s). `id` is the name and `at` is `createdAt`. |
+| `deleteSnapshot` (K3) | `DELETE /named-snapshots/{id}` | An id that fails the `snapshots` name rule rejects `no-snapshot` before any request; a 404 counts as deleted. |
+| `restore` (K3) | stop the old machine as `sleep` does unless it is already `asleep`, `gone` or `failed` (5.10); `POST /sandboxes` `{from: id, ttlSeconds: null, snapshots: ref.keepCopies}` + `Idempotency-Key`; poll `status` until `on` as `wake` does; `replaced(next)`; then `DELETE /sandboxes/{old id}` and its deletion poll as `remove` does (retried 3 times on any error, after the 1, 2 and 4 s waits; a final failure rejects `provider` with the old id in `extra.sandbox`), **without** the named-snapshot step | Boat has no in-place restore (a resume always uses the latest capture), so a restore is a new machine made from the named snapshot, and the copies stay with the machine's name. The body has no `noEnv` and no `type`: both inherit from the snapshot's source, which the kit created no-env, and an explicit `noEnv` could scrub sign-ins as a resume conversion does (6.3). Stopping first means the old and new machines never run at once, and the old one is still there, asleep, if the new one fails to start. Trial retry as `create`. |
 | `exec` | `POST /sandboxes/{id}/commands` `{command, timeoutSeconds, detached}`, and for a detached command poll `GET /sandboxes/{id}/commands/{processId}` every 1 s until `running` is false; a non-detached POST's `command.finished` response carries `stdout`, `stderr` and `exitCode` | 6.4. |
 | `write` | `PUT /sandboxes/{id}/files` `{path, content, encoding: 'base64'}` | The public file API defaults `encoding` to `utf8`, so the adapter sends `base64` explicitly. Only paths under `/home/user/` or `/tmp/`; anything else rejects `bad-recipe` before any request. After the PUT, `exec` `chmod <mode, octal> <path>`. Only 6.4's `input` uses it; `Machine` writes files through `exec` with `input` (8.3), so root never reads a staged path. |
 | `url` | `POST /sandboxes/{id}/host` `{port, public: true}` → the returned HTTPS URL | The app's process must bind `0.0.0.0`. Hosting also opens the machine firewall for that port. Re-hosting the same port returns the same URL. |
@@ -511,6 +702,14 @@ wiping Herdr pane logins. So no request other than `create` carries a `noEnv` ke
 - Every wake is a cold boot on new hardware: memory and hand-started processes are gone and enabled systemd units
   start again. Apps must not rely on in-memory "I was asleep" detection.
 
+## Hetzner first slice (13 Oct)
+
+`hetzner()` asynchronously loads shared, available server types and dated prices for the app's location from the Hetzner Cloud API, then returns the existing `Provider` plus `hostKey(ref)` for explicit SSH fingerprint confirmation. It uses the app's API root, stable project id, key callback, the same `MachineStore` passed to `machine()`, a current Ubuntu/Debian image name, public SSH key and absolute SSH binary/key/state paths. The token is ephemeral, never passed to SSH or cloud-init, and masked in API errors.
+
+Hetzner tokens are project-scoped but there is no account/project-read API. The app supplies project identity; every `account()` check of a saved ref also reads `/servers/{id}` with the current token and treats a 404 for the saved server as deleted: `account()` accepts its ref so `remove()` can forget it and sweep its unused firewalls, while `status()` and `state()` keep refusing as `wrong-account` until then. Known limit: Hetzner answers 404 both for a deleted server and for one outside the current token's project, so a token from another project under the same app project id makes a live server look deleted; the app must keep the project id in step with the token. API-driven status, create and confirmed delete are available; exec/write delegate to the pinned SSH adapter and installation uses the unchanged HostRecipe path. A create whose response is unreachable or 5xx is reconciled by the unique server name and an app-operation label before any cleanup; mutations are not blindly retried. Automatically allocated primary IPs are labelled and configured for deletion with the server, and remove verifies their disappearance. Creation first makes a dedicated Cloud Firewall named for its operation key, with exactly one inbound SSH 22/tcp rule for `0.0.0.0/0`, and labelled with the operation and machine name; a create never touches another operation's firewall. `remove()` never requires an attached/applied firewall: it destroys and confirms the server first, then sweeps every kit-labelled firewall of that machine name that no surviving server uses; the same sweep runs when the server is already gone. It attaches it in the server-create request, and waits for applied status. Recipe ports are never opened. Attachment/setup failure deletes the server, primary IPs and firewall; cleanup failure remains a typed failure with owned resource ids. Remove deletes the server before its firewall and confirms all are gone. SSH exec/write/hostKey still require the attached, applied SSH-only app firewall; a typed `provider` refusal tells the person to re-attach it or remove the machine. Public SSH 22 is the sole exception; tailnet-only SSH is follow-up work.
+
+This slice rejects `keepCopies: true`: it enables neither paid backups nor snapshots. Start/stop and full copy semantics are follow-up work. A stopped Hetzner server still bills; its disk retention is not a backup. The shared contract uses the API's first size and `keepCopies: false`, exercising every applicable method without inventing unsupported capabilities. No `Provider` signature change.
+
 ## 7. SSH VM adapter (`src/ssh.ts`, `./ssh`)
 
 `sshVm()` drives one Linux machine the person already rents. `id` is `'ssh-vm'`. It has no `create`, `wake`, `sleep`,
@@ -575,7 +774,7 @@ wiping Herdr pane logins. So no request other than `create` carries a `noEnv` ke
 
 The app supplies its own host program and installer as a `HostRecipe`. The kit writes and owns exactly one systemd
 unit per app, because Herdr and OpenClaw supervise their engines only while the app's host process lives, and nothing
-else restarts that process.
+else restarts that process. Joining a tailnet (9.1) adds one machine-level `tailscaled` unit; it is not an app unit.
 
 ### 8.1 Recipe checks (`src/recipe.ts`, pure; failures reject `bad-recipe`, message names the rule)
 
@@ -768,35 +967,71 @@ original's (the relay closes one as `replaced`) and scheduled work runs twice.
 
 ## 9. Reach from phone and web
 
-The host process runs link exactly as it does at home. The person's own relay runs in the same host process, or as a
-second process started by the recipe's run wrapper (8.1, G6), listening on `0.0.0.0` so the provider's proxy reaches
-it. Everything else stays on loopback.
+The person's own tailnet replaces the provider-proxy/own-relay route. No public app port is opened by default.
+A new Boat sandbox is expected to start with closed app ingress (live proof pending, 9.2); create/install/host/join never call `/host`. The explicit `url(port)`
+method still makes a port public and is unsuitable for this bootstrap. An app must not reuse a sandbox whose
+ports it previously exposed as though it had this fresh-machine guarantee; the public API has no unhost route.
 
-- **`trustProxy` stays off.** Hosting a port also opens the machine's firewall for it, so the raw port may be reachable
-  without the proxy; with `trustProxy` on, anyone could set their own `X-Forwarded-For` there and dodge the relay's
-  per-source limits. With it off, every client through the proxy shares the proxy's address, so one abuser can use up
-  the per-source allowance for the person's phones. That is accepted for v1. M6 records whether the raw port is
-  reachable and sends a forged `X-Forwarded-For` through the proxy to see whether the proxy overwrites it (the relay
-  takes the leftmost entry). Only if the raw port is unreachable and the proxy overwrites the header may an app turn
-  `trustProxy` on; the relay README says so.
+### 9.1 Join and status
 
-- **No provider access token in any URL.** The relay port is hosted `public: true`; link's Noise IK with a pinned
-  host key and `relay.admit` are the only gates. A token gate would break typed-code lookup (`findHost` rebuilds URLs
-  without the query string, `packages/relay/src/device.ts`) and would copy a provider secret into every QR code and
-  device grant.
-- **Candidates, best first,** in the app's `host.offer({ urls })` (link takes up to 8, tries them in order and saves
-  the winner):
-  1. the person's relay on the machine through the provider URL, `wss://<provider URL host>/link/v1/<hostId>`, with
-     `relay.admit(host.keys.publicKey)`. After the first QR pairing, later devices can pair by typed code through
-     `findHost(relayBase, code)`;
-  2. the person's tailnet through `@byokit/discover`, unchanged. Apps never call `reach` with `auto` or `lan` on a cloud
-     machine: it would advertise an unreachable private address;
-  3. SSH VM with no domain and no tailnet: Node and Electron devices only, through link's `Dial.resolve` hook running
-     an `ssh -L` tunnel. Phones and browsers need candidate 1 or 2.
-- **Package changes:** `@byokit/link` none; `@byokit/discover` none; `@byokit/relay` gains a keepalive (M5), because a
-  half-open host→relay socket is noticed today only when TCP closes.
-- **Unverified until M6:** WebSocket through the provider's HTTPS proxy. If it fails, the fallback is the raw port
-  with the relay's own TLS, or the tailnet.
+- `joinTailnet({ hostname }, onStep)` validates a single DNS label (1–63 letters, digits or hyphens, no edge hyphen),
+  checks root, installs the pinned Tailscale **1.104.1** static release if either binary is absent, then enables and starts its systemd daemon.
+  Download `https://pkgs.tailscale.com/stable/tailscale_1.104.1_<arch>.tgz`, verify SHA256 **before extraction or installation**,
+  and refuse a mismatch without installing anything. Supported archives and pinned SHA256 values:
+  `amd64`: `108d1d96ecf410d305571e173516f27038f870919a9b89c914a167c6d33a4528`;
+  `arm64`: `f60294374967f3dfd8cf57bbbd474d6cfce32d123e3a8ddeab82a87940daa806`.
+  Install `tailscale`, `tailscaled` and a kit-owned systemd unit; never execute a downloaded installer script.
+  A kit-owned systemd drop-in puts state in `/etc/tailscale/` (0700): Boat preserves `/etc`, but not `/var`, on wake.
+  The node identity is sensitive and copied when `keepCopies` is on; the app's copies notice applies to it too.
+- Without `/dev/net/tun`, start `tailscaled --tun=userspace-networking`. This does **not** bind app ports automatically:
+  the app recipe binds its host on loopback and runs private `tailscale serve --bg --tcp=<port> tcp://127.0.0.1:<port>`
+  as root. With a TUN, the app may instead bind the tailnet IP. Never use Funnel or a provider public URL.
+  Host port selection remains the app recipe's responsibility; the kit has no default app port.
+- Run `tailscale up` with the requested hostname, no DNS or route acceptance, and a short command timeout; surface
+  its validated HTTPS Tailscale login URL once as `open-page`. Poll status so the person can sign in on the phone:
+  the startup wait has five minutes, and once `up` returns the sign-in window is a fresh five minutes, so a link shown
+  at the end of the startup wait still gets a full five minutes. When the daemon reports `needs-approval` (`NeedsMachineAuth`: the tailnet must approve the
+  machine), emit `approve` once with the hostname, with or without a sign-in link shown earlier. While the daemon is
+  `starting` or `off` (not yet running after enable), joining keeps polling inside the same five-minute deadline and
+  never runs `up` against it. On `Running` with a MagicDNS name, emit `joined` and resolve `{ name }` (no final dot).
+  A deadline rejects `MachineError('timeout')`: with the approval wording when the daemon reports `needs-approval`; with
+  the expired-link wording only when a sign-in link was shown and the daemon still reports `needs-login`; otherwise with
+  the `Starting your private network took too long.` wording. During the sign-in window, a status check that hits its
+  30-second command timeout is retried without restarting that window; a hung check does not expire a shown link or
+  end the join early. If checks remain hung when the window deadline is reached, reject with
+  `Starting your private network took too long.` Non-timeout command failures retain their real cause; a standalone
+  `tailnet()` call still rejects its own status-check timeout immediately.
+  The private route an app dials is `http://<name>:<app port>` (plain HTTP inside the tailnet's WireGuard tunnel;
+  the app serves it with `tailscale serve --tcp=<port>`), never a provider URL.
+- `tailnet()` never installs or joins. Missing Tailscale or a stopped daemon is `off`; `NeedsLogin` is
+  `needs-login`; `NeedsMachineAuth` is `needs-approval`; `Running` is `joined`. A daemon still starting is `starting`: `Starting`,
+  `NoState`, or a status answer that is not JSON (the daemon has not yet accepted a client). `joinTailnet` waits
+  through `starting` before it runs `tailscale up`, inside the same five-minute deadline. Return a validated MagicDNS
+  name when available, else `null`. Unknown or malformed answers that are JSON reject `provider`, never pretend the
+  machine joined.
+- Copy policy: the node identity in `/etc/tailscale` is a credential. Today a machine made from a copy keeps the
+  same Tailscale node identity. Clearing `/etc/tailscale/tailscaled.state` before the first start of a fork or a
+  snapshot restored onto a new machine, so it joins as a new node, is planned follow-up in the snapshots lane.
+  A restore of the same machine will keep its identity.
+- The app shows `tailnet.joining` while the join runs, then `tailnet.approvalNeeded` when sign-in or approval is needed,
+  and `tailnet.loginExpired` for an unused shown link; the callback remains the
+  union in 4.6 (`open-page`, `approve`, `joined`). This slice's key refusal is specified in 4.6.
+
+### 9.2 Bootstrap and proof
+
+Advertise the tailnet name only. The phone must be on the same tailnet; pairing's encrypted protocol and pinned
+host key remain its own gate. A private-network connection does not waive pairing checks. No kit dependency is added.
+Legacy M6 provider-proxy/relay checks below are superseded for this route; their old harness must not expose a port
+automatically. Its maintainer supplies a private route in `prepare` instead.
+
+The loopback consumer journey must create, install and read `host()`, join, then prove **zero `/host` calls** and
+reject a Boat key without transmitting it. Live Boat proof additionally records no TUN/userspace mode, phone login,
+MagicDNS and private app reachability. Start a disposable listener on `0.0.0.0:<muxr port>` as the negative control:
+verify it locally, then require the provider public IP to refuse or silently drop that port from outside and no hosted app URL.
+A closed-port probe passes on `ECONNREFUSED` or a connection timeout (including `ETIMEDOUT`): label its detail
+`refused` or `dropped`, respectively. A successful connection fails. Other connection errors are unavailable evidence,
+not a fabricated pass. A timeout is not an explicit TCP refusal; retain that distinction and the actual observation. Remove after each
+run, at most two machines, warn at USD 10 and stop at USD 15 shared across lanes. Fake success is not live acceptance.
 
 ## 10. Cost
 
@@ -882,8 +1117,8 @@ calls `provider.key?.()` on open. Minting the M7 wake key needs an admin-scoped 
 ### 11.5 Linking an account without pasting a key (G1)
 
 Making a provider key on a dashboard and pasting it is a technical step. The provider also has an app sign-in: the app
-shows a short code, the person opens the provider's page, signs in there and types it, and the app receives a scoped,
-expiring key. `claim({ baseUrl })` (M8) drives that flow and yields 4.3's `ClaimStep`s; on `done` the app saves `key`
+passes the person's email, shows a short code, the person opens the provider's page, signs in there and types it, and the app receives a scoped,
+expiring key. `claim({ baseUrl, email })` (M8) drives that flow and yields 4.3's `ClaimStep`s; on `done` the app saves `key`
 as `MachineRecord.providerKey`. It is the person's own sign-in on the provider's own page, so nothing BYOKit runs sees
 their password. There is no refresh: when the claimed key nears expiry, `keyWords` warns and the app runs `claim()`
 again. Whether the claimed key's scopes allow create, install and hosting is unverified until M6; if they do not, the
@@ -910,6 +1145,17 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
 | `plan.trial` | Your first week is a free trial, and {label} switches your cloud computer off every 2 hours during it. Opening {app} turns it back on. After the trial it stays on. |
 | `setup.makeKey` | Make a key on the {label} site, then paste it here. |
 | `setup.typeCode` | Open the {label} page and type this code: {code} |
+| `tailnet.joining` | Connecting your cloud computer to your private network. |
+| `tailnet.signInOnPhone` | This cloud computer needs sign-in on your phone instead of a join key. |
+| `tailnet.unsupported` | This cloud computer cannot join your private network yet. |
+| `tailnet.approvalNeeded` | Approve your cloud computer on the sign-in page on your phone. |
+| `tailnet.loginExpired` | The sign-in link expired. Try connecting your cloud computer again. |
+| `setup.checking-access` | Checking your {label} account. |
+| `setup.listing` | Looking for your existing cloud computers. |
+| `setup.inspecting` | Checking this cloud computer can run {app}. |
+| `setup.installing` | Putting {app} on your cloud computer. |
+| `setup.pairing` | Connecting this device to {app}. |
+| `setup.ready` | {app} is running on your cloud computer. |
 | `host.not-installed` | {app} isn't on your cloud computer yet. |
 | `host.installing` | Putting {app} on your cloud computer… |
 | `host.running` | {app} is running on your cloud computer. |
@@ -930,6 +1176,11 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
 | `error.app` | {app} hit a problem with your cloud computer. Try again, or ask for help. |
 | `key.expiring` | Your {label} key expires on {date}. Make a new one to keep your cloud computer working. |
 | `copies.on` | {label} keeps copies of your cloud computer's disk, including your sign-ins, so it can wake where it left off. Your {label} account details may be handled in the United States. |
+| `snapshot.restore` | Resetting brings your cloud computer back to how it was on {date}. Everything changed on it since then is lost. |
+| `disk.used` | {used} GB of {total} GB used on your cloud computer. |
+| `error.noSnapshot` | That saved copy of your cloud computer is gone. Choose another one. |
+| `claim.refused` | {label} didn't accept that address. Check it and try again. |
+| `claim.expired` | That sign-in expired. Try again. |
 
 - Sentences use ASCII apostrophes and U+2026 for the ellipsis, byte for byte as above.
 - `words(key, vars)` fills `{app}`, `{label}`, `{amount}`, `{date}` and `{code}`; an unfilled slot stays visible, as in herdr.
@@ -952,8 +1203,9 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
   | `not-linux` | `error.notLinux` |
   | `linger` | `host.linger` |
   | `needs-root` | `host.needsRoot` with `extra.command`, else `host.needsAdmin` |
+  | `no-snapshot` | `error.noSnapshot` |
   | `wrong-account` | `error.wrongAccount` |
-  | `no-machine`, `exists`, `unsupported`, `confirm`, `bad-recipe` | `error.app` (these are the app's own mistakes) |
+  | `no-machine`, `exists`, `unsupported`, `confirm`, `bad-recipe`, `busy` | `error.app` (these are the app's own mistakes) |
 - Jargon: every sentence, with `{…}` slots replaced by `X`, must not match the herdr expression
   (`packages/herdr/test/words.test.ts`). `host.linger` refers to "the line below": the app shows
   `MachineError.extra.command` under it as code, outside the sentence; `host.needsRoot` likewise.
@@ -965,10 +1217,11 @@ app keeps `setup.makeKey` and M8 ships only what M6 proved.
 1. **BYOKit operates nothing:** no relay, no wake service, no provider account, no default URL; naming an adapter does not select a provider.
 2. **One person, one provider account, one machine per app install** (D-7, 5.1).
 3. **`noEnv: true` on create; no `env` key on any request.** The kit never calls the provider's secrets, environments
-   or agent-credential endpoints. The contract fails if a create body lacks `noEnv: true`, if any body carries an
-   `env` key, or if a resume or fork body carries `noEnv`.
+   or agent-credential endpoints. The contract fails if a create body without `from` lacks `noEnv: true`, if any body
+   carries an `env` key, or if a restore (a create with `from`), resume or fork body carries `noEnv`.
 4. **Library code reads no environment variable.** Spawned `ssh` and `ssh-keyscan` get an env built from nothing.
-5. **Only the relay port is exposed** (9). Everything else stays on loopback.
+5. **No public app port by default** (9). The provider's closed ingress is a second guard behind a host's
+   tailnet-only bind (or loopback plus private Tailscale Serve). No automatic `/host` call opens that guard.
 6. **SSH host keys are pinned** in the kit-owned `known_hosts`. A changed key is `host-key-changed`, never silently
    re-accepted.
 7. **No secrets in unit files or `HostRecipe.env`** (8.1), because both are copied into snapshots and readable.
@@ -1186,7 +1439,7 @@ the `installs` switch on the sandbox bench.
   - `write` outside `/home/user/` and `/tmp/` rejects before any request.
   - `create` retries with the same `Idempotency-Key` after a dropped connection.
   - `remove` sends the delete-confirmation header with the id, polls the deletion, then deletes every
-    `byokit-<name>-` named snapshot and no other.
+    saved copy of this machine (the `snapshots` rule) and no other.
   - 401 → `unauthorized`; 429 and 5xx retry three times; the key never appears in any error message.
   - `usage` maps to `Usage`; a zero balance rejects `balance`; with no current-key route in the API document, `key` is
     absent from the adapter.
@@ -1283,9 +1536,10 @@ this preparation makes no publishing or real-provider-tested claim.
   `src/testing/fake-sandbox-server.ts` (key routes), `test/{wake,idle}.test.ts`, README section.
 - **Behaviour:**
   - `wakeResolve({ provider, ref, port })` returns a `Dial.resolve` function for link. Before every dial it calls
-    `status()`. Only when `asleep` does it call `wake()` and then `url(port)` (re-hosting the relay port), resolving
-    the new URL's host with the dialled path. When the machine is already `on`, or `unknown`, it resolves the dialled
-    URL unchanged (an unreachable machine then fails the dial on its own).
+    `status()`. Only when `asleep` does it call `wake()`, then waits for the tailnet to report `joined` (9.1) and
+    resolves the dialled URL's host to the machine's tailnet name. It never calls `url()`, which would re-expose a
+    port (4.2, 9). When the machine is already `on`, or `unknown`, it resolves the dialled URL unchanged (an
+    unreachable machine then fails the dial on its own).
   - **Wake keys (G11).** `boat` implements `wakeKey(ref, { label })`: one key per phone, labelled with the
     phone's name, scoped to read, resume and host on `ref.id`; and `revokeKey(id)`. The app mints one when it pairs an
     owner phone, stores it in that phone's secure store with `WHEN_UNLOCKED_THIS_DEVICE_ONLY`
@@ -1341,8 +1595,12 @@ BYOKit waits on it.
 - `Idempotency-Key` is scoped to the account and kept 24 h.
 - Commands: `timeoutSeconds` at most 600; no stdin; `detached` for long runs.
 - Files API writes only under `/home/user` and `/tmp`.
-- Snapshots capture the home, `/etc`, `/usr`, `/opt`, `/root`, `/srv` and systemd services; not `/var`. At most 10
-  named snapshots, no expiry; resume uses the latest, with no restore to an arbitrary point.
+- Snapshots capture the home, `/etc`, `/usr`, `/opt`, `/root`, `/srv` and systemd services; not `/var`. Named
+  snapshots never expire; resume uses the latest capture, with no restore to an arbitrary point in place.
+- A named snapshot deploys as a new machine: `POST /sandboxes` with `from: <name>`; type and no-env inherit from the
+  snapshot's source. Names match `^[a-z0-9][a-z0-9-]{0,62}$`; a list entry carries `name`, `status` (`saving`,
+  `ready`, `failed`), `createdAt` and `sizeBytes`. 10 are free per wallet, then $1.70 a month each, charged daily; a
+  save past the free ones with no credit answers 402 `credit_required` (K3, read 2026-10-13).
 - Hosted port URLs are `https://<machine>-<port>.<provider domain>`.
 - Usage is priced at list price. A running machine is stopped 24 h after the balance reaches zero.
 - Trial: a new account's plan starts with a 7-day trial; during it auto-stop cannot be disabled and cannot exceed 2 h

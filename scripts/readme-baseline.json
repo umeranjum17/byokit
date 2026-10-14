@@ -43,13 +43,25 @@
   },
   {
     "readme": "packages/decide/README.md",
-    "block": 10,
-    "snapshot": "101aa9234fc048bd3bc63a756480b3e293f8aaea121c34682622d30c26b898d3",
-    "reason": "Configuration fragment omits the host configuration, account, member and question inputs."
+    "block": 9,
+    "snapshot": "81ae6d4664865b331bc8c8bbcada841638c61ada46e929a3073062e813bf7210",
+    "reason": "Anthropic fragment uses host-supplied hostConfig, state and questions context."
   },
   {
     "readme": "packages/decide/README.md",
     "block": 11,
+    "snapshot": "a34e16ebf1e3333ae6e85b8e6d6bebb6f3bce6f5d7380b8adb0346fb64f2d9f4",
+    "reason": "OpenCode Go plan-key fragment uses the host configuration that supplies the key."
+  },
+  {
+    "readme": "packages/decide/README.md",
+    "block": 12,
+    "snapshot": "52e424bd5ee358ff7df2e7cae2d12afbec4abb3d0c5c7278f65a94d3545b9e1a",
+    "reason": "Configuration fragment omits the host configuration, account, member and question inputs."
+  },
+  {
+    "readme": "packages/decide/README.md",
+    "block": 13,
     "snapshot": "4e53e33512ea23be3a03f783a66c3ad769bd38bd5ad96e7dc5824cc132190b89",
     "reason": "Cache/retry fragment omits hostConfig, input text and questions context."
   },

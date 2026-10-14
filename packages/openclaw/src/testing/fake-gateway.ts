@@ -147,8 +147,12 @@ export type FakeGateway = {
   /** Profile fields every later wizard sign-in stores (O14 identity): `accountId: undefined` signs in with no account
    * id, so no `who`. With no call, or `signInAs()`, the account id is `fake-<agentId>`. */
   signInAs(fields?: { accountId?: string; email?: string; expires?: number }): void;
-  /** A sealed profile already in an agent's store, as a sign-in of another provider leaves it. */
+  /** A sealed profile already in an agent's store, as a sign-in of another provider leaves it; the agent's model points at it. */
   seedProfile(agentId: string, profileId: string, profile: { provider: string; type: string } & Record<string, unknown>): void;
+  /** A late engine refresh racing a removal (O14 S8): writes one profile of `provider` onto `agentId` whole, as the
+   * pin would under its store lock. With `order: false` it lands with no order entry; `expires` (default: valid)
+   * may name an expired credential. */
+  refresh(agentId: string, provider: string, o?: { order?: boolean; expires?: number }): void;
 } & { transport: GatewayTransport };
 export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number }): FakeGateway {
   const calls: { method: string; params: unknown }[] = [];
@@ -403,6 +407,20 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       profiles.delete(id); orders.delete(id); models.delete(id);
       return { ok: true, agentId: id, removedBindings: 0 };
     },
+    // model: null clears the agent's primary (config.patch cannot delete a key); a string sets it.
+    'agents.update': (p) => {
+      const id = String(p.agentId ?? '');
+      if (!id) throw new Error('agents.update requires agentId');
+      if ('model' in p) {
+        const entries = (configBox.config.agents as { entries?: Record<string, Record<string, unknown>> } | undefined)?.entries;
+        if (p.model === null) {
+          models.delete(id);
+          if (entries?.[id] && 'model' in entries[id]!) delete entries[id]!.model;
+        } else if (typeof p.model === 'string') setPrimaryOfId(id, p.model);
+        else throw new Error('agents.update model must be a string or null');
+      }
+      return { ok: true as const, agentId: id };
+    },
     'agents.files.get': (p) => fileAnswer(String(p.agentId), String(p.name)),
     'agents.files.set': (p) => {
       filesOf(String(p.agentId)).files.set(String(p.name), String(p.content));
@@ -460,7 +478,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       if (p.action === 'prepare' || p.action === 'clear') { keys.delete(id); ensureAgent(id).providers = []; return { ok: true }; }
       const key = keys.get(id);
       if (!key) return { ok: false, absent: true };
-      if (p.action === 'seal') { key.sealed = true; return { ok: true }; }
+      if (p.action === 'seal') { key.sealed = true; if (typeof p.model === 'string') key.model = p.model; return { ok: true }; }
       return key.sealed ? { ok: true, model: key.model } : { ok: false, absent: true };
     },
     // The provider's live catalog hook (5.6): every live model with its own api, once an agent holds the provider's key.
@@ -803,7 +821,21 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       perAgent.set(provider, windows);
     },
     signInAs: (fields) => { signInFields = fields && { ...fields }; },
-    seedProfile: (agentId, profileId, profile) => { ensureAgent(agentId); storeOf(agentId)[profileId] = profile; },
+    seedProfile: (agentId, profileId, profile) => {
+      ensureAgent(agentId);
+      storeOf(agentId)[profileId] = profile;
+      setPrimaryOfId(agentId, `${profile.provider}/default@${profileId}`);
+    },
+    refresh: (agentId, provider, o) => {
+      const agent = ensureAgent(agentId);
+      if (!agent.providers.includes(provider)) agent.providers.push(provider);
+      const profileId = `${provider}:default`;
+      storeOf(agentId)[profileId] = { provider, type: 'oauth', status: 'ok', access: 'fake-access',
+        refresh: 'fake-refresh', expires: o?.expires ?? Date.now() + 30 * 86_400_000,
+        accountId: `fake-refresh-${agentId}` };
+      if (o?.order !== false) orderOf(agentId)[provider] = [profileId];
+      else if (orderOf(agentId)[provider]) delete orderOf(agentId)[provider];
+    },
     transport: factory({ port: 0, token: 'test', identityPath: '', bridgeSock: '' }),
   };
 }

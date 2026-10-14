@@ -13,6 +13,7 @@ import { ENGINE_VERSION } from './constants.ts';
 import { appendUsageBoot } from './usage-boots.ts';
 import { reconcileConfig, appRecoveryPrefixes } from './config.ts';
 import { writePlugin, resolveBridge } from './bridge.ts';
+import { sweepOrphans } from './accounts.ts';
 import type { KitOptions } from './kit.ts';
 import type { KitState, ToolSpec } from './types.ts';
 
@@ -159,6 +160,7 @@ export class Engine {
     if (!this.o.authSeal && existsSync(join(this.root, 'auth-store.sealed'))) throw new Error('authSeal required for sealed credential store');
     await this.recoverOrphan();
     for (const d of [this.root, ...(!this.o.authSeal ? [join(this.root, 'home'), join(this.root, 'state')] : []), join(this.root, 'tmp'), join(this.root, 'usage'), join(this.root, 'install-home'), join(this.root, 'npm-cache'), join(this.o.stateDir, 'logs')]) mkdirSync(d, { recursive: true, mode: 0o700 });
+    this.sweepAccountOrphans();
     try { await this.authStore.prepare(); this.credentialsLocked = false; }
     catch (error) { if (this.locked(error)) return; throw error; }
     if (this.o.spawnEngine) {
@@ -336,6 +338,15 @@ export class Engine {
     if (pidAlive(pid)) throw occupied();
     // The new store owner now seals crash leftovers under its lock before restoring them.
   }
+  // The account orphan sweep (5.15): a late engine write after a removal cannot be ruled out by a bounded check, so
+  // prepare and the sealed restore remove each `<root>/state/agents/<member>--<hex6>` directory a removal recorded as
+  // gone and no index names, and drop member-store auth profiles a removal recorded as `dropped`. No roster here: the
+  // gateway is down, and no add is in flight while preparing (an entry is written before its agent is created, so an
+  // account being added is named).
+  private sweepAccountOrphans(): void {
+    try { sweepOrphans(this.root, this.o.log); }
+    catch (error) { this.o.log?.(`prepare: orphans are not swept: ${String((error as Error).message).slice(0, 200)}`); }
+  }
   start(): Promise<{ port: number; token: string; identityPath: string } | undefined> {
     if (this.starting) return this.starting;
     this.stopping = false;
@@ -359,6 +370,7 @@ export class Engine {
         if (error instanceof AuthStoreUnreadableError) this.state('failed', 'auth-store-unreadable');
         throw error;
       }
+      this.sweepAccountOrphans();
       try { return this.launch(); }
       catch (error) {
         // A launch failure after spawn still has a writer; the caller's stop must await its exit.

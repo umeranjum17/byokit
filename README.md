@@ -106,7 +106,7 @@ npm install \
 | 🧭 **Ask, don't guess** — typed answers with confidence and an option to abstain | [decide](packages/decide) |
 | 🧰 **Keep your own look** — sign-in, pairing and consent state without a UI framework | [ui](packages/ui) |
 | 🔒 **Keep private things private** — app-owned secret stores and sealed data | [secrets](packages/secrets) · [seal](packages/seal) |
-| 🏡 **Bring work home** — runtime connections and on-device capabilities | [Runtime kits](docs/runtime-kits.md) · [Capability kits](docs/capability-kits.md) |
+| 🏡 **Bring work home** — runtime connections and on-device capabilities | [Runtime kits](docs/runtime-kits.md) · [Capability kits](docs/capability-kits.md) (bubble/overlay, status bar and record: new work in `@platform-kits/overlay`, `@platform-kits/statusbar`, `@platform-kits/record`) |
 
 Each package has its own install command, platform notes and examples. Some kits are still private or awaiting qualification; their package guides say so. [Browse the full collection](packages).
 
@@ -119,7 +119,7 @@ Sign-ins live in your app's chosen storage, not someone else's installed tools. 
 ## Keep exploring
 
 - [Web example](examples/pwa) · [Mobile example](examples/expo) · [Voice example](examples/realtime-voice)
-- [Runtime kits](docs/runtime-kits.md) · [Capability kits](docs/capability-kits.md) · [Cloud kit](docs/cloud-kit.md)
+- [Runtime kits](docs/runtime-kits.md) · [Capability kits](docs/capability-kits.md) (bubble/overlay → `@platform-kits/overlay`; status bar → `@platform-kits/statusbar`; record → `@platform-kits/record`) · [Cloud kit](docs/cloud-kit.md)
 - [Package conventions](docs/kit-conventions.md) · [Contributing and platform checks](CONTRIBUTING.md)
 - [Releases](https://github.com/umeranjum17/byokit/releases) · [Report a problem](https://github.com/umeranjum17/byokit/issues)
 

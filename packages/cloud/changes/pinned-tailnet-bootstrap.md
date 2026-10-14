@@ -1,0 +1,1 @@
+- SECURITY: New Tailscale installs use pinned 1.104.1 amd64/arm64 static releases with SHA256 verification before extraction or installation; mismatches refuse without installing, replacing the unpinned root installer script.

@@ -11,6 +11,7 @@
 import { MachineError } from './errors.ts';
 import type {
   ExecResult,
+  Snapshot,
   MachineRef,
   MachineState,
   Plan,
@@ -262,6 +263,7 @@ export function boat(o: {
     // A request that failed after retries leaves the state unknown, never failed (6.2).
     if (res.status === 429 || res.status >= 500) return 'unknown';
     if (res.status < 200 || res.status >= 300) fail(res.status, text);
+    if (sandboxField(json, 'id') !== m.id) throw new MachineError('provider', 'the provider answered for another machine');
     return mapState(m.id, sandboxField(json, 'state'));
   };
 
@@ -336,6 +338,82 @@ export function boat(o: {
     await exec(m, ['chmod', mode.toString(8), path], { timeoutMs: 30_000 });
   };
 
+  // POST /sandboxes with one idempotency key and the trial retry (6.1); resolves the new id.
+  const createSandbox = (body: Record<string, unknown>, idempotencyKey: string): Promise<string> =>
+    withTrial(async (ttlSeconds) => {
+      const res = await send('POST', '/sandboxes', {
+        body: { ...body, ttlSeconds },
+        headers: { 'Idempotency-Key': idempotencyKey },
+      });
+      const { text, json } = await read(res);
+      if (res.status < 200 || res.status >= 300) trialOrFail(res.status, text);
+      const created = sandboxField(json, 'id');
+      if (typeof created !== 'string' || created.length === 0) fail(res.status, text);
+      return created as string;
+    });
+
+  // Poll status every 2 s until on; failed or gone rejects provider, 5 minutes timeout.
+  const untilOn = async (m: MachineRef, verb: 'wake' | 'start'): Promise<void> => {
+    const started = Date.now();
+    for (;;) {
+      const s = await status(m);
+      if (s === 'on') return;
+      if (s === 'failed' || s === 'gone') {
+        throw new MachineError('provider', `the machine went ${s} instead of on (${verb})`);
+      }
+      if (Date.now() - started > WAKE_TIMEOUT_MS) {
+        throw new MachineError('timeout', `the machine took too long to ${verb}`);
+      }
+      await sleep(POLL_EVERY_MS);
+    }
+  };
+
+  // DELETE the sandbox and wait out the deletion; a 404 counts as already deleted (6.1 remove).
+  const deleteSandbox = async (m: MachineRef, confirm: string): Promise<void> => {
+    const res = await send('DELETE', `/sandboxes/${encodeURIComponent(m.id)}`, {
+      headers: { [DELETE_CONFIRM_HEADER]: confirm },
+    });
+    if (res.status === 404) return;
+    const { text, json } = await read(res);
+    if (res.status < 200 || res.status >= 300) trialOrFail(res.status, text);
+    // `sandbox.deleting` nests the operation; it carries `id` and `status`, not
+    // `operationId`/`done`.
+    const op = field(field(json, 'operation'), 'id');
+    if (typeof op !== 'string' || op.length === 0) return;
+    const started = Date.now();
+    for (;;) {
+      const polled = await send('GET', `/deletion-operations/${encodeURIComponent(op)}`);
+      if (polled.status === 404) return;
+      const body = await read(polled);
+      if (polled.status < 200 || polled.status >= 300) trialOrFail(polled.status, body.text);
+      // `blocked` is terminal for the adapter: the operation is accepted and the
+      // sandbox is gone from every list, and blocked stages can persist by design.
+      const state = field(field(body.json, 'operation'), 'status');
+      if (state === 'completed' || state === 'blocked') return;
+      if (Date.now() - started > OPERATION_TIMEOUT_MS) {
+        throw new MachineError('timeout', 'the provider took too long to delete the machine');
+      }
+      await sleep(POLL_EVERY_MS);
+    }
+  };
+
+  const deleteRetrying = async (m: MachineRef): Promise<void> => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await deleteSandbox(m, m.id);
+        return;
+      } catch (e) {
+        if (attempt === RETRY_WAITS_MS.length) throw e;
+        await sleep(RETRY_WAITS_MS[attempt]);
+      }
+    }
+  };
+
+  // K3 (6.1 snapshots): only `byokit-<name>-` plus one dashless word is this machine's own
+  // copy, so `web` never claims `web-two`'s copies.
+  const ownCopy = (m: MachineRef, name: string): boolean =>
+    name.startsWith(`byokit-${m.name}-`) && /^[a-z0-9]+$/.test(name.slice(`byokit-${m.name}-`.length));
+
   const provider: Provider = {
     id: 'sandbox-api',
     label: o.label,
@@ -346,19 +424,36 @@ export function boat(o: {
     exec,
     write,
 
+    list: async () => {
+      const acct = await account();
+      const refs: MachineRef[] = [];
+      const seen = new Set<string>();
+      let cursor = '';
+      for (;;) {
+        const { json } = await checked('GET', `/sandboxes${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`);
+        const rows = field(json, 'sandboxes');
+        if (!Array.isArray(rows)) throw new MachineError('provider', 'the provider answered without sandboxes');
+        for (const row of rows) {
+          const id = field(row, 'id');
+          if (typeof id !== 'string' || !id) throw new MachineError('provider', 'the provider answered without a sandbox id');
+          const access = field(row, 'access');
+          if (access !== undefined && access !== 'owner') continue;
+          refs.push({ provider: 'sandbox-api', account: acct, id, name: 'computer', keepCopies: field(row, 'snapshots') === true });
+        }
+        const page = field(json, 'pageInfo');
+        if (page === undefined || field(page, 'hasMore') === false) return refs;
+        const next = field(page, 'nextCursor');
+        if (field(page, 'hasMore') !== true || typeof next !== 'string' || !next || seen.has(next)) {
+          throw new MachineError('provider', 'the provider answered with invalid pagination');
+        }
+        seen.add(next);
+        cursor = next;
+      }
+    },
+
     create: async ({ name, size, keepCopies, idempotencyKey }) => {
       const acct = await account();
-      const id = await withTrial(async (ttlSeconds) => {
-        const res = await send('POST', '/sandboxes', {
-          body: { type: size, ttlSeconds, noEnv: true, snapshots: keepCopies },
-          headers: { 'Idempotency-Key': idempotencyKey },
-        });
-        const { text, json } = await read(res);
-        if (res.status < 200 || res.status >= 300) trialOrFail(res.status, text);
-        const created = sandboxField(json, 'id');
-        if (typeof created !== 'string' || created.length === 0) fail(res.status, text);
-        return created as string;
-      });
+      const id = await createSandbox({ type: size, noEnv: true, snapshots: keepCopies }, idempotencyKey);
       // It resolves once the returned id exists; it does not wait for `on` (6.1).
       return { provider: 'sandbox-api', account: acct, id, name, keepCopies };
     },
@@ -374,18 +469,7 @@ export function boat(o: {
       });
       wakeFlight.add(m.id);
       try {
-        const started = Date.now();
-        for (;;) {
-          const s = await status(m);
-          if (s === 'on') return;
-          if (s === 'failed' || s === 'gone') {
-            throw new MachineError('provider', `the machine woke to ${s}`);
-          }
-          if (Date.now() - started > WAKE_TIMEOUT_MS) {
-            throw new MachineError('timeout', 'the machine took too long to wake');
-          }
-          await sleep(POLL_EVERY_MS);
-        }
+        await untilOn(m, 'wake');
       } finally {
         wakeFlight.delete(m.id);
       }
@@ -412,10 +496,12 @@ export function boat(o: {
 
     snapshot: async (m: MachineRef, name: string) => {
       const full = `byokit-${m.name}-${name}`;
-      const { status: code, text } = await checked('POST', '/named-snapshots', {
-        body: { sandboxId: m.id, name: full },
-      });
-      if (code < 200 || code >= 300) fail(code, text);
+      const posted = await send('POST', '/named-snapshots', { body: { sandboxId: m.id, name: full } });
+      const { text } = await read(posted);
+      // A copy past the free ones with no credit is refused (15.1): the person adds funds.
+      if (posted.status === 402) throw new MachineError('balance', 'the provider needs credit to save another copy');
+      if (posted.status === 401 || posted.status === 403) throw new MachineError('unauthorized', 'the provider did not accept the key');
+      if (posted.status < 200 || posted.status >= 300) fail(posted.status, text);
       const started = Date.now();
       for (;;) {
         const polled = await checked('GET', `/named-snapshots/${encodeURIComponent(full)}`);
@@ -452,34 +538,7 @@ export function boat(o: {
     },
 
     remove: async (m: MachineRef, confirm: string) => {
-      const prefix = `byokit-${m.name}-`;
-      const res = await send('DELETE', `/sandboxes/${encodeURIComponent(m.id)}`, {
-        headers: { [DELETE_CONFIRM_HEADER]: confirm },
-      });
-      if (res.status !== 404) {
-        const { text, json } = await read(res);
-        if (res.status < 200 || res.status >= 300) trialOrFail(res.status, text);
-        // `sandbox.deleting` nests the operation; it carries `id` and `status`, not
-        // `operationId`/`done`.
-        const op = field(field(json, 'operation'), 'id');
-        if (typeof op === 'string' && op.length > 0) {
-          const started = Date.now();
-          for (;;) {
-            const polled = await send('GET', `/deletion-operations/${encodeURIComponent(op)}`);
-            if (polled.status === 404) break;
-            const body = await read(polled);
-            if (polled.status < 200 || polled.status >= 300) trialOrFail(polled.status, body.text);
-            // `blocked` is terminal for the adapter: the operation is accepted and the
-            // sandbox is gone from every list, and blocked stages can persist by design.
-            const state = field(field(body.json, 'operation'), 'status');
-            if (state === 'completed' || state === 'blocked') break;
-            if (Date.now() - started > OPERATION_TIMEOUT_MS) {
-              throw new MachineError('timeout', 'the provider took too long to delete the machine');
-            }
-            await sleep(POLL_EVERY_MS);
-          }
-        }
-      }
+      await deleteSandbox(m, confirm);
       // Named snapshots survive a sandbox delete; without this step the sign-ins inside
       // them outlive it. A 404 on the sandbox still runs this step (6.1).
       const listed = await checked('GET', '/named-snapshots');
@@ -489,7 +548,7 @@ export function boat(o: {
           const snapName = typeof snap === 'object' && snap !== null
             ? (snap as Record<string, unknown>)['name']
             : undefined;
-          if (typeof snapName === 'string' && snapName.startsWith(prefix)) {
+          if (typeof snapName === 'string' && ownCopy(m, snapName)) {
             const deleted = await send('DELETE', `/named-snapshots/${encodeURIComponent(snapName)}`);
             if (deleted.status !== 404) {
               const body = await read(deleted);
@@ -498,6 +557,57 @@ export function boat(o: {
           }
         }
       }
+    },
+
+    snapshots: async (m: MachineRef) => {
+      const { json } = await checked('GET', '/named-snapshots');
+      const listed = field(json, 'snapshots');
+      const copies: Snapshot[] = [];
+      for (const snap of Array.isArray(listed) ? listed : []) {
+        const name = field(snap, 'name');
+        const at = field(snap, 'createdAt');
+        if (typeof name !== 'string' || !ownCopy(m, name) || field(snap, 'status') !== 'ready' || typeof at !== 'string') continue;
+        copies.push({ id: name, at });
+      }
+      return copies;
+    },
+
+    deleteSnapshot: async (m: MachineRef, id: string) => {
+      if (!ownCopy(m, id)) throw new MachineError('no-snapshot', 'that id is not a saved copy of this machine');
+      await checked('DELETE', `/named-snapshots/${encodeURIComponent(id)}`);
+    },
+
+    // K3 (6.1 restore): Boat has no in-place restore, so the machine is rebuilt as a new
+    // sandbox from the named snapshot. The old one is stopped first (the two never run at
+    // once, and it survives a failed start), and deleted only after `replaced` saved the new ref.
+    restore: async (m: MachineRef, id: string, { idempotencyKey, replaced }) => {
+      if (!ownCopy(m, id)) throw new MachineError('no-snapshot', 'that id is not a saved copy of this machine');
+      const before = await status(m);
+      // A broken (`failed`) machine cannot be stopped and is the one a person resets, so it is not stopped first.
+      if (before !== 'asleep' && before !== 'gone' && before !== 'failed') await (provider.sleep as NonNullable<Provider['sleep']>)(m);
+      const acct = await account();
+      // No `noEnv` and no `type`: both inherit from the kit's no-env source (6.3).
+      const nextId = await createSandbox({ from: id, snapshots: m.keepCopies }, idempotencyKey);
+      const next: MachineRef = { provider: 'sandbox-api', account: acct, id: nextId, name: m.name, keepCopies: m.keepCopies };
+      try {
+        await untilOn(next, 'start');
+        await replaced(next);
+      } catch (e) {
+        try {
+          await deleteRetrying(next);
+        } catch {
+          const message = e instanceof Error ? e.message : String(e);
+          const code = e instanceof MachineError ? e.code : 'provider';
+          throw new MachineError(code, `${message}; the replacement ${next.id} could not be deleted and may still bill`, { sandbox: next.id });
+        }
+        throw e;
+      }
+      try {
+        await deleteRetrying(m);
+      } catch {
+        throw new MachineError('provider', `the replacement is saved, but the old machine ${m.id} could not be deleted and may still bill`, { sandbox: m.id });
+      }
+      return next;
     },
 
     url: async (m: MachineRef, port: number) => {

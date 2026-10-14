@@ -2,6 +2,7 @@
   "name": "@byokit/bubble",
   "version": "0.3.0",
   "description": "A floating bubble over other apps on Android: a panel that opens on tap, per-app visibility rules, a text-free tap log and an optional focused-field reader. On iOS it reports unsupported.",
+  "deprecated": "New home: @platform-kits/overlay. New work goes there.",
   "license": "Apache-2.0",
   "type": "module",
   "repository": {
