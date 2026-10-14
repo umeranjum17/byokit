@@ -747,7 +747,7 @@ contain no credentials. This does not connect native CLI account stores or quali
 
 ## Managed CLI accounts (Node only)
 
-`@byokit/accounts/cli` exports `cliAccounts`, `CliAccountError`, `CliProvider`, `PiProvider`, `CliAccount`, `CliOptions`, `CliLaunchResult` and `SignInCommand`. `CliProvider` is `claude` | `codex` | `pi` | `opencode` | `kimi`. Accounts use subscription billing. The portable entries and the `Accounts` class retain their existing sign-in flows.
+`@byokit/accounts/cli` exports `cliAccounts`, `CliAccountError`, `CliProvider`, `PiProvider`, `CliAccount`, `CliOptions`, `CliLaunchResult`, `SignInCommand` and `VIBE_API_KEY_ROUTE`. `CliProvider` is `claude` | `codex` | `pi` | `opencode` | `kimi` | `vibe`. Accounts use subscription billing. The portable entries and the `Accounts` class retain their existing sign-in flows.
 
 `CliAccount` extends the portable chooser's `AccountLike`. Pass normalized usage through `@byokit/usage`'s `roomOf(reading, nowMs)` when selecting an account, preserving millisecond reset times and the original measurement time. Managed rows also carry `addedAt` (the epoch-millisecond time the login was added), so two logins that share an email stay distinguishable.
 
@@ -771,7 +771,7 @@ if (launch.ok) {
 } else console.log(launch.code, launch.message);
 ```
 
-`stateDir` must be an absolute app-owned directory with an existing parent. The kit creates it at 0700 and creates private `<provider>/<hex>` account folders below it. A runtime whose own Claude or Codex folder must receive the login can pass `managedFolders: { claude?: absoluteFolder, codex?: absoluteFolder }`: the folder must be inside `stateDir`, outside the default login folders (`~/.claude`, `~/.codex`, `~/.pi`, `~/.kimi-code`), have an existing non-symlink parent, and not be symlinked itself (it is created at 0700 when missing). One roster row references that folder; `cancel` and failed preparation remove only its roster/marker bookkeeping; `remove` also deletes the login files the CLI keeps in that folder (Claude Code: `.credentials.json`, `.claude.json`; Codex: `auth.json`). None of them removes the runtime's folder. `bins` are absolute paths; PATH is never used to find the CLI. Status and login use an environment built from nothing plus the app's `env`, after removing provider credential overrides and adding the managed-folder variable. Pass proxy or temporary-directory settings explicitly if needed. `launchEnv` returns the folder variable in `set` and the provider overrides in `unset`; hosts must apply both so a stray API key (billed per use) cannot override the chosen subscription.
+`stateDir` must be an absolute app-owned directory with an existing parent. The kit creates it at 0700 and creates private `<provider>/<hex>` account folders below it. A runtime whose own Claude or Codex folder must receive the login can pass `managedFolders: { claude?: absoluteFolder, codex?: absoluteFolder }`: the folder must be inside `stateDir`, outside the default login folders (`~/.claude`, `~/.codex`, `~/.pi`, `~/.kimi-code`, `~/.vibe`), have an existing non-symlink parent, and not be symlinked itself (it is created at 0700 when missing). One roster row references that folder; `cancel` and failed preparation remove only its roster/marker bookkeeping; `remove` also deletes the login files the CLI keeps in that folder (Claude Code: `.credentials.json`, `.claude.json`; Codex: `auth.json`). None of them removes the runtime's folder. `bins` are absolute paths; PATH is never used to find the CLI. Status and login use an environment built from nothing plus the app's `env`, after removing provider credential overrides and adding the managed-folder variable. Pass proxy or temporary-directory settings explicitly if needed. `launchEnv` returns the folder variable in `set` and the provider overrides in `unset`; hosts must apply both so a stray API key (billed per use) cannot override the chosen subscription.
 
 **Signed-out launch (MS-S3).** `launchEnv(id)` remains a low-level env descriptor for any account, not a readiness check. Agent starts use `launch(id): Promise<{ ok: true; account; set; unset } | { ok: false; code: 'signed_out' | 'not_included' | 'resting'; account; message }>`, which owns launch readiness: it runs `status(id)` (serialized per account) and returns the env only for `ready`. `signed_out` and `signing` refuse with `code: 'signed_out'` and words `cli.signedOut` "Sign in to {name} first." (the account's name); `not_included` (no executable supplied) refuses with `code: 'not_included'` and words `cli.notIncluded` "{name} can't start on this computer yet."; a refusal carries no env. A refused launch starts nothing: the host never retries without the env or on the computer's own sign-in. The check is not a lock and only picks the words: an account that signs out between `launch` and the agent start still never reaches the default login through the kit, because that start carries the same env as a ready one (managed folder variable set, provider overrides unset), so the CLI looks for its login in that folder and shows its own sign-in there. Herdr `moveToAccount` gates on herdr's `agentStatus` instead (Claude and Codex only, [runtime-kits 6.6](../../docs/runtime-kits.md)); herdr `move` has no check of its own, so the host calls `launch` and passes its `set`/`unset`.
 
@@ -787,7 +787,7 @@ If the host does not supply a provider executable, its managed rows remain visib
 
 The `accounts-v1.json` `{version:1,accounts:[{id,provider,name,folder,found,addedAt?}]}` and `auto-terms-v1.json` `{acknowledged:true}` encodings stay at version 1, with 0600 files and atomic replacement. A stored `addedAt` is authoritative, and a managed row without one derives it at read time from its folder's `birthtimeMs` (or the earliest of `ctimeMs`/`mtimeMs` when birthtime is unavailable, `lstat` only), so pre-existing same-email logins stay distinguishable without rewriting the roster. The kit preserves but excludes `found-*` and `found:true` rows, which belong to the host's default-login adapter. Legacy managed rows without kit completion sidecars retain their native signed-in status; new or re-signing rows require the completion marker. Symlinked account folders and records outside the provider/hex layout (or the host's explicit `managedFolders`) are refused.
 
-`usageSource(id)` returns a Codex Source for `@byokit/usage`; Claude, OpenCode and Kimi return `undefined`, and Claude's usage Source is `{provider:'claude', folder:set.CLAUDE_CONFIG_DIR, headers}` in a usage reader whose `stateDir` is the same managed root. `kinds` serves only the matching native agent (`claude`, `codex`, `pi`, `opencode` or `kimi`). `resumeArgs` accepts an `id` conversation reference for Claude/Codex/Pi/OpenCode/Kimi (`--session` for Pi, OpenCode and Kimi) and also a `path` for Pi. `launchArgs(id)` supplies Pi's selected `--provider` and is empty for Claude/Codex/OpenCode/Kimi. `termsAcknowledged` and `acknowledgeTerms` keep the host's existing terms bit; they do not gate sign-in. `suggestName` uses the first part of an email, falling back to the provider's name.
+`usageSource(id)` returns a Codex Source for `@byokit/usage`; Claude, OpenCode, Kimi and Vibe return `undefined`, and Claude's usage Source is `{provider:'claude', folder:set.CLAUDE_CONFIG_DIR, headers}` in a usage reader whose `stateDir` is the same managed root. `kinds` serves only the matching native agent (`claude`, `codex`, `pi`, `opencode`, `kimi` or `vibe`). `resumeArgs` accepts an `id` conversation reference for Claude/Codex/Pi/OpenCode/Kimi/Vibe (`--session` for Pi, OpenCode and Kimi, `--resume` for Claude and Vibe) and also a `path` for Pi. `launchArgs(id)` supplies Pi's selected `--provider` and is empty for Claude/Codex/OpenCode/Kimi/Vibe. `termsAcknowledged` and `acknowledgeTerms` keep the host's existing terms bit; they do not gate sign-in. `suggestName` uses the first part of an email, falling back to the provider's name.
 
 `launchEnv({ base?, account?, set?, unset? })` copies `base` (default: `process.env`), removes
 provider namespaces derived from the catalogue and inherited API keys, then applies account settings
@@ -892,6 +892,35 @@ const resume = plans.resumeArgs('opencode', { kind: 'id', value: 'ses_1' }); // 
 const key = await readOpenCodePlanKey(keyStore, OPENCODE_GO_PLAN_ROUTE, 'OpenCode', ready.id);
 await plans.logout(account.id); // deletes this account's stored key
 void openCodeGoPlanAccount; void resume; void key;
+```
+
+### Managed Vibe (API key)
+
+Vibe has no native login to spawn for managed accounts. Pass a device-owned `keyStore` from `@byokit/secrets`; `add('vibe')` returns a `signing` row whose `signIn` carries empty `argv`, a no-op `shell`, and `instruction.words: 'cli.vibeKey'`. The app collects the API key with hidden typing and finishes with `saveKey(id, key)`. That writes one `@byokit/secrets` entry per managed account (`accounts.vibe:key.<accountId>`); two accounts keep distinct keys. The key never enters argv, an env line, a file outside the store, or a log. `status` is `ready` when that account's entry exists. `logout(id)` deletes it and leaves a signed-out row; `remove` deletes the entry with the folder. `launch` sets `VIBE_HOME` to the managed folder and unsets `MISTRAL_API_KEY`. `resumeArgs('vibe', { kind: 'id', value })` returns `['--resume', value]`. Never read the owner's `~/.vibe`.
+
+```ts
+import { cliAccounts, VIBE_API_KEY_ROUTE } from '@byokit/accounts/cli';
+import { readOpenCodePlanKey } from '@byokit/accounts/opencode-go';
+import type { Keystore } from '@byokit/secrets';
+
+declare const stateDir: string;
+declare const vibeBin: string;
+declare const env: { HOME: string; PATH: string };
+declare const keyStore: Keystore;
+declare const hiddenApiKey: string; // collected with hidden typing; never argv/env/log
+
+const plans = cliAccounts({
+  stateDir, bins: { vibe: vibeBin }, env, keyStore,
+});
+const { account, signIn } = await plans.add('vibe');
+// Show signIn.instruction (cli.vibeKey); do not spawn argv (it is empty).
+const ready = await plans.saveKey(account.id, hiddenApiKey);
+const launch = await plans.launch(ready.id); // VIBE_HOME; unset MISTRAL_API_KEY
+if (!launch.ok) console.log(launch.code, launch.message);
+const resume = plans.resumeArgs('vibe', { kind: 'id', value: 'ses_1' }); // ['--resume', 'ses_1']
+const key = await readOpenCodePlanKey(keyStore, VIBE_API_KEY_ROUTE, 'Vibe', ready.id);
+await plans.logout(account.id);
+void resume; void key;
 ```
 
 ## Scripted sign-in stand-in

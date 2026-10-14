@@ -71,5 +71,6 @@
   "cli.badOption": "The app supplied invalid account options.",
   "cli.piLogin": "In the window that opens, type {command} and finish signing in.",
   "cli.opencodeKey": "Paste the plan key in the app to connect this account.",
+  "cli.vibeKey": "Paste the key in the app to connect this account.",
   "cli.missingPlanKey": "Add the {name} plan key first."
 }
