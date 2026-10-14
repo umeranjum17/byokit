@@ -1488,8 +1488,10 @@ O14 a member runs only on its own sign-ins, and one that never signed in reads `
   member's workspace (files, memory, skills); only credentials and session history are per account. The first account
   agent turns the fleet `agents.ownership: 'explicit'`; every kit request already names its `agentId`.
 - `<root>/accounts/<member>.json` (0600, written whole through a temp file and rename) is the only kit state:
-  `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?, who? } }, defaults: Defaults }` (`model`
-  only for an API key: the model saved with it; `who` the sign-in identity from `seal`, Sealing, kept after a sign-out
+  `{ v: 1, accounts: { [id]: { agent, name, route, addedAt, until?, model?, who?, priorModel? } }, defaults: Defaults }`
+  (`model` only for an API key: the model saved with it; `priorModel` only for a member-agent subscription account:
+  the member agent's primary model before that sign-in pinned it, empty string when there was none, so
+  `removeAccount` can restore or clear it; `who` the sign-in identity from `seal`, Sealing, kept after a sign-out
   so a later sign-in can be matched; `list` also records a live profile's `who` on a row that lacks one, and a member
   row follows its live profile's `who` when they differ). It holds no credential, token, email or engine line. An
   entry is written before its agent is created, so an agent is one of the member's accounts **only** when the member's index names it
@@ -1534,8 +1536,12 @@ using the plugin SDK's `resolveAgentDir` and local-only `updateAuthProfileStoreW
   old profile), then clears it from `from` (the grant stays shared and agents hold views only; D11 holds). It answers
   `{ ok: false }`, changing nothing, unless `from`'s profile carries exactly that `who`. Without the rewrite
   the pin would keep pinning the deleted profile on every run with the agent's default model.
-- Before any sign-in on an existing agent the kit notes that agent's primary model (`config.get`); when the sign-in's
-  profile is adopted away or cleared from it, the kit restores that primary model (the pin's sign-in rewrote it).
+- Before any sign-in on an existing agent the kit notes that agent's primary model (`config.get`) and, when the
+  sign-in is the member agent's first of that provider, stores it on the new index entry as `priorModel` (empty
+  string when there was none). When the sign-in's profile is adopted away or cleared from the member agent
+  (`removeAccount` included), the kit restores that primary (`config.patch`); when there was none, or the stored
+  value is missing or damaged, it removes the pin (`agents.update { model: null }`, because a merge patch cannot
+  delete a key) so the engine default applies. A restore failure never blocks removal.
 - `clear { agentId }`: removes every profile from the agent's own store. `clear { agentId, provider }` removes only that provider's profiles, order entry and last-good mark, leaving every other provider's sign-in alone (a failed member-agent sign-in's cleanup uses this; `removeAccount`'s member path uses `models.authLogout` with its sealed profileIds; the bare form is the account-agent path).
 
 `@byokit/accounts`' structural `roomOf(windows, at, resetUnit?)` keeps legacy reset seconds as its default;
@@ -1712,7 +1718,9 @@ that member's (D9, matched exactly), `byokit.keys ready`/`prepare` serve only it
 - `removeAccount(member, id)`: refused (`busy`) for either kind while a run is live on the agent or its sign-in is
   pending. A member-agent account is `models.authLogout { provider, agentId: member, profileIds: <its sealed profile> }`,
   then `byokit.accounts list` must show no profile of that provider (still listed → stop with the error "still
-  signing in", nothing dropped), then its entry is dropped. An account agent: `byokit.accounts clear`, then
+  signing in", nothing dropped), then the member agent's primary is restored from the entry's `priorModel` (or the
+  pin removed when that value is empty, missing or damaged; a restore failure is logged and removal continues),
+  then its entry is dropped. An account agent: `byokit.accounts clear`, then
   `byokit.accounts list` must answer no profile of any type, order or expiry (a profile the engine refreshed during
   `clear` lands whole before or after it, under the same store lock; still listed → stop with the error "still
   signing in", nothing deleted, no retry);
