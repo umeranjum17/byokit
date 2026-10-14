@@ -604,6 +604,53 @@ async function until(check: () => boolean, ms = 2000): Promise<void> {
   }
 }
 
+test('after an engine restart signedIn still recognises a sealed key profile', async () => {
+  const stateDir = scratchDir('o4-key-restart-signedin');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'CANARY-RESTART-KEY-441' }), { status: 'ok' });
+    assert.equal(await kit.signedIn('m1', 'openai'), true);
+    assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }),
+      { ok: true, model: 'openai/fake-key-model' });
+    await kit.stop();
+    const restarted = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+    try {
+      await restarted.start();
+      assert.equal(await restarted.signedIn('m1', 'openai'), true, 'retained key profile counts after restart');
+      assert.equal(await restarted.signedIn('m1', 'anthropic'), false);
+      assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }),
+        { ok: true, model: 'openai/fake-key-model' });
+      assert.ok((await restarted.run({ member: 'm1', sessionKey: 'agent:m1:chat', auth: 'apiKey', message: 'Hello' })).ok);
+    } finally { await restarted.stop(); }
+  } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('addKey cancel stops a pending add and leaves no partial profile', async () => {
+  const stateDir = scratchDir('o4-key-cancel');
+  const fake = fakeGateway();
+  let answer!: (value: object) => void;
+  fake.handle('openclaw.setup.activate', () => new Promise((resolve) => { answer = resolve; }));
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: fake.factory });
+  try {
+    await kit.start();
+    const pending = kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'CANARY-CANCEL-KEY-882' });
+    await until(() => fake.calls.some((c) => c.method === 'openclaw.setup.activate'));
+    pending.cancel();
+    assert.deepEqual(fake.calls.filter((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'clear'), [],
+      'clear waits until the engine answers activation');
+    answer({ ok: true, status: 'ok', modelRef: 'openai/fake-key-model' });
+    assert.deepEqual(await pending, { status: 'retry', reason: 'busy' });
+    assert.ok(!fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'seal'),
+      'a cancelled add never seals');
+    assert.ok(fake.calls.some((c) => c.method === 'byokit.keys' && (c.params as { action?: string }).action === 'clear'));
+    assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
+    assert.equal(await kit.signedIn('m1', 'openai'), false);
+    assert.equal(JSON.stringify(fake.calls).includes('CANARY-CANCEL-KEY-882'), false);
+  } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 test('kit start clears an unsealed key agent and keeps a ready one', async () => {
   const stateDir = scratchDir('o4-key-sweep');
   const fake = fakeGateway();

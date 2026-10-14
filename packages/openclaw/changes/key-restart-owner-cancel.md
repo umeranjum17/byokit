@@ -1,0 +1,1 @@
+- FIX: `signedIn` still recognises a sealed key on `byokit-key-<member>` after an engine restart (key readiness no longer depends on the member-agent admission read succeeding), and `addKey` returns a thenable cancel handle that stops a pending add and clears any partial profile (`retry`/`busy`; no wizard.cancel).
