@@ -148,7 +148,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | | Computer (Node, Electron main) | Browser (PWA, Electron renderer) | Phone (React Native: iOS, Android) |
 |---|---|---|---|
 | ChatGPT (subscription) | Its own page, straight back to this computer (port 1455); a code when asked or stuck | Device code | Device code |
-| Claude Pro/Max (subscription) | Paste by default; explicit browser callback on port 53692 | Same PKCE flow, its token and profile requests through the app's own server | Same PKCE flow; app supplies Web Crypto |
+| Claude Pro/Max (subscription) | Paste by default; explicit browser callback prefers port 53692, then a free loopback port | Same PKCE flow, its token and profile requests through the app's own server | Same PKCE flow; app supplies Web Crypto |
 | Anthropic (API key, billed per use) | App passes its own key, explicitly | Same fetch-only Messages provider | Same fetch-only Messages provider |
 | OpenRouter (API billing) | Pi's browser callback or paste; explicit API selection and device-owned `keyStore` required | Not yet | Not yet |
 | Radius (billing set by gateway) | Pi's browser callback (1456) or device code; explicit-only | Not yet | Not yet |
@@ -798,7 +798,7 @@ its directory return value but no longer changes global environment variables.
 
 ### Native Pi and found-row boundaries
 
-Managed Pi accounts require stock published Pi 0.87.1 and an explicit subscription OAuth provider: `openai-codex`, `anthropic`, `github-copilot`, `xai`, `kimi-coding` or `meta`. On React Native, `login(member, 'copilot')` uses GitHub device sign-in on github.com; passing `enterpriseDomain` signs in on that host instead and keeps it on the account, so refresh re-mints there too. A malformed domain is refused there, before anything is stored. Unsupported providers are refused; Claude subscription routes must be offered only where the provider's terms allow their use.
+Managed Pi accounts require stock published Pi 1.2.0 and an explicit subscription OAuth provider: `openai-codex`, `anthropic`, `github-copilot`, `xai`, `kimi-coding` or `meta`. On React Native, `login(member, 'copilot')` uses GitHub device sign-in on github.com; passing `enterpriseDomain` signs in on that host instead and keeps it on the account, so refresh re-mints there too. A malformed domain is refused there, before anything is stored. Unsupported providers are refused; Claude subscription routes must be offered only where the provider's terms allow their use.
 
 ```ts
 import { cliAccounts } from '@byokit/accounts/cli';

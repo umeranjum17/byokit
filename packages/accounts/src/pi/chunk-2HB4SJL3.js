@@ -1,15 +1,15 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   AssistantMessageEventStream,
   formatThrownValue
-} from "./chunk-JTGIYXAQ.js";
+} from "./chunk-JK2DMSVJ.js";
 import {
   __require,
   __toESM
-} from "./chunk-XD4THNNI.js";
+} from "./chunk-JOZQDPST.js";
 
 // node_modules/@earendil-works/pi-ai/dist/api/lazy.js
-function createSetupErrorMessage(model, error) {
+function createSetupErrorMessage(model, error, timestamp) {
   return {
     role: "assistant",
     content: [],
@@ -26,7 +26,7 @@ function createSetupErrorMessage(model, error) {
     },
     stopReason: "error",
     errorMessage: error instanceof Error ? error.message : String(error),
-    timestamp: Date.now()
+    timestamp
   };
 }
 function hasResult(source) {
@@ -39,9 +39,10 @@ async function forwardStream(target, source) {
   target.end(hasResult(source) ? await source.result() : void 0);
 }
 function lazyStream(model, setup) {
+  const startedAt = Date.now();
   const outer = new AssistantMessageEventStream();
   setup().then((inner) => forwardStream(outer, inner)).catch((error) => {
-    const message = createSetupErrorMessage(model, error);
+    const message = createSetupErrorMessage(model, error, startedAt);
     outer.push({ type: "error", reason: "error", error: message });
     outer.end(message);
   });
@@ -57,7 +58,7 @@ var __rewriteRelativeImportExtension = function(path, preserveJsx) {
   }
   return path;
 };
-var importNodeModule = (specifier) => Promise.resolve().then(() => __toESM(__require(__rewriteRelativeImportExtension(specifier))));
+var importNodeModule = (specifier) => Promise.resolve().then(() => __toESM(__require(__rewriteRelativeImportExtension(specifier)))).catch(() => ({}));
 function getProcessEnv() {
   const proc = globalThis.process;
   return proc?.env;
@@ -179,7 +180,7 @@ var InMemoryCredentialStore = class {
   }
 };
 
-// node_modules/@earendil-works/pi-ai/dist/auth/resolve.js
+// node_modules/@earendil-works/pi-ai/dist/utils/models-error.js
 var ModelsError = class extends Error {
   code;
   constructor(code, message, options) {
@@ -196,6 +197,8 @@ function withCauseDetail(message, cause) {
     return message;
   return `${message}: ${detail}`;
 }
+
+// node_modules/@earendil-works/pi-ai/dist/auth/resolve.js
 function resolveProviderAuth(provider, credentials, authContext, overrides) {
   const signal = operationSignal(overrides?.signal);
   return raceWithAbortSignal(resolveProviderAuthWithSignal(provider, credentials, authContext, overrides, signal), signal);
@@ -231,34 +234,44 @@ function overlayEnvAuthContext(base, env) {
 }
 var DEFAULT_OAUTH_MINIMUM_VALIDITY_MS = 5 * 60 * 1e3;
 var DEFAULT_OAUTH_REFRESH_TIMEOUT_MS = 15e3;
+async function refreshStoredOAuthCredential(credentials, providerId, oauth, needsRefresh, signal) {
+  let post;
+  const lockWait = new AbortController();
+  const cancelLockWait = () => lockWait.abort(signal.reason);
+  signal.addEventListener("abort", cancelLockWait, { once: true });
+  if (signal.aborted)
+    cancelLockWait();
+  try {
+    post = await credentials.modify(providerId, async (current) => {
+      signal.removeEventListener("abort", cancelLockWait);
+      __byokitPiThrowIfAborted(signal);
+      if (current?.type !== "oauth")
+        return void 0;
+      if (!needsRefresh(current))
+        return void 0;
+      try {
+        return await oauth.refresh(current, AbortSignal.timeout(DEFAULT_OAUTH_REFRESH_TIMEOUT_MS));
+      } catch (error) {
+        throw new ModelsError("oauth", `OAuth refresh failed for ${providerId}`, { cause: error });
+      }
+    }, { signal: lockWait.signal });
+  } catch (error) {
+    if (error instanceof ModelsError)
+      throw error;
+    __byokitPiThrowIfAborted(signal);
+    throw new ModelsError("auth", `Credential store modify failed for ${providerId}`, { cause: error });
+  } finally {
+    signal.removeEventListener("abort", cancelLockWait);
+  }
+  return post?.type === "oauth" ? post : void 0;
+}
 async function resolveStoredOAuth(credentials, providerId, oauth, stored, signal, minOAuthValidityMs) {
   const minimumValidityMs = Math.max(DEFAULT_OAUTH_MINIMUM_VALIDITY_MS, minOAuthValidityMs ?? 0);
   const expiresSoon = (credential2) => Date.now() + minimumValidityMs >= credential2.expires;
   let credential = stored;
   if (expiresSoon(credential)) {
-    let post;
-    try {
-      post = await credentials.modify(providerId, async (current) => {
-        if (current?.type !== "oauth")
-          return void 0;
-        if (!expiresSoon(current))
-          return void 0;
-        try {
-          const refreshSignal = AbortSignal.any([
-            signal,
-            AbortSignal.timeout(DEFAULT_OAUTH_REFRESH_TIMEOUT_MS)
-          ]);
-          return await oauth.refresh(current, refreshSignal);
-        } catch (error) {
-          throw new ModelsError("oauth", `OAuth refresh failed for ${providerId}`, { cause: error });
-        }
-      }, { signal });
-    } catch (error) {
-      if (error instanceof ModelsError)
-        throw error;
-      throw new ModelsError("auth", `Credential store modify failed for ${providerId}`, { cause: error });
-    }
-    if (post?.type !== "oauth")
+    const post = await refreshStoredOAuthCredential(credentials, providerId, oauth, expiresSoon, signal);
+    if (!post)
       return void 0;
     credential = post;
     if (minOAuthValidityMs !== void 0 && expiresSoon(credential)) {
@@ -303,6 +316,56 @@ var InMemoryModelsStore = class {
     this.entries.delete(providerId);
   }
 };
+
+// node_modules/@earendil-works/pi-ai/dist/utils/model-operations.js
+function getModelType(model) {
+  return model.type ?? "chat";
+}
+function isModelType(model, type) {
+  return getModelType(model) === type;
+}
+function assertChatModel(model) {
+  if (!isModelType(model, "chat")) {
+    throw new ModelsError("provider", `Model ${model.provider}/${model.id} is not a chat model`);
+  }
+}
+function assertImageModel(model) {
+  if (!isModelType(model, "image")) {
+    throw new ModelsError("provider", `Model ${model.provider}/${model.id} is not an image model`);
+  }
+}
+function assertClassifierModel(model) {
+  if (!isModelType(model, "classifier")) {
+    throw new ModelsError("provider", `Model ${model.provider}/${model.id} is not a classifier model`);
+  }
+}
+function assertClassifierInputSupported(model, context) {
+  if (context.images?.length && !model.input.includes("image")) {
+    throw new ModelsError("provider", `Model ${model.provider}/${model.id} does not accept image input`);
+  }
+}
+function imageErrorResult(model, error, aborted = false) {
+  return {
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    output: [],
+    stopReason: aborted ? "aborted" : "error",
+    errorMessage: error instanceof Error ? error.message : String(error),
+    timestamp: Date.now()
+  };
+}
+function classifierErrorResult(model, error, aborted = false) {
+  return {
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    answers: {},
+    stopReason: aborted ? "aborted" : "error",
+    errorMessage: error instanceof Error ? error.message : String(error),
+    timestamp: Date.now()
+  };
+}
 
 // node_modules/@earendil-works/pi-ai/dist/utils/text.js
 function contentText(content, separator = "\n") {
@@ -408,17 +471,6 @@ function collapseSystemMessages(context) {
 function resolveTranscript(context, supportsMidConvoSystemMessages) {
   return supportsMidConvoSystemMessages ? context : collapseSystemMessages(context);
 }
-function toToolDeclaration(tool) {
-  return {
-    name: tool.name,
-    description: tool.description,
-    parameters: JSON.parse(JSON.stringify(tool.parameters)),
-    ...tool.constrainedSampling === void 0 ? {} : { constrainedSampling: tool.constrainedSampling }
-  };
-}
-function declarationsEqual(left, right) {
-  return JSON.stringify(toToolDeclaration(left)) === JSON.stringify(toToolDeclaration(right));
-}
 function getDeclaredTools(messages) {
   const definitions = /* @__PURE__ */ new Map();
   for (const message of messages) {
@@ -428,20 +480,6 @@ function getDeclaredTools(messages) {
       definitions.set(tool.name, tool);
   }
   return [...definitions.values()];
-}
-function hasToolRedefinitions(messages) {
-  const declared = /* @__PURE__ */ new Map();
-  for (const message of messages) {
-    if (!isSystemMessage(message))
-      continue;
-    for (const tool of message.toolsAdded ?? []) {
-      const previous = declared.get(tool.name);
-      if (previous !== void 0 && !declarationsEqual(previous, tool))
-        return true;
-      declared.set(tool.name, tool);
-    }
-  }
-  return false;
 }
 function hasNonAdditiveToolChanges(messages) {
   const declared = /* @__PURE__ */ new Set();
@@ -467,6 +505,13 @@ function resolveTranscriptTools(messages, supportsToolAdditions) {
 }
 
 // node_modules/@earendil-works/pi-ai/dist/models.js
+var KNOWN_MODEL_TYPES = { chat: true, image: true, classifier: true };
+function hasKnownModelType(model) {
+  return Object.hasOwn(KNOWN_MODEL_TYPES, getModelType(model));
+}
+function withKnownModelTypes(entry) {
+  return { ...entry, models: entry.models.filter(hasKnownModelType) };
+}
 function mergeHeaders(base, override) {
   if (!base && !override)
     return void 0;
@@ -534,8 +579,34 @@ var ModelsImpl = class {
     }
     return models;
   }
+  getAllModels(provider) {
+    if (provider !== void 0) {
+      const entry = this.providers.get(provider);
+      if (!entry)
+        return [];
+      try {
+        return entry.getAllModels?.() ?? entry.getModels();
+      } catch {
+        return [];
+      }
+    }
+    const models = [];
+    for (const entry of this.providers.values()) {
+      try {
+        models.push(...entry.getAllModels?.() ?? entry.getModels());
+      } catch {
+      }
+    }
+    return models;
+  }
+  getModelsOfType(type, provider) {
+    return this.getAllModels(provider).filter((model) => isModelType(model, type));
+  }
   getModel(provider, id) {
     return this.getModels(provider).find((model) => model.id === id);
+  }
+  getModelOfType(type, provider, id) {
+    return this.getModelsOfType(type, provider).find((model) => model.id === id);
   }
   supersedeProviderRefresh(providerId) {
     const generation = (this.refreshGenerations.get(providerId) ?? 0) + 1;
@@ -583,11 +654,12 @@ var ModelsImpl = class {
     const stored = await this.modelsStore.read(provider.id, { signal });
     await provider.refreshModels({
       credential,
-      stored: stored ? structuredClone(stored) : void 0,
+      stored: stored ? withKnownModelTypes(structuredClone(stored)) : void 0,
       publish: (publication) => this.publishProviderModels(provider.id, generation, signal, publication),
       allowNetwork,
       force: allowNetwork ? force : void 0,
-      signal
+      signal,
+      baseUrl: provider.baseUrl
     });
   }
   async refresh(options = {}) {
@@ -648,12 +720,7 @@ var ModelsImpl = class {
         return stored;
       if (signal.aborted)
         return void 0;
-      const post = await this.credentials.modify(provider.id, async (current) => {
-        if (current?.type !== "oauth" || Date.now() < current.expires)
-          return void 0;
-        return oauth.refresh(current, signal);
-      }, { signal });
-      return post?.type === "oauth" ? post : void 0;
+      return refreshStoredOAuthCredential(this.credentials, provider.id, oauth, (current) => Date.now() >= current.expires, signal);
     }
     const apiKey = provider.auth.apiKey;
     if (!apiKey)
@@ -703,20 +770,41 @@ var ModelsImpl = class {
     })();
     return raceWithAbortSignal(check, signal);
   }
+  async getAuthenticatedProviders(providerId, signal) {
+    __byokitPiThrowIfAborted(signal);
+    const providers = providerId ? [this.providers.get(providerId)].filter((entry) => entry !== void 0) : this.getProviders();
+    const checks = await Promise.all(providers.map(async (provider) => {
+      const credential = await this.readCredential(provider.id, signal);
+      return { provider, credential, auth: await this.checkProviderAuth(provider, credential, signal) };
+    }));
+    return checks.filter((entry) => entry.auth !== void 0);
+  }
   getAvailable(providerId, options) {
     const signal = operationSignal(options?.signal);
     const available = (async () => {
-      __byokitPiThrowIfAborted(signal);
-      const providers = providerId ? [this.providers.get(providerId)].filter((entry) => entry !== void 0) : this.getProviders();
-      const checks = await Promise.all(providers.map(async (provider) => {
-        const credential = await this.readCredential(provider.id, signal);
-        return { provider, credential, auth: await this.checkProviderAuth(provider, credential, signal) };
-      }));
-      return checks.flatMap(({ provider, credential, auth }) => {
-        if (!auth)
-          return [];
+      const providers = await this.getAuthenticatedProviders(providerId, signal);
+      return providers.flatMap(({ provider, credential }) => {
         const models = provider.getModels();
         return provider.filterModels?.(models, credential) ?? models;
+      });
+    })();
+    return raceWithAbortSignal(available, signal);
+  }
+  async getAvailableOfType(type, providerId, options) {
+    return (await this.getAllAvailable(providerId, options)).filter((model) => isModelType(model, type));
+  }
+  getAllAvailable(providerId, options) {
+    const signal = operationSignal(options?.signal);
+    const available = (async () => {
+      const providers = await this.getAuthenticatedProviders(providerId, signal);
+      return providers.flatMap(({ provider, credential }) => {
+        const models = provider.getAllModels?.() ?? provider.getModels();
+        if (provider.filterAllModels)
+          return provider.filterAllModels(models, credential);
+        if (!provider.filterModels)
+          return models;
+        const availableChatIds = new Set(provider.filterModels(provider.getModels(), credential).map((model) => model.id));
+        return models.filter((model) => !isModelType(model, "chat") || availableChatIds.has(model.id));
       });
     })();
     return raceWithAbortSignal(available, signal);
@@ -738,7 +826,7 @@ var ModelsImpl = class {
       }
     };
   }
-  async login(providerId, type, interaction) {
+  async login(providerId, type, interaction, options) {
     const signal = operationSignal(interaction.signal);
     __byokitPiThrowIfAborted(signal);
     const provider = this.providers.get(providerId);
@@ -748,7 +836,7 @@ var ModelsImpl = class {
     if (!method?.login) {
       throw new ModelsError("auth", `${provider.name} does not support ${type} login`);
     }
-    const loginOperation = method.login({ ...interaction, signal });
+    const loginOperation = method.login({ ...interaction, signal }, options);
     const credential = await raceWithAbortSignal(loginOperation, signal);
     let mutationStarted = false;
     let markMutationStarted;
@@ -803,6 +891,10 @@ var ModelsImpl = class {
     }
     return provider;
   }
+  requireChatProvider(model) {
+    assertChatModel(model);
+    return this.requireProvider(model);
+  }
   async applyAuth(model, options) {
     this.requireProvider(model);
     const resolution = await this.getAuth(model, {
@@ -827,7 +919,7 @@ var ModelsImpl = class {
   stream(model, context, options) {
     const transcript = normalizeContext(context);
     return lazyStream(model, async () => {
-      const provider = this.requireProvider(model);
+      const provider = this.requireChatProvider(model);
       const { requestModel, requestOptions } = await this.applyAuth(model, options);
       return provider.stream(requestModel, transcript, requestOptions);
     });
@@ -838,7 +930,7 @@ var ModelsImpl = class {
   streamSimple(model, context, options) {
     const transcript = normalizeContext(context);
     return lazyStream(model, async () => {
-      const provider = this.requireProvider(model);
+      const provider = this.requireChatProvider(model);
       const { requestModel, requestOptions } = await this.applyAuth(model, options);
       return provider.streamSimple(requestModel, transcript, requestOptions);
     });
@@ -848,7 +940,7 @@ var ModelsImpl = class {
   }
   streamDeferred(model, handle, options) {
     return lazyStream(model, async () => {
-      const provider = this.requireProvider(model);
+      const provider = this.requireChatProvider(model);
       if (!provider.fetchDeferred) {
         throw new ModelsError("provider", `Provider ${model.provider} does not support deferred responses`);
       }
@@ -860,25 +952,62 @@ var ModelsImpl = class {
     return this.streamDeferred(model, handle, options).result();
   }
   async cancelDeferred(model, handle, options) {
-    const provider = this.requireProvider(model);
+    const provider = this.requireChatProvider(model);
     if (!provider.cancelDeferred) {
       throw new ModelsError("provider", `Provider ${model.provider} does not support deferred responses`);
     }
     const { requestModel, requestOptions } = await this.applyAuth(model, options);
     await provider.cancelDeferred(requestModel, handle, requestOptions);
   }
+  async generateImages(model, context, options) {
+    try {
+      assertImageModel(model);
+      const provider = this.requireProvider(model);
+      if (!provider.generateImages) {
+        throw new ModelsError("provider", `Provider ${model.provider} does not support image generation`);
+      }
+      const { requestModel, requestOptions } = await this.applyAuth(model, options);
+      return await provider.generateImages(requestModel, context, requestOptions);
+    } catch (error) {
+      return imageErrorResult(model, error, options?.signal?.aborted);
+    }
+  }
+  async classify(model, context, options) {
+    try {
+      assertClassifierModel(model);
+      assertClassifierInputSupported(model, context);
+      const provider = this.requireProvider(model);
+      if (!provider.classify) {
+        throw new ModelsError("provider", `Provider ${model.provider} does not support classification`);
+      }
+      const { requestModel, requestOptions } = await this.applyAuth(model, options);
+      return await provider.classify(requestModel, context, requestOptions);
+    } catch (error) {
+      return classifierErrorResult(model, error, options?.signal?.aborted);
+    }
+  }
 };
 function createModels(options) {
   return new ModelsImpl(options);
 }
 function createProvider(input) {
+  const single = input.api && typeof input.api.stream === "function" ? input.api : void 0;
+  const byApi = single || !input.api ? void 0 : input.api;
+  const images = input.images;
+  const classifiers = input.classifiers;
+  const streams = single ? [single] : Object.values(byApi ?? {}).filter((entry) => entry !== void 0);
+  const imageImplementations = Object.values(images ?? {}).filter((entry) => entry !== void 0);
+  const classifierImplementations = Object.values(classifiers ?? {}).filter((entry) => entry !== void 0);
+  if (streams.length === 0 && imageImplementations.length === 0 && classifierImplementations.length === 0) {
+    throw new Error(`Provider ${input.id}: at least one of "api", "images", or "classifiers" is required.`);
+  }
   const baselineModels = input.models;
   let dynamicModels = [];
   const fetchModels = input.fetchModels;
   const currentModels = () => {
     const merged = [...baselineModels];
     for (const model of dynamicModels) {
-      const index = merged.findIndex((entry) => entry.id === model.id);
+      const index = merged.findIndex((entry) => getModelType(entry) === getModelType(model) && entry.id === model.id);
       if (index >= 0)
         merged[index] = model;
       else
@@ -886,8 +1015,6 @@ function createProvider(input) {
     }
     return merged;
   };
-  const single = typeof input.api.stream === "function" ? input.api : void 0;
-  const byApi = single ? void 0 : input.api;
   const apiFor = (model) => single ?? byApi?.[model.api];
   const dispatch = (model, run) => {
     const streams2 = apiFor(model);
@@ -904,7 +1031,8 @@ function createProvider(input) {
     baseUrl: input.baseUrl,
     headers: input.headers,
     auth: input.auth,
-    getModels: currentModels,
+    getModels: () => currentModels().filter((model) => isModelType(model, "chat")),
+    getAllModels: currentModels,
     refreshModels: fetchModels ? async (context) => {
       if (context.stored) {
         const restored = context.stored.models.filter((model) => model.provider === input.id).map((model) => model);
@@ -918,9 +1046,10 @@ function createProvider(input) {
       }
       if (!context.allowNetwork || context.signal.aborted)
         return;
-      const refreshed = await fetchModels(context);
+      const fetched = await fetchModels(context);
       if (context.signal.aborted)
         return;
+      const refreshed = fetched.filter(hasKnownModelType);
       await context.publish({
         persist: { models: refreshed, checkedAt: Date.now() },
         update: () => {
@@ -929,10 +1058,10 @@ function createProvider(input) {
       });
     } : void 0,
     filterModels: input.filterModels,
+    filterAllModels: input.filterAllModels,
     stream: (model, context, options) => dispatch(model, (streams2) => streams2.stream(model, context, options)),
     streamSimple: (model, context, options) => dispatch(model, (streams2) => streams2.streamSimple(model, context, options))
   };
-  const streams = single ? [single] : Object.values(byApi ?? {}).filter((entry) => entry !== void 0);
   if (streams.some((entry) => entry.fetchDeferred !== void 0)) {
     provider.fetchDeferred = (model, handle, options) => lazyStream(model, async () => {
       const implementation = apiFor(model);
@@ -951,10 +1080,28 @@ function createProvider(input) {
       await implementation.cancelDeferred(model, handle, options);
     };
   }
+  if (images && imageImplementations.length > 0) {
+    provider.generateImages = async (model, context, options) => {
+      const implementation = images[model.api];
+      if (!implementation) {
+        return imageErrorResult(model, new ModelsError("provider", `Provider ${input.id} has no image generation implementation for "${model.api}"`));
+      }
+      return implementation.generateImages(model, context, options);
+    };
+  }
+  if (classifiers && classifierImplementations.length > 0) {
+    provider.classify = async (model, context, options) => {
+      const implementation = classifiers[model.api];
+      if (!implementation) {
+        return classifierErrorResult(model, new ModelsError("provider", `Provider ${input.id} has no classifier implementation for "${model.api}"`));
+      }
+      return implementation.classify(model, context, options);
+    };
+  }
   return provider;
 }
 function hasApi(model, api) {
-  return model.api === api;
+  return isModelType(model, "chat") && model.api === api;
 }
 function calculateCost(model, usage) {
   const inputTokens = usage.input + usage.cacheRead + usage.cacheWrite;
@@ -1010,11 +1157,13 @@ function clampThinkingLevel(model, level) {
 function modelsAreEqual(a, b) {
   if (!a || !b)
     return false;
-  return a.id === b.id && a.provider === b.provider;
+  return getModelType(a) === getModelType(b) && a.id === b.id && a.provider === b.provider;
 }
 
 export {
   ModelsError,
+  getModelType,
+  isModelType,
   getSystemMessageText,
   renderSystemMessageUpdate,
   getInitialSystemMessage,
@@ -1023,7 +1172,6 @@ export {
   collapseSystemMessages,
   resolveTranscript,
   getDeclaredTools,
-  hasToolRedefinitions,
   resolveTranscriptTools,
   createModels,
   createProvider,
@@ -1037,4 +1185,4 @@ function __byokitPiThrowIfAborted(signal) {
   if (signal == null || !signal.aborted) return;
   throw signal.reason !== void 0 ? signal.reason : Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
 }
-//# sourceMappingURL=chunk-PDUG4NYC.js.map
+//# sourceMappingURL=chunk-2HB4SJL3.js.map
