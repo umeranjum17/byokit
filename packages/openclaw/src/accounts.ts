@@ -676,13 +676,14 @@ export function createAccounts(ctx: {
     const known = named === undefined || listed.some((r) => r.id === named);
     if (binding?.id !== undefined && known) sel = { ...sel, account: binding.id };
     const bound = binding && known ? boundOf(file, binding) : undefined;
+    const lanes = Object.entries(file.accounts).filter(([, e]) => e.agent === keyAgentId(member)).map(([id]) => id);
     const reads = new Map(await Promise.all(rows.map(async (row) => {
       const entry = file.accounts[row.id]!;
       const models = await readModels(row, entry).then((ms) => ms.map((m) => (m.why ? { ...m, available: true } : m)), () => undefined);
       return [row.id, { room: await readRoom(row, entry), models }] as const;
     })));
     const chosen = resolveSelection(rows, file.defaults, sel, (a) => reads.get(a.id)!.room, Date.now(),
-      (a) => reads.get(a.id)!.models, bound);
+      (a) => reads.get(a.id)!.models, bound, lanes);
     return { pick: chosen, ...(chosen.ok ? { agent: file.accounts[chosen.account.id]!.agent } : {}) };
   }
 

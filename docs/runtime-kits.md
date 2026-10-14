@@ -1022,7 +1022,8 @@ the engine. External retained sources are touched only when explicitly passed to
   be the selected key model's provider (`provider/model`); another provider ends `plan`. A key pays for its
   provider's models, not one: a Go plan key runs every Go model, and the engine refuses a model its catalog does
   not list. `addKey` may save a Go catalog model as the default for this lane. Absent a run override, that saved model runs.
-  Ordinary runs never enter the key agent.
+  An ordinary run enters the key lane only when its conversation is bound to it or the run names its
+  `<provider>.key` account.
   `addKey` invalidates the old key before checking a replacement; a failed replacement leaves the key option
   unavailable. Key entry and its result are represented by the framework-free `ui/kits` key card view.
 - `classify(message)` (`src/classify.ts`) = Crewhouse `classifyText` mapped `rate_limit|overloaded → resting`,
@@ -1580,7 +1581,8 @@ has no bindings) is the accounts a conversation may use (Runs steps 1-2); absent
 1. Candidates: accounts in `bound` (else `out: 'bound'`); `ready`, or `resting` with `until <= now` (`resting`
    with a later `until` → `out: 'resting'` with `until`; any other state → `out: 'state'`); `billing:
    'subscription'` (else `out: 'billing'`): an API-key account is used only when chosen (by id, by
-   `defaults.account`, or `auth: 'apiKey'`), never by Auto or a default fallback. With a demand, only accounts whose
+   `defaults.account`, or `auth: 'apiKey'`), never by Auto or a default fallback; a kit-only `lanes` list marks the
+   member's key-lane accounts, which carry the same `out: 'billing'` outside `bound` and unnamed. With a demand, only accounts whose
    `models` list every demanded model (else `out: 'model'` with `missing`); without, those of the default account's
    provider, else of the first provider in list order (else `out: 'provider'`). The first matching `out` in that order
    is the row's.

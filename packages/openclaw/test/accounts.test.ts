@@ -1213,6 +1213,28 @@ test('a multi-route key lane keeps its chosen route across a restart: route and 
   }
 });
 
+test('an unbound conversation never starts on a subscription-billed key lane by Auto', async () => {
+  const stateDir = scratchDir('key-lane-unbound-auto');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-AUTO' }), { status: 'ok' });
+    assert.deepEqual((await kit.accounts('m1')).map((a) => [a.id, a.billing, a.state]), [['opencode-go.key', 'subscription', 'ready']]);
+    const from = fake.calls.length;
+    const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:new', message: 'hello', account: 'auto' });
+    assert.equal(end.ok, false);
+    assert.equal(end.ok === false && 'kind' in end && end.kind, 'signed-out');
+    assert.deepEqual(fake.calls.slice(from).filter((c) => c.method === 'agent'), []);
+    const pick = await kit.pick('m1', { account: 'auto' }, { sessionKey: 'agent:m1:chat:new' });
+    assert.ok(!pick.ok && pick.code === 'none', JSON.stringify(pick));
+    assert.equal(pick.considered.find((r) => r.id === 'opencode-go.key')?.out, 'billing');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('a key lane whose index entry is missing is indexed again on the next connect of the same kit', async () => {
   const stateDir = scratchDir('key-lane-reconnect-index');
   const fake = fakeGateway();

@@ -179,7 +179,8 @@ With no choice, today's starter stays.
 The saved model is used when a run's `model` is omitted; any other model of the same provider (`provider/model`) runs too,
 and another provider ends `plan`. Key runs have separate history. To steer or stop
 one, pass `{ auth: 'apiKey' }` to `steer` or `abort` too (the device helpers accept the same option).
-Ordinary runs never enter the key agent, even when the subscription is resting. This agent boundary is necessary
+An ordinary run enters the key lane only when its conversation is bound to it or the run names its
+`<provider>.key` account, even when the subscription is resting. This agent boundary is necessary
 because the engine's profile pins can rotate. The `byokit-key-` member prefix is reserved. Adding another key
 replaces the previous key; a failed replacement leaves this option unavailable. If the normal agent already has
 an API key added through pass-through calls, `addKey` returns `{ status: 'retry', reason: 'engine' }` and leaves that key untouched.
