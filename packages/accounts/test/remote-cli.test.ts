@@ -156,6 +156,7 @@ test('read-only state reports every CLI without writing or logging secrets', asy
     { provider: 'claude', billing: 'subscription', installed: true, signedIn: false, supported: true },
     { provider: 'codex', billing: 'subscription', installed: true, signedIn: false, supported: true },
     { provider: 'pi', billing: 'subscription', installed: true, signedIn: false, supported: false },
+    { provider: 'opencode', billing: 'subscription', installed: false, signedIn: false, supported: false },
   ]);
   // Nothing written: no roster, no markers; only status reads ran.
   assert.deepEqual(readdirSync(stateDir), []);

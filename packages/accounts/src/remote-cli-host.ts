@@ -8,7 +8,8 @@
 // --device-auth`, a ChatGPT subscription); Claude exposes a link-and-paste-code login
 // (`auth login --claudeai`, a Claude subscription: the phone opens the link, the person pastes the
 // page's code back). Pi has no headless login, so it reports `unsupported` ("not supported here")
-// while its read-only state still works. The `--console` API-billed Claude login is never started.
+// while its read-only state still works. OpenCode likewise reports `unsupported`: its plan key is
+// pasted in the computer's app (`saveKey`), never over the link. The `--console` API-billed Claude login is never started.
 //
 // Compose `remoteCliHost(...).handle` into the pair `Host`'s `handle` (behind `allow`); the phone
 // uses `remoteCliDevice(link)` from `./remote-cli.ts`.
@@ -78,7 +79,7 @@ export async function remoteCliState(kit: Kit, bins: Partial<Record<RemoteCliPro
     }
     const ready = rows.find((r) => r.provider === provider && r.state === 'ready');
     const state: RemoteCliState = { provider, billing: 'subscription', installed,
-      signedIn: installed && ready !== undefined, supported: provider !== 'pi' };
+      signedIn: installed && ready !== undefined, supported: provider === 'claude' || provider === 'codex' };
     const label = ready?.email || (ready?.name.trim() ? ready.name : undefined);
     if (label && label.length <= 320) state.label = label;
     if (ready?.plan) state.plan = ready.plan;
@@ -166,8 +167,9 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
   }
 
   async function start(provider: RemoteCliProvider): Promise<RemoteCliStart> {
-    if (!isRemoteCliProvider(provider)) throw new Error('accounts.cli.signin.start needs { provider: claude|codex|pi }');
-    if (provider === 'pi') return fail(provider, 'unsupported');
+    if (!isRemoteCliProvider(provider)) throw new Error('accounts.cli.signin.start needs { provider: claude|codex|pi|opencode }');
+    // Pi has no headless login; OpenCode connects by pasting its plan key in the computer's app instead.
+    if (provider === 'pi' || provider === 'opencode') return fail(provider, 'unsupported');
     sweep();
     for (const s of sessions.values()) {
       if (s.provider === provider && !s.result) return fail(provider, 'busy');
