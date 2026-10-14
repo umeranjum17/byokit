@@ -9,7 +9,9 @@ import { createHash } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { SealingAdapter } from '@byokit/secrets';
 import { EngineAlreadyRunningError, pidAlive as live } from './engine-status.ts';
-import { removedAccountAgents, sweepOrphans } from './accounts.ts';
+import { damagedAccountMembers, heldBackAgent, removedAccountAgents, sweepOrphans } from './accounts.ts';
+const agentDirOf = (path: string): string | undefined =>
+  path.startsWith('state/agents/') ? path.split('/')[2] : undefined;
 
 const encoder = new TextEncoder();
 const archive = (name: string) => !name.endsWith('.sealed') && (/^(auth-profiles|auth-state|auth|oauth)\.json\.(migrated-.+|sqlite-import\..+\.bak)$/.test(name)
@@ -266,8 +268,12 @@ export class AuthStore {
     const text = this.open(bytes);
     let saved: Snapshot;
     try { saved = snapshot(text); } catch { throw new AuthStoreUnreadableError('invalid-snapshot'); }
+    // Removed agents leave the sealed store; damaged-index agents stay sealed (held back) until their index is repaired.
     const gone = removedAccountAgents(this.o.root);
-    const keep = (path: string) => !path.startsWith('state/agents/') || !gone.has(path.split('/')[2]!);
+    const keep = (path: string) => {
+      const agent = agentDirOf(path);
+      return agent === undefined || !gone.has(agent);
+    };
     const kept: Snapshot = { v: 1, dirs: saved.dirs.filter(keep), files: saved.files.filter(([path]) => keep(path)) };
     if (kept.dirs.length !== saved.dirs.length || kept.files.length !== saved.files.length) {
       this.seal(this.file, JSON.stringify(kept));
@@ -314,9 +320,14 @@ export class AuthStore {
     let total = 0;
     const root = realpathSync(this.o.root);
     const gone = removedAccountAgents(this.o.root);
+    const damaged = damagedAccountMembers(this.o.root);
     const walk = (path: string) => {
       const name = relative(this.o.root, path).split('\\').join('/');
-      if (name.startsWith('state/agents/') && gone.has(name.split('/')[2]!)) return; // a late refresh never enters a seal
+      if (name.startsWith('state/agents/')) {
+        const agent = name.split('/')[2]!;
+        if (gone.has(agent)) return; // a late refresh never enters a seal
+        if (heldBackAgent(agent, damaged)) return; // damaged index: leave sealed copy; never reseal a late live write
+      }
       if (name.startsWith('home/') && nonCredential(name)) return; // regenerable home caches stay on disk; skipping a directory skips its subtree
       let stat;
       try { stat = lstatSync(path); }
@@ -356,7 +367,7 @@ export class AuthStore {
     return { dirs, files, objects };
   }
   private collect(): { saved: Snapshot; objects: Entry[] } {
-    sweepOrphans(this.o.root);
+    sweepOrphans(this.o.root, this.o.log);
     const { dirs, files, objects } = this.inventory();
     for (const dir of dirs) {
       try { chmodSync(join(this.o.root, dir), 0o700); }
@@ -413,7 +424,32 @@ export class AuthStore {
       this.seal(target, payload);
       this.objectHashes.set(object, hash);
     }
+    // Held-back agent objects stay sealed while their index is damaged (inventory skipped their live trees).
+    const damaged = damagedAccountMembers(this.o.root);
+    if (damaged.size) {
+      for (const entry of readdirSync(this.objects)) {
+        if (keep.has(entry)) continue;
+        try {
+          const agent = agentDirOf(this.readObject(join(this.objects, entry))[0]);
+          if (agent !== undefined && heldBackAgent(agent, damaged)) keep.add(entry);
+        } catch { /* unreadable object: leave for the next start's auth-store check */ }
+      }
+    }
     for (const entry of readdirSync(this.objects)) if (!keep.has(entry)) rmSync(join(this.objects, entry), { force: true });
+  }
+  /** Re-attach held-back sealed paths a damaged index kept out of the live inventory. */
+  private mergeHeldBack(previous: Snapshot | undefined, saved: Snapshot): void {
+    if (!previous) return;
+    const damaged = damagedAccountMembers(this.o.root);
+    if (!damaged.size) return;
+    const held = (path: string): boolean => {
+      const agent = agentDirOf(path);
+      return agent !== undefined && heldBackAgent(agent, damaged);
+    };
+    const dirs = new Set(saved.dirs);
+    for (const dir of previous.dirs) if (held(dir) && !dirs.has(dir)) { saved.dirs.push(dir); dirs.add(dir); }
+    const files = new Set(saved.files.map(([path]) => path));
+    for (const entry of previous.files) if (held(entry[0]) && !files.has(entry[0])) { saved.files.push(entry); files.add(entry[0]); }
   }
   private async persist(): Promise<void> {
     if (!this.o.seal) return;
@@ -430,6 +466,7 @@ export class AuthStore {
     // left in place) — keep the sealed credentials instead of replacing them with an empty snapshot.
     // A running engine always leaves files behind (its SQLite stores), so a genuine sign-out still re-seals.
     if (!saved.files.length && !objects.length && previous) return;
+    this.mergeHeldBack(previous, saved);
     // The payload is built exactly once; verification decrypts the sealed bytes and compares to it.
     this.seal(this.file, JSON.stringify(saved));
     if (previous?.dirs.some(nonCredential)) this.o.log?.('sealed credential store re-sealed: tool caches no longer sealed');
@@ -450,13 +487,23 @@ export class AuthStore {
   private async restore(): Promise<void> {
     if (!this.o.seal) return;
     const saved = await this.read();
+    const damaged = damagedAccountMembers(this.o.root);
+    const skipHeld = (path: string): boolean => {
+      const agent = agentDirOf(path);
+      return agent !== undefined && heldBackAgent(agent, damaged);
+    };
     // A crashed host may leave a newer live state; prepare seals that before restore.
     put(this.restoring, encoder.encode('1'));
     const changed = new Set<string>();
     if (saved) {
-      for (const dir of saved.dirs.sort((a, b) => a.split('/').length - b.split('/').length))
+      for (const dir of saved.dirs.sort((a, b) => a.split('/').length - b.split('/').length)) {
+        if (skipHeld(dir)) continue;
         this.ensureRestoreDirs(join(this.o.root, dir), changed);
-      for (const [path, data] of saved.files) putRestore(join(this.o.root, path), Buffer.from(data, 'base64'), changed);
+      }
+      for (const [path, data] of saved.files) {
+        if (skipHeld(path)) continue;
+        putRestore(join(this.o.root, path), Buffer.from(data, 'base64'), changed);
+      }
     }
     if (existsSync(this.objects)) {
       for (const entry of readdirSync(this.objects)) {
@@ -464,6 +511,7 @@ export class AuthStore {
         // An object sealed in an older wrap mode (the adapter would upgrade it, as read() does the main file) gets
         // no hash, so the next seal reseals it in the current mode even when unchanged.
         if (!this.o.seal.upgrade?.(bytes)) this.objectHashes.set(entry, objectHash(payload));
+        if (skipHeld(path)) continue;
         // An object path can be several directories below an existing one, and those directories are not in
         // `saved.dirs` (they sit in a non-credential subtree). Create them through ensureRestoreDirs so the
         // parent of every directory this restore creates — not just each object's own directory — is fsynced
@@ -518,7 +566,9 @@ export class AuthStore {
       // Same debris guard as persist(): a running engine always leaves files behind, so an empty live tree
       // keeps the sealed credentials instead of replacing them with an empty snapshot.
       if (!saved.files.length && !objects.length && previous) return;
+      this.mergeHeldBack(previous, saved);
       this.seal(this.file, JSON.stringify(saved));
+      // Database objects stay at their last stop-time seal; only the credential blob is refreshed here.
     });
   }
   start(): Promise<void> {

@@ -310,7 +310,7 @@ export class Engine {
   // gone and no index names. No roster here: the gateway is down, and no add is in flight while preparing (an entry
   // is written before its agent is created, so an account being added is named).
   private sweepAccountOrphans(): void {
-    try { sweepOrphans(this.root); }
+    try { sweepOrphans(this.root, this.o.log); }
     catch (error) { this.o.log?.(`prepare: orphans are not swept: ${String((error as Error).message).slice(0, 200)}`); }
   }
   start(): Promise<{ port: number; token: string; identityPath: string } | undefined> {
