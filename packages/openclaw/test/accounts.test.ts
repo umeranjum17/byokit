@@ -1212,6 +1212,59 @@ test('a multi-route key lane keeps its chosen route across a restart: route and 
   }
 });
 
+test('a key lane whose index entry is missing is indexed again on the next connect of the same kit', async () => {
+  const stateDir = scratchDir('key-lane-reconnect-index');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-reconnect' }), { status: 'ok' });
+    const file = JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')) as { accounts: Record<string, unknown> };
+    delete file.accounts['openai.key'];
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(file));
+    fake.drop('test');
+    await kit.start();
+    for (let i = 0; i < 200 && (await kit.accounts('m1')).length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual((await kit.accounts('m1')).map((a) => [a.id, a.billing, a.state]), [['openai.key', 'api', 'ready']]);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('an API-billed legacy account binding continues on its own agent and session; steer and abort reach it', async () => {
+  const stateDir = scratchDir('o14-legacy-api-binding');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done, { state: 'done', via: 'browser' });
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const agent = `m1--${second.id.slice('openai.'.length)}`;
+    const session = 'agent:m1:chat:legacy';
+    assert.ok((await kit.run({ member: 'm1', sessionKey: session, account: second.id, message: 'hello' })).ok);
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-legacy' }), { status: 'ok' });
+    const file = JSON.parse(readFileSync(indexOf(stateDir, 'm1'), 'utf8')) as { accounts: Record<string, { route: string }> };
+    file.accounts[second.id]!.route = 'openai-api-key';
+    writeFileSync(indexOf(stateDir, 'm1'), JSON.stringify(file));
+
+    const from = fake.calls.length;
+    assert.ok((await kit.run({ member: 'm1', sessionKey: session, message: 'again', auth: 'apiKey' })).ok);
+    const ran = fake.calls.slice(from).filter((c) => c.method === 'agent').map((c) => c.params as { agentId: string; sessionKey: string });
+    assert.deepEqual(ran.map((p) => [p.agentId, p.sessionKey]), [[agent, `agent:${agent}:chat:legacy`]]);
+
+    await kit.steer(session, 'and more', { auth: 'apiKey' });
+    await kit.abort(session, { auth: 'apiKey' });
+    assert.deepEqual(fake.calls.filter((c) => c.method === 'sessions.steer' || c.method === 'chat.abort')
+      .slice(-2).map((c) => [c.method, (c.params as { sessionKey: string }).sessionKey]),
+      [['sessions.steer', `agent:${agent}:chat:legacy`], ['chat.abort', `agent:${agent}:chat:legacy`]]);
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('session binding: a run stays on the account that holds its session; pick equals the run; bound and paid refuse', async () => {
   const stateDir = scratchDir('o14k-binding');
   const fake = fakeGateway();

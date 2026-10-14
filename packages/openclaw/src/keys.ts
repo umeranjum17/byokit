@@ -152,11 +152,12 @@ export function createKeys(ctx: ActivationCtx & {
         }
       }
     },
-    // Kit start calls this once the gateway is ready: a failed add whose abandon clear never reached the engine
-    // leaves an unsealed key with no ready marker, so drop it. A single ready read per key agent, no retries; an add
-    // in flight for that member is waited for. Only an absent marker is cleared; a refused read or clear (the gateway
-    // left ready) makes the sweep incomplete. Resolves true once every key agent was read.
-    async sweep(): Promise<boolean> {
+    // Kit connect calls this once the gateway is ready: a failed add whose abandon clear never reached the engine
+    // leaves an unsealed key with no ready marker, so drop it (`clear`, until a sweep completes). A single ready read
+    // per key agent, no retries; an add in flight for that member is waited for. Only an absent marker is cleared; a
+    // refused read or clear (the gateway left ready) makes the sweep incomplete. A sealed lane is backfilled on every
+    // call. Resolves true once every key agent was read.
+    async sweep(clear: boolean): Promise<boolean> {
       let agents: { id: string }[];
       try {
         agents = ((await ctx.request('agents.list')) as { agents: { id: string }[] }).agents;
@@ -172,6 +173,7 @@ export function createKeys(ctx: ActivationCtx & {
             await ctx.backfillLane(member, ready.model);
             return;
           }
+          if (!clear) return;
           if (ready?.absent !== true) { complete = false; return; }
           const cleared = await control(member, 'clear').catch(() => undefined);
           if (cleared?.ok !== true) complete = false;

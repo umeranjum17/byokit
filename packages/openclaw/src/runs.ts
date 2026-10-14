@@ -149,7 +149,10 @@ export function createRuns(ctx: {
     // Step 3: with `account` and `needs` both absent, on a key no account agent holds (or an API-key run, whose
     // binding is API-billed), exactly the run on the agent it always was (a bound key under its shared lock).
     if ((keyAgent || binding?.id === undefined) && spec.account === undefined && !spec.needs?.length) {
-      if (keyAgent) return start(spec, on, { agentId: keyAgent, sessionKey: `agent:${keyAgent}:${tail}`, idempotencyKey, system, picked, output });
+      if (keyAgent) {
+        const agentId = binding?.id !== undefined ? binding.agentId : keyAgent;
+        return start(spec, on, { agentId, sessionKey: `agent:${agentId}:${tail}`, idempotencyKey, system, picked, output });
+      }
       const { agentId } = await ctx.ensure(spec.member);
       const member = () => start(spec, on, { agentId, sessionKey: spec.sessionKey, idempotencyKey, system, picked, output });
       if (!binding || !ctx.locks) return member();

@@ -314,7 +314,7 @@ export function createAccounts(ctx: {
   bind(member: Member, sessionKey: string): Promise<Binding | undefined>;
   keyRefusal(member: Member, binding: Binding): Promise<string | undefined>;
   key(member: Member, route: Pick<RouteView, 'choice' | 'provider' | 'label'>): Promise<void>;
-  backfill(member: Member, route: Pick<RouteView, 'choice' | 'provider' | 'label'>): Promise<void>;
+  backfill(member: Member, found: Pick<RouteView, 'choice' | 'provider' | 'label'>[]): Promise<void>;
   pick(member: Member, sel: RunSelection, skip?: readonly AccountId[], binding?: Binding): Promise<{ pick: AccountPick; agent?: string }>;
   rest(member: Member, id: AccountId, until: number): Promise<void>;
   move(member: Member, sessionKey: string, to: AccountId): Promise<MoveResult>;
@@ -753,6 +753,8 @@ export function createAccounts(ctx: {
 
   const agentDir = (agent: string): string => join(ctx.root, 'state', 'agents', agent);
 
+  const laneEntry = (member: Member, route: Pick<RouteView, 'choice' | 'label'>, addedAt: number): IndexEntry =>
+    ({ agent: keyAgentId(member), name: route.label, route: route.choice, addedAt });
   // The API-key lane's index entry (5.15): one per member, `<provider>.key` on the `byokit-key-<member>` agent.
   // A new key replaces the old one: whatever lane entry the member holds is dropped first, keeping its `addedAt`.
   // The key itself is never stored: only the agent, the route choice and the name.
@@ -765,20 +767,25 @@ export function createAccounts(ctx: {
       const file = loaded.damaged ? empty() : loaded.file;
       const kept = Object.values(file.accounts).find((e) => e.agent === lane)?.addedAt;
       for (const [other, e] of Object.entries(file.accounts)) if (e.agent === lane) delete file.accounts[other];
-      file.accounts[`${route.provider}.key`] = { agent: lane, name: route.label, route: route.choice, addedAt: kept ?? Date.now() };
+      file.accounts[`${route.provider}.key`] = laneEntry(member, route, kept ?? Date.now());
       write(member, file);
     });
   }
 
-  // The start sweep's backfill: writes the lane entry only when the lane holds none, and never rewrites a damaged index.
-  async function backfill(member: Member, route: Pick<RouteView, 'choice' | 'provider' | 'label'>): Promise<void> {
+  // The connect sweep's backfill: a lane that holds no entry is indexed under the one route its model's provider has;
+  // any other count is logged and left unindexed. A lane that holds an entry is never touched, nor a damaged index.
+  async function backfill(member: Member, found: Pick<RouteView, 'choice' | 'provider' | 'label'>[]): Promise<void> {
     check(member);
     const lane = keyAgentId(member);
     return ctx.locks.exclusive([indexLock(member)], async () => {
       const loaded = loadIndex(ctx.root, member);
       if (loaded.damaged) { ctx.log?.(words('account.indexDamaged', { member })); return; }
       if (Object.values(loaded.file.accounts).some((e) => e.agent === lane)) return;
-      loaded.file.accounts[`${route.provider}.key`] = { agent: lane, name: route.label, route: route.choice, addedAt: Date.now() };
+      if (found.length !== 1) {
+        ctx.log?.(`key lane ${member}: its provider has no single key route, so it is not indexed; add the key again to index it`);
+        return;
+      }
+      loaded.file.accounts[`${found[0]!.provider}.key`] = laneEntry(member, found[0]!, Date.now());
       write(member, loaded.file);
     });
   }
