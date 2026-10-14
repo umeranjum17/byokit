@@ -90,7 +90,8 @@ export function signIn(
   let settleStart!: () => void;
   const startingSettled = new Promise<void>((resolve) => { settleStart = resolve; });
   let over = false;
-  // The commit point of the native and key drives: set just before `setup.activate`; from then on a cancel changes nothing.
+  // The commit point of the native and key drives: set just before `setup.activate`; from then on cancel() leaves
+  // settling to the engine's answer.
   let committed = false;
   let recovering = false;
   let offDisconnect: (() => void) | undefined;
@@ -292,16 +293,17 @@ export function signIn(
         if (!apiKey) return { state: 'failed', via, why: signal.aborted ? 'declined' : 'expired' };
         secret = apiKey.trim() || undefined;
       }
-      // The commit point: a phone cancel or host shutdown that landed before it activates nothing. From here the
-      // engine's answer alone decides; done waits for the gateway restart an `auth` change causes (activation.ts),
-      // which only host shutdown cuts short. A late restart has persisted the route: Claude says it was saved, a key
-      // keeps the shared words because the add path cleans it up.
+      // The commit point: a phone cancel or host shutdown that landed before it activates nothing. Done waits for the
+      // gateway restart an `auth` change causes (activation.ts). For Claude the engine's answer alone decides from
+      // here and only host shutdown cuts the wait short; a late restart has persisted the route, so it says saved. A
+      // key's cancel still ends its wait and declines, and a late key keeps the shared words: the add path removes it.
       if (signal.aborted || native?.signal.aborted) return cancelled();
       committed = true;
       const result = await activate(ctx, {
         agentId, kind: apiKey === undefined ? 'claude-cli' : 'api-key',
         ...(apiKey === undefined ? {} : { authChoice: o.authChoice, apiKey }),
-      }, { timeoutMs: PULL_MS, signal: native?.signal });
+      }, { timeoutMs: PULL_MS, signal: apiKey === undefined ? native?.signal : signal });
+      if (apiKey !== undefined && signal.aborted) return cancelled();
       if (result.late) return { state: 'failed', via, why: 'failed', error: apiKey === undefined ? words('signin.savedNotRestarted') : LATE_RESTART };
       if (!result.ok) return { state: 'failed', via, why: 'failed',
         error: apiKey === undefined ? clean(result.error ?? 'Claude Code activation failed') : keyFailed(result.status) };

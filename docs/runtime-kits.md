@@ -771,12 +771,13 @@ The `anthropic-cli` and key-entry drives have one commit point, the `setup.activ
    or host shutdown, here ends `why: 'declined'` once the native login is released; nothing is activated.
 2. Commit: immediately before `setup.activate`, a phone cancel or host shutdown that has landed still ends declined
    with no activation call. Otherwise the drive is committed and calls `setup.activate` once.
-3. After commit a phone cancel no longer affects the result; the drive settles on the engine's answer. A refusal is
-   `failed` with its words; an ok activation is `done` once its restart is confirmed, or, when the restart runs late (for Claude
-   also when host shutdown ends the wait; a key's wait has no host signal), `failed` with the saved words: `signin.savedNotRestarted` for Claude (the route is
-   persisted), the shared `LATE_RESTART` text for a key (the add path cleans it up). Never declined after commit.
-`cancel()` always settles `done` exactly once: before commit as soon as the native login is released, after it on
-the engine's answer. A ready native row may be activated without a new login: an `already` result proceeds to engine detection. If the engine still reports signed out, the engine clears only that stale ready Claude roster row (not its managed folder or grant) and starts one fresh native login; it never loops automatic logins. The engine verifies readiness
+3. After commit the drive settles on the engine's answer. A refusal is `failed` with its words. For Claude a phone
+   cancel no longer affects the result: an ok activation is `done` once its restart is confirmed, or, when the restart
+   runs late or host shutdown ends the wait, `failed` with `signin.savedNotRestarted` (the route is persisted); never
+   declined after commit. A key's phone cancel still ends its restart wait and declines, and a late key restart is
+   `failed` with the shared `LATE_RESTART` text; the add path cleans the key up either way (below).
+`cancel()` always settles `done` exactly once: before commit as soon as the native login is released, after it once
+the engine answers the activation. A ready native row may be activated without a new login: an `already` result proceeds to engine detection. If the engine still reports signed out, the engine clears only that stale ready Claude roster row (not its managed folder or grant) and starts one fresh native login; it never loops automatic logins. The engine verifies readiness
 again after the native login finishes. The waiting view carries the native verification address and a plain paste-code
 prompt. `paste` writes one returned code to that CLI's stdin; cancel/expiry stop only that login. CLI output
 and credentials are never forwarded, logged, copied or read by the kit. A successful native exit is checked
@@ -814,8 +815,9 @@ A `keyEntry` choice (a plan key such as `opencode-go`) never starts the wizard, 
 the agent's model. A failed key-entry sign-in shows only the kit's words (`API key activation failed`, or `This key type is not available on this engine.` when the engine refuses the key type); the engine's text never reaches the view. Activation (this one and `anthropic-cli`'s) writes
 `auth`, which the pin applies by restarting the gateway once its requests drain; when the activation changed config
 `auth` and a spawned engine restarts for it, `done` waits for that restart to begin and the kit to be ready again,
-within 60 s (event-driven, not polled). Past that the sign-in ends `why: 'failed'` with the late-restart words above, and the add is cleaned up: a new agent is discarded, a member agent
-clears only this provider's profile and its index entry. The same wait and cleanup apply to `addKey` (below). A cancel after the activation call does not change the result (the commit point above). Adds of one provider for one member take turns until each settles. Done means sealed.
+within 60 s (event-driven, not polled). Past that the sign-in ends `why: 'failed'` with the late-restart words above (a key cancelled during the wait ends
+`why: 'declined'`), and the add is cleaned up either way: a new agent is discarded, a member agent
+clears only this provider's profile and its index entry. The same wait and cleanup apply to `addKey` (below). A key cancelled during the activation request waits for the engine's answer before the cleanup, and ends `why: 'declined'`. Adds of one provider for one member take turns until each settles. Done means sealed.
 A run started on done uses the new sign-in.
 A run prepares its models from configured facts and the static catalog only (the pin's run path; live discovery
 feeds `models.list view: 'all'`, never a run): a live-only OpenCode Go model (Muse) resolves once
