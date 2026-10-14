@@ -13,8 +13,9 @@
 // Compose `remoteCliHost(...).handle` into the pair `Host`'s `handle` (behind `allow`); the phone
 // uses `remoteCliDevice(link)` from `./remote-cli.ts`.
 import { spawn, type ChildProcess } from 'node:child_process';
-import { accessSync, constants, rmSync, writeFileSync } from 'node:fs';
-import { CliAccountError, cliAccounts } from './cli.ts';
+import { accessSync, constants, mkdirSync, readFileSync, rmdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
+import { CliAccountError, cliAccounts, signInLock } from './cli.ts';
 import {
   REMOTE_CLI_OPS,
   REMOTE_CLI_PROVIDERS,
@@ -49,6 +50,12 @@ type Session = {
   id: string;
   provider: RemoteCliProvider;
   child: ChildProcess;
+  /** Resolves once the native child has exited (one promise per session, shared by every waiter). */
+  exit: Promise<void>;
+  /** Resolves with the terminal result once the row is settled and the sign-in lock is released. */
+  settled: Promise<RemoteCliResult>;
+  /** Set when `settled` has finished: the lock is free and the row is no longer in flight. */
+  done?: true;
   completion: string;
   display: RemoteCliDisplay;
   startedAt: number;
@@ -123,9 +130,41 @@ const fail = (provider: RemoteCliProvider, error: RemoteCliFailure['error']): Re
   return { ok: false, error, words };
 };
 
+function holderAlive(holder: string): boolean {
+  let pid: number;
+  try { pid = Number(readFileSync(holder, 'utf8')); } catch { return true; }
+  if (!Number.isSafeInteger(pid) || pid <= 0) return true;
+  try { process.kill(pid, 0); return true; }
+  catch (e) { return (e as NodeJS.ErrnoException).code !== 'ESRCH'; }
+}
+
+function claimSignIn(folder: string): (() => void) | undefined {
+  const { lock, holder } = signInLock(folder);
+  const take = () => { try { mkdirSync(lock, { mode: 0o700 }); return true; } catch { return false; } };
+  if (!take()) {
+    if (holderAlive(holder)) return undefined;
+    rmSync(holder, { force: true });
+    try { rmdirSync(lock); } catch { return undefined; }
+    if (!take()) return undefined;
+  }
+  let held = true;
+  const unlock = () => {
+    if (!held) return;
+    held = false;
+    rmSync(holder, { force: true });
+    try { rmdirSync(lock); } catch {}
+  };
+  try { writeFileSync(holder, String(process.pid), { mode: 0o600 }); }
+  catch (error) { unlock(); throw error; }
+  return unlock;
+}
+
 export function remoteCliHost(options: RemoteCliHostOptions): {
+  /** Aborted as soon as close begins, independently of phone cancellation or completed sessions. */
+  readonly signal: AbortSignal;
   state(): Promise<RemoteCliState[]>;
-  start(provider: RemoteCliProvider): Promise<RemoteCliStart>;
+  close(): Promise<void>;
+  start(provider: RemoteCliProvider, opts?: { signal?: AbortSignal }): Promise<RemoteCliStart>;
   wait(id: string, opts?: { timeoutMs?: number }): Promise<RemoteCliResult>;
   paste(id: string, pasteText: string): Promise<void>;
   cancel(id: string): Promise<void>;
@@ -138,11 +177,14 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
   const waitCapMs = options.waitCapMs ?? DEFAULT_WAIT_CAP_MS;
   if (!(parseMs > 0 && parseMs <= 2 ** 31 - 1) || !(waitCapMs > 0 && waitCapMs <= 2 ** 31 - 1)) throw new CliAccountError('bad-option');
   const sessions = new Map<string, Session>();
+  const starting = new Set<RemoteCliProvider>();
+  const pendingStarts = new Set<Promise<RemoteCliStart>>();
+  const lifetime = new AbortController();
 
   const sweep = () => {
     if (sessions.size < 50) return;
     for (const [id, s] of sessions) {
-      if (s.result && now() - s.startedAt > 3600_000) sessions.delete(id);
+      if (s.done && now() - s.startedAt > 3600_000) sessions.delete(id);
       if (sessions.size < 50) return;
     }
   };
@@ -154,46 +196,81 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
       }
     } catch {}
   };
-  const exitOf = (s: Session): Promise<void> => {
-    if (s.exited !== undefined) return Promise.resolve();
-    return new Promise((resolve) => {
-      s.child.once('exit', (code) => { s.exited = code; resolve(); });
-    });
+  const stop = (s: Session, failure: RemoteCliFailure): Promise<RemoteCliResult> => {
+    s.result ??= failure;
+    kill(s);
+    return s.settled;
   };
 
   async function state(): Promise<RemoteCliState[]> {
     return remoteCliState(cli, bins);
   }
 
-  async function start(provider: RemoteCliProvider): Promise<RemoteCliStart> {
+  async function start(provider: RemoteCliProvider, opts?: { signal?: AbortSignal }): Promise<RemoteCliStart> {
+    if (starting.has(provider)) return fail(provider, 'busy');
+    starting.add(provider);
+    const task = startLogin(provider, opts?.signal ? AbortSignal.any([lifetime.signal, opts.signal]) : lifetime.signal);
+    pendingStarts.add(task);
+    try { return await task; }
+    finally { starting.delete(provider); pendingStarts.delete(task); }
+  }
+
+  async function startLogin(provider: RemoteCliProvider, signal?: AbortSignal): Promise<RemoteCliStart> {
     if (!isRemoteCliProvider(provider)) throw new Error('accounts.cli.signin.start needs { provider: claude|codex|pi }');
     if (provider === 'pi') return fail(provider, 'unsupported');
+    if (signal?.aborted) return fail(provider, 'cancelled');
     sweep();
     for (const s of sessions.values()) {
-      if (s.provider === provider && !s.result) return fail(provider, 'busy');
+      if (s.provider === provider && !s.done) return fail(provider, 'busy');
     }
     const rows = await cli.list();
     if (rows.some((r) => r.provider === provider && r.state === 'ready')) return fail(provider, 'already');
-    if (rows.some((r) => r.provider === provider && r.state === 'signing')) return fail(provider, 'busy');
-    const reuse = rows.find((r) => r.provider === provider && r.state === 'signed_out');
     let id: string;
     let signIn: { argv: string[]; env: Record<string, string>; completion: string };
+    let unlock: (() => void) | undefined;
+    let freshId: string | undefined;
     try {
+      const reuse = rows.find((r) => r.provider === provider && (r.state === 'signed_out' || r.state === 'signing'));
       if (reuse) {
+        unlock = claimSignIn(cli.folderOf(reuse.id));
+        if (!unlock) return fail(provider, 'busy');
         id = reuse.id;
         signIn = cli.signInAgain(id);
       } else {
         const added = provider === 'claude' ? await cli.add('claude') : await cli.add('codex');
         id = added.account.id;
+        freshId = id;
         signIn = added.signIn;
+        unlock = claimSignIn(dirname(signIn.completion));
+        if (!unlock) { await cli.cancel(id); return fail(provider, 'busy'); }
       }
     } catch (e) {
+      unlock?.();
+      if (freshId) await cli.cancel(freshId).catch(() => {});
       if (e instanceof CliAccountError && e.code === 'bad-option') return fail(provider, 'missing');
       if (e instanceof CliAccountError && e.code === 'prepare-failed') return fail(provider, 'busy');
-      throw e;
+      return fail(provider, 'failed');
     }
+    if (signal?.aborted) { unlock?.(); await cli.cancel(id); return fail(provider, 'cancelled'); }
     const child = spawn(signIn.argv[0], signIn.argv.slice(1), { env: signIn.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
-    const session: Session = { id, provider, child, completion: signIn.completion, display: { id, provider, verificationUri: '' }, startedAt: now(), late: '' };
+    child.stdin?.on('error', () => {});
+    // The host owns admission from claim until row settlement, with no child-exit holder rewrite.
+    const exit = new Promise<void>((resolve) => {
+      child.once('exit', (code) => { session.exited = code; resolve(); });
+      child.once('error', () => { session.exited ??= null; resolve(); });
+    });
+    const settled = exit.then(async () => {
+      try { await settle(session); }
+      catch { session.result = fail(provider, 'failed'); await cli.cancel(id).catch(() => {}); }
+      try { unlock?.(); }
+      catch { session.result = fail(provider, 'failed'); }
+      session.done = true;
+      return session.result!;
+    });
+    const session: Session = { id, provider, child, exit, settled, completion: signIn.completion,
+      display: { id, provider, verificationUri: '' }, startedAt: now(), late: '' };
+    const abort = () => { void stop(session, fail(provider, 'cancelled')); };
+    signal?.addEventListener('abort', abort, { once: true });
     let output = '';
     let found: Omit<RemoteCliDisplay, 'id' | 'provider'> | undefined;
     let shown = false;
@@ -206,19 +283,18 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     };
     child.stdout?.on('data', append);
     child.stderr?.on('data', append);
-    child.once('exit', (code) => { session.exited = code; });
-    child.once('error', () => { session.exited ??= null; });
     const deadline = now() + parseMs;
     for (;;) {
-      if (found) break;
+      if (found || signal?.aborted) break;
       if (session.exited !== undefined) break;
       if (now() >= deadline) break;
       await new Promise((r) => setTimeout(r, 50));
     }
-    if (!found) {
-      kill(session);
-      await cli.cancel(id).catch(() => {});
-      return fail(provider, 'failed');
+    signal?.removeEventListener('abort', abort);
+    if (!found || signal?.aborted) {
+      const failure = fail(provider, signal?.aborted ? 'cancelled' : 'failed');
+      await stop(session, failure);
+      return failure;
     }
     shown = true;
     session.display = { id, provider, ...found };
@@ -226,37 +302,31 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     return { ok: true, signIn: session.display };
   }
 
-  async function finish(session: Session, timedOut: boolean): Promise<RemoteCliResult> {
-    if (session.result) return session.result;
-    // The kit reads a managed row as ready only after the CLI's own login completed AND the
-    // completion marker exists, so claim it first and let `status` (the CLI's own status read)
-    // verify: a login that did not really sign in keeps nothing.
-    if (!timedOut && session.exited === 0) {
+  // Runs once the child has exited, with or without a phone waiter. A stop (cancel, expiry, failed
+  // start) sets its result before the kill, so it never writes the completion marker.
+  async function settle(session: Session): Promise<RemoteCliResult> {
+    // Completion lifts a pending row's signing gate so status can verify native readiness.
+    // Pre-existing rows with no pending marker already use native status as authoritative.
+    if (!session.result && session.exited === 0) {
       try {
         writeFileSync(session.completion, 'complete', { mode: 0o600, flag: 'wx' });
       } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== 'EEXIST') {
-          session.result = fail(session.provider, 'failed');
-          await cli.cancel(session.id).catch(() => {});
-          return session.result;
-        }
+        if ((e as NodeJS.ErrnoException).code !== 'EEXIST') session.result = fail(session.provider, 'failed');
       }
-      const account = await cli.status(session.id).catch(() => undefined);
-      if (account?.state === 'ready') {
-        session.result = { ok: true, provider: session.provider };
-        return session.result;
+      if (!session.result) {
+        const account = await cli.status(session.id).catch(() => undefined);
+        if (account?.state === 'ready' && !lifetime.signal.aborted) session.result = { ok: true, provider: session.provider };
+        else rmSync(session.completion, { force: true });
       }
-      rmSync(session.completion, { force: true });
     }
-    const late = session.late;
-    let result: RemoteCliResult;
-    if (timedOut) result = fail(session.provider, 'expired');
-    else if (/denied|cancelled by|declined|not approved|access_denied/i.test(late)) result = fail(session.provider, 'denied');
-    else if (/expir|timed out/i.test(late)) result = fail(session.provider, 'expired');
-    else result = fail(session.provider, 'failed');
-    await cli.cancel(session.id).catch(() => {});
-    session.result = result;
-    return result;
+    if (!session.result) {
+      const late = session.late;
+      if (/denied|cancelled by|declined|not approved|access_denied/i.test(late)) session.result = fail(session.provider, 'denied');
+      else if (/expir|timed out/i.test(late)) session.result = fail(session.provider, 'expired');
+      else session.result = fail(session.provider, 'failed');
+    }
+    if (!session.result.ok) await cli.cancel(session.id).catch(() => {});
+    return session.result;
   }
 
   async function wait(id: string, opts?: { timeoutMs?: number }): Promise<RemoteCliResult> {
@@ -267,19 +337,13 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     }
     const session = sessions.get(id);
     if (!session) return fail('codex', 'unknown') as RemoteCliResult;
-    if (session.result) return session.result;
     const budget = Math.min(session.display.expiresInSeconds ? session.display.expiresInSeconds * 1000 : waitCapMs, waitCapMs);
     const deadline = Math.min(session.startedAt + budget, timeoutMs === undefined ? Number.POSITIVE_INFINITY : now() + timeoutMs);
-    let timedOut = false;
     for (;;) {
-      if (session.result || session.exited !== undefined) break;
-      if (now() >= deadline) { timedOut = true; break; }
-      await Promise.race([exitOf(session), new Promise((r) => setTimeout(r, 250))]);
+      if (session.result || session.exited !== undefined) return session.settled;
+      if (now() >= deadline) return stop(session, fail(session.provider, 'expired'));
+      await Promise.race([session.exit, new Promise((r) => setTimeout(r, 250))]);
     }
-    if (session.result) return session.result;
-    if (timedOut) kill(session);
-    else if (session.exited === undefined) await exitOf(session);
-    return finish(session, timedOut);
   }
 
   async function paste(id: string, pasteText: string): Promise<void> {
@@ -307,11 +371,7 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     if (typeof id !== 'string' || !id || id.length > 128) throw new Error('accounts.cli.signin.cancel needs { id }');
     const session = sessions.get(id);
     if (!session) throw Object.assign(new Error(REMOTE_CLI_WORDS.unknown()), { remoteCliProblem: 'unknown' as RemoteCliProblem });
-    if (!session.result) {
-      kill(session);
-      await cli.cancel(id).catch(() => {});
-      session.result = fail(session.provider, 'cancelled') as RemoteCliResult;
-    }
+    await stop(session, fail(session.provider, 'cancelled'));
   }
 
   const problemOf = (e: unknown): RemoteCliProblem | undefined =>
@@ -372,5 +432,11 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     }
   }
 
-  return { state, start, wait, paste, cancel, handle };
+  async function close(): Promise<void> {
+    lifetime.abort();
+    await Promise.allSettled([...pendingStarts]);
+    await Promise.all([...sessions.values()].filter(session => !session.done).map(session => cancel(session.id)));
+  }
+
+  return { signal: lifetime.signal, state, start, wait, paste, cancel, close, handle };
 }
