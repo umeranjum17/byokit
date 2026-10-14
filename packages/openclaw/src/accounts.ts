@@ -654,8 +654,9 @@ export function createAccounts(ctx: {
 
   // Choosing (5.15): every listed account's room and models are read live once, then the pure `resolveSelection`
   // decides. A binding narrows it (Runs step 2): a key bound to an account agent resolves 'auto', 'default' and no id to
-  // that account; a key bound to the member agent chooses only among its own accounts. A refusal (`bound`, `paid`) is
-  // decided from the index, after the account listing when the index is cold, and so has no `considered` rows.
+  // that account; a key bound to the key lane resolves to its `<provider>.key` account; a key bound to the member agent
+  // chooses only among its own accounts. A refusal (`bound`, `paid`) is decided from the index, after the account
+  // listing when the index is cold, and so has no `considered` rows.
   // An unknown id stays the caller bug it always was. `agent` is the picked account's engine agent. A model unavailable
   // only because the account is signed out or resting is still in its plan: the account's state and the run's ready
   // check judge that.

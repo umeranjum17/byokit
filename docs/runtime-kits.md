@@ -1647,8 +1647,8 @@ cache.
 2. Bound to an account agent or the key lane: `spec.account` absent, `'default'` or `'auto'` resolve to it (Choosing treats it as a
    chosen id with `bound` = that account, so a demand it lacks ends `plan` before any request), and a different id is
    refused before any request (`code: 'bound'`, words `account.bound`: move the conversation first). When that account bills `api`,
-   only its own id or `auth: 'apiKey'` may continue it; anything else is refused the same way (`code: 'paid'`, words
-   `account.paid`).
+   only its own id may continue it (on the key lane, `auth: 'apiKey'` continues it too); anything else is refused the same way
+   (`code: 'paid'`, words `account.paid`).
    Bound to the member agent with `spec.account` set: `'auto'` and `'default'` choose only among the member agent's
    own accounts (`bound` = those), and an id on another agent is refused with `account.bound`. An empty `bound` (the
    member agent holds no indexed account) ends Choosing `none` with words `auto.noneBound` ("No account in this
