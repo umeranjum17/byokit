@@ -1681,7 +1681,8 @@ cache.
    ends `none` with the same words instead of the vanished id.
    An `auth: 'apiKey'` run on a conversation bound to a subscription account or to the member agent is refused the same
    way (`code: 'bound'`, words `account.bound`). Only the indexed key-lane binding continues, on the lane; an API-billed
-   account binding of a pre-O14 `<member>--<hex6>` agent is refused the same way, so the user re-adds the key. `steer` and
+   account binding of a pre-O14 `<member>--<hex6>` agent is refused the same way: re-adding the key does not rewrite that
+   agent's entry, so move the conversation first. `steer` and
    `abort` with `auth: 'apiKey'` address the key lane. An API-key run first reads the key (`byokit.keys ready`), then the binding
    (step 1); the refusals here read the index, and the account listing once when it is cold; no room, model or agent
    request precedes them.
@@ -1756,8 +1757,9 @@ indexes the lane as `<provider>.key` once the key seals (replacing whatever `<*.
 keeping `addedAt`). A new key replaces the old one on the same agent; there is no `<member>--<hex6>` agent per later
 key. A key is replaced by `addKey`, not by `removeAccount`: the lane row is listed, and `removeAccount` refuses it. The index
 follows the sealed key: a failed index write is logged and never changes an `ok`, and the connect sweep (the
-`byokit.keys` bullet in §5.8) backfills a missing entry for a single-route provider, so a missed write is repaired at
-the next connect. A lane sealed before this index (its `byokit-key-<member>` agent already exists) is indexed as
+`byokit.keys` bullet in §5.8) backfills a missing entry for a single-route provider while the index reads clean, so a
+missed write is repaired at the next connect unless the index is damaged; a damaged index waits for the next write that
+rewrites it. A lane sealed before this index (its `byokit-key-<member>` agent already exists) is indexed as
 `<provider>.key` by that sweep, keeping its workspace (`key-workspaces/<member>`) and sessions; a multi-route provider's
 lane is indexed when its key is added again; until then its conversations are not bound to the lane, so a non-key run on one of them starts a new session on the member agent.
 Returns an `AddKeyHandle` (thenable `AddKeyResult` with `cancel()`; 5.8). `cancel()` stops a pending add and clears
