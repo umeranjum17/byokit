@@ -698,6 +698,8 @@ export class OpenClawKit {
     this.admission = createAuthStatus(this.engine.root, (method, params, options) => this.request()(method, params, options));
     this.keys = createKeys({ root: this.engine.root,
       prepareOwner: (agentId) => this.prepareKeyOwner(agentId),
+      indexLane: (member, route) => this.indexKeyLane(member, route),
+      backfillLane: (member, model) => this.backfillKeyLane(member, model),
       restarting: () => this.engineRestarting(),
       request: (method, params, options) => this.request()(method, params, options),
       ensure: (member) => this.ensureMember(member),
@@ -791,8 +793,10 @@ export class OpenClawKit {
       this.setState({ phase: 'ready' });
       this.syncCatalogs();
       // A failed key add whose abandon clear never reached the engine leaves an unsealed key with no ready marker;
-      // runs stay closed, so drop it now that the gateway is ready. Ready keys keep their marker and survive.
-      if (!this.swept) void this.keys.sweep().then((done) => { if (done) this.swept = true; }).catch(() => undefined);
+      // runs stay closed, so drop it now that the gateway is ready. Ready keys keep their marker and survive. Every
+      // connect backfills the key lanes' index entries; only the clear stops once a sweep completes.
+      const clear = !this.swept;
+      void this.keys.sweep(clear).then((done) => { if (clear && done) this.swept = true; }).catch(() => undefined);
       if (this.o.browser) await this.checkBrowserTools();
       // Replays the engine's native approval lists over the now-live transport (N9).
       await this.approvalsCtl.resync();
@@ -1070,11 +1074,27 @@ export class OpenClawKit {
     return this.keys.add(agentId, o);
   }
 
+  // The lane's index entry follows its sealed key. A failed write is logged and never fails the add; the start sweep repairs it.
+  private async indexKeyLane(member: Member, route: RouteView): Promise<void> {
+    if (!this.accountsCtl) {
+      this.o.log?.('addKey: the account index is not ready, so the key lane is indexed at the next connect');
+      return;
+    }
+    await this.accountsCtl.key(member, route).catch((error: unknown) =>
+      this.o.log?.(`addKey: the key lane is not indexed yet: ${error instanceof Error ? error.message : String(error)}`));
+  }
+
   /** Remove this member's saved key (the `byokit-key-<member>` lane: its credential store and ready marker), so
    * `signedIn` is false for it and a restart cannot revive it. `provider` removes only that provider's saved key;
    * with no saved key the call resolves without doing anything. */
   removeKey(member: Member, o?: { provider?: string }): Promise<void> {
     return this.keys.remove(member, o);
+  }
+
+  private async backfillKeyLane(member: Member, model: string | undefined): Promise<void> {
+    const found = model === undefined ? [] : routeTable().filter((r) => r.keyEntry && r.readiness === 'ready' && r.provider === providerOf(model));
+    await this.accountsCtl?.backfill(member, found).catch((error: unknown) =>
+      this.o.log?.(`key lane ${member}: not indexed yet: ${error instanceof Error ? error.message : String(error)}`));
   }
 
   private async prepareKeyOwner(agentId: string): Promise<void> {
@@ -1165,6 +1185,7 @@ export class OpenClawKit {
     return this.runs().run(spec, on, undefined, output);
   }
 
+  // An API-key run's session is on the key lane (Runs step 2).
   private runKey(sessionKey: string, o?: { auth?: 'apiKey' }): string {
     if (o?.auth !== 'apiKey') return sessionKey;
     const [, member, tail] = /^agent:([^:]+):(.*)$/.exec(sessionKey) ?? [];
@@ -1172,7 +1193,7 @@ export class OpenClawKit {
     return `agent:${keyAgentId(member)}:${tail}`;
   }
 
-  steer(sessionKey: string, text: string, o?: { auth?: 'apiKey' }): Promise<void> {
+  async steer(sessionKey: string, text: string, o?: { auth?: 'apiKey' }): Promise<void> {
     return this.runs().steer(this.runKey(sessionKey, o), text);
   }
 

@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { OpenClawKit } from '@byokit/openclaw';
 import { fakeGateway } from '@byokit/openclaw/testing';
 
@@ -63,20 +62,22 @@ try {
   console.log('steer/abort:', JSON.stringify({ end: aborted, reached }));
   assert.deepEqual(reached, [['sessions.steer', `agent:${agent}:chat:1`], ['chat.abort', `agent:${agent}:chat:1`]]);
 
-  // An API-key conversation (a per-use account the index names) continues only by its own id.
-  const keyAgent = 'm1--a0a0a0';
-  await kit.call('agents.create', { name: keyAgent, workspace: join(stateDir, 'openclaw', 'workspaces', 'm1') });
-  await kit.call('openclaw.setup.activate', { kind: 'api-key', agentId: keyAgent, authChoice: 'apiKey', apiKey: 'sk-verify' });
-  const file = join(stateDir, 'openclaw', 'accounts', 'm1.json');
-  const stored = JSON.parse(readFileSync(file, 'utf8'));
-  stored.accounts['anthropic.a0a0a0'] = { agent: keyAgent, name: 'Key', route: 'apiKey', addedAt: Date.now() };
-  writeFileSync(file, JSON.stringify(stored));
-  chmodSync(file, 0o600);
-  const k1 = await run('run chat:k Key', { sessionKey: 'agent:m1:chat:k', account: 'anthropic.a0a0a0' });
+  // The API-key lane: addKey indexes it as openai.key; a key-held chat stays bound; the key never reaches the index.
+  assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'sk-verify' }), { status: 'ok' });
+  const laneText = readFileSync(`${stateDir}/openclaw/accounts/m1.json`, 'utf8');
+  assert.ok(!laneText.includes('sk-verify'), 'the key never reaches the index');
+  const laneAgent = 'byokit-key-m1';
+  const k1 = await run('run chat:k openai.key', { sessionKey: 'agent:m1:chat:k', account: 'openai.key' });
   assert.ok(k1.end.ok);
+  assert.equal(k1.event.sessionKey, `agent:${laneAgent}:chat:k`);
   const p5 = await pick('pick chat:k auto', 'agent:m1:chat:k', 'auto');
   const r5 = await run('run chat:k auto', { sessionKey: 'agent:m1:chat:k', account: 'auto' });
   assert.deepEqual([p5.code, r5.end, r5.requests], ['paid', { ok: false, kind: 'other', message: p5.reason }, 0]);
+  const keyed = await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:k', message: 'hello', auth: 'apiKey' });
+  assert.ok(keyed.ok);
+  const keyReq = fake.calls.filter((c) => c.method === 'agent').at(-1);
+  assert.deepEqual([keyReq.params.agentId, keyReq.params.sessionKey], [laneAgent, `agent:${laneAgent}:chat:k`]);
+  console.log('key lane:', JSON.stringify({ id: 'openai.key', agent: laneAgent, authRun: keyed.ok }));
 
   await assert.rejects(kit.run({ member: 'm1', sessionKey: 'agent:m1--abcdef:chat:1', message: 'hi' }), (error) => {
     console.log('refused:', `${error.constructor.name}: ${error.message}`);

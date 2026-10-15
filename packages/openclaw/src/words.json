@@ -82,6 +82,7 @@
   "auto.refillsNoTime": "All {provider} accounts are out of room. {name} refills first.",
   "auto.terms": "Auto may use either of a provider's accounts.",
   "auto.none": "No signed-in {provider} account.",
+  "auto.noneBound": "No account in this conversation is signed in.",
   "room.unknown": "Room left unknown",
   "room.session": "{left} left this session",
   "room.week": "{left} left this week",

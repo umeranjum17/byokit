@@ -139,8 +139,8 @@ A conversation keeps its account: a later run on the same `sessionKey` stays on 
 whatever `account` says. Naming another account ends `{ ok: false, kind: 'other' }` with words to show (`account.bound`).
 A conversation on an API-key account continues only when that account is named (`account.paid`). Both end after the
 binding read and before any room, model or agent request (a refusal reads the account listing once when the index is
-cold); an `auth: 'apiKey'` run first reads its key (`byokit.keys ready`), continues only an API-billed conversation and
-is refused other bindings the same way (`account.bound`). `kit.pick(member, { account, model?, needs? }, { sessionKey })`
+cold); an `auth: 'apiKey'` run first reads its key (`byokit.keys ready`), continues only its own key-lane conversation
+(`byokit-key-<member>`) and is refused other bindings the same way (`account.bound`). `kit.pick(member, { account, model?, needs? }, { sessionKey })`
 returns what that run would choose now, refusals included, without running. `steer` and `abort` accept the same
 `sessionKey` while its run is live.
 
@@ -186,7 +186,8 @@ with no saved key the call resolves without doing anything. `signOut('ana', prov
 key too, through the same call: the key lane is a separate agent, so the member-agent logout alone would leave it
 sealed and ready and the member would read signed in again after a restart. A sign-out of another provider leaves
 the saved key alone. [`@byokit/ui/kits`](../ui/README.md) redraws the key option from `signedIn`.
-Ordinary runs never enter the key agent, even when the subscription is resting. This agent boundary is necessary
+An ordinary run enters the key lane only when its conversation is bound to it or the run names its
+`<provider>.key` account, even when the subscription is resting. This agent boundary is necessary
 because the engine's profile pins can rotate. The `byokit-key-` member prefix is reserved. Adding another key
 replaces the previous key; a failed replacement leaves this option unavailable. If the normal agent already has
 an API key added through pass-through calls, `addKey` returns `{ status: 'retry', reason: 'engine' }` and leaves that key untouched.

@@ -1665,6 +1665,18 @@
       "selection": { "account": "auto" },
       "expected": { "ok": true, "id": "b", "why": "only", "how": "auto", "model": "p/m" },
       "considered": { "a": { "out": "resting", "until": 2000000 } }
+    },
+    {
+      "name": "empty bound ends none with the conversation's own sentence",
+      "kitOnly": true,
+      "accounts": [{ "id": "a", "provider": "p", "name": "A", "state": "ready", "billing": "subscription" }],
+      "rooms": {},
+      "bound": [],
+      "defaults": {},
+      "selection": { "account": "auto" },
+      "expected": { "ok": false, "code": "none" },
+      "reasonContains": "No account in this conversation is signed in.",
+      "considered": { "a": { "out": "bound" } }
     }
   ]
 }

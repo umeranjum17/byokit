@@ -13,8 +13,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { createLocks } from './locks.ts';
 import { providerOf, resolveSelection } from './pick.ts';
 import { agentOf, memberOf as baseMemberOf } from './attribution.ts';
-import { KEY_PREFIX, MEMBER_ID, NEW_MEMBER_ID, untilListed } from './members.ts';
-import { routes, routeFor } from './routes.ts';
+import { KEY_PREFIX, MEMBER_ID, NEW_MEMBER_ID, keyAgentId, untilListed } from './members.ts';
+import { routes, routeFor, type RouteView } from './routes.ts';
 import { words } from './words.ts';
 import type { Account, AccountId, AccountPick, Defaults, GatewayTransport, Member, ModelInfo, MoveResult, Room, RoomSpan, RunSelection, SignInOptions, SignInState, SignInView } from './types.ts';
 
@@ -313,6 +313,8 @@ export function createAccounts(ctx: {
   room(member: Member, id: AccountId, demand?: string[]): Promise<Room>;
   bind(member: Member, sessionKey: string): Promise<Binding | undefined>;
   keyRefusal(member: Member, binding: Binding): Promise<string | undefined>;
+  key(member: Member, route: Pick<RouteView, 'choice' | 'provider' | 'label'>): Promise<void>;
+  backfill(member: Member, found: Pick<RouteView, 'choice' | 'provider' | 'label'>[]): Promise<void>;
   pick(member: Member, sel: RunSelection, skip?: readonly AccountId[], binding?: Binding): Promise<{ pick: AccountPick; agent?: string }>;
   rest(member: Member, id: AccountId, until: number): Promise<void>;
   move(member: Member, sessionKey: string, to: AccountId): Promise<MoveResult>;
@@ -432,7 +434,22 @@ export function createAccounts(ctx: {
     }
     memberRows.sort((a, b) => a.addedAt - b.addedAt || (a.id < b.id ? -1 : 1));
     agentRows.sort((a, b) => a.addedAt - b.addedAt);
-    const rows = [...memberRows, ...agentRows];
+    // The API-key lane: the member's single key agent, indexed once as `<provider>.key`. Only what the index
+    // names is listed; a key agent the index does not name holds no account.
+    const keyRows: Account[] = [];
+    for (const [id, entry] of Object.entries(file.accounts)) {
+      if (entry.agent !== keyAgentId(member) || !roster.has(entry.agent)) continue;
+      const provider = id.split('.')[0]!;
+      const meta = metaOf(entry.route);
+      const profiles = await profilesOf(entry.agent);
+      const who = profiles.find((p) => p.provider === provider)?.who;
+      if (!entry.who && typeof who === 'string' && !signing.has(`${member}\n${id}`)) { entry.who = who; dirty = true; }
+      keyRows.push({ id, provider, route: entry.route, name: entry.name, label: meta.label,
+        billing: meta.billing, state: stateOf(entry.route, profiles[0]?.status, entry.until),
+        ...(entry.until !== undefined ? { until: entry.until } : {}), addedAt: entry.addedAt });
+    }
+    keyRows.sort((a, b) => a.addedAt - b.addedAt);
+    const rows = [...memberRows, ...agentRows, ...keyRows];
     for (const row of rows) if (signing.has(`${member}\n${row.id}`)) row.state = 'signing';
     if (file.defaults.account !== undefined && !rows.some((r) => r.id === file.defaults.account)) {
       delete file.defaults.account;
@@ -574,7 +591,7 @@ export function createAccounts(ctx: {
     });
 
   // Runs step 2 reads the index alone: the index-only refusal makes no request, and a cold index adds one account
-  // listing (the pick's late check after `list`; `keyRefusal` lists when the held account is not API-billed). This
+  // listing (the pick's late check after `list`; `keyRefusal` lists unless the binding is the key lane). This
   // gives the accounts a binding holds, in list order, and the name a refusal shows (`account.another` when it holds none).
   const boundOf = (file: IndexFile, binding: Binding): AccountId[] => binding.id !== undefined ? [binding.id]
     : Object.entries(file.accounts).filter(([, e]) => e.agent === binding.agentId)
@@ -594,34 +611,39 @@ export function createAccounts(ctx: {
     if (named !== undefined && !ids.includes(named)) return { code: 'bound', name: nameOf(file, ids) };
     return undefined;
   };
-  // An API-key run (Runs step 2): its key continues only an API-billed binding; any other binding is refused.
+  // An API-key run (Runs step 2): its key continues its own lane's conversation whatever the key bills (a
+  // plan key bills subscription), and any other binding is refused.
   const keyRefusal = async (member: Member, binding: Binding): Promise<string | undefined> => {
-    const held = binding.id === undefined ? undefined : read(member).accounts[binding.id];
-    if (held && metaOf(held.route).billing === 'api') return undefined;
+    if (binding.agentId === keyAgentId(member)) return undefined;
     await list(member);
     const file = read(member);
     return words('account.bound', { name: nameOf(file, boundOf(file, binding)) });
   };
 
-  // Runs step 1 (5.15): a key `agent:<member>--<hex6>:<tail>` of an indexed account agent is bound to that account; a
-  // key `agent:<member>:<tail>` to whichever of the member's agents holds `agent:<that agent>:<tail>` (member agent
-  // first), else unbound. Any other key is not the member's. With no account agent, the member agent and an unbound
-  // key run alike, so nothing is asked.
+  // Runs step 1 (5.15): a key `agent:<member>--<hex6>:<tail>` of an indexed account agent is bound to that account. A key
+  // `agent:<member>:<tail>` is bound to whichever of the member's agents holds `agent:<that agent>:<tail>` (member agent
+  // first, then the key lane, whose account is its `<provider>.key`, then the account agents), else unbound. Any other key
+  // is not the member's. With no account agent and no indexed lane, the member agent and an unbound key run alike, so
+  // nothing is asked.
   async function bind(member: Member, sessionKey: string): Promise<Binding | undefined> {
     check(member);
-    const agents = new Map(Object.entries(read(member).accounts)
+    const file = read(member);
+    const agents = new Map(Object.entries(file.accounts)
       .filter(([, e]) => ACCOUNT_AGENT.test(e.agent) && e.agent.startsWith(`${member}--`)).map(([id, e]) => [e.agent, id]));
+    const lane = keyAgentId(member);
+    const laneId = Object.entries(file.accounts).find(([, e]) => e.agent === lane)?.[0];
     if (!sessionKey.startsWith(`agent:${member}:`)) {
       const agent = /^agent:([^:]+):/.exec(sessionKey)?.[1];
       const id = agent === undefined ? undefined : agents.get(agent);
       if (id === undefined) throw new Error(`refused: "${sessionKey}" is not a session of member "${member}"`);
       return { agentId: agent!, id };
     }
-    if (!agents.size) return undefined;
+    if (!agents.size && laneId === undefined) return undefined;
     const tail = sessionKey.slice(`agent:${member}:`.length);
     const { agentId } = await ctx.ensure(member);
     const roster = new Set((await ctx.request('agents.list') as { agents: { id: string }[] }).agents.map((a) => a.id));
-    for (const [agent, id] of [[agentId, undefined] as const, ...agents]) {
+    const laneProbe = laneId === undefined ? [] : [[lane, laneId] as const];
+    for (const [agent, id] of [[agentId, undefined] as const, ...laneProbe, ...agents]) {
       if (agent !== agentId && !roster.has(agent)) continue;
       // The pin answers a found session with its canonical `key` and a missing one with `{ ok: false }`.
       const found = await ctx.request('sessions.resolve', { key: `agent:${agent}:${tail}`, agentId: agent, allowMissing: true }) as { key?: string };
@@ -632,8 +654,9 @@ export function createAccounts(ctx: {
 
   // Choosing (5.15): every listed account's room and models are read live once, then the pure `resolveSelection`
   // decides. A binding narrows it (Runs step 2): a key bound to an account agent resolves 'auto', 'default' and no id to
-  // that account; a key bound to the member agent chooses only among its own accounts. A refusal (`bound`, `paid`) is
-  // decided from the index, after the account listing when the index is cold, and so has no `considered` rows.
+  // that account; a key bound to the key lane resolves to its `<provider>.key` account; a key bound to the member agent
+  // chooses only among its own accounts. A refusal (`bound`, `paid`) is decided from the index, after the account
+  // listing when the index is cold, and so has no `considered` rows.
   // An unknown id stays the caller bug it always was. `agent` is the picked account's engine agent. A model unavailable
   // only because the account is signed out or resting is still in its plan: the account's state and the run's ready
   // check judge that.
@@ -649,17 +672,24 @@ export function createAccounts(ctx: {
     const file = read(member);
     const late = binding && refusalOf(file, binding, sel);
     if (late) return refused(late);
+    if (binding?.id !== undefined && !listed.some((r) => r.id === binding.id))
+      return { pick: { ok: false, code: 'none', reason: words('auto.noneBound'), considered: [] } };
     const rows = listed.filter((r) => !skip.includes(r.id));
     const named = sel.account === 'auto' || sel.account === 'default' ? undefined : sel.account;
     const known = named === undefined || listed.some((r) => r.id === named);
     if (binding?.id !== undefined && known) sel = { ...sel, account: binding.id };
     const bound = binding && known ? boundOf(file, binding) : undefined;
+    // The key lane is reached only by naming it (or the saved default): an unnamed lane row is not a pick input, so
+    // Auto and a default fallback see exactly the accounts they saw before the lane was indexed.
+    const lanes = new Set(Object.entries(file.accounts).filter(([, e]) => e.agent === keyAgentId(member)).map(([id]) => id));
+    const pickRows = rows.filter((r) => !lanes.has(r.id) || sel.account === r.id ||
+      (sel.account === 'default' && file.defaults.account === r.id));
     const reads = new Map(await Promise.all(rows.map(async (row) => {
       const entry = file.accounts[row.id]!;
       const models = await readModels(row, entry).then((ms) => ms.map((m) => (m.why ? { ...m, available: true } : m)), () => undefined);
       return [row.id, { room: await readRoom(row, entry), models }] as const;
     })));
-    const chosen = resolveSelection(rows, file.defaults, sel, (a) => reads.get(a.id)!.room, Date.now(),
+    const chosen = resolveSelection(pickRows, file.defaults, sel, (a) => reads.get(a.id)!.room, Date.now(),
       (a) => reads.get(a.id)!.models, bound);
     return { pick: chosen, ...(chosen.ok ? { agent: file.accounts[chosen.account.id]!.agent } : {}) };
   }
@@ -728,6 +758,44 @@ export function createAccounts(ctx: {
     edit(member, (file) => { const entry = file.accounts[id]; if (entry) entry.until = until; });
 
   const agentDir = (agent: string): string => join(ctx.root, 'state', 'agents', agent);
+
+  const laneEntry = (member: Member, route: Pick<RouteView, 'choice' | 'label'>, addedAt: number): IndexEntry =>
+    ({ agent: keyAgentId(member), name: route.label, route: route.choice, addedAt });
+  // The API-key lane's index entry (5.15): one per member, `<provider>.key` on the `byokit-key-<member>` agent.
+  // A new key replaces the old one: whatever lane entry the member holds is dropped first, keeping its `addedAt`.
+  // The key itself is never stored: only the agent, the route choice and the name.
+  async function key(member: Member, route: Pick<RouteView, 'choice' | 'provider' | 'label'>): Promise<void> {
+    check(member);
+    const lane = keyAgentId(member);
+    return ctx.locks.exclusive([indexLock(member)], async () => {
+      const loaded = loadIndex(ctx.root, member);
+      if (loaded.damaged) { ctx.log?.(words('account.indexDamaged', { member })); return; }
+      const file = loaded.file;
+      const kept = Object.values(file.accounts).find((e) => e.agent === lane)?.addedAt;
+      for (const [other, e] of Object.entries(file.accounts)) if (e.agent === lane) delete file.accounts[other];
+      file.accounts[`${route.provider}.key`] = laneEntry(member, route, kept ?? Date.now());
+      write(member, file);
+    });
+  }
+
+  // The connect sweep's backfill: a lane that holds no entry is indexed under the one route its model's provider has;
+  // any other count is logged and left unindexed. A lane that holds an entry is never touched, nor a damaged index.
+  async function backfill(member: Member, found: Pick<RouteView, 'choice' | 'provider' | 'label'>[]): Promise<void> {
+    check(member);
+    const lane = keyAgentId(member);
+    return ctx.locks.exclusive([indexLock(member)], async () => {
+      const loaded = loadIndex(ctx.root, member);
+      if (loaded.damaged) { ctx.log?.(words('account.indexDamaged', { member })); return; }
+      if (Object.values(loaded.file.accounts).some((e) => e.agent === lane)) return;
+      if (found.length !== 1) {
+        ctx.log?.(`key lane ${member}: its provider has no single key route, so it is not indexed; add the key again to index it`);
+        return;
+      }
+      loaded.file.accounts[`${found[0]!.provider}.key`] = laneEntry(member, found[0]!, Date.now());
+      write(member, loaded.file);
+    });
+  }
+
   // Index edits take the index lock, as listing's own write does. A damaged index starts empty and is rewritten
   // (re-add's repair path); the bad bytes are replaced, never left as the live index after a successful write.
   const edit = (member: Member, fn: (file: IndexFile) => void): Promise<void> =>
@@ -788,6 +856,8 @@ export function createAccounts(ctx: {
     check(member);
     const { agentId: memberAgent } = await ctx.ensure(member);
     const entry = read(member).accounts[id];
+    if (entry?.agent === keyAgentId(member))
+      throw new Error(`removeAccount: ${id} is a key lane; use removeKey`);
     if (!entry || (entry.agent !== memberAgent && !(ACCOUNT_AGENT.test(entry.agent) && entry.agent.startsWith(`${member}--`))))
       throw new Error(`unknown account: ${id}`);
     const agent = entry.agent;
@@ -1052,5 +1122,5 @@ export function createAccounts(ctx: {
     }
   }
 
-  return { list, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, pick, rest, move, remove };
+  return { list, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, key, backfill, pick, rest, move, remove };
 }

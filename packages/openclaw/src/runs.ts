@@ -136,7 +136,7 @@ export function createRuns(ctx: {
     const tail = spec.sessionKey.slice(spec.sessionKey.indexOf(':', 'agent:'.length) + 1);
     // Runs step 1 (5.15): every run first finds the account its session is bound to, the API-key lane included.
     const binding = ctx.accounts ? await ctx.accounts.bind(spec.member, spec.sessionKey) : undefined;
-    // Step 2 on the API-key lane: only an API-billed conversation continues on its key; any other binding is refused.
+    // Step 2 on the API-key lane: its own lane binding continues; any other binding is refused.
     if (keyAgent && ctx.accounts && binding) {
       const message = await ctx.accounts.keyRefusal(spec.member, binding);
       if (message !== undefined) return { ok: false, kind: 'other', message };
@@ -146,8 +146,8 @@ export function createRuns(ctx: {
     const moved = async (): Promise<boolean> =>
       !!binding && (await ctx.accounts!.bind(spec.member, spec.sessionKey))?.agentId !== binding.agentId;
     const movedEnd = { ok: false as const, kind: 'other' as const, message: words('run.moved') };
-    // Step 3: with `account` and `needs` both absent, on a key no account agent holds (or an API-key run, whose
-    // binding is API-billed), exactly the run on the agent it always was (a bound key under its shared lock).
+    // Step 3: with `account` and `needs` both absent, on a key no account agent holds (or an API-key run, which binds only
+    // to its lane), exactly the run on the agent it always was (a bound key under its shared lock).
     if ((keyAgent || binding?.id === undefined) && spec.account === undefined && !spec.needs?.length) {
       if (keyAgent) return start(spec, on, { agentId: keyAgent, sessionKey: `agent:${keyAgent}:${tail}`, idempotencyKey, system, picked, output });
       const { agentId } = await ctx.ensure(spec.member);
