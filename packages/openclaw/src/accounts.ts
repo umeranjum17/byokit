@@ -684,7 +684,7 @@ export function createAccounts(ctx: {
     const lanes = new Set(Object.entries(file.accounts).filter(([, e]) => e.agent === keyAgentId(member)).map(([id]) => id));
     const pickRows = rows.filter((r) => !lanes.has(r.id) || sel.account === r.id ||
       (sel.account === 'default' && file.defaults.account === r.id));
-    const reads = new Map(await Promise.all(rows.map(async (row) => {
+    const reads = new Map(await Promise.all(pickRows.map(async (row) => {
       const entry = file.accounts[row.id]!;
       const models = await readModels(row, entry).then((ms) => ms.map((m) => (m.why ? { ...m, available: true } : m)), () => undefined);
       return [row.id, { room: await readRoom(row, entry), models }] as const;

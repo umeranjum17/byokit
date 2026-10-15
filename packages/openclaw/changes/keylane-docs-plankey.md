@@ -1,0 +1,2 @@
+- FIX: `pick` builds its live room/models reads from the filtered pick rows, so an Auto pick for a member whose only other account is the unnamed key lane makes no `models.list`/`models.authStatus` calls for the lane it never consults.
+- FIX: the key-lane docs now scope the "no `<member>--<hex6>` per later key" claim to the `addKey` path; a plan key added with `addAccount` when the member agent already holds that provider still mints one `<member>--<hex6>` agent per key. The Choosing spec names the kit-only lane filter.
