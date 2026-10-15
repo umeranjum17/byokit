@@ -43,7 +43,7 @@ function invariants(routes: readonly ConnectRoute[], view: ConnectView) {
   for (const g of view.groups) assert.ok(g.rows.length && g.title && g.note, g.id);
   for (const [i, r] of routes.entries()) {
     const row = listed.find((x) => x.key === `${r.upstream?.surface ?? ''}/${r.id}`)!;
-    assert.ok(row, r.id);
+    assert.ok(row, r.id!);
     if (row.group === 'plans') {
       assert.equal(r.billing, 'subscription', `${r.id}: only a plan is in Plans`);
       assert.ok(declaredDefault(r), `${r.id}: only a default row is in Plans`);
@@ -51,8 +51,8 @@ function invariants(routes: readonly ConnectRoute[], view: ConnectView) {
     } else if (r.billing === 'subscription' && declaredDefault(r) && r.group !== 'services' && !['cloud', 'local', 'endpoint'].includes(r.via)) assert.fail(`${r.id}: a default plan left Plans`);
     assert.equal(row.offered, row.group === 'plans' && r.readiness === 'ready', `${r.id}: offered means a ready plan (${i})`);
     if (row.offered) assert.equal(r.billing, 'subscription');
-    assert.ok(row.billingWords && row.method && row.status, r.id);
-    assert.equal(row.does === 'unavailable', r.readiness !== 'ready', r.id);
+    assert.ok(row.billingWords && row.method && row.status, r.id!);
+    assert.equal(row.does === 'unavailable', r.readiness !== 'ready', r.id!);
   }
 }
 

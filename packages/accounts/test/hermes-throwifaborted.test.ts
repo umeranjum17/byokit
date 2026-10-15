@@ -62,7 +62,7 @@ test('built key route streams on a runtime without AbortSignal.prototype.throwIf
     let text = '';
     const answer = await withoutThrowIfAborted(() => accounts.respondKey('umer', { account: id, model: model(server.base), context,
       options: { maxTokens: 64, fetch: globalThis.fetch }, onText: (delta) => { text += delta; } }));
-    assert.equal(answer.stopReason, 'stop', answer.errorMessage);
+    assert.equal(answer.stopReason, 'stop', answer.errorMessage!);
     assert.equal(text, 'Hello');
     assert.deepEqual([answer.usage.input, answer.usage.output, answer.usage.totalTokens], [3, 2, 5]);
     assert.equal(server.seen.length, 1, 'one request reached the stand-in');

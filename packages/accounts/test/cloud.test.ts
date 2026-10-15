@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http2';
+import { createServer, type ServerHttp2Stream } from 'node:http2';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -343,7 +343,7 @@ AssistantMessageEventStream.prototype.push = function(event) {
   let waitForConsumer = true;
   let finishResponse = () => {};
   let onHeldRequest = () => {};
-  server.on('stream', (stream, headers) => {
+  server.on('stream', (stream: ServerHttp2Stream, headers) => {
     auth.push(String(headers.authorization));
     stream.on('error', () => {});
     stream.resume();

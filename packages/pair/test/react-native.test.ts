@@ -48,7 +48,7 @@ test('React Native device pairs and requests without Node globals or TextDecoder
   try {
     const sandbox: any = {
       WebSocket, URL, TextEncoder, setTimeout, clearTimeout, console,
-      crypto: { getRandomValues: (array: Uint8Array) => webcrypto.getRandomValues(array) },
+      crypto: { getRandomValues: (array: Uint8Array<ArrayBuffer>) => webcrypto.getRandomValues(array) },
       offer: host.offer({ role: 'control', urls: [url] }).text,
       url, shortCode: host.shortCode({ role: 'view' }).code,
     };

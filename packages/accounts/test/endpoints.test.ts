@@ -96,7 +96,7 @@ test('pinned Pi endpoint streams both protocols against loopback; keys/member re
       const rt = await kit.endpointRuntime(1, id);
       const selected = rt.getModel(id, model.id)!;
       const answer = await rt.completeSimple(selected, { messages: [{ role: 'user', content: 'hello', timestamp: Date.now() }] });
-      assert.equal(answer.stopReason, 'stop', answer.errorMessage);
+      assert.equal(answer.stopReason, 'stop', answer.errorMessage!);
       assert.equal(answer.content[0].type, 'text');
       assert.equal((answer.content[0] as { text: string }).text, 'hello endpoint');
       assert.equal(requests.at(-1)!.body.model, 'test-model');

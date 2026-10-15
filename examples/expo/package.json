@@ -18,7 +18,7 @@
     "expo-keep-awake": "~57.0.2",
     "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
-    "react": "19.2.3",
+    "react": "19.3.0",
     "react-native": "0.86.3",
     "@byokit/push": "file:../../packages/push",
     "@byokit/usage": "file:../../packages/usage",
@@ -32,7 +32,7 @@
     "shell-quote": "1.12.0"
   },
   "devDependencies": {
-    "@types/react": "~19.2.2",
+    "@types/react": "~19.3.0",
     "typescript": "~6.0.3"
   },
   "scripts": {

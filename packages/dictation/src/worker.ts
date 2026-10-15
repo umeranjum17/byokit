@@ -85,9 +85,9 @@ if (process.send) {
     if (busy) return; busy = true;
     try {
       const result = await (r.config.id === 'whisper' ? whisper(r) : http(r));
-      if (process.connected) process.send!({ result }, () => process.disconnect());
+      if (process.connected) process.send!({ result }, () => process.disconnect?.());
     } catch (error) {
-      if (process.connected) process.send!({ code: error instanceof DictateError ? error.code : 'network', until: error instanceof DictateError ? error.until : undefined }, () => process.disconnect());
+      if (process.connected) process.send!({ code: error instanceof DictateError ? error.code : 'network', until: error instanceof DictateError ? error.until : undefined }, () => process.disconnect?.());
     }
   });
 }
