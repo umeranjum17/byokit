@@ -109,7 +109,7 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - run: npm install -g done-done-axi
+      - run: npm install -g done-done-axi@0.3.0
       - run: done-done doctor
       - run: done-done verify build --foreground --no-judge --outcome "the byokit SDK builds and the built accounts entry resolves"
 
