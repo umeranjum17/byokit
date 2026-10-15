@@ -20,10 +20,9 @@ portableFixture().then(result => {
   print('PORTABLE_RESULT ' + JSON.stringify(result));
 }, error => print('FAIL: ' + String(error)));
 TS
-node ../../../node_modules/esbuild/bin/esbuild "$out/driver.ts" --bundle --platform=browser --conditions=react-native --target=es2019 --format=iife --outfile="$out/bundle.js" --log-level=error
-# Hermes 0.13 accepts ES5; React Native normally performs this lowering in its bundler.
-node -e "const ts=require('typescript'),fs=require('fs');fs.writeFileSync(process.argv[2],ts.transpileModule(fs.readFileSync(process.argv[1],'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES5,downlevelIteration:true,allowJs:true}}).outputText)" "$out/bundle.js" "$out/es5.js"
-"$hermes" -O -w "$out/es5.js" > "$out/result"
+# Hermes targets ES2015; esbuild lowers the bundle to it (TypeScript 7 removed the transpileModule/ES5 surface, and esbuild does not lower to ES5).
+node ../../../node_modules/esbuild/bin/esbuild "$out/driver.ts" --bundle --platform=browser --conditions=react-native --target=es2015 --format=iife --outfile="$out/hermes.js" --log-level=error
+"$hermes" -O -w "$out/hermes.js" > "$out/result"
 cat "$out/result"
 # A syntax failure, rejected promise or absent execution must not be called a pass.
 rg -q '^PORTABLE_RESULT ' "$out/result"
