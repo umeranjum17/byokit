@@ -5,7 +5,7 @@ import { record } from './windows.ts';
 import { providerHttp, type Answer } from './providers.ts';
 import type { Source } from './types.ts';
 
-type ClaudeSource = Extract<Source, { folder: string }>;
+type ClaudeSource = Extract<Source, { provider: 'claude'; folder: string }>;
 const DEFAULT_LOGIN_SEGMENTS = ['.claude', '.codex', '.pi'];
 /** True when a path sits inside one of the person's own agent setups, lexically or once links are resolved. */
 export function defaultLoginPath(path: string): boolean {
@@ -13,18 +13,22 @@ export function defaultLoginPath(path: string): boolean {
   try { return realpathSync(path).split(sep).some((part) => DEFAULT_LOGIN_SEGMENTS.includes(part)); } catch { return false; }
 }
 /** No ambient HOME discovery. Both the lexical and real folder must be managed by this root. */
-export function managedClaudeFolder(folder: string, stateDir: string): boolean {
+export function managedProviderFolder(folder: string, stateDir: string, provider: string): boolean {
   const root = resolve(stateDir); const candidate = resolve(folder);
   if (defaultLoginPath(root)) return false;
-  const parent = join(root, 'claude');
+  const parent = join(root, provider);
   if (!candidate.startsWith(parent + sep) || !/^[a-f0-9]+$/.test(candidate.slice(parent.length + 1))) return false;
   try {
     if (![root, parent, candidate].every((path) => { const s = lstatSync(path); return s.isDirectory() && !s.isSymbolicLink(); })) return false;
     const realRoot = realpathSync(root);
     if (defaultLoginPath(realRoot)) return false;
     const realFolder = realpathSync(candidate);
-    return realFolder.startsWith(join(realRoot, 'claude') + sep);
+    return realFolder.startsWith(join(realRoot, provider) + sep);
   } catch { return false; }
+}
+/** No ambient HOME discovery. Both the lexical and real folder must be managed by this root. */
+export function managedClaudeFolder(folder: string, stateDir: string): boolean {
+  return managedProviderFolder(folder, stateDir, 'claude');
 }
 /** Metadata only, so account/cache probes never load a token. */
 export function claudeCredential(folder: string) {

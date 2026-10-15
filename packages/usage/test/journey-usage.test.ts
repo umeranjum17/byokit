@@ -20,7 +20,7 @@ import { scratchDir } from '../../test-support.ts';
 import {
   usage, identity, fingerprint, fileUsageStore, memoryUsageStore, memoryBackoffPolicy, retryAfterMs, backoffDelayMs,
   roomOf, preflight, tokenLedger, callLedger, normalizeTokens, priceCall, memoryTokenLedgerStore, TokenLedgerError, UsageError,
-  claudeWindows, codexWindows, goWindows, zaiWindows, WORDS, usageWords,
+  claudeWindows, codexWindows, goWindows, zaiWindows, cursorWindows, WORDS, usageWords,
   type Source, type Window, type Reading, type UsageOptions, type StoredReading, type BackoffState,
 } from '@byokit/usage';
 import { planView, planLabel, modelLabel } from '@byokit/usage/view';
@@ -923,4 +923,73 @@ test('a built consumer touches only the sign-in it was handed', () => {
   assert.equal(ephemeralChild.status, 0, ephemeralChild.stderr);
   assert.equal(readFileSync(ephemeralTrace, 'utf8'), '');
   assert.deepEqual(ephemeralDecoy.changed(), []); assert.deepEqual(ephemeralDecoy.ran(), []);
+});
+
+test('a host reads Cursor plan usage from the folder login; a missing reading is unknown, never zero', async () => {
+  const root = scratchDir('usage-cursor');
+  const stateDir = join(root, 'plans');
+  const folder = join(stateDir, 'cursor', 'abcdef'); mkdirSync(join(folder, 'cursor'), { recursive: true });
+  const credential = join(folder, 'cursor', 'auth.json');
+  writeFileSync(credential, JSON.stringify({ accessToken: 'synthetic-cursor-token', refreshToken: 'synthetic-refresh' }));
+  const period = { billingCycleStart: '2026-09-10T00:00:00.000Z', billingCycleEnd: '2026-10-10T00:00:00.000Z',
+    planUsage: { totalSpend: 1250, includedSpend: 1250, bonusSpend: 0, limit: 2000, remaining: 750,
+      totalPercentUsed: 62.5, autoPercentUsed: 40, apiPercentUsed: 22.5 },
+    displayMessage: "You've used 63% of your included usage" };
+  const resetsAt = Date.parse('2026-10-10T00:00:00.000Z');
+  const expected = [{ provider: 'cursor', kind: 'monthly', usedPercent: 62.5, resetsAt }];
+  const http = fakeFetch([{ body: period }]);
+  const reader = usage({ stateDir, fetch: http.fetch });
+  const source: Source = { provider: 'cursor', folder };
+  assert.equal(reader.connected(source), true);
+  assert.ok(reader.account(source), 'the folder login has a stable cache identity');
+  const reading = await reader.read(source, { nowMs });
+  assert.deepEqual(reading.windows, expected);
+  assert.deepEqual(cursorWindows(period), expected);
+  assert.equal(reading.code, undefined);
+  assert.equal(roomOf(reading, nowMs).left, 37.5);
+  assert.match(planLabel('cursor'), /Cursor/);
+  assert.equal(http.calls.length, 1);
+  assert.equal(http.calls[0].url, 'https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage');
+  assert.equal(http.calls[0].init?.method, 'POST');
+  assert.equal((http.calls[0].init?.headers as Record<string, string>).authorization, 'Bearer synthetic-cursor-token');
+  assert.equal((http.calls[0].init?.headers as Record<string, string>)['Connect-Protocol-Version'], '1');
+  assert.equal(http.calls[0].init?.body, '{}');
+  assert.deepEqual(usage({ stateDir, fetch: http.fetch }).lastKnown(source, { nowMs: nowMs + 60_000 }), reading);
+  assert.doesNotMatch(readFileSync(join(stateDir, 'plans-v2.json'), 'utf8'), /synthetic-cursor-token|synthetic-refresh/);
+  assert.doesNotMatch(JSON.stringify(reading), /synthetic-cursor-token/);
+  // A refusal stands on the last good reading with an unknown room, never zero.
+  http.push({ status: 401 });
+  const refused = await reader.read(source, { nowMs: nowMs + 60_000 });
+  assert.equal(refused.code, 'auth');
+  assert.deepEqual(refused.windows, expected);
+  assert.equal(roomOf(refused, nowMs + 60_000).left, 'unknown');
+  // A lost login disconnects: no last-good reading, no zero room.
+  unlinkSync(credential);
+  assert.equal(reader.connected(source), false);
+  assert.equal(reader.lastKnown(source, { nowMs: nowMs + 120_000 }), undefined);
+  const missing = await reader.read(source, { nowMs: nowMs + 120_000 });
+  assert.equal(missing.code, 'not-connected');
+  assert.deepEqual(missing.windows, []);
+  assert.equal(roomOf(missing, nowMs + 120_000).left, 'unknown');
+  // A malformed or linked credential file is not a login either.
+  writeFileSync(credential, 'not-json');
+  assert.equal((await reader.read(source, { nowMs: nowMs + 180_000 })).code, 'not-connected');
+  unlinkSync(credential); symlinkSync(join(root, 'outside.json'), credential);
+  writeFileSync(join(root, 'outside.json'), JSON.stringify({ accessToken: 'linked-token' }));
+  assert.equal(reader.connected(source), false);
+  assert.equal((await reader.read(source, { nowMs: nowMs + 240_000 })).code, 'not-connected');
+  // Folders outside the managed root, relative paths and a missing stateDir are refused before any read.
+  unlinkSync(credential);
+  for (const bad of [{ provider: 'cursor', folder: 'relative' }, { provider: 'cursor', folder: join(root, 'outside') }] as const) {
+    for (const method of ['read', 'connected', 'account', 'lastKnown'] as const) {
+      await assert.rejects((async () => { await reader[method](bad as Source); })(), UsageError, `${method} refused ${bad.folder}`);
+    }
+  }
+  await assert.rejects(usage({ fetch: http.fetch }).read(source), UsageError, 'a folder source needs its stateDir');
+  // The parser reads the dashboard headline: total share, cycle reset, clamped.
+  assert.deepEqual(cursorWindows({}), []);
+  assert.deepEqual(cursorWindows({ planUsage: { autoPercentUsed: 30, apiPercentUsed: 10 }, billingCycleEnd: '2026-10-10T00:00:00.000Z' }),
+    [{ provider: 'cursor', kind: 'monthly', usedPercent: 40, resetsAt }]);
+  assert.deepEqual(cursorWindows({ planUsage: { totalPercentUsed: 150 }, billingCycleEnd: 'nonsense' }),
+    [{ provider: 'cursor', kind: 'monthly', usedPercent: 100 }]);
 });
