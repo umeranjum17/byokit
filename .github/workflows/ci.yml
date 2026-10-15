@@ -78,11 +78,6 @@ jobs:
           retention-days: 14
       - name: M6 preparation dry run (fake provider and fake SSH only)
         run: node scripts/machine-proof/run.ts --dry-run --output .lab/m6-dry.json
-      - name: Packed kit consumers
-        run: |
-          export TMPDIR=$(mktemp -d /tmp/bk-XXXX)
-          trap 'node -e '\''require("node:fs").rmSync(process.env.TMPDIR, { recursive: true, force: true })'\''' EXIT
-          npm run smoke:pack
       - name: Release lint (PR)
         if: github.event_name == 'pull_request'
         env:
@@ -93,6 +88,29 @@ jobs:
         env:
           RELEASE_BASE: ${{ github.event.before }}
         run: npm run release -- lint --base "$RELEASE_BASE" --direct
+
+  # Pack consumers get their own budget; the isolated suite above can use most of check's ten minutes.
+  pack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      matrix:
+        node: ['22', '24']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      - name: Packed kit consumers
+        run: |
+          export TMPDIR=$(mktemp -d /tmp/bk-XXXX)
+          trap 'node -e '\''require("node:fs").rmSync(process.env.TMPDIR, { recursive: true, force: true })'\''' EXIT
+          npm run smoke:pack
 
   # Linux byte parity only: this does not compile the Apple Security path or run an iOS extension.
   seal-swift:
