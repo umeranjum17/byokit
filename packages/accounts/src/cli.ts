@@ -27,7 +27,8 @@ export type CliOptions = {
   prepare?: (folder: string, provider: CliProvider) => Promise<void>;
   /** Device-owned secrets backend for key-based providers (OpenCode, Vibe): `saveKey` writes the key
    * here, one entry per managed account, and `logout` deletes that account's entry. The key never
-   * enters argv, env, a file or a log. */
+   * enters argv, env, or a log; OpenCode `launch` additionally writes it to the account folder's
+   * `go.key` delivery copy (0600), which `logout` and `remove` delete. */
   keyStore?: Keystore;
   /** The app's own `@byokit/usage` reader for `pick`. Omitted, each `pick` uses an internal reader on
    * `stateDir`, so readings and the app's account roster stay in one root. */
@@ -84,6 +85,24 @@ const keyLabel = (p: 'opencode' | 'vibe') => p === 'opencode' ? 'OpenCode' : 'Vi
 const quote = (v: string) => `'${v.replaceAll("'", "'\\''")}'`;
 const complete = (r: Row) => join(r.folder, '.byokit-signin-complete');
 const pending = (r: Row) => join(r.folder, '.byokit-signin-pending');
+const opencodeKeyPath = (folder: string) => join(folder, 'go.key');
+const opencodeConfigPath = (folder: string) => join(folder, 'opencode.json');
+/** Write the OpenCode folder's delivery copies: the plan key to `go.key` (0600) and the provider
+ * config pointing at it, so the key reaches the process through `{file:}` substitution. */
+function writeOpencodeLaunchFiles(folder: string, key: string): void {
+  chmodSync(folder, 0o700);
+  const config = JSON.stringify({ provider: { 'opencode-go': { options: { apiKey: `{file:${opencodeKeyPath(folder)}}` } } } });
+  for (const [path, value] of [[opencodeKeyPath(folder), key], [opencodeConfigPath(folder), config]]) {
+    const tmp = `${path}.${randomUUID()}.tmp`;
+    try { writeFileSync(tmp, value, { mode: 0o600, flag: 'wx' }); renameSync(tmp, path); }
+    finally { rmSync(tmp, { force: true }); }
+  }
+}
+/** Delete the OpenCode folder's delivery copies; a missing copy is already gone, not a failure. */
+function removeOpencodeLaunchFiles(folder: string): void {
+  rmSync(opencodeKeyPath(folder), { force: true });
+  rmSync(opencodeConfigPath(folder), { force: true });
+}
 /** Shared lock: the shell records its native child PID; the remote driver records its host PID. */
 export function signInLock(folder: string): { lock: string; holder: string } {
   const lock = join(folder, '.byokit-signin-lock');
@@ -306,6 +325,30 @@ export function cliAccounts(options: CliOptions) {
     if (!r) throw new CliAccountError('unknown-account');
     return r;
   }
+  const firstGo = (r: Row) => r.provider === 'opencode' && load().find(v => v.provider === 'opencode' && !v.found && !v.id.startsWith('found-'))?.id === r.id;
+  const goLegacyClaimed = join(stateDir, 'opencode-legacy-claimed');
+  async function settleLegacyGoKey(r: Row, discard = false): Promise<void> {
+    if (!firstGo(r) || !options.keyStore || marker(goLegacyClaimed)) return;
+    const own = await options.keyStore.get(`accounts.${OPENCODE_GO_PLAN_ROUTE}:${r.id}`)
+      || await options.keyStore.get(`accounts.${OPENCODE_GO_PLAN_ROUTE}.${r.id}`);
+    if (!own) {
+      const legacy = await options.keyStore.get(`accounts.${OPENCODE_GO_PLAN_ROUTE}`);
+      if (!legacy && !discard) return;
+      if (legacy && !discard) {
+        await saveOpenCodePlanKey(options.keyStore, legacy, OPENCODE_GO_PLAN_ROUTE, r.id);
+        await deleteOpenCodePlanKey(options.keyStore);
+      }
+    }
+    writeFileSync(goLegacyClaimed, '', { mode: 0o600, flag: 'wx' });
+  }
+  async function storedKey(r: Row): Promise<string> {
+    await settleLegacyGoKey(r);
+    return readOpenCodePlanKey(options.keyStore, keyRoute(r.provider as 'opencode' | 'vibe'), keyLabel(r.provider as 'opencode' | 'vibe'), r.id);
+  }
+  async function deleteStoredKey(r: Row): Promise<void> {
+    await settleLegacyGoKey(r, true);
+    await deleteOpenCodePlanKey(options.keyStore, keyRoute(r.provider as 'opencode' | 'vibe'), r.id);
+  }
   function binary(p: CliProvider): string { const bin = bins[p]; if (!bin) throw new CliAccountError('bad-option'); return bin; }
   // A moved XDG_CONFIG_HOME also moves git's and gh's global files, and CURSOR_CONFIG_DIR is Cursor's other
   // config override, so both folder variables name the managed folder. GIT_CONFIG_GLOBAL replaces both of
@@ -424,7 +467,7 @@ export function cliAccounts(options: CliOptions) {
         // No native probe: readiness is this account's saved key. A missing or unreadable store
         // reads signed out, never a failure, and a saved key ends the pending cycle like a native login.
         let saved = false;
-        try { await readOpenCodePlanKey(options.keyStore, keyRoute(r.provider), keyLabel(r.provider), r.id); saved = true; }
+        try { await storedKey(r); saved = true; }
         catch { saved = false; }
         if (saved && marker(pending(r))) rmSync(pending(r), { force: true });
         const keySigning = marker(pending(r)) && !saved;
@@ -458,7 +501,7 @@ export function cliAccounts(options: CliOptions) {
       const r = row(id);
       if (login && signInHeld(r.folder)) throw new CliAccountError('prepare-failed');
       // The key lives outside the folder, so delete it first: no orphaned secret survives the row.
-      if (r.provider === 'opencode' || r.provider === 'vibe') await deleteOpenCodePlanKey(options.keyStore, keyRoute(r.provider), r.id);
+      if (r.provider === 'opencode' || r.provider === 'vibe') await deleteStoredKey(r);
       discard(r, login); save(load().filter((v) => v.id !== id), r.provider); created.delete(id);
       saveRests(loadRests().filter((v) => v.id !== id));
     });
@@ -480,7 +523,8 @@ export function cliAccounts(options: CliOptions) {
     return status(id);
   }
   /** Save an OpenCode plan key or Vibe API key (collected with hidden typing) into the secrets store,
-   * one entry per managed account. The key never enters argv, env, a file outside the store, or a log. */
+   * one entry per managed account. The key never enters argv, env, or a log; its only file is the
+   * OpenCode folder delivery copy that `launch` writes and `logout`/`remove` delete. */
   async function saveKey(id: string, key: string): Promise<CliAccount> {
     await serial(id, async () => {
       const r = row(id);
@@ -497,8 +541,9 @@ export function cliAccounts(options: CliOptions) {
     await serial(id, async () => {
       const r = row(id);
       if (r.provider !== 'opencode' && r.provider !== 'vibe') throw new CliAccountError('kind-mismatch');
-      try { await deleteOpenCodePlanKey(options.keyStore, keyRoute(r.provider), r.id); }
+      try { await deleteStoredKey(r); }
       catch { throw new CliAccountError('prepare-failed'); }
+      if (r.provider === 'opencode') removeOpencodeLaunchFiles(r.folder);
       rmSync(pending(r), { force: true });
     });
     return status(id);
@@ -563,7 +608,24 @@ export function cliAccounts(options: CliOptions) {
     remove,
     async launch(id: string): Promise<CliLaunchResult> {
       const account = await status(id);
-      if (account.state === 'ready') return { ok: true, account, ...launch(row(id)) };
+      if (account.state === 'ready') {
+        const r = row(id);
+        const base = launch(r);
+        if (r.provider !== 'opencode') return { ok: true, account, ...base };
+        // The folder files are the delivery copy: the key reaches OpenCode through `{file:}`
+        // substitution in the folder's opencode.json, never argv or env.
+        return serial(id, async (): Promise<CliLaunchResult> => {
+          const current = row(id);
+          let key: string;
+          try { key = await storedKey(current); }
+          catch { return { ok: false, code: 'signed_out', account, message: say('cli.signedOut', { name: account.name }) }; }
+          try { writeOpencodeLaunchFiles(current.folder, key); }
+          catch (cause) { throw new Error(say('cli.prepareFailed'), { cause }); }
+          return { ok: true, account,
+            set: { ...base.set, OPENCODE_CONFIG: opencodeConfigPath(current.folder) },
+            unset: base.unset.filter((name) => name !== 'OPENCODE_CONFIG') };
+        });
+      }
       if (account.state === 'resting' && account.until) {
         return { ok: false, code: 'resting', account, message: say('status.resting', { name: account.name, until: clock(account.until) }) };
       }
@@ -593,10 +655,15 @@ export function cliAccounts(options: CliOptions) {
       // kinds.json: pi/opencode/kimi `--session`, claude/vibe/cursor `--resume`, codex `resume`.
       return kind === 'pi' || kind === 'opencode' || kind === 'kimi' ? ['--session', ref.value] : kind === 'claude' || kind === 'vibe' || kind === 'cursor' ? ['--resume', ref.value] : ['resume', ref.value];
     },
-    usageSource(id: string): { provider: 'codex'; bin: string; home: string; env: Record<string, string> } | { provider: 'cursor'; folder: string } | undefined {
+    async usageSource(id: string): Promise<{ provider: 'codex'; bin: string; home: string; env: Record<string, string> } | { provider: 'cursor'; folder: string } | { provider: 'opencode'; key: string } | undefined> {
       const r = row(id);
       if (r.provider === 'codex') return codexSource(r);
-      return r.provider === 'cursor' ? { provider: 'cursor', folder: r.folder } : undefined;
+      if (r.provider === 'cursor') return { provider: 'cursor', folder: r.folder };
+      if (r.provider === 'opencode') return serial(id, async () => {
+        try { return { provider: 'opencode' as const, key: await storedKey(row(id)) }; }
+        catch { return undefined; }
+      });
+      return undefined;
     },
     /** The account a run of this provider should use, and every row of that provider with its reading.
      * Candidates are `ready` and not resting; `prefer` wins while that account is ready; otherwise the

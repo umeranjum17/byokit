@@ -83,7 +83,7 @@ test('managed CLI flow: add, marker-gated status, native sign-in, rename, launch
     }
     assert.deepEqual(launch.set, { [provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME']: folder });
     assert.ok(launch.unset.includes(provider === 'claude' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'));
-    const source = kit.usageSource(account.id);
+    const source = await kit.usageSource(account.id);
     assert.equal(source?.provider === 'codex' ? source.home : undefined, provider === 'codex' ? folder : undefined);
     assert.deepEqual(kit.kinds(provider), [provider]);
     assert.deepEqual(kit.resumeArgs(provider, { kind: 'id', value: 'conversation' }), provider === 'claude' ? ['--resume', 'conversation'] : ['resume', 'conversation']);
@@ -147,7 +147,7 @@ test('missing provider binary keeps list and Auto isolated without consuming pen
   assert.equal(pick.ok, true); if (pick.ok) assert.equal(pick.account.id, ready.id);
   assert.throws(() => kit.signInAgain(unavailable.id), e => e instanceof CliAccountError && e.code === 'bad-option');
   await assert.rejects(kit.add('codex'), e => e instanceof CliAccountError && e.code === 'bad-option');
-  assert.throws(() => kit.usageSource(unavailable.id), e => e instanceof CliAccountError && e.code === 'bad-option');
+  await assert.rejects(kit.usageSource(unavailable.id), e => e instanceof CliAccountError && e.code === 'bad-option');
   const restored = cliAccounts({ stateDir, env, bins: { codex: fake(join(root, 'bins'), 'codex').bin } });
   assert.equal((await restored.status(unavailable.id)).state, 'signing', 'availability does not complete a pending login');
 });
@@ -264,7 +264,7 @@ test('managed Pi uses TUI instructions, OAuth-only readiness, isolated roster an
   assert.equal(account.name, 'ChatGPT'); assert.equal(account.piProvider, 'openai-codex');
   assert.deepEqual(signIn.argv, [pi.bin]); assert.deepEqual(signIn.instruction, { words: 'cli.piLogin', command: '/login openai-codex' });
   assert.ok(!signIn.shell.includes('/login')); assert.deepEqual(kit.launchArgs(account.id), ['--provider', 'openai-codex']);
-  assert.deepEqual(kit.kinds('pi'), ['pi']); assert.equal(kit.usageSource(account.id), undefined);
+  assert.deepEqual(kit.kinds('pi'), ['pi']); assert.equal(await kit.usageSource(account.id), undefined);
   for (const kind of ['id', 'path'] as const) assert.deepEqual(kit.resumeArgs('pi', { kind, value: 'session.jsonl' }), ['--session', 'session.jsonl']);
   for (const value of ['', '--flag', 'bad\0value']) assert.throws(() => kit.resumeArgs('pi', { kind: 'id', value }), CliAccountError);
   await assert.rejects(kit.add('pi', { piProvider: 'qwen-portal' }), CliAccountError);

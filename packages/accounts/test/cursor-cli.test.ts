@@ -237,7 +237,7 @@ test('cursor usage comes from the folder login; a missing reading is unknown, ne
   const folder = kit.folderOf(account.id);
   // The real CLI writes camelCase accessToken; the folder login is the only credential read.
   writeFileSync(join(folder, 'cursor', 'auth.json'), JSON.stringify({ accessToken: 'fixture-cursor-token' }));
-  assert.deepEqual(kit.usageSource(account.id), { provider: 'cursor', folder });
+  assert.deepEqual(await kit.usageSource(account.id), { provider: 'cursor', folder });
   const picked = await kit.pick('cursor');
   assert.equal(picked.ok, true);
   if (!picked.ok) throw new Error('the ready cursor row was not picked');
