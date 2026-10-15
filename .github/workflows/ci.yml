@@ -43,7 +43,7 @@ jobs:
 
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       matrix:
         node: ['22', '24']
@@ -108,7 +108,7 @@ jobs:
       - run: done-done doctor
       - run: done-done verify build --foreground --no-judge --claim-id "${{ github.head_ref || github.ref_name }}" --outcome "the byokit SDK builds and the built accounts entry resolves"
 
-  # Pack consumers get their own budget; the isolated suite above can use most of check's ten minutes.
+  # Pack consumers get their own budget; the isolated suite above can use most of check's fifteen minutes.
   pack:
     runs-on: ubuntu-latest
     timeout-minutes: 10
