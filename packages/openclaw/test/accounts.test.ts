@@ -1232,7 +1232,13 @@ test('an unbound Auto run sees no key-lane row: a lane-only member picks like a 
     const lane = keyAgentId('m1');
     const laneRuns = () => fake.calls.filter((c) => c.method === 'agent' && (c.params as { agentId: string }).agentId === lane);
 
-    // Ready lane.
+    // Ready lane: neither Auto nor a default fallback reads models/room for the excluded row.
+    const beforePick = fake.calls.length;
+    for (const account of ['auto', 'default'] as const) {
+      const picked = await kit.pick('m1', { account });
+      assert.deepEqual(picked, barePick);
+    }
+    assert.deepEqual(fake.calls.slice(beforePick).filter((c) => c.method === 'models.list' || c.method === 'models.authStatus'), []);
     const ready = await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat:new', message: 'hello', account: 'auto' });
     assert.deepEqual(ready, bare);
     assert.deepEqual(laneRuns(), []);

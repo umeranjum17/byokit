@@ -31,6 +31,18 @@ const setRoom = async (agent, member, account) => {
 };
 try {
   await kit.start();
+  // A subscription key lane alone is listed, but Auto/default must not read its models or room.
+  assert.deepEqual(await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: 'verify-plan-key' }), { status: 'ok' });
+  assert.deepEqual((await kit.accounts('m2')).map((a) => a.id), ['opencode-go.key']);
+  const beforePick = fake.calls.length;
+  for (const account of ['auto', 'default']) {
+    const p = await kit.pick('m2', { account });
+    assert.ok(!p.ok && p.code === 'none');
+    assert.deepEqual(p.considered, []);
+  }
+  const reads = fake.calls.slice(beforePick).filter((c) => c.method === 'models.list' || c.method === 'models.authStatus');
+  console.log('lane-only Auto/default model and room reads:', reads.length);
+  assert.deepEqual(reads, []);
   await (await kit.addAccount('m1', { authChoice: 'openai', via: 'browser', name: 'Work' }, () => {})).done;
   const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser', name: 'Personal' }, () => {});
   await second.done;

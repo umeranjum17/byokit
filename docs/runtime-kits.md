@@ -1598,7 +1598,7 @@ The source measurement `at` and chooser clocks always use epoch milliseconds.
 rows gain the API-key rule, the demand and the explanation below first). `consider` is the one eligibility predicate:
 one `Considered` row per account in list order. `resolveSelection` calls it and ranks only its candidates (through
 `chooseAccount`, given `a => room(a, demand)`), and `run`, `pick` and the app's account list (through `pick`) all go
-through `resolveSelection`; nothing else filters or ranks accounts. The demand is `sel.model` (when set) plus
+through `resolveSelection`; nothing else filters or ranks accounts, except the kit-only key-lane filter in `pick` (`accounts.ts`): an unnamed lane row is not a pick input, so Auto and a default fallback never see it. The demand is `sel.model` (when set) plus
 `sel.needs`, deduplicated; `room(a, demand)` is the room for that demand (Room). `chooseAccount` returns only the
 Auto winner and its `why`; `resolveSelection` fills `how`, `model`, `reason` and `considered`. `bound` (kit only; `@byokit/accounts`
 has no bindings) is the accounts a conversation may use (Runs steps 1-2); absent, all.
@@ -1754,8 +1754,8 @@ local part is only a suggestion the app offers (`@byokit/ui` `nameSuggestions`),
 only routes with `keyEntry` (else `not_included`), activates typed `openclaw.setup.activate { kind: 'api-key',
 agentId: byokit-key-<member>, authChoice, apiKey }` (180 s) on that lane, seals it, records its saved model, and
 indexes the lane as `<provider>.key` once the key seals (replacing whatever `<*.key>` entry the member already held,
-keeping `addedAt`). A new key replaces the old one on the same agent; there is no `<member>--<hex6>` agent per later
-key. A key is replaced by `addKey`, not by `removeAccount`: the lane row is listed, and `removeAccount` refuses it. The index
+keeping `addedAt`). A new key added with `addKey` replaces the old one on the same agent; there is no `<member>--<hex6>` agent per later
+key on that path. A plan key added with `addAccount` (Adding) instead still takes the account-agent path when the member agent already holds that provider: one `<member>--<hex6>` agent per key. A key is replaced by `addKey`, not by `removeAccount`: the lane row is listed, and `removeAccount` refuses it. The index
 follows the sealed key: a failed index write is logged and never changes an `ok`, and the connect sweep (the
 `byokit.keys` bullet in §5.8) backfills a missing entry for a single-route provider while the index reads clean, so a
 missed write is repaired at the next connect unless the index is damaged; a damaged index waits for the next write that
@@ -3298,7 +3298,7 @@ its fixture; `@byokit/ui` `AccountsSource` (for `fits`) · version: openclaw nex
   `Account.email`, never in `considered`, words, errors, events or the index; an unindexed `<member>--<hex6>` agent is never listed or reachable; `removeAccount`
   refuses while live, never touches the member agent's sign-in, and leaves no profile behind; `move` forks then
   deletes, `busy` while live, `close_failed` keeps both; one key lane per member indexed as `<provider>.key` (a new
-  key replaces the old one on `byokit-key-<member>`, no `<member>--<hex6>` per later key; `addKey` failure leaves no
+  key added with `addKey` replaces the old one on `byokit-key-<member>`, no `<member>--<hex6>` per later key on that path (a plan key added with `addAccount` when the member agent already holds the provider still mints one `<member>--<hex6>` agent per key); `addKey` failure leaves no
   ready key and no index entry for that attempt; the key never reaches the index, logs or link); the index file is 0600;
   a same-identity re-sign-in (and `again`) leaves the existing account's
   default-model run working; a canary token held by two accounts never appears in the index, `accounts()`, views, words, errors, events or link
