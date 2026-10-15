@@ -141,7 +141,7 @@ test('sign-in failures on the page: declined, a failed exchange, waiting for the
 
 test('two app processes acquire the same callback port without restarting or mixing callbacks', async () => {
   const { stdout } = await promisify(execFile)(process.execPath,
-    ['.agents/skills/verify-byokit/capture/accounts-loopback.mjs'], {
+    [join(import.meta.dirname, 'accounts-loopback.mjs')], {
       env: { ...process.env,
         BYOKIT_ACCOUNTS_ENTRY: new URL('../src/index.ts', import.meta.url).href,
         BYOKIT_TESTING_ENTRY: new URL('../src/testing/mock-openai.ts', import.meta.url).href },

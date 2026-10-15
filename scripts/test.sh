@@ -11,7 +11,7 @@ export TMPDIR="$run_tmp"
 # One engine-set install per job, shared by every real-engine test file through BYOKIT_TEST_ENGINE_DIR: each
 # file's engineDir otherwise defaults to its own tmpfs scratch, so an engine job installs the ~2 GB pinned engine
 # twelve times into RAM-backed /tmp (and downloads it twelve times: the npm cache is per scratch root too).
-# The shared dir lives off tmpfs; a caller-provided value (verify-byokit features) is kept as-is.
+# The shared dir lives off tmpfs; a caller-provided value (a done-done feature drive) is kept as-is.
 # Frozen engine sets are 0555/0444 on purpose; make them removable before rm.
 chmod_tree() {
   node - "$1" <<'NODE'
