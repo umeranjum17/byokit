@@ -135,10 +135,15 @@ test('add cursor through the command, then list and pick it', () => {
   assert.deepEqual(listed.map((r) => [r.tool, r.id, r.state]), [['cursor', answer.account.id, 'ready']]);
   const picked = run(f.stateDir, 'pick', 'cursor', '--json');
   assert.equal(picked.status, 0, picked.stderr);
-  const chosen = JSON.parse(picked.stdout) as { ok: boolean; id: string; set: Record<string, string>; unset: string[] };
+  const chosen = JSON.parse(picked.stdout) as { ok: boolean; id: string; set: Record<string, string>; unset: string[]; rows: { id: string; room: { left: unknown }; windows: unknown[] }[] };
   assert.deepEqual([chosen.ok, chosen.id], [true, answer.account.id]);
   assert.equal(chosen.set.XDG_CONFIG_HOME, folder);
   assert.ok(chosen.unset.includes('CURSOR_API_KEY'));
+  // The fixture login carries no real dashboard grant, so both views agree the reading is unknown, never zero.
+  const relisted = JSON.parse(run(f.stateDir, 'list', '--json').stdout) as { id: string; tool: string; room: { left: unknown }; windows: unknown[] }[];
+  assert.equal(relisted.find((r) => r.tool === 'cursor')!.room.left, 'unknown');
+  assert.deepEqual(relisted.find((r) => r.tool === 'cursor')!.windows, []);
+  assert.deepEqual(chosen.rows.map((r) => [r.id, r.room.left]), relisted.map((r) => [r.id, r.room.left]), 'pick rows are the rows list shows');
 });
 
 test('pick --json: the same account, the same env and the same rows as cliAccounts.pick', async () => {

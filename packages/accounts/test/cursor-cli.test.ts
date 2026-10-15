@@ -6,6 +6,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cliAccounts, CliAccountError } from '../src/cli.ts';
+import { usage } from '@byokit/usage';
+import { fakeFetch } from '@byokit/usage/testing';
 import { scratchDir } from '../../test-support.ts';
 
 function fakeCursor(dir: string) {
@@ -218,4 +220,39 @@ test('the launch keeps the pool HOME\'s real global git file reachable in all th
   assert.equal('GIT_CONFIG_GLOBAL' in none.set, false);
   assert.ok(none.unset.includes('GIT_CONFIG_GLOBAL'));
   assert.equal(none.set.CURSOR_CONFIG_DIR, folder);
+});
+
+test('cursor usage comes from the folder login; a missing reading is unknown, never zero', async () => {
+  const root = scratchDir('cursor-cli-usage');
+  const stateDir = join(root, 'pools'); const home = join(root, 'home');
+  mkdirSync(home, { recursive: true });
+  const cursor = fakeCursor(join(root, 'bins'));
+  const env = { HOME: home, PATH: '/unused' };
+  const period = { billingCycleStart: '2026-09-10T00:00:00.000Z', billingCycleEnd: '2026-10-10T00:00:00.000Z',
+    planUsage: { totalSpend: 1250, limit: 2000, totalPercentUsed: 62.5 } };
+  const http = fakeFetch([{ body: period }]);
+  const kit = cliAccounts({ stateDir, bins: { cursor: cursor.bin }, env, usage: usage({ stateDir, fetch: http.fetch }) });
+  const { account, signIn: command } = await kit.add('cursor');
+  await signIn(kit, command.shell);
+  const folder = kit.folderOf(account.id);
+  // The real CLI writes camelCase accessToken; the folder login is the only credential read.
+  writeFileSync(join(folder, 'cursor', 'auth.json'), JSON.stringify({ accessToken: 'fixture-cursor-token' }));
+  assert.deepEqual(kit.usageSource(account.id), { provider: 'cursor', folder });
+  const picked = await kit.pick('cursor');
+  assert.equal(picked.ok, true);
+  if (!picked.ok) throw new Error('the ready cursor row was not picked');
+  const row = picked.rows.find((r) => r.account.id === account.id)!;
+  assert.equal(row.room.left, 37.5);
+  assert.deepEqual(row.windows, [{ provider: 'cursor', kind: 'monthly', usedPercent: 62.5, resetsAt: Date.parse('2026-10-10T00:00:00.000Z') }]);
+  assert.equal(http.calls.length, 1);
+  assert.equal(http.calls[0].url, 'https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage');
+  assert.equal((http.calls[0].init?.headers as Record<string, string>).authorization, 'Bearer fixture-cursor-token');
+  assert.doesNotMatch(JSON.stringify(picked), /fixture-cursor-token/);
+  // Losing the folder login signs the row out with an unknown room, never zero.
+  rmSync(join(folder, 'cursor', 'auth.json'));
+  assert.equal((await kit.status(account.id)).state, 'signed_out');
+  const none = await kit.pick('cursor');
+  assert.equal(none.ok, false);
+  assert.equal(none.rows[0]?.room.left, 'unknown');
+  assert.ok(none.rows.every((r) => r.room.left !== 0), 'no cursor row reports zero room');
 });

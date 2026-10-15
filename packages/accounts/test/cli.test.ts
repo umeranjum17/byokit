@@ -84,7 +84,7 @@ test('managed CLI flow: add, marker-gated status, native sign-in, rename, launch
     assert.deepEqual(launch.set, { [provider === 'claude' ? 'CLAUDE_CONFIG_DIR' : 'CODEX_HOME']: folder });
     assert.ok(launch.unset.includes(provider === 'claude' ? 'ANTHROPIC_API_KEY' : 'OPENAI_API_KEY'));
     const source = kit.usageSource(account.id);
-    assert.equal(source?.home, provider === 'codex' ? folder : undefined);
+    assert.equal(source?.provider === 'codex' ? source.home : undefined, provider === 'codex' ? folder : undefined);
     assert.deepEqual(kit.kinds(provider), [provider]);
     assert.deepEqual(kit.resumeArgs(provider, { kind: 'id', value: 'conversation' }), provider === 'claude' ? ['--resume', 'conversation'] : ['resume', 'conversation']);
     assert.deepEqual(kit.resumeArgs('pi', { kind: 'path', value: 'history' }), ['--session', 'history']);

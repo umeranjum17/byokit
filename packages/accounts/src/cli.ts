@@ -196,6 +196,7 @@ export function cliAccounts(options: CliOptions) {
   /** The one usage source for a ready row; a provider whose reader is a later lane stays unknown. */
   function roomSource(r: Row): Source | undefined {
     if (r.provider === 'codex') return codexSource(r);
+    if (r.provider === 'cursor') return { provider: 'cursor', folder: r.folder };
     return r.provider === 'claude' && options.claudeHeaders ? { provider: 'claude', folder: r.folder, headers: options.claudeHeaders } : undefined;
   }
   // Never write kit bookkeeping into a default login: neither the state root itself nor a provider's
@@ -592,8 +593,10 @@ export function cliAccounts(options: CliOptions) {
       // kinds.json: pi/opencode/kimi `--session`, claude/vibe/cursor `--resume`, codex `resume`.
       return kind === 'pi' || kind === 'opencode' || kind === 'kimi' ? ['--session', ref.value] : kind === 'claude' || kind === 'vibe' || kind === 'cursor' ? ['--resume', ref.value] : ['resume', ref.value];
     },
-    usageSource(id: string): { provider: 'codex'; bin: string; home: string; env: Record<string, string> } | undefined {
-      const r = row(id); return r.provider === 'codex' ? codexSource(r) : undefined;
+    usageSource(id: string): { provider: 'codex'; bin: string; home: string; env: Record<string, string> } | { provider: 'cursor'; folder: string } | undefined {
+      const r = row(id);
+      if (r.provider === 'codex') return codexSource(r);
+      return r.provider === 'cursor' ? { provider: 'cursor', folder: r.folder } : undefined;
     },
     /** The account a run of this provider should use, and every row of that provider with its reading.
      * Candidates are `ready` and not resting; `prefer` wins while that account is ready; otherwise the

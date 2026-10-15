@@ -81,3 +81,10 @@ export function kimiWindows(raw: unknown, nowMs: number): Window[] {
   };
   return [...read(source.usage, 10080), ...read(source.totalQuota), ...rows(source.limits).flatMap((row) => read(row))];
 }
+/** The dashboard's current-period headline: total share of the included plan, resetting at the cycle end. */
+export function cursorWindows(raw: unknown): Window[] {
+  const source = obj(raw); const plan = obj(source.planUsage);
+  const auto = number(plan.autoPercentUsed); const api = number(plan.apiPercentUsed);
+  const used = number(plan.totalPercentUsed) ?? (auto !== undefined || api !== undefined ? (auto ?? 0) + (api ?? 0) : undefined);
+  return window('cursor', 'monthly', used, undefined, time(source.billingCycleEnd));
+}
