@@ -1020,7 +1020,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       // Where the kit owns the refresh (the portable engine), a refresh the provider proves revoked or refuses with a bare
       // 400-403 signs only this account out, never retried; the store carries the refusal as `httpStatus`. A computer's
       // Pi-owned refresh throws only its own status-less error, so a failure there is unknown: typed network, kept. A 5xx
-      // or a lost answer keeps the sign-in on both.
+      // or a dropped connection keeps the sign-in on both; an accepted but unreadable answer ends it.
       if (!endedRefresh(e)) throw new ResponseError(`${p.name} could not refresh its sign-in. Try again when the network is back.`, 'network');
       await this.logout(member, key).catch(() => {});
       this.forget(member, key);
@@ -1451,7 +1451,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       }
       // A revoked (invalid_grant) or quarantined refresh requires sign-in again. A bare 400-403 keeps the sign-in here:
       // only the respond path reads the store's `httpStatus`, and a computer's Pi-owned refresh throws status-less errors
-      // anyway. A lost answer, a server error or a read failure before sending (a locked keychain) is unknown: try later.
+      // anyway. A dropped connection, a server error or a read failure before sending (a locked keychain) is unknown:
+      // try later. An accepted but unreadable answer already ended the sign-in above.
       return !refusedRefresh(e);
     });
   }

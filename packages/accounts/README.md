@@ -226,8 +226,9 @@ It needs the `/keys` entry, as a key route does. A model from another provider i
 `KeyRouteError.code === 'provider'`. A 429 rests only that account and rejects with `ResponseError` kind `rate_limit`
 (`until` from `retry-after`), never retried. Where the kit owns the refresh (the portable engine on phones and browsers,
 with `withKeys(portable)`), a refresh the provider proves revoked (such as `invalid_grant`) or refuses with a bare 400,
-401 or 403 signs only that account out (`signed_out`), never retried, while a 5xx, a timeout, a dropped connection or an
-unreadable answer at refresh keeps the sign-in and rejects with `network`. On a computer the kit does not own the refresh:
+401 or 403 signs only that account out (`signed_out`), never retried, while a 5xx, a timeout or a dropped connection
+at refresh keeps the sign-in and rejects with `network`; a 2xx answer whose body cannot be read spends the grant, so it
+ends the sign-in (`signed_out`). On a computer the kit does not own the refresh:
 Pi refreshes internally and throws its own error, so a failed refresh there (a revocation included) is typed `network`
 and the sign-in is kept until the provider needs a fresh sign-in. A route this platform cannot run (Meta in a browser or
 on a phone) is `not_included`.
