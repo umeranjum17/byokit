@@ -111,7 +111,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm install -g done-done-axi@0.3.0
       - run: done-done doctor
-      - run: done-done verify build --foreground --no-judge --outcome "the byokit SDK builds and the built accounts entry resolves"
+      - run: done-done verify build --foreground --no-judge --claim-id "${{ github.head_ref || github.ref_name }}" --outcome "the byokit SDK builds and the built accounts entry resolves"
 
   # Linux byte parity only: this does not compile the Apple Security path or run an iOS extension.
   seal-swift:
