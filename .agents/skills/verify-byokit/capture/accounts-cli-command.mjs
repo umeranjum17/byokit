@@ -13,6 +13,12 @@ const dist = dirname(require.resolve('@byokit/accounts/cli'));
 const BIN = join(dist, 'accounts-cli.js');
 const { fakeCodex } = await import(require.resolve('@byokit/usage/testing'));
 
+const help = spawnSync(process.execPath, [BIN, '--help'], { encoding: 'utf8' });
+assert.equal(help.status, 0, help.stderr);
+assert.match(help.stdout, /^byokit-accounts <list\|add\|status\|pick\|use\|env\|rest\|unrest>/);
+assert.equal(help.stderr, '');
+console.log('cli-command-help:', help.stdout.trim(), 'exit 0, no pool needed');
+
 const root = mkdtempSync(join(tmpdir(), 'byk-accounts-command-'));
 const stateDir = join(root, 'pool'); const home = join(root, 'home');
 mkdirSync(stateDir); mkdirSync(home);

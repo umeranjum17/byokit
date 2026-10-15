@@ -83,6 +83,16 @@ function ready(f: Fixture, tool: 'claude' | 'codex') {
   return { id: answer.account.id, folder, signIn: answer.signIn };
 }
 
+test('--help works before any pool exists, while unknown flags still fail', () => {
+  const help = spawnSync(process.execPath, [BIN, '--help'], { encoding: 'utf8' });
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /^byokit-accounts <list\|add\|status\|pick\|use\|env\|rest\|unrest>/);
+  assert.equal(help.stderr, '');
+  const unknown = spawnSync(process.execPath, [BIN, '--unknown'], { encoding: 'utf8' });
+  assert.equal(unknown.status, 2);
+  assert.match(unknown.stderr, /unknown flag/);
+});
+
 test('list --json: one reading row per account, and never a secret', async () => {
   const f = fixture('accounts-command-list');
   const claude = ready(f, 'claude');

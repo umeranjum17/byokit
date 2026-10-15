@@ -186,6 +186,7 @@ export function table(rows: ListedRow[]): string {
 }
 
 export async function main(argv: string[], io: CliIo): Promise<number> {
+  if (argv.length === 1 && argv[0] === '--help') { io.stdout(`${USAGE}\n`); return 0; }
   const emit = (value: unknown) => io.stdout(`${JSON.stringify(value, null, 2)}\n`);
   try {
     const args = parse(argv);
