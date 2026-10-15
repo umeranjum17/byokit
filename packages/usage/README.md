@@ -35,9 +35,9 @@ Sources:
   account id or the access token's own claim) and `kimi-coding` reads Kimi's
   windows (`coding/v1/usages`). Any other Pi provider id is refused as an invalid
   source. A missing or refused reading is `unknown`, never zero.
-  The account cache is keyed from the sign-in file's metadata only, never its contents, so
-  usage never opens or reads `<home>/auth.json`. A re-login or a refresh-only rewrite of that
-  file changes its metadata and drops the last-good reading.
+  The account cache fingerprint uses the sign-in file's metadata only, never its contents.
+  A re-login or a refresh-only rewrite of `<folder>/auth.json` changes its metadata
+  and drops the last-good reading.
 - `{ provider: 'claude', credentialsFile, configFile?, statuslineFile? }` is a
   read-only adapter for files the app explicitly supplies. It reads `claudeAiOauth`
   and optionally `oauthAccount.accountUuid`. A path carrying a `.claude`, `.codex`
