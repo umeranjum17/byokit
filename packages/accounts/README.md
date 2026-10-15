@@ -172,7 +172,7 @@ are offered only when the app names them. An explicit `offer` list is not platfo
 The `Provider` shape no longer has `terms`, `hidden` or `why`, and `Terms` is no longer exported.
 Qwen and MiniMax have subscription catalogue rows. MiniMax signs in with a user code on its own page (`minimax:code`, or `minimax:code:cn` for the China host) only when an app names `minimax` in its `offer` list; Qwen's portal sign-in follows in later work packages.
 Each provider's own terms apply to how you use your plan.
-`routes()` lists every pinned pi-ai provider and sign-in method, including unavailable rows with typed readiness, using D18 in [`docs/runtime-kits.md`](../../docs/runtime-kits.md#21-account-routes-d18). `offered({ platform })` returns ready subscription routes, including plan keys. The legacy `providers`/`offered()` calls keep their provider IDs; Qwen and MiniMax's unavailable plan flows are not defaults. Radius has `unknown` billing: it is visible in discovery but never offered or chosen automatically. Computer device fixtures do not qualify phone/browser device runtime.
+`routes()` lists every pinned pi-ai provider and sign-in method, including unavailable rows with typed readiness, using D18 in [`docs/runtime-kits.md`](../../docs/runtime-kits.md#21-account-routes-d18). `offered({ platform })` returns ready subscription routes, including plan keys. The legacy `providers`/`offered()` calls keep their provider IDs; Qwen's unavailable plan flow and MiniMax's explicit-only plan flow are not defaults. Radius has `unknown` billing: it is visible in discovery but never offered or chosen automatically. Computer device fixtures do not qualify phone/browser device runtime.
 Anthropic Messages uses an app-passed API key (billed per use); authentication is separate from the Messages request.
 
 Native Claude CLI sign-in uses the managed-folder entry.
@@ -218,14 +218,18 @@ options pass through; the guard disables header-auth transforms, retries and pro
 Cloudflare Gateway uses its pinned `cf-aig-authorization`-only auth; pasted Anthropic bearer uses only
 `authorization`, never an API key header.
 
-A signed-in OAuth subscription account (Grok, GitHub Copilot, Kimi, Meta) answers through the same typed form and
+A signed-in OAuth subscription account (Grok, GitHub Copilot, Kimi, Meta, MiniMax) answers through the same typed form and
 pinned Models path: `accounts.respond(member, { account: 'grok.<id>', model, context, onText })`. Its auth comes from
 that account's own `runtime(member, id)`, refreshed first when due, as its pinned Pi provider derives it (Kimi's bearer
 header, Copilot's per-token base URL); on phones and in browsers the portable engine gives the access token as the key.
+For MiniMax, use `account: 'minimax.<id>'` and a model whose provider matches the saved region: `minimax` for global,
+`minimax-cn` for China. The pinned Anthropic Messages adapter sends its OAuth token only as a bearer, never `x-api-key`.
+MiniMax has no refresh grant: expiry sends neither a refresh nor a model request, rejects with `ResponseError` kind
+`signed_out`, and leaves that account reading `needs_again` on both computer and portable entries.
 It needs the `/keys` entry, as a key route does. A model from another provider is refused with
 `KeyRouteError.code === 'provider'`. A 429 rests only that account and rejects with `ResponseError` kind `rate_limit`
-(`until` from `retry-after`), never retried. Where the kit owns the refresh (the portable engine on phones and browsers,
-with `withKeys(portable)`), a refresh the provider proves revoked (such as `invalid_grant`) or refuses with a bare 400,
+(`until` from `retry-after`), never retried. For refreshable sign-ins, where the kit owns the refresh (the portable engine
+on phones and browsers, with `withKeys(portable)`), a refresh the provider proves revoked (such as `invalid_grant`) or refuses with a bare 400,
 401 or 403 signs only that account out (`signed_out`), never retried, while a 5xx, a timeout or a dropped connection
 at refresh keeps the sign-in and rejects with `network`; a 2xx answer whose body cannot be read spends the grant, so it
 ends the sign-in (`signed_out`). On a computer the kit does not own the refresh:
@@ -391,7 +395,7 @@ Successful return values are unchanged.
 
 Set `parallelToolCalls: false` to request one tool call at a time; `true` allows parallel calls. Both pass through as
 `parallel_tool_calls`; omitting it sends nothing and keeps the provider default. This `input` form supports only the ChatGPT
-subscription route; Grok, Copilot, Kimi and Meta sign-ins answer through the typed `{ account, model, context }` form
+subscription route; other supported sign-ins use the typed `{ account, model, context }` form
 (see [Key routes](#key-routes)), and there is no Anthropic response route.
 
 The whole question passes through: `input` takes the turns so far (messages, with `input_image` where the person

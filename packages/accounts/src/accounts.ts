@@ -116,8 +116,8 @@ export function planOf(access: string): { plan: string; email: string; work: boo
 const ports = new Set<number>();
 const googleViaError = () => Object.assign(new Error('Google uses a browser or a pasted address.'), { readiness: 'no_upstream_flow' });
 const offline = (e: any) => failure(String(e?.message)) === 'offline';
-/** The OAuth subscription sign-ins that answer through the pinned Models path: Grok, GitHub Copilot, Kimi and Meta. */
-const OAUTH_RESPOND = ['xai', 'github-copilot', 'kimi-coding', 'meta'];
+/** The OAuth subscription sign-ins that answer through the pinned Models path: Grok, GitHub Copilot, Kimi, Meta and MiniMax (both regions). */
+const OAUTH_RESPOND = ['xai', 'github-copilot', 'kimi-coding', 'meta', 'minimax', 'minimax-cn'];
 /** A refresh that proves the grant revoked or is quarantined: the sign-in needs signing in again on every path. */
 const refusedRefresh = (e: any) => e instanceof RefreshRequiredError || e?.revoked === true || typeof e?.status === 'number' && e.status >= 400 && e.status <= 403;
 /** The OAuth respond path also ends the sign-in on a bare 400-403 at refresh, which the store carries as `httpStatus`;
@@ -986,8 +986,14 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     if (isGoogleClient(this.providerKey(ask.account))) return this.respondGoogle(member, ask);
     // ChatGPT keeps its own respond path (its limit and usage words); every other sign-in stays typed below.
     const offer = this.offer(ask.account);
-    const code = !OAUTH_RESPOND.includes(offer.pi) || offer.billing !== 'subscription' || this.isKey(offer) ? undefined
-      : routes().find((x) => x.upstream.id === offer.pi && x.via === 'code');
+    // MiniMax's saved region chooses its Models path: a cn account answers through minimax-cn.
+    let pi = offer.pi;
+    if (pi === 'minimax' && offer.billing === 'subscription' && !this.isKey(offer)) {
+      const key = await this.resolveKey(member, ask.account);
+      if (await this.regionOf(member, key) === 'cn') pi = 'minimax-cn';
+    }
+    const code = !OAUTH_RESPOND.includes(pi) || offer.billing !== 'subscription' || this.isKey(offer) ? undefined
+      : routes().find((x) => x.upstream.id === pi && x.via === 'code');
     if (code) return this.respondOAuth(member, ask, offer, code);
     const p = this.keyRoute(ask.account);
     const r = route(p.key.includes(':') ? p.key : routes().find((r) => r.upstream.id === p.pi && r.via === 'key')?.id ?? 'missing');
@@ -1000,8 +1006,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     return keyRespond(r, secret, ask, this.opts.fetch, runtime);
   }
 
-  /** A selected OAuth subscription account (Grok, Copilot, Kimi, Meta) answers through the same pinned Models path as a
-   *  key, with the auth its own runtime derives (refreshed first when due). Where the kit owns the refresh (the portable
+  /** A selected OAuth subscription account (Grok, Copilot, Kimi, Meta, MiniMax) answers through the same pinned Models path as a
+   *  key, with the auth its own runtime derives (refreshed first when due). MiniMax has no refresh grant: once its token
+   *  has run out the grant ends without a send, so only that account is signed out and it reads needs_again. Where the kit owns the refresh (the portable
    *  engine on phones and browsers) a refresh the provider proves revoked or refuses with a bare 400-403 signs only that
    *  account out; on a computer Pi refreshes internally and only its own status-less error reaches here, so any failure is
    *  typed network and the sign-in is kept. A 429 rests only it, typed, never retried. A route this platform cannot run is

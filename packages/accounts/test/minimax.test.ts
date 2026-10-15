@@ -11,7 +11,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { Accounts, deviceFlow, portable, recordStore, type EndingStore, type Platform } from '@byokit/accounts';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { Accounts, KeyRouteError, ResponseError, deviceFlow, portable, recordStore, type AssistantMessageEvent, type Context, type EndingStore, type Model, type Platform } from '@byokit/accounts';
+import { withKeys } from '@byokit/accounts/keys';
 import { mockDevice } from '@byokit/accounts/testing';
 
 type Region = 'global' | 'cn';
@@ -348,5 +351,139 @@ test('an expired MiniMax sign-in ends signed out in the instance that signed in,
     Date.now = realNow;
     accounts.stop();
     await m.close();
+  }
+});
+
+for (const platform of [undefined, portable] as const) test(`MiniMax respond on ${platform ? 'portable' : 'computer'}: saved regions, bearer-only streaming, expiry and account-local 429`, async () => {
+  const g = await mockDevice({ dialect: 'minimax', region: 'global' });
+  const c = await mockDevice({ dialect: 'minimax', region: 'cn' });
+  // The app asks the real hosts; each region's stand-in answers its own host.
+  const real = globalThis.fetch;
+  globalThis.fetch = ((input: string | URL, init?: RequestInit) => {
+    const url = new URL(String(input));
+    if (url.host === 'account.minimax.io') return real(new URL(url.pathname + url.search, g.base), init);
+    if (url.host === 'account.minimaxi.com') return real(new URL(url.pathname + url.search, c.base), init);
+    return real(input as string, init);
+  }) as typeof fetch;
+  // Each region's own Responses stand-in: the recorded anthropic answer, or a 429 (echoing the bearer) for a limited one.
+  const anthropicEvents = [
+    { type: 'message_start', message: { id: 'fixture', role: 'assistant', model: 'fixture-model', content: [], usage: { input_tokens: 3, output_tokens: 0 } } },
+    { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+    { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello' } },
+    { type: 'content_block_stop', index: 0 },
+    { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 2 } },
+    { type: 'message_stop' },
+  ];
+  const fake = async () => {
+    const tokens: string[] = [];
+    const headers: { authorization?: string; apiKey?: string }[] = [];
+    const limited = new Set<string>();
+    const server = createServer(async (req, res) => {
+      for await (const _ of req);
+      const token = String(req.headers.authorization ?? '').replace(/^Bearer /i, '') || String(req.headers['x-api-key'] ?? '');
+      tokens.push(token);
+      headers.push({ authorization: req.headers.authorization, apiKey: req.headers['x-api-key'] as string | undefined });
+      if (limited.has(token)) {
+        res.writeHead(429, { 'content-type': 'application/json', 'retry-after': '120' });
+        return res.end(JSON.stringify({ error: { message: `Rate limit reached for ${token}`, type: 'rate_limit_exceeded' } }));
+      }
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.end(anthropicEvents.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(''));
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    return { base: `http://127.0.0.1:${(server.address() as AddressInfo).port}`, tokens, headers, limited,
+      close: () => new Promise((resolve) => server.close(resolve)) };
+  };
+  const globalApi = await fake();
+  const cnApi = await fake();
+  const { store, index } = stored();
+  const open = () => new Accounts<any, number>({ app: 'byokit journey', offer: ['minimax'], store: () => store }, platform ? withKeys(platform) : undefined);
+  let accounts = open();
+  const GLOBAL = 'minimax-global-bearer-canary-001';
+  const CN = 'minimax-cn-bearer-canary-002';
+  const seen: unknown[] = [];
+  try {
+    const signIn = async (key: 'minimax:code' | 'minimax:code:cn', standin: { approve: (code: string) => boolean }) => {
+      const { id } = await accounts.add(1, key);
+      const code = accounts.view(1, id)!.code!;
+      assert.equal(standin.approve(code), true, `${key}: approving the code`);
+      await accounts.finished(1, id);
+      return id;
+    };
+    const global = await signIn('minimax:code', g);
+    const cn = await signIn('minimax:code:cn', c);
+    // Distinct bearers, one per region account.
+    await store.modify(global, async (c: any) => ({ ...c, access: GLOBAL }));
+    await store.modify(cn, async (c: any) => ({ ...c, access: CN }));
+    accounts.stop();
+    accounts = open(); // Region selection must survive restart, not depend on the sign-in's in-memory region.
+    const bases = { minimax: globalApi.base, 'minimax-cn': cnApi.base } as const;
+    const model = (provider: 'minimax' | 'minimax-cn'): Model<'anthropic-messages'> => ({ id: 'MiniMax-M2.7', name: 'MiniMax',
+      provider, api: 'anthropic-messages', baseUrl: bases[provider], reasoning: false, input: ['text'],
+      cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 128 });
+    const context: Context = { messages: [{ role: 'user', content: 'Hello', timestamp: 0 }] };
+    const ask = async (account: string, provider: 'minimax' | 'minimax-cn') => {
+      const deltas: string[] = [], evts: AssistantMessageEvent[] = [];
+      const result = await accounts.respond(1, { account, model: model(provider), context,
+        onText: (d) => deltas.push(d), onEvent: (e) => evts.push(e) });
+      return { result, deltas, evts };
+    };
+
+    // Each region's base receives its own account's bearer, through its own pinned Models path.
+    for (const [id, provider, token, api] of [[global, 'minimax', GLOBAL, globalApi], [cn, 'minimax-cn', CN, cnApi]] as const) {
+      const { result, deltas, evts } = await ask(id, provider);
+      assert.deepEqual(deltas, ['Hello'], `${id}: streamed into onText`);
+      assert.equal(result.stopReason, 'stop', `${id}: answered`);
+      assert.equal(api.tokens.at(-1), token, `${id}: its own bearer at its own base`);
+      assert.ok(api.headers.at(-1)?.authorization === `Bearer ${token}` && api.headers.at(-1)?.apiKey === undefined, 'OAuth token is only a bearer, never an API key');
+      seen.push(result, evts);
+    }
+    assert.ok(!globalApi.tokens.includes(CN) && !cnApi.tokens.includes(GLOBAL), 'neither base saw the other account bearer');
+
+    // A model from the other region is refused before any request; the Grok/Kimi mismatch rule is unchanged.
+    const sent = globalApi.tokens.length + cnApi.tokens.length;
+    await assert.rejects(accounts.respond(1, { account: global, model: model('minimax-cn'), context }),
+      (e: unknown) => e instanceof KeyRouteError && e.code === 'provider');
+    assert.equal(globalApi.tokens.length + cnApi.tokens.length, sent, 'a cross-region model never reaches either base');
+
+    // A 429 on the China account rests only it, typed, never retried; the global one still answers.
+    cnApi.limited.add(CN);
+    const calls = cnApi.tokens.length;
+    const over = await accounts.respond(1, { account: cn, model: model('minimax-cn'), context, onEvent: (e) => { seen.push(e); } })
+      .then(() => assert.fail('a 429 answered'), (e: unknown) => e);
+    assert.ok(over instanceof ResponseError && over.kind === 'rate_limit' && over.status === 429, 'a 429 is typed rate_limit');
+    assert.ok(over.until! > Date.now() + 60_000 && over.until! <= Date.now() + 120_000, 'until the retry-after');
+    assert.equal(cnApi.tokens.length, calls + 1, 'never retried');
+    assert.equal((await accounts.status(1, cn)).state, 'resting', 'only the China account rests');
+    assert.equal((await accounts.status(1, global)).state, 'ready', 'the global account does not rest');
+    const still = await ask(global, 'minimax');
+    assert.equal(still.result.stopReason, 'stop', 'the global account still answers');
+    assert.equal(globalApi.tokens.at(-1), GLOBAL, 'its own bearer again');
+    seen.push(over, over.message);
+    cnApi.limited.clear();
+
+    // MiniMax has no refresh: an expired token ends signed_out with nothing sent, and the account reads needs_again.
+    const tokenCalls = () => [...g.state.requests, ...c.state.requests].filter((r) => r.path === '/oauth2/token').length;
+    const polls = tokenCalls();
+    const modelCalls = globalApi.tokens.length + cnApi.tokens.length;
+    await store.modify(global, async (c: any) => ({ ...c, expires: 0 }));
+    const expired = await accounts.respond(1, { account: global, model: model('minimax'), context, onEvent: (e) => { seen.push(e); } })
+      .then(() => assert.fail('an expired token answered'), (e: unknown) => e);
+    assert.ok(expired instanceof ResponseError && expired.kind === 'signed_out', 'expired ends signed_out, typed');
+    assert.equal(tokenCalls(), polls, 'no refresh was sent');
+    assert.equal(globalApi.tokens.length + cnApi.tokens.length, modelCalls, 'no expired bearer was sent');
+    assert.equal((await accounts.status(1, global)).state, 'needs_again', 'the account reads needs_again');
+    seen.push(expired, expired.message);
+
+    // Neither bearer appears anywhere a person or an app reads.
+    const pub = JSON.stringify([seen, await accounts.list(1), await accounts.status(1, global), await accounts.status(1, cn), await index()]);
+    for (const token of [GLOBAL, CN]) assert.ok(!pub.includes(token), `no bearer in answers, events, errors, list, status or the index`);
+  } finally {
+    globalThis.fetch = real;
+    accounts.stop();
+    await globalApi.close();
+    await cnApi.close();
+    await g.close();
+    await c.close();
   }
 });
