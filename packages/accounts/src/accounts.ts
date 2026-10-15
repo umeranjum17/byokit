@@ -3,14 +3,14 @@
 // The engine does the signing in (Pi's own flows on a computer, portableEngine on phones and in browsers); the app only
 // shows the provider's page to open or the code to type. No Node import here: see index.ts for the computer's side.
 import type { Keystore } from '@byokit/secrets';
-import type { Api, ApiStreamOptions, AssistantMessage, AssistantMessageEventStream, AuthPrompt, CredentialStore, Model, Models, Context } from '@earendil-works/pi-ai';
+import type { Api, ApiStreamOptions, AssistantMessage, AssistantMessageEventStream, AuthPrompt, CredentialStore, Model, ModelAuth, Models, Context } from '@earendil-works/pi-ai';
 import { cloudSelection, CloudAccountError, type CloudOptions, type CloudStream } from './cloud.ts';
 import type { AiBinding } from '@earendil-works/pi-ai/api/cloudflare-ai-binding';
 import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfile, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
 import { GOOGLE_CLIENTS, googleProject, googleRevoke, googleRevokeUrl, googleRouteClient, isGoogleClient, withGoogle } from './flows/google.ts';
 import { CodeAssistSignedOutError, CodeAssistTierError, CodeAssistUnauthorizedError, codeAssistStream } from './flows/google-stream.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
-import { deviceFlow, offered, planKey, provider, route, routes, PROVIDERS, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
+import { deviceFlow, offered, planKey, provider, route, routes, PROVIDERS, type Provider, type Route, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
 import { checkKeyModel, keyRespond, KeyRouteError, type KeyAsk, type KeyRuntime } from './key-routes.ts';
 import { claims, PORTABLE, portableEngine, signable, validEnterpriseDomain, withDevice } from './engine.ts';
@@ -116,6 +116,13 @@ export function planOf(access: string): { plan: string; email: string; work: boo
 const ports = new Set<number>();
 const googleViaError = () => Object.assign(new Error('Google uses a browser or a pasted address.'), { readiness: 'no_upstream_flow' });
 const offline = (e: any) => failure(String(e?.message)) === 'offline';
+/** The OAuth subscription sign-ins that answer through the pinned Models path: Grok, GitHub Copilot, Kimi and Meta. */
+const OAUTH_RESPOND = ['xai', 'github-copilot', 'kimi-coding', 'meta'];
+/** A refresh that proves the grant revoked or is quarantined: the sign-in needs signing in again on every path. */
+const refusedRefresh = (e: any) => e instanceof RefreshRequiredError || e?.revoked === true || typeof e?.status === 'number' && e.status >= 400 && e.status <= 403;
+/** The OAuth respond path also ends the sign-in on a bare 400-403 at refresh, which the store carries as `httpStatus`;
+ *  `refreshed()` never reads that property, so its own rule stays as it is. */
+const endedRefresh = (e: any) => refusedRefresh(e) || typeof e?.httpStatus === 'number' && e.httpStatus >= 400 && e.httpStatus <= 403;
 
 /** Ends a sign-in on the provider's side, as Codex's own logout does (openai/codex#17825): the refresh token, else the
  *  access token, never retried (fixtures/conformance/revoke.json). */
@@ -699,7 +706,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   private keyRoute(key: string) {
     const p = this.offer(key);
     const r = p.key.includes(':') ? route(p.key) : routes().find((r) => r.upstream.id === p.pi && r.via === 'key');
-    if (p.auth !== 'api-key' && !(p.billing === 'api' && r)) throw new Error('This account uses a subscription sign-in.');
+    if (p.auth !== 'api-key' && !(p.billing === 'api' && r)) throw new ResponseError('This account uses a subscription sign-in.', 'not_included');
     if (r?.upstream.flow === 'absent') throw new KeyRouteError('no_upstream_flow');
     if (r?.platforms[this.platform.kind ?? 'browser'] === 'no') throw new KeyRouteError('unsupported_platform');
     return p;
@@ -977,6 +984,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   /** Full typed pinned Models request, bound to one selected member/account for the whole response. */
   async respondKey<T extends Api>(member: M, ask: KeyAsk<T>): Promise<AssistantMessage> {
     if (isGoogleClient(this.providerKey(ask.account))) return this.respondGoogle(member, ask);
+    // ChatGPT keeps its own respond path (its limit and usage words); every other sign-in stays typed below.
+    const offer = this.offer(ask.account);
+    const code = !OAUTH_RESPOND.includes(offer.pi) || offer.billing !== 'subscription' || this.isKey(offer) ? undefined
+      : routes().find((x) => x.upstream.id === offer.pi && x.via === 'code');
+    if (code) return this.respondOAuth(member, ask, offer, code);
     const p = this.keyRoute(ask.account);
     const r = route(p.key.includes(':') ? p.key : routes().find((r) => r.upstream.id === p.pi && r.via === 'key')?.id ?? 'missing');
     if (ask.options?.signal?.aborted) throw new KeyRouteError('aborted');
@@ -986,6 +998,53 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     checkKeyModel(r, ask.model, this.platform.kind ?? 'browser', runtime.supported);
     const secret = await this.key(member, ask.account);
     return keyRespond(r, secret, ask, this.opts.fetch, runtime);
+  }
+
+  /** A selected OAuth subscription account (Grok, Copilot, Kimi, Meta) answers through the same pinned Models path as a
+   *  key, with the auth its own runtime derives (refreshed first when due). Where the kit owns the refresh (the portable
+   *  engine on phones and browsers) a refresh the provider proves revoked or refuses with a bare 400-403 signs only that
+   *  account out; on a computer Pi refreshes internally and only its own status-less error reaches here, so any failure is
+   *  typed network and the sign-in is kept. A 429 rests only it, typed, never retried. A route this platform cannot run is
+   *  typed not_included. */
+  private async respondOAuth<T extends Api>(member: M, ask: KeyAsk<T>, p: Provider, r: Route): Promise<AssistantMessage> {
+    if (r.platforms[this.platform.kind ?? 'browser'] === 'no') throw new ResponseError(`${p.name} can't answer on this device.`, 'not_included');
+    if (ask.options?.signal?.aborted) throw new KeyRouteError('aborted');
+    if (ask.options && 'client' in ask.options && ask.options.client !== undefined) throw new KeyRouteError('auth_override');
+    if (!this.platform.keys) throw new KeyRouteError('needs_keys');
+    const runtime = await this.platform.keys();
+    checkKeyModel(r, ask.model, this.platform.kind ?? 'browser', runtime.supported);
+    const key = await this.resolveKey(member, ask.account);
+    let auth: ModelAuth | undefined;
+    try { auth = (await (await this.runtime(member, key)).getAuth(p.pi))?.auth; }
+    catch (e) {
+      // Where the kit owns the refresh (the portable engine), a refresh the provider proves revoked or refuses with a bare
+      // 400-403 signs only this account out, never retried; the store carries the refusal as `httpStatus`. A computer's
+      // Pi-owned refresh throws only its own status-less error, so a failure there is unknown: typed network, kept. A 5xx
+      // or a dropped connection keeps the sign-in on both; an accepted but unreadable answer ends it.
+      if (!endedRefresh(e)) throw new ResponseError(`${p.name} could not refresh its sign-in. Try again when the network is back.`, 'network');
+      await this.logout(member, key).catch(() => {});
+      this.forget(member, key);
+      this.onExpired?.(member, key);
+      throw new ResponseError(say('status.needsAgain', { name: p.name }), 'signed_out');
+    }
+    if (!auth) throw new ResponseError(say('status.signedOut', { name: p.name }), 'signed_out');
+    // The status only, read where the request went out: Pi's own error keeps it inside its message.
+    let refused: { status: number; retryAfter?: string } | undefined;
+    const send = ask.options?.fetch ?? this.opts.fetch ?? fetch;
+    const watched: typeof fetch = async (input, init) => {
+      const res = await send(input, init);
+      if (!res.ok) refused = { status: res.status, retryAfter: res.headers.get('retry-after') ?? undefined };
+      return res;
+    };
+    try {
+      return await keyRespond(r, auth, { ...ask, options: { ...ask.options, fetch: watched } as KeyAsk<T>['options'] }, undefined, runtime);
+    } catch (e) {
+      if (!(e instanceof KeyRouteError && e.code === 'request' && refused?.status === 429)) throw e;
+      // Retry-After in seconds or as an HTTP date; none (or one already past) rests the default.
+      const wait = Number(refused.retryAfter) * 1000 || Date.parse(refused.retryAfter ?? '') - Date.now();
+      const acted = (await this.failed(member, key, new ResponseError('', 'rate_limit', wait > 0 ? Date.now() + wait : 0), true))!;
+      throw new ResponseError(say('status.resting', { name: p.name, until: clock(acted.until!) }), 'rate_limit', acted.until, refused);
+    }
   }
 
   /** A selected Google Code Assist account answers through the kit-owned v1internal adapter with the project the
@@ -1390,11 +1449,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         const c = await this.store(member).read(this.storageKey(key));
         return c?.type === 'oauth' && c.expires > Date.now();
       }
-      // A revoked (invalid_grant) or quarantined refresh requires sign-in again. A lost answer, any other refusal (a
-      // passing 401 included), a server error or a read failure before sending (a locked keychain) is unknown: try later.
-      if (e instanceof RefreshRequiredError || (e as any)?.revoked === true) return false;
-      const status = (e as any)?.status;
-      return typeof status !== 'number' || status < 400 || status > 403;
+      // A revoked (invalid_grant) or quarantined refresh requires sign-in again. A bare 400-403 keeps the sign-in here:
+      // only the respond path reads the store's `httpStatus`, and a computer's Pi-owned refresh throws status-less errors
+      // anyway. A dropped connection, a server error or a read failure before sending (a locked keychain) is unknown:
+      // try later. An accepted but unreadable answer already ended the sign-in above.
+      return !refusedRefresh(e);
     });
   }
 

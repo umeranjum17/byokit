@@ -218,6 +218,21 @@ options pass through; the guard disables header-auth transforms, retries and pro
 Cloudflare Gateway uses its pinned `cf-aig-authorization`-only auth; pasted Anthropic bearer uses only
 `authorization`, never an API key header.
 
+A signed-in OAuth subscription account (Grok, GitHub Copilot, Kimi, Meta) answers through the same typed form and
+pinned Models path: `accounts.respond(member, { account: 'grok.<id>', model, context, onText })`. Its auth comes from
+that account's own `runtime(member, id)`, refreshed first when due, as its pinned Pi provider derives it (Kimi's bearer
+header, Copilot's per-token base URL); on phones and in browsers the portable engine gives the access token as the key.
+It needs the `/keys` entry, as a key route does. A model from another provider is refused with
+`KeyRouteError.code === 'provider'`. A 429 rests only that account and rejects with `ResponseError` kind `rate_limit`
+(`until` from `retry-after`), never retried. Where the kit owns the refresh (the portable engine on phones and browsers,
+with `withKeys(portable)`), a refresh the provider proves revoked (such as `invalid_grant`) or refuses with a bare 400,
+401 or 403 signs only that account out (`signed_out`), never retried, while a 5xx, a timeout or a dropped connection
+at refresh keeps the sign-in and rejects with `network`; a 2xx answer whose body cannot be read spends the grant, so it
+ends the sign-in (`signed_out`). On a computer the kit does not own the refresh:
+Pi refreshes internally and throws its own error, so a failed refresh there (a revocation included) is typed `network`
+and the sign-in is kept until the provider needs a fresh sign-in. A route this platform cannot run (Meta in a browser or
+on a phone) is `not_included`.
+
 An explicit prebuilt SDK `client` is refused with `KeyRouteError.code === 'auth_override'` **before** opening
 saved-account secrets: its opaque authentication cannot be verified as this account. It is not silently
 ignored or relabelled. For explicit native/client-owned authentication, `keys()` from `@byokit/accounts/keys`
@@ -375,9 +390,9 @@ whether fetch streams SSE, buffers it, or returns JSON. The account stays signed
 Successful return values are unchanged.
 
 Set `parallelToolCalls: false` to request one tool call at a time; `true` allows parallel calls. Both pass through as
-`parallel_tool_calls`; omitting it sends nothing and keeps the provider default. `respond` supports only the ChatGPT
-subscription route; OpenRouter, Grok and Copilot are credential routes without `respond` support, and there is no
-Anthropic response route.
+`parallel_tool_calls`; omitting it sends nothing and keeps the provider default. This `input` form supports only the ChatGPT
+subscription route; Grok, Copilot, Kimi and Meta sign-ins answer through the typed `{ account, model, context }` form
+(see [Key routes](#key-routes)), and there is no Anthropic response route.
 
 The whole question passes through: `input` takes the turns so far (messages, with `input_image` where the person
 attached a picture), `tools` and `tool_choice` take the app's own function tools and built-ins (including
