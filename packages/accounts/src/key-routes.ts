@@ -62,7 +62,9 @@ export async function keyRespond<T extends Api>(r: Route, access: string | Model
   const authContext = { env: async () => undefined, fileExists: async () => false };
   const models = runtime.createModels({ authContext });
   const compat = ask.model.compat as { openRouterRouting?: object } | undefined;
-  const authHeaders: ProviderHeaders = typeof access !== 'string' ? { ...access.headers } : r.upstream.id === 'cloudflare-ai-gateway'
+  const authHeaders: ProviderHeaders = typeof access !== 'string'
+    ? { ...access.headers, ...(['minimax', 'minimax-cn'].includes(r.upstream.id) ? { authorization: `Bearer ${auth.apiKey}`, 'x-api-key': null } : {}) }
+    : r.upstream.id === 'cloudflare-ai-gateway'
     ? { 'cf-aig-authorization': `Bearer ${access}`, authorization: null, 'x-api-key': null }
     : r.upstream.method === 'ANTHROPIC_AUTH_TOKEN' ? { authorization: `Bearer ${access}`, 'x-api-key': null } : {};
   const model = { ...ask.model, headers: nonAuthHeaders(ask.model.headers), compat: { ...compat, allowedFallbackModels: [], openRouterRouting: { ...compat?.openRouterRouting, allow_fallbacks: false } } } as unknown as Model<T>;
