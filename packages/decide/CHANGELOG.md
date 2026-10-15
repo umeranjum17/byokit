@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.9.0 (2026-10-15)
+
+- Dependency update: pins @byokit/accounts 0.23.0.
+
+- ADD: `anthropic({ model, key, maxTokens?, instructions?, ... })` Messages API backend for decision judges holding a plain Anthropic key: one forced `decisions` tool carries the shared question schema, answers parse with the same floors, usage and raw as the Responses backends, and `ANTHROPIC_ROUTES.apiKey` labels billing `'api'`. No plan sign-in and no fallback between routes.
+- ADD: `opencodeGo({ key, ... })` plain plan-key input alongside the plan account, for hosts holding the member's Go plan key with no accounts peer: same Responses endpoint, session header and floors, still billing `'subscription'` with no API-billed route and no fallback between key inputs.
+- ADD: `parseConfig` / `configuredBackend` / `createDecider` accept `backend: 'anthropic'` (auth `apiKey`, explicit model, key from `host.keys.anthropic`) and `backend: 'opencode-go'` (auth `apiKey` from `host.keys['opencode-go']`, or auth `account` from the Go-only slot `host.accounts['opencode-go']`, so a ChatGPT account in `host.account` never reaches the Go endpoint and vice versa); OpenAI, Anthropic and OpenCode Go require an explicit model; `request` applies to OpenAI and OpenCode Go, and `supportsImages` to OpenAI and Anthropic.
+- SECURITY: Plan handles carry the readonly provider tag from `@byokit/accounts` (`'chatgpt'`, `'opencode-go'`): `opencodeGo()` requires `'opencode-go'` and `openai({ auth: 'account', ... })` requires `'chatgpt'` for every account handle, token-bearing or `accounts.chatgpt(member)`, so a misplaced or untagged handle is refused with plain words instead of sending its token to the wrong provider; untagged handles from older `@byokit/accounts` need that package updated. Requires `@byokit/accounts` 0.23.0.
+
 ## 0.8.0 (2026-10-12)
 
 - FIX: Claude-judge calls through `claudeCode` no longer fail before sign-in on Claude Code 2.1.294 and later, which refuse `--input-format stream-json` with `--output-format json`. Generation now asks for `--output-format stream-json --verbose` (input stays stream-json) and reads the final `result` event from the event stream; every isolation flag (tools off, MCP off, empty setting sources, safe mode, forced claude.ai login, hooks off, no session persistence, scratch HOME, separate sign-in dir) is unchanged.

@@ -1,1 +1,0 @@
-- FEAT: Ollama Pro hosted plan-key route (`ollama-pro:plan_key`, default model `deepseek-v4.1-flash` at `https://ollama.com/v1`) reuses the shared `@byokit/secrets` plan-key seam — person-entered key, never argv/env/recipes.

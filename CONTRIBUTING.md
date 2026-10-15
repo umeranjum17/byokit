@@ -152,7 +152,8 @@ Every package has `packages/<pkg>/CHANGELOG.md`, shipped in its tarball, in this
 Versions are independent per package (0.x semver): bump minor for new exports, behavior, breaking changes, a
 raised engine floor or a pinned runtime upgrade; patch for fixes, shipped-file docs and pin updates from the
 cascade. No 1.0, no prereleases, no `major`. Internal `@byokit` pins stay exact, so releasing a package
-cascades: published dependents get a patch plus copies of its `SECURITY:`/`FIX:` lines.
+cascades: published runtime and exact-peer dependents get a patch plus copies of its `SECURITY:`/`FIX:` lines.
+Dev-only pins update without a release; explicit minor selections take precedence over cascade patches.
 
 Two phases, because publishing happens only from merged main:
 
