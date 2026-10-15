@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // `byokit-accounts` — one source of truth for the CLI accounts a pool owner keeps. `list` and `pick` read the
-// same rows `cliAccounts` already produces, so the fleet's pick and the captain's list never disagree. Every
-// answer is JSON and never carries a secret, except the plain `list` table and `eval "$(byokit-accounts env
-// <id>)"`, which carry folder paths only. Reads `<stateDir>/pool.json`: the absolute path of each CLI
+// same rows `cliAccounts` already produces, so the fleet's pick and the captain's list never disagree.
+// Output formats and pool setup: ../README.md#the-byokit-accounts-command. Never prints a secret.
+// Reads `<stateDir>/pool.json`: the absolute path of each CLI
 // binary, plus HOME and PATH. Writes `<stateDir>/readings-v1.json` after every read, so `list --json
 // --cached` answers with no read at all. Exit 0 ok, 2 usage, 1 anything else, always with a plain message.
 import { randomUUID } from 'node:crypto';

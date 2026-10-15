@@ -829,7 +829,7 @@ its directory return value but no longer changes global environment variables.
 
 ### The `byokit-accounts` command
 
-The package ships one `bin`, `byokit-accounts`, for a person who keeps several CLI accounts and wants one list to read and one switch to use. It is a thin front end: every answer comes from `cliAccounts.status`, `cliAccounts.pick`, `cliAccounts.preferOf`/`setPrefer` and `cliAccounts.rest`/`unrest`, so the fleet's pick and the person's list can never disagree, and nothing else holds account state. Every command prints JSON and never a secret, except `list` without `--json` (a plain aligned table) and `env` (shell `export`/`unset` lines carrying folder paths only). It reads `<stateDir>/pool.json` — the tool's absolute CLI binary paths, `HOME` and `PATH` — and `--state <dir>` names the pool folder that holds it:
+The package ships one `bin`, `byokit-accounts`, for a person who keeps several CLI accounts and wants one list to read and one switch to use. It is a thin front end: every answer comes from `cliAccounts.status`, `cliAccounts.pick`, `cliAccounts.preferOf`/`setPrefer` and `cliAccounts.rest`/`unrest`, so the fleet's pick and the person's list can never disagree, and nothing else holds account state. Every command prints JSON and never a secret, except `list` without `--json` (a plain aligned table), `env` (shell `export`/`unset` lines carrying folder paths only), and standalone `--help` (usage text, exit 0, no pool or sign-in required). Pool commands read `<stateDir>/pool.json` — the tool's absolute CLI binary paths, `HOME` and `PATH` — and `--state <dir>` names the pool folder that holds it:
 
 ```json
 {
@@ -840,6 +840,7 @@ The package ships one `bin`, `byokit-accounts`, for a person who keeps several C
 ```
 
 ```sh
+npx -p @byokit/accounts byokit-accounts --help
 byokit-accounts list --state ~/.local/state/byokit-pool         # plain table: id, tool, name, state, room, reset, note
 byokit-accounts list --json --state <dir>                       # one row per account: id, tool, name, state, restUntil,
                                                                 # why, room, windows, readAt, stale, preferred
