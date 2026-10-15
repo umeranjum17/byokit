@@ -699,6 +699,7 @@ export class OpenClawKit {
     this.keys = createKeys({ root: this.engine.root,
       prepareOwner: (agentId) => this.prepareKeyOwner(agentId),
       indexLane: (member, route) => this.indexKeyLane(member, route),
+      dropLane: (member, provider) => this.dropKeyLane(member, provider),
       backfillLane: (member, model) => this.backfillKeyLane(member, model),
       restarting: () => this.engineRestarting(),
       request: (method, params, options) => this.request()(method, params, options),
@@ -1089,6 +1090,16 @@ export class OpenClawKit {
    * with no saved key the call resolves without doing anything. */
   removeKey(member: Member, o?: { provider?: string }): Promise<void> {
     return this.keys.remove(member, o);
+  }
+
+  // The lane's index entry follows its sealed key down. A failed drop is logged and never fails the removal.
+  private async dropKeyLane(member: Member, provider?: string): Promise<void> {
+    if (!this.accountsCtl) {
+      this.o.log?.('removeKey: the account index is not ready, so the key lane entry stays until the next removal');
+      return;
+    }
+    await this.accountsCtl.unkey(member, provider).catch((error: unknown) =>
+      this.o.log?.(`removeKey: the key lane entry is not dropped yet: ${error instanceof Error ? error.message : String(error)}`));
   }
 
   private async backfillKeyLane(member: Member, model: string | undefined): Promise<void> {

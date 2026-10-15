@@ -20,6 +20,7 @@ try {
   const added = { lane: await lane('m1'), signedIn: await kit.signedIn('m1', 'opencode-go') };
   console.log('after addKey:', JSON.stringify(added));
   assert.equal(added.signedIn, true);
+  assert.deepEqual((await kit.accounts('m1')).map((a) => a.id), ['opencode-go.key']);
 
   // removeKey: the sealed key and its ready marker go, so the member reads signed out.
   await kit.removeKey('m1');
@@ -27,6 +28,8 @@ try {
   console.log('after removeKey:', JSON.stringify(removed));
   assert.deepEqual(removed.lane, { ok: false, absent: true });
   assert.equal(removed.signedIn, false);
+  assert.deepEqual(await kit.accounts('m1'), []);
+  console.log('accounts after removeKey: []');
   const runEnd = await kit.run({ member: 'm1', sessionKey: 'agent:m1:verify-remove', auth: 'apiKey', message: 'Hi' });
   console.log('key run after removeKey:', JSON.stringify(runEnd));
   assert.equal(runEnd.ok, false);
@@ -49,10 +52,13 @@ try {
   const spared = await kit.signedIn('m1', 'opencode-go');
   console.log("after signOut('openai'): signedIn('opencode-go'):", spared);
   assert.equal(spared, true, "another provider's sign-out leaves the saved key alone");
+  assert.deepEqual((await kit.accounts('m1')).map((a) => a.id), ['opencode-go.key']);
   await kit.signOut('m1', 'opencode-go');
   const signedOut = { lane: await lane('m1'), signedIn: await kit.signedIn('m1', 'opencode-go') };
   console.log("after signOut('opencode-go'):", JSON.stringify(signedOut));
   assert.deepEqual(signedOut, { lane: { ok: false, absent: true }, signedIn: false });
+  assert.deepEqual(await kit.accounts('m1'), []);
+  console.log('accounts after signOut: []');
 
   // A refused control read is a typed refusal, and no key value reaches the calls.
   fake.handle('byokit.keys', () => { throw new Error('gateway restarting ENGINE-ECHO'); });
