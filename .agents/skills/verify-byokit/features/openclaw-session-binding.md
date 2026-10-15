@@ -8,6 +8,7 @@ Verification recipe for [session binding](../../../../docs/runtime-kits.md#515-a
 - `kit.pick(member, sel, { sessionKey })` equals the run's account event on the same state, `considered` included: unbound, bound to an account agent, bound to the member agent (Auto only among the member agent's accounts, others `out: 'bound'`).
 - A bound key refuses another id (`code: 'bound'`, words `account.bound`); an API-key conversation refuses anything but its own id (`code: 'paid'`, words `account.paid`); the run ends `{ ok: false, kind: 'other', message }` with no event and no agent request.
 - `addKey` indexes the member's single `byokit-key-<member>` lane as `<provider>.key` (replace-on-add); a key-held conversation stays bound; an `auth: 'apiKey'` run continues on that same lane session; the key never reaches the index.
+- A member with only a subscription key lane lists that account, but unbound Auto/default return `none` with no considered rows and no `models.list` or `models.authStatus` requests for the excluded lane.
 - `steer`/`abort` with the app key reach the live run's engine key.
 - A `<member>--<hex6>` key the index does not name is refused as not the member's.
 
