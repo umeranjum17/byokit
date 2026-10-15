@@ -12,6 +12,7 @@ A consumer app rents and drives a Boat cloud computer through the built `@byokit
 - `boat-plan`: `plan` maps `sandboxPlanKey`/`subscriptionTrialEndsAt` (`key`/`why` are absent — no public route/field).
 - `boat-existing`: list, consent-gated adoption, collision refusal, and failed-install retry without another rental.
 - `boat-error`: a wrong key is a typed `unauthorized` and the key never appears in the message.
+- `boat-retry-deadline`: 429 and 5xx are retried at 1 s, 2 s and 4 s, and a transient answer never becomes a hard `provider` failure just because the provider's own answers are slow; one 10 s request deadline caps the waits and ends the retries on an answer that arrives past it. A wait the deadline capped still earns the retry it waited for.
 - `boat-tailnet`: keyless `joinTailnet` emits the phone login link then a validated MagicDNS name; status distinguishes joined/needs-login/off and refuses malformed answers. Boat join keys are rejected before exec or file writes.
 - `boat-private-bootstrap`: create + install + host + join make zero `/host` calls; `url()` is explicit public exposure, never bootstrap.
 
@@ -65,6 +66,44 @@ try {
   }
 } finally {
   await server.close();
+}
+```
+
+### Retry and deadline leg
+
+The 429/5xx retries are the one slow path in the adapter, so drive them explicitly: three injected
+failures followed by a real answer, and four injected failures with no allowance.
+
+- **Write the consumer.** Append the leg below to `"$scratch_dir/verify-cloud-boat-v1.mjs"` (it reuses the `boat`/`out`/
+  `server` above, so run it inside that script's `try`, or as its own script with its own bench).
+- **Run and capture.** Same `feature`/`entry`/`drive` as above, then SKILL.md Evidence's capture block. Exit code `0`.
+- **What it proves.** `retry-requests: 4` (the first attempt plus the three retries) and `retry-account: "acct-test"` —
+  the injected 429, 503 and 500 are absorbed and the fourth answer is the real one — then `exhausted-code: "provider"`
+  with `exhausted-requests: 4` for four failures in a row. On a host whose `fetch` adds per-answer latency (Node
+  26.7.0 loopback keep-alive does), only the request count and the account id are asserted, never elapsed time: the
+  point is that the retry happens, not how long the transport took.
+
+```js
+// Retries: three injected failures are absorbed, four are not.
+const failing = await startFakeSandboxServer();
+try {
+  const good = boat({ baseUrl: failing.url, label: 'Boat', prices: [], key: async () => 'test-key' });
+  failing.failNext([{ status: 429 }, { status: 503 }, { status: 500 }]);
+  const before = failing.requests.length;
+  out('retry-account', await good.account());
+  out('retry-requests', failing.requests.length - before);
+  failing.failNext([{ status: 429 }, { status: 429 }, { status: 429 }, { status: 429 }]);
+  const spent = boat({ baseUrl: failing.url, label: 'Boat', prices: [], key: async () => 'test-key' });
+  const beforeSpent = failing.requests.length;
+  try {
+    await spent.account();
+    out('exhausted-code', 'NO ERROR (unexpected)');
+  } catch (e) {
+    out('exhausted-code', e.code);
+  }
+  out('exhausted-requests', failing.requests.length - beforeSpent);
+} finally {
+  await failing.close();
 }
 ```
 

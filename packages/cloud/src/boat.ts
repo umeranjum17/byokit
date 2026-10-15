@@ -37,10 +37,13 @@ const TRIAL_TTL_SECONDS = 7200;
 const DELETE_CONFIRM_HEADER = 'X-Ascii-Confirm-Delete';
 
 const RETRY_WAITS_MS = [1000, 2000, 4000];
-// One deadline per request: the backoff waits and the start of each new attempt
-// are bounded by it, so slow 429/5xx answers cannot stretch the retries to ~47 s.
-// A request already in flight is never cut by it, because a non-detached exec
-// POST legitimately stays open up to its timeoutSeconds.
+// One deadline per request: it caps the backoff waits, and an answer that arrives
+// past it ends the retries, so slow 429/5xx answers cannot stretch the retries to
+// ~47 s. The retry a capped wait paid for is always made, or a provider whose own
+// latency is not tiny would spend the whole budget waiting and then get its
+// transient 429/5xx handed back as a hard failure. A request already in flight is
+// never cut by it, because a non-detached exec POST legitimately stays open up to
+// its timeoutSeconds.
 const REQUEST_TIMEOUT_MS = 10_000;
 const POLL_EVERY_MS = 2000;
 const EXEC_POLL_EVERY_MS = 1000;
@@ -130,11 +133,13 @@ export function boat(o: {
         throw new MachineError('unreachable', 'the provider could not be reached');
       }
       if ((res.status === 429 || res.status >= 500) && attempt < RETRY_WAITS_MS.length) {
-        // Past the one overall deadline the last answer stands, exactly as
-        // when the retries run out; the wait itself is capped at what is left.
+        // Past the one overall deadline the last answer stands, exactly as when
+        // the retries run out. Inside it, the wait is capped at what is left and
+        // the retry it waited for is still made: giving up there would return a
+        // transient 429/5xx as a hard failure after spending the whole budget.
         const remaining = REQUEST_TIMEOUT_MS - (Date.now() - started);
+        if (remaining <= 0) return res;
         await sleep(Math.min(RETRY_WAITS_MS[attempt], remaining), o.signal);
-        if (Date.now() - started >= REQUEST_TIMEOUT_MS) return res;
         continue;
       }
       return res;
