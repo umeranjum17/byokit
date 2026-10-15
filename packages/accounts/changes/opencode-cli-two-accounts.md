@@ -1,1 +1,0 @@
-- FEAT: Managed OpenCode CLI keeps one `@byokit/secrets` plan-key entry per account (`accounts.<route>.<accountId>`), so two accounts launch and resume independently (`resumeArgs` → `--session`); the portable `openCodeGoPlanAccount` route-only entry is unchanged.

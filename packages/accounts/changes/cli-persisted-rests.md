@@ -1,1 +1,0 @@
-- FEAT: Managed CLI `rest(id, { until, why })` / `unrest(id)` persist breaks in `rests-v1.json` (0600, atomic); `status` returns `resting` until the time passes, and `launch` refuses resting accounts with `code: 'resting'`.

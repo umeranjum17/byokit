@@ -1,1 +1,0 @@
-- FIX: Publish the `byokit-accounts` executable so npm can resolve it, and let `byokit-accounts --help` print usage without a pool or sign-in.

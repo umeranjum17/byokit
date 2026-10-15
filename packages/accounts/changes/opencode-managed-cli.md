@@ -1,1 +1,0 @@
-- FEAT: Managed CLI `add('opencode')` with hidden `saveKey` / `logout` / launch (`OPENCODE_CONFIG_DIR`), remote-CLI provider parity (read-only; sign-in unsupported over the link), and a plan-key route seam (`openCodeGoPlanAccount`) that resolves one `@byokit/secrets` entry per route — never OpenCode's `auth.json`, argv, env, or logs.
