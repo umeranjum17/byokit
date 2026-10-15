@@ -17,7 +17,7 @@ import { clock } from './words.ts';
 
 export type CliIo = { stdout(s: string): void; stderr(s: string): void };
 
-const PROVIDERS: CliProvider[] = ['claude', 'codex', 'pi', 'opencode', 'kimi', 'vibe'];
+const PROVIDERS: CliProvider[] = ['claude', 'codex', 'pi', 'opencode', 'kimi', 'vibe', 'cursor'];
 const USAGE = 'byokit-accounts <list|add|status|pick|use|env|rest|unrest> [--state <dir>] [--json] [--cached] ...';
 /** The command's own two Claude headers; a pool row's room and its Windows need a client that says who it is. */
 const CLAUDE_HEADERS = { 'anthropic-beta': 'oauth-2025-04-20', 'User-Agent': 'byokit-accounts' };
@@ -150,7 +150,7 @@ const needed = (value: string | undefined, message: string): string => {
 };
 
 function toolArg(value: string | undefined): CliProvider {
-  if (value === undefined || value === '') throw new UsageError('this command needs a tool: claude, codex, pi, opencode, kimi or vibe');
+  if (value === undefined || value === '') throw new UsageError('this command needs a tool: claude, codex, pi, opencode, kimi, vibe or cursor');
   if (!PROVIDERS.includes(value as CliProvider)) throw new UsageError(`unknown tool "${value}"`);
   return value as CliProvider;
 }

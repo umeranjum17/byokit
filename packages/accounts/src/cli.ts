@@ -198,7 +198,9 @@ export function cliAccounts(options: CliOptions) {
     if (r.provider === 'codex') return codexSource(r);
     return r.provider === 'claude' && options.claudeHeaders ? { provider: 'claude', folder: r.folder, headers: options.claudeHeaders } : undefined;
   }
-  if (ownsDefaultLogin(stateDir)) throw new CliAccountError('bad-option');
+  // Never write kit bookkeeping into a default login: neither the state root itself nor a provider's
+  // managed root below it may sit inside one, so `<stateDir>/cursor` cannot land in `~/.config/cursor`.
+  if ([stateDir, ...providers.map((p) => join(stateDir, p))].some(ownsDefaultLogin)) throw new CliAccountError('bad-option');
   // Parents must already be app-owned. Never follow a state/provider/folder symlink.
   try { if (realpathSync(dirname(stateDir)) !== dirname(stateDir)) throw new CliAccountError('bad-option'); }
   catch { throw new CliAccountError('bad-option'); }
@@ -304,11 +306,18 @@ export function cliAccounts(options: CliOptions) {
     return r;
   }
   function binary(p: CliProvider): string { const bin = bins[p]; if (!bin) throw new CliAccountError('bad-option'); return bin; }
-  // A moved XDG_CONFIG_HOME also moves git's and gh's global files. Point both back at the pool HOME's real
-  // files, or `git commit` exits 128 (author identity unknown) and `gh` cannot find its login. Paths only.
-  const gitFiles = { GIT_CONFIG_GLOBAL: join(env.HOME, '.config', 'git', 'config'), GH_CONFIG_DIR: join(env.HOME, '.config', 'gh') };
+  // A moved XDG_CONFIG_HOME also moves git's and gh's global files, and CURSOR_CONFIG_DIR is Cursor's other
+  // config override, so both folder variables name the managed folder. GIT_CONFIG_GLOBAL replaces both of
+  // git's own global files, so name the pool HOME's real one (`~/.gitconfig` wins where both exist) or none
+  // at all: `git commit` keeps its identity, and an ambient folder cannot outlive the managed one. Paths only.
   function launch(r: Row): { set: Record<string, string>; unset: string[] } {
-    return { set: { [folderVar(r.provider)]: r.folder, ...(r.provider === 'cursor' ? gitFiles : {}) }, unset: [...shed[r.provider]] };
+    if (r.provider !== 'cursor') return { set: { [folderVar(r.provider)]: r.folder }, unset: [...shed[r.provider]] };
+    const gitGlobal = [join(env.HOME, '.gitconfig'), join(env.HOME, '.config', 'git', 'config')].find(existsSync);
+    return {
+      set: { [folderVar(r.provider)]: r.folder, CURSOR_CONFIG_DIR: r.folder, GH_CONFIG_DIR: join(env.HOME, '.config', 'gh'),
+        ...(gitGlobal === undefined ? {} : { GIT_CONFIG_GLOBAL: gitGlobal }) },
+      unset: [...shed.cursor, ...(gitGlobal === undefined ? ['GIT_CONFIG_GLOBAL'] : [])],
+    };
   }
   function spawnEnv(r: Row) {
     return cleanLaunchEnv({ base: env, account: launch(r) }).env;

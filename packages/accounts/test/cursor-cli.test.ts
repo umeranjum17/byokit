@@ -49,7 +49,7 @@ test('cursor two accounts: one XDG_CONFIG_HOME each, two auth files, neither rea
   mkdirSync(home, { recursive: true });
   const cursor = fakeCursor(join(root, 'bins'));
   const parent = join(stateDir, 'cursor');
-  const env = { HOME: home, PATH: '/unused', CURSOR_API_KEY: 'owner-key-override', CURSOR_AUTH_TOKEN: 'owner-token-override' };
+  const env = { HOME: home, PATH: '/unused', CURSOR_API_KEY: 'owner-key-override', CURSOR_AUTH_TOKEN: 'owner-token-override', CURSOR_CONFIG_DIR: '/owner/cursor-config', GIT_CONFIG_GLOBAL: '/owner/gitconfig' };
   const kit = cliAccounts({ stateDir, bins: { cursor: cursor.bin }, env });
 
   const { account: a, signIn: signA } = await kit.add('cursor');
@@ -57,11 +57,13 @@ test('cursor two accounts: one XDG_CONFIG_HOME each, two auth files, neither rea
   assert.deepEqual(signA.argv, [cursor.bin, 'login']);
   const folderA = signA.env.XDG_CONFIG_HOME;
   assert.ok(folderA.startsWith(parent + '/'));
+  assert.equal(signA.env.CURSOR_CONFIG_DIR, folderA, 'the host folder override is replaced by the managed folder');
   assert.equal(signA.env.CURSOR_API_KEY, undefined, 'the owner key override is unset at login');
   assert.equal(signA.env.CURSOR_AUTH_TOKEN, undefined);
-  // The moved XDG_CONFIG_HOME also moves git's and gh's global files; both are pointed back at the pool HOME.
-  assert.equal(signA.env.GIT_CONFIG_GLOBAL, join(home, '.config', 'git', 'config'));
+  // The moved XDG_CONFIG_HOME also moves gh's global file; git keeps its own discovery when the pool HOME
+  // has no global git file of its own, and an ambient override never reaches the child.
   assert.equal(signA.env.GH_CONFIG_DIR, join(home, '.config', 'gh'));
+  assert.equal(signA.env.GIT_CONFIG_GLOBAL, undefined);
   await signIn(kit, signA.shell);
   const authA = join(folderA, 'cursor', 'auth.json');
   assert.equal((await kit.status(a.id)).state, 'ready');
@@ -85,8 +87,9 @@ test('cursor two accounts: one XDG_CONFIG_HOME each, two auth files, neither rea
     if (call.argv[0] === 'status') assert.deepEqual(call.argv, ['status', '--format', 'json']);
     assert.equal(call.env.CURSOR_API_KEY, undefined);
     assert.equal(call.env.CURSOR_AUTH_TOKEN, undefined);
-    assert.equal(call.env.GIT_CONFIG_GLOBAL, join(home, '.config', 'git', 'config'));
+    assert.equal(call.env.CURSOR_CONFIG_DIR, folder);
     assert.equal(call.env.GH_CONFIG_DIR, join(home, '.config', 'gh'));
+    assert.equal(call.env.GIT_CONFIG_GLOBAL, undefined);
   }
 
   const launchA = await kit.launch(a.id);
@@ -95,8 +98,10 @@ test('cursor two accounts: one XDG_CONFIG_HOME each, two auth files, neither rea
   if (launchA.ok && launchB.ok) {
     assert.equal(launchA.set.XDG_CONFIG_HOME, folderA);
     assert.equal(launchB.set.XDG_CONFIG_HOME, folderB);
-    assert.equal(launchA.set.GIT_CONFIG_GLOBAL, join(home, '.config', 'git', 'config'));
+    assert.equal(launchA.set.CURSOR_CONFIG_DIR, folderA, 'both folder variables name the one managed folder');
     assert.equal(launchA.set.GH_CONFIG_DIR, join(home, '.config', 'gh'));
+    assert.equal('GIT_CONFIG_GLOBAL' in launchA.set, false);
+    assert.ok(launchA.unset.includes('GIT_CONFIG_GLOBAL'));
     assert.ok(launchA.unset.includes('CURSOR_API_KEY'));
     assert.ok(launchA.unset.includes('CURSOR_AUTH_TOKEN'));
   }
@@ -112,9 +117,20 @@ test('cursor two accounts: one XDG_CONFIG_HOME each, two auth files, neither rea
   await kit.remove(a.id);
   assert.equal((await kit.status(b.id)).state, 'ready');
   await assert.rejects(kit.status(a.id), CliAccountError);
+});
 
-  assert.throws(() => cliAccounts({ stateDir: join(home, '.config', 'cursor'), bins: { cursor: cursor.bin }, env: { HOME: home, PATH: '/unused' } }),
-    (e: unknown) => e instanceof CliAccountError && e.code === 'bad-option');
+test('the default-login guard refuses the default Cursor folder and a stateDir that would create it', () => {
+  const root = scratchDir('cursor-cli-guard');
+  const home = join(root, 'home'); mkdirSync(home);
+  const cursor = fakeCursor(join(root, 'bins'));
+  const bad = (stateDir: string, why: string) => assert.throws(
+    () => cliAccounts({ stateDir, bins: { cursor: cursor.bin }, env: { HOME: home, PATH: '/unused' } }),
+    (e: unknown) => e instanceof CliAccountError && e.code === 'bad-option', why);
+  bad(join(home, '.config', 'cursor'), 'the default Cursor folder is refused');
+  bad(join(home, '.config'), 'a stateDir whose own cursor folder would be the default one is refused');
+  // A pool HOME below the state root stays a supported layout: the guard stops at the tool folders.
+  const pools = join(root, 'pools'); const poolHome = join(pools, 'home'); mkdirSync(poolHome, { recursive: true });
+  cliAccounts({ stateDir: pools, bins: { cursor: cursor.bin }, env: { HOME: poolHome, PATH: '/unused' } });
 });
 
 test('cursor status reads isAuthenticated, never the exit code', async () => {
@@ -147,12 +163,10 @@ test('cursor status reads isAuthenticated, never the exit code', async () => {
   assert.doesNotMatch(JSON.stringify(broken), /private-fake-token/);
 });
 
-test('a moved XDG_CONFIG_HOME still commits in a scratch repo under a managed folder', async () => {
+test('the launch keeps the pool HOME\'s real global git file reachable in all three layouts', async () => {
   const root = scratchDir('cursor-cli-git');
   const stateDir = join(root, 'pools'); const home = join(root, 'home');
   mkdirSync(join(home, '.config', 'git'), { recursive: true });
-  // The pool HOME's real global git file, exactly what the launch must keep reachable.
-  writeFileSync(join(home, '.config', 'git', 'config'), '[user]\n\tname = Umer\n\temail = umer@example.test\n');
   const cursor = fakeCursor(join(root, 'bins'));
   const env = { HOME: home, PATH: process.env.PATH ?? '/usr/bin:/bin' };
   const kit = cliAccounts({ stateDir, bins: { cursor: cursor.bin }, env });
@@ -165,21 +179,43 @@ test('a moved XDG_CONFIG_HOME still commits in a scratch repo under a managed fo
   assert.equal(folder, kit.launchEnv(account.id).set.XDG_CONFIG_HOME);
 
   const repo = join(folder, 'scratch'); mkdirSync(repo);
-  const git = (args: string[], extra: Record<string, string | undefined>) => {
+  const git = (args: string[], extra: Record<string, string | undefined> = {}) => {
     const child = spawnSync('git', args, { cwd: repo, encoding: 'utf8',
-      env: { PATH: env.PATH, HOME: home, GIT_CONFIG_NOSYSTEM: '1', XDG_CONFIG_HOME: folder, ...launch.set, ...extra } });
+      env: { PATH: env.PATH, HOME: home, GIT_CONFIG_NOSYSTEM: '1', XDG_CONFIG_HOME: folder, ...kit.launchEnv(account.id).set, ...extra } });
     return { code: child.status, out: `${child.stdout}${child.stderr}` };
   };
+
+  // 1. The pool HOME keeps its identity in the XDG file, so that exact file is pinned.
+  const xdg = join(home, '.config', 'git', 'config');
+  writeFileSync(xdg, '[user]\n\tname = Xdg\n\temail = xdg@example.test\n');
+  assert.equal(kit.launchEnv(account.id).set.GIT_CONFIG_GLOBAL, xdg);
   assert.equal(git(['init', '-q', '.'], {}).code, 0);
   writeFileSync(join(repo, 'note.txt'), 'hello');
   assert.equal(git(['add', 'note.txt'], {}).code, 0);
   // `user.useConfigOnly` turns git's identity guess off, the same wall the exit-128 report hit.
-  assert.deepEqual(git(['-c', 'user.useConfigOnly=true', 'commit', '-q', '-m', 'first'], {}).code, 0,
+  assert.equal(git(['-c', 'user.useConfigOnly=true', 'commit', '-q', '-m', 'xdg'], {}).code, 0);
+  assert.equal(git(['log', '-1', '--format=%ae'], {}).out.trim(), 'xdg@example.test');
+
+  // 2. An identity in ~/.gitconfig, where `git config --global user.email` writes by default, still commits.
+  rmSync(xdg);
+  const dot = join(home, '.gitconfig');
+  writeFileSync(dot, '[user]\n\tname = Dot\n\temail = dot@example.test\n');
+  assert.equal(kit.launchEnv(account.id).set.GIT_CONFIG_GLOBAL, dot, 'the file that exists, not the missing XDG one');
+  writeFileSync(join(repo, 'note.txt'), 'again');
+  assert.equal(git(['add', 'note.txt'], {}).code, 0);
+  assert.equal(git(['-c', 'user.useConfigOnly=true', 'commit', '-q', '-m', 'dot'], {}).code, 0,
     'the launch keeps the pool HOME\'s real global git file reachable');
-  assert.equal(git(['log', '-1', '--format=%ae'], {}).out.trim(), 'umer@example.test');
-  // Without that one variable the moved XDG_CONFIG_HOME hides the identity: the exit-128 cause.
-  const hidden = git(['-c', 'user.useConfigOnly=true', 'commit', '-q', '-m', 'second'], { GIT_CONFIG_GLOBAL: undefined });
+  assert.equal(git(['log', '-1', '--format=%ae'], {}).out.trim(), 'dot@example.test');
+  // Pinning the missing XDG file is exactly the exit-128 wall this layout used to hit.
+  const hidden = git(['-c', 'user.useConfigOnly=true', 'commit', '-q', '-m', 'hidden'], { GIT_CONFIG_GLOBAL: xdg });
   assert.equal(hidden.code, 128, hidden.out);
   assert.match(hidden.out, /Author identity unknown|auto-detection is disabled/);
-  assert.equal(git(['log', '-1', '--format=%s'], {}).out.trim(), 'first', 'the refused commit created nothing');
+  assert.equal(git(['log', '-1', '--format=%s'], {}).out.trim(), 'dot', 'the refused commit created nothing');
+
+  // 3. Neither file: git keeps its own discovery and an ambient override is removed, not inherited.
+  rmSync(dot);
+  const none = kit.launchEnv(account.id);
+  assert.equal('GIT_CONFIG_GLOBAL' in none.set, false);
+  assert.ok(none.unset.includes('GIT_CONFIG_GLOBAL'));
+  assert.equal(none.set.CURSOR_CONFIG_DIR, folder);
 });
