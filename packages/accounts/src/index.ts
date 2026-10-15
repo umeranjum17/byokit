@@ -24,18 +24,27 @@ export const loopback: Loopback = (port, handle) => new Promise((resolve, reject
 /** The status a provider last refused with while one `getAuth` ran, read off Node's fetch as Pi's own refresh sends it:
  *  Pi's error keeps the status only in its words. A request sent outside a `getAuth` is never watched.
  *  A host that swaps the global fetch for one not built on Node's undici loses the status: typed network, kept. */
-const refreshing = new AsyncLocalStorage<{ status?: number }>();
+const tokenPaths: Record<string, string> = {
+  xai: '/oauth2/token',
+  'github-copilot': '/copilot_internal/v2/token',
+  'kimi-coding': '/api/oauth/token',
+  meta: '/muse-code/key',
+};
+const refreshing = new AsyncLocalStorage<{ provider: string; status?: number }>();
 const watched = new WeakMap<object, { status?: number }>();
-subscribe('undici:request:create', ({ request }: any) => { const w = refreshing.getStore(); if (w) watched.set(request, w); });
-subscribe('undici:request:headers', ({ request, response }: any) => { const w = watched.get(request); if (w && response.statusCode >= 400) w.status = response.statusCode; });
+subscribe('undici:request:create', ({ request }: any) => {
+  const w = refreshing.getStore();
+  if (w && request.path.split('?')[0] === tokenPaths[w.provider]) watched.set(request, w);
+});
+subscribe('undici:request:headers', ({ request, response }: any) => { const w = watched.get(request); if (w) w.status = response.statusCode; });
 
 /** Pi's engine, its failed refresh carrying the provider's refusal as `httpStatus`, as the kit's own store carries it. */
 function engine(credentials: CredentialStore) {
   const models = builtinModels({ credentials, authContext: emptyAuthContext });
   const getAuth = models.getAuth.bind(models) as (id: string, opts?: object) => ReturnType<typeof models.getAuth>;
   return Object.assign(models, { getAuth: (id: string, opts?: object) => {
-    const w: { status?: number } = {};
-    return refreshing.run(w, () => getAuth(id, opts)).catch((e) => { throw w.status && e instanceof Error ? Object.assign(e, { httpStatus: w.status }) : e; });
+    const w: { provider: string; status?: number } = { provider: id };
+    return refreshing.run(w, () => getAuth(id, opts)).catch((e) => { throw w.status && w.status >= 400 && e instanceof Error ? Object.assign(e, { httpStatus: w.status }) : e; });
   } }) as unknown as AuthHost;
 }
 

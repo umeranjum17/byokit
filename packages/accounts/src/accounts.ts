@@ -1027,8 +1027,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       // A 5xx or a dropped connection keeps the sign-in, typed network; where the kit refreshes, an accepted but unreadable
       // answer ends it.
       if (!endedRefresh(e)) throw new ResponseError(`${p.name} could not refresh its sign-in. Try again when the network is back.`, 'network');
-      await this.logout(member, key).catch(() => {});
-      this.forget(member, key);
+      await this.endAccount(member, key, true).catch(() => {});
+      this.forgetAccount(member, key);
       this.onExpired?.(member, key);
       throw new ResponseError(say('status.needsAgain', { name: p.name }), 'signed_out');
     }
@@ -1475,7 +1475,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       for (const key of keys) {
         if ((!key.includes(':') && !this.providers.some((p) => p.key === this.providerKey(key))) || this.ready.get(`${m}:${key}`) === false) continue;
         const ok = await this.refreshed(m, key, 60 * 60_000);
-        if (!ok) { this.forgetAccount(m, key); this.onExpired?.(m, key); }
+        if (!ok) { await this.endAccount(m, key, true); this.forgetAccount(m, key); this.onExpired?.(m, key); }
       }
     }
   }
