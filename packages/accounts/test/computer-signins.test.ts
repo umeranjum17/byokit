@@ -32,7 +32,7 @@ function offline(t: TestContext, respond: (url: string, init?: RequestInit) => R
  *  its fixed product ports, even when another app owns them. Each listener uses an OS-assigned port. */
 // Anthropic caches the imported factory. Keep one factory for this isolated test process and
 // switch only the current fixture context, rather than leaving an SDK cache with a stale mock.
-let callbackContext: { listeners: Map<number, Server>; busyPort?: number };
+let callbackContext: { listeners: Map<number, Server>; realPorts: WeakMap<Server, number>; busyPort?: number };
 const create = http.createServer;
 const mockedCreate = mock.method(http, 'createServer', (...args: any[]) => {
   const context = callbackContext;
@@ -45,7 +45,19 @@ const mockedCreate = mock.method(http, 'createServer', (...args: any[]) => {
       queueMicrotask(() => server.emit('error', Object.assign(new Error('fixture port unavailable'), { code: 'EADDRINUSE' })));
       return server;
     }
-    return listen(0, '127.0.0.1', done);
+    // Bind an ephemeral OS port, but report the registered product port so pin 1.x
+    // redirectUri (built from address.port) still matches the fixed client redirect.
+    const realAddress = server.address.bind(server);
+    return listen(0, '127.0.0.1', () => {
+      const value = realAddress();
+      if (value && typeof value !== 'string') context.realPorts.set(server, value.port);
+      server.address = (() => {
+        const current = realAddress();
+        if (!current || typeof current === 'string') return current;
+        return { ...current, port };
+      }) as typeof server.address;
+      done();
+    });
   }) as typeof server.listen;
   return server;
 });
@@ -53,14 +65,15 @@ syncBuiltinESMExports();
 after(() => { mockedCreate.mock.restore(); syncBuiltinESMExports(); });
 function callbacks(t: TestContext, busyPort?: number) {
   const listeners = new Map<number, Server>();
-  callbackContext = { listeners, busyPort };
+  const realPorts = new WeakMap<Server, number>();
+  callbackContext = { listeners, realPorts, busyPort };
   t.after(() => { for (const server of listeners.values()) server.close(); });
   return {
     async back(registeredPort: number, path: string) {
       const server = listeners.get(registeredPort);
       assert.ok(server?.listening);
-      const address = server.address() as AddressInfo;
-      return realFetch(`http://127.0.0.1:${address.port}${path}`);
+      const port = realPorts.get(server) ?? (server.address() as AddressInfo).port;
+      return realFetch(`http://127.0.0.1:${port}${path}`);
     },
     listeners,
   };
@@ -182,17 +195,20 @@ test('Claude explicit computer browser route: pinned callback/state/PKCE, plan n
   assert.equal(route('anthropic:browser').readiness, 'ready');
 });
 
-test('Claude browser bind failure is busy, never displaces a listener or starts a different flow', async (t) => {
+test('Claude browser prefers 53692 then falls back to a free port when that bind fails', async (t) => {
+  // Pin 1.x Anthropic OAuth: preferred callback 53692, then listen(0) (#10571). Kit busy still
+  // applies when the engine surfaces EADDRINUSE; this pin swallows it and continues.
   const callback = callbacks(t, 53692);
   offline(t, () => { throw new Error('No provider exchange before callback readiness'); });
   const store = memoryStore();
   const a = new Accounts({ offer: ['claude'], store: () => store });
   t.after(() => a.stop());
   const shown = await a.login(1, 'claude', { via: 'browser' });
-  assert.equal(shown?.state, 'failed');
-  assert.equal(shown?.why, 'busy');
+  assert.equal(shown?.state, 'waiting');
   assert.equal(callback.listeners.get(53692)?.listening, false);
+  assert.ok([...callback.listeners.keys()].some((port) => port === 0 || port !== 53692));
   assert.deepEqual(await store.list(), []);
+  a.stop();
 });
 
 test('Claude browser cancellation forwards abort to the pending paste prompt and closes the pinned listener', async (t) => {

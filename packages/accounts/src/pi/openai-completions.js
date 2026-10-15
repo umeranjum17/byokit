@@ -1,21 +1,21 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   clampOpenAIPromptCacheKey
-} from "./chunk-OTOLD7QS.js";
+} from "./chunk-IOKXVMI3.js";
 import {
   buildCopilotDynamicHeaders,
   hasCopilotVisionInput
-} from "./chunk-FJMJCJSO.js";
+} from "./chunk-T2VSXZNQ.js";
 import {
   formatProviderError,
   normalizeProviderError
-} from "./chunk-W3IKEFGN.js";
+} from "./chunk-E54CWL3Z.js";
 import {
   retryProviderRequest
-} from "./chunk-3TVGBGLJ.js";
+} from "./chunk-B7RY6CKU.js";
 import {
   shortHash
-} from "./chunk-QJQ5SDE2.js";
+} from "./chunk-HOZNWAQG.js";
 import {
   appendGrammarToolInputJsonDelta,
   buildBaseOptions,
@@ -26,10 +26,11 @@ import {
   getPiUserAgent,
   resolveGrammarConstrainedSampling,
   resolveJsonSchemaStrictSampling,
+  resolveSamplingParams,
   sanitizeSurrogates,
   thinkingBudgetForLevel,
   transformMessages
-} from "./chunk-VUCNMX7O.js";
+} from "./chunk-VZSF4MVH.js";
 import {
   calculateCost,
   clampThinkingLevel,
@@ -38,20 +39,20 @@ import {
   renderSystemMessageUpdate,
   resolveTranscript,
   resolveTranscriptTools
-} from "./chunk-PDUG4NYC.js";
+} from "./chunk-2HB4SJL3.js";
 import {
   getProviderEnvValue
-} from "./chunk-RGJXTNZI.js";
+} from "./chunk-TAO7TECG.js";
 import {
   parseStreamingJson
-} from "./chunk-FHNSO4GF.js";
+} from "./chunk-AT2YCN4O.js";
 import {
   headersToRecord
-} from "./chunk-MIDDHJH2.js";
+} from "./chunk-VXRRDOKP.js";
 import {
   AssistantMessageEventStream
-} from "./chunk-JTGIYXAQ.js";
-import "./chunk-XD4THNNI.js";
+} from "./chunk-JK2DMSVJ.js";
+import "./chunk-JOZQDPST.js";
 
 // node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js
 import OpenAI from "openai";
@@ -363,6 +364,7 @@ var stream = (model, context, options) => {
         return block;
       };
       for await (const chunk of openaiStream) {
+        await options?.onProviderStreamEvent?.(chunk, model);
         if (!chunk || typeof chunk !== "object")
           continue;
         output.responseId ||= chunk.id;
@@ -702,8 +704,9 @@ function buildParams(model, context, options, compat = getCompat(model), cacheRe
       params.providerOptions = { gateway: gatewayOptions };
     }
   }
-  if (options?.samplingParams) {
-    Object.assign(params, options.samplingParams);
+  const samplingParams = resolveSamplingParams(model, options?.reasoningEffort ?? "off", options?.samplingParams);
+  if (samplingParams) {
+    Object.assign(params, samplingParams);
   }
   return params;
 }

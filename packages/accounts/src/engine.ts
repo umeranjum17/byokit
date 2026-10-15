@@ -375,11 +375,12 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
  *  user-code flow, which Pi's computer engine has no module for). Every other provider still belongs to `engine`. */
 export function withDevice(engine: AuthHost, credentials: CredentialStore, options: EngineOptions = {}): AuthHost {
   const portable = portableEngine(credentials, options);
-  const mine = (id: string | Model<Api>) => typeof id === 'string' && deviceFlow(id, options.region)?.dialect !== undefined;
+  // 1.x getAuth accepts AnyModel (chat/image/classifier); device routing only applies to provider ids.
+  const mine = (id: string | Model<Api> | { id?: string }) => typeof id === 'string' && deviceFlow(id, options.region)?.dialect !== undefined;
   return {
     login: (id, type, io) => (mine(id) ? portable.login(id, type, io) : engine.login(id, type, io)),
     checkAuth: (id) => (mine(id) ? portable.checkAuth(id) : engine.checkAuth(id)),
-    getAuth: (id, opts) => (mine(id) ? portable.getAuth(id as string, opts) : engine.getAuth(id as string, opts)),
+    getAuth: (id, opts) => (mine(id) ? portable.getAuth(id as string, opts) : engine.getAuth(id as never, opts)),
     logout: (id) => (mine(id) ? portable.logout(id) : engine.logout(id)),
   } as AuthHost;
 }

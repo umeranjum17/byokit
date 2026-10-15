@@ -1,5 +1,5 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
-import "./chunk-XD4THNNI.js";
+// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+import "./chunk-JOZQDPST.js";
 
 // node_modules/@earendil-works/pi-ai/dist/providers/cloudflare-stream.js
 var CLOUDFLARE_ACCOUNT_ID = "CLOUDFLARE_ACCOUNT_ID";
@@ -16,7 +16,13 @@ function cloudflareStreams(streams) {
     streamSimple: (model, context, options) => streams.streamSimple(resolveCloudflareModel(model, options?.env), context, options)
   };
 }
+function cloudflareClassifier(classifier) {
+  return {
+    classify: (model, context, options) => classifier.classify(resolveCloudflareModel(model, options?.env), context, options)
+  };
+}
 export {
+  cloudflareClassifier,
   cloudflareStreams,
   resolveCloudflareModel
 };

@@ -949,7 +949,10 @@ export class OpenClawKit {
       // Public readiness/sign-in reads stay live; their fresh result can prepare the next run's admission.
       authStatus: (agentId, refresh, native) => this.admission.read(agentId, refresh, native, false),
       ensure: (member) => this.ensureMember(member), callbackPort: this.o.callbackPort ?? 1455,
+      nativeClaudeLogin: () => this.engine.nativeClaudeLogin(),
+      resetNativeClaudeLogin: () => this.engine.resetNativeClaudeLogin(),
       onDisconnect: (fn) => { this.signInDisconnects.add(fn); return () => { this.signInDisconnects.delete(fn); }; },
+      stopSignal: this.engine.stopSignal,
       authConfig: () => this.authSnapshot(),
       restarted: (authBefore, signal) => this.restarted(authBefore, signal) };
   }
@@ -989,8 +992,11 @@ export class OpenClawKit {
     return startSignIn(this.signInCtx(), member, o, on);
   }
 
-  signOut(member: Member, provider: string): Promise<void> {
-    return engineSignOut(this.signInCtx(), member, provider);
+  async signOut(member: Member, provider: string): Promise<void> {
+    await engineSignOut(this.signInCtx(), member, provider);
+    // The saved key lives on its own `byokit-key-<member>` agent, which the member-agent logout never reaches: without
+    // this, a key of that provider stays sealed and ready and the member reads signed in again after a restart.
+    await this.keys.remove(member, { provider });
   }
 
   // The member an agent id or session key belongs to, through the account index (5.15, O14m). Reads the index file, so it
@@ -1076,6 +1082,13 @@ export class OpenClawKit {
     }
     await this.accountsCtl.key(member, route).catch((error: unknown) =>
       this.o.log?.(`addKey: the key lane is not indexed yet: ${error instanceof Error ? error.message : String(error)}`));
+  }
+
+  /** Remove this member's saved key (the `byokit-key-<member>` lane: its credential store and ready marker), so
+   * `signedIn` is false for it and a restart cannot revive it. `provider` removes only that provider's saved key;
+   * with no saved key the call resolves without doing anything. */
+  removeKey(member: Member, o?: { provider?: string }): Promise<void> {
+    return this.keys.remove(member, o);
   }
 
   private async backfillKeyLane(member: Member, model: string | undefined): Promise<void> {

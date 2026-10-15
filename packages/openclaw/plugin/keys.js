@@ -19,8 +19,9 @@ export function registerKeys(api) {
       if (diagnostics) diagnostics.stage = 'config';
       const config = JSON.parse(await readFile(process.env.OPENCLAW_CONFIG_PATH, 'utf8'));
       const keyId = `byokit-key-${member}`;
-      if (!config.agents?.entries?.[member] || !config.agents?.entries?.[keyId]) {
-        reply({ ok: false });
+      // A clear for a lane that was never created (or whose entries are gone) has nothing left to drop and reports absent.
+      if (!config.agents?.entries?.[keyId] || (params.action !== 'clear' && !config.agents?.entries?.[member])) {
+        reply(params.action === 'clear' ? { ok: false, absent: true } : { ok: false });
         return;
       }
       const keyDir = resolveAgentDir(config, keyId);

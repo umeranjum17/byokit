@@ -672,6 +672,8 @@ export function createAccounts(ctx: {
     const file = read(member);
     const late = binding && refusalOf(file, binding, sel);
     if (late) return refused(late);
+    if (binding?.id !== undefined && !listed.some((r) => r.id === binding.id))
+      return { pick: { ok: false, code: 'none', reason: words('auto.noneBound'), considered: [] } };
     const rows = listed.filter((r) => !skip.includes(r.id));
     const named = sel.account === 'auto' || sel.account === 'default' ? undefined : sel.account;
     const known = named === undefined || listed.some((r) => r.id === named);

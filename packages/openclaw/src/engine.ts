@@ -1,10 +1,11 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { randomBytes, generateKeyPairSync, randomUUID } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, copyFileSync, rmSync, realpathSync, statSync } from 'node:fs';
+import { accessSync, constants, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, copyFileSync, rmSync, realpathSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { basename, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
+import { cliAccounts, remoteCliHost } from '@byokit/accounts/cli';
 import { AuthStore, AuthStoreUnreadableError, AuthStoreSealSizeError } from './auth-store.ts';
 import { EngineAlreadyRunningError, pidAlive, StartedProcesses } from './engine-status.ts';
 import { EnginePatchError, atomic, prepareEngineSet, processStartTime, readPatchSet, sha256, verifyEngineSet, type PatchSet } from './engine-patches.ts';
@@ -83,6 +84,11 @@ export class Engine {
   private starting?: Promise<{ port: number; token: string; identityPath: string } | undefined>;
   readonly authStore: AuthStore;
   private stopping = false;
+  // Aborted by stop(): a sign-in drive that has not reached its commit point then declines at once, the key paste
+  // included (it has no native host signal of its own). start() replaces it, so an earlier shutdown cannot decline
+  // a later drive.
+  private stopOwner = new AbortController();
+  private claudeLogin?: ReturnType<typeof remoteCliHost>; private claudeAccounts?: ReturnType<typeof cliAccounts>; private claudeReset?: Promise<void>;
   private credentialsLocked = false;
   private repaired = false;
   private prepared?: Promise<void>;
@@ -257,6 +263,26 @@ export class Engine {
       BYOKIT_APP_OWNED_SESSION_PREFIXES: JSON.stringify(this.appOwnedSessionPrefixes),
     } };
   }
+  /** The engine's own shutdown signal; aborted by stop() and replaced by the next start(). */
+  get stopSignal(): AbortSignal { return this.stopOwner.signal; }
+  nativeClaudeLogin(): ReturnType<typeof remoteCliHost> {
+    if (this.claudeLogin) return this.claudeLogin;
+    const { env } = this.doctorContext();
+    const bin = env.PATH.split(':').map(path => join(path, 'claude')).find(path => { try { accessSync(path, constants.X_OK); return true; } catch { return false; } });
+    const bins = bin ? { claude: bin } : {};
+    // The login runs in its own HOME: CLAUDE_CONFIG_DIR points it at the engine's folder, which accounts refuses as a HOME's default login.
+    for (const dir of ['home', 'login-home']) mkdirSync(join(this.root, dir), { recursive: true, mode: 0o700 });
+    const cli = cliAccounts({ stateDir: this.root, bins, env: { PATH: env.PATH, HOME: join(this.root, 'login-home'), LANG: env.LANG, TMPDIR: env.TMPDIR, XDG_CONFIG_HOME: env.XDG_CONFIG_HOME, XDG_CACHE_HOME: env.XDG_CACHE_HOME, XDG_DATA_HOME: env.XDG_DATA_HOME, XDG_STATE_HOME: env.XDG_STATE_HOME, }, managedFolders: { claude: env.CLAUDE_CONFIG_DIR } });
+    this.claudeAccounts = cli; this.claudeLogin = remoteCliHost({ cli, bins });
+    return this.claudeLogin;
+  }
+  resetNativeClaudeLogin(): Promise<void> {
+    if (this.claudeReset) return this.claudeReset;
+    const cli = this.claudeAccounts, host = this.claudeLogin;
+    if (!cli || !host || host.signal.aborted) return Promise.resolve();
+    this.claudeReset = (async () => { for (const row of await cli.list()) { if (host.signal.aborted) return; if (row.provider === 'claude' && row.state === 'ready' && cli.folderOf(row.id) === join(this.root, 'home', '.claude')) await cli.remove(row.id); } })().finally(() => { this.claudeReset = undefined; });
+    return this.claudeReset;
+  }
   doctor(timeoutMs: number): { status: number | null } {
     const { entry, env } = this.doctorContext();
     if (this.o.spawnEngine) verifyEngineSet(this.setDir!, this.wantedSet!, installMatches);
@@ -317,6 +343,7 @@ export class Engine {
   start(): Promise<{ port: number; token: string; identityPath: string } | undefined> {
     if (this.starting) return this.starting;
     this.stopping = false;
+    this.stopOwner = new AbortController();
     const pending = this.startOnce();
     this.starting = pending;
     void pending.finally(() => { if (this.starting === pending) this.starting = undefined; }).catch(() => {});
@@ -417,6 +444,9 @@ export class Engine {
   withAuthStore<T>(task: () => Promise<T>): Promise<T> { return this.authStore.offline(task); }
   async stop(): Promise<void> {
     this.stopping = true;
+    this.stopOwner.abort();
+    await this.claudeLogin?.close(); await this.claudeReset?.catch(() => {});
+    this.claudeLogin = undefined; this.claudeAccounts = undefined;
     await this.starting?.catch(() => {});
     const child = this.child;
     await this.started.terminate(delay);

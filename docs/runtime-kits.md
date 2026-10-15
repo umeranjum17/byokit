@@ -32,11 +32,11 @@ surface (OpenClaw Gateway operator protocol; Herdr socket API and CLI), so no co
 They share connection adapters (`link`, `relay`, `discover`, `seal`, `ui`) and conventions, never a
 lowest-common-denominator interface. `@byokit/accounts` keeps serving direct-provider apps (including Ownvoice); its
 multi-account shapes (`Account`, `Room`, `RunSelection`, `Pick` as `AccountPick`) are restated structurally by this kit (5.15), never
-imported. CLI sign-in status lives in `@byokit/herdr` `agentStatus` (B5) and, for its managed Claude/Codex/Pi folders, `@byokit/accounts/cli` `status`; 6.6 names which one gates a move (MS-S2).
+imported. CLI sign-in status lives in `@byokit/herdr` `agentStatus` (B5) and, for its managed Claude/Codex/Pi folders, `@byokit/accounts/cli` `status`; 6.6 names which one gates a move (MS-S2). Native CLI sign-in (`anthropic-cli`) is the only other accounts use: `cliAccounts` and `remoteCliHost`, named below.
 
 Out of scope for the build phase: releasing (firstmate/owner runs `release.yml`), muxr adoption (section 10), any
 operated service, and any change to `@byokit/accounts`, `link`, `relay`, `discover`, `seal`, `decide` or `ui`
-source, except `@byokit/accounts/cli` `launch` (MS-S2, 6.6).
+source, except `@byokit/accounts/cli` `launch` (MS-S2, 6.6) and the native sign-in surface (`managedFolders`, `folderOf`, `remoteCliHost`, `signInLock`).
 
 ## 2. Decisions
 
@@ -295,10 +295,10 @@ packages/openclaw/
 
 `package.json`: `exports` `.` → `dist/index.js`, `./device` → `dist/device.js` (with `react-native` and `browser`
 conditions pointing at the same file), `./link` → `dist/link.js`, `./testing` → `dist/testing/index.js`; `files`:
-`dist`, `engine`, `plugin`, `policy`, `README.md`, `LICENSE`. Dependencies (exact): `@openclaw/gateway-client`
-`2026.8.35`, `@openclaw/gateway-protocol` `2026.8.35`, `@byokit/pair` (current `0.3.1`), `@byokit/relay` (current
-`0.1.3`), `@byokit/discover` (current `0.2.0`), `@byokit/seal` (current `0.1.0`), `ws` `8.21.3`. Dev: `@byokit/ui`
-(assignability test only).
+`dist`, `engine`, `plugin`, `policy`, `README.md`, `LICENSE`. Dependencies (exact pins in
+`packages/openclaw/package.json`): `@openclaw/gateway-client` and `@openclaw/gateway-protocol` (`2026.8.35`),
+`@byokit/pair`, `@byokit/relay`, `@byokit/discover`, `@byokit/seal`, `@byokit/secrets`, `@byokit/accounts` (its
+`/cli` entry drives the native Claude login, 5.7), `ws`. Dev: `@byokit/ui` (assignability test only).
 
 ### 5.2 Public types (`src/types.ts`)
 
@@ -469,7 +469,8 @@ export declare class OpenClawKit {
   signedIn(member: Member, provider: string): Promise<boolean>;
   signIn(member: Member, o: { authChoice: string; via?: 'browser' | 'code' }, on: (v: SignInView) => void):
     { paste(text: string): void; cancel(): void; done: Promise<SignInView> };
-  signOut(member: Member, provider: string): Promise<void>;
+  signOut(member: Member, provider: string): Promise<void>;   // also removes that provider's saved key
+  removeKey(member: Member, o?: { provider?: string }): Promise<void>;   // clears the `byokit-key-<member>` lane
   migrateRetainedLogin(member: Member, source: RetainedLogin): Promise<'staged' | 'nothing' | 'failed'>;
   confirmRetainedLogin(member: Member, source: RetainedLogin): Promise<boolean>;
   // accounts (5.15)
@@ -478,6 +479,7 @@ export declare class OpenClawKit {
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
     done: Promise<{ view: SignInView; id: AccountId }> }>;
   addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string }): AddKeyHandle;
+  removeKey(member: Member, o?: { provider?: string }): Promise<void>;   // 5.8: clears the saved key lane
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account>;
   removeAccount(member: Member, id: AccountId): Promise<void>;
   models(member: Member, id: AccountId | { authChoice: string }): Promise<ModelInfo[]>;
@@ -552,7 +554,8 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
    `needs-update/version`. Then start the bridge socket; state `ready`.
 3. **Crash**: on child exit while not stopping: drop the transport, state `restarting` with
    `retryAt = now + min(30 s, 1 s × 2^failures)`, then `start()` again; failures reset on a successful handshake.
-4. **stop()**: stop transport; SIGTERM **each pid the kit itself spawned**, by pid and never a process group;
+4. **stop()**: first close an in-flight native Claude sign-in host and await a pending stale-row reset, then stop
+   transport; SIGTERM **each pid the kit itself spawned**, by pid and never a process group;
    wait 3 s; SIGKILL the same recorded pids; wait 3 s; await exit; close the bridge socket and delete it. The
    recorded list is the whole authority: every spawn (`npm ci`, the gateway) is entered when it starts and
    dropped when it exits, and a negative pid is never passed to `kill`. A group id belongs to whoever holds
@@ -764,6 +767,15 @@ key (subscription); `microsoft-foundry-entra` is Entra cloud credentials, not an
 Until those packages merge, the table above is what ships.
 
 **signIn(member, { authChoice, via, signal? }, on)** — provider-owned wizard drive:
+Native `anthropic-cli` runs unmodified `claude auth login --claudeai` with the engine's `CLAUDE_CONFIG_DIR` in its own login HOME (`<root>/login-home`: Accounts refuses a folder that is its HOME's default login), through Accounts' remote CLI driver and a `cliAccounts.managedFolders` option limited to app-owned folders; cancel removes only roster bookkeeping, never the folder or grant.
+The `anthropic-cli` and key-entry drives have one commit point, the `setup.activate` call:
+1. Prepare: detection (`setup.detect`, passed the phone signal), the native login or the key paste. A phone cancel or a host shutdown here ends `why: 'declined'` for either drive: a key paste activates nothing, and one nobody answers still ends at the paste timeout.
+2. Commit: immediately before `setup.activate`, a cancel — or a host shutdown — that has already landed still ends declined with no activation call; otherwise the drive is committed and calls `setup.activate` once.
+3. After commit the drive settles on the engine's answer and a phone cancel no longer declines it. Claude is `done` once its restart is confirmed, or `failed` with `signin.savedNotRestarted` when the restart runs late or host shutdown ends the wait. A key's cancel still declines its restart wait; a late key restart is `failed` with `LATE_RESTART`.
+`cancel()` always settles `done` exactly once: before commit as soon as the native login is released, after commit once the engine answers the activation.
+A native sign-in view reports `ready: false` while its drive is active or failed; the successful live activation, not credential presence, completes the attempt.
+A stale ready Claude row is cleared through Accounts, which deletes that folder's Claude login files (`.credentials.json`, `.claude.json`) but keeps the folder, and one fresh login starts; there is no automatic loop.
+A `signing` row is reused only when its `signInLock` is free or its holder PID is dead; a live, unreadable or missing holder stays busy.
 `ensureMember`; `openclaw.setup.auth.start { sessionId: 'byokit-' + uuid, agentId, authChoice }` (60 s); pull steps
 only with `wizard.next` (120 s for ordinary steps, max 200 turns; never `wizard.status`); a `deviceCode` step,
 or a `note` step whose text carries the code, → view `{ code, url, expiresAt?, message? }` then acknowledge
@@ -815,6 +827,17 @@ that runs use. `providers` stays the member agent's sign-ins, the ones a run wit
 **signOut**: `models.authLogout { provider, agentId, profileIds }` with the agent's own profiles of that provider
 (`byokit.accounts list`; from O14, 5.15). `signIn`, `signedIn`, `providers` and `signOut` address the
 member agent, whose sign-in to a provider is that provider's first account (5.15); `addAccount` adds any further one.
+A saved key is not a member-agent profile: after the logout, `signOut` also calls `removeKey(member, { provider })`, so
+a key of that provider goes with it and the member does not read signed in again after a restart. A saved key of
+another provider is untouched.
+
+**removeKey**: `removeKey(member, o?)` clears the member's saved key lane, the reserved `byokit-key-<member>` agent:
+the `byokit.keys clear` action empties its auth-profile store and deletes its ready marker, so `signedIn` is false for
+that provider and the lane stays signed out across an engine restart (nothing revives a key with no marker, and the
+start sweep sees it removed). With `provider`, the key is removed only when the ready marker's saved model names that
+provider. Removal of a lane with no saved key is a no-op that resolves; the shipped handler answers such a `clear` with
+`{ ok: false, absent: true }` and any other refusal throws `The key could not be removed.`. Serialized with adds and
+key runs under the member's key lock, like `addKey`.
 
 **Credential sealing**: `authSeal` takes the `@byokit/secrets` `SealingAdapter` interface (non-interactive OS keyring with automatic persistent host-key fallback, or an explicit host-owned key),
 the runtime kit delegates key management to that adapter. Opening follows the envelope mode, never the
@@ -1002,7 +1025,8 @@ the engine. External retained sources are touched only when explicitly passed to
   without diagnostics. A failed or cancelled replacement also drops the previous key, so the lane reads signed out until the user adds a key again. Ordinary runs and their admission policy are unchanged; there is no per-run cold refresh.
   Catalog or control failures never become a claim that the key is invalid. A failed add may leave an empty reserved key agent; it clears the attempted key best-effort and never leaves a ready marker.
   A non-auth, non-billing probe status (timeout, rate limit, format, unknown) is `retry` with its reason (`network`, `busy`, `inference`), never `invalid`.
-- The `byokit.keys` plugin actions are `prepare`, `seal`, `ready` and `clear` (`clear` drops the unsealed key a failed add left; `plugin/keys.js`). The kit's sweep runs at every connect and sweeps each `byokit-key-<member>` agent under that member's lock. It clears a key only when `ready` reports the marker absent (`absent: true`), so a sealed key survives and an add that seals mid-sweep keeps its key; the clear runs until a sweep completes, then never again. The backfill runs at every connect: a lane that already holds an index entry is never touched, and a sealed lane with no entry is indexed as `<provider>.key` only when its sealed model's provider has exactly one ready key route. A provider with several key routes, or a marker with no model, is logged at each connect and left unindexed until the key is added again. A refused read or clear leaves the sweep incomplete, and the next connect runs the clear again.
+- The `byokit.keys` plugin actions are `prepare`, `seal`, `ready` and `clear` (`clear` drops the unsealed key a failed add left; `plugin/keys.js`). A `clear` for a lane that is not there (no `byokit-key-<member>` entry) answers `{ ok: false, absent: true }`: nothing is left to drop, which is what makes removing an unsaved key a no-op. The kit's sweep runs at every connect and sweeps each `byokit-key-<member>` agent under that member's lock. It clears a key only when `ready` reports the marker absent (`absent: true`), so a sealed key survives and an add that seals mid-sweep keeps its key; the clear runs until a sweep completes, then never again. The backfill runs at every connect: a lane that already holds an index entry is never touched, and a sealed lane with no entry is indexed as `<provider>.key` only when its sealed model's provider has exactly one ready key route. A provider with several key routes, or a marker with no model, is logged at each connect and left unindexed until the key is added again. A refused read or clear leaves the sweep incomplete, and the next connect runs the clear again.
+- Removing a saved key is public: `removeKey(member, o?)` (5.8) clears that member's key lane so `signedIn` is false and a restart does not revive it; `signOut(member, provider)` calls it for that provider after the member-agent logout.
 - The engine has no strict per-run auth-profile pin. Key isolation is by agent: a member's normal agent never
   receives a key from `addKey`. A reserved `byokit-key-<member>` agent has its own workspace and credential store;
   the `byokit-key-` prefix is not a member id. Key creation waits for `agents.list` visibility, exactly as member creation
@@ -1411,6 +1435,7 @@ export declare function openNotice(data: Record<string, unknown>, seed: Uint8Arr
 | `signin.returned` | Thanks. Finishing the sign-in — you can go back to the app now. |
 | `signin.busy` | Another sign-in is already in progress. Finish or cancel it, then try again. |
 | `signin.cancelled` | Sign-in cancelled. You can start again whenever you are ready. |
+| `signin.savedNotRestarted` | Your Claude sign-in was saved, but the engine did not restart in time. Try again. |
 | `signin.expired` | The sign-in took too long. Start it again. |
 | `approval.ask` | {helper} wants to {summary}. Allow it? |
 | `approval.expired` | Nobody answered in time, so this wasn't allowed. |
@@ -1639,7 +1664,6 @@ cache.
 **Runs.** Every run first finds the account its session is bound to, whatever `spec.account` says:
 
 1. Binding: a key `agent:<member>--<hex6>:<tail>` of an indexed account agent is bound to that account. A key
-   `agent:byokit-key-<member>:<tail>` of the indexed key lane is bound to its `<provider>.key` account. A key
    `agent:<member>:<tail>` is bound to whichever of the member's agents holds `agent:<that agent>:<tail>`, found with
    `sessions.resolve { key, agentId, allowMissing: true }` per agent (member agent first, then the key lane, then the
    account agents; `missing: true` = not there); a session on the member agent is bound to the member agent (any of its
@@ -1652,7 +1676,9 @@ cache.
    Bound to the member agent with `spec.account` set: `'auto'` and `'default'` choose only among the member agent's
    own accounts (`bound` = those), and an id on another agent is refused with `account.bound`. An empty `bound` (the
    member agent holds no indexed account) ends Choosing `none` with words `auto.noneBound` ("No account in this
-   conversation is signed in."), never the provider-specific `auto.none`.
+   conversation is signed in."), never the provider-specific `auto.none`; a binding whose account is no longer in the
+   account listing (a key lane replaced by another provider, an account agent removed between binding and the listing)
+   ends `none` with the same words instead of the vanished id.
    An `auth: 'apiKey'` run on a conversation bound to a subscription account or to the member agent is refused the same
    way (`code: 'bound'`, words `account.bound`). Only the indexed key-lane binding continues, on the lane; an API-billed
    account binding of a pre-O14 `<member>--<hex6>` agent is refused the same way, so the user re-adds the key. `steer` and
@@ -1728,7 +1754,7 @@ only routes with `keyEntry` (else `not_included`), activates typed `openclaw.set
 agentId: byokit-key-<member>, authChoice, apiKey }` (180 s) on that lane, seals it, records its saved model, and
 indexes the lane as `<provider>.key` once the key seals (replacing whatever `<*.key>` entry the member already held,
 keeping `addedAt`). A new key replaces the old one on the same agent; there is no `<member>--<hex6>` agent per later
-key. A key is replaced by `addKey`, never removed: the lane row is listed, and `removeAccount` refuses it. The index
+key. A key is replaced by `addKey`, not by `removeAccount`: the lane row is listed, and `removeAccount` refuses it. The index
 follows the sealed key: a failed index write is logged and never changes an `ok`, and the connect sweep (the
 `byokit.keys` bullet in §5.8) backfills a missing entry for a single-route provider, so a missed write is repaired at
 the next connect. A lane sealed before this index (its `byokit-key-<member>` agent already exists) is indexed as
@@ -1814,6 +1840,7 @@ runs on the lane with its saved model, or a supplied model of the same provider 
 | `auto.refillsNoTime` | All {provider} accounts are out of room. {name} refills first. |
 | `auto.terms` | Auto may use either of a provider's accounts. |
 | `auto.none` | No signed-in {provider} account. |
+| `auto.noneBound` | No account in this conversation is signed in. |
 | `room.unknown` | Room left unknown |
 | `room.session` | {left} left this session |
 | `room.week` | {left} left this week |

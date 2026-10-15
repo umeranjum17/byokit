@@ -83,9 +83,11 @@ Names still marked **pending** require owner approval before a rename or first p
   | `network` | the provider could not be reached | |
 
   accounts exports the union. A kit that already depends on accounts imports it. A kit that does not depend on accounts
-  (openclaw, ui and usage today; ui imports no kit by design) declares the same literal union under the
-  same name, and a test pins it to accounts' list. A failure that is none of these is not an account limit and does
-  not get a sixth "other" member: it is a failure of the calling kit (§3).
+  (ui and usage today; ui imports no kit by design) declares the same literal union under the
+  same name, and a test pins it to accounts' list. OpenClaw depends on accounts' `/cli` entry for the native Claude
+  sign-in only ([runtime-kits.md](runtime-kits.md) 5.7) and keeps its own `RunEnd.kind` restatement (§12). A failure
+  that is none of these is not an account limit and does not get a sixth "other" member: it is a failure of the
+  calling kit (§3).
 
 ## 3. Errors
 

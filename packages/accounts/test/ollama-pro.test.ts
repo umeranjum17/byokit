@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { Keystore } from '@byokit/secrets';
-import { Accounts, memoryStore, ResponseError } from '../src/index.ts';
+import { Accounts, memoryStore, ResponseError, type Context, type Model } from '../src/index.ts';
 import { offered, planKey, provider, route, signInChoices } from '../src/catalogue.ts';
 import { portable } from '../src/accounts.ts';
 import {
@@ -46,6 +46,41 @@ test('catalogue offers Ollama Pro as a pasted plan key with deepseek-v4.1-flash'
   assert.equal(planKey('ollama-pro'), true);
   const r = route(OLLAMA_PRO_PLAN_ROUTE, { platform: 'browser' });
   assert.deepEqual([r.readiness, r.billing, r.offer], ['ready', 'subscription', 'default']);
+  assert.deepEqual([r.upstream.id, r.upstream.method, r.upstream.flow, r.aliases], ['ollama-pro', 'OLLAMA_API_KEY', 'present', ['ollama-cloud']]);
+});
+
+test('respondKey streams openai-completions to ollama.com/v1 with the plan key header (fake fetch)', async () => {
+  const accounts = local();
+  const { id } = await accounts.add('Umer', OLLAMA_PRO_PLAN_ROUTE, { key: CANARY });
+  const model: Model<'openai-completions'> = {
+    id: OLLAMA_PRO_DEFAULT_MODEL, name: 'DeepSeek', provider: 'ollama-pro', api: 'openai-completions',
+    baseUrl: OLLAMA_PRO_BASE_URL, reasoning: false, input: ['text'],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192,
+  };
+  const context: Context = { messages: [{ role: 'user', content: 'ping', timestamp: 0 }] };
+  const openaiEvents = [
+    { id: 'fixture', choices: [{ index: 0, delta: { role: 'assistant', content: 'ok' }, finish_reason: null }] },
+    { id: 'fixture', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } },
+  ];
+  let hit = '';
+  const result = await accounts.respondKey('Umer', {
+    account: id, model, context,
+    options: {
+      fetch: async (input, init) => {
+        hit = String(input);
+        const headers = new Headers(init?.headers);
+        assert.equal(headers.get('authorization'), `Bearer ${CANARY}`);
+        leak(hit);
+        return new Response(
+          openaiEvents.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('') + 'data: [DONE]\n\n',
+          { headers: { 'content-type': 'text/event-stream' } },
+        );
+      },
+    },
+  });
+  assert.equal(hit, `${OLLAMA_PRO_BASE_URL}/chat/completions`);
+  assert.equal(result.stopReason, 'stop');
+  assert.ok(!JSON.stringify(result).includes(CANARY));
 });
 
 test('plan-key seam and member handle: Map store, canary never in error words', async () => {

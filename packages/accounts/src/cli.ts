@@ -1,17 +1,18 @@
 import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { chmodSync, closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, readSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { identity, type Identity } from '@byokit/usage';
+import { identity, roomOf, usage, type Identity, type Reading, type Room, type Source, type Usage } from '@byokit/usage';
 import type { Keystore } from '@byokit/secrets';
 import { clock, say } from './words.ts';
-import { deleteOpenCodePlanKey, readOpenCodePlanKey, saveOpenCodePlanKey } from './opencode-go.ts';
+import { OPENCODE_GO_PLAN_ROUTE, deleteOpenCodePlanKey, readOpenCodePlanKey, saveOpenCodePlanKey } from './opencode-go.ts';
 import { launchEnv as cleanLaunchEnv } from './isolate.ts';
 import type { AccountLike } from './multi.ts';
 import routes from './routes.json' with { type: 'json' };
 export { remoteCliHost, remoteCliState, type RemoteCliHostOptions } from './remote-cli-host.ts';
+export { poolPrepare, type PoolPrepareOptions } from './prepare.ts';
 
-export type CliProvider = 'claude' | 'codex' | 'pi' | 'opencode';
+export type CliProvider = 'claude' | 'codex' | 'pi' | 'opencode' | 'kimi' | 'vibe';
 /** Published Pi subscription OAuth provider id, validated against the route catalogue. */
 export type PiProvider = string;
 /** Shared selection surface; the CLI entry remains Node-only. */
@@ -21,20 +22,36 @@ export type CliOptions = {
   bins: Partial<Record<CliProvider, string>>;
   env: { PATH: string; HOME: string } & Record<string, string>;
   historyFrom?: Partial<Record<CliProvider, string>>;
+  /** Explicit runtime-owned folders inside stateDir; never removed with roster bookkeeping. */
+  managedFolders?: { claude?: string; codex?: string };
   prepare?: (folder: string, provider: CliProvider) => Promise<void>;
-  /** Device-owned secrets backend for key-based providers (OpenCode): `saveKey` writes the plan key
-   * here, one entry per route, and `logout` deletes it. The key never enters argv, env, a file or a log. */
+  /** Device-owned secrets backend for key-based providers (OpenCode, Vibe): `saveKey` writes the key
+   * here, one entry per managed account, and `logout` deletes that account's entry. The key never
+   * enters argv, env, a file or a log. */
   keyStore?: Keystore;
+  /** The app's own `@byokit/usage` reader for `pick`. Omitted, each `pick` uses an internal reader on
+   * `stateDir`, so readings and the app's account roster stay in one root. */
+  usage?: Usage;
+  /** Claude's two app-passed headers for the managed-folder usage source (the kit never invents a
+   * client identity). Without them, Claude room is unknown. */
+  claudeHeaders?: { 'anthropic-beta': string; 'User-Agent': string };
 };
 export type CliLaunchResult =
   | { ok: true; account: CliAccount; set: Record<string, string>; unset: string[] }
   | { ok: false; code: 'signed_out' | 'not_included' | 'resting'; account: CliAccount; message: string };
 export type CliRest = { until: number; why: string };
+/** One managed row of a provider with its room reading, for `pick` and the `list` view of the same rows. */
+export type CliPickRow = { account: CliAccount; room: Room; windows: Reading['windows']; readAt?: number };
+export type CliPick =
+  | { ok: true; account: CliAccount; room: Room; rows: CliPickRow[] }
+  | { ok: false; code: 'none'; reason: string; rows: CliPickRow[] };
 export type SignInCommand = { argv: string[]; env: Record<string, string>; completion: string; shell: string;
-  /** Display in the TUI; never pass this as an initial model message. OpenCode has no native login to
-   * spawn: its instruction asks for a hidden plan-key entry instead, and `saveKey` completes it. */
-  instruction?: { words: 'cli.piLogin'; command: `/login ${string}` } | { words: 'cli.opencodeKey' };
+  /** Display in the TUI; never pass this as an initial model message. OpenCode and Vibe have no native
+   * login to spawn: their instruction asks for a hidden key entry instead, and `saveKey` completes it. */
+  instruction?: { words: 'cli.piLogin'; command: `/login ${string}` } | { words: 'cli.opencodeKey' } | { words: 'cli.vibeKey' };
 };
+/** Secrets route for managed Vibe API keys (`accounts.vibe:key.<accountId>`). */
+export const VIBE_API_KEY_ROUTE = 'vibe:key';
 export class CliAccountError extends Error {
   override name = 'CliAccountError';
   readonly code: 'unknown-account' | 'invalid-name' | 'kind-mismatch' | 'prepare-failed' | 'bad-option';
@@ -46,7 +63,7 @@ export class CliAccountError extends Error {
 type Row = { id: string; provider: CliProvider; name: string; folder: string; found: boolean; piProvider?: PiProvider; adoptedFrom?: string; addedAt?: number };
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === 'string' && !v.includes('\0');
-const providers: CliProvider[] = ['claude', 'codex', 'pi', 'opencode'];
+const providers: CliProvider[] = ['claude', 'codex', 'pi', 'opencode', 'kimi', 'vibe'];
 const piRoutes = routes.filter(r => r.upstream.surface === 'accounts' && r.billing === 'subscription' && r.upstream.flow === 'present' && (r.via === 'browser' || r.via === 'code'));
 const validPiProvider = (p: unknown): p is PiProvider => text(p) && piRoutes.some(r => r.upstream.id === p);
 const shed = {
@@ -54,17 +71,46 @@ const shed = {
   codex: ['OPENAI_API_KEY', 'CODEX_API_KEY'],
   pi: ['PI_CODING_AGENT_SESSION_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'],
   opencode: ['OPENCODE_API_KEY', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'],
+  // Kimi Code stores OAuth under KIMI_CODE_HOME; unset key/path overrides so a host key cannot replace the managed login.
+  kimi: ['KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_CODE_CREDENTIALS', 'KIMI_CREDENTIALS', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'],
+  vibe: ['MISTRAL_API_KEY'],
 };
-const folderVar = (p: CliProvider) => p === 'claude' ? 'CLAUDE_CONFIG_DIR' : p === 'pi' ? 'PI_CODING_AGENT_DIR' : p === 'opencode' ? 'OPENCODE_CONFIG_DIR' : 'CODEX_HOME';
+const folderVar = (p: CliProvider) => p === 'claude' ? 'CLAUDE_CONFIG_DIR' : p === 'pi' ? 'PI_CODING_AGENT_DIR' : p === 'opencode' ? 'OPENCODE_CONFIG_DIR' : p === 'kimi' ? 'KIMI_CODE_HOME' : p === 'vibe' ? 'VIBE_HOME' : 'CODEX_HOME';
+const keyRoute = (p: 'opencode' | 'vibe') => p === 'opencode' ? OPENCODE_GO_PLAN_ROUTE : VIBE_API_KEY_ROUTE;
+const keyLabel = (p: 'opencode' | 'vibe') => p === 'opencode' ? 'OpenCode' : 'Vibe';
 const quote = (v: string) => `'${v.replaceAll("'", "'\\''")}'`;
 const complete = (r: Row) => join(r.folder, '.byokit-signin-complete');
 const pending = (r: Row) => join(r.folder, '.byokit-signin-pending');
+/** Shared lock: the shell records its native child PID; the remote driver records its host PID. */
+export function signInLock(folder: string): { lock: string; holder: string } {
+  const lock = join(folder, '.byokit-signin-lock');
+  return { lock, holder: join(lock, 'holder') };
+}
+export function holderAlive(holder: string): boolean {
+  let pid: number;
+  try { pid = Number(readFileSync(holder, 'utf8')); } catch { return true; }
+  if (!Number.isSafeInteger(pid) || pid <= 0) return true;
+  try { process.kill(pid, 0); return true; }
+  catch (e) { return (e as NodeJS.ErrnoException).code !== 'ESRCH'; }
+}
+function signInHeld(folder: string): boolean {
+  const { lock, holder } = signInLock(folder);
+  return existsSync(lock) && holderAlive(holder);
+}
 function marker(file: string): boolean {
   try {
     const stat = lstatSync(file);
     if (!stat.isFile() || stat.isSymbolicLink()) throw new CliAccountError('bad-option');
     return true;
   } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false; throw error; }
+}
+// A managed folder outlives its roster row, so an existing history link (or a real history directory) is kept.
+function historyLink(source: string, link: string) {
+  let stat: ReturnType<typeof lstatSync> | undefined;
+  try { stat = lstatSync(link); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  if (stat && (!stat.isSymbolicLink() || readlinkSync(link) === source)) return;
+  if (stat) unlinkSync(link);
+  symlinkSync(source, link, 'dir');
 }
 function json(file: string): unknown {
   let fd: number | undefined;
@@ -98,11 +144,11 @@ export type NativePiAccount = {
   launch: { set: { PI_CODING_AGENT_DIR: string }; unset: string[] };
   resumeArgs(ref: { kind: 'id' | 'path'; value: string }): string[];
 };
-/** Read-only Pi 0.87.1 launch descriptor; no grant reads, sign-in or readiness claim. */
+/** Read-only Pi 1.2.0 launch descriptor; no grant reads, sign-in or readiness claim. */
 export function nativePiAccount(options: { stateDir: string; folder: string; bin: string; home: string }): NativePiAccount {
   if (!record(options) || [options.stateDir, options.folder, options.bin, options.home].some(v => !text(v) || !isAbsolute(v))) throw new CliAccountError('bad-option');
   const stateDir = resolve(options.stateDir); const parent = join(stateDir, 'pi'); const folder = resolve(options.folder);
-  for (const path of ['.claude', '.codex', '.pi']) {
+  for (const path of ['.claude', '.codex', '.pi', '.kimi-code']) {
     const own = join(resolve(options.home), path);
     if (stateDir === own || stateDir.startsWith(own + '/')) throw new CliAccountError('bad-option');
   }
@@ -129,11 +175,27 @@ export function cliAccounts(options: CliOptions) {
   if (Object.entries(options.bins).some(([p, bin]) => !providers.includes(p as CliProvider) || !text(bin) || !isAbsolute(bin))) throw new CliAccountError('bad-option');
   if (options.historyFrom && (!record(options.historyFrom) || Object.entries(options.historyFrom).some(([p, path]) => !providers.includes(p as CliProvider) || !text(path) || !isAbsolute(path)))) throw new CliAccountError('bad-option');
   if (options.keyStore !== undefined && (!record(options.keyStore) || typeof (options.keyStore as Keystore).get !== 'function' || typeof (options.keyStore as Keystore).set !== 'function' || typeof (options.keyStore as Keystore).delete !== 'function')) throw new CliAccountError('bad-option');
+  if (options.usage !== undefined && (!record(options.usage) || typeof (options.usage as Usage).read !== 'function' || typeof (options.usage as Usage).connected !== 'function')) throw new CliAccountError('bad-option');
+  if (options.claudeHeaders !== undefined && (!record(options.claudeHeaders) || ['anthropic-beta', 'User-Agent'].some((key) => !text((options.claudeHeaders as Record<string, unknown>)[key]) || (options.claudeHeaders as Record<string, string>)[key].length > 1024))) throw new CliAccountError('bad-option');
   const stateDir = resolve(options.stateDir); const env = { ...options.env }; const bins = { ...options.bins }; const history = { ...options.historyFrom };
-  for (const path of ['.claude', '.codex', '.pi']) {
-    const own = join(resolve(env.HOME), path);
-    if (stateDir === own || stateDir.startsWith(own + '/')) throw new CliAccountError('bad-option');
+  const ownsDefaultLogin = (path: string) => ['.claude', '.codex', '.pi', '.kimi-code', '.vibe'].some((p) => { const own = join(resolve(env.HOME), p); return path === own || path.startsWith(own + '/'); });
+  const managedFolders = Object.fromEntries(Object.entries(options.managedFolders ?? {}).filter(([, folder]) => folder !== undefined)) as { claude?: string; codex?: string };
+  // The login files each native CLI keeps in its own folder; remove deletes these and keeps the folder.
+  const managedLoginFiles: Partial<Record<CliProvider, string[]>> = { claude: ['.credentials.json', '.claude.json'], codex: ['auth.json'] };
+  if (options.managedFolders && (!record(options.managedFolders) || Object.entries(managedFolders).some(([p, folder]) =>
+    (p !== 'claude' && p !== 'codex') || !text(folder) || resolve(folder) !== folder || !folder.startsWith(stateDir + '/') || ownsDefaultLogin(folder)
+    || !directory(dirname(folder)) || realpathSync(dirname(folder)) !== dirname(folder)))) throw new CliAccountError('bad-option');
+  const managed = (r: Row) => (r.provider === 'claude' || r.provider === 'codex') && managedFolders[r.provider] === r.folder;
+  const unknownRoom = (): Room => ({ left: 'unknown', freshness: 'unknown' });
+  let reader: Usage | undefined;
+  const roomReader = () => reader ??= options.usage ?? usage({ stateDir });
+  const codexSource = (r: Row) => ({ provider: 'codex' as const, bin: binary('codex'), home: r.folder, env: spawnEnv(r) });
+  /** The one usage source for a ready row; a provider whose reader is a later lane stays unknown. */
+  function roomSource(r: Row): Source | undefined {
+    if (r.provider === 'codex') return codexSource(r);
+    return r.provider === 'claude' && options.claudeHeaders ? { provider: 'claude', folder: r.folder, headers: options.claudeHeaders } : undefined;
   }
+  if (ownsDefaultLogin(stateDir)) throw new CliAccountError('bad-option');
   // Parents must already be app-owned. Never follow a state/provider/folder symlink.
   try { if (realpathSync(dirname(stateDir)) !== dirname(stateDir)) throw new CliAccountError('bad-option'); }
   catch { throw new CliAccountError('bad-option'); }
@@ -172,10 +234,30 @@ export function cliAccounts(options: CliOptions) {
   }
   const saveRests = (rows: RestRow[], nowMs = Date.now()) =>
     atomic(restsFile, { version: 1, rests: rows.filter((r) => r.until > nowMs) });
+  // `<tool> -> <id>`: the account the person's own `use` keeps for the fleet. Only ids, never a secret.
+  const preferFile = join(stateDir, 'prefer-v1.json');
+  type PreferRecord = { version: 1; tools: Partial<Record<CliProvider, string>> };
+  function parsePrefer(saved: unknown): PreferRecord['tools'] | undefined {
+    if (!record(saved) || saved.version !== 1 || !record(saved.tools)) return undefined;
+    const tools: PreferRecord['tools'] = {};
+    for (const [tool, id] of Object.entries(saved.tools)) {
+      if (!providers.includes(tool as CliProvider) || !text(id) || !id || id.length > 128) return undefined;
+      tools[tool as CliProvider] = id;
+    }
+    return tools;
+  }
+  function loadPrefer(): PreferRecord['tools'] {
+    if (!directory(stateDir) || realpathSync(stateDir) !== stateDir) throw new CliAccountError('bad-option');
+    const saved = json(preferFile);
+    return saved === undefined ? {} : parsePrefer(saved) ?? {};
+  }
+  const savePrefer = (tools: PreferRecord['tools']) => atomic(preferFile, { version: 1, tools });
   const activeRest = (id: string, nowMs = Date.now()) => loadRests(nowMs).find((r) => r.id === id);
   function safe(r: Row): boolean {
     const parent = join(stateDir, r.provider);
-    return resolve(r.folder) === r.folder && r.folder.startsWith(parent + '/') && /^[a-f0-9]+$/.test(r.folder.slice(parent.length + 1)) && directory(stateDir) && realpathSync(stateDir) === stateDir && directory(parent) && directory(r.folder);
+    return directory(stateDir) && realpathSync(stateDir) === stateDir && directory(r.folder)
+      && (managed(r) ? realpathSync(r.folder) === r.folder : resolve(r.folder) === r.folder
+        && r.folder.startsWith(parent + '/') && /^[a-f0-9]+$/.test(r.folder.slice(parent.length + 1)) && directory(parent));
   }
   function load(): Row[] {
     if (!directory(stateDir) || realpathSync(stateDir) !== stateDir) throw new CliAccountError('bad-option');
@@ -224,14 +306,20 @@ export function cliAccounts(options: CliOptions) {
     return cleanLaunchEnv({ base: env, account: launch(r) }).env;
   }
   function command(r: Row): SignInCommand {
-    // OpenCode has no native login to spawn: the app collects the plan key with hidden typing and
+    // OpenCode and Vibe have no native login to spawn: the app collects the key with hidden typing and
     // completes the sign-in with saveKey. The shell is a no-op; the key never enters argv or env.
     if (r.provider === 'opencode') return { argv: [], env: spawnEnv(r), completion: complete(r), shell: ':', instruction: { words: 'cli.opencodeKey' } };
-    const argv = r.provider === 'pi' ? [binary('pi')] : r.provider === 'claude' ? [binary(r.provider), 'auth', 'login', '--claudeai'] : [binary(r.provider), 'login', '--device-auth'];
-    const passed = spawnEnv(r); const completion = complete(r); const lock = join(r.folder, '.byokit-signin-lock');
+    if (r.provider === 'vibe') return { argv: [], env: spawnEnv(r), completion: complete(r), shell: ':', instruction: { words: 'cli.vibeKey' } };
+    // Kimi Code: public `kimi login` (no flags) writes OAuth under KIMI_CODE_HOME; completion on exit 0.
+    const argv = r.provider === 'pi' ? [binary('pi')]
+      : r.provider === 'claude' ? [binary(r.provider), 'auth', 'login', '--claudeai']
+      : r.provider === 'kimi' ? [binary(r.provider), 'login']
+      : [binary(r.provider), 'login', '--device-auth'];
+    const passed = spawnEnv(r); const completion = complete(r); const { lock, holder } = signInLock(r.folder);
     const login = ['/usr/bin/env', '-i', ...Object.entries(passed).map(([k, v]) => `${k}=${v}`), ...argv].map(quote).join(' ');
-    // Cross-process guard: a native CLI owns any refresh transaction; the kit never copies or refreshes its grants.
-    const shell = `(umask 077; /bin/mkdir ${quote(lock)} || exit 1; trap ${quote(`/bin/rmdir ${quote(lock)}`)} EXIT; ${login}${r.provider === 'pi' ? '' : ` && (set -C; printf complete > ${quote(completion)})`})`;
+    // Record the CLI, not its wrapper: a crashed shell must not make a still-running login reusable.
+    const cleanup = `if [ -n "$byokit_pid" ]; then kill "$byokit_pid" 2>/dev/null; wait "$byokit_pid" 2>/dev/null; fi; /bin/rm -f ${quote(holder)}; /bin/rmdir ${quote(lock)}`;
+    const shell = `(umask 077; /bin/mkdir ${quote(lock)} || exit 1; ${login} <&0 & byokit_pid=$!; printf '%s' "$byokit_pid" > ${quote(holder)}; trap ${quote(cleanup)} EXIT; wait "$byokit_pid"; byokit_status=$?; byokit_pid=; [ "$byokit_status" -eq 0 ]${r.provider === 'pi' ? '' : ` && (set -C; printf complete > ${quote(completion)})`})`;
     return { argv, env: passed, completion, shell, ...(r.provider === 'pi' ? { instruction: { words: 'cli.piLogin' as const, command: `/login ${r.piProvider}` as const } } : {}) };
   }
   function begin(r: Row): SignInCommand {
@@ -294,7 +382,8 @@ export function cliAccounts(options: CliOptions) {
   }
   function suggestName(email: string | undefined, provider: CliProvider): string {
     const first = email?.split('@')[0]?.split(/[._-]+/).find(Boolean);
-    return first ? (first[0].toUpperCase() + first.slice(1).toLowerCase()).slice(0, 64) : provider === 'claude' ? 'Claude' : provider === 'pi' ? 'Pi' : provider === 'opencode' ? 'OpenCode' : 'Codex';
+    if (first) return (first[0].toUpperCase() + first.slice(1).toLowerCase()).slice(0, 64);
+    return provider === 'claude' ? 'Claude' : provider === 'pi' ? 'Pi' : provider === 'opencode' ? 'OpenCode' : provider === 'kimi' ? 'Kimi' : provider === 'vibe' ? 'Vibe' : 'Codex';
   }
   async function status(id: string): Promise<CliAccount> {
     return serial(id, async () => {
@@ -304,15 +393,24 @@ export function cliAccounts(options: CliOptions) {
       if (!bins[r.provider]) return { ...account, state: 'not_included' };
       const rest = activeRest(r.id);
       if (rest) return { ...account, state: 'resting', until: rest.until };
-      if (r.provider === 'opencode') {
-        // No native probe: readiness is the saved plan key. A missing or unreadable store reads
-        // signed out, never a failure, and a saved key ends the pending cycle like a native login.
+      if (r.provider === 'opencode' || r.provider === 'vibe') {
+        // No native probe: readiness is this account's saved key. A missing or unreadable store
+        // reads signed out, never a failure, and a saved key ends the pending cycle like a native login.
         let saved = false;
-        try { await readOpenCodePlanKey(options.keyStore); saved = true; }
+        try { await readOpenCodePlanKey(options.keyStore, keyRoute(r.provider), keyLabel(r.provider), r.id); saved = true; }
         catch { saved = false; }
         if (saved && marker(pending(r))) rmSync(pending(r), { force: true });
         const keySigning = marker(pending(r)) && !saved;
         return { ...account, name: r.name.trim() || suggestName(undefined, r.provider), state: saved ? 'ready' : keySigning ? 'signing' : 'signed_out' };
+      }
+      if (r.provider === 'kimi') {
+        // No documented non-secret status command (kinds/herdr); `kimi login` exit 0 writes the
+        // kit completion marker, and that marker is the signed-in signal. Never open credentials/.
+        const signing = marker(pending(r)) && !marker(complete(r));
+        if (signing) return { ...account, state: 'signing' };
+        const signedIn = marker(complete(r));
+        if (marker(pending(r)) && signedIn) rmSync(pending(r), { force: true });
+        return { ...account, name: r.name.trim() || suggestName(undefined, r.provider), state: signedIn ? 'ready' : 'signed_out' };
       }
       const signing = marker(pending(r)) && !marker(complete(r));
       if (signing && r.provider !== 'pi') return { ...account, state: 'signing' };
@@ -322,12 +420,19 @@ export function cliAccounts(options: CliOptions) {
       return { ...account, name: r.name.trim() || (r.provider === 'pi' ? account.name : suggestName(info.email, r.provider)), state: info.signedIn ? 'ready' : signing && !info.why ? 'signing' : 'signed_out', ...(info.why ? { why: info.why } : {}), ...(info.email ? { email: info.email } : {}), ...(info.plan ? { plan: info.plan } : {}) };
     });
   }
-  async function remove(id: string) {
+  function discard(r: Row, login: boolean) {
+    if (managed(r)) {
+      rmSync(pending(r), { force: true }); rmSync(complete(r), { force: true });
+      if (login) for (const file of managedLoginFiles[r.provider] ?? []) rmSync(join(r.folder, file), { force: true });
+    } else rmSync(r.folder, { recursive: true, force: true });
+  }
+  async function drop(id: string, login: boolean) {
     return serial(id, async () => {
       const r = row(id);
-      // The plan key lives outside the folder, so delete it first: no orphaned secret survives the row.
-      if (r.provider === 'opencode') await deleteOpenCodePlanKey(options.keyStore);
-      rmSync(r.folder, { recursive: true, force: true }); save(load().filter((v) => v.id !== id), r.provider); created.delete(id);
+      if (login && signInHeld(r.folder)) throw new CliAccountError('prepare-failed');
+      // The key lives outside the folder, so delete it first: no orphaned secret survives the row.
+      if (r.provider === 'opencode' || r.provider === 'vibe') await deleteOpenCodePlanKey(options.keyStore, keyRoute(r.provider), r.id);
+      discard(r, login); save(load().filter((v) => v.id !== id), r.provider); created.delete(id);
       saveRests(loadRests().filter((v) => v.id !== id));
     });
   }
@@ -347,50 +452,52 @@ export function cliAccounts(options: CliOptions) {
     });
     return status(id);
   }
-  /** Save an OpenCode plan key (collected with hidden typing) into the secrets store, one entry per
-   * route. The key never enters argv, env, a file outside the store, or a log. */
+  /** Save an OpenCode plan key or Vibe API key (collected with hidden typing) into the secrets store,
+   * one entry per managed account. The key never enters argv, env, a file outside the store, or a log. */
   async function saveKey(id: string, key: string): Promise<CliAccount> {
     await serial(id, async () => {
       const r = row(id);
-      if (r.provider !== 'opencode') throw new CliAccountError('kind-mismatch');
+      if (r.provider !== 'opencode' && r.provider !== 'vibe') throw new CliAccountError('kind-mismatch');
       if (!options.keyStore || typeof key !== 'string' || !key.trim()) throw new CliAccountError('bad-option');
-      try { await saveOpenCodePlanKey(options.keyStore, key); }
+      try { await saveOpenCodePlanKey(options.keyStore, key, keyRoute(r.provider), r.id); }
       catch { throw new CliAccountError('prepare-failed'); }
       rmSync(pending(r), { force: true });
     });
     return status(id);
   }
-  /** Delete an OpenCode plan key from the secrets store; the row stays as a signed-out account. */
+  /** Delete this account's stored key from the secrets store; the row stays signed out. */
   async function logout(id: string): Promise<CliAccount> {
     await serial(id, async () => {
       const r = row(id);
-      if (r.provider !== 'opencode') throw new CliAccountError('kind-mismatch');
-      try { await deleteOpenCodePlanKey(options.keyStore); }
+      if (r.provider !== 'opencode' && r.provider !== 'vibe') throw new CliAccountError('kind-mismatch');
+      try { await deleteOpenCodePlanKey(options.keyStore, keyRoute(r.provider), r.id); }
       catch { throw new CliAccountError('prepare-failed'); }
       rmSync(pending(r), { force: true });
     });
     return status(id);
   }
+  function remove(id: string) { return drop(id, true); }
   type Added = { account: CliAccount; signIn: SignInCommand };
   function add(provider: 'pi', metadata: { piProvider: PiProvider }): Promise<Added>;
-  function add(provider: 'claude' | 'codex' | 'opencode'): Promise<Added>;
+  function add(provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'vibe'): Promise<Added>;
   function add(provider: CliProvider, metadata?: { piProvider?: PiProvider }): Promise<Added> { return addManaged(provider, metadata); }
   async function addManaged(provider: CliProvider, metadata?: { piProvider?: PiProvider }, adopted?: Row): Promise<Added> {
     if (!providers.includes(provider) || (provider === 'pi' && !validPiProvider(metadata?.piProvider))) throw new CliAccountError('bad-option');
     binary(provider);
     const parent = join(stateDir, provider); if (!directory(stateDir) || !directory(parent, true)) throw new CliAccountError('bad-option');
     chmodSync(parent, 0o700);
-    const r: Row = { id: `pa_${randomBytes(9).toString('hex')}`, provider, name: adopted?.name ?? '', folder: join(parent, randomBytes(8).toString('hex')), found: false, addedAt: stampAddedAt(),
+    const r: Row = { id: `pa_${randomBytes(9).toString('hex')}`, provider, name: adopted?.name ?? '', folder: (provider === 'claude' || provider === 'codex') && managedFolders[provider] || join(parent, randomBytes(8).toString('hex')), found: false, addedAt: stampAddedAt(),
       ...(provider === 'pi' ? { piProvider: metadata!.piProvider } : {}), ...(adopted ? { adoptedFrom: adopted.id } : {}) };
-    mkdirSync(r.folder, { mode: 0o700 });
+    if (managed(r) && load().some(row => row.folder === r.folder)) throw new CliAccountError('prepare-failed');
+    if (!directory(r.folder, true)) throw new CliAccountError('bad-option');
     try {
-      if (history[provider]) symlinkSync(history[provider]!, join(r.folder, provider === 'claude' ? 'projects' : 'sessions'), 'dir');
+      if (history[provider]) historyLink(history[provider]!, join(r.folder, provider === 'claude' ? 'projects' : 'sessions'));
       const signIn = begin(r);
       await options.prepare?.(r.folder, provider);
       if (!safe(r)) throw new CliAccountError('prepare-failed');
       save([...load(), r], provider); created.add(r.id);
       return { account: { id: r.id, provider, name: r.name || (provider === 'pi' ? piRoutes.find(v => v.upstream.id === r.piProvider)!.name : suggestName(undefined, provider)), billing: 'subscription', state: 'signing', ...(r.piProvider ? { piProvider: r.piProvider } : {}), ...(r.adoptedFrom ? { adoptedFrom: r.adoptedFrom } : {}), addedAt: r.addedAt }, signIn };
-    } catch { rmSync(r.folder, { recursive: true, force: true }); throw new CliAccountError('prepare-failed'); }
+    } catch { discard(r, false); throw new CliAccountError('prepare-failed'); }
   }
   return {
     list: async (): Promise<CliAccount[]> => Promise.all(load().filter((r) => !r.found && !r.id.startsWith('found-')).map((r) => status(r.id))),
@@ -418,7 +525,7 @@ export function cliAccounts(options: CliOptions) {
     saveKey,
     logout,
     async cancel(id: string): Promise<{ removed: boolean }> {
-      if (created.has(id)) { await remove(id); return { removed: true }; }
+      if (created.has(id)) { await drop(id, false); return { removed: true }; }
       return serial(id, async () => { const r = row(id); rmSync(pending(r), { force: true }); return { removed: false }; });
     },
     async rename(id: string, name: string): Promise<CliAccount> {
@@ -437,16 +544,54 @@ export function cliAccounts(options: CliOptions) {
       return { ok: false, code, account, message: say(code === 'not_included' ? 'cli.notIncluded' : 'cli.signedOut', { name: account.name }) };
     },
     launchEnv: (id: string) => launch(row(id)),
+    /** The account a tool's stored `use` names, or undefined. */
+    preferOf: (provider: CliProvider): string | undefined => {
+      if (!providers.includes(provider)) throw new CliAccountError('bad-option');
+      return loadPrefer()[provider];
+    },
+    /** Store the account `use <id>` prefers for a tool, or clear it with `use --clear <tool>`. A clear
+     * for a tool with no entry succeeds and changes nothing. */
+    setPrefer: (provider: CliProvider, id?: string): void => {
+      if (!providers.includes(provider) || (id !== undefined && (!text(id) || !id || id.length > 128))) throw new CliAccountError('bad-option');
+      const tools = { ...loadPrefer() };
+      if (id === undefined && !(provider in tools)) return;
+      if (id === undefined) delete tools[provider]; else tools[provider] = id;
+      savePrefer(tools);
+    },
+    folderOf: (id: string): string => row(id).folder,
     launchArgs: (id: string): string[] => { const r = row(id); return r.provider === 'pi' ? ['--provider', r.piProvider!] : []; },
     kinds: (provider: CliProvider): string[] => providers.includes(provider) ? [provider] : [],
     resumeArgs(kind: string, ref: { kind: 'id' | 'path'; value: string }): string[] {
       if (!record(ref) || !text(ref.value) || !ref.value || ref.value.startsWith('-') || !providers.includes(kind as CliProvider) || (ref.kind !== 'id' && (kind !== 'pi' || ref.kind !== 'path'))) throw new CliAccountError('kind-mismatch');
-      // OpenCode's native resume shape is not pinned here: resume through the plan route, not a guessed argv.
-      if (kind === 'opencode') throw new CliAccountError('kind-mismatch');
-      return kind === 'pi' ? ['--session', ref.value] : kind === 'claude' ? ['--resume', ref.value] : ['resume', ref.value];
+      // kinds.json: pi/opencode/kimi `--session`, claude/vibe `--resume`, codex `resume`.
+      return kind === 'pi' || kind === 'opencode' || kind === 'kimi' ? ['--session', ref.value] : kind === 'claude' || kind === 'vibe' ? ['--resume', ref.value] : ['resume', ref.value];
     },
     usageSource(id: string): { provider: 'codex'; bin: string; home: string; env: Record<string, string> } | undefined {
-      const r = row(id); return r.provider === 'codex' ? { provider: 'codex', bin: binary('codex'), home: r.folder, env: spawnEnv(r) } : undefined;
+      const r = row(id); return r.provider === 'codex' ? codexSource(r) : undefined;
+    },
+    /** The account a run of this provider should use, and every row of that provider with its reading.
+     * Candidates are `ready` and not resting; `prefer` wins while that account is ready; otherwise the
+     * most room wins, an unknown reading ranks after a known one, and ties keep list order. */
+    async pick(provider: CliProvider, options: { prefer?: string } = {}): Promise<CliPick> {
+      if (!providers.includes(provider) || !record(options) || (options.prefer !== undefined && (!text(options.prefer) || !options.prefer))) throw new CliAccountError('bad-option');
+      // The person's own `use` for this tool, unless the caller named an account explicitly.
+      const prefer = options.prefer ?? loadPrefer()[provider];
+      const rows: CliPickRow[] = [];
+      for (const r of load().filter((v) => !v.found && !v.id.startsWith('found-') && v.provider === provider)) {
+        const account = await status(r.id);
+        // Read room only for an account this run could use; a signed-out or resting row carries no reading.
+        const source = account.state === 'ready' ? roomSource(r) : undefined;
+        if (!source) { rows.push({ account, room: unknownRoom(), windows: [] }); continue; }
+        const nowMs = Date.now();
+        const reading = await roomReader().read(source, { nowMs });
+        rows.push({ account, room: roomOf(reading, nowMs), windows: reading.windows, ...(reading.at !== undefined ? { readAt: reading.at } : {}) });
+      }
+      const ready = rows.filter((r) => r.account.state === 'ready');
+      const chosen = ready.find((r) => r.account.id === prefer)
+        ?? ready.filter((r) => r.room.left !== 'unknown').sort((a, b) => Number(b.room.left) - Number(a.room.left))[0]
+        ?? ready[0];
+      if (!chosen) return { ok: false, code: 'none', reason: say('pick.none', { provider }), rows };
+      return { ok: true, account: chosen.account, room: chosen.room, rows };
     },
     termsAcknowledged: (): boolean => { if (!directory(stateDir)) throw new CliAccountError('bad-option'); const saved = json(join(stateDir, 'auto-terms-v1.json')); return record(saved) && saved.acknowledged === true; },
     acknowledgeTerms: () => atomic(join(stateDir, 'auto-terms-v1.json'), { acknowledged: true }),

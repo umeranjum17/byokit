@@ -1,11 +1,11 @@
-// @earendil-works/pi-ai@0.87.1 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   formatProviderError,
   normalizeProviderError
-} from "./chunk-W3IKEFGN.js";
+} from "./chunk-E54CWL3Z.js";
 import {
   retryProviderRequest
-} from "./chunk-3TVGBGLJ.js";
+} from "./chunk-B7RY6CKU.js";
 import {
   buildBaseOptions,
   getJsonSchemaToolParameters,
@@ -13,7 +13,7 @@ import {
   resolveJsonSchemaStrictSampling,
   sanitizeSurrogates,
   transformMessages
-} from "./chunk-VUCNMX7O.js";
+} from "./chunk-VZSF4MVH.js";
 import {
   calculateCost,
   clampThinkingLevel,
@@ -22,14 +22,14 @@ import {
   getInitialSystemMessage,
   getSystemMessageText,
   withoutInitialSystemMessage
-} from "./chunk-PDUG4NYC.js";
+} from "./chunk-2HB4SJL3.js";
 import {
   providerHeadersToRecord
-} from "./chunk-MIDDHJH2.js";
+} from "./chunk-VXRRDOKP.js";
 import {
   AssistantMessageEventStream
-} from "./chunk-JTGIYXAQ.js";
-import "./chunk-XD4THNNI.js";
+} from "./chunk-JK2DMSVJ.js";
+import "./chunk-JOZQDPST.js";
 
 // node_modules/@earendil-works/pi-ai/dist/api/google-generative-ai.js
 import { GoogleGenAI } from "@google/genai";
@@ -407,6 +407,7 @@ var stream = (model, context, options) => {
       const blocks = output.content;
       const blockIndex = () => blocks.length - 1;
       for await (const chunk of googleStream) {
+        await options?.onProviderStreamEvent?.(chunk, model);
         output.responseId ||= chunk.responseId;
         const candidate = chunk.candidates?.[0];
         if (candidate?.content?.parts) {

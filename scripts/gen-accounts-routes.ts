@@ -19,7 +19,7 @@ const envBlock = source('env-api-keys.js').match(/const envMap = \{([\s\S]*?)\n 
 if (!envBlock) throw new Error('Pinned provider env map not found');
 const envMap = Object.fromEntries([...envBlock.matchAll(/(?:"([^"]+)"|([\w-]+)):\s*"([^"]+)"/g)].map((m) => [m[1] ?? m[2], m[3]]));
 const aliases: Record<string, string> = {
-  'amazon-bedrock': 'aws-bedrock', 'azure-openai-responses': 'azure', google: 'google-ai-studio',
+  'amazon-bedrock': 'aws-bedrock', google: 'google-ai-studio',
   'openai-codex': 'openai', 'kimi-coding': 'kimi-code', moonshotai: 'moonshot', 'moonshotai-cn': 'moonshot',
   'minimax-cn': 'minimax', 'cloudflare-ai-gateway': 'cloudflare', 'cloudflare-workers-ai': 'cloudflare',
   'qwen-token-plan': 'alibaba', 'qwen-token-plan-cn': 'alibaba', 'qwen-token-plan-individual': 'alibaba',
@@ -34,11 +34,13 @@ const companies: Record<string, string> = {
 };
 // Source methods are not public metadata in this pin. Read their modules and
 // assert each overlay's method evidence so an upstream change cannot silently disappear.
+// 1.x splits ChatGPT: browser/paste on openai (openai-chatgpt.js); device stays on openai-codex.
 const oauthMethods: Record<string, RouteVia[]> = {
-  anthropic: ['paste', 'browser'], 'openai-codex': ['browser', 'paste', 'code'],
+  anthropic: ['paste', 'browser'], openai: ['browser', 'paste'], 'openai-codex': ['code'],
   'github-copilot': ['code'], 'kimi-coding': ['code'], meta: ['code'], xai: ['code'],
   openrouter: ['browser', 'paste'], radius: ['browser', 'code'],
 };
+const oauthModule: Record<string, string> = { openai: 'openai-chatgpt.js' };
 const planKeys = new Set(['kimi-coding', 'opencode-go', 'qwen-token-plan', 'qwen-token-plan-cn', 'qwen-token-plan-individual', 'xiaomi-token-plan-ams', 'xiaomi-token-plan-cn', 'xiaomi-token-plan-sgp', 'zai', 'zai-coding-cn']);
 const all = { node: 'yes', browser: 'yes', rn: 'yes' } as const;
 const node = { node: 'yes', browser: 'no', rn: 'no' } as const;
@@ -64,7 +66,7 @@ export function generateRoutes(): Route[] {
     });
   };
   for (const p of builtinProviders()) {
-    const variant = aliases[p.id] && aliases[p.id] !== p.id && !['openai-codex', 'amazon-bedrock', 'google', 'kimi-coding', 'moonshotai', 'azure-openai-responses'].includes(p.id) ? p.id : undefined;
+    const variant = aliases[p.id] && aliases[p.id] !== p.id && !['openai-codex', 'amazon-bedrock', 'google', 'kimi-coding', 'moonshotai'].includes(p.id) ? p.id : undefined;
     if (p.auth.apiKey) {
       if (p.id === 'amazon-bedrock') {
         add(p.id, p.name, 'key', 'api', 'bearer-token', undefined, { platforms: node });
@@ -76,23 +78,24 @@ export function generateRoutes(): Route[] {
         add(p.id, p.name, planKeys.has(p.id) ? 'plan_key' : 'key', billing, envMap[p.id] ?? (p.id === 'anthropic' ? 'ANTHROPIC_API_KEY' : 'COPILOT_GITHUB_TOKEN'), variant, {
           ...(p.id === 'github-copilot' ? { billing: 'subscription', offer: 'default', label: `Paste your Copilot token (uses your ${p.name} plan)` } : {}),
           ...(['anthropic', 'openai', 'openrouter'].includes(p.id) ? { platforms: all } : {}),
-          ...(['google-vertex', 'azure-openai-responses', 'cloudflare-ai-gateway', 'cloudflare-workers-ai'].includes(p.id) ? { platforms: node } : {}),
+          ...(['google-vertex', 'azure', 'cloudflare-ai-gateway', 'cloudflare-workers-ai'].includes(p.id) ? { platforms: node } : {}),
         });
       }
     }
     if (p.auth.oauth) {
       const methods = oauthMethods[p.id];
       if (!methods) throw new Error(`Missing OAuth methods for ${p.id}`);
-      const text = source(`auth/oauth/${p.id}.js`);
+      const text = source(`auth/oauth/${oauthModule[p.id] ?? `${p.id}.js`}`);
       for (const via of methods) {
-        if (via === 'paste' && !text.includes('manual_code')) throw new Error(`Missing paste flow for ${p.id}`);
+        if (via === 'paste' && !(text.includes('manual_code') || text.includes('waitForCallbackOrManualInput'))) throw new Error(`Missing paste flow for ${p.id}`);
         if (via === 'code' && !/device[_-]code|device_code/.test(text)) throw new Error(`Missing device flow for ${p.id}`);
-        if (via === 'browser' && !/createServer|startCallbackServer/.test(text)) throw new Error(`Missing browser flow for ${p.id}`);
+        if (via === 'browser' && !/createServer|startCallbackServer|startOAuthCallbackServer|CallbackServer/.test(text)) throw new Error(`Missing browser flow for ${p.id}`);
         const billing = p.auth.oauth.isSubscription ? 'subscription' : p.id === 'openrouter' ? 'api' : 'unknown';
         // ChatGPT signs in on its own flow; every other provider with catalogue device data signs in with the phone engine.
         const device = via === 'code';
         const portable = device || p.id === 'anthropic' && via === 'paste';
-        add(p.id, p.id === 'openai-codex' ? 'ChatGPT' : p.id === 'anthropic' ? 'Claude' : p.name, via, billing,
+        const chatGpt = p.id === 'openai-codex' || p.id === 'openai';
+        add(p.id, chatGpt ? 'ChatGPT' : p.id === 'anthropic' ? 'Claude' : p.name, via, billing,
           via === 'code' ? 'device' : via === 'browser' ? 'loopback' : 'paste', undefined,
           { platforms: device ? (deviceBrowserHost.has(p.id) ? { node: 'yes', browser: 'host', rn: 'yes' } : p.id === 'openai-codex' || portableDevice(p.id) ? all : node)
             : portable ? { node: 'yes', browser: 'host', rn: 'yes' } : node });
@@ -111,6 +114,11 @@ export function generateRoutes(): Route[] {
   add('qwen', 'Qwen', 'browser', 'subscription', 'oauth', undefined, { company: 'Alibaba', platforms: node, upstream: { surface: 'accounts', id: 'qwen-portal', method: 'oauth', revision, flow: 'absent' } });
   // No plan login exists at this pin; a key is not proof of a plan.
   add('minimax', 'MiniMax', 'plan_key', 'subscription', 'plan-key', undefined, { upstream: { surface: 'accounts', id: 'minimax', method: 'plan-key', revision, flow: 'absent' } });
+  // Ollama Pro left the pin in 1.x; keep the public plan-key route kit-owned. Streaming uses openai-completions
+  // against https://ollama.com/v1 (same as @byokit/accounts/ollama-pro), not a removed builtin provider.
+  add('ollama-pro', 'Ollama Pro', 'plan_key', 'subscription', 'OLLAMA_API_KEY', undefined, {
+    company: 'Ollama', aliases: ['ollama-cloud'],
+  });
   // MiniMax's own user-code device sign-in, from its catalogue device data: the pinned pi-ai provider has no OAuth
   // module, so the kit's portable engine signs it in. Both regions share a client; `:cn` picks the China host.
   add('minimax', 'MiniMax', 'code', 'subscription', 'device', undefined, { offer: 'explicit', platforms: { node: 'yes', browser: 'host', rn: 'host' } });

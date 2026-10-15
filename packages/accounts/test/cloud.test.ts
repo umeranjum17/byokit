@@ -176,7 +176,7 @@ test('native cloud key/binding streams keep the selected endpoint and redact pub
   assert.equal(failed.stopReason, 'error');
   assert.ok(!JSON.stringify(failed).includes(CANARY));
   const azure = cloudSelection('azure', selections[6][1], host);
-  const azureModel = builtinProviders().find((p) => p.id === 'azure-openai-responses')!.getModels()[0];
+  const azureModel = builtinProviders().find((p) => p.id === 'azure')!.getModels()[0];
   const response = await cloudStream(azure, CANARY, azureModel, context, { maxRetries: 0, fetch: async (input, init) => {
     const request = input instanceof Request ? input : new Request(input, init);
     assert.ok(request.url.startsWith(azure.baseUrl!));

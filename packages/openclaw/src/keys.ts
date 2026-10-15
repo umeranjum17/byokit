@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { activate, type ActivationCtx } from './activation.ts';
 import { keyAgentId, MEMBER_ID, KEY_PREFIX, untilListed } from './members.ts';
+import { providerOf } from './pick.ts';
 import { routes, type RouteView } from './routes.ts';
 import { modelsOf } from './accounts.ts';
 import { LIVE_CATALOGS } from './constants.ts';
@@ -151,6 +152,25 @@ export function createKeys(ctx: ActivationCtx & {
           await new Promise((resolve) => setTimeout(resolve, 250));
         }
       }
+    },
+    // Remove this member's saved key: the key agent's store and its ready marker, so the lane reads signed out and
+    // stays signed out. `provider` scopes it to the key actually saved for that provider (the member agent's own
+    // sign-out never reaches this lane), so signing out of one provider never drops another's key. A lane that reads
+    // not ready has nothing saved to remove; a refused read or clear is a typed refusal, never raw engine text.
+    // Serialized with adds and key runs like every other key change.
+    async remove(member: Member, o: { provider?: string } = {}): Promise<void> {
+      if (!check(member)) throw new Error('Choose your own member.');
+      await exclusive(member, async () => {
+        const refused = (): never => { throw new Error('The key could not be removed.'); };
+        if (o.provider !== undefined) {
+          // An unreadable lane cannot name its provider, so removal never guesses and risks another provider's key.
+          const ready = await control(member, 'ready').catch(() => undefined);
+          if (!ready) refused();
+          else if (ready.ok !== true || providerOf(ready.model ?? '') !== o.provider) return;
+        }
+        const cleared = await control(member, 'clear').catch(() => undefined);
+        if (cleared?.ok !== true && cleared?.absent !== true) refused();
+      });
     },
     // Kit connect calls this once the gateway is ready: a failed add whose abandon clear never reached the engine
     // leaves an unsealed key with no ready marker, so drop it (`clear`, until a sweep completes). A single ready read

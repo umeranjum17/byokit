@@ -69,6 +69,15 @@ test('a refused prepare keeps the sealed key and its ready marker, and a later r
   } finally { h.stop(); }
 });
 
+test('a clear for a member with no key lane is already removed', async () => {
+  const h = await harness();
+  try {
+    // No `m2` entry and no `byokit-key-m2` entry: removal has nothing to drop and says so instead of refusing.
+    assert.deepEqual(await h.call({ member: 'm2', action: 'clear' }), { ok: false, absent: true });
+    assert.equal((await h.call({ member: 'm2', action: 'ready' })).ok, false);
+  } finally { h.stop(); }
+});
+
 test('a clear that empties the key store also removes its ready marker', async () => {
   const h = await harness();
   try {
