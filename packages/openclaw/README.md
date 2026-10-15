@@ -113,7 +113,9 @@ prints the code only into a note's text.
 Device approval can take longer than two minutes. The kit waits through the engine's advertised code lifetime
 (`expiresInMinutes` on the pin, or `expires_in` seconds when supplied), including progress pulls. If the engine
 supplies no lifetime, it owns the deadline. Ordinary wizard requests keep their 120-second timeout.
-`signIn.cancel()` or the optional caller `signal` cancels this sign-in and releases its wizard session.
+`signIn.cancel()` or the optional caller `signal` cancels this sign-in and releases its wizard session. When the
+engine answers that cancel `cancelled`, `done` also waits up to 10 s for it to free its setup admission, so a sign-in
+started after `done` is admitted rather than ending `why: 'busy'`.
 `done` returns a typed `SignInView`: `why: 'expired'` for an expired code, `why: 'declined'` for cancellation,
 with a plain sentence in `error`. `SignInOptions` is exported from the host entry.
 
