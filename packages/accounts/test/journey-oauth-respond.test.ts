@@ -199,6 +199,38 @@ test('on a computer a refresh with no answer is typed network and the sign-in is
   assert.ok((await accounts.list(1)).some((r) => r.id === 'grok'), 'the sign-in is still listed on a computer');
 });
 
+test('keepFresh expires non-target accounts without revocation and continues processing remaining accounts', async () => {
+  const paths: string[] = [];
+  const server = createServer(async (req, res) => {
+    for await (const _ of req);
+    paths.push(req.url!);
+    res.writeHead(req.url === '/oauth/revoke' ? 503 : 400, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ error: 'invalid_grant' }));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  let data: any = {
+    'openai-codex': { type: 'oauth', access: 'first-access', refresh: 'first-refresh', expires: 0 },
+    'chatgpt.personal': { type: 'oauth', access: 'second-access', refresh: 'second-refresh', expires: 0 },
+  };
+  const store = recordStore(async () => structuredClone(data), async (next) => { data = structuredClone(next); });
+  const accounts = new Accounts<any, number>({ offer: ['chatgpt'], authBase: base, store: () => store }, portable);
+  const expired: string[] = [];
+  accounts.onExpired = (_member, key) => { expired.push(key); };
+  try {
+    await accounts.keepFresh([1]);
+    assert.deepEqual(expired, ['chatgpt', 'chatgpt.personal'], 'both expirations are reported despite the unavailable revoke endpoint');
+    assert.deepEqual(paths, ['/oauth/token', '/oauth/token'], 'expiry never requests remote revocation');
+    for (const key of ['chatgpt', 'chatgpt.personal']) assert.equal(accounts.unready(1, key), true);
+    for (const id of ['openai-codex', 'chatgpt.personal']) assert.ok(await store.read(id), 'the prior non-target expiration path preserves the terminal record');
+    await accounts.keepFresh([1]);
+    assert.deepEqual(expired, ['chatgpt', 'chatgpt.personal'], 'each expiry is reported once');
+    assert.equal(paths.length, 2, 'expired records are not retried');
+  } finally {
+    await new Promise<void>((resolve) => { server.close(() => resolve()); server.closeAllConnections(); });
+  }
+});
+
 /** Kimi's token endpoint, which Pi's own refresh reaches on a computer through its `KIMI_CODE_OAUTH_HOST`: every refresh
  *  is answered with the configured status and body, and counted. */
 async function fakeKimiAuth() {

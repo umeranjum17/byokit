@@ -1475,7 +1475,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       for (const key of keys) {
         if ((!key.includes(':') && !this.providers.some((p) => p.key === this.providerKey(key))) || this.ready.get(`${m}:${key}`) === false) continue;
         const ok = await this.refreshed(m, key, 60 * 60_000);
-        if (!ok) { await this.endAccount(m, key, true); this.forgetAccount(m, key); this.onExpired?.(m, key); }
+        if (!ok) {
+          if (OAUTH_RESPOND.includes(this.offer(key).pi)) await this.endAccount(m, key, true);
+          this.forgetAccount(m, key);
+          this.onExpired?.(m, key);
+        }
       }
     }
   }
