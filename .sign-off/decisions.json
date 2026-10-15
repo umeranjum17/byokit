@@ -1,1 +1,25 @@
-{"schema": 2, "items": []}
+{
+  "schema": 2,
+  "items": [
+    {
+      "contract": 1,
+      "kind": "evidence",
+      "schema": 1,
+      "key": "dd-evidence-20261015T063606Z-0cf53fb1-6fed13",
+      "filer": "done-done",
+      "title": "byokit accounts-signin: verify pass",
+      "about": "a consumer app signs in with the README quickstart against the built SDK",
+      "type": "evidence",
+      "number": 1,
+      "evidence": {
+        "run_id": "20261015T063606Z-0cf53fb1-6fed13",
+        "commit": "0cf53fb194acf443b945ca3394bb11f2936ba69e",
+        "outcome": "a consumer app signs in with the README quickstart against the built SDK",
+        "repro": "done-done verify --feature accounts-signin --outcome \"a consumer app signs in with the README quickstart against the built SDK\" at 0cf53fb194acf443b945ca3394bb11f2936ba69e",
+        "proof": "verify-byokit: done-done verify accounts-signin, run 20261015T063606Z-0cf53fb1-6fed13: pass",
+        "evidence": "accounts-signin.txt"
+      },
+      "filed": "2026-10-15T06:47:33.163Z"
+    }
+  ]
+}
