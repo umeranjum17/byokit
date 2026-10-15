@@ -224,10 +224,13 @@ that account's own `runtime(member, id)`, refreshed first when due, as its pinne
 header, Copilot's per-token base URL); on phones and in browsers the portable engine gives the access token as the key.
 It needs the `/keys` entry, as a key route does. A model from another provider is refused with
 `KeyRouteError.code === 'provider'`. A 429 rests only that account and rejects with `ResponseError` kind `rate_limit`
-(`until` from `retry-after`), never retried. A refresh the provider proves revoked (such as `invalid_grant`) or refuses
-with a bare 400, 401 or 403 signs only that account out (`signed_out`), never retried. A 5xx, a timeout, a dropped
-connection or an unreadable answer at refresh keeps the sign-in and rejects with `network`. A route this platform cannot
-run (Meta in a browser or on a phone) is `not_included`.
+(`until` from `retry-after`), never retried. Where the kit owns the refresh (the portable engine on phones and browsers,
+with `withKeys(portable)`), a refresh the provider proves revoked (such as `invalid_grant`) or refuses with a bare 400,
+401 or 403 signs only that account out (`signed_out`), never retried, while a 5xx, a timeout, a dropped connection or an
+unreadable answer at refresh keeps the sign-in and rejects with `network`. On a computer the kit does not own the refresh:
+Pi refreshes internally and throws its own error, so a failed refresh there (a revocation included) is typed `network`
+and the sign-in is kept until the provider needs a fresh sign-in. A route this platform cannot run (Meta in a browser or
+on a phone) is `not_included`.
 
 An explicit prebuilt SDK `client` is refused with `KeyRouteError.code === 'auth_override'` **before** opening
 saved-account secrets: its opaque authentication cannot be verified as this account. It is not silently

@@ -178,3 +178,22 @@ test('two Grok accounts each answer with their own sign-in; a 429 rests only tha
     await m.close();
   }
 });
+
+// The same path on a computer, where the kit does not own the refresh: Pi refreshes internally against xAI (the egress
+// guard refuses the dial) and throws its own status-less ModelsError, which respond reports as typed network and keeps.
+test('on a computer Pi owns the refresh: a failed refresh is typed network and the sign-in is kept', async () => {
+  let data: any = {};
+  const base = recordStore(async () => structuredClone(data), async (next) => { data = structuredClone(next); });
+  // Pi refreshes through `modify` on a computer, never through the kit's `refresh` seam, where the status is carried.
+  const seams: string[] = [];
+  const store = { ...base, refresh: (...args: any[]) => { seams.push('refresh'); return (base.refresh as any)(...args); }, modify: (...args: any[]) => { seams.push('modify'); return (base.modify as any)(...args); } };
+  data['xai'] = { type: 'oauth', access: 'seeded-access', refresh: 'seeded-refresh', expires: 0, byokitRefresh: { generation: 0, state: 'ready' } };
+  data['.accounts'] = { names: {}, emails: {}, plans: {}, addedAt: { grok: Date.now() }, defaults: {} };
+  const accounts = new Accounts<any, number>({ app: 'byokit journey', offer: ['grok'], store: () => store });
+  const failed = await accounts.respond(1, { account: 'grok', model: model('xai', 'openai-responses', 'http://127.0.0.1:1/v1'), context })
+    .then(() => assert.fail('a computer refresh failure answered'), (e: unknown) => e);
+  assert.ok(failed instanceof ResponseError && failed.kind === 'network', 'a computer refresh failure is typed network');
+  assert.deepEqual(seams.filter((s) => s === 'modify' || s === 'refresh'), ['modify'], 'Pi refreshed through its own seam');
+  assert.ok(await store.read('xai'), 'the sign-in is kept on a computer');
+  assert.ok((await accounts.list(1)).some((r) => r.id === 'grok'), 'the sign-in is still listed on a computer');
+});

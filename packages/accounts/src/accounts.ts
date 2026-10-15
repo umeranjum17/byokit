@@ -1001,9 +1001,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
 
   /** A selected OAuth subscription account (Grok, Copilot, Kimi, Meta) answers through the same pinned Models path as a
-   *  key, with the auth its own runtime derives (refreshed first when due). A refresh the provider proves revoked or refuses
-   *  with a bare 400-403 signs only that account out; a 429 rests only it, typed, never retried. A route this platform cannot
-   *  run is typed not_included. */
+   *  key, with the auth its own runtime derives (refreshed first when due). Where the kit owns the refresh (the portable
+   *  engine on phones and browsers) a refresh the provider proves revoked or refuses with a bare 400-403 signs only that
+   *  account out; on a computer Pi refreshes internally and only its own status-less error reaches here, so any failure is
+   *  typed network and the sign-in is kept. A 429 rests only it, typed, never retried. A route this platform cannot run is
+   *  typed not_included. */
   private async respondOAuth<T extends Api>(member: M, ask: KeyAsk<T>, p: Provider, r: Route): Promise<AssistantMessage> {
     if (r.platforms[this.platform.kind ?? 'browser'] === 'no') throw new ResponseError(`${p.name} can't answer on this device.`, 'not_included');
     if (ask.options?.signal?.aborted) throw new KeyRouteError('aborted');
@@ -1015,8 +1017,10 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     let auth: ModelAuth | undefined;
     try { auth = (await (await this.runtime(member, key)).getAuth(p.pi))?.auth; }
     catch (e) {
-      // A refresh the provider proves revoked or refuses with a bare 400-403 signs only this account out, never retried;
-      // a lost answer, a 5xx or any other refusal keeps the sign-in, since an edge or a provider hiccup sends those too.
+      // Where the kit owns the refresh (the portable engine), a refresh the provider proves revoked or refuses with a bare
+      // 400-403 signs only this account out, never retried; the store carries the refusal as `httpStatus`. A computer's
+      // Pi-owned refresh throws only its own status-less error, so a failure there is unknown: typed network, kept. A 5xx
+      // or a lost answer keeps the sign-in on both.
       if (!endedRefresh(e)) throw new ResponseError(`${p.name} could not refresh its sign-in. Try again when the network is back.`, 'network');
       await this.logout(member, key).catch(() => {});
       this.forget(member, key);
@@ -1445,8 +1449,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         const c = await this.store(member).read(this.storageKey(key));
         return c?.type === 'oauth' && c.expires > Date.now();
       }
-      // A revoked (invalid_grant) or quarantined refresh requires sign-in again. A lost answer, any other refusal (a bare
-      // 400-403 included), a server error or a read failure before sending (a locked keychain) is unknown: try later.
+      // A revoked (invalid_grant) or quarantined refresh requires sign-in again. A bare 400-403 keeps the sign-in here:
+      // only the respond path reads the store's `httpStatus`, and a computer's Pi-owned refresh throws status-less errors
+      // anyway. A lost answer, a server error or a read failure before sending (a locked keychain) is unknown: try later.
       return !refusedRefresh(e);
     });
   }
