@@ -3,7 +3,8 @@
 // (`.`, `/keys`, `/testing`). A loopback stand-in for xAI's Responses endpoint replays fixtures/conformance/pi-streams.json
 // and records the bearer each request carried. A 429 rests only the account that got it, typed and never retried, while
 // the other still answers; a refresh the provider proves revoked or refuses with a bare 400-403 signs only that account
-// out, while a 5xx or a dropped connection keeps the sign-in, typed network. No account and no real network.
+// out, while a 5xx or a dropped connection keeps the sign-in, typed network. On a computer the same rule holds around Pi's
+// own refresh, driven for Kimi against a stand-in token endpoint. No account and no real network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -179,12 +180,12 @@ test('two Grok accounts each answer with their own sign-in; a 429 rests only tha
   }
 });
 
-// The same path on a computer, where the kit does not own the refresh: Pi refreshes internally against xAI (the egress
-// guard refuses the dial) and throws its own status-less ModelsError, which respond reports as typed network and keeps.
-test('on a computer Pi owns the refresh: a failed refresh is typed network and the sign-in is kept', async () => {
+// The same path on a computer, where Pi refreshes internally: a refresh that gets no answer (the egress guard refuses the
+// dial to xAI) carries no status, so respond reports it as typed network and keeps the sign-in.
+test('on a computer a refresh with no answer is typed network and the sign-in is kept', async () => {
   let data: any = {};
   const base = recordStore(async () => structuredClone(data), async (next) => { data = structuredClone(next); });
-  // Pi refreshes through `modify` on a computer, never through the kit's `refresh` seam, where the status is carried.
+  // Pi refreshes through `modify` on a computer, never through the kit's `refresh` seam.
   const seams: string[] = [];
   const store = { ...base, refresh: (...args: any[]) => { seams.push('refresh'); return (base.refresh as any)(...args); }, modify: (...args: any[]) => { seams.push('modify'); return (base.modify as any)(...args); } };
   data['xai'] = { type: 'oauth', access: 'seeded-access', refresh: 'seeded-refresh', expires: 0, byokitRefresh: { generation: 0, state: 'ready' } };
@@ -196,4 +197,74 @@ test('on a computer Pi owns the refresh: a failed refresh is typed network and t
   assert.deepEqual(seams.filter((s) => s === 'modify' || s === 'refresh'), ['modify'], 'Pi refreshed through its own seam');
   assert.ok(await store.read('xai'), 'the sign-in is kept on a computer');
   assert.ok((await accounts.list(1)).some((r) => r.id === 'grok'), 'the sign-in is still listed on a computer');
+});
+
+/** Kimi's token endpoint, which Pi's own refresh reaches on a computer through its `KIMI_CODE_OAUTH_HOST`: every refresh
+ *  is answered with the configured status and body, and counted. */
+async function fakeKimiAuth() {
+  let answer = { status: 403, body: {} as object };
+  let refreshes = 0;
+  const server = createServer(async (req, res) => {
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    if (req.url === '/api/oauth/token' && body.includes('grant_type=refresh_token')) refreshes++;
+    res.writeHead(answer.status, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(answer.body));
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return {
+    base: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    answer: (status: number, body: object = {}) => { answer = { status, body }; },
+    refreshes: () => refreshes,
+    close: () => new Promise<void>((resolve) => { server.close(() => resolve()); server.closeAllConnections(); }),
+  };
+}
+
+test('on a computer a bare 403, and separately a proven invalid_grant, at Pi\'s own refresh signs that account out and it is never refreshed again', async () => {
+  const auth = await fakeKimiAuth();
+  process.env.KIMI_CODE_OAUTH_HOST = auth.base;
+  // A Kimi sign-in on the default computer platform, already due, as an earlier run of the app left it.
+  const signedIn = () => {
+    let data: any = {
+      'kimi-coding': { type: 'oauth', access: 'kimi-access', refresh: 'kimi-refresh', expires: 0 },
+      '.accounts': { names: {}, emails: {}, plans: {}, addedAt: { kimi: Date.now() }, defaults: {} },
+    };
+    const store = recordStore(async () => structuredClone(data), async (next) => { data = structuredClone(next); });
+    const expired: string[] = [];
+    const accounts = new Accounts<any, number>({ app: 'byokit journey', offer: ['kimi'], store: () => store });
+    accounts.onExpired = (_m, key) => { expired.push(key); };
+    return { store, accounts, expired };
+  };
+  const kimi = model('kimi-coding', 'anthropic-messages', 'http://127.0.0.1:1');
+  try {
+    for (const [why, status, body] of [['a bare 403', 403, {}], ['invalid_grant', 400, { error: 'invalid_grant', error_description: 'refresh token revoked' }]] as const) {
+      auth.answer(status, body);
+      const { store, accounts, expired } = signedIn();
+      const before = auth.refreshes();
+      const ended = await accounts.respond(1, { account: 'kimi', model: kimi, context }).then(() => assert.fail(`${why} answered`), (e: unknown) => e);
+      assert.ok(ended instanceof ResponseError && ended.kind === 'signed_out', `${why} at refresh signs out, typed`);
+      assert.equal(auth.refreshes(), before + 1, `${why}: Pi's own refresh reached the token endpoint once`);
+      assert.equal(await store.read('kimi-coding'), undefined, `${why}: the sign-in is gone`);
+      assert.deepEqual(await accounts.list(1), [], `${why}: the account left rotation`);
+      assert.deepEqual(expired, ['kimi'], `${why}: onExpired says so once`);
+      // A later respond and a later keepFresh find nothing to refresh: no second refresh is sent.
+      await assert.rejects(accounts.respond(1, { account: 'kimi', model: kimi, context }));
+      await accounts.keepFresh([1]);
+      assert.equal(auth.refreshes(), before + 1, `${why}: never refreshed again`);
+    }
+
+    // keepFresh holds the same rule: a bare 403 at its refresh ends the sign-in, said once, and it is not tried again.
+    auth.answer(403);
+    const { accounts, expired } = signedIn();
+    const before = auth.refreshes();
+    await accounts.keepFresh([1]);
+    assert.equal(auth.refreshes(), before + 1, "keepFresh reached Pi's own refresh once");
+    assert.deepEqual(expired, ['kimi'], 'keepFresh says the sign-in ended');
+    assert.notEqual((await accounts.status(1, 'kimi')).state, 'ready', 'the account left rotation');
+    await accounts.keepFresh([1]);
+    assert.equal(auth.refreshes(), before + 1, 'keepFresh does not try it again');
+  } finally {
+    delete process.env.KIMI_CODE_OAUTH_HOST;
+    await auth.close();
+  }
 });

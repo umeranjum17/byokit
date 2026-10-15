@@ -1,6 +1,8 @@
 // @byokit/accounts on a computer (Node, Electron's main process): Pi's own sign-in flows, and a listener for ChatGPT's
 // page coming back to this computer, so its tab shows the app's words. Phones and browsers get portable.ts instead
 // (package.json's "react-native" and "browser" conditions).
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { subscribe } from 'node:diagnostics_channel';
 import { createServer } from 'node:http';
 import type { CredentialStore } from '@earendil-works/pi-ai';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
@@ -19,11 +21,29 @@ export const loopback: Loopback = (port, handle) => new Promise((resolve, reject
   server.once('error', reject).listen(port, '127.0.0.1', () => resolve({ close: () => { server.close(); server.closeIdleConnections(); } }));
 });
 
+/** The status a provider last refused with while one `getAuth` ran, read off Node's fetch as Pi's own refresh sends it:
+ *  Pi's error keeps the status only in its words. A request sent outside a `getAuth` is never watched.
+ *  A host that swaps the global fetch for one not built on Node's undici loses the status: typed network, kept. */
+const refreshing = new AsyncLocalStorage<{ status?: number }>();
+const watched = new WeakMap<object, { status?: number }>();
+subscribe('undici:request:create', ({ request }: any) => { const w = refreshing.getStore(); if (w) watched.set(request, w); });
+subscribe('undici:request:headers', ({ request, response }: any) => { const w = watched.get(request); if (w && response.statusCode >= 400) w.status = response.statusCode; });
+
+/** Pi's engine, its failed refresh carrying the provider's refusal as `httpStatus`, as the kit's own store carries it. */
+function engine(credentials: CredentialStore) {
+  const models = builtinModels({ credentials, authContext: emptyAuthContext });
+  const getAuth = models.getAuth.bind(models) as (id: string, opts?: object) => ReturnType<typeof models.getAuth>;
+  return Object.assign(models, { getAuth: (id: string, opts?: object) => {
+    const w: { status?: number } = {};
+    return refreshing.run(w, () => getAuth(id, opts)).catch((e) => { throw w.status && e instanceof Error ? Object.assign(e, { httpStatus: w.status }) : e; });
+  } }) as unknown as AuthHost;
+}
+
 /** A computer: every provider Pi signs in to, and the loopback listener. */
 export const computer: Platform = {
   kind: 'node',
   keys: () => import('./node-keys.ts').then((m) => m.runtime),
-  engine: (credentials: CredentialStore) => builtinModels({ credentials, authContext: emptyAuthContext }) as unknown as AuthHost,
+  engine,
   signsIn: () => true,
   loopback,
   endpoint: endpointDriver,
