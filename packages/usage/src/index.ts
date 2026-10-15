@@ -100,7 +100,9 @@ export function usage(options: UsageOptions): Usage {
     let id: string | undefined;
     if ('folder' in source) {
       const stat = source.provider === 'claude' ? claudeCredential(source.folder) : source.provider === 'cursor' ? cursorCredential(source.folder) : piCredential(source.folder);
-      id = stat ? `${source.folder}\0${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}` : undefined;
+      // Pi's auth.json holds one entry per provider id, so one folder login is one account per provider.
+      const scope = source.provider === 'pi' ? `${source.piProvider}\0` : '';
+      id = stat ? `${source.folder}\0${scope}${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}` : undefined;
     } else if ('credentialsFile' in source) id = claudeAuth(source)?.account;
     else if ('read' in source) id = 'ephemeral' in source ? undefined : source.accountUuid;
     else if ('bin' in source) {

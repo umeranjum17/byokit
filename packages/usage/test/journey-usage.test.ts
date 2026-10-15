@@ -1040,6 +1040,7 @@ test('a host reads Pi plan usage from the folder login; a missing reading is unk
   assert.equal(roomOf(kimiReading, nowMs).left, 40);
   assert.equal(reader.connected(moon), true);
   assert.ok(reader.account(moon), 'the folder login has a stable cache identity');
+  assert.notEqual(reader.account(chatgpt), reader.account(moon), 'one Pi folder login is two accounts, one per provider id');
   // A refusal stands on the last good reading with an unknown room, never zero.
   http.push({ status: 401 });
   const refused = await reader.read(moon, { nowMs: nowMs + 60_000 });
@@ -1063,6 +1064,20 @@ test('a host reads Pi plan usage from the folder login; a missing reading is unk
   writeFileSync(join(root, 'outside.json'), JSON.stringify({ 'kimi-coding': { type: 'oauth', access: 'linked-token', refresh: 'r', expires: 0 } }));
   assert.equal(reader.connected(moon), false);
   assert.equal((await reader.read(moon, { nowMs: nowMs + 360_000 })).code, 'not-connected');
+  // One folder login is one account per provider id: both are read at once and neither is served the other's plan.
+  http.push({ body: codex }, { body: kimi });
+  rmSync(credential);
+  writeFileSync(credential, JSON.stringify({ 'openai-codex': { type: 'oauth', access: 'synthetic-codex-token', refresh: 'r', expires: 0, accountId: 'acct-pi' },
+    'kimi-coding': { type: 'oauth', access: 'synthetic-kimi-token', refresh: 'r', expires: 0 } }));
+  const [codexAgain, kimiAgain] = await Promise.all([reader.read(chatgpt, { nowMs: nowMs + 480_000 }), reader.read(moon, { nowMs: nowMs + 480_000 })]);
+  assert.deepEqual(codexAgain.windows, codexWindows);
+  assert.deepEqual(kimiAgain.windows, kimiWindows);
+  const [codexCall, kimiCall] = http.calls.slice(-2);
+  assert.equal(codexCall.url, 'https://chatgpt.com/backend-api/wham/usage');
+  assert.equal(kimiCall.url, 'https://api.kimi.com/coding/v1/usages');
+  const reopened = usage({ stateDir, fetch: http.fetch });
+  assert.deepEqual(reopened.lastKnown(chatgpt, { nowMs: nowMs + 480_000 })!.windows, codexWindows);
+  assert.deepEqual(reopened.lastKnown(moon, { nowMs: nowMs + 480_000 })!.windows, kimiWindows);
   // Folders outside the managed root, a missing stateDir and an unmapped Pi provider are refused.
   rmSync(credential);
   for (const bad of [{ provider: 'pi', folder: 'relative', piProvider: 'kimi-coding' }, { provider: 'pi', folder: join(root, 'outside'), piProvider: 'kimi-coding' },
