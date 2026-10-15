@@ -91,7 +91,7 @@ const opencodeConfigPath = (folder: string) => join(folder, 'opencode.json');
  * config pointing at it, so the key reaches the process through `{file:}` substitution. */
 function writeOpencodeLaunchFiles(folder: string, key: string): void {
   chmodSync(folder, 0o700);
-  const config = JSON.stringify({ provider: { opencode: { options: { apiKey: `{file:${opencodeKeyPath(folder)}}` } } } });
+  const config = JSON.stringify({ provider: { 'opencode-go': { options: { apiKey: `{file:${opencodeKeyPath(folder)}}` } } } });
   for (const [path, value] of [[opencodeKeyPath(folder), key], [opencodeConfigPath(folder), config]]) {
     const tmp = `${path}.${randomUUID()}.tmp`;
     try { writeFileSync(tmp, value, { mode: 0o600, flag: 'wx' }); renameSync(tmp, path); }
@@ -326,21 +326,25 @@ export function cliAccounts(options: CliOptions) {
     return r;
   }
   const firstGo = (r: Row) => r.provider === 'opencode' && load().find(v => v.provider === 'opencode' && !v.found && !v.id.startsWith('found-'))?.id === r.id;
-  async function storedKey(r: Row): Promise<string> {
-    // Claim the old route key for the first row only; deleting it prevents reassignment on removal.
-    if (firstGo(r) && options.keyStore) {
+  const goLegacyClaimed = join(stateDir, 'opencode-legacy-claimed');
+  async function settleLegacyGoKey(r: Row, discard = false): Promise<void> {
+    if (!firstGo(r) || !options.keyStore || marker(goLegacyClaimed)) return;
+    const own = await options.keyStore.get(`accounts.${OPENCODE_GO_PLAN_ROUTE}:${r.id}`)
+      || await options.keyStore.get(`accounts.${OPENCODE_GO_PLAN_ROUTE}.${r.id}`);
+    if (!own) {
       const legacy = await options.keyStore.get(`accounts.${OPENCODE_GO_PLAN_ROUTE}`);
-      if (legacy) {
-        const own = await options.keyStore.get(`accounts.${OPENCODE_GO_PLAN_ROUTE}:${r.id}`)
-          || await options.keyStore.get(`accounts.${OPENCODE_GO_PLAN_ROUTE}.${r.id}`);
-        await saveOpenCodePlanKey(options.keyStore, own ?? legacy, OPENCODE_GO_PLAN_ROUTE, r.id);
-        await deleteOpenCodePlanKey(options.keyStore);
-      }
+      if (!legacy && !discard) return;
+      if (legacy && !discard) await saveOpenCodePlanKey(options.keyStore, legacy, OPENCODE_GO_PLAN_ROUTE, r.id);
+      await deleteOpenCodePlanKey(options.keyStore);
     }
+    writeFileSync(goLegacyClaimed, '', { mode: 0o600, flag: 'wx' });
+  }
+  async function storedKey(r: Row): Promise<string> {
+    await settleLegacyGoKey(r);
     return readOpenCodePlanKey(options.keyStore, keyRoute(r.provider as 'opencode' | 'vibe'), keyLabel(r.provider as 'opencode' | 'vibe'), r.id);
   }
   async function deleteStoredKey(r: Row): Promise<void> {
-    if (firstGo(r)) await deleteOpenCodePlanKey(options.keyStore);
+    await settleLegacyGoKey(r, true);
     await deleteOpenCodePlanKey(options.keyStore, keyRoute(r.provider as 'opencode' | 'vibe'), r.id);
   }
   function binary(p: CliProvider): string { const bin = bins[p]; if (!bin) throw new CliAccountError('bad-option'); return bin; }

@@ -6,8 +6,8 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Keystore } from '@byokit/secrets';
-import { cliAccounts, CliAccountError } from '../src/cli.ts';
-import { OPENCODE_GO_PLAN_ROUTE, openCodeGoPlanAccount, openCodePlanKeyEntry, readOpenCodePlanKey, saveOpenCodePlanKey } from '../src/opencode-go.ts';
+import { cliAccounts, CliAccountError } from '@byokit/accounts/cli';
+import { OPENCODE_GO_PLAN_ROUTE, openCodeGoPlanAccount, openCodePlanKeyEntry, readOpenCodePlanKey, saveOpenCodePlanKey } from '@byokit/accounts/opencode-go';
 import { remoteCliHost, remoteCliState } from '../src/remote-cli-host.ts';
 import { scratchDir } from '../../test-support.ts';
 
@@ -91,11 +91,19 @@ test('opencode managed account: add, hidden saveKey, launch, route access, logou
     assert.ok(!readFileSync(file, 'utf8').includes(CANARY), `no key in state file ${file}`);
   }
 
+  assert.equal((await kit.status(account.id)).state, 'ready');
+  assert.deepEqual(await kit.usageSource(account.id), { provider: 'opencode', key: CANARY });
+  assert.equal(await go.access(new AbortController().signal), 'portable-canary');
   const out = await kit.logout(account.id);
   assert.equal(saved.has(`accounts.${OPENCODE_GO_PLAN_ROUTE}:${account.id}`), false, 'logout deletes this account\'s key');
   assert.equal(out.state, 'signed_out');
-  await assert.rejects(go.access(new AbortController().signal), /Add the OpenCode plan key first\./);
-  assert.equal((await kit.status(account.id)).state, 'signed_out');
+  assert.equal(await go.access(new AbortController().signal), 'portable-canary');
+  const reopened = cliAccounts({ stateDir, bins: { opencode: fakeBin(join(root, 'bins'), 'opencode-fake') }, env, keyStore: store });
+  reopened.signInAgain(account.id);
+  assert.equal((await reopened.status(account.id)).state, 'signing');
+  assert.equal(await reopened.usageSource(account.id), undefined);
+  assert.equal((await reopened.launch(account.id)).ok, false);
+  assert.equal((await kit.status(account.id)).state, 'signing');
   await assert.rejects(readOpenCodePlanKey(store, OPENCODE_GO_PLAN_ROUTE, 'OpenCode', account.id), (e: unknown) => {
     assert.ok(e instanceof Error && e.message === 'Add the OpenCode plan key first.');
     assert.ok(!e.message.includes(CANARY));
@@ -103,6 +111,39 @@ test('opencode managed account: add, hidden saveKey, launch, route access, logou
   });
   await kit.remove(account.id);
   await assert.rejects(kit.status(account.id), CliAccountError);
+  const { account: next } = await reopened.add('opencode');
+  assert.equal(await reopened.usageSource(next.id), undefined);
+  await reopened.remove(next.id);
+  assert.equal(await go.access(new AbortController().signal), 'portable-canary');
+});
+
+test('opencode existing account keys preserve portable credentials across reads and deletion', async () => {
+  for (const separator of [':', '.']) {
+    for (const action of ['status', 'launch', 'usageSource', 'logout', 'remove'] as const) {
+      const root = scratchDir('opencode-cli-portable');
+      const { store, saved } = memoryKeys();
+      const kit = cliAccounts({ stateDir: join(root, 'plans'), bins: { opencode: fakeBin(join(root, 'bins'), 'opencode-fake') },
+        env: { HOME: join(root, 'home'), PATH: '/unused' }, keyStore: store });
+      const { account } = await kit.add('opencode');
+      saved.set(`accounts.${OPENCODE_GO_PLAN_ROUTE}${separator}${account.id}`, CANARY);
+      await saveOpenCodePlanKey(store, 'portable-canary');
+      await kit[action](account.id);
+      assert.equal(await openCodeGoPlanAccount(store).access(new AbortController().signal), 'portable-canary');
+      if (action !== 'remove') {
+        if (action !== 'logout') {
+          assert.deepEqual(await kit.usageSource(account.id), { provider: 'opencode', key: CANARY });
+          await kit.logout(account.id);
+        }
+        assert.equal((await kit.status(account.id)).state, 'signed_out');
+        await kit.remove(account.id);
+      }
+      const { account: next } = await kit.add('opencode');
+      assert.equal(await kit.usageSource(next.id), undefined);
+      assert.equal(await openCodeGoPlanAccount(store).access(new AbortController().signal), 'portable-canary');
+      assert.equal(saved.size, 1);
+      await kit.remove(next.id);
+    }
+  }
 });
 
 test('opencode two accounts: isolated keys, folders, resume, and remove', async () => {
@@ -168,6 +209,10 @@ test('opencode launch delivers the key through folder files; logout/remove delet
   const legacy = 'legacy-route-canary-4q';
 
   const { account } = await kit.add('opencode');
+  await saveOpenCodePlanKey(store, legacy);
+  assert.equal((await kit.status(account.id)).state, 'ready');
+  assert.deepEqual(await kit.usageSource(account.id), { provider: 'opencode', key: legacy });
+  assert.equal(saved.has(openCodePlanKeyEntry()), false);
   await kit.saveKey(account.id, canary);
   // No key yet: usage has no source to offer.
   const { account: bare } = await kit.add('opencode');
@@ -185,13 +230,15 @@ test('opencode launch delivers the key through folder files; logout/remove delet
   assert.equal(statSync(keyPath).mode & 0o777, 0o600);
   assert.equal(statSync(folder).mode & 0o777, 0o700);
   const config = JSON.parse(readFileSync(configPath, 'utf8'));
-  assert.equal(config.provider.opencode.options.apiKey, `{file:${keyPath}}`);
+  assert.equal(config.provider['opencode-go'].options.apiKey, `{file:${keyPath}}`);
   assert.ok(!JSON.stringify({ set: launched.set, unset: launched.unset }).includes(canary), 'no key bytes in the launch result');
   assert.deepEqual(await kit.usageSource(account.id), { provider: 'opencode', key: canary });
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
     import assert from 'node:assert/strict'; import {readFileSync} from 'node:fs';
     const config = JSON.parse(readFileSync(process.env.OPENCODE_CONFIG, 'utf8'));
-    const ref = config.provider.opencode.options.apiKey;
+    const model = 'opencode-go/test-model';
+    const ref = config.provider[model.split('/')[0]].options.apiKey;
+    assert.ok(ref.startsWith('{file:') && ref.endsWith('}'));
     const key = readFileSync(ref.slice(6, -1), 'utf8');
     assert.ok(key.length > 0);
     assert.ok(!JSON.stringify({argv:process.argv, env:process.env}).includes(key));
@@ -209,16 +256,14 @@ test('opencode launch delivers the key through folder files; logout/remove delet
   assert.equal(existsSync(keyPath), false, 'logout deletes the key copy');
   assert.equal(existsSync(configPath), false, 'logout deletes the config copy');
 
-  // The old route entry is claimed by the first row only, never a second unsigned row.
   await saveOpenCodePlanKey(store, legacy);
   assert.equal(await kit.usageSource(bare.id), undefined);
-  assert.equal((await kit.status(account.id)).state, 'ready');
-  assert.deepEqual(await kit.usageSource(account.id), { provider: 'opencode', key: legacy });
+  assert.equal((await kit.status(account.id)).state, 'signed_out');
+  await kit.saveKey(account.id, canary);
   const relaunch = await kit.launch(account.id);
   assert.equal(relaunch.ok, true);
-  assert.equal(readFileSync(keyPath, 'utf8'), legacy);
-  await kit.saveKey(account.id, canary);
-  assert.deepEqual(await kit.usageSource(account.id), { provider: 'opencode', key: canary }, 'the account entry wins over the legacy route entry');
+  assert.equal(readFileSync(keyPath, 'utf8'), canary);
+  assert.deepEqual(await kit.usageSource(account.id), { provider: 'opencode', key: canary });
 
   await kit.remove(account.id);
   assert.equal(existsSync(keyPath), false, 'remove deletes the key copy');
@@ -229,7 +274,8 @@ test('opencode launch delivers the key through folder files; logout/remove delet
   saved.set(`accounts.${OPENCODE_GO_PLAN_ROUTE}.${bare.id}`, canary);
   assert.equal((await kit.status(bare.id)).state, 'ready');
   assert.equal((await kit.logout(bare.id)).state, 'signed_out');
-  assert.equal(saved.size, 0);
+  assert.equal(await openCodeGoPlanAccount(store).access(new AbortController().signal), legacy);
+  assert.equal(saved.size, 1);
   await kit.remove(bare.id);
 });
 
