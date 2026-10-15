@@ -8,7 +8,7 @@ const test = (name: string, fn: () => Promise<void>) => nodeTest(name, { timeout
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
+import { WebSocket as WsClient, WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import {
   DeviceLink, Host, LinkError, PublicLinkError, b64url, hostId, keyPair, keyPairFrom, unb64url,
   type DeviceGrant, type Grant, type HostOptions, type LinkStatus, type PairRequest,
@@ -529,7 +529,7 @@ test('through a relay that routes on a header and never sees plaintext', async (
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   closers.push(() => { wss.close(); server.close(); });
   const relay = `ws://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  const toRelay = new WebSocket(`${relay}/host`);
+  const toRelay = new WsClient(`${relay}/host`);
   await new Promise((r) => { toRelay.onopen = r; });
   h.host.relay(toRelay);
   closers.push(() => toRelay.close());

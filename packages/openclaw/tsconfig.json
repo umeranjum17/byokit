@@ -1,5 +1,13 @@
 {
   "extends": "../../tsconfig.base.json",
+  "references": [
+    { "path": "../accounts" },
+    { "path": "../discover" },
+    { "path": "../pair" },
+    { "path": "../relay" },
+    { "path": "../seal" },
+    { "path": "../secrets" }
+  ],
   "compilerOptions": { "rootDir": "src", "outDir": "dist" },
   "include": ["src", "src/**/*.json"]
 }

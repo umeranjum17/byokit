@@ -2,13 +2,16 @@
 // Run after npm run build: node scripts/readme-check.ts [packages/<kit>/README.md ...]
 // Existing gaps are frozen in readme-baseline.json; changing code or diagnostics
 // invalidates its snapshot. Passing examples never need a baseline entry.
+// TypeScript 7 ships no in-process compiler API, so the check drives the supported
+// surface instead: one `tsc -p` run over the extracted files, diagnostics parsed back.
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import ts from "typescript";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const tsc = join(root, "node_modules", "typescript", "bin", "tsc");
 
 export interface Example {
   line: number;
@@ -57,13 +60,22 @@ export function allowedFailure(result: BlockResult, baseline: BaselineEntry[]): 
     entry.reason.trim() !== "" && entry.snapshot === snapshot(result));
 }
 
+const diagnosticLine = /^(.*)\((\d+),(\d+)\): (?:error|warning) (TS\d+): (.*)$/;
+
+function offsetOf(text: string, line: number, column: number): number {
+  const lines = text.split("\n");
+  let offset = 0;
+  for (let i = 0; i < line - 1 && i < lines.length; i++) offset += lines[i].length + 1;
+  return offset + column - 1;
+}
+
 export function analyze(readmes: string[]): BlockResult[] {
   // Ordinary NodeNext resolution against built workspace exports; no aliases
   // pointing into src that would hide broken declarations or exports maps.
   const scratch = mkdtempSync(join(root, ".readme-check-"));
   const results: BlockResult[] = [];
   try {
-    const sources = new Map<string, BlockResult>();
+    const sources = new Map<string, { result: BlockResult; text: string }>();
     for (const readme of readmes) {
       const blocks = examples(readFileSync(readme, "utf8"));
       if (blocks.length === 0) {
@@ -72,25 +84,47 @@ export function analyze(readmes: string[]): BlockResult[] {
         ] });
       }
       for (const [index, example] of blocks.entries()) {
-        const path = join(scratch, `example-${sources.size}.${example.jsx ? "tsx" : "mts"}`);
-        writeFileSync(path, `${example.code}\nexport {};\n`);
+        const name = `example-${sources.size}.${example.jsx ? "tsx" : "mts"}`;
+        const text = `${example.code}\nexport {};\n`;
+        writeFileSync(join(scratch, name), text);
         const result = { readme: relative(root, readme), block: index + 1, line: example.line, code: example.code, diagnostics: [] } as BlockResult;
         results.push(result);
-        sources.set(path, result);
+        sources.set(resolve(scratch, name), { result, text });
       }
     }
-    const program = ts.createProgram([...sources.keys()], {
-      module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext,
-      target: ts.ScriptTarget.ES2023, jsx: ts.JsxEmit.ReactJSX, strict: true, noEmit: true, skipLibCheck: true,
-      types: ["node"], lib: ["lib.es2023.d.ts", "lib.dom.d.ts"],
-    });
-    for (const diagnostic of ts.getPreEmitDiagnostics(program)) {
-      const source = diagnostic.file && sources.get(diagnostic.file.fileName);
-      const entry = { start: diagnostic.start ?? 0, code: diagnostic.code,
-        message: ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n") };
-      // Compiler/config/dependency errors outside an extracted file must fail.
-      if (!source) throw new Error(`readme-check: TS${entry.code}: ${entry.message}`);
-      source.diagnostics.push(entry);
+    writeFileSync(join(scratch, "tsconfig.json"), JSON.stringify({
+      compilerOptions: {
+        module: "nodenext", moduleResolution: "nodenext", target: "es2023", jsx: "react-jsx",
+        strict: true, noEmit: true, skipLibCheck: true, types: ["node"], lib: ["es2023", "dom"],
+      },
+      files: [...sources.keys()].map((path) => relative(scratch, path)),
+    }));
+    let output = "";
+    try {
+      execFileSync(process.execPath, [tsc, "-p", scratch, "--pretty", "false"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    } catch (error) {
+      const e = error as { stdout?: string; stderr?: string };
+      output = `${e.stdout ?? ""}${e.stderr ?? ""}`;
+      if (e.stdout === undefined && e.stderr === undefined) throw error;
+    }
+    let current: BlockResult | undefined;
+    for (const raw of output.split("\n")) {
+      if (raw.trim() === "") continue;
+      const match = diagnosticLine.exec(raw);
+      if (!match) {
+        if (/^Found \d+ errors? in /.test(raw)) continue;
+        if (current && /^\s/.test(raw) && current.diagnostics.length > 0) {
+          current.diagnostics[current.diagnostics.length - 1].message += `\n${raw.trimStart()}`;
+          continue;
+        }
+        // Compiler/config/dependency errors outside an extracted file must fail.
+        throw new Error(`readme-check: ${raw}`);
+      }
+      const [, file, line, column, code, message] = match;
+      const source = sources.get(resolve(root, file));
+      if (!source) throw new Error(`readme-check: TS${code}: ${message}`);
+      current = source.result;
+      current.diagnostics.push({ start: offsetOf(source.text, Number(line), Number(column)), code: Number(code.slice(2)), message });
     }
     return results;
   } finally {
