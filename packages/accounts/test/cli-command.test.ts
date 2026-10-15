@@ -37,12 +37,26 @@ function fakeBinary(dir: string, name: string): string {
   return bin;
 }
 
-type Fixture = { root: string; stateDir: string; home: string; bins: { claude: string; codex: string; pi: string } };
+/** A fake cursor-agent: `login` writes that account folder's own auth.json, `status` reports it. */
+function fakeCursor(dir: string): string {
+  mkdirSync(dir, { recursive: true });
+  const bin = join(dir, 'cursor-agent');
+  writeFileSync(bin, `#!${process.execPath}
+const fs = require('node:fs'); const path = require('node:path');
+const auth = path.join(process.env.XDG_CONFIG_HOME, 'cursor', 'auth.json');
+if (process.argv[2] === 'login') { fs.mkdirSync(path.dirname(auth), { recursive: true }); fs.writeFileSync(auth, '{"token":"cursor-fake"}'); process.exit(0); }
+if (process.argv[2] === 'status') { const signed = fs.existsSync(auth); console.log(JSON.stringify({ status: signed ? 'authenticated' : 'unauthenticated', isAuthenticated: signed })); process.exit(0); }
+process.exit(2);
+`, { mode: 0o755 });
+  return bin;
+}
+
+type Fixture = { root: string; stateDir: string; home: string; bins: { claude: string; codex: string; pi: string; cursor: string } };
 
 function fixture(name: string, usedPercent = 90): Fixture {
   const root = scratchDir(name); const stateDir = join(root, 'pool'); const home = join(root, 'home');
   mkdirSync(stateDir); mkdirSync(home);
-  const bins = { claude: fakeClaude(join(root, 'bin')), codex: fakeCodex({ dir: join(root, 'codex'), raw: codexRaw(usedPercent) }).bin, pi: fakeBinary(join(root, 'bin'), 'pi') };
+  const bins = { claude: fakeClaude(join(root, 'bin')), codex: fakeCodex({ dir: join(root, 'codex'), raw: codexRaw(usedPercent) }).bin, pi: fakeBinary(join(root, 'bin'), 'pi'), cursor: fakeCursor(join(root, 'bin')) };
   writeFileSync(join(stateDir, 'pool.json'), JSON.stringify({ bins, home, path: '/unused' }));
   return { root, stateDir, home, bins };
 }
@@ -102,6 +116,29 @@ test('list --json: one reading row per account, and never a secret', async () =>
     assert.equal(statSync(join(f.stateDir, name)).mode & 0o777, 0o600, name);
     assert.doesNotMatch(readFileSync(join(f.stateDir, name), 'utf8'), /private-fake-token/, `${name} holds no key`);
   }
+});
+
+test('add cursor through the command, then list and pick it', () => {
+  const f = fixture('accounts-command-cursor');
+  const added = run(f.stateDir, 'add', 'cursor');
+  assert.equal(added.status, 0, added.stderr);
+  const answer = JSON.parse(added.stdout) as { account: { id: string; tool: string; state: string }; signIn: { argv: string[]; env: Record<string, string>; shell: string } };
+  assert.deepEqual([answer.account.tool, answer.account.state], ['cursor', 'signing']);
+  assert.deepEqual(answer.signIn.argv, [f.bins.cursor, 'login']);
+  const folder = answer.signIn.env.XDG_CONFIG_HOME!;
+  assert.ok(folder.startsWith(f.stateDir + '/cursor/'));
+  assert.equal(answer.signIn.env.CURSOR_CONFIG_DIR, folder);
+  assert.equal(spawnSync('/bin/sh', ['-c', answer.signIn.shell], { encoding: 'utf8' }).status, 0);
+
+  // The pool command's own tool list covers what it can add: the row is listed and picked like any other.
+  const listed = JSON.parse(run(f.stateDir, 'list', '--json').stdout) as { id: string; tool: string; state: string }[];
+  assert.deepEqual(listed.map((r) => [r.tool, r.id, r.state]), [['cursor', answer.account.id, 'ready']]);
+  const picked = run(f.stateDir, 'pick', 'cursor', '--json');
+  assert.equal(picked.status, 0, picked.stderr);
+  const chosen = JSON.parse(picked.stdout) as { ok: boolean; id: string; set: Record<string, string>; unset: string[] };
+  assert.deepEqual([chosen.ok, chosen.id], [true, answer.account.id]);
+  assert.equal(chosen.set.XDG_CONFIG_HOME, folder);
+  assert.ok(chosen.unset.includes('CURSOR_API_KEY'));
 });
 
 test('pick --json: the same account, the same env and the same rows as cliAccounts.pick', async () => {

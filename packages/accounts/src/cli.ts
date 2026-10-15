@@ -12,7 +12,7 @@ import routes from './routes.json' with { type: 'json' };
 export { remoteCliHost, remoteCliState, type RemoteCliHostOptions } from './remote-cli-host.ts';
 export { poolPrepare, type PoolPrepareOptions } from './prepare.ts';
 
-export type CliProvider = 'claude' | 'codex' | 'pi' | 'opencode' | 'kimi' | 'vibe';
+export type CliProvider = 'claude' | 'codex' | 'pi' | 'opencode' | 'kimi' | 'vibe' | 'cursor';
 /** Published Pi subscription OAuth provider id, validated against the route catalogue. */
 export type PiProvider = string;
 /** Shared selection surface; the CLI entry remains Node-only. */
@@ -63,7 +63,7 @@ export class CliAccountError extends Error {
 type Row = { id: string; provider: CliProvider; name: string; folder: string; found: boolean; piProvider?: PiProvider; adoptedFrom?: string; addedAt?: number };
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === 'string' && !v.includes('\0');
-const providers: CliProvider[] = ['claude', 'codex', 'pi', 'opencode', 'kimi', 'vibe'];
+const providers: CliProvider[] = ['claude', 'codex', 'pi', 'opencode', 'kimi', 'vibe', 'cursor'];
 const piRoutes = routes.filter(r => r.upstream.surface === 'accounts' && r.billing === 'subscription' && r.upstream.flow === 'present' && (r.via === 'browser' || r.via === 'code'));
 const validPiProvider = (p: unknown): p is PiProvider => text(p) && piRoutes.some(r => r.upstream.id === p);
 const shed = {
@@ -74,8 +74,11 @@ const shed = {
   // Kimi Code stores OAuth under KIMI_CODE_HOME; unset key/path overrides so a host key cannot replace the managed login.
   kimi: ['KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_CODE_CREDENTIALS', 'KIMI_CREDENTIALS', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'],
   vibe: ['MISTRAL_API_KEY'],
+  // Cursor keeps its login in `$XDG_CONFIG_HOME/cursor/auth.json`; unset the key/token overrides so a host
+  // value cannot replace the managed folder's own login.
+  cursor: ['CURSOR_API_KEY', 'CURSOR_AUTH_TOKEN'],
 };
-const folderVar = (p: CliProvider) => p === 'claude' ? 'CLAUDE_CONFIG_DIR' : p === 'pi' ? 'PI_CODING_AGENT_DIR' : p === 'opencode' ? 'OPENCODE_CONFIG_DIR' : p === 'kimi' ? 'KIMI_CODE_HOME' : p === 'vibe' ? 'VIBE_HOME' : 'CODEX_HOME';
+const folderVar = (p: CliProvider) => p === 'claude' ? 'CLAUDE_CONFIG_DIR' : p === 'pi' ? 'PI_CODING_AGENT_DIR' : p === 'opencode' ? 'OPENCODE_CONFIG_DIR' : p === 'kimi' ? 'KIMI_CODE_HOME' : p === 'vibe' ? 'VIBE_HOME' : p === 'cursor' ? 'XDG_CONFIG_HOME' : 'CODEX_HOME';
 const keyRoute = (p: 'opencode' | 'vibe') => p === 'opencode' ? OPENCODE_GO_PLAN_ROUTE : VIBE_API_KEY_ROUTE;
 const keyLabel = (p: 'opencode' | 'vibe') => p === 'opencode' ? 'OpenCode' : 'Vibe';
 const quote = (v: string) => `'${v.replaceAll("'", "'\\''")}'`;
@@ -178,7 +181,7 @@ export function cliAccounts(options: CliOptions) {
   if (options.usage !== undefined && (!record(options.usage) || typeof (options.usage as Usage).read !== 'function' || typeof (options.usage as Usage).connected !== 'function')) throw new CliAccountError('bad-option');
   if (options.claudeHeaders !== undefined && (!record(options.claudeHeaders) || ['anthropic-beta', 'User-Agent'].some((key) => !text((options.claudeHeaders as Record<string, unknown>)[key]) || (options.claudeHeaders as Record<string, string>)[key].length > 1024))) throw new CliAccountError('bad-option');
   const stateDir = resolve(options.stateDir); const env = { ...options.env }; const bins = { ...options.bins }; const history = { ...options.historyFrom };
-  const ownsDefaultLogin = (path: string) => ['.claude', '.codex', '.pi', '.kimi-code', '.vibe'].some((p) => { const own = join(resolve(env.HOME), p); return path === own || path.startsWith(own + '/'); });
+  const ownsDefaultLogin = (path: string) => ['.claude', '.codex', '.pi', '.kimi-code', '.vibe', '.config/cursor'].some((p) => { const own = join(resolve(env.HOME), p); return path === own || path.startsWith(own + '/'); });
   const managedFolders = Object.fromEntries(Object.entries(options.managedFolders ?? {}).filter(([, folder]) => folder !== undefined)) as { claude?: string; codex?: string };
   // The login files each native CLI keeps in its own folder; remove deletes these and keeps the folder.
   const managedLoginFiles: Partial<Record<CliProvider, string[]>> = { claude: ['.credentials.json', '.claude.json'], codex: ['auth.json'] };
@@ -195,7 +198,9 @@ export function cliAccounts(options: CliOptions) {
     if (r.provider === 'codex') return codexSource(r);
     return r.provider === 'claude' && options.claudeHeaders ? { provider: 'claude', folder: r.folder, headers: options.claudeHeaders } : undefined;
   }
-  if (ownsDefaultLogin(stateDir)) throw new CliAccountError('bad-option');
+  // Never write kit bookkeeping into a default login: neither the state root itself nor a provider's
+  // managed root below it may sit inside one, so `<stateDir>/cursor` cannot land in `~/.config/cursor`.
+  if ([stateDir, ...providers.map((p) => join(stateDir, p))].some(ownsDefaultLogin)) throw new CliAccountError('bad-option');
   // Parents must already be app-owned. Never follow a state/provider/folder symlink.
   try { if (realpathSync(dirname(stateDir)) !== dirname(stateDir)) throw new CliAccountError('bad-option'); }
   catch { throw new CliAccountError('bad-option'); }
@@ -301,7 +306,19 @@ export function cliAccounts(options: CliOptions) {
     return r;
   }
   function binary(p: CliProvider): string { const bin = bins[p]; if (!bin) throw new CliAccountError('bad-option'); return bin; }
-  function launch(r: Row) { return { set: { [folderVar(r.provider)]: r.folder }, unset: [...shed[r.provider]] }; }
+  // A moved XDG_CONFIG_HOME also moves git's and gh's global files, and CURSOR_CONFIG_DIR is Cursor's other
+  // config override, so both folder variables name the managed folder. GIT_CONFIG_GLOBAL replaces both of
+  // git's own global files, so name the pool HOME's real one (`~/.gitconfig` wins where both exist) or none
+  // at all: `git commit` keeps its identity, and an ambient folder cannot outlive the managed one. Paths only.
+  function launch(r: Row): { set: Record<string, string>; unset: string[] } {
+    if (r.provider !== 'cursor') return { set: { [folderVar(r.provider)]: r.folder }, unset: [...shed[r.provider]] };
+    const gitGlobal = [join(env.HOME, '.gitconfig'), join(env.HOME, '.config', 'git', 'config')].find(existsSync);
+    return {
+      set: { [folderVar(r.provider)]: r.folder, CURSOR_CONFIG_DIR: r.folder, GH_CONFIG_DIR: join(env.HOME, '.config', 'gh'),
+        ...(gitGlobal === undefined ? {} : { GIT_CONFIG_GLOBAL: gitGlobal }) },
+      unset: [...shed.cursor, ...(gitGlobal === undefined ? ['GIT_CONFIG_GLOBAL'] : [])],
+    };
+  }
   function spawnEnv(r: Row) {
     return cleanLaunchEnv({ base: env, account: launch(r) }).env;
   }
@@ -311,9 +328,10 @@ export function cliAccounts(options: CliOptions) {
     if (r.provider === 'opencode') return { argv: [], env: spawnEnv(r), completion: complete(r), shell: ':', instruction: { words: 'cli.opencodeKey' } };
     if (r.provider === 'vibe') return { argv: [], env: spawnEnv(r), completion: complete(r), shell: ':', instruction: { words: 'cli.vibeKey' } };
     // Kimi Code: public `kimi login` (no flags) writes OAuth under KIMI_CODE_HOME; completion on exit 0.
+    // Cursor: public `cursor-agent login` writes the login under XDG_CONFIG_HOME; completion on exit 0.
     const argv = r.provider === 'pi' ? [binary('pi')]
       : r.provider === 'claude' ? [binary(r.provider), 'auth', 'login', '--claudeai']
-      : r.provider === 'kimi' ? [binary(r.provider), 'login']
+      : r.provider === 'kimi' || r.provider === 'cursor' ? [binary(r.provider), 'login']
       : [binary(r.provider), 'login', '--device-auth'];
     const passed = spawnEnv(r); const completion = complete(r); const { lock, holder } = signInLock(r.folder);
     const login = ['/usr/bin/env', '-i', ...Object.entries(passed).map(([k, v]) => `${k}=${v}`), ...argv].map(quote).join(' ');
@@ -340,7 +358,10 @@ export function cliAccounts(options: CliOptions) {
     if (r.provider === 'codex') return identity({ provider: 'codex', bin: binary('codex'), home: r.folder, env: spawnEnv(r) });
     return new Promise((accept) => {
       const failed = { signedIn: false, ...(r.provider === 'pi' ? { why: 'unknown' as const } : {}) };
-      const child = spawn(binary(r.provider), r.provider === 'pi' ? ['auth', 'check', '--provider', r.piProvider!, '--json', '--no-refresh'] : ['auth', 'status'], { env: spawnEnv(r), stdio: ['ignore', 'pipe', 'ignore'] });
+      const argv = r.provider === 'pi' ? ['auth', 'check', '--provider', r.piProvider!, '--json', '--no-refresh']
+        : r.provider === 'cursor' ? ['status', '--format', 'json']
+        : ['auth', 'status'];
+      const child = spawn(binary(r.provider), argv, { env: spawnEnv(r), stdio: ['ignore', 'pipe', 'ignore'] });
       let stdout = ''; let bytes = 0; let settled = false; let escalation: NodeJS.Timeout | undefined;
       const finish = (answer: Identity & { why?: 'api_key' | 'unknown' }) => {
         if (settled) return;
@@ -373,6 +394,11 @@ export function cliAccounts(options: CliOptions) {
           else finish(failed);
           return;
         }
+        if (r.provider === 'cursor') {
+          // `cursor-agent status` exits 0 even when signed out, so the JSON decides, never the exit code.
+          finish(record(raw) && raw.isAuthenticated === true ? { signedIn: true } : { signedIn: false });
+          return;
+        }
         if (!record(raw) || raw.loggedIn !== true) { finish({ signedIn: false }); return; }
         const email = typeof raw.email === 'string' && raw.email.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw.email) ? raw.email : undefined;
         const plan = [raw.subscriptionType, raw.plan, raw.planName, raw.tier].find((v) => typeof v === 'string' && /^[a-zA-Z][a-zA-Z0-9 _+-]{0,63}$/.test(v));
@@ -383,7 +409,7 @@ export function cliAccounts(options: CliOptions) {
   function suggestName(email: string | undefined, provider: CliProvider): string {
     const first = email?.split('@')[0]?.split(/[._-]+/).find(Boolean);
     if (first) return (first[0].toUpperCase() + first.slice(1).toLowerCase()).slice(0, 64);
-    return provider === 'claude' ? 'Claude' : provider === 'pi' ? 'Pi' : provider === 'opencode' ? 'OpenCode' : provider === 'kimi' ? 'Kimi' : provider === 'vibe' ? 'Vibe' : 'Codex';
+    return provider === 'claude' ? 'Claude' : provider === 'pi' ? 'Pi' : provider === 'opencode' ? 'OpenCode' : provider === 'kimi' ? 'Kimi' : provider === 'vibe' ? 'Vibe' : provider === 'cursor' ? 'Cursor' : 'Codex';
   }
   async function status(id: string): Promise<CliAccount> {
     return serial(id, async () => {
@@ -479,7 +505,7 @@ export function cliAccounts(options: CliOptions) {
   function remove(id: string) { return drop(id, true); }
   type Added = { account: CliAccount; signIn: SignInCommand };
   function add(provider: 'pi', metadata: { piProvider: PiProvider }): Promise<Added>;
-  function add(provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'vibe'): Promise<Added>;
+  function add(provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'vibe' | 'cursor'): Promise<Added>;
   function add(provider: CliProvider, metadata?: { piProvider?: PiProvider }): Promise<Added> { return addManaged(provider, metadata); }
   async function addManaged(provider: CliProvider, metadata?: { piProvider?: PiProvider }, adopted?: Row): Promise<Added> {
     if (!providers.includes(provider) || (provider === 'pi' && !validPiProvider(metadata?.piProvider))) throw new CliAccountError('bad-option');
@@ -563,8 +589,8 @@ export function cliAccounts(options: CliOptions) {
     kinds: (provider: CliProvider): string[] => providers.includes(provider) ? [provider] : [],
     resumeArgs(kind: string, ref: { kind: 'id' | 'path'; value: string }): string[] {
       if (!record(ref) || !text(ref.value) || !ref.value || ref.value.startsWith('-') || !providers.includes(kind as CliProvider) || (ref.kind !== 'id' && (kind !== 'pi' || ref.kind !== 'path'))) throw new CliAccountError('kind-mismatch');
-      // kinds.json: pi/opencode/kimi `--session`, claude/vibe `--resume`, codex `resume`.
-      return kind === 'pi' || kind === 'opencode' || kind === 'kimi' ? ['--session', ref.value] : kind === 'claude' || kind === 'vibe' ? ['--resume', ref.value] : ['resume', ref.value];
+      // kinds.json: pi/opencode/kimi `--session`, claude/vibe/cursor `--resume`, codex `resume`.
+      return kind === 'pi' || kind === 'opencode' || kind === 'kimi' ? ['--session', ref.value] : kind === 'claude' || kind === 'vibe' || kind === 'cursor' ? ['--resume', ref.value] : ['resume', ref.value];
     },
     usageSource(id: string): { provider: 'codex'; bin: string; home: string; env: Record<string, string> } | undefined {
       const r = row(id); return r.provider === 'codex' ? codexSource(r) : undefined;
