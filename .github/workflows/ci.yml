@@ -94,6 +94,25 @@ jobs:
           RELEASE_BASE: ${{ github.event.before }}
         run: npm run release -- lint --base "$RELEASE_BASE" --direct
 
+  # done-done gate: the standing proof primitives run through done-done itself, so CI
+  # speaks the same proof language as local runs (.done-done.yaml). Agent-free by
+  # construction: the journey drives, the judge is skipped, no model is started.
+  done-done:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm install -g done-done-axi@0.3.0
+      - run: done-done doctor
+      - run: done-done verify build --foreground --no-judge --claim-id "${{ github.head_ref || github.ref_name }}" --outcome "the byokit SDK builds and the built accounts entry resolves"
+
   # Linux byte parity only: this does not compile the Apple Security path or run an iOS extension.
   seal-swift:
     needs: changes

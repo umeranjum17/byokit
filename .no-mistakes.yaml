@@ -5,20 +5,26 @@ test:
     Run tests only through `npm test` / `sh scripts/test.sh` — never bare `node --test`
     and never `--experimental-test-coverage` or any other coverage flag; run a heavy
     suite through the host memory gate when one exists.
-    Prove changes against the real built SDK, not summaries.
+    Prove changes against the real built SDK through done-done, not summaries and
+    never by hand: `done-done verify <journey> --foreground --outcome "<what a user
+    can now do>"` with the journey the change touches (`.done-done.yaml`: build,
+    node-tests, browser-tests), or `done-done verify --outcome "<claim>" --feature
+    <name>` for a user-visible change, driving the matching verify-skill feature
+    below. `done-done doctor` must pass before any proof run.
     Read .agents/skills/verify-byokit/SKILL.md first, then the matching file in
     .agents/skills/verify-byokit/features/ (index: features/README.md).
     Launch (npm ci in a fresh worktree, then npm run build), run the doctor from
     SKILL.md, drive the feature whose journey the change touches with its scratch
-    consumer, and capture command, stdout, stderr and exit code under
-    .verify-artifacts/<feature>/ (gitignored, survives cleanup).
+    consumer, and keep the command, stdout, stderr and exit code in the run's
+    evidence folder (a journey run writes it under DONE_DONE_EVIDENCE_ROOT; a
+    feature run saves its captures there too).
     Include the feature's error or missing case; declare surfaces unavailable on
     this host (browser, React Native, Android, real providers) instead of
     substituting a different path.
     A user-visible change is proved by the skill's own capture, never by hand:
     run `node .agents/skills/verify-byokit/capture/review-evidence.ts --base
     origin/main --slug <slug>` (features/pwa-review-evidence.md), and name the
-    files it wrote under .verify-artifacts/review/<slug>/ — every changed screen
+    files the run wrote into its evidence folder — every changed screen
     before and after, in every theme (dark and light) and form factor (phone and
     desktop width) the app has, plus one motion recording per changed interaction,
     from the real running app. Where the capture cannot reach one of those,
