@@ -645,8 +645,11 @@ retried 3 times with 1 s, 2 s, 4 s waits, then `provider`; a `fetch` rejection â
 `provider` with the body's message capped at 200 characters. The key never appears in an error message or `extra`.
 
 The deadline is per request: one request with all its attempts and waits, so a method that sends several requests
-gets one 10 s deadline for each. It bounds the backoff waits and the start of each new attempt; past it the last
-answer stands, as if the retries ran out. A request already in flight is never cut by the deadline. Only the caller's
+gets one 10 s deadline for each. It caps the backoff waits, and an answer that arrives past it ends the retries: the
+last answer stands, as if the retries ran out. A wait the deadline capped still earns the retry it was waiting for, so
+the deadline shortens how long the kit waits, never how many times it tries before that last answer stands, and a
+provider whose own answers are slow cannot turn a transient 429/5xx into a hard failure by spending the budget on
+waits. A request already in flight is never cut by the deadline. Only the caller's
 signal (`boat()`'s `signal`, also carried on each request when the fetch honors it) cancels a wait, a read or a
 request, and an aborted one fails `unreachable`, the same typed error an aborted fetch gives. That signal cancels the
 provider for good: once aborted, every later call fails `unreachable`, so build a new `boat()` for the next operation.
