@@ -9,6 +9,8 @@ place and the member read signed in again after an engine restart.
 
 - `removeKey(member)` clears the lane's credential store and its ready marker through `byokit.keys clear`, so
   `signedIn(member, provider)` is false and an `auth: 'apiKey'` run ends `signed-out` with no engine request.
+- `accounts(member)` lists `<provider>.key` after `addKey` and no lane row after `removeKey` or that provider's
+  `signOut`; another provider's sign-out keeps the row.
 - The removal survives an engine restart: a fresh kit on the same state reads the same signed-out lane (nothing
   revives a key with no marker, and the start sweep sees the lane removed).
 - `removeKey(member, { provider })` removes the saved key only when the ready marker's saved model names that

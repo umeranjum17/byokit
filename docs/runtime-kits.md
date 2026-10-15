@@ -832,8 +832,9 @@ a key of that provider goes with it and the member does not read signed in again
 another provider is untouched.
 
 **removeKey**: `removeKey(member, o?)` clears the member's saved key lane, the reserved `byokit-key-<member>` agent:
-the `byokit.keys clear` action empties its auth-profile store and deletes its ready marker, so `signedIn` is false for
-that provider and the lane stays signed out across an engine restart (nothing revives a key with no marker, and the
+the `byokit.keys clear` action empties its auth-profile store and deletes its ready marker, and its `<provider>.key`
+index entry goes with it, so `signedIn` is false for that provider, the accounts list names no removed key, and the
+lane stays signed out across an engine restart (nothing revives a key with no marker, and the
 start sweep sees it removed). With `provider`, the key is removed only when the ready marker's saved model names that
 provider. Removal of a lane with no saved key is a no-op that resolves; the shipped handler answers such a `clear` with
 `{ ok: false, absent: true }` and any other refusal throws `The key could not be removed.`. Serialized with adds and

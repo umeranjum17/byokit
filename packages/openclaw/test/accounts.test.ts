@@ -1302,6 +1302,28 @@ test('a key added while the member index is damaged leaves the damaged index unw
   }
 });
 
+test('removeKey and signOut drop the key lane index entry, so accounts() shows no lane row', async () => {
+  const stateDir = scratchDir('key-lane-remove-index');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-REMOVE-INDEX' }), { status: 'ok' });
+    assert.deepEqual((await kit.accounts('m1')).map((a) => a.id), ['opencode-go.key']);
+    await kit.removeKey('m1');
+    assert.deepEqual(await kit.accounts('m1'), [], 'addKey then removeKey leaves no lane row');
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-KEY-SIGNOUT-INDEX' }), { status: 'ok' });
+    assert.deepEqual((await kit.accounts('m1')).map((a) => a.id), ['opencode-go.key']);
+    await kit.signOut('m1', 'anthropic'); // another provider's sign-out keeps this key and its entry
+    assert.deepEqual((await kit.accounts('m1')).map((a) => a.id), ['opencode-go.key']);
+    await kit.signOut('m1', 'opencode-go');
+    assert.deepEqual(await kit.accounts('m1'), [], 'signOut drops the lane row too');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('an API-key run on a legacy API-billed account binding is refused: no run on the lane or the legacy agent', async () => {
   const stateDir = scratchDir('o14-legacy-api-binding');
   const fake = fakeGateway();

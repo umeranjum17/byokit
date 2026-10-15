@@ -22,6 +22,7 @@ export function createKeys(ctx: ActivationCtx & {
   restarting?(): boolean;
   prepareOwner(agentId: string): Promise<void>;
   indexLane(member: Member, route: RouteView): Promise<void>;
+  dropLane(member: Member, provider?: string): Promise<void>;
   backfillLane(member: Member, model: string | undefined): Promise<void>;
 }) {
   // Serialize key replacement and key runs, so an in-flight run never sees a half-installed replacement.
@@ -154,7 +155,8 @@ export function createKeys(ctx: ActivationCtx & {
       }
     },
     // Remove this member's saved key: the key agent's store and its ready marker, so the lane reads signed out and
-    // stays signed out. `provider` scopes it to the key actually saved for that provider (the member agent's own
+    // stays signed out, plus its `<provider>.key` index entry, so the accounts list stops naming the removed key.
+    // `provider` scopes it to the key actually saved for that provider (the member agent's own
     // sign-out never reaches this lane), so signing out of one provider never drops another's key. A lane that reads
     // not ready has nothing saved to remove; a refused read or clear is a typed refusal, never raw engine text.
     // Serialized with adds and key runs like every other key change.
@@ -170,6 +172,7 @@ export function createKeys(ctx: ActivationCtx & {
         }
         const cleared = await control(member, 'clear').catch(() => undefined);
         if (cleared?.ok !== true && cleared?.absent !== true) refused();
+        await ctx.dropLane(member, o.provider);
       });
     },
     // Kit connect calls this once the gateway is ready: a failed add whose abandon clear never reached the engine

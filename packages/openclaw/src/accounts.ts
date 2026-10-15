@@ -314,6 +314,7 @@ export function createAccounts(ctx: {
   bind(member: Member, sessionKey: string): Promise<Binding | undefined>;
   keyRefusal(member: Member, binding: Binding): Promise<string | undefined>;
   key(member: Member, route: Pick<RouteView, 'choice' | 'provider' | 'label'>): Promise<void>;
+  unkey(member: Member, provider?: string): Promise<void>;
   backfill(member: Member, found: Pick<RouteView, 'choice' | 'provider' | 'label'>[]): Promise<void>;
   pick(member: Member, sel: RunSelection, skip?: readonly AccountId[], binding?: Binding): Promise<{ pick: AccountPick; agent?: string }>;
   rest(member: Member, id: AccountId, until: number): Promise<void>;
@@ -778,6 +779,24 @@ export function createAccounts(ctx: {
     });
   }
 
+  // The removal's counterpart to `key`: drop the lane's index entry, so `list` stops naming the removed key.
+  // `provider` scopes it to that provider's entry (a scoped removal that kept another provider's key keeps its
+  // entry too); without one every lane entry goes. A damaged index is left alone, like `key` leaves it.
+  async function unkey(member: Member, provider?: string): Promise<void> {
+    check(member);
+    const lane = keyAgentId(member);
+    return ctx.locks.exclusive([indexLock(member)], async () => {
+      const loaded = loadIndex(ctx.root, member);
+      if (loaded.damaged) { ctx.log?.(words('account.indexDamaged', { member })); return; }
+      const file = loaded.file;
+      for (const [id, e] of Object.entries(file.accounts)) {
+        if (e.agent !== lane || (provider !== undefined && id.split('.')[0] !== provider)) continue;
+        dropEntry(file, id);
+      }
+      write(member, file);
+    });
+  }
+
   // The connect sweep's backfill: a lane that holds no entry is indexed under the one route its model's provider has;
   // any other count is logged and left unindexed. A lane that holds an entry is never touched, nor a damaged index.
   async function backfill(member: Member, found: Pick<RouteView, 'choice' | 'provider' | 'label'>[]): Promise<void> {
@@ -1122,5 +1141,5 @@ export function createAccounts(ctx: {
     }
   }
 
-  return { list, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, key, backfill, pick, rest, move, remove };
+  return { list, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, key, unkey, backfill, pick, rest, move, remove };
 }
