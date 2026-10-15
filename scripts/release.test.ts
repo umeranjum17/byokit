@@ -289,7 +289,7 @@ test("publish CLI still fails every other HEAD mismatch", () => {
   const repo = supersededRepo();
   try {
     // A manual dispatch on the same stale sha still fails, as a head not on main does.
-    for (const env of [{ GITHUB_EVENT_NAME: "workflow_dispatch" }, {}]) {
+    for (const env of [{ GITHUB_EVENT_NAME: "workflow_dispatch" }, { GITHUB_EVENT_NAME: "" }]) {
       const refused = repo.run(env);
       assert.equal(refused.status, 1);
       assert.match(refused.stderr, /publish refuses: HEAD != origin\/main/);
