@@ -116,6 +116,8 @@ export function planOf(access: string): { plan: string; email: string; work: boo
 const ports = new Set<number>();
 const googleViaError = () => Object.assign(new Error('Google uses a browser or a pasted address.'), { readiness: 'no_upstream_flow' });
 const offline = (e: any) => failure(String(e?.message)) === 'offline';
+/** The OAuth subscription sign-ins that answer through the pinned Models path: Grok, GitHub Copilot, Kimi and Meta. */
+const OAUTH_RESPOND = ['xai', 'github-copilot', 'kimi-coding', 'meta'];
 /** A refresh the provider refused (400-403, a revoked grant, or one quarantined): the sign-in needs signing in again. */
 const refusedRefresh = (e: any) => e instanceof RefreshRequiredError || e?.revoked === true || typeof e?.status === 'number' && e.status >= 400 && e.status <= 403;
 
@@ -979,9 +981,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   /** Full typed pinned Models request, bound to one selected member/account for the whole response. */
   async respondKey<T extends Api>(member: M, ask: KeyAsk<T>): Promise<AssistantMessage> {
     if (isGoogleClient(this.providerKey(ask.account))) return this.respondGoogle(member, ask);
-    // ChatGPT keeps its own respond path (its limit and usage words); Claude has no Pi route, so both stay typed below.
+    // ChatGPT keeps its own respond path (its limit and usage words); every other sign-in stays typed below.
     const offer = this.offer(ask.account);
-    const code = offer.pi === 'openai-codex' || offer.billing !== 'subscription' || this.isKey(offer) ? undefined
+    const code = !OAUTH_RESPOND.includes(offer.pi) || offer.billing !== 'subscription' || this.isKey(offer) ? undefined
       : routes().find((x) => x.upstream.id === offer.pi && x.via === 'code');
     if (code) return this.respondOAuth(member, ask, offer, code);
     const p = this.keyRoute(ask.account);
@@ -1028,8 +1030,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       return await keyRespond(r, auth, { ...ask, options: { ...ask.options, fetch: watched } as KeyAsk<T>['options'] }, undefined, runtime);
     } catch (e) {
       if (!(e instanceof KeyRouteError && e.code === 'request' && refused?.status === 429)) throw e;
-      const retry = Number(refused.retryAfter);
-      const acted = (await this.failed(member, key, new ResponseError('', 'rate_limit', retry > 0 ? Date.now() + retry * 1000 : 0), true))!;
+      // Retry-After in seconds or as an HTTP date; none (or one already past) rests the default.
+      const wait = Number(refused.retryAfter) * 1000 || Date.parse(refused.retryAfter ?? '') - Date.now();
+      const acted = (await this.failed(member, key, new ResponseError('', 'rate_limit', wait > 0 ? Date.now() + wait : 0), true))!;
       throw new ResponseError(say('status.resting', { name: p.name, until: clock(acted.until!) }), 'rate_limit', acted.until, refused);
     }
   }
