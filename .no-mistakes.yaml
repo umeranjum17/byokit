@@ -9,24 +9,22 @@ test:
     never by hand: `done-done verify <journey> --foreground --outcome "<what a user
     can now do>"` with the journey the change touches (`.done-done.yaml`: build,
     node-tests, browser-tests), or `done-done verify --outcome "<claim>" --feature
-    <name>` for a user-visible change, driving the matching verify-skill feature
-    below. `done-done doctor` must pass before any proof run.
-    Read .agents/skills/verify-byokit/SKILL.md first, then the matching file in
-    .agents/skills/verify-byokit/features/ (index: features/README.md).
-    Launch (npm ci in a fresh worktree, then npm run build), run the doctor from
-    SKILL.md, drive the feature whose journey the change touches with its scratch
-    consumer, and keep the command, stdout, stderr and exit code in the run's
-    evidence folder (a journey run writes it under DONE_DONE_EVIDENCE_ROOT; a
-    feature run saves its captures there too).
+    <name>` for a user-visible change, driving the matching feature in the repo's
+    verify skill. `done-done doctor` must pass before any proof run.
+    A journey run builds the SDK from scratch (npm ci in a fresh worktree, then
+    npm run build), doctors the built artifacts and drives the journey, keeping
+    the command, stdout, stderr and exit code in the run's evidence folder
+    (DONE_DONE_EVIDENCE_ROOT); a feature run drives the matching feature file
+    and saves its captures there too.
     Include the feature's error or missing case; declare surfaces unavailable on
     this host (browser, React Native, Android, real providers) instead of
     substituting a different path.
-    A user-visible change is proved by the skill's own capture, never by hand:
-    run `node .agents/skills/verify-byokit/capture/review-evidence.ts --base
-    origin/main --slug <slug>` (features/pwa-review-evidence.md), and name the
-    files the run wrote into its evidence folder — every changed screen
-    before and after, in every theme (dark and light) and form factor (phone and
-    desktop width) the app has, plus one motion recording per changed interaction,
-    from the real running app. Where the capture cannot reach one of those,
-    extend the capture in this change or file a follow-up naming the exact gap; a
-    skip is only allowed with its reason in manifest.json.
+    A user-visible change is proved by the feature's own capture, never by hand:
+    `done-done verify --feature pwa-review-evidence --outcome "<claim>"` runs the
+    maintained review-evidence capture, and the run names the files it wrote into
+    its evidence folder — every changed screen before and after, in every theme
+    (dark and light) and form factor (phone and desktop width) the app has, plus
+    one motion recording per changed interaction, from the real running app. Where
+    the capture cannot reach one of those, extend the capture in this change or
+    file a follow-up naming the exact gap; a skip is only allowed with its reason
+    in manifest.json.

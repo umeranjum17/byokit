@@ -26,7 +26,7 @@ Preconditions: baseline (features/README.md); no process of a previous drive is 
 
 ## Concurrent Node callback drive
 
-Run `node .agents/skills/verify-byokit/capture/accounts-loopback.mjs` after building.
+Run `node packages/accounts/test/accounts-loopback.mjs` after building.
 The two child-process consumers import the built public accounts entry and run the pinned
 OAuth engine. Each has its own `mockOpenAI()` on loopback; fetch maps only the engine's
 OpenAI transport to that stand-in (no real provider or installed credentials).
