@@ -334,8 +334,10 @@ export function cliAccounts(options: CliOptions) {
     if (!own) {
       const legacy = await options.keyStore.get(`accounts.${OPENCODE_GO_PLAN_ROUTE}`);
       if (!legacy && !discard) return;
-      if (legacy && !discard) await saveOpenCodePlanKey(options.keyStore, legacy, OPENCODE_GO_PLAN_ROUTE, r.id);
-      await deleteOpenCodePlanKey(options.keyStore);
+      if (legacy && !discard) {
+        await saveOpenCodePlanKey(options.keyStore, legacy, OPENCODE_GO_PLAN_ROUTE, r.id);
+        await deleteOpenCodePlanKey(options.keyStore);
+      }
     }
     writeFileSync(goLegacyClaimed, '', { mode: 0o600, flag: 'wx' });
   }
