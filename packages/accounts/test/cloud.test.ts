@@ -17,6 +17,13 @@ import { cloudStream } from '../src/cloud-node.ts';
 import { CANARY, traceFs } from '../src/testing/index.ts';
 
 const host = { platform: 'node', hostSide: true } as const;
+/** One built-in provider from the pinned catalog, naming the producer when it is absent: a bare `!` on the lookup
+ *  turns a missing provider into an unlabelled TypeError that reads as a suite-order failure in another lane. */
+const builtin = (id: string) => {
+  const found = builtinProviders().find((p) => p.id === id);
+  assert.ok(found, `the pinned @earendil-works/pi-ai catalog has no provider "${id}"`);
+  return found;
+};
 const selections: [string, CloudOptions][] = [
   ['aws-bedrock', { route: 'aws-bedrock:cloud:aws-profile', via: 'cloud', profile: 'selected', home: '/selected', region: 'us-east-1' }],
   ['aws-bedrock', { route: 'aws-bedrock:cloud:credential-chain', via: 'cloud', home: '/selected', region: 'us-east-1' }],
@@ -142,7 +149,7 @@ test('landed endpoint metadata and its key survive adding and removing an explic
 });
 
 test('native cloud key/binding streams keep the selected endpoint and redact public errors', async () => {
-  const p = builtinProviders().find((p) => p.id === 'cloudflare-workers-ai')!;
+  const p = builtin('cloudflare-workers-ai');
   const m = { ...p.getModels()[0], api: 'openai-completions' as const };
   const completion = () => new Response([
     { id: 'fixture', choices: [{ index: 0, delta: { role: 'assistant', content: 'Hello' }, finish_reason: null }] },
@@ -176,7 +183,7 @@ test('native cloud key/binding streams keep the selected endpoint and redact pub
   assert.equal(failed.stopReason, 'error');
   assert.ok(!JSON.stringify(failed).includes(CANARY));
   const azure = cloudSelection('azure', selections[6][1], host);
-  const azureModel = builtinProviders().find((p) => p.id === 'azure')!.getModels()[0];
+  const azureModel = builtin('azure').getModels()[0];
   const response = await cloudStream(azure, CANARY, azureModel, context, { maxRetries: 0, fetch: async (input, init) => {
     const request = input instanceof Request ? input : new Request(input, init);
     assert.ok(request.url.startsWith(azure.baseUrl!));
@@ -237,7 +244,7 @@ test('unsigned Converse uses the real isolated child, fixed-target streaming and
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const target = `http://127.0.0.1:${(server.address() as { port: number }).port}/gw/prefix`;
   const a = cloudSelection('aws-bedrock', { ...selections[9][1], baseUrl: target }, host);
-  const model = builtinProviders().find((p) => p.id === 'amazon-bedrock')!.getModels()[0];
+  const model = builtin('amazon-bedrock').getModels()[0];
   const toolContext: Context = { ...context, tools: [{ name: 'lookup', description: 'fixture', parameters: { type: 'object', properties: { q: { type: 'string' } } } as Tool['parameters'] }] };
   try {
     let payload = false, response = false;
@@ -358,7 +365,7 @@ AssistantMessageEventStream.prototype.push = function(event) {
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const port = (server.address() as { port: number }).port;
-  const p = builtinProviders().find((p) => p.id === 'amazon-bedrock')!;
+  const p = builtin('amazon-bedrock');
   const model = { ...p.getModels()[0], baseUrl: `http://127.0.0.1:${port}` };
   try {
     const a = cloudSelection('aws-bedrock', { ...selections[0][1], home: selected }, host);
@@ -372,7 +379,7 @@ AssistantMessageEventStream.prototype.push = function(event) {
     const result = await asked.result();
     if (result.stopReason !== 'stop') {
       try { diagnostic += readFileSync(diagnosticFile, 'utf8'); } catch {}
-      writeFileSync(join(process.env.TMPDIR!, '..', 'cloud-private-diagnostic.log'), diagnostic);
+      writeFileSync(join(process.env.TMPDIR!, 'cloud-private-diagnostic.log'), diagnostic);
     }
     assert.equal(result.stopReason, 'stop', diagnostic || JSON.stringify(result));
     assert.equal(result.content[0].type === 'text' && result.content[0].text, 'cloud fixture');
@@ -400,7 +407,7 @@ AssistantMessageEventStream.prototype.push = function(event) {
     assert.equal(controlResult.trim(), 'stop');
     assert.equal(process.env.AWS_BEARER_TOKEN_BEDROCK, CANARY, 'hostile parent stays unchanged');
     assert.match(auth[1], /Credential=dummy-access-key\//, 'sealed stock skip-auth still signs with placeholder credentials');
-    writeFileSync(join(process.env.TMPDIR!, '..', 'stock-placeholder-013.json'), JSON.stringify({ env: controlEnv, parentBearerPreserved: true, result: controlResult.trim(), requestPin: 'AWS4-HMAC-SHA256 Credential=dummy-access-key/', target: model.baseUrl }, null, 2));
+    writeFileSync(join(process.env.TMPDIR!, 'stock-placeholder-013.json'), JSON.stringify({ env: controlEnv, parentBearerPreserved: true, result: controlResult.trim(), requestPin: 'AWS4-HMAC-SHA256 Credential=dummy-access-key/', target: model.baseUrl }, null, 2));
     assert.throws(() => cloudStream({ route: 'aws-bedrock:endpoint:skip-auth', provider: 'aws-bedrock', upstream: 'amazon-bedrock', method: 'skip-auth', billing: 'api' }, undefined, model, context), CloudAccountError);
     const error = await cloudStream(a, undefined, model, context, { onPayload: () => { throw new Error(CANARY); } }).result();
     assert.equal(error.stopReason, 'error');
@@ -408,7 +415,7 @@ AssistantMessageEventStream.prototype.push = function(event) {
     const chosenFile = join(selected, 'service.json');
     writeFileSync(chosenFile, JSON.stringify({ type: 'deliberately-invalid-fixture' }));
     const vertex = cloudSelection('google-vertex', { ...selections[4][1], keyFile: chosenFile }, host);
-    const vertexModel = builtinProviders().find((p) => p.id === 'google-vertex')!.getModels()[0];
+    const vertexModel = builtin('google-vertex').getModels()[0];
     const invalidADC = await cloudStream(vertex, undefined, vertexModel, context, { maxRetries: 0 }).result();
     assert.equal(invalidADC.stopReason, 'error');
     assert.ok(readFileSync(trace, 'utf8').includes(chosenFile));

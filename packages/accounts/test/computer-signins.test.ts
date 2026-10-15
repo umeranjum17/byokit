@@ -204,7 +204,8 @@ test('Claude browser prefers 53692 then falls back to a free port when that bind
   const a = new Accounts({ offer: ['claude'], store: () => store });
   t.after(() => a.stop());
   const shown = await a.login(1, 'claude', { via: 'browser' });
-  assert.equal(shown?.state, 'waiting');
+  // A sign-in that is not waiting must say why: an unlabelled 'failed' hides the producer and reads as suite order.
+  assert.equal(shown?.state, 'waiting', `the Claude callback fallback settled as ${shown?.state} (why=${shown?.why}, error=${shown?.error})`);
   assert.equal(callback.listeners.get(53692)?.listening, false);
   assert.ok([...callback.listeners.keys()].some((port) => port === 0 || port !== 53692));
   assert.deepEqual(await store.list(), []);

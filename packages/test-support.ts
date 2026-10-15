@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -31,6 +31,24 @@ export function cleanStaleScratch(at: string = parent): void {
     try { process.kill(Number(match[1]), 0); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ESRCH') alive = false; }
     if (!alive) discard(join(at, entry.name));
   }
+}
+
+/** The accounts journeys are written against the exact @earendil-works/pi-ai pin in packages/accounts/package.json
+ *  (the 1.x provider catalogue and the Anthropic callback pin). A checkout moved past a pin bump while
+ *  node_modules still holds the old catalogue fails them as two suite-order-looking journey errors: the azure
+ *  lookup finds no provider, and the browser sign-in has no callback fallback. Return that mismatch so the
+ *  runner can fail with the real cause before the suite starts; an install matching the pin returns undefined. */
+export function piPinMismatch(root: string): string | undefined {
+  const pin = JSON.parse(readFileSync(join(root, 'packages/accounts/package.json'), 'utf8'))
+    ?.dependencies?.['@earendil-works/pi-ai'];
+  if (typeof pin !== 'string') return undefined;
+  let installed: unknown;
+  try { installed = JSON.parse(readFileSync(join(root, 'node_modules/@earendil-works/pi-ai/package.json'), 'utf8'))?.version; }
+  catch { installed = undefined; }
+  if (installed === pin) return undefined;
+  return typeof installed === 'string'
+    ? `installed @earendil-works/pi-ai is ${installed} but packages/accounts/package.json pins ${pin}: this checkout and node_modules disagree, so journeys written for the pinned catalogue fail as misleading suite errors - run npm ci`
+    : `@earendil-works/pi-ai is not installed under ${root}/node_modules (packages/accounts/package.json pins ${pin}) - run npm ci`;
 }
 
 function ensureRoot(): string {

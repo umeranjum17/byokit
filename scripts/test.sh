@@ -63,6 +63,10 @@ throwaway=$(mktemp -d "$run_tmp/home.XXXXXX")
 root=$(CDPATH="" cd -- "$(dirname -- "$0")/.." && pwd)
 export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--require $root/scripts/test-egress-guard.cjs --max-old-space-size=${BYOKIT_TEST_HEAP_MB:-3072}"
 [ $# -gt 0 ] || set -- 'packages/*/test/*.test.ts' 'scripts/*.test.ts'
+# The accounts journeys are written against the pinned provider catalogue in packages/accounts/package.json; a
+# checkout moved past a pin bump without `npm ci` reddens them as two suite-order-looking failures, so name the
+# real cause before the suite starts instead.
+node --input-type=module -e "import { piPinMismatch } from '$root/packages/test-support.ts'; const mismatch = piPinMismatch('$root'); if (mismatch) { console.error(mismatch); process.exit(1); }"
 # Before node:test starts, remove scratch roots a killed or crashed test process left behind in the
 # shared scratch parent. A root whose recorded pid is still alive (a parallel run in another
 # worktree) is kept.
