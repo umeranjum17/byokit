@@ -10,7 +10,7 @@ import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfi
 import { GOOGLE_CLIENTS, googleProject, googleRevoke, googleRevokeUrl, googleRouteClient, isGoogleClient, withGoogle } from './flows/google.ts';
 import { CodeAssistSignedOutError, CodeAssistTierError, CodeAssistUnauthorizedError, codeAssistStream } from './flows/google-stream.ts';
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
-import { deviceFlow, offered, planKey, provider, route, routes, PROVIDERS, type Provider, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
+import { deviceFlow, offered, planKey, provider, route, routes, PROVIDERS, type Provider, type Route, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
 import { checkKeyModel, keyRespond, KeyRouteError, type KeyAsk, type KeyRuntime } from './key-routes.ts';
 import { claims, PORTABLE, portableEngine, signable, validEnterpriseDomain, withDevice } from './engine.ts';
@@ -979,8 +979,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   /** Full typed pinned Models request, bound to one selected member/account for the whole response. */
   async respondKey<T extends Api>(member: M, ask: KeyAsk<T>): Promise<AssistantMessage> {
     if (isGoogleClient(this.providerKey(ask.account))) return this.respondGoogle(member, ask);
+    // ChatGPT keeps its own respond path (its limit and usage words); Claude has no Pi route, so both stay typed below.
     const offer = this.offer(ask.account);
-    if (offer.billing === 'subscription' && !this.isKey(offer)) return this.respondOAuth(member, ask, offer);
+    const code = offer.pi === 'openai-codex' || offer.billing !== 'subscription' || this.isKey(offer) ? undefined
+      : routes().find((x) => x.upstream.id === offer.pi && x.via === 'code');
+    if (code) return this.respondOAuth(member, ask, offer, code);
     const p = this.keyRoute(ask.account);
     const r = route(p.key.includes(':') ? p.key : routes().find((r) => r.upstream.id === p.pi && r.via === 'key')?.id ?? 'missing');
     if (ask.options?.signal?.aborted) throw new KeyRouteError('aborted');
@@ -995,9 +998,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   /** A selected OAuth subscription account (Grok, Copilot, Kimi, Meta) answers through the same pinned Models path as a
    *  key, with the auth its own runtime derives (refreshed first when due). A refresh the provider refuses signs only that
    *  account out; a 429 rests only it, typed, never retried. A route this platform cannot run is typed not_included. */
-  private async respondOAuth<T extends Api>(member: M, ask: KeyAsk<T>, p: Provider): Promise<AssistantMessage> {
-    const r = routes().find((x) => x.upstream.id === p.pi && x.via === 'code');
-    if (!r || r.platforms[this.platform.kind ?? 'browser'] === 'no') throw new ResponseError(`${p.name} can't answer on this device.`, 'not_included');
+  private async respondOAuth<T extends Api>(member: M, ask: KeyAsk<T>, p: Provider, r: Route): Promise<AssistantMessage> {
+    if (r.platforms[this.platform.kind ?? 'browser'] === 'no') throw new ResponseError(`${p.name} can't answer on this device.`, 'not_included');
     if (ask.options?.signal?.aborted) throw new KeyRouteError('aborted');
     if (ask.options && 'client' in ask.options && ask.options.client !== undefined) throw new KeyRouteError('auth_override');
     if (!this.platform.keys) throw new KeyRouteError('needs_keys');
