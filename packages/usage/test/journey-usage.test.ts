@@ -13,7 +13,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { chmodSync, mkdirSync, readFileSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { build } from 'esbuild';
 import { scratchDir } from '../../test-support.ts';
@@ -992,4 +992,84 @@ test('a host reads Cursor plan usage from the folder login; a missing reading is
     [{ provider: 'cursor', kind: 'monthly', usedPercent: 40, resetsAt }]);
   assert.deepEqual(cursorWindows({ planUsage: { totalPercentUsed: 150 }, billingCycleEnd: 'nonsense' }),
     [{ provider: 'cursor', kind: 'monthly', usedPercent: 100 }]);
+});
+
+test('a host reads Pi plan usage from the folder login; a missing reading is unknown, never zero', async () => {
+  const root = scratchDir('usage-pi');
+  const stateDir = join(root, 'plans');
+  const folder = join(stateDir, 'pi', 'abcdef'); mkdirSync(folder, { recursive: true });
+  const credential = join(folder, 'auth.json');
+  const codex = { rate_limit: { primary_window: { used_percent: 25, limit_window_seconds: 18000, reset_at: 1788616800 },
+    secondary_window: { used_percent: 60, limit_window_seconds: 604800, reset_at: 1788616800 } } };
+  const kimi = { usage: { limit: 100, remaining: 40, resetTime: '2026-09-05T14:00:00Z' } };
+  const codexWindows = [{ provider: 'pi', kind: 'session', usedPercent: 25, minutes: 300, resetsAt: 1788616800000 },
+    { provider: 'pi', kind: 'weekly', usedPercent: 60, minutes: 10080, resetsAt: 1788616800000 }];
+  const kimiWindows = [{ provider: 'pi', kind: 'weekly', usedPercent: 60, minutes: 10080, resetsAt: 1788616800000 }];
+  const http = fakeFetch([{ body: codex }, { body: codex }, { body: kimi }]);
+  const reader = usage({ stateDir, fetch: http.fetch });
+  const chatgpt: Source = { provider: 'pi', folder, piProvider: 'openai-codex' };
+  writeFileSync(credential, JSON.stringify({ 'openai-codex': { type: 'oauth', access: 'synthetic-codex-token', refresh: 'synthetic-refresh', expires: 0, accountId: 'acct-pi' },
+    xai: { type: 'oauth', access: 'synthetic-xai-token', refresh: 'r', expires: 0 } }));
+  assert.equal(reader.connected(chatgpt), true);
+  assert.ok(reader.account(chatgpt), 'the folder login has a stable cache identity');
+  const reading = await reader.read(chatgpt, { nowMs });
+  assert.deepEqual(reading.windows, codexWindows);
+  assert.equal(reading.provider, 'pi');
+  assert.equal(reading.code, undefined);
+  assert.equal(roomOf(reading, nowMs).left, 40);
+  assert.equal(http.calls.length, 1);
+  assert.equal(http.calls[0].url, 'https://chatgpt.com/backend-api/wham/usage');
+  assert.equal((http.calls[0].init?.headers as Record<string, string>)['ChatGPT-Account-Id'], 'acct-pi');
+  assert.equal((http.calls[0].init?.headers as Record<string, string>).authorization, 'Bearer synthetic-codex-token');
+  assert.equal(http.calls[0].init?.method, undefined, 'the quota route is a GET');
+  assert.doesNotMatch(readFileSync(join(stateDir, 'plans-v2.json'), 'utf8'), /synthetic-codex-token|synthetic-refresh|acct-pi/);
+  assert.doesNotMatch(JSON.stringify(reading), /synthetic-codex-token/);
+  // The stored ChatGPT account id stands on the access token's own claim, as Pi's sign-in flow reads it.
+  const claim = (payload: unknown) => `eyJhbGciOiJSUzI1NiJ9.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.signature`;
+  writeFileSync(credential, JSON.stringify({ 'openai-codex': { type: 'oauth', access: claim({ 'https://api.openai.com/auth': { chatgpt_account_id: 'acct-claim' } }), refresh: 'r', expires: 0 } }));
+  assert.equal(roomOf(await reader.read(chatgpt, { nowMs: nowMs + 60_000 }), nowMs + 60_000).left, 40);
+  assert.equal((http.calls[1].init?.headers as Record<string, string>)['ChatGPT-Account-Id'], 'acct-claim');
+  // The other Pi provider id reads Kimi's own route and windows from the same folder login.
+  const moon: Source = { provider: 'pi', folder, piProvider: 'kimi-coding' };
+  writeFileSync(credential, JSON.stringify({ 'kimi-coding': { type: 'oauth', access: 'synthetic-kimi-token', refresh: 'r', expires: 0 } }));
+  const kimiReading = await reader.read(moon, { nowMs });
+  assert.deepEqual(kimiReading.windows, kimiWindows);
+  assert.equal(http.calls[2].url, 'https://api.kimi.com/coding/v1/usages');
+  assert.equal((http.calls[2].init?.headers as Record<string, string>).authorization, 'Bearer synthetic-kimi-token');
+  assert.equal((http.calls[2].init?.headers as Record<string, string>)['ChatGPT-Account-Id'], undefined);
+  assert.equal(roomOf(kimiReading, nowMs).left, 40);
+  assert.equal(reader.connected(moon), true);
+  assert.ok(reader.account(moon), 'the folder login has a stable cache identity');
+  // A refusal stands on the last good reading with an unknown room, never zero.
+  http.push({ status: 401 });
+  const refused = await reader.read(moon, { nowMs: nowMs + 60_000 });
+  assert.equal(refused.code, 'auth');
+  assert.deepEqual(refused.windows, kimiWindows);
+  assert.equal(roomOf(refused, nowMs + 60_000).left, 'unknown');
+  // A lost, malformed, linked or foreign login reads nothing, and never zero room.
+  rmSync(credential);
+  assert.equal(reader.connected(moon), false);
+  assert.equal(reader.lastKnown(moon, { nowMs: nowMs + 120_000 }), undefined);
+  assert.equal((await reader.read(moon, { nowMs: nowMs + 120_000 })).code, 'not-connected');
+  assert.deepEqual((await reader.read(moon, { nowMs: nowMs + 120_000 })).windows, []);
+  assert.equal(roomOf(await reader.read(moon, { nowMs: nowMs + 120_000 }), nowMs + 120_000).left, 'unknown');
+  writeFileSync(credential, 'not-json');
+  assert.equal((await reader.read(moon, { nowMs: nowMs + 180_000 })).code, 'not-connected');
+  writeFileSync(credential, JSON.stringify({ xai: { type: 'oauth', access: 'linked-token', refresh: 'r', expires: 0 } }));
+  assert.equal((await reader.read(moon, { nowMs: nowMs + 240_000 })).code, 'not-connected', 'another provider entry is not this login');
+  writeFileSync(credential, JSON.stringify({ 'kimi-coding': { type: 'api_key', key: 'k' } }));
+  assert.equal((await reader.read(moon, { nowMs: nowMs + 300_000 })).code, 'not-connected', 'an api-key entry is not a plan sign-in');
+  rmSync(credential); symlinkSync(join(root, 'outside.json'), credential);
+  writeFileSync(join(root, 'outside.json'), JSON.stringify({ 'kimi-coding': { type: 'oauth', access: 'linked-token', refresh: 'r', expires: 0 } }));
+  assert.equal(reader.connected(moon), false);
+  assert.equal((await reader.read(moon, { nowMs: nowMs + 360_000 })).code, 'not-connected');
+  // Folders outside the managed root, a missing stateDir and an unmapped Pi provider are refused.
+  rmSync(credential);
+  for (const bad of [{ provider: 'pi', folder: 'relative', piProvider: 'kimi-coding' }, { provider: 'pi', folder: join(root, 'outside'), piProvider: 'kimi-coding' },
+    { provider: 'pi', folder, piProvider: 'xai' }] as const) {
+    for (const method of ['read', 'connected', 'account', 'lastKnown'] as const) {
+      await assert.rejects((async () => { await reader[method](bad as Source); })(), UsageError, `${method} refused ${String(bad.piProvider)}`);
+    }
+  }
+  await assert.rejects(usage({ fetch: http.fetch }).read(moon), UsageError, 'a folder source needs its stateDir');
 });

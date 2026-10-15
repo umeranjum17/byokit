@@ -1,9 +1,12 @@
-export type Provider = 'claude' | 'codex' | 'opencode' | 'zai' | 'copilot' | 'grok' | 'minimax' | 'gemini' | 'kimi' | 'cursor';
+export type Provider = 'claude' | 'codex' | 'opencode' | 'zai' | 'copilot' | 'grok' | 'minimax' | 'gemini' | 'kimi' | 'cursor' | 'pi';
+/** The Pi provider ids a BYOKit-owned quota route reads; every other one stays unknown. */
+export type PiProvider = 'openai-codex' | 'kimi-coding';
 /** Host-owned identity makes readings survive token renewal. Tokens never become stored identities. */
 type Identity = { accountId?: string };
 export type Source =
   | { provider: 'claude'; folder: string; headers: { 'anthropic-beta': string; 'User-Agent': string } }
   | { provider: 'cursor'; folder: string }
+  | { provider: 'pi'; folder: string; piProvider: PiProvider }
   | { provider: 'codex'; bin: string; home: string; env?: Record<string, string> }
   | { provider: 'codex'; access: string; accountId: string }
   | ({ provider: 'claude'; access: string; accountUuid?: string } & Identity)

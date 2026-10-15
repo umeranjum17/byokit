@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readlinkSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readlinkSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cliAccounts, nativePiAccount, CliAccountError, type CliProvider } from '../src/cli.ts';
 import { resolveSelection } from '../src/multi.ts';
 import { clock, say } from '../src/words.ts';
-import { roomOf } from '@byokit/usage';
+import { roomOf, usage } from '@byokit/usage';
+import { fakeFetch } from '@byokit/usage/testing';
 import { scratchDir } from '../../test-support.ts';
 
 function fake(dir: string, provider: CliProvider) {
@@ -264,7 +265,8 @@ test('managed Pi uses TUI instructions, OAuth-only readiness, isolated roster an
   assert.equal(account.name, 'ChatGPT'); assert.equal(account.piProvider, 'openai-codex');
   assert.deepEqual(signIn.argv, [pi.bin]); assert.deepEqual(signIn.instruction, { words: 'cli.piLogin', command: '/login openai-codex' });
   assert.ok(!signIn.shell.includes('/login')); assert.deepEqual(kit.launchArgs(account.id), ['--provider', 'openai-codex']);
-  assert.deepEqual(kit.kinds('pi'), ['pi']); assert.equal(await kit.usageSource(account.id), undefined);
+  assert.deepEqual(kit.kinds('pi'), ['pi']);
+  assert.deepEqual(await kit.usageSource(account.id), { provider: 'pi', folder, piProvider: 'openai-codex' });
   for (const kind of ['id', 'path'] as const) assert.deepEqual(kit.resumeArgs('pi', { kind, value: 'session.jsonl' }), ['--session', 'session.jsonl']);
   for (const value of ['', '--flag', 'bad\0value']) assert.throws(() => kit.resumeArgs('pi', { kind: 'id', value }), CliAccountError);
   await assert.rejects(kit.add('pi', { piProvider: 'qwen-portal' }), CliAccountError);
@@ -303,7 +305,66 @@ test('managed Pi uses TUI instructions, OAuth-only readiness, isolated roster an
   const pending = await kit.add('pi', { piProvider: 'github-copilot' });
   assert.deepEqual(await make('out').cancel(pending.account.id), { removed: false }, 'restart cancellation keeps named account');
   assert.equal((await make('out').status(pending.account.id)).state, 'signed_out');
+  assert.equal(await kit.usageSource(pending.account.id), undefined, 'a Pi provider with no quota route stays unknown');
   assert.deepEqual(await kit.cancel(pending.account.id), { removed: true });
+});
+
+test('managed Pi room comes from the folder login; a Pi provider with no route stays unknown', async () => {
+  const root = scratchDir('pi-cli-usage'); const stateDir = join(root, 'plans');
+  const bins = { pi: fake(join(root, 'bins'), 'pi').bin };
+  const env = { HOME: join(root, 'home'), PATH: '/unused' };
+  // ChatGPT's Codex windows and Kimi's weekly window, each from the account's own folder login.
+  const codexQuota = { rate_limit: { primary_window: { used_percent: 25, limit_window_seconds: 18000, reset_at: 1788616800 },
+    secondary_window: { used_percent: 60, limit_window_seconds: 604800, reset_at: 1788616800 } } };
+  const kimiQuota = { usage: { limit: 100, remaining: 40, resetTime: '2026-09-05T14:00:00Z' } };
+  const http = fakeFetch([{ body: codexQuota }, { body: kimiQuota }, { body: codexQuota }]);
+  const kit = cliAccounts({ stateDir, bins, env, usage: usage({ stateDir, fetch: http.fetch }) });
+  const login = (id: string, piProvider: string, token: unknown) =>
+    writeFileSync(join(kit.folderOf(id), 'auth.json'), JSON.stringify({ [piProvider]: token }));
+  const chatgpt = await kit.add('pi', { piProvider: 'openai-codex' });
+  const kimi = await kit.add('pi', { piProvider: 'kimi-coding' });
+  const copilot = await kit.add('pi', { piProvider: 'github-copilot' });
+  const chatgptFolder = kit.folderOf(chatgpt.account.id); const kimiFolder = kit.folderOf(kimi.account.id);
+  for (const id of [chatgpt.account.id, kimi.account.id, copilot.account.id]) assert.equal((await kit.status(id)).state, 'ready');
+  assert.deepEqual(await kit.usageSource(chatgpt.account.id), { provider: 'pi', folder: chatgptFolder, piProvider: 'openai-codex' });
+  assert.equal(await kit.usageSource(copilot.account.id), undefined, 'a Pi provider with no quota route stays unknown');
+  assert.notEqual(chatgptFolder, kimiFolder, 'each Pi account keeps its own login folder');
+  login(chatgpt.account.id, 'openai-codex', { type: 'oauth', access: 'codex-access-token', refresh: 'codex-refresh', expires: 0, accountId: 'acct-pi' });
+  login(kimi.account.id, 'kimi-coding', { type: 'oauth', access: 'kimi-access-token', refresh: 'kimi-refresh', expires: 0 });
+  const picked = await kit.pick('pi');
+  assert.equal(picked.ok, true);
+  if (!picked.ok) throw new Error('the ready pi row was not picked');
+  const byId = (id: string) => picked.rows.find((r) => r.account.id === id)!;
+  assert.equal(picked.account.id, chatgpt.account.id, 'equal room keeps list order');
+  assert.equal(byId(chatgpt.account.id).room.left, 40);
+  assert.deepEqual(byId(chatgpt.account.id).windows, [
+    { provider: 'pi', kind: 'session', usedPercent: 25, minutes: 300, resetsAt: 1788616800000 },
+    { provider: 'pi', kind: 'weekly', usedPercent: 60, minutes: 10080, resetsAt: 1788616800000 }]);
+  assert.equal(byId(kimi.account.id).room.left, 40);
+  assert.deepEqual(byId(kimi.account.id).windows, [{ provider: 'pi', kind: 'weekly', usedPercent: 60, minutes: 10080, resetsAt: 1788616800000 }]);
+  assert.equal(byId(copilot.account.id).room.left, 'unknown');
+  assert.ok(picked.rows.every((r) => r.room.left !== 0), 'no pi row reports zero room');
+  assert.equal(http.calls.length, 2);
+  assert.equal(http.calls[0].url, 'https://chatgpt.com/backend-api/wham/usage');
+  assert.equal((http.calls[0].init?.headers as Record<string, string>)['ChatGPT-Account-Id'], 'acct-pi');
+  assert.equal((http.calls[0].init?.headers as Record<string, string>).authorization, 'Bearer codex-access-token');
+  assert.equal(http.calls[1].url, 'https://api.kimi.com/coding/v1/usages');
+  assert.equal((http.calls[1].init?.headers as Record<string, string>).authorization, 'Bearer kimi-access-token');
+  assert.doesNotMatch(JSON.stringify(picked), /codex-access-token|kimi-access-token|codex-refresh/);
+  // The ChatGPT account id also comes from the access token's own claim, as Pi's sign-in flow reads it.
+  const claim = (payload: unknown) => `eyJhbGciOiJSUzI1NiJ9.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.signature`;
+  login(chatgpt.account.id, 'openai-codex', { type: 'oauth', access: claim({ 'https://api.openai.com/auth': { chatgpt_account_id: 'acct-claim' } }), refresh: 'r', expires: 0 });
+  assert.equal((await kit.pick('pi')).rows.find((r) => r.account.id === chatgpt.account.id)!.room.left, 40);
+  assert.equal((http.calls[2].init?.headers as Record<string, string>)['ChatGPT-Account-Id'], 'acct-claim');
+  // Without either account id the route cannot be addressed, so the room stays unknown, never zero.
+  login(chatgpt.account.id, 'openai-codex', { type: 'oauth', access: 'plain-access-token', refresh: 'r', expires: 0 });
+  assert.equal((await kit.pick('pi')).rows.find((r) => r.account.id === chatgpt.account.id)!.room.left, 'unknown');
+  assert.equal(http.calls.length, 3, 'a credential with no addressable account sends no request');
+  // Losing the folder login leaves every row unknown, never zero.
+  rmSync(join(chatgptFolder, 'auth.json')); rmSync(join(kimiFolder, 'auth.json'));
+  const lost = await kit.pick('pi');
+  assert.equal(lost.rows.length, 3);
+  assert.ok(lost.rows.every((r) => r.room.left === 'unknown'), 'a missing reading is unknown, never zero');
 });
 
 test('explicit adoption maps found metadata to new empty managed folders, idempotently and cancellably', async () => {

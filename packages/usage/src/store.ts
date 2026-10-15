@@ -50,7 +50,7 @@ export function store(stateDir: string): UsageStore {
   function load(): Plans {
     const saved = readJson(path, 256 * 1024); const plans: Plans = {};
     if (!record(saved) || !record(saved.plans)) return plans;
-    for (const id of ['claude', 'codex', 'opencode', 'zai', 'copilot', 'grok', 'minimax', 'gemini', 'kimi', 'cursor'] as const) {
+    for (const id of ['claude', 'codex', 'opencode', 'zai', 'copilot', 'grok', 'minimax', 'gemini', 'kimi', 'cursor', 'pi'] as const) {
       const entries = saved.plans[id]; if (!record(entries)) continue;
       const readings: Record<string, Stored> = Object.create(null) as Record<string, Stored>;
       for (const [fp, r] of Object.entries(entries)) {
