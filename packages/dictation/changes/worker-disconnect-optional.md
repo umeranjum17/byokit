@@ -1,0 +1,1 @@
+- FIX: The dictation worker calls `process.disconnect()` optionally, so Node's type definitions may declare it optional without breaking the worker's build. No behaviour change: the callback only runs when the worker's IPC channel is connected.

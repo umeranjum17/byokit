@@ -31,7 +31,7 @@ export function useSyntheticStock(t: TestContext): void {
   const json = JSON.stringify({ ...set, files, id: patchId(files) });
   const read = fs.readFileSync;
   t.mock.method(fs, 'readFileSync', (...args: Parameters<typeof fs.readFileSync>) => {
-    if (args[0] === manifest) return args[1] === 'utf8' ? json : Buffer.from(json);
+    if (args[0] === manifest) return String(args[1]) === 'utf8' ? json : Buffer.from(json);
     return read(...args);
   });
   syncBuiltinESMExports();

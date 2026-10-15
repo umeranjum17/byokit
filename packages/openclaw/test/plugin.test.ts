@@ -130,7 +130,7 @@ test('source matrix: held/parked and recovered records stop private outputs whil
       const stopped: any = (await seen.middleware({ result: secret })).result;
       assert.equal(stopped.terminate, true, state);
       assert.ok(!JSON.stringify(stopped).includes('PRIVATE_'), state);
-      const publicResult = (await seen.middleware({ result: { content: [{ type: 'text', text: 'PUBLIC_UNRELATED_SESSION' }] } },
+      const publicResult: any = (await seen.middleware({ result: { content: [{ type: 'text', text: 'PUBLIC_UNRELATED_SESSION' }] } },
         { sessionKey: 'agent:other:fixture', runId: 'unrelated' })).result;
       assert.ok(publicResult.content[0].text.includes('PUBLIC_UNRELATED_SESSION'));
       assert.notEqual(publicResult.terminate, true);

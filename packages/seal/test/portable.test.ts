@@ -22,7 +22,7 @@ test('React Native/browser entry bundles and works without Node globals', async 
     bundle: true, platform: 'browser', format: 'iife', conditions: ['react-native'],
     mainFields: ['react-native', 'browser', 'module', 'main'], write: false, logLevel: 'silent',
   });
-  const sandbox: any = { TextEncoder, TextDecoder, Uint8Array, crypto: { getRandomValues: (bytes: Uint8Array) => webcrypto.getRandomValues(bytes) } };
+  const sandbox: any = { TextEncoder, TextDecoder, Uint8Array, crypto: { getRandomValues: (bytes: Uint8Array<ArrayBuffer>) => webcrypto.getRandomValues(bytes) } };
   assert.equal(runInNewContext('typeof Buffer + ":" + typeof process + ":" + typeof require', sandbox), 'undefined:undefined:undefined');
   runInNewContext(bundle.outputFiles[0].text, sandbox);
   assert.deepEqual(JSON.parse(JSON.stringify(sandbox.result)), { auth: 'hello', anonymous: 'hello', notice: { kind: 'done' }, text: 'hello', signed: true });

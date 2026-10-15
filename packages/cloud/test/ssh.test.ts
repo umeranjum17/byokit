@@ -177,7 +177,7 @@ test('the timeout wrapper names ceiling seconds; a hung ssh hits the local backs
   bench.script('echo', { code: 0, stdout: '', stderr: '', timedOut: false });
   await provider.exec(ref, ['echo'], { timeoutMs: 61_000 });
   const last = sshCallsOf(bench).at(-1);
-  assert.ok(last?.argv[6].startsWith('timeout -k 10 61 '), last?.argv[6]);
+  assert.ok(last?.argv[6].startsWith('timeout -k 10 61 '), last?.argv[6]!);
 
   bench.setHang(true);
   const started = Date.now();
