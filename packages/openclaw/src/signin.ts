@@ -172,7 +172,13 @@ export function signIn(
       // and leaves the person locked out of signing in. Waiting for that settlement is what frees the admission.
       await startingSettled;
       if (nativeId) await native?.cancel(nativeId).catch(() => {});
-      if (sessionId) await Promise.resolve().then(() => ctx.request('wizard.cancel', { sessionId },
+      if (!sessionId) return;
+      const answer = await Promise.resolve().then(() => ctx.request('wizard.cancel', { sessionId },
+        { timeoutMs: CANCEL_MS })).catch(() => undefined) as { status?: string } | undefined;
+      // The pin answers `cancelled` at once but frees the admission only once the cancelled runner and its setup-target
+      // lock settle, and answers wizard.status on that session only after that: done waits for it (CANCEL_MS at most).
+      // Not covered: a `running` answer (its commit under way) and a session the engine purged at the cancel.
+      if (answer?.status === 'cancelled') await Promise.resolve().then(() => ctx.request('wizard.status', { sessionId },
         { timeoutMs: CANCEL_MS })).catch(() => {});
     })();
     return releasing;

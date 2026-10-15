@@ -802,7 +802,10 @@ feeds `models.list view: 'all'`, never a run): a live-only OpenCode Go model (Mu
 `models.providers['opencode-go'].models` lists it with its upstream API (`openai-responses` for Muse), which the kit
 writes from the plan's live catalog (5.6 Live provider catalogs) unless `KitOptions.config` sets that list. The kit owns the
 `x-opencode-session` guarantee through its pinned engine: the opencode-go stream wrapper sends `x-opencode-session` (the run's session id) on every request, the activation probe included.
-Every exit short of done calls `wizard.cancel { sessionId }` for **its own** session. For `via: 'browser'` with
+Every exit short of done calls `wizard.cancel { sessionId }` for **its own** session. After a `cancelled` answer `done`
+also waits, 10 s at most, for `wizard.status { sessionId }`, which the engine answers once the runner has freed its
+setup admission, so a sign-in started after `done` is not refused as busy; a `running` answer (the commit is under way)
+is not waited on. For `via: 'browser'` with
 `authChoice` `openai`, the kit holds `127.0.0.1:<callbackPort>` for the sign-in's life: any request pastes
 `http://<host><url>` into the wizard and answers a plain page (words key `signin.returned`); if the port is taken
 the view fails with `why: 'busy'`. For ChatGPT browser/device sign-in, a gateway disconnect interrupts both local paste waits and in-flight wizard
@@ -3589,6 +3592,10 @@ Acceptance for every package: its fixture rows, mocks and fakes in `npm test`; n
 OpenClaw (pinned 2026.8.1, verified in Crewhouse at `a9ca74e`):
 - The wizard hands out steps only when pulled with `wizard.next`; `wizard.status` answers `{ status, error }` and
   never carries a step. A running session holds the engine's single setup admission; always cancel your own.
+- `wizard.cancel` answers `cancelled` at once, but the admission frees only once the cancelled runner and its
+  setup-target lock settle; `wizard.status` on that session answers only after that. A cancel that finds the runner
+  already finished purges the session before the lock is released, and one after the commit starts answers `running`
+  (pin 2026.8.35).
 - The engine cannot bind ChatGPT's 1455 callback first; the host holds it and pastes the redirect.
 - Doctor refuses to run while a Gateway owns the state dir; it exits 0 even when it imports nothing, so only the
   Gateway's `models.authStatus` confirms an import. Staging `auth.json` instead of `auth-profiles.json` imports the

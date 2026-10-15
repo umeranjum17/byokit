@@ -244,49 +244,58 @@ test('real gateway: wizard.status carries no step, wizard.next pulls one, cancel
   await client.request('wizard.cancel', { sessionId: retry.sessionId }, { timeoutMs: 10_000 }).catch(() => {});
 });
 
-test('real gateway: a sign-in cancelled at 0 ms frees the setup admission within 5 s (N5)', { timeout: 300_000 }, async () => {
+test('real gateway: a sign-in cancelled at 0 ms has freed the setup admission once it is done (N5)', { timeout: 300_000 }, async () => {
   await withGateway(['openai'], async (ctx, request) => {
     const handle = signIn(ctx, 'm1', { authChoice: 'openai-device-code', via: 'code' }, () => {});
     // Cancelled before the start has settled: the cancel waits for the session the engine registers as it settles.
     handle.cancel();
     assert.equal((await handle.done).why, 'declined');
-    const startedAt = Date.now();
-    let retry: { sessionId: string } | undefined;
-    while (!retry && Date.now() - startedAt < 5_000) {
-      retry = await request('openclaw.setup.auth.start',
-        { sessionId: 'byokit-after-cancel-at-zero', agentId: 'm1', authChoice: 'openai-device-code' },
-        { timeoutMs: 30_000 }).catch(() => undefined) as { sessionId: string } | undefined;
-      if (!retry) await delay(100);
-    }
-    assert.ok(retry, `setup admission still busy ${Date.now() - startedAt} ms after a cancel at 0`);
+    // No retry: the very next start is admitted.
+    const retry = await request('openclaw.setup.auth.start',
+      { sessionId: 'byokit-after-cancel-at-zero', agentId: 'm1', authChoice: 'openai-device-code' },
+      { timeoutMs: 30_000 }) as { sessionId: string };
     await request('wizard.cancel', { sessionId: retry.sessionId }, { timeoutMs: 10_000 }).catch(() => {});
   });
 });
 
-test('real gateway: without a caller allowlist the drive shows the code, never asks wizard.status, and cancelling frees its own session', { timeout: 300_000 }, async () => {
-  const client = signInCtx();
+test('real gateway: without a caller allowlist the drive shows the code, pulls steps only with wizard.next, and a cancelled sign-in admits the next one at once', { timeout: 300_000 }, async (t) => {
   calls = [];
+  // Each session's start, cancel and settlement as the engine answered them, sessions numbered in order.
+  const trace: string[] = [];
+  const at: number[] = [];
+  const sessions: string[] = [];
+  const base = signInCtx();
+  const client: SignInCtx = { ...base, request: async (method, params, options) => {
+    const id = (params as { sessionId?: string } | undefined)?.sessionId;
+    const note = (answer: string) => {
+      if (!id || method === 'wizard.next') return;
+      if (!sessions.includes(id)) sessions.push(id);
+      trace.push(`${sessions.indexOf(id) + 1} ${method} ${answer}`);
+      at.push(Date.now());
+    };
+    try {
+      const answer = await base.request(method, params, options) as { status?: string } | undefined;
+      note(String(answer?.status));
+      return answer;
+    } catch (error) { note(error instanceof Error ? error.message : String(error)); throw error; }
+  } };
   assert.deepEqual(await providers(signInCtx(), 'm1'), [], 'nothing is signed in on a fresh engine');
-  const views: SignInView[] = [];
-  const handle = signIn(client, 'm1', { authChoice: 'openai-device-code', via: 'code' }, (view) => views.push(view));
-  for (let waited = 0; waited < 120_000 && !views.length; waited += 100) await delay(100);
-  assert.ok(views.length, 'the wizard never answered with a step');
-  assert.ok(views.some(view => view.state === 'waiting' && view.code?.startsWith('MOCK-')),
-    `the drive displays the loopback fake code: ${JSON.stringify({ views, requests: openai.state.requests.map(request => request.path) })}`);
-  handle.cancel();
-  const end = await handle.done;
-  assert.deepEqual(end, { state: 'failed', via: 'code', why: 'declined', error: words('signin.cancelled') });
-  assert.ok(!calls.includes('wizard.status'), 'the drive never asks a method that carries no step');
-  assert.ok(calls.includes('wizard.cancel'), 'the person\'s exit cancels its own session');
-  // The admission is free for the next attempt.
-  let retry: { sessionId: string } | undefined;
-  for (let waited = 0; waited < 15_000 && !retry; waited += 500) {
-    retry = await client.request('openclaw.setup.auth.start',
-      { sessionId: 'byokit-o6-after-cancel', agentId: 'm1', authChoice: 'openai-device-code' }, { timeoutMs: 30_000 }).catch(() => undefined) as { sessionId: string } | undefined;
-    if (!retry) await delay(500);
-  }
-  assert.ok(retry, 'a cancelled sign-in locks the next one out');
-  await client.request('wizard.cancel', { sessionId: retry.sessionId }, { timeoutMs: 10_000 }).catch(() => {});
+  const signInThenCancel = async (ctx: SignInCtx) => {
+    const views: SignInView[] = [];
+    const handle = signIn(ctx, 'm1', { authChoice: 'openai-device-code', via: 'code' }, (view) => views.push(view));
+    for (let waited = 0; waited < 120_000 && !views.length; waited += 100) await delay(100);
+    assert.ok(views.some(view => view.state === 'waiting' && view.code?.startsWith('MOCK-')),
+      `the drive displays the loopback fake code: ${JSON.stringify({ views, trace, requests: openai.state.requests.map(request => request.path) })}`);
+    handle.cancel();
+    assert.deepEqual(await handle.done, { state: 'failed', via: 'code', why: 'declined', error: words('signin.cancelled') });
+  };
+  await signInThenCancel(client);
+  assert.ok(!calls.slice(0, calls.indexOf('wizard.cancel')).includes('wizard.status'), 'the drive pulls steps only with wizard.next');
+  // Straight to the engine the moment done settles: the kit ensures a member once (members.ts).
+  await signInThenCancel({ ...client, ensure: async (member) => ({ agentId: member }) });
+  t.diagnostic(trace.map((line, index) => `+${at[index] - at[0]} ms ${line}`).join('\n'));
+  assert.deepEqual(trace.map((line) => line.split(' ').slice(0, 2).join(' ')), ['1 openclaw.setup.auth.start', '1 wizard.cancel',
+    '1 wizard.status', '2 openclaw.setup.auth.start', '2 wizard.cancel', '2 wizard.status'], 'each wizard.status answers before the next start');
 });
 
 test('the engine state directory is the only place a sign-in touches', () => {
