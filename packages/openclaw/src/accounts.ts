@@ -652,8 +652,8 @@ export function createAccounts(ctx: {
     return undefined;
   }
 
-  // Choosing (5.15): every listed account's room and models are read live once, then the pure `resolveSelection`
-  // decides. A binding narrows it (Runs step 2): a key bound to an account agent resolves 'auto', 'default' and no id to
+  // Choosing (5.15): every pick input's room and models are read live once (unnamed key lanes are excluded),
+  // then the pure `resolveSelection` decides. A binding narrows it (Runs step 2): a key bound to an account agent resolves 'auto', 'default' and no id to
   // that account; a key bound to the key lane resolves to its `<provider>.key` account; a key bound to the member agent
   // chooses only among its own accounts. A refusal (`bound`, `paid`) is decided from the index, after the account
   // listing when the index is cold, and so has no `considered` rows.
