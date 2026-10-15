@@ -1,0 +1,23 @@
+# done-done project config. `done-done init` never overwrites this file.
+# The app name finds this repo's evidence and receipts from every checkout.
+app: "byokit"
+# This repo's coding agent, over agent in ~/.done-done/config.yaml (model, effort and the other agent settings stay there).
+# agent: opencode
+
+# Standing checks as done-done primitives: the same proof bar
+# .agents/skills/verify-byokit/SKILL.md enforces (launch, doctor, drive with an
+# error case, captured evidence). Each journey runs from the repo root with
+# DONE_DONE_EVIDENCE_ROOT (this run's own folder) set and writes its proof
+# files there. CI and the merge gate call these journeys, never the skill's
+# scripts directly. A user-visible change is proved feature-first instead:
+# done-done verify --outcome "<claim>" --feature <name> drives the matching
+# feature file and saves its captures into the run's evidence folder.
+journeys:
+  build:
+    command: npm run build > "$DONE_DONE_EVIDENCE_ROOT/build.log" 2>&1 && node --input-type=module -e "import { createRequire } from 'node:module'; const require = createRequire(process.cwd() + '/'); const pkg = require('./packages/accounts/package.json'); const acc = await import('@byokit/accounts'); const testing = await import('@byokit/accounts/testing'); if (!acc.Accounts || !acc.portable || typeof testing.mockOpenAI !== 'function') throw new Error('built entry incomplete'); console.log('doctor ok:', pkg.name, pkg.version, 'resolves', require.resolve('@byokit/accounts'));" > "$DONE_DONE_EVIDENCE_ROOT/doctor.log" 2>&1
+  node-tests:
+    command: npm test > "$DONE_DONE_EVIDENCE_ROOT/node-tests.log" 2>&1
+    timeout: 30m
+  browser-tests:
+    command: npm run test:browser > "$DONE_DONE_EVIDENCE_ROOT/browser-tests.log" 2>&1
+    timeout: 30m
