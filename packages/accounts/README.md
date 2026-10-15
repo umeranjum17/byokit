@@ -224,8 +224,10 @@ that account's own `runtime(member, id)`, refreshed first when due, as its pinne
 header, Copilot's per-token base URL); on phones and in browsers the portable engine gives the access token as the key.
 It needs the `/keys` entry, as a key route does. A model from another provider is refused with
 `KeyRouteError.code === 'provider'`. A 429 rests only that account and rejects with `ResponseError` kind `rate_limit`
-(`until` from `retry-after`), never retried; a refresh the provider refuses (400-403, or a revoked grant) signs only that
-account out (`signed_out`); a route this platform cannot run (Meta in a browser or on a phone) is `not_included`.
+(`until` from `retry-after`), never retried. A refresh that proves the grant revoked (such as `invalid_grant`) signs
+only that account out (`signed_out`); a bare 400-403, a 429 or a 5xx at refresh keeps the sign-in and rejects with
+`network`, since an edge or a provider hiccup sends those too (the plan asked that any 400-403 at refresh sign out; what
+ships signs out only on a proven revocation). A route this platform cannot run (Meta in a browser or on a phone) is `not_included`.
 
 An explicit prebuilt SDK `client` is refused with `KeyRouteError.code === 'auth_override'` **before** opening
 saved-account secrets: its opaque authentication cannot be verified as this account. It is not silently

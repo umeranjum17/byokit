@@ -1,6 +1,6 @@
 # OAuth subscription account respond
 
-A consumer app with two signed-in Grok accounts (device code) asks `Accounts.respond(member, { account, model, context, onText })` and each answer streams through the pinned Pi Models path with that account's own sign-in; a 429 rests only that account, typed and never retried, while the other still answers; a refresh the provider refuses signs only that account out; a model from another provider and a route the platform cannot run are refused, typed, before any request. All against the built `@byokit/accounts` (`.`, `/keys`, `/testing`), `mockDevice()` and a loopback stand-in for xAI's Responses endpoint that replays `fixtures/conformance/pi-streams.json`. The same path serves GitHub Copilot, Kimi and Meta sign-ins.
+A consumer app with two signed-in Grok accounts (device code) asks `Accounts.respond(member, { account, model, context, onText })` and each answer streams through the pinned Pi Models path with that account's own sign-in; a 429 rests only that account, typed and never retried, while the other still answers; a refresh that proves the grant revoked signs only that account out; a model from another provider and a route the platform cannot run are refused, typed, before any request. All against the built `@byokit/accounts` (`.`, `/keys`, `/testing`), `mockDevice()` and a loopback stand-in for xAI's Responses endpoint that replays `fixtures/conformance/pi-streams.json`. The same path serves GitHub Copilot, Kimi and Meta sign-ins.
 
 ## Sub-features
 

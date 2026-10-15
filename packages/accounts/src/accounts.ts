@@ -998,8 +998,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
 
   /** A selected OAuth subscription account (Grok, Copilot, Kimi, Meta) answers through the same pinned Models path as a
-   *  key, with the auth its own runtime derives (refreshed first when due). A refresh the provider refuses signs only that
-   *  account out; a 429 rests only it, typed, never retried. A route this platform cannot run is typed not_included. */
+   *  key, with the auth its own runtime derives (refreshed first when due). A refresh that proves the grant revoked signs only
+   *  that account out; a 429 rests only it, typed, never retried. A route this platform cannot run is typed not_included. */
   private async respondOAuth<T extends Api>(member: M, ask: KeyAsk<T>, p: Provider, r: Route): Promise<AssistantMessage> {
     if (r.platforms[this.platform.kind ?? 'browser'] === 'no') throw new ResponseError(`${p.name} can't answer on this device.`, 'not_included');
     if (ask.options?.signal?.aborted) throw new KeyRouteError('aborted');
@@ -1011,6 +1011,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     let auth: ModelAuth | undefined;
     try { auth = (await (await this.runtime(member, key)).getAuth(p.pi))?.auth; }
     catch (e) {
+      // A refresh that proves the grant revoked (invalid_grant) signs out; a bare 400-403, a 429 or a 5xx keeps the
+      // sign-in, since an edge or a provider hiccup sends those too (the store drops their status).
       if (!refusedRefresh(e)) throw new ResponseError(`${p.name} could not refresh its sign-in. Try again when the network is back.`, 'network');
       await this.logout(member, key).catch(() => {});
       this.forget(member, key);
