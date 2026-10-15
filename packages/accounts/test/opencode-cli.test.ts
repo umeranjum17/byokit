@@ -1,8 +1,9 @@
 // OpenCode as a managed CLI: add/saveKey/logout/launch plus the plan-key route seam.
 // Fakes only: a Map-backed secrets store and a never-spawned binary; no live Go call, no real key.
 import { test } from 'node:test';
+import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Keystore } from '@byokit/secrets';
 import { cliAccounts, CliAccountError } from '../src/cli.ts';
@@ -59,7 +60,7 @@ test('opencode managed account: add, hidden saveKey, launch, route access, logou
   const refused = await kit.launch(account.id);
   assert.equal(refused.ok, false);
   assert.equal(openCodePlanKeyEntry(), `accounts.${OPENCODE_GO_PLAN_ROUTE}`);
-  assert.equal(openCodePlanKeyEntry(OPENCODE_GO_PLAN_ROUTE, account.id), `accounts.${OPENCODE_GO_PLAN_ROUTE}.${account.id}`);
+  assert.equal(openCodePlanKeyEntry(OPENCODE_GO_PLAN_ROUTE, account.id), `accounts.${OPENCODE_GO_PLAN_ROUTE}:${account.id}`);
 
   // The portable route finds no saved key, and says so in words without key material.
   const go = openCodeGoPlanAccount(store);
@@ -70,7 +71,7 @@ test('opencode managed account: add, hidden saveKey, launch, route access, logou
   const ready = await kit.saveKey(account.id, CANARY);
   assert.equal(ready.state, 'ready');
   assert.equal(ready.name, 'OpenCode');
-  assert.deepEqual([...saved], [[`accounts.${OPENCODE_GO_PLAN_ROUTE}.${account.id}`, CANARY]], 'one entry per managed account');
+  assert.deepEqual([...saved], [[`accounts.${OPENCODE_GO_PLAN_ROUTE}:${account.id}`, CANARY]], 'one entry per managed account');
   assert.equal(await readOpenCodePlanKey(store, OPENCODE_GO_PLAN_ROUTE, 'OpenCode', account.id), CANARY);
   // Portable route stays on its own entry (Accounts.add / openCodeGoPlanAccount), not the managed CLI id.
   await assert.rejects(go.access(new AbortController().signal), /Add the OpenCode plan key first\./);
@@ -86,13 +87,15 @@ test('opencode managed account: add, hidden saveKey, launch, route access, logou
     assert.ok(!JSON.stringify({ ...launch, env: signIn.env, shell: signIn.shell }).includes(CANARY), 'no key in launch, env or sign-in text');
   }
   for (const file of stateFiles(stateDir)) {
+    if (file.endsWith('/go.key') || file.endsWith('/opencode.json')) continue; // the folder delivery copies
     assert.ok(!readFileSync(file, 'utf8').includes(CANARY), `no key in state file ${file}`);
   }
 
   const out = await kit.logout(account.id);
+  assert.equal(saved.has(`accounts.${OPENCODE_GO_PLAN_ROUTE}:${account.id}`), false, 'logout deletes this account\'s key');
   assert.equal(out.state, 'signed_out');
-  assert.equal(saved.has(`accounts.${OPENCODE_GO_PLAN_ROUTE}.${account.id}`), false, 'logout deletes this account\'s key');
-  assert.equal(await go.access(new AbortController().signal), 'portable-canary', 'portable route entry untouched');
+  await assert.rejects(go.access(new AbortController().signal), /Add the OpenCode plan key first\./);
+  assert.equal((await kit.status(account.id)).state, 'signed_out');
   await assert.rejects(readOpenCodePlanKey(store, OPENCODE_GO_PLAN_ROUTE, 'OpenCode', account.id), (e: unknown) => {
     assert.ok(e instanceof Error && e.message === 'Add the OpenCode plan key first.');
     assert.ok(!e.message.includes(CANARY));
@@ -153,6 +156,81 @@ test('opencode two accounts: isolated keys, folders, resume, and remove', async 
     return true;
   });
   await kit.remove(b.id);
+});
+
+test('opencode launch delivers the key through folder files; logout/remove delete the copies', async () => {
+  const root = scratchDir('opencode-cli-files');
+  const stateDir = join(root, 'plans');
+  const { store, saved } = memoryKeys();
+  const env = { HOME: join(root, 'home'), PATH: '/unused' };
+  const kit = cliAccounts({ stateDir, bins: { opencode: fakeBin(join(root, 'bins'), 'opencode-fake') }, env, keyStore: store });
+  const canary = 'canary-oc-file-delivery-9z';
+  const legacy = 'legacy-route-canary-4q';
+
+  const { account } = await kit.add('opencode');
+  await kit.saveKey(account.id, canary);
+  // No key yet: usage has no source to offer.
+  const { account: bare } = await kit.add('opencode');
+  assert.equal(await kit.usageSource(bare.id), undefined);
+  const folder = kit.folderOf(account.id);
+  const keyPath = join(folder, 'go.key');
+  const configPath = join(folder, 'opencode.json');
+
+  const launched = await kit.launch(account.id);
+  assert.equal(launched.ok, true);
+  if (!launched.ok) throw new Error('opencode launch was not ready');
+  assert.equal(launched.set.OPENCODE_CONFIG, configPath);
+  assert.ok(!launched.unset.includes('OPENCODE_CONFIG'));
+  assert.equal(readFileSync(keyPath, 'utf8'), canary);
+  assert.equal(statSync(keyPath).mode & 0o777, 0o600);
+  assert.equal(statSync(folder).mode & 0o777, 0o700);
+  const config = JSON.parse(readFileSync(configPath, 'utf8'));
+  assert.equal(config.provider.opencode.options.apiKey, `{file:${keyPath}}`);
+  assert.ok(!JSON.stringify({ set: launched.set, unset: launched.unset }).includes(canary), 'no key bytes in the launch result');
+  assert.deepEqual(await kit.usageSource(account.id), { provider: 'opencode', key: canary });
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    import assert from 'node:assert/strict'; import {readFileSync} from 'node:fs';
+    const config = JSON.parse(readFileSync(process.env.OPENCODE_CONFIG, 'utf8'));
+    const ref = config.provider.opencode.options.apiKey;
+    const key = readFileSync(ref.slice(6, -1), 'utf8');
+    assert.ok(key.length > 0);
+    assert.ok(!JSON.stringify({argv:process.argv, env:process.env}).includes(key));
+    console.log('delivery ok');
+  `], { env: { ...env, ...launched.set }, encoding: 'utf8' });
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(child.stdout.trim(), 'delivery ok');
+  assert.equal(existsSync(join(folder, 'auth.json')), false, 'no console login in the launch store');
+  // launchEnv stays folder-only: no key read, no delivery config.
+  const envOnly = kit.launchEnv(account.id);
+  assert.equal(envOnly.set.OPENCODE_CONFIG, undefined);
+  assert.ok(!JSON.stringify(envOnly).includes(canary));
+
+  await kit.logout(account.id);
+  assert.equal(existsSync(keyPath), false, 'logout deletes the key copy');
+  assert.equal(existsSync(configPath), false, 'logout deletes the config copy');
+
+  // The old route entry is claimed by the first row only, never a second unsigned row.
+  await saveOpenCodePlanKey(store, legacy);
+  assert.equal(await kit.usageSource(bare.id), undefined);
+  assert.equal((await kit.status(account.id)).state, 'ready');
+  assert.deepEqual(await kit.usageSource(account.id), { provider: 'opencode', key: legacy });
+  const relaunch = await kit.launch(account.id);
+  assert.equal(relaunch.ok, true);
+  assert.equal(readFileSync(keyPath, 'utf8'), legacy);
+  await kit.saveKey(account.id, canary);
+  assert.deepEqual(await kit.usageSource(account.id), { provider: 'opencode', key: canary }, 'the account entry wins over the legacy route entry');
+
+  await kit.remove(account.id);
+  assert.equal(existsSync(keyPath), false, 'remove deletes the key copy');
+  assert.equal(existsSync(configPath), false, 'remove deletes the config copy');
+  assert.equal(await kit.usageSource(bare.id), undefined, 'removal never reassigns the legacy key');
+  assert.equal(await kit.usageSource(bare.id), undefined);
+  // Already-published dot-separated account entries stay readable, then logout deletes them.
+  saved.set(`accounts.${OPENCODE_GO_PLAN_ROUTE}.${bare.id}`, canary);
+  assert.equal((await kit.status(bare.id)).state, 'ready');
+  assert.equal((await kit.logout(bare.id)).state, 'signed_out');
+  assert.equal(saved.size, 0);
+  await kit.remove(bare.id);
 });
 
 test('opencode saveKey/logout refuse the wrong shape, and remote stays read-only', async () => {
