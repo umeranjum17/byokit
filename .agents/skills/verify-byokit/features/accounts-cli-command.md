@@ -14,7 +14,7 @@ A person who keeps several agent-CLI accounts gets one list to read and one swit
 - `cli-command-none`: a tool with no candidate exits 1, prints `{ ok: false, reason, rows }` and one plain sentence on stderr, and still lists the resting row.
 - `cli-command-rests`: `rest <id> --until <epoch|ISO|45m> --why <text>` persists the B1 rest (`rests-v1.json`, 0600) and reads back `resting` with `restUntil`; `unrest <id>` returns it to `ready`; an unknown id is a plain message, empty stdout and exit 1.
 - `cli-command-prepare`: `add <tool>` shares only the plan's names from the person's own default folder — Claude links `skills/` (the person's own link target) and `agents/` and copies `settings.json`, leaves BYOKit's own `projects` history link alone, and never brings `.credentials.json`, `.claude.json`, `auth.json`, `trust.json`, a session store, a log or `models.json` into the new folder (0700).
-- `cli-command-pool`: every command reads `<stateDir>/pool.json` for the tool binary paths, `HOME` and `PATH`, and is named by `--state <dir>`.
+- `cli-command-pool`: pool commands require the config described in [the command reference](../../../../packages/accounts/README.md#the-byokit-accounts-command); standalone `--help` must succeed without it.
 
 ## How to get to it (user POV)
 

@@ -2768,8 +2768,8 @@ Offline; picked up by `scripts/test.sh`'s package glob and `:byokit-share:testDe
 - **C9 `ShareMetaTest.kt`:** `orient` at 0, 90, 180, 270 and with nulls. `of()` runs only on a device (D6 R1). X6 is
   checked in review (faking `appContext` would need Robolectric).
 
-**CI** (normal PRs and pushes): the `check` matrix (build, check, test, `smoke:pack` importing `app.plugin.js` under
-plain Node with no `dist`, release lint); **`share-android`** in the `statusbar-android` shape,
+**CI** (normal PRs and pushes): the `check` matrix (build, check, test, release lint) and the separate `pack`
+matrix (`smoke:pack` importing `app.plugin.js` under plain Node with no `dist`); **`share-android`** in the `statusbar-android` shape,
 added by WP2 as `npm ci`, prebuild `examples/expo`, `./gradlew assembleDebug :byokit-share:testDebugUnitTest`; WP4
 adds its `node scripts/share-expo-smoke.ts --android-only` step and the **`share-ios-prebuild`** job (a macOS GitHub
 runner, not the reserved Mac; prebuild only, D4 assertions via `--ios-only`), since WP4 creates that script. `examples/expo` uses `shareIntent: { disableIOS: true,
