@@ -229,11 +229,14 @@ MiniMax has no refresh grant: expiry sends neither a refresh nor a model request
 It needs the `/keys` entry, as a key route does. A model from another provider is refused with
 `KeyRouteError.code === 'provider'`. A 429 rests only that account and rejects with `ResponseError` kind `rate_limit`
 (`until` from `retry-after`), never retried. A refresh the provider proves revoked (such as `invalid_grant`) or refuses
-with a bare 400, 401 or 403 signs only that account out (`signed_out`, and `onExpired` once), never retried, while a 5xx,
+with a bare 400–403 signs only that account out (`signed_out`, and `onExpired` once), never retried, while a 5xx,
 a timeout or a dropped connection at refresh keeps the sign-in and rejects with `network`. The same holds on phones and
 browsers, where the kit refreshes, and on a computer, where Pi refreshes and the kit reads the status Pi's token request
-was answered with. `keepFresh` ends such a sign-in and calls `onExpired` once; `recheck` ends it, returns `false`, and
-notifies through `onChange`, without calling `onExpired`. Where the kit refreshes, a 2xx answer whose body cannot be read
+was answered with. On a computer this requires Node's undici-backed fetch; replacing it with a fetch that does not emit
+undici diagnostics leaves Pi's status-less failures typed `network` and keeps the sign-in. Only token-endpoint refusals
+count: a Copilot model-catalog 403 does not end a valid sign-in. `keepFresh` ends such a sign-in and calls `onExpired`
+once; `recheck` ends it, returns `false`, and notifies through `onChange`, without calling `onExpired`.
+Where the kit refreshes, a 2xx answer whose body cannot be read
 spends the grant, so it ends the sign-in too (`signed_out`). A route this platform cannot run (Meta in
 a browser or on a phone) is `not_included`.
 
