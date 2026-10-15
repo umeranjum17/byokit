@@ -1,8 +1,0 @@
-- A failed Claude plan answer now names its cause in plain words without echoing the provider's message:
-  - usage limit, with the minutes until it resets (`until` comes from Anthropic's reset header and the account rests until then)
-  - expired sign-in
-  - Claude busy
-  - unreachable
-  - otherwise, the HTTP status
-- The `ResponseError` also carries the HTTP `status` and a safe `reason`: Anthropic's error type, or the local error's name.
-- For diagnostic logs only, a failed Claude plan answer's `ResponseError.detail` carries Anthropic's message with the request credentials and any long token-like text removed. It is never shown.

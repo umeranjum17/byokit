@@ -1,1 +1,0 @@
-- FEAT: Managed CLI `add('kimi')` with native `kimi login` into an app-owned `KIMI_CODE_HOME` folder per account, `resumeArgs` as `--session`, and a default-login guard that refuses `~/.kimi-code` — never the owner's own Kimi folder or credentials.

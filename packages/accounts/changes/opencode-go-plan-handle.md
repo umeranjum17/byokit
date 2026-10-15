@@ -1,1 +1,0 @@
-- ADD: `accounts.opencodeGo(member)` member-bound OpenCode Go plan handle (route `opencode:plan_key:opencode-go`, type `OpenCodeGoAccount` from `@byokit/accounts/opencode-go`) for consumers such as `@byokit/decide`: reads the member's own saved plan key on every request, exposes no credentials, bills `subscription` with no API-key fallback.

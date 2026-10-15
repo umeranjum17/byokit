@@ -1,1 +1,0 @@
-- FIX: Route labels for the Qwen and Xiaomi token plans no longer repeat the word plan ("Uses your Qwen Token Plan", not "Uses your Qwen Token Plan plan").
