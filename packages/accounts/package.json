@@ -75,7 +75,7 @@
     "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.129.0",
+    "@anthropic-ai/sdk": "0.133.0",
     "@byokit/secrets": "0.5.1",
     "@byokit/usage": "0.8.0",
     "@earendil-works/pi-ai": "1.2.0",
