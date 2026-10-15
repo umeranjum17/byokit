@@ -120,8 +120,9 @@ const offline = (e: any) => failure(String(e?.message)) === 'offline';
 const OAUTH_RESPOND = ['xai', 'github-copilot', 'kimi-coding', 'meta', 'minimax', 'minimax-cn'];
 /** A refresh that proves the grant revoked or is quarantined: the sign-in needs signing in again on every path. */
 const refusedRefresh = (e: any) => e instanceof RefreshRequiredError || e?.revoked === true || typeof e?.status === 'number' && e.status >= 400 && e.status <= 403;
-/** The OAuth respond path also ends the sign-in on a bare 400-403 at refresh, which the store carries as `httpStatus`;
- *  `refreshed()` never reads that property, so its own rule stays as it is. */
+/** An OAuth respond sign-in (OAUTH_RESPOND) also ends on a bare 400-403 at refresh, carried as `httpStatus` by the kit's
+ *  store on phones and browsers and by the computer engine around Pi's own refresh (index.ts); a proven revocation
+ *  arrives as one of those too. Every other provider keeps its own rule. */
 const endedRefresh = (e: any) => refusedRefresh(e) || typeof e?.httpStatus === 'number' && e.httpStatus >= 400 && e.httpStatus <= 403;
 
 /** Ends a sign-in on the provider's side, as Codex's own logout does (openai/codex#17825): the refresh token, else the
@@ -1008,11 +1009,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** A selected OAuth subscription account (Grok, Copilot, Kimi, Meta, MiniMax) answers through the same pinned Models path as a
    *  key, with the auth its own runtime derives (refreshed first when due). MiniMax has no refresh grant: once its token
-   *  has run out the grant ends without a send, so only that account is signed out and it reads needs_again. Where the kit owns the refresh (the portable
-   *  engine on phones and browsers) a refresh the provider proves revoked or refuses with a bare 400-403 signs only that
-   *  account out; on a computer Pi refreshes internally and only its own status-less error reaches here, so any failure is
-   *  typed network and the sign-in is kept. A 429 rests only it, typed, never retried. A route this platform cannot run is
-   *  typed not_included. */
+   *  has run out the grant ends without a send, so only that account is signed out and it reads needs_again. A refresh the
+   *  provider proves revoked or refuses with a bare 400-403 signs only that account out, on every platform. A 429 rests
+   *  only it, typed, never retried. A route this platform cannot run is typed not_included. */
   private async respondOAuth<T extends Api>(member: M, ask: KeyAsk<T>, p: Provider, r: Route): Promise<AssistantMessage> {
     if (r.platforms[this.platform.kind ?? 'browser'] === 'no') throw new ResponseError(`${p.name} can't answer on this device.`, 'not_included');
     if (ask.options?.signal?.aborted) throw new KeyRouteError('aborted');
@@ -1024,13 +1023,12 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     let auth: ModelAuth | undefined;
     try { auth = (await (await this.runtime(member, key)).getAuth(p.pi))?.auth; }
     catch (e) {
-      // Where the kit owns the refresh (the portable engine), a refresh the provider proves revoked or refuses with a bare
-      // 400-403 signs only this account out, never retried; the store carries the refusal as `httpStatus`. A computer's
-      // Pi-owned refresh throws only its own status-less error, so a failure there is unknown: typed network, kept. A 5xx
-      // or a dropped connection keeps the sign-in on both; an accepted but unreadable answer ends it.
+      // A refresh the provider proves revoked or refuses with a bare 400-403 signs only this account out, never retried.
+      // A 5xx or a dropped connection keeps the sign-in, typed network; where the kit refreshes, an accepted but unreadable
+      // answer ends it.
       if (!endedRefresh(e)) throw new ResponseError(`${p.name} could not refresh its sign-in. Try again when the network is back.`, 'network');
-      await this.logout(member, key).catch(() => {});
-      this.forget(member, key);
+      await this.endAccount(member, key, true).catch(() => {});
+      this.forgetAccount(member, key);
       this.onExpired?.(member, key);
       throw new ResponseError(say('status.needsAgain', { name: p.name }), 'signed_out');
     }
@@ -1451,22 +1449,25 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const pi = p.pi;
     key = this.accountKey(member, key);
     return (await this.runtime(member, key)).getAuth(pi, { minOAuthValidityMs }).then(Boolean, async (e: Error) => {
+      // An OAuth respond sign-in ends on a bare 400-403 too, as respond ends it; checked first, since the kept refusal's
+      // own words say "network".
+      if (OAUTH_RESPOND.includes(pi) && endedRefresh(e)) return false;
       if (offline(e)) return true;
       if (e?.message === `OAuth refresh returned a token that expires too soon for ${pi}`) {
         const c = await this.store(member).read(this.storageKey(key));
         return c?.type === 'oauth' && c.expires > Date.now();
       }
-      // A revoked (invalid_grant) or quarantined refresh requires sign-in again. A bare 400-403 keeps the sign-in here:
-      // only the respond path reads the store's `httpStatus`, and a computer's Pi-owned refresh throws status-less errors
-      // anyway. A dropped connection, a server error or a read failure before sending (a locked keychain) is unknown:
+      // A revoked (invalid_grant) or quarantined refresh requires sign-in again. Any other provider's bare 400-403 keeps
+      // the sign-in. A dropped connection, a server error or a read failure before sending (a locked keychain) is unknown:
       // try later. An accepted but unreadable answer already ended the sign-in above.
       return !refusedRefresh(e);
     });
   }
 
   /** Refresh every signed-in account an hour ahead of expiry (call it now and then), so a sign-in never lapses while
-   *  nobody is looking. A revoked or uncertain refresh requires sign-in again; `onExpired` says so once. A lost answer,
-   *  any other refusal, a server error or a storage read failure before sending keeps the sign-in and is retried. */
+   *  nobody is looking. A revoked or uncertain refresh requires sign-in again, as does a bare 400-403 for a Grok, Copilot,
+   *  Kimi or Meta sign-in; `onExpired` says so once. A lost answer, any other refusal, a server error or a storage read
+   *  failure before sending keeps the sign-in and is retried. */
   async keepFresh(members: readonly M[]) {
     for (const m of members) {
       const keys = new Set([...this.ready].filter(([id, ready]) => ready && id.startsWith(`${m}:`)).map(([id]) => this.accountKey(m, id.slice(String(m).length + 1))));
@@ -1474,13 +1475,18 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       for (const key of keys) {
         if ((!key.includes(':') && !this.providers.some((p) => p.key === this.providerKey(key))) || this.ready.get(`${m}:${key}`) === false) continue;
         const ok = await this.refreshed(m, key, 60 * 60_000);
-        if (!ok) { this.forgetAccount(m, key); this.onExpired?.(m, key); }
+        if (!ok) {
+          if (OAUTH_RESPOND.includes(this.offer(key).pi)) await this.endAccount(m, key, true);
+          this.forgetAccount(m, key);
+          this.onExpired?.(m, key);
+        }
       }
     }
   }
 
   /** After the account turned a request away: true if its sign-in still refreshes or the refresh failed in passing; it is
-   *  signed out for good only when the provider proves the grant revoked (or the grant is quarantined). `exact` keeps the
+   *  signed out for good only when the provider proves the grant revoked (or the grant is quarantined), or refuses a Grok,
+   *  Copilot, Kimi or Meta refresh with a bare 400-403. `exact` keeps the
    *  given id as already resolved, for the same reason as `failed`. */
   async recheck(member: M, key: string, exact = false) {
     key = exact ? this.accountKey(member, key) : await this.resolveKey(member, key);
