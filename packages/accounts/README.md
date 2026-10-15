@@ -232,8 +232,9 @@ It needs the `/keys` entry, as a key route does. A model from another provider i
 with a bare 400, 401 or 403 signs only that account out (`signed_out`, and `onExpired` once), never retried, while a 5xx,
 a timeout or a dropped connection at refresh keeps the sign-in and rejects with `network`. The same holds on phones and
 browsers, where the kit refreshes, and on a computer, where Pi refreshes and the kit reads the status Pi's token request
-was answered with; `keepFresh` and `recheck` end such a sign-in the same way. Where the kit refreshes, a 2xx answer whose
-body cannot be read spends the grant, so it ends the sign-in too (`signed_out`). A route this platform cannot run (Meta in
+was answered with. `keepFresh` ends such a sign-in and calls `onExpired` once; `recheck` ends it, returns `false`, and
+notifies through `onChange`, without calling `onExpired`. Where the kit refreshes, a 2xx answer whose body cannot be read
+spends the grant, so it ends the sign-in too (`signed_out`). A route this platform cannot run (Meta in
 a browser or on a phone) is `not_included`.
 
 An explicit prebuilt SDK `client` is refused with `KeyRouteError.code === 'auth_override'` **before** opening
