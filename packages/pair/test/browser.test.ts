@@ -91,7 +91,7 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
   try { binary = realpathSync((spawnSync('which', [chrome!], { encoding: 'utf8' }).stdout ?? '').trim()); } catch {}
   const args = ['--headless=new', '--no-sandbox', '--disable-gpu', `--user-data-dir=${profile}`, '--no-first-run',
     '--disable-background-networking', '--disable-component-update', '--disable-sync', '--no-default-browser-check',
-    '--enable-logging=stderr', '--v=1', text]; // --v=1: Chrome's own timestamped launch log, so a slow start shows where it stalls
+    '--enable-logging=stderr', '--v=1', 'about:blank']; // --v=1: Chrome's own timestamped launch log, so a slow start shows where it stalls
   const atLaunch = pressure();
   note(`browser ${binary}`);
   note(`path lengths HOME=${process.env.HOME?.length ?? 0} TMPDIR=${process.env.TMPDIR?.length ?? 0} profile=${profile.length}`);
@@ -104,6 +104,15 @@ test('a browser pairs from a link and uses the link', { skip: !chrome && !proces
   browser.once('error', (e) => { note('browser spawn error'); failed(new Error(`the browser could not start: ${e.message}`)); });
   // A browser that is gone can never report: stop waiting the moment it exits instead of sitting out the deadline.
   browser.once('exit', (code, signal) => { note(`browser exit ${code} signal ${signal}`); failed(new Error(`the browser exited (code ${code}, signal ${signal}) before reporting`)); });
+  // The link opens over the browser's own pipe once Chrome answers there, not from the command line. On a slow first
+  // start Chrome's network service quits after 15s unanswered and takes a launch URL's request with it, without an
+  // error. Sent after Chrome answers, the navigation reaches a working service, restarted first if it quit, and a
+  // navigation that still fails ends the test with Chrome's own reason.
+  owned.send('Target.createTarget', { url: 'about:blank' })
+    .then(({ targetId }) => { note('browser answered'); return owned.send('Target.attachToTarget', { targetId, flatten: true }); })
+    .then(({ sessionId }) => owned.send('Page.navigate', { url: text }, sessionId))
+    .then(({ errorText }) => { if (errorText) throw new Error(errorText); note('page navigation answered'); })
+    .catch((e) => { note('page navigation failed'); failed(new Error(`the browser could not open the pairing page: ${e.message}`)); });
   let stderr = '';
   browser.stderr!.on('data', (d: Buffer) => {
     if (!stderr) note('browser stderr received');

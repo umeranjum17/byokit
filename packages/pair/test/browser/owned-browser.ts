@@ -51,7 +51,7 @@ function children(pid: number): string[] {
 }
 
 /**
- * Launch a task browser with a private CDP pipe and close it over that pipe. Owned processes are
+ * Launch a task browser with a private CDP pipe, drive it and close it over that pipe. Owned processes are
  * tracked by kernel identity and walked through witnessed parents only: never cwd, session or group
  * matching, and never a negative PID. A close that cannot prove every owned process is gone throws
  * and retains a receipt; it is never retried, masked or widened into a group signal.
@@ -90,7 +90,8 @@ export function ownedBrowser(bin: string, args: string[], profile: string, close
   const tracker = setInterval(track, 100);
   tracker.unref();
   const input = chrome.stdio[3] as Duplex, output = chrome.stdio[4] as Duplex;
-  let buffer = '', acknowledged = false, protocolError: Error | undefined;
+  let buffer = '', sent = 0, acknowledged = false, protocolError: Error | undefined;
+  const replies = new Map<number, { method: string; resolve: (result: any) => void; reject: (error: Error) => void }>();
   input.on('error', (error) => { protocolError = error; });
   output.on('error', (error) => { protocolError = error; });
   output.on('data', (data) => {
@@ -98,15 +99,20 @@ export function ownedBrowser(bin: string, args: string[], profile: string, close
     for (let end; (end = buffer.indexOf('\0')) >= 0;) {
       const raw = buffer.slice(0, end); buffer = buffer.slice(end + 1);
       try {
-        const message = JSON.parse(raw);
-        if (message.id === 1) {
-          if (message.error) protocolError = new Error(`Browser.close: ${JSON.stringify(message.error)}`);
-          else acknowledged = true;
-        }
+        const message = JSON.parse(raw), reply = replies.get(message.id);
+        if (!reply) continue; // an event
+        replies.delete(message.id);
+        if (message.error) reply.reject(new Error(`${reply.method}: ${JSON.stringify(message.error)}`));
+        else reply.resolve(message.result);
       } catch (error) { protocolError = error as Error; }
     }
   });
-  return { chrome, close: async () => {
+  /** One command over the private CDP pipe: its result, or the browser's own error. */
+  const send = (method: string, params: object = {}, sessionId?: string) => new Promise<any>((resolve, reject) => {
+    replies.set(++sent, { method, resolve, reject });
+    input.write(JSON.stringify({ id: sent, method, params, sessionId }) + '\0');
+  });
+  return { chrome, send, close: async () => {
     const began = Date.now(), cutoff = began + closeBoundMs;
     const survivors = () => PROCFS ? [...owned.values()].filter((p) => identity(p.pid)?.start === p.start) : [];
     let before: Identity[] = [];
@@ -118,7 +124,7 @@ export function ownedBrowser(bin: string, args: string[], profile: string, close
       if (PROCFS && (identity(root.pid)?.start !== root.start || identity(root.pid)?.parent !== process.pid))
         throw new Error('browser PID/starttime/parent ownership lost before close');
       before = survivors();
-      input.write(JSON.stringify({ id: 1, method: 'Browser.close' }) + '\0');
+      send('Browser.close').then(() => { acknowledged = true; }, (error) => { protocolError = error; });
       for (;;) {
         if (protocolError) throw protocolError;
         if (trackingError) throw trackingError;
