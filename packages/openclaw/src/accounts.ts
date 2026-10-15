@@ -856,6 +856,8 @@ export function createAccounts(ctx: {
     check(member);
     const { agentId: memberAgent } = await ctx.ensure(member);
     const entry = read(member).accounts[id];
+    if (entry?.agent === keyAgentId(member))
+      throw new Error(`removeAccount: ${id} is a key lane; use removeKey`);
     if (!entry || (entry.agent !== memberAgent && !(ACCOUNT_AGENT.test(entry.agent) && entry.agent.startsWith(`${member}--`))))
       throw new Error(`unknown account: ${id}`);
     const agent = entry.agent;
