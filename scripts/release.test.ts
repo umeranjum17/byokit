@@ -179,7 +179,7 @@ test("release lint CLI requires notes for unchanged shipped schemas and accepts 
 test("prepare CLI compiles fragments with existing notes and deletes them in its commit", () => {
   const dir = mkdtempSync(join(tmpdir(), "release-prepare-"));
   const run = (cmd: string, args: string[]) => spawnSync(cmd, args, {
-    cwd: dir, encoding: "utf8", env: { ...process.env, PATH: join(dir, "bin") + ":" + process.env.PATH },
+    cwd: dir, encoding: "utf8", env: { ...process.env, PATH: join(dir, "bin") + ":" + process.env.PATH, npm_config_offline: "true" },
   });
   const git = (...args: string[]) => {
     const r = run("git", ["-c", "user.name=Umer", "-c", "user.email=umer@example.invalid", "-c", "commit.gpgsign=false", ...args]);
@@ -187,15 +187,30 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
     return r.stdout;
   };
   try {
-    for (const path of ["scripts", "bin", "examples/expo", "packages/probe/changes"]) mkdirSync(join(dir, path), { recursive: true });
+    for (const path of ["scripts", "bin", "examples/expo", "packages/probe/changes", "packages/a-consumer", "packages/b-range", "packages/c-dev"]) mkdirSync(join(dir, path), { recursive: true });
     copyFileSync(join(root, "scripts/release.ts"), join(dir, "scripts/release.ts"));
-    writeFileSync(join(dir, "bin/npm"), `#!/bin/sh\nif [ "$1" = view ]; then echo '["0.1.0"]'; fi\n`);
+    const realNpm = spawnSync("/bin/sh", ["-c", "command -v npm"], { encoding: "utf8" }).stdout.trim();
+    assert.ok(realNpm.startsWith("/"));
+    // Only registry version discovery is canned; lockfile resolution uses the actual npm, offline.
+    writeFileSync(join(dir, "bin/npm"), `#!/bin/sh\nif [ "$1" = view ]; then echo '["0.1.0"]'; else exec '${realNpm}' "$@"; fi\n`);
     chmodSync(join(dir, "bin/npm"), 0o755);
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ private: true, type: "module", workspaces: ["packages/*"] }));
+    writeFileSync(join(dir, "examples/expo/package.json"), '{"private":true}');
+    const peerMeta = { "@byokit/probe": { optional: true }, "external-example": { optional: true } };
+    writeFileSync(join(dir, "packages/a-consumer/package.json"), JSON.stringify({ name: "@byokit/a-consumer", version: "0.1.0",
+      peerDependencies: { "@byokit/probe": "0.1.0", "external-example": ">=1" }, peerDependenciesMeta: peerMeta }, null, 2));
+    writeFileSync(join(dir, "packages/b-range/package.json"), JSON.stringify({ name: "@byokit/b-range", version: "0.1.0",
+      peerDependencies: { "@byokit/probe": ">=0.1.0" } }, null, 2));
+    writeFileSync(join(dir, "packages/c-dev/package.json"), JSON.stringify({ name: "@byokit/c-dev", version: "0.1.0",
+      devDependencies: { "@byokit/probe": "0.1.0" } }, null, 2));
+    for (const kit of ["a-consumer", "b-range", "c-dev"]) writeFileSync(join(dir, `packages/${kit}/CHANGELOG.md`), "# Changelog\n\n## Unreleased\n\n- Existing note.\n");
     writeFileSync(join(dir, "packages/probe/package.json"), JSON.stringify({ name: "@byokit/probe", version: "0.1.0" }, null, 2));
     const cl = join(dir, "packages/probe/CHANGELOG.md");
     writeFileSync(cl, "# Changelog\n\n## Unreleased\n\n- Existing note for Umer.\n");
     const fragment = join(dir, "packages/probe/changes/umer.md");
     writeFileSync(fragment, "- FIX: fragment for Umer.\n");
+    const initial = run("npm", ["install", "--package-lock-only", "--no-audit", "--no-fund"]);
+    assert.equal(initial.status, 0, initial.stderr);
     git("init", "-q"); git("checkout", "-b", "release-test"); git("add", "."); git("commit", "-qm", "fixture");
     const dry = run(process.execPath, ["scripts/release.ts", "prepare", "probe=patch", "--dry-run"]);
     assert.equal(dry.status, 0, dry.stderr);
@@ -203,11 +218,28 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
     assert.match(dry.stdout, /FIX: fragment for Umer/);
     assert.match(dry.stdout, /delete packages\/probe\/changes\/umer.md/);
     assert.ok(existsSync(fragment), "dry-run preserves fragments");
+    const explicit = run(process.execPath, ["scripts/release.ts", "prepare", "probe=patch", "a-consumer=minor", "--dry-run"]);
+    assert.equal(explicit.status, 0, explicit.stderr);
+    assert.match(explicit.stdout, /@byokit\/a-consumer 0.1.0 -> 0.2.0/);
     // Configure the writer's commit identity locally in this throwaway repository.
     git("config", "user.name", "Umer"); git("config", "user.email", "umer@example.invalid"); git("config", "commit.gpgsign", "false");
     const prepared = run(process.execPath, ["scripts/release.ts", "prepare", "probe=patch"]);
     assert.equal(prepared.status, 0, prepared.stderr);
     assert.equal(existsSync(fragment), false);
+    const peer = JSON.parse(readFileSync(join(dir, "packages/a-consumer/package.json"), "utf8"));
+    assert.equal(peer.version, "0.1.1", "published exact peer-dependent receives a patch");
+    assert.deepEqual(peer.peerDependencies, { "@byokit/probe": "0.1.1", "external-example": ">=1" });
+    assert.deepEqual(peer.peerDependenciesMeta, peerMeta);
+    const ranged = JSON.parse(readFileSync(join(dir, "packages/b-range/package.json"), "utf8"));
+    assert.equal(ranged.version, "0.1.0");
+    assert.equal(ranged.peerDependencies["@byokit/probe"], ">=0.1.0");
+    const dev = JSON.parse(readFileSync(join(dir, "packages/c-dev/package.json"), "utf8"));
+    assert.equal(dev.version, "0.1.0", "dev-only pin changes never release a dependent");
+    assert.equal(dev.devDependencies["@byokit/probe"], "0.1.1");
+    const lock = JSON.parse(readFileSync(join(dir, "package-lock.json"), "utf8"));
+    assert.equal(lock.packages["packages/probe"].version, "0.1.1");
+    assert.equal(lock.packages["packages/a-consumer"].peerDependencies["@byokit/probe"], "0.1.1");
+    assert.ok(prepared.stdout.indexOf("## @byokit/probe") < prepared.stdout.indexOf("## @byokit/a-consumer"), "provider published before alphabetically earlier peer-dependent");
     assert.deepEqual(parseChangelog(readFileSync(cl, "utf8")).versions[0].bullets, [
       { kind: "FIX", text: "fragment for Umer." }, { kind: "other", text: "Existing note for Umer." },
     ]);

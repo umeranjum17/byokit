@@ -181,6 +181,7 @@ export interface CascadePkg {
   version: string;
   isPrivate: boolean;
   dependencies: Record<string, string>;
+  peerDependencies?: Record<string, string>;
   devDependencies: Record<string, string>;
   unreleased: ChangelogBullet[];
 }
@@ -202,7 +203,7 @@ const byokitDir = (name: string): string | null =>
   name.startsWith("@byokit/") ? name.slice("@byokit/".length) : null;
 
 // Fixed-point cascade (§2, §4.1 step 5): exact internal pins follow releases;
-// published dependents in `dependencies` get a patch plus copied notes.
+// published runtime/peer dependents get a patch plus copied notes.
 export function planCascade(
   pkgs: CascadePkg[],
   releases: Map<string, string>,
@@ -228,14 +229,14 @@ export function planCascade(
   while (changed) {
     changed = false;
     for (const d of pkgs) {
-      for (const scope of ["dependencies", "devDependencies"] as const) {
-        for (const [depName, pin] of Object.entries(d[scope])) {
+      for (const scope of ["dependencies", "peerDependencies", "devDependencies"] as const) {
+        for (const [depName, pin] of Object.entries(d[scope] ?? {})) {
           const x = byokitDir(depName);
-          if (!x || !versions.has(x)) continue;
+          if (!x || !versions.has(x) || (scope === "peerDependencies" && !/^\d+\.\d+\.\d+$/.test(pin))) continue;
           const next = versions.get(x) as string;
           if (pin === next) continue;
           pins.push({ pkg: d.dir, dep: x, from: pin, to: next });
-          d[scope][depName] = next;
+          d[scope]![depName] = next;
           changed = true;
           const notes = newSectionNotes.get(x) ?? [];
           const copies = notes.map((b) =>
@@ -243,7 +244,7 @@ export function planCascade(
               ? `- ${b.kind}: ${b.text}`
               : `- ${b.kind}: (from @byokit/${x} ${next}) ${b.text}`,
           );
-          if (scope === "dependencies" && !d.isPrivate && published.has(d.dir) && !versions.has(d.dir)) {
+          if (scope !== "devDependencies" && !d.isPrivate && published.has(d.dir) && !versions.has(d.dir)) {
             const v = bump(d.version, "patch");
             versions.set(d.dir, v);
             newSectionNotes.set(d.dir, [
@@ -267,7 +268,7 @@ export function planCascade(
 
 // Topological order by internal dependencies (DFS post-order, input order kept).
 export function topoOrder(
-  pkgs: { dir: string; dependencies: Record<string, string>; devDependencies?: Record<string, string> }[],
+  pkgs: { dir: string; dependencies: Record<string, string>; peerDependencies?: Record<string, string>; devDependencies?: Record<string, string> }[],
 ): string[] {
   const inSet = new Set(pkgs.map((p) => p.dir));
   const out: string[] = [];
@@ -277,7 +278,7 @@ export function topoOrder(
     seen.add(dir);
     const p = pkgs.find((k) => k.dir === dir);
     if (p) {
-      for (const scope of [p.dependencies, p.devDependencies ?? {}]) {
+      for (const scope of [p.dependencies, p.peerDependencies ?? {}, p.devDependencies ?? {}]) {
         for (const name of Object.keys(scope)) {
           const x = byokitDir(name);
           if (x && inSet.has(x)) visit(x);
@@ -412,6 +413,7 @@ interface WSPkg {
   version: string;
   isPrivate: boolean;
   dependencies: Record<string, string>;
+  peerDependencies: Record<string, string>;
   devDependencies: Record<string, string>;
 }
 
@@ -426,6 +428,7 @@ function workspacePackages(): WSPkg[] {
       version: string;
       private?: boolean;
       dependencies?: Record<string, string>;
+      peerDependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;
     };
     return {
@@ -434,6 +437,7 @@ function workspacePackages(): WSPkg[] {
       version: pj.version,
       isPrivate: pj.private === true,
       dependencies: { ...(pj.dependencies ?? {}) },
+      peerDependencies: { ...(pj.peerDependencies ?? {}) },
       devDependencies: { ...(pj.devDependencies ?? {}) },
     };
   });
@@ -517,6 +521,7 @@ function cmdPrepare(rest: string[]): void {
     version: p.version,
     isPrivate: p.isPrivate,
     dependencies: { ...p.dependencies },
+    peerDependencies: { ...p.peerDependencies },
     devDependencies: { ...p.devDependencies },
     unreleased: (() => {
       const t = readChangelog(p.dir);
