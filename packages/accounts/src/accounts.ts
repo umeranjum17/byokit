@@ -118,8 +118,11 @@ const googleViaError = () => Object.assign(new Error('Google uses a browser or a
 const offline = (e: any) => failure(String(e?.message)) === 'offline';
 /** The OAuth subscription sign-ins that answer through the pinned Models path: Grok, GitHub Copilot, Kimi and Meta. */
 const OAUTH_RESPOND = ['xai', 'github-copilot', 'kimi-coding', 'meta'];
-/** A refresh the provider refused (400-403, a revoked grant, or one quarantined): the sign-in needs signing in again. */
+/** A refresh that proves the grant revoked or is quarantined: the sign-in needs signing in again on every path. */
 const refusedRefresh = (e: any) => e instanceof RefreshRequiredError || e?.revoked === true || typeof e?.status === 'number' && e.status >= 400 && e.status <= 403;
+/** The OAuth respond path also ends the sign-in on a bare 400-403 at refresh, which the store carries as `httpStatus`;
+ *  `refreshed()` never reads that property, so its own rule stays as it is. */
+const endedRefresh = (e: any) => refusedRefresh(e) || typeof e?.httpStatus === 'number' && e.httpStatus >= 400 && e.httpStatus <= 403;
 
 /** Ends a sign-in on the provider's side, as Codex's own logout does (openai/codex#17825): the refresh token, else the
  *  access token, never retried (fixtures/conformance/revoke.json). */
@@ -998,8 +1001,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   }
 
   /** A selected OAuth subscription account (Grok, Copilot, Kimi, Meta) answers through the same pinned Models path as a
-   *  key, with the auth its own runtime derives (refreshed first when due). A refresh that proves the grant revoked signs only
-   *  that account out; a 429 rests only it, typed, never retried. A route this platform cannot run is typed not_included. */
+   *  key, with the auth its own runtime derives (refreshed first when due). A refresh the provider proves revoked or refuses
+   *  with a bare 400-403 signs only that account out; a 429 rests only it, typed, never retried. A route this platform cannot
+   *  run is typed not_included. */
   private async respondOAuth<T extends Api>(member: M, ask: KeyAsk<T>, p: Provider, r: Route): Promise<AssistantMessage> {
     if (r.platforms[this.platform.kind ?? 'browser'] === 'no') throw new ResponseError(`${p.name} can't answer on this device.`, 'not_included');
     if (ask.options?.signal?.aborted) throw new KeyRouteError('aborted');
@@ -1011,9 +1015,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     let auth: ModelAuth | undefined;
     try { auth = (await (await this.runtime(member, key)).getAuth(p.pi))?.auth; }
     catch (e) {
-      // A refresh that proves the grant revoked (invalid_grant) signs out; a bare 400-403, a 429 or a 5xx keeps the
-      // sign-in, since an edge or a provider hiccup sends those too (the store drops their status).
-      if (!refusedRefresh(e)) throw new ResponseError(`${p.name} could not refresh its sign-in. Try again when the network is back.`, 'network');
+      // A refresh the provider proves revoked or refuses with a bare 400-403 signs only this account out, never retried;
+      // a lost answer, a 5xx or any other refusal keeps the sign-in, since an edge or a provider hiccup sends those too.
+      if (!endedRefresh(e)) throw new ResponseError(`${p.name} could not refresh its sign-in. Try again when the network is back.`, 'network');
       await this.logout(member, key).catch(() => {});
       this.forget(member, key);
       this.onExpired?.(member, key);
@@ -1441,8 +1445,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         const c = await this.store(member).read(this.storageKey(key));
         return c?.type === 'oauth' && c.expires > Date.now();
       }
-      // A revoked (invalid_grant), quarantined or 400-403 refresh requires sign-in again. A lost answer, a server error
-      // or a read failure before sending (a locked keychain) is unknown: try later.
+      // A revoked (invalid_grant) or quarantined refresh requires sign-in again. A lost answer, any other refusal (a bare
+      // 400-403 included), a server error or a read failure before sending (a locked keychain) is unknown: try later.
       return !refusedRefresh(e);
     });
   }

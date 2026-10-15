@@ -2,7 +2,8 @@
 // (the kit's mockDevice stand-in) and asks each one through the pinned Pi Models path. Every import is a published entry
 // (`.`, `/keys`, `/testing`). A loopback stand-in for xAI's Responses endpoint replays fixtures/conformance/pi-streams.json
 // and records the bearer each request carried. A 429 rests only the account that got it, typed and never retried, while
-// the other still answers; a refused refresh signs only that account out. No account and no real network.
+// the other still answers; a refresh the provider proves revoked or refuses with a bare 400-403 signs only that account
+// out, while a 5xx or a dropped connection keeps the sign-in, typed network. No account and no real network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -32,17 +33,42 @@ async function fakeXai() {
   return { base, requests, limited, close: () => new Promise((resolve) => server.close(resolve)) };
 }
 
+/** Stands in for the provider's token endpoint: forwards every request to the mock, except a refresh it answers with a
+ *  configured bare status or a dropped connection. */
+async function fakeRefresh(target: string) {
+  let refused: { status: number } | 'drop' | undefined;
+  const server = createServer(async (req, res) => {
+    let body = '';
+    for await (const chunk of req) body += chunk;
+    if (refused && body.includes('grant_type=refresh_token')) {
+      if (refused === 'drop') return void req.socket.destroy();
+      res.writeHead(refused.status, { 'content-type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'server_error' }));
+    }
+    const upstream = await fetch(`${target}${req.url}`, { method: req.method, headers: { 'content-type': String(req.headers['content-type'] ?? 'application/json') }, body: body || undefined });
+    res.writeHead(upstream.status, { 'content-type': upstream.headers.get('content-type') ?? 'application/json' });
+    res.end(await upstream.text());
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return {
+    base: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    refuse: (next: { status: number } | 'drop' | undefined) => { refused = next; },
+    close: () => new Promise<void>((resolve) => { server.close(() => resolve()); server.closeAllConnections(); }),
+  };
+}
+
 const model = <T extends Api>(provider: string, api: T, baseUrl: string): Model<T> => ({ id: 'grok-4.7', name: 'Grok', provider, api, baseUrl,
   reasoning: false, input: ['text'], cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 128 });
 const context = streamFixture.context as Context;
 
-test('two Grok accounts each answer with their own sign-in; a 429 rests only that one, and a refused refresh signs only that one out', async () => {
+test('two Grok accounts each answer with their own sign-in; a 429 rests only that one, a bare 400-403 at refresh signs only that one out, and a 5xx or dropped refresh keeps it', async () => {
   const m = await mockDevice();
+  const refresh = await fakeRefresh(m.base);
   const xai = await fakeXai();
   let data: any = {};
   const store = recordStore(async () => structuredClone(data), async (next) => { data = structuredClone(next); });
   // The app offers Meta too, as one offer list shared by every platform it ships on.
-  const accounts = new Accounts<any, number>({ deviceBase: m.base, app: 'byokit journey', offer: ['grok', 'meta'], store: () => store }, withKeys(portable));
+  const accounts = new Accounts<any, number>({ deviceBase: refresh.base, app: 'byokit journey', offer: ['grok', 'meta'], store: () => store }, withKeys(portable));
   const signIn = async () => {
     const added = await accounts.add(1, 'grok', { via: 'code' });
     assert.equal(m.approve(added.signIn!.code!), true, 'approving the code');
@@ -113,11 +139,42 @@ test('two Grok accounts each answer with their own sign-in; a 429 rests only tha
     assert.deepEqual((await accounts.list(1)).map((r) => [r.id, r.state]), [[personal, 'resting']], 'only Work is gone; Personal still rests');
     seen.push(expired, expired.message);
 
+    // A bare 403 at refresh, with no invalid_grant body, signs only that account out; a 5xx or a dropped connection
+    // keeps the sign-in, typed network. A fresh third sign-in stands in, made due before each answer.
+    const third = await signIn();
+    const due = () => store.modify(third, async (c: any) => ({ ...c, expires: 0 }));
+
+    refresh.refuse({ status: 500 });
+    await due();
+    const keptServer = await accounts.respond(1, { account: third, model: grok, context }).then(() => assert.fail('a 5xx refresh answered'), (e: unknown) => e);
+    assert.ok(keptServer instanceof ResponseError && keptServer.kind === 'network', 'a 5xx refresh keeps the sign-in, typed network');
+    assert.equal(xai.requests.length, sent, 'a 5xx refresh sends no request to the provider');
+    assert.ok((await accounts.list(1)).some((r) => r.id === third), 'the sign-in is still listed after a 5xx refresh');
+    seen.push(keptServer, keptServer.message);
+
+    refresh.refuse('drop');
+    await due();
+    const keptDrop = await accounts.respond(1, { account: third, model: grok, context }).then(() => assert.fail('a dropped refresh answered'), (e: unknown) => e);
+    assert.ok(keptDrop instanceof ResponseError && keptDrop.kind === 'network', 'a dropped refresh keeps the sign-in, typed network');
+    assert.equal(xai.requests.length, sent, 'a dropped refresh sends no request to the provider');
+    assert.ok((await accounts.list(1)).some((r) => r.id === third), 'the sign-in is still listed after a dropped refresh');
+    seen.push(keptDrop, keptDrop.message);
+
+    refresh.refuse({ status: 403 });
+    await due();
+    const refused = await accounts.respond(1, { account: third, model: grok, context }).then(() => assert.fail('a 403 refresh answered'), (e: unknown) => e);
+    assert.ok(refused instanceof ResponseError && refused.kind === 'signed_out', 'a bare 403 signs out, typed');
+    assert.equal(xai.requests.length, sent, 'no request after a 403 refresh');
+    assert.equal(await store.read(third), undefined, 'the sign-in is gone after a 403 refresh');
+    assert.ok(!(await accounts.list(1)).some((r) => r.id === third), 'the signed-out account is not listed');
+    seen.push(refused, refused.message);
+
     // Neither token appears anywhere a person or an app reads.
     const pub = JSON.stringify([seen, await accounts.list(1), await accounts.status(1, work), await accounts.status(1, personal), await store.index()]);
     for (const token of Object.values(tokens)) assert.ok(!pub.includes(token), `no ${token} in answers, events, errors, list, status or the index`);
   } finally {
     await xai.close();
+    await refresh.close();
     await m.close();
   }
 });
