@@ -1,1 +1,0 @@
-- FEAT: Document the `vibe` account kind (`VIBE_HOME`, resume `--resume`) from the vendor CLI config and session docs, so managed multi-account folders can isolate without reading `~/.vibe`.

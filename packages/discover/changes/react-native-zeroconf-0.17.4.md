@@ -1,1 +1,0 @@
-- Dependency update: pins react-native-zeroconf 0.17.4 (adds the iOS Swift Package Manager manifest React Native 0.87 autolinking needs; no API change).

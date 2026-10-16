@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.3.1 (2026-10-16)
+
+- FIX: The Android module builds with Android Gradle Plugin 9 (React Native 0.88, Expo SDK 58).
+- Resolve current virtual-editor focus from the whole window tree before accepting a stale editable provider lookup, so reads and captures do not select the previous WebView field; retain password protection and same-field insertion.
+- Draw the point marker's label just below the ring, or above it near the bottom edge, instead of beside it, so it no longer covers the text of the button being pointed at.
+- **Deprecated:** new home is `@platform-kits/overlay`; new work goes there.
+- `@byokit/overlay` is now published as `@byokit/bubble`, with the same API and the same entries (`.`, `./focused-field`, `./screen-frame`, each with its React Native twin); its earlier versions are the `@byokit/overlay` releases below. **Deprecated:** the `@byokit/overlay` name; it stays published as a shim that re-exports this package through 0.3.x and is removed in 0.4.0.
+- Screen demo: park the point-marker ring above the target button with a clear gap so neither ring nor label covers its text, follow the system night mode with a real dark theme, and give the guide bubble an opaque token so it never reads as a cut-off fragment.
+
 - `overlay.foregroundApp()` and `overlay.on('foregroundApp', ...)` expose only the current Android package from
   the app's attached accessibility service, excluding host overlays; off or unknown returns null.
 

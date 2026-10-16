@@ -1,1 +1,0 @@
-- **Deprecated:** new home is `@platform-kits/statusbar`; new work goes there.

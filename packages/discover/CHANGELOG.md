@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.8.2 (2026-10-16)
+
+- Dependency update: pins @byokit/ui 0.8.0.
+
+- Dependency update: pins react-native-zeroconf 0.17.4 (adds the iOS Swift Package Manager manifest React Native 0.87 autolinking needs; no API change).
+
 ## 0.8.1 (2026-10-12)
 
 - FIX: `browse()` and `scan()` accept resolved services whose `fullName` carries the service type without a trailing dot (`host._type._tcp`, as Android's react-native-zeroconf delivers) or with a trailing `.local` domain suffix, case-insensitive, instead of only the `host.local._type._tcp.` shape. Android phones now discover computers over mDNS instead of always scanning empty.

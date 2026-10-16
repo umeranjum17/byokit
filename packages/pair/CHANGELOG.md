@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.10.1 (2026-10-16)
+
+- FIX: the browser pairing test opens the pairing page over the test browser's own private CDP pipe once Chromium answers there, not from the launch command line. On a slow first start Chromium's network service quits after 15 s unanswered and took the launch page's request with it, so the test silently sat out its 180 s deadline; the page now loads after Chromium restarts the service, and a page Chromium cannot open fails at once with Chromium's own navigation error.
+- FIX: pairing and setup checks split "can't reach the computer" from "the computer is slow": a socket that never opens within the timeout reports `unreachable` ("Check the phone and computer are on the same network, and that no firewall is blocking the connection."), while an open socket with no answer reports the new `slow` code ("Your computer is slow to answer. Wait a moment and try again."). Consumers relay the codes unchanged.
+
 ## 0.10.0 (2026-10-12)
 
 - DOCS: the "Checking reachability before pairing" section now shows both sides: setup self-checks its own advertised URLs with `check()` before printing the tick, and the phone re-checks the scanned offer before consent. The probe still spends nothing, so a checked offer pairs afterwards.

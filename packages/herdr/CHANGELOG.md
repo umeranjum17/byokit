@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.9.0 (2026-10-16)
+
+- Dependency update: pins @byokit/discover 0.8.2.
+- Dependency update: pins @byokit/relay 0.7.0.
+- Dependency update: pins @byokit/pair 0.10.1.
+
+- FEAT: Document the per-account Gemini root (`HOME`, `GEMINI_CLI_HOME`, `TMPDIR` and `GEMINI_FORCE_FILE_STORAGE` through `env`, since Gemini has no managed folder variable), proven on Gemini CLI 0.56.0, which keeps its sign-in in files under that root rather than the OS keyring, plus the `HERDR_AGENT=gemini` wrapper Herdr 0.9.1 needs to start Gemini on Node 24 and 26.
+- FEAT: Gemini's account kind now reads "Sign in to this account on this computer", matching the per-account Gemini root (a private `HOME`/`GEMINI_CLI_HOME` under which Gemini CLI 0.56.0 keeps its sign-in files) that keeps each account's sign-in apart; other kinds are unchanged.
+- FIX: A `pane.updated` title tick on a plain shell no longer gives the pane a phantom agent (status `unknown`) or opens a status watch for it; `pane.agent` is created only from an agents record or a payload that names an agent.
+- FIX: Pane-level `agent_status`, `display_agent` and `foreground_cwd` now ride every snapshot pane as `agentStatus`, `displayAgent` and `foregroundCwd`, so a shell with no agents record keeps them instead of losing them.
+- FIX: Restarting a Herdr kit in own mode over a stale `server.pid` now stops its own previous server on macOS too. The stale-pid command check reads `/proc/<pid>/cmdline` on Linux and `ps -o command= -p <pid>` (absolute path, empty env) on other Unix; a pid reused by an unrelated process, or an invalid or unknown pid, is never signalled.
+- FEAT: Document the `vibe` account kind (`VIBE_HOME`, resume `--resume`) from the vendor CLI config and session docs, so managed multi-account folders can isolate without reading `~/.vibe`.
+
 ## 0.8.1 (2026-10-12)
 
 - Dependency update: pins @byokit/discover 0.8.1.

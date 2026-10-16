@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.3.1 (2026-10-16)
+
+- Dependency update: pins @byokit/bubble 0.3.1.
+
+- **Deprecated:** new home is `@platform-kits/overlay`; new work goes there.
+- **Deprecated:** `@byokit/overlay` is renamed to `@byokit/bubble`. This package is now a shim that re-exports `@byokit/bubble` (every entry alike), so existing imports keep working unchanged through 0.3.x; it is removed in 0.4.0. Install `@byokit/bubble` and change the import specifier; the API and every entry (`.`, `./focused-field`, `./screen-frame`) are the same.
+
 - `overlay.foregroundApp()` and `overlay.on('foregroundApp', ...)` expose only the current Android package from
   the app's attached accessibility service, excluding host overlays; off or unknown returns null.
 

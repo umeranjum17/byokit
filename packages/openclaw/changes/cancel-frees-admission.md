@@ -1,1 +1,0 @@
-- FIX: when the engine answers a sign-in's cancel `cancelled`, `done` now also waits (up to 10 s) for it to free its setup admission, so a sign-in started right after is admitted instead of ending `why: 'busy'`.

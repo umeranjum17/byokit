@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.7.0 (2026-10-16)
+
+- Dependency update: pins @byokit/pair 0.10.1.
+
+- ADD: provisioning-token enrollment for a new computer with no screen. The signed-in phone mints a single-use, five-minute token bound to its account and its link key (`ownerClient.enrolment({ provision: { account, deviceKey, deviceName?, role? } })`); the computer presents it on first dial-out, and its app grants exactly that key with `claimProvision(host, client.provision)` through link's own durable grants, so the phone pairs with no QR and no approval tap. The relay routes sealed frames throughout and keeps only a hash of the claim. Expired, reused and withdrawn (`ownerClient.revokeEnrolment(id)`) tokens are refused, a wrong-account key hears `not-paired`, and `ownerClient.hosts({ account })` shows each account only its own new hosts.
+- ADD: a hosted relay deploy recipe in `packages/relay/hosted/` (container, `server.mjs`, config file): one replica behind TLS it does not terminate, enrolment-only signup, per-address rate buckets, a secret-free `GET /health`, and the state and owner token as 0600 files. BYOKit operates no hosting.
+- FIX: recent delivered notification ids are kept in relay state with push, so a restart refuses a retried id instead of sending it twice. Payloads still carry no body text by default.
+- FIX: a notification id may start with `-` or `_`, so base64url ids (an approval or a sign-in request, as the OpenClaw kit mints them) are sent instead of refused as a bad notification. The rest of the id rule is unchanged.
+
 ## 0.6.1 (2026-10-12)
 
 - Dependency update: pins @byokit/pair 0.10.0.

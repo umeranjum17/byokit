@@ -1,1 +1,0 @@
-- FIX: Restarting a Herdr kit in own mode over a stale `server.pid` now stops its own previous server on macOS too. The stale-pid command check reads `/proc/<pid>/cmdline` on Linux and `ps -o command= -p <pid>` (absolute path, empty env) on other Unix; a pid reused by an unrelated process, or an invalid or unknown pid, is never signalled.

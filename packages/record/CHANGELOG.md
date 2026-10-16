@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.1 (2026-10-16)
+
+- **Deprecated:** new home is `@platform-kits/record`; new work goes there.
+
 ## 0.2.0 (2026-09-30)
 
 - Bundled Linux X11 video recorder, selected when `CaptureOptions.bin` is omitted; explicit bins retain protocol-v1 pass-through.

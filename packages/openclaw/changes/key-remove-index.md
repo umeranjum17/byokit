@@ -1,1 +1,0 @@
-- FIX: `removeKey` (and `signOut`, which calls it for that provider) also drops the lane's `<provider>.key` index entry, so `accounts()` no longer lists a removed key; a scoped removal keeps another provider's entry.

@@ -1,1 +1,0 @@
-- FEAT: Gemini's account kind now reads "Sign in to this account on this computer", matching the per-account Gemini root (a private `HOME`/`GEMINI_CLI_HOME` under which Gemini CLI 0.56.0 keeps its sign-in files) that keeps each account's sign-in apart; other kinds are unchanged.
