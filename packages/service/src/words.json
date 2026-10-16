@@ -1,0 +1,8 @@
+{
+  "service.running": "{app} is running on this computer.",
+  "service.stopped": "{app} is set up on this computer but is not running.",
+  "service.notInstalled": "{app} is not set up to run on this computer.",
+  "service.failed": "{app} stopped with a problem on this computer.",
+  "service.unsupported": "{app} can't run by itself on this computer.",
+  "service.linger": "{app} needs your permission to keep running in the background. Run the line below once, then try again."
+}

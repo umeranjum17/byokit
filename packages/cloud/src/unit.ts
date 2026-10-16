@@ -23,7 +23,7 @@ export function quoteEnv(value: string): string {
  * boot probe (8.7, present once M6 records its argv).
  */
 export function renderUnit(
-  r: HostRecipe,
+  r: Pick<HostRecipe, 'name' | 'workDir' | 'run'>,
   o: { kind: 'system' | 'user'; runUser: string; nodePath: string; selfId: boolean },
 ): string {
   const binDir = o.nodePath.slice(0, o.nodePath.lastIndexOf('/'));

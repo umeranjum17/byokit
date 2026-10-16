@@ -108,6 +108,22 @@ jobs:
       - run: sh scripts/test.sh 'packages/herdr/test/*.test.ts'
       - run: sh scripts/test.sh 'packages/openclaw/test/*.test.ts'
 
+  # The service kit's real-host journey (docs/service-kit.md 7) on a disposable runner's own systemd --user manager.
+  # Outside scripts/test.sh: its throwaway HOME hides the user manager. No sudo: the runner may linger itself.
+  service-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc -b packages/service
+      - run: loginctl enable-linger "$(id -un)"
+      - run: node --test packages/service/test/linux.journey.ts
+
   # done-done gate: the standing proof primitives run through done-done itself, so CI
   # speaks the same proof language as local runs (.done-done.yaml). Agent-free by
   # construction: the journey drives, the judge is skipped, no model is started.
