@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { mkdirSync, writeFileSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { removeScratch, scratchDir } from '../../test-support.ts';
 import { connect } from 'node:net';
@@ -81,10 +81,13 @@ export async function isolationContract(install?: (dir: string) => string | Prom
     assert.ok(!log.includes('should-not-be-inherited'));
     if (install) {
       const child = JSON.parse(readFileSync(join(engine.root, 'home', 'child.json'), 'utf8'));
-      const identity = JSON.parse(readFileSync(join(engine.root, 'gateway.identity'), 'utf8'));
-      const expected: Record<string, string | undefined> = { ...env, ...(identity.bootId ? { BYOKIT_ENGINE_BOOT: identity.bootId,
+      // The supervisor records the boot in usage/boots.jsonl everywhere; gateway.identity backs Linux-only orphan recovery.
+      const boots = join(engine.root, 'usage', 'boots.jsonl');
+      const bootId: string | undefined = existsSync(boots) ? JSON.parse(readFileSync(boots, 'utf8').trim().split('\n').at(-1)!).bootId : undefined;
+      if (process.platform === 'linux') assert.equal(JSON.parse(readFileSync(join(engine.root, 'gateway.identity'), 'utf8')).bootId, bootId);
+      const expected: Record<string, string | undefined> = { ...env, ...(bootId ? { BYOKIT_ENGINE_BOOT: bootId,
         BYOKIT_ENGINE_USAGE_LEDGER: join(engine.root, 'usage') } : {}) };
-      if (identity.bootId) assert.match(identity.bootId, /^[0-9a-f-]{36}$/);
+      if (bootId) assert.match(bootId, /^[0-9a-f-]{36}$/);
       assert.equal(child.env.OPENCLAW_GATEWAY_TOKEN === expected.OPENCLAW_GATEWAY_TOKEN, true, 'token matches without entering failure traces');
       assert.deepEqual({ ...child.env, OPENCLAW_GATEWAY_TOKEN: '<redacted>' }, { ...expected, OPENCLAW_GATEWAY_TOKEN: '<redacted>' },
         'the child actually received only the isolated environment and accounting identity');
