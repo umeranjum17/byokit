@@ -312,6 +312,27 @@ Node process is named `node` (Node 22); on Node 24 and 26 (`MainThread`, `node-M
 a `gemini` wrapper first on the pane `PATH` that sets `HERDR_AGENT=gemini` for Gemini's own process. In the pane env
 the hint marks the shell itself as Gemini, so the start fails.
 
+Kilo uses the same recipe: no managed folder variable, so `folder` and `moveToAccount` do not apply to it; give each
+Kilo account a private root through `env`:
+
+```ts
+import { HerdrKit } from '@byokit/herdr';
+const kit = new HerdrKit({ mode: 'adopt', bin: '/app/bin/herdr', socketPath: '/app/herdr.sock' });
+await kit.start();
+
+const root = '/app/accounts/kilo-work'; // create `${root}/.tmp` first
+await kit.startAgent({ kind: 'kilo', cwd: '/home/me/project', place: { workspace: 'new' },
+  env: { HOME: root, TMPDIR: `${root}/.tmp` } });
+```
+
+Kilo CLI 7.8.12 keeps its sign-in as records in `kilo/auth.json` under the XDG data root, so with `HOME` set the
+records land in `${root}/.local/share/kilo/auth.json` and the root isolates them: on the pinned binary, a logout in
+one private root left the other root's records byte-identical and each root kept its own records across fresh
+launches. A `KILO_CONFIG_DIR` inherited from the server moves only the settings folder, never authentication — two
+settings folders over one shared root saw and removed each other's records — so never present it as an account
+folder. The same holds for the other inherited `KILO_*` redirects (`KILO_CONFIG`, `KILO_CONFIG_CONTENT`, `KILO_DB`,
+`KILO_TEST_HOME`); `{ env, unset }` drops them.
+
 For managed-folder stores that supply resume arguments and credential shedding, use `move`:
 
 ```ts
