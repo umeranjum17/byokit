@@ -13,6 +13,14 @@ const live = process.argv.includes('--live');
 const key = live ? process.env.BYOKIT_GO_KEY ?? '' : 'byokit-go-stand-in-key-5571';
 delete process.env.BYOKIT_GO_KEY;
 if (!key) { console.error('no value read'); process.exit(1); }
+
+// Offline, the console's org listing (a Go key add lists the key's workspaces) is answered in this process: the
+// stand-in key is no login (401), so the drive never leaves the machine. Every other address passes through.
+if (!live) {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (input, init) => String(input instanceof Request ? input.url : input) === 'https://opencode.ai/console/api/orgs'
+    ? Promise.resolve(new Response('', { status: 401 })) : realFetch(input, init);
+}
 const say = (...parts) => console.log(parts.join(' ').split(key).join('[key]'));
 say('key:', `(${key.length} chars)`);
 // Live: Muse; offline: the fake's live-only stand-in.

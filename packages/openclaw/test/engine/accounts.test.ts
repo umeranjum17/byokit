@@ -13,9 +13,13 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { OpenClawKit } from '../../src/kit.ts';
 import { hostKeySeal } from '../../../secrets/src/index.ts';
-import { scratchDir, sharedEngineDir } from '../../../test-support.ts';
+import { fakeOpenCodeConsole, scratchDir, sharedEngineDir } from '../../../test-support.ts';
 import { startModelStub, useModelStub, type ModelStub } from '../../src/testing/model-stub.ts';
 import type { RunEvent, SignInView } from '../../src/types.ts';
+
+// Go key adds list the key's workspaces in the kit's own process; the stand-in keys are no login, so the console
+// answers 401 here (a test names other rows through `orgs.answer`). The engine never lists.
+const orgs = fakeOpenCodeConsole();
 
 let stub: ModelStub;
 before(async () => { stub = await startModelStub(); });
@@ -741,23 +745,18 @@ mock.method(globalThis, 'fetch', (input, options) => {
     return spawn(...args);
   });
   syncBuiltinESMExports();
-  // The console's org listing, answered in the kit's own process (the engine never lists).
-  let orgs: unknown = [];
-  const realFetch = globalThis.fetch;
-  mock.method(globalThis, 'fetch', (input: string | URL | Request, init?: RequestInit) =>
-    String(input instanceof Request ? input.url : input) === 'https://opencode.ai/console/api/orgs'
-      ? Promise.resolve(orgs === 401 ? new Response('', { status: 401 }) : Response.json(orgs)) : realFetch(input, init));
   const kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), callbackPort: 0 });
   try {
     await kit.start();
     const go = (from: number, bearer: string) => goStub.calls.slice(from).filter((c) => c.authorization === `Bearer ${bearer}` && c.path.startsWith('/zen/go/'));
     // A login acting for several workspaces comes back for the pick, before the engine sees the key.
-    orgs = [{ id: 'org_WORKING2', name: 'Umer' }, { id: 'org_OTHER', name: 'Umer at work' }];
+    const several = [{ id: 'org_WORKING2', name: 'Umer' }, { id: 'org_OTHER', name: 'Umer at work' }];
+    orgs.answer(async () => Response.json(several));
     assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: key }),
-      { status: 'needs_workspace', workspaces: orgs });
+      { status: 'needs_workspace', workspaces: several });
     assert.equal(go(0, key).length, 0, 'nothing reached the gateway');
     // Without the workspace (a key the console refuses lists none) the probe is refused and nothing is kept.
-    orgs = 401;
+    orgs.answer(async () => new Response('', { status: 401 }));
     const refused = await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: key });
     assert.ok(refused.status !== 'ok', JSON.stringify(refused));
     const refusedCalls = go(0, key);
@@ -765,7 +764,7 @@ mock.method(globalThis, 'fetch', (input, options) => {
     assert.ok(refusedCalls.every((c) => c.org === undefined), JSON.stringify(refusedCalls.map((c) => c.org)));
     assert.deepEqual(await kit.callDynamic('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
     // A key with one workspace is accepted with it unasked, and the first chat runs on it, header on every call.
-    orgs = [{ id: 'org_WORKING2', name: 'Umer' }];
+    orgs.answer(async () => Response.json([{ id: 'org_WORKING2', name: 'Umer' }]));
     const start = goStub.calls.length;
     const accepted = await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: key });
     assert.deepEqual(accepted, { status: 'ok' });
@@ -780,5 +779,5 @@ mock.method(globalThis, 'fetch', (input, options) => {
     assert.ok(calls.length && calls.every((c) => c.org === 'org_WORKING2' && c.body.model === 'deepseek-v4-pro' && c.session),
       JSON.stringify(calls.map((c) => [c.org, c.body.model, !!c.session])));
     assert.ok(!JSON.stringify([end, texts]).includes(key), 'the key is never shown');
-  } finally { await kit.stop(); await goStub.close(); mock.restoreAll(); syncBuiltinESMExports(); }
+  } finally { orgs.answer(async () => new Response('', { status: 401 })); await kit.stop(); await goStub.close(); mock.restoreAll(); syncBuiltinESMExports(); }
 });
