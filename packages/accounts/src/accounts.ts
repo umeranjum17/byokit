@@ -17,7 +17,8 @@ import { claims, PORTABLE, portableEngine, signable, validEnterpriseDomain, with
 import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
 import type { ChatGPTRespondAccount } from './chatgpt-plan.ts';
-import type { OpenCodeGoAccount } from './opencode-go.ts';
+import type { OpenCodeGoAccount, OpenCodeGoWorkspace } from './opencode-go.ts';
+import { OPENCODE_GO_PLAN_ROUTE, openCodeWorkspaces } from './opencode-go.ts';
 import type { OllamaProAccount } from './ollama-pro.ts';
 import { emptyIndex, viewStore, memoryStore, RefreshRequiredError, refreshCredential, type AccountMetadata, type EndingStore, type RefreshStore } from './stores.ts';
 import { resolveSelection, type Account, type AccountPick, type AgentCapabilities, type Defaults, type ModelInfo, type Room, type RunSelection, type Via } from './multi.ts';
@@ -33,8 +34,9 @@ export type Member = string | number;
 /** Explicit method selection; Claude defaults to paste. Enterprise domains apply only to Copilot.
  *  OpenRouter authorization creates an API-billed key: billedPerUse explicitly selects that billing. */
 export type SignInOptions = { via?: 'browser' | 'code' | 'paste'; fresh?: boolean; enterpriseDomain?: string; billedPerUse?: true };
-/** `add`'s options: the public sign-in options plus the internal `region` the MiniMax route ids select. */
-type AddOptions = Omit<SignInOptions, 'via'> & { via?: Via; key?: string; region?: 'global' | 'cn' };
+/** `add`'s options: the public sign-in options plus the internal `region` the MiniMax route ids select, and the
+ *  workspace a Go plan login was picked for (chosen from `workspaces` on the first add; one is stored unasked). */
+type AddOptions = Omit<SignInOptions, 'via'> & { via?: Via; key?: string; region?: 'global' | 'cn'; workspace?: string };
 export type SignIn = { id?: string; state: 'waiting' | 'done' | 'failed'; via?: 'browser' | 'code'; url?: string; code?: string; expiresAt?: number; error?: string; why?: Why };
 export type Status = { id: string; provider: string; account: string; name: string; state: 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included'; until?: number; words: string };
 type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text: string) => void; refuse?: (e: Error) => void; timedOut?: boolean; toCode?: boolean;
@@ -384,7 +386,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       await this.resolveKey(member, this.providerKey(id));
     }
   }
-  async add(member: M, key: string, options: AddOptions | CloudOptions = {}): Promise<{ id: string; signIn?: SignIn }> {
+  async add(member: M, key: string, options: AddOptions | CloudOptions = {}): Promise<{ id: string; signIn?: SignIn; workspaces?: OpenCodeGoWorkspace[] }> {
     if ('route' in options) return this.addCloud(member, key, options);
     // A MiniMax device route id (`minimax:code`, `minimax:code:cn`) selects the provider's catalogue device flow,
     // and `:cn` its China host. `region` is internal: the route ids are the only public selector.
@@ -399,7 +401,24 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       this.keyRoute(r.id); // Platform/flow before any credentials or storage.
       if (options.key === undefined) throw new Error('Enter a key to connect this account.');
       const id = `${r.id}.${globalThis.crypto?.randomUUID?.() ?? Math.random().toString(16).slice(2)}`;
+      // A Go plan login can act for several workspaces; the gateway refuses every call until one is named.
+      // One workspace is stored unasked; several come back typed (nothing saved yet) so the app shows the
+      // pick and adds again with `workspace`. Any other key needs no workspace and connects with no header.
+      let workspace: string | undefined;
+      if (r.id === OPENCODE_GO_PLAN_ROUTE) {
+        if (options.workspace !== undefined) {
+          if (typeof options.workspace !== 'string' || !options.workspace.trim() || options.workspace.length > 256) throw new Error('Enter the workspace to connect this account for.');
+          workspace = options.workspace.trim();
+        } else {
+          const orgs = await openCodeWorkspaces(options.key, this.opts.fetch);
+          if (orgs.length === 1) workspace = orgs[0].id;
+          else if (orgs.length > 1) return { id: '', workspaces: orgs };
+        }
+      }
       await this.saveKey(member, id, options.key, { billedPerUse: true });
+      if (workspace !== undefined) await this.store(member).index((index) => {
+        (index.accounts ??= {})[id] = { ...index.accounts?.[id], workspace };
+      });
       return { id, signIn: { id, state: 'done' } };
     }
     const { region, ...body } = options;
@@ -1004,6 +1023,17 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const runtime = await this.platform.keys();
     checkKeyModel(r, ask.model, this.platform.kind ?? 'browser', runtime.supported);
     const secret = await this.key(member, ask.account);
+    // The Go gateway refuses a login key that acts for several workspaces until its workspace is named;
+    // the stored one rides every call as request auth, from the account saved at connect. Every Go call
+    // also names its conversation (`x-opencode-session`, one id per call): without it the gateway answers
+    // 400 MissingSessionID instead of routing the stream, workspace or not.
+    if (r.upstream.id === 'opencode-go') {
+      const id = await this.resolveKey(member, ask.account);
+      const workspace = (await this.index(member)).accounts?.[id]?.workspace;
+      const session = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(16).slice(2);
+      return keyRespond(r, { apiKey: secret, headers: { 'x-opencode-session': session,
+        ...(workspace ? { 'x-opencode-org-id': workspace } : {}) } }, ask, this.opts.fetch, runtime);
+    }
     return keyRespond(r, secret, ask, this.opts.fetch, runtime);
   }
 
@@ -1103,9 +1133,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** Bind this member's saved OpenCode Go plan key for consumers such as decide. Each request reads
    * the current plan key from the member's own store; the handle exposes no credentials and never
-   * falls back to API billing. */
+   * falls back to API billing. `workspace` names the saved workspace (empty when the key needs none),
+   * so every Go call carries `x-opencode-org-id` without exposing either value. */
   opencodeGo(member: M): OpenCodeGoAccount {
-    return { provider: 'opencode-go', billing: 'subscription', access: async () => this.key(member, 'opencode:plan_key:opencode-go') };
+    return { provider: 'opencode-go', billing: 'subscription', access: async () => this.key(member, 'opencode:plan_key:opencode-go'),
+      workspace: async () => (await this.index(member)).accounts?.[await this.resolveKey(member, 'opencode:plan_key:opencode-go')]?.workspace ?? '' };
   }
 
   /** Bind this member's saved Ollama Pro plan key. Each request reads the current plan key from the

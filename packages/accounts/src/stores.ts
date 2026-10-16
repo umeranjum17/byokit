@@ -14,6 +14,8 @@ export type AccountMetadata = {
   cloud?: CloudAccount;
   /** The Cloud Code Assist project a Google sign-in discovered: non-secret, never a token, never in a log or error. */
   project?: string;
+  /** The workspace (org row id) a Go plan login acts for, saved at connect so every Go call names it. */
+  workspace?: string;
 };
 export type AccountsIndex = { accounts?: { [id: string]: AccountMetadata }; names: { [id: string]: string }; emails: { [id: string]: string }; plans: { [id: string]: string }; addedAt: { [id: string]: number }; defaults: Defaults; byAgent?: { [kind: string]: Defaults } };
 export const emptyIndex = (): AccountsIndex => ({ names: {}, emails: {}, plans: {}, addedAt: {}, defaults: {} });

@@ -503,11 +503,25 @@ own store and the handle exposes none. Billing is `subscription`, with no API-ke
 saved Go plan key reads as signed out. Use the handle only where the sign-in lives. The handle carries
 `provider: 'opencode-go'`; decide refuses it on any other route.
 
+**Workspaces.** A Go login that acts for several workspaces is refused by the gateway (`403 Workspace
+selection is required`) until its workspace is named. At connect, `add` lists the workspaces the key can
+act for (`openCodeWorkspaces(key)` — the OpenCode console's own listing, the call the desktop OpenCode CLI
+makes after sign-in): one is stored with the account unasked; several come back typed as
+`{ id: '', workspaces: [{ id, name }] }` with nothing saved, so the app shows the pick (words key
+`connect.workspace`) and adds again with `workspace: '<picked id>'`; a key the console refuses (a
+workspace-bound service key) connects with no workspace. The stored id rides every Go call — key-route
+asks, `opencodeGo` handles and the standalone `openCodeGoPlanAccount` — as `x-opencode-org-id`, and the
+gateway's own refusal maps to the typed `KeyRouteError` code `needs_workspace` instead of the generic
+retry words. Workspace ids are row ids, never secrets; they are never logged or printed. Every key-route
+call also names its conversation (`x-opencode-session`, one id per call): the gateway answers a stream
+without it with `400 MissingSessionID` instead of routing it, workspace or not.
+
 For a BYOKit-only call that does not go through `Accounts` members, `openCodeGoPlanAccount(store)` from
 `@byokit/accounts/opencode-go` resolves the same route from one `@byokit/secrets` entry per route
-(`accounts.opencode:plan_key:opencode-go`). Managed-CLI `saveKey` writes a separate per-account entry
-and does not populate this portable route entry. For legacy route-key migration and managed-key
-isolation, see [Managed OpenCode](#managed-opencode-plan-key).
+(`accounts.opencode:plan_key:opencode-go`), with the workspace riding a sibling entry. Managed-CLI
+`saveKey(id, key, { workspace })` writes a separate per-account entry and `launch` carries the saved
+workspace into the OpenCode folder's delivery config, the header the desktop OpenCode CLI itself stores.
+For legacy route-key migration and managed-key isolation, see [Managed OpenCode](#managed-opencode-plan-key).
 It never reads OpenCode's own `auth.json`.
 
 

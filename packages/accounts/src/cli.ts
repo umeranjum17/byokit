@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { identity, roomOf, usage, type Identity, type PiProvider as UsagePiProvider, type Reading, type Room, type Source, type Usage } from '@byokit/usage';
 import type { Keystore } from '@byokit/secrets';
 import { clock, say } from './words.ts';
-import { OPENCODE_GO_PLAN_ROUTE, deleteOpenCodePlanKey, readOpenCodePlanKey, saveOpenCodePlanKey } from './opencode-go.ts';
+import { OPENCODE_GO_PLAN_ROUTE, deleteOpenCodePlanKey, openCodeWorkspaceEntry, readOpenCodePlanKey, readOpenCodeWorkspace, saveOpenCodePlanKey, saveOpenCodeWorkspace } from './opencode-go.ts';
 import { launchEnv as cleanLaunchEnv } from './isolate.ts';
 import type { AccountLike } from './multi.ts';
 import routes from './routes.json' with { type: 'json' };
@@ -90,10 +90,12 @@ const pending = (r: Row) => join(r.folder, '.byokit-signin-pending');
 const opencodeKeyPath = (folder: string) => join(folder, 'go.key');
 const opencodeConfigPath = (folder: string) => join(folder, 'opencode.json');
 /** Write the OpenCode folder's delivery copies: the plan key to `go.key` (0600) and the provider
- * config pointing at it, so the key reaches the process through `{file:}` substitution. */
-function writeOpencodeLaunchFiles(folder: string, key: string): void {
+ * config pointing at it, so the key reaches the process through `{file:}` substitution; a workspace
+ * rides the same config as `x-opencode-org-id`, the header the desktop OpenCode login itself stores. */
+function writeOpencodeLaunchFiles(folder: string, key: string, workspace?: string): void {
   chmodSync(folder, 0o700);
-  const config = JSON.stringify({ provider: { 'opencode-go': { options: { apiKey: `{file:${opencodeKeyPath(folder)}}` } } } });
+  const options = { apiKey: `{file:${opencodeKeyPath(folder)}}`, ...(workspace ? { headers: { 'x-opencode-org-id': workspace } } : {}) };
+  const config = JSON.stringify({ provider: { 'opencode-go': { options } } });
   for (const [path, value] of [[opencodeKeyPath(folder), key], [opencodeConfigPath(folder), config]]) {
     const tmp = `${path}.${randomUUID()}.tmp`;
     try { writeFileSync(tmp, value, { mode: 0o600, flag: 'wx' }); renameSync(tmp, path); }
@@ -531,13 +533,23 @@ export function cliAccounts(options: CliOptions) {
   }
   /** Save an OpenCode plan key or Vibe API key (collected with hidden typing) into the secrets store,
    * one entry per managed account. The key never enters argv, env, or a log; its only file is the
-   * OpenCode folder delivery copy that `launch` writes and `logout`/`remove` delete. */
-  async function saveKey(id: string, key: string): Promise<CliAccount> {
+   * OpenCode folder delivery copy that `launch` writes and `logout`/`remove` delete. `o.workspace`
+   * names the workspace a multi-workspace OpenCode login acts for (from `openCodeWorkspaces`); the
+   * launch delivery config carries it as `x-opencode-org-id`, and a key without one keeps no header. */
+  async function saveKey(id: string, key: string, o?: { workspace?: string }): Promise<CliAccount> {
     await serial(id, async () => {
       const r = row(id);
       if (r.provider !== 'opencode' && r.provider !== 'vibe') throw new CliAccountError('kind-mismatch');
       if (!options.keyStore || typeof key !== 'string' || !key.trim()) throw new CliAccountError('bad-option');
-      try { await saveOpenCodePlanKey(options.keyStore, key, keyRoute(r.provider), r.id); }
+      try {
+        await saveOpenCodePlanKey(options.keyStore, key, keyRoute(r.provider), r.id);
+        if (r.provider === 'opencode') {
+          const workspace = typeof o?.workspace === 'string' ? o.workspace.trim() : '';
+          if (workspace.length > 256) throw new Error();
+          if (workspace) await saveOpenCodeWorkspace(options.keyStore, workspace, keyRoute(r.provider), r.id);
+          else await options.keyStore.delete(openCodeWorkspaceEntry(keyRoute(r.provider), r.id)).catch(() => {});
+        }
+      }
       catch { throw new CliAccountError('prepare-failed'); }
       rmSync(pending(r), { force: true });
     });
@@ -626,7 +638,8 @@ export function cliAccounts(options: CliOptions) {
           let key: string;
           try { key = await storedKey(current); }
           catch { return { ok: false, code: 'signed_out', account, message: say('cli.signedOut', { name: account.name }) }; }
-          try { writeOpencodeLaunchFiles(current.folder, key); }
+          const workspace = await readOpenCodeWorkspace(options.keyStore, keyRoute('opencode'), current.id);
+          try { writeOpencodeLaunchFiles(current.folder, key, workspace || undefined); }
           catch (cause) { throw new Error(say('cli.prepareFailed'), { cause }); }
           return { ok: true, account,
             set: { ...base.set, OPENCODE_CONFIG: opencodeConfigPath(current.folder) },

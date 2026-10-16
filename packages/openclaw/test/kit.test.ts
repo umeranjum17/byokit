@@ -923,3 +923,27 @@ test('schema validation precedes explicit API-key readiness and keeps its snapsh
   assert.equal(request.sessionKey, 'agent:byokit-key-m1:json');
   assert.ok(String(request.extraSystemPrompt).includes('"enum":["before"]'));
 }));
+
+type ProvidersConfig = { config?: { models?: { providers?: Record<string, { headers?: Record<string, string> }> } } };
+
+test('a Go plan key add names its workspace in the provider config; removal drops it; other routes refuse one', async () => withKit(async (kit, fake) => {
+  const headers = async () =>
+    ((await kit.call('config.get', {}) as ProvidersConfig).config?.models?.providers?.['opencode-go']?.headers);
+  assert.equal(await headers(), undefined, 'no workspace before any key');
+  assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY', orgId: 'org_WORKING2' }), { status: 'ok' });
+  assert.ok(fake.calls.some((c) => c.method === 'config.patch'), 'the workspace reached the engine through the kit patch');
+  assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_WORKING2' }, 'the workspace rides every probe and run from config');
+  // The slot is provider-wide, so a workspace-less replacement keeps the standing workspace; naming another rewrites it.
+  assert.deepEqual(await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY-2' }), { status: 'ok' });
+  assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_WORKING2' });
+  assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY', orgId: 'org_B' }), { status: 'ok' });
+  assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_B' });
+  // Removal takes the workspace with the key.
+  assert.equal(await kit.removeKey('m1', { provider: 'opencode-go' }), undefined);
+  assert.equal(await headers(), undefined);
+  // A route with no workspace refuses a named one instead of silently dropping it.
+  assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'CANARY-PAID-KEY', orgId: 'org_X' }),
+    { status: 'not_included', reason: 'model' });
+  assert.equal(((await kit.call('config.get', {}) as ProvidersConfig).config?.models?.providers?.openai?.headers), undefined);
+  assert.equal(JSON.stringify(fake.calls).includes('CANARY-GO-KEY'), false);
+}));
