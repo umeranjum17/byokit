@@ -99,7 +99,7 @@ test('unobserved pane/adopt env stays unknown; existing env replacement guard is
   const calls: string[] = [];
   await agents(calls, { PATH: '/missing' }).startAgent({ kind: 'muse', cwd: '/fixture',
     place: { pane: 'p1' }, installProbe: { path: [] } });
-  assert.deepEqual(calls, ['pane.get', 'agent.start']);   // pane.get names the placed ref's tab/workspace
+  assert.deepEqual(calls, ['pane.get', 'pane.process_info', 'agent.start']);   // pane.get names the placed ref's tab/workspace; the hint probe skips without a process_info answer
   calls.length = 0;
   await assert.rejects(agents(calls).startAgent({ kind: 'muse', cwd: '/fixture', place: { pane: 'p1' },
     env: { HOME: '/private', PATH: '/missing' } }), { code: 'env_mismatch' });
@@ -135,7 +135,7 @@ test('explicit official install receives private env and returns a launchable se
   const api = createAgents({ call: async (method, params) => { calls.push({ method, params });
     return { root_pane: { pane_id: 'p1', tab_id: 't1', workspace_id: 'w1' } }; }, snapshot: () => ({ revision: 0, connected: true, workspaces: [] }), reread: async () => {} });
   await api.startAgent({ kind: 'muse', cwd: '/fixture', place: { tab: 'new', workspaceId: 'w1' }, env: r.env });
-  assert.deepEqual(calls.map((c) => c.method), ['tab.create', 'agent.start']);
+  assert.deepEqual(calls.map((c) => c.method), ['tab.create', 'pane.process_info', 'agent.start']);
   assert.equal((calls[0]!.params.env as Record<string, string>).PATH, r.env.PATH);
   assert.equal('env' in calls[1]!.params, false, 'agent.start has no upstream env param');
   // Reuse an existing working install without downloads or updates, even if installer now fails.

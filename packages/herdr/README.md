@@ -307,10 +307,14 @@ Set `GEMINI_CLI_HOME` too: an inherited one wins over `HOME` and puts every acco
 `GEMINI_FORCE_FILE_STORAGE` keeps an API key typed into Gemini's own dialog in the root's
 `.gemini/gemini-credentials.json` instead of the OS keyring, which every account would share. A `GEMINI_API_KEY` or
 `GOOGLE_*` variable inherited from the server, and `.env` or `.gemini/` files in the working folder or its parents,
-still reach every account; `{ env, unset }` drops the inherited variables. Herdr 0.9.1 readies Gemini only when its
-Node process is named `node` (Node 22); on Node 24 and 26 (`MainThread`, `node-MainThread`) the start times out, so put
-a `gemini` wrapper first on the pane `PATH` that sets `HERDR_AGENT=gemini` for Gemini's own process. In the pane env
-the hint marks the shell itself as Gemini, so the start fails.
+still reach every account; `{ env, unset }` drops the inherited variables. Herdr 0.9.1 names a pane's
+foreground agent by process name, and Node 24 and 26 rename the runtime main thread (`MainThread`,
+`node-MainThread`), so a plain start of Gemini (or any CLI on those runtimes) times out. Every start
+therefore defines a shell function in the idle pane shell, so the launch runs `env HERDR_AGENT=<kind>
+<executable>` — Herdr's documented foreground-process hint, on the agent's own process. In the pane
+env the hint would mark the shell itself as the agent, so the start is refused `agent_pane_busy`; the
+kit never puts it there. The hint is best effort: a busy pane, a non-POSIX shell (fish, csh, pwsh) or
+a server without `pane.process_info` starts exactly as before.
 
 Kilo uses the same recipe: no managed folder variable, so `folder` and `moveToAccount` do not apply to it; give each
 Kilo account a private root through `env`:

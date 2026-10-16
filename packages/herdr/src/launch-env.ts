@@ -5,6 +5,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Call } from './agents.ts';
+import { accountKind } from './kinds.ts';
 
 export type LaunchEnvironment = { env: Record<string, string>; unset: string[] };
 export type OverlayEnvironment = { overlay: Record<string, string>; unset?: string[] };
@@ -56,6 +57,84 @@ async function runPrivateSteps(call: Call, paneId: string, steps: string[], dead
       if (Date.now() >= deadline) throw new Error();
       await sleep(Math.min(100, Math.max(1, deadline - Date.now())));
     }
+  } finally {
+    if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// An idle pane shell the kit may type a sourcing line into. Herdr panes can run other shells
+// (fish, csh, PowerShell), whose sourcing and function syntax differs; those never qualify.
+const POSIX_IDLE_SHELL = /^(?:-)?(?:ba|z|da|k)?sh$/;
+
+// Herdr 0.9.1 launches every `agent.start` kind under a fixed executable name
+// (src/detect/mod.rs:153-186). These two differ from the kind; every other kind launches
+// under its own name, and a kind Herdr does not know launches under no name (the start is
+// refused before the name matters).
+const LAUNCH_EXECUTABLES: Record<string, string> = { cursor: 'cursor-agent', kiro: 'kiro-cli' };
+
+/** The executable name Herdr's `agent.start` will run for a kit kind, '' when unknown. */
+export function launchExecutableOf(kind: string): string {
+  const row = accountKind(kind);
+  const canonical = row?.kind ?? '';
+  return /^[a-z][a-z0-9-]*$/.test(canonical) ? LAUNCH_EXECUTABLES[canonical] ?? canonical : '';
+}
+
+/** The sourced hint script: a shell function shadowing the launch executable, so the
+ * `agent.start` launch command runs `env HERDR_AGENT=<kind> <exe>` — Herdr's documented
+ * foreground-process hint (docs/agents: "Set HERDR_AGENT=<agent> on the wrapper command"),
+ * scoped to the agent's own process. `env` execs the real binary from PATH, so the function
+ * never recurses, and the assignment never touches the pane shell's own environment. */
+export function agentHintScript(exe: string, kind: string, marker: string): string {
+  return `${exe}() { env HERDR_AGENT=${kind} ${exe} "$@"; }\nprintf '%s\\n' ${quote(marker)}`;
+}
+
+// Node 24 and 26 rename the runtime main thread (`MainThread`, `node-MainThread`), and Herdr
+// 0.9.1 names a pane's foreground agent by process name, so a CLI running on those runtimes
+// (Gemini CLI proved) goes unidentified and `agent.start` times out. The kit answers with the
+// hint above, set on the agent process through the launch command — never in the pane env,
+// where the hint marks the shell itself and the start is refused `agent_pane_busy`.
+// Best effort by contract: a pane that is busy, runs a non-POSIX shell, or never confirms the
+// function keeps today's behavior — the caller's start proceeds without it. Nothing here fails
+// a start that would otherwise have worked.
+export async function prepareAgentHint(call: Call, paneId: string, kind: string, timeout: number): Promise<void> {
+  let dir: string | undefined;
+  try {
+    const exe = launchExecutableOf(kind);
+    if (exe === '' || !Number.isFinite(timeout) || timeout <= 0) return;
+    const deadline = Date.now() + timeout;
+    // Type nothing into a busy pane (another program is foreground) or a non-POSIX shell: skip
+    // at once. Wait only for a pane whose shell is still settling. A server that does not answer
+    // `pane.process_info` at all never gets typed into — the hint is best effort, not a stall.
+    for (;;) {
+      const result = await call('pane.process_info', { pane_id: paneId }, Math.max(1, deadline - Date.now())) as
+        { process_info?: { shell_pid?: number; foreground_processes?: { pid: number; name: string }[] } };
+      const info = result?.process_info;
+      if (info === undefined) return;
+      const foreground = info.foreground_processes ?? [];
+      const shell = foreground.find((process) => process?.pid === info.shell_pid);
+      if (shell !== undefined) {
+        if (foreground.length !== 1) return; // a job the shell holds: not idle
+        if (!POSIX_IDLE_SHELL.test(shell.name)) return;
+        break;
+      }
+      if (foreground.length > 0) return; // a program without the shell: busy
+      if (Date.now() >= deadline) return;
+      await sleep(Math.min(100, Math.max(1, deadline - Date.now())));
+    }
+    const marker = `BYOKIT_AGENT_${randomBytes(16).toString('hex')}`;
+    dir = mkdtempSync(join(tmpdir(), 'byokit-agent-'));
+    const file = join(dir, 'hint.sh');
+    writeFileSync(file, agentHintScript(exe, kind, marker) + '\n', { mode: 0o600, flag: 'wx' });
+    await call('pane.send_text', { pane_id: paneId, text: `set +x +v; . ${quote(file)}\n` }, Math.max(1, deadline - Date.now()));
+    for (;;) {
+      const result = await call('pane.read', { pane_id: paneId, source: 'recent_unwrapped', lines: 40,
+        format: 'text', strip_ansi: true }, Math.max(1, deadline - Date.now())) as { read?: { text?: string } };
+      if (result?.read?.text?.split(/\r?\n/).some((line) => line.trim() === marker)) return;
+      if (Date.now() >= deadline) return;
+      await sleep(Math.min(100, Math.max(1, deadline - Date.now())));
+    }
+  } catch {
+    return; // the hint is an enhancement; the caller's start answers for itself
   } finally {
     if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
   }
