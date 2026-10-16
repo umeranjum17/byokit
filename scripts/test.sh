@@ -74,7 +74,7 @@ node --input-type=module -e "import { cleanStaleScratch } from '$root/packages/t
 # Browsers Playwright installed stay where they are; nothing else of the real HOME is seen.
 browser_cache=${PLAYWRIGHT_BROWSERS_PATH:-$HOME/.cache/ms-playwright}
 if PLAYWRIGHT_BROWSERS_PATH="$browser_cache" HOME="$throwaway" node --test --test-concurrency=1 "$@"; then test_status=0; else test_status=$?; fi
-leaks=$(find "$run_tmp" -maxdepth 1 -type d -name 'byokit-*' -printf '%f\n' | sort)
+leaks=$(find "$run_tmp" -maxdepth 1 -type d -name 'byokit-*' -exec basename {} \; | sort)
 if [ -n "$leaks" ]; then echo "test run leaked project temp directories in $run_tmp:" >&2; printf '%s\n' "$leaks" >&2; test_status=1; fi
 # These messages name ~/.pi literally; they are not shell paths.
 # shellcheck disable=SC2088
