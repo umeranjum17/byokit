@@ -21,4 +21,4 @@ export const stateWords = (s: ServiceState, vars: { app: string }): string => wo
 
 /** The sentence for a kit failure; `linger` asks for the one line in `detail.command`. */
 export const errorWords = (e: ServiceError, vars: { app: string }): string =>
-  words(e.code === 'linger' ? 'service.linger' : e.code === 'unsupported' ? 'service.unsupported' : 'service.failed', vars);
+  words(e.code === 'linger' ? 'service.linger' : e.code === 'unsupported' ? 'service.unsupported' : e.code === 'bad-name' || e.code === 'bad-bin' || e.code === 'missing-bin' ? 'service.setupFailed' : 'service.failed', vars);

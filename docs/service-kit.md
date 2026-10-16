@@ -133,7 +133,7 @@ failing command rejects `provider` with the command and the last 200 characters 
 `detail.command` as in section 5.
 
 `src/words.json` keys: `service.running`, `service.stopped`, `service.notInstalled`, `service.failed`,
-`service.unsupported` and `service.linger` (the last mirrors cloud's `host.linger`: the line to run, once). The kit
+`service.setupFailed`, `service.unsupported` and `service.linger` (the last mirrors cloud's `host.linger`: the line to run, once). The kit
 exports `WORDS`, `WordKey`, `words`, `stateWords` and `errorWords` (kit-conventions §9). `stateWords` returns `''`
 only for a phase with nothing to say.
 
