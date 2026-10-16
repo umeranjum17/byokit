@@ -2357,7 +2357,7 @@ export declare class HerdrKit {
   answer(paneId: string, keys: string[], o: { revision: number }): Promise<void>;
   closePane(paneId: string): Promise<void>;       // refuses when it would close the tab
   closeTab(tabId: string): Promise<void>;         // refuses when it would close the workspace
-  closeWorkspace(workspaceId: string): Promise<void>;   // refuses parent-worktree group widening
+  closeWorkspace(workspaceId: string, o?: { confirmed?: { scope: 'worktreeGroup'; id: string } }): Promise<void>;   // refuses worktree-group widening; a confirmed group close sends close_group: true
   agentKinds(): Promise<string[]>;                // server.agent_manifests
   installedAgentKinds(kinds: readonly string[], o: { path: string[]; aliases?: Record<string, string[]> }): string[];   // executable lookup, explicit path; aliases maps a kind to extra binary names that also count as installed
 }
@@ -2372,7 +2372,7 @@ export type StartAgent = {
   kind: string; cwd: string; name?: string;             // name: /^[a-z][a-z0-9_-]{0,31}$/
   place: PlaceTarget;
   worktree?: { branch?: string; base?: string };
-  args?: string[]; env?: Record<string, string> | { env: Record<string, string>; unset: string[] }; timeoutMs?: number;   // default 60_000
+  args?: string[]; env?: Record<string, string> | { env: Record<string, string>; unset: string[] } | { overlay: Record<string, string>; unset?: string[] }; timeoutMs?: number;   // default 60_000
 };
 export type OpenSignInTab = Omit<StartAgent, 'place' | 'worktree'> & { workspaceId: string; label?: string };
 export type BusyHandoff =
@@ -2542,11 +2542,13 @@ no new link/device operation; apps forward the result through their authorized j
 
 - `startAgent`: `worktree` → `worktree.create { cwd, focus: false, env?, branch?, base? }` and use its
   checkout as `cwd` (`branch` optional; absent fields are omitted, never sent null). Placement:
-  `workspace.create { cwd, label, focus: false }` → `result.root_pane.pane_id`; `tab.create { workspace_id, cwd,
+  `workspace.create { cwd, label, focus: false }` → `result.root_pane.pane_id`, then `tab.rename` carries a
+  given placement label onto the new root tab; `tab.create { workspace_id, cwd,
   label, focus: false }` → `result.root_pane.pane_id`; `pane.split { pane_id, direction, focus: false }` →
   `result.pane.pane_id`; `pane` → as given. A `place.workspace` that is not `'new'` is a workspace label:
   exactly one workspace with that label gets a new tab (`tab.create { workspace_id, cwd, label, focus: false }`,
-  `created: false`); no match creates the workspace with that label (`created: true`); two or more matches reject
+  `created: false`); no match creates the workspace with that label (`created: true`) and renames its root tab
+  to `place.label` (`tab.rename`) when one is given, so the tab carries the label; two or more matches reject
   with `workspace-ambiguous` and create nothing. The placement `env` rides every create/split call (the pinned
   `agent.start` has no `env` param). The pinned schema's create/split answers carry the pane's `tab_id` and
   `workspace_id` on the pane record (`root_pane`/`pane` are full `PaneInfo`); the kit reads the placed ref from
@@ -2604,12 +2606,18 @@ no new link/device operation; apps forward the result through their authorized j
   `pane-unavailable`/`tab-unavailable`/`workspace-unavailable`. A would-widen refusal also carries the wider target
   as `{ scope: 'tab' | 'workspace', id, label }`, so the app can offer the bigger close instead: closing a pane
   widens to its tab (scope `tab`, the tab's id and label); closing a tab widens to its workspace (scope `workspace`,
-  the workspace's id and label); closing a worktree-group root widens to its group, named by that root (scope
-  `workspace`, its id and label). A rollback close re-runs `closePane(paneId, { confirmed: { scope: 'tab', id } })`
+  the workspace's id and label); closing a worktree-group root widens to its group, named by the repo
+  (scope `worktreeGroup`, the root's id, the repo name as label, plus the member count as `size`), so the
+  confirmation sentence needs no tree read. A rollback close re-runs `closePane(paneId, { confirmed: { scope: 'tab', id } })`
   with the wider target a `pane-close-would-widen` refusal named: the kit verifies the live tree still matches — the
   pane is still that tab's sole pane, else `confirmed-scope-mismatch` — and closes exactly that tab through the exact
   path, whose own widening guard still applies (a sole tab refuses `tab-close-would-widen` naming the workspace), so
-  the confirmed close never widens past the confirmed scope. `hd.close` maps all three codes to `PublicLinkError` with the `close.wouldWiden`
+  the confirmed close never widens past the confirmed scope. A confirmed group close re-runs
+  `closeWorkspace(workspaceId, { confirmed: { scope: 'worktreeGroup', id } })` with the wider target the
+  refusal named: the kit verifies the live tree still matches — the id is still that group root with the same
+  member count, else `confirmed-scope-mismatch` — and sends one `workspace.close { workspace_id, close_group: true }`,
+  which Herdr widens atomically (a plain close on a group root is refused with
+  `workspace_group_close_required`); members are never closed one by one. `hd.close` maps all three codes to `PublicLinkError` with the `close.wouldWiden`
   words (6.9), so a device hears plain words instead of a bare failure.
 - Blocked approvals: when an agent's status becomes `blocked`, read `pane.read { source: 'detection' }` (plain text,
   last 40 lines) as `prompt` and add a `BlockedAgent` with the pane's current `revision`; leaving `blocked` resolves
@@ -2644,6 +2652,12 @@ printing values, and waits for a random success marker before `agent.start`. Uns
 fail closed. Created panes roll back on preparation failure; caller-owned panes remain open. The file is
 removed after preparation, including failure. Runtime errors on this path are replaced with generic words.
 `openSignInTab` accepts the same result. No credential values enter commands, argv or kit logs.
+
+`StartAgent.env` also accepts the verifying overlay `{ overlay, unset? }`: nothing rides the create calls —
+the pane keeps its inherited environment — and the overlay values land on top of it (the named ones removed)
+through the same idle-shell private file, verified in the pane before `agent.start`. A mismatch fails closed
+with `env_mismatch` and the agent never starts; created panes roll back, caller-owned panes remain open. Unlike
+the replacement form above, every other export survives. `openSignInTab` folds its folder variable into either form.
 
 `moveToAccount(target, { provider, folder, env?, name?, direction?, timeoutMs?, whenBusy? })` accepts mapped
 managed kinds, including Claude (`CLAUDE_CONFIG_DIR`, `--resume <id>`), Codex (`CODEX_HOME`, `resume <id>`)

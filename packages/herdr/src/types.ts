@@ -108,7 +108,7 @@ export type StartAgent = {
   kind: string; cwd: string; name?: string;             // name: /^[a-z][a-z0-9_-]{0,31}$/
   place: PlaceTarget;
   worktree?: { branch?: string; base?: string };
-  args?: string[]; env?: Record<string, string> | { env: Record<string, string>; unset: string[] }; timeoutMs?: number;   // default 60_000
+  args?: string[]; env?: Record<string, string> | { env: Record<string, string>; unset: string[] } | { overlay: Record<string, string>; unset?: string[] }; timeoutMs?: number;   // default 60_000
   onEvent?: (e: AgentStartEvent) => void;   // per-call lifecycle: installing/ready/launchFailed
   installProbe?: AgentInstallProbe;          // install detection overrides (tests use fakes)
 };

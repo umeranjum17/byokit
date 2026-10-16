@@ -525,10 +525,11 @@ export function herdrContract(
       const w2 = made.workspace?.workspace_id;
       assert.equal(typeof w2, 'string');
       // A refusal carries the wider target (scope, id, label) the app would close instead (6.4).
-      const widen = async (work: Promise<unknown>): Promise<{ scope?: string; id?: string; label?: string; code?: string }> => {
+      // A worktree-group refusal adds the member count, so the confirmation needs no tree read.
+      const widen = async (work: Promise<unknown>): Promise<Record<string, unknown>> => {
         try { await work; } catch (e) {
-          const { scope, id, label, code } = e as { scope?: string; id?: string; label?: string; code?: string };
-          return { scope, id, label, code };
+          const { scope, id, label, size, code } = e as { scope?: string; id?: string; label?: string; size?: number; code?: string };
+          return { scope, id, label, ...(size === undefined ? {} : { size }), code };
         }
         assert.fail('expected a would-widen refusal');
       };
@@ -539,11 +540,10 @@ export function herdrContract(
         { scope: 'workspace', id: w2, label: 'other', code: 'tab-close-would-widen' },
         'closing the only tab widens to its workspace');
       // worktree.create links a checkout into w1's group: the root now widens on close.
-      const w1Label = kit.snapshot().workspaces.find((w) => w.id === 'w1')?.label;
       await kit.startAgent({ kind: 'pi', cwd: '/tmp/h6', place: { workspace: 'new' }, worktree: { branch: 'h6' } });
       assert.deepEqual(await widen(kit.closeWorkspace('w1')),
-        { scope: 'workspace', id: 'w1', label: w1Label, code: 'workspace-close-would-widen' },
-        'closing a worktree group parent widens to the group, named by its root');
+        { scope: 'worktreeGroup', id: 'w1', label: 'fake-herdr', size: 2, code: 'workspace-close-would-widen' },
+        'closing a worktree group root names the group: repo name plus member count');
       // The exact closes still go through.
       await kit.call('pane.split', { target_pane_id: `${w2}:p1`, direction: 'right' });
       await kit.closePane(`${w2}:p1`);

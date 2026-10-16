@@ -13,7 +13,7 @@ import type { AgentCliSignIn, AgentInstallProbe, AgentInstallState, AgentLaunchF
   PlaceTarget, PromptReceipt, StartAgent } from './types.ts';
 import { words } from './words.ts';
 import { accountKind } from './kinds.ts';
-import { prepareLaunchEnv, type LaunchEnvironment } from './launch-env.ts';
+import { prepareLaunchEnv, prepareOverlayEnv, isLaunchEnvironment, isOverlayEnvironment } from './launch-env.ts';
 import { museNative, MUSE_INSTALL_URL, isMiseLauncher } from './muse.ts';
 
 export type Call = (method: string, params: Record<string, unknown>, timeoutMs?: number) => Promise<unknown>;
@@ -88,15 +88,15 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
     let stage: 'placement' | 'start' = 'placement';
     try {
       if (o.kind === 'muse') {
-        const replacement = o.env && typeof o.env.env === 'object' && Array.isArray(o.env.unset)
-          ? o.env as LaunchEnvironment : undefined;
+        const replacement = isLaunchEnvironment(o.env) ? o.env : undefined;
         const existingPane = 'pane' in o.place && o.worktree === undefined;
-        // An ordinary env overlay cannot replace an existing shell's environment.
-        if (existingPane && !replacement && Object.keys(o.env ?? {}).length > 0) {
+        // An ordinary env overlay cannot replace an existing shell's environment. The verifying
+        // overlay form is additive, so it may land on an existing pane too (verified in place).
+        if (existingPane && !replacement && !isOverlayEnvironment(o.env) && Object.keys(o.env ?? {}).length > 0) {
           throw fail('env_mismatch', 'This pane needs to be opened again to use that sign-in.');
         }
         const effective = replacement?.env ?? (existingPane ? undefined
-          : { ...ctx.launchEnv?.(), ...o.env as Record<string, string> | undefined });
+          : { ...ctx.launchEnv?.(), ...(isOverlayEnvironment(o.env) ? o.env.overlay : o.env as Record<string, string> | undefined) });
         // No controller/global extras and no probe override when the effective PATH is known.
         // Existing unobserved panes remain unknown; the exact RPC pass-through remains available.
         const path = effective?.PATH?.split(delimiter).filter(isAbsolute);
@@ -119,7 +119,7 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       const reason = classifyStartFailure(error, { installExpected, stage });
       emit({ phase: 'launchFailed', kind: o.kind, reason, message: launchFailureWords(reason, o.kind) });
       if (codeOf(error) === 'agent_not_installed') throw error;
-      if (o.env && typeof o.env.env === 'object') throw fail(codeOf(error) === 'env_mismatch' ? 'env_mismatch' : 'start_failed', words('agent.notReady'));
+      if (isLaunchEnvironment(o.env)) throw fail(codeOf(error) === 'env_mismatch' ? 'env_mismatch' : 'start_failed', words('agent.notReady'));
       throw error;
     }
   }
@@ -237,15 +237,15 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
   }
 
   async function startAgentInner(o: StartAgent, hooks?: { placed?(ref: PlaceRef): void; start?(): void }): Promise<AgentRef> {
-    const launch = o.env && typeof o.env.env === 'object' && Array.isArray(o.env.unset)
-      ? o.env as LaunchEnvironment : undefined;
-    if (!launch && 'pane' in o.place && Object.keys(o.env ?? {}).length > 0) {
+    const launch = isLaunchEnvironment(o.env) ? o.env : undefined;
+    const overlay = !launch && isOverlayEnvironment(o.env) ? o.env : undefined;
+    if (!launch && !overlay && 'pane' in o.place && Object.keys(o.env ?? {}).length > 0) {
       throw fail('env_mismatch', 'This pane needs to be opened again to use that sign-in.');
     }
     const timeout = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     // A pane HOME alone keeps the server's XDG dirs, so a sign-in would land outside it: confine them too.
-    const home = launch ? undefined : (o.env as Record<string, string> | undefined)?.HOME;
-    const env = o.env === undefined || launch ? {} : { env: home === undefined ? o.env : {
+    const home = launch || overlay ? undefined : (o.env as Record<string, string> | undefined)?.HOME;
+    const env = o.env === undefined || launch || overlay ? {} : { env: home === undefined ? o.env : {
       XDG_CONFIG_HOME: join(home, '.config'), XDG_DATA_HOME: join(home, '.local', 'share'),
       XDG_STATE_HOME: join(home, '.local', 'state'), XDG_CACHE_HOME: join(home, '.cache'), ...o.env } };
     const placement = await resolvePlacement({ worktree: o.worktree, place: o.place, cwd: o.cwd, env });
@@ -259,9 +259,30 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
         try { await call('pane.close', { pane_id: paneId }); } catch { /* rollback is best-effort */ }
       }
     }
+    // A workspace this start created carries the placement label on its root tab too (muxr labels
+    // the agent's tab with the task title on every start; the create path otherwise drops
+    // `place.label`). A rename failure rolls the created workspace back like any start failure.
+    if (workspaceCreated && 'workspace' in o.place && o.place.label !== undefined) {
+      try {
+        await call('tab.rename', { tab_id: placement.tabId, label: o.place.label });
+      } catch (error) {
+        await rollback();
+        throw error;
+      }
+    }
     hooks?.placed?.({ paneId: placement.paneId, tabId: placement.tabId, workspaceId: placement.workspaceId });
     if (launch) {
       try { await prepareLaunchEnv(call, paneId, launch, timeout); }
+      catch (error) {
+        await rollback();
+        throw error;
+      }
+    }
+    // The verifying overlay lands on the pane's inherited environment (nothing is passed to the
+    // create calls) and is proven in the pane before `agent.start`; a mismatch rejects here and
+    // the agent never starts.
+    if (overlay) {
+      try { await prepareOverlayEnv(call, paneId, overlay, timeout); }
       catch (error) {
         await rollback();
         throw error;

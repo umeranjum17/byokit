@@ -37,6 +37,35 @@ test('close guards refuse widening and close exact', async () => {
   }, 'h5-close');
 });
 
+test('a worktree-group root refusal names the group; a confirmed close sends close_group', async () => {
+  await withKit(async (kit, fake) => {
+    // worktree.create links a checkout into w1's group: the root refusal names the group.
+    await kit.startAgent({ kind: 'pi', cwd: '/tmp/p7', place: { workspace: 'new' }, worktree: { branch: 'p7' } });
+    const linked = fake.world.workspaces.find((w) => w.workspace_id !== 'w1')!.workspace_id;
+    let refusal: Record<string, unknown> | undefined;
+    try { await kit.closeWorkspace('w1'); } catch (e) {
+      const { code, scope, id, label, size } = e as Record<string, unknown>;
+      refusal = { code, scope, id, label, size };
+    }
+    assert.deepEqual(refusal, { code: 'workspace-close-would-widen', scope: 'worktreeGroup',
+      id: 'w1', label: 'fake-herdr', size: 2 },
+      'the refusal carries the repo name and member count, no tree read needed');
+    // The server refuses a plain close on the group root; only close_group closes it.
+    await assert.rejects(kit.call('workspace.close', { workspace_id: 'w1' }),
+      (e: { code?: string }) => e.code === 'workspace_group_close_required');
+    assert.ok(fake.world.workspaces.some((w) => w.workspace_id === 'w1'), 'nothing closed on refusal');
+    // A stale confirmation refuses: the id is not the refused root.
+    await assert.rejects(kit.closeWorkspace('w1', { confirmed: { scope: 'worktreeGroup', id: linked } }),
+      (e: { code?: string }) => e.code === 'confirmed-scope-mismatch');
+    assert.ok(fake.world.workspaces.some((w) => w.workspace_id === 'w1'), 'nothing closed on a stale confirm');
+    // The confirmed close sends one grouped close: the whole group goes atomically.
+    await kit.closeWorkspace('w1', { confirmed: { scope: 'worktreeGroup', id: 'w1' } });
+    assert.equal(fake.world.workspaces.some((w) => w.workspace_id === 'w1'), false, 'the root is gone');
+    assert.equal(fake.world.workspaces.some((w) => w.workspace_id === linked), false,
+      'the linked member went with the one grouped close');
+  }, 'h5-close-group');
+});
+
 test('a gone target maps to <kind>-unavailable', async () => {
   await withKit(async (kit) => {
     await assert.rejects(kit.closePane('w9:p9'), (e: { code?: string }) => e.code === 'pane-unavailable');

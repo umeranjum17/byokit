@@ -2,14 +2,18 @@
 
 When a close would widen — the last pane of a tab, the only tab of a workspace, or a worktree-group root —
 the kit refuses it. Now the refusal also tells the app *which bigger thing* it would close instead, as
-`{ scope: 'tab' | 'workspace', id, label }` on the thrown error (codes unchanged), and over a link the
-phone hears the kit's plain `close.wouldWiden` sentence instead of a bare "failed".
+`{ scope: 'tab' | 'workspace', id, label }` on the thrown error (codes unchanged) — except a worktree-group
+root, which names the group as `{ scope: 'worktreeGroup', id, label: <repo name>, size: <member count> }` —
+and over a link the
+phone hears the kit's plain `close.wouldWiden` sentence instead of a bare "failed". A confirmed group close
+sends one `workspace.close { workspace_id, close_group: true }`, which the server widens atomically.
 
 ## Sub-features
 
 - `kit-pane`: `kit.closePane` on the last pane of a tab throws `pane-close-would-widen` with `{ scope: 'tab', id, label }` of that tab.
 - `kit-tab`: `kit.closeTab` on the only tab of a workspace throws `tab-close-would-widen` with `{ scope: 'workspace', id, label }` of that workspace.
-- `kit-workspace`: `kit.closeWorkspace` on a worktree-group root throws `workspace-close-would-widen` with `{ scope: 'workspace', id, label }` of the group, named by its root workspace.
+- `kit-workspace`: `kit.closeWorkspace` on a worktree-group root throws `workspace-close-would-widen` with `{ scope: 'worktreeGroup', id, label: <repo name>, size: <member count> }` of the group.
+- `group-close`: `kit.closeWorkspace('w1', { confirmed: { scope: 'worktreeGroup', id: 'w1' } })` sends one grouped close and the whole group (root plus linked member) is gone; a wrong-id confirmation refuses `confirmed-scope-mismatch` with nothing closed.
 - `phone-words`: over a real `@byokit/pair` link, a control device's `hd.close` of that pane or the only tab rejects with the `close.wouldWiden` words ("Closing this would close more than you picked. Close the bigger one instead.").
 
 ## How to get to it (user POV)
@@ -36,7 +40,10 @@ serves a real Unix socket under the scratch directory and answers the pinned pro
     `kit.closeTab(`${w2}:t1`)` equals `{ tab-close-would-widen, workspace, w2, Review }`.
   - `kit-workspace`: `kit.startAgent({ kind: 'pi', cwd: '/tmp/verify-widen', place: { workspace: 'new' },
     worktree: { branch: 'verify' } })` links a checkout into w1's group; `kit.closeWorkspace('w1')` is caught
-    and its `{ code, scope, id, label }` equals `{ workspace-close-would-widen, workspace, w1, <w1 label> }`.
+    and its `{ code, scope, id, label, size }` equals `{ workspace-close-would-widen, worktreeGroup, w1, fake-herdr, 2 }`.
+  - `group-close`: a wrong-id `kit.closeWorkspace('w1', { confirmed: { scope: 'worktreeGroup', id: <other> } })`
+    rejects `confirmed-scope-mismatch` with the group intact; the matching confirmation closes the root and the
+    linked member together.
   - `phone-words`: `host.offer({ role: 'control', urls: [url], meta: { scope: { workspaces: 'all' } } })`,
     pair, `new DeviceLink(grant, { store })`, wait `link.status === 'online'`, then `herdrDevice(link)`:
     `hd.close({ pane: `${w2}:p1` })` and `hd.close({ tab: 'w1:t1' })` both reject with a message equal to
@@ -46,7 +53,8 @@ serves a real Unix socket under the scratch directory and answers the pinned pro
   then run SKILL.md Evidence's capture block. Exit code `0`.
 - **kit-pane shows.** `{ code: 'pane-close-would-widen', scope: 'tab', id: <tab>, label: 'main' }`.
 - **kit-tab shows.** `{ code: 'tab-close-would-widen', scope: 'workspace', id: <w2>, label: 'Review' }`.
-- **kit-workspace shows.** `{ code: 'workspace-close-would-widen', scope: 'workspace', id: 'w1', label: <w1 label> }`.
+- **kit-workspace shows.** `{ code: 'workspace-close-would-widen', scope: 'worktreeGroup', id: 'w1', label: 'fake-herdr', size: 2 }`.
+- **group-close shows.** `confirmed-scope-mismatch` on the wrong id with the group intact; the root and its linked member both gone after the matching confirmation.
 - **phone-words shows.** Both `hd.close` rejections carry the plain `close.wouldWiden` sentence, and the workspace count is unchanged.
 
 ## Gotchas
@@ -56,7 +64,7 @@ serves a real Unix socket under the scratch directory and answers the pinned pro
   for the tab case.
 - The worktree-group guard needs `worktree.create` (through `kit.startAgent({ worktree })`); only then does
   w1 share a `repo_key` with a linked checkout and widen on close.
-- The workspace-group error is named by its root workspace (scope `workspace`, that root's id and label): the
-  group is anchored at the non-linked root, and the kit has no separate group id.
+- The workspace-group error names the group by its repo (`scope: 'worktreeGroup'`, repo name plus member count):
+  the group is anchored at the non-linked root, and the kit has no separate group id.
 - `await kit.stop()`; adopt mode never stops the stand-in server, so also `await fake.stop()`, and close
   the WebSocket server and socket before the HTTP server.

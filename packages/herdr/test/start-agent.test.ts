@@ -218,3 +218,73 @@ test('placed fires with the pane/tab/workspace ids before the start settles', as
     } finally { off(); }
   }, 'herdr-placed-order');
 });
+
+test('P5d: a created workspace carries the label place on its root tab', async () => {
+  await withKit(async (kit) => {
+    const tabLabelOf = (paneId: string): string | undefined => {
+      for (const w of kit.snapshot().workspaces) for (const t of w.tabs) {
+        if (t.panes.some((p) => p.id === paneId)) return t.label;
+      }
+      return undefined;
+    };
+    // A label place with no matching workspace creates one; the tab carries place.label.
+    const ref = await kit.startAgent({ kind: 'pi', cwd: '/tmp/p5d',
+      place: { workspace: 'p5d-ws', label: 'p5d-task' } });
+    const deadline = Date.now() + 3000;
+    for (;;) {
+      if (tabLabelOf(ref.paneId) === 'p5d-task') break;
+      if (Date.now() >= deadline) assert.fail('the created root tab never took the place label');
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    const ws = kit.snapshot().workspaces.find((w) => w.label === 'p5d-ws');
+    assert.ok(ws, 'the workspace keeps its own label');
+    // A plain new workspace with a label labels the workspace and its root tab alike.
+    const plain = await kit.startAgent({ kind: 'pi', cwd: '/tmp/p5d', place: { workspace: 'new', label: 'p5d-new' } });
+    const deadline2 = Date.now() + 3000;
+    for (;;) {
+      if (tabLabelOf(plain.paneId) === 'p5d-new') break;
+      if (Date.now() >= deadline2) assert.fail('the new root tab never took the workspace label');
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    // A reused workspace is untouched: its existing tab keeps its own label.
+    const reuse = await kit.startAgent({ kind: 'pi', cwd: '/tmp/p5d',
+      place: { workspace: 'p5d-ws', label: 'p5d-second' } });
+    const reuseTab = kit.snapshot().workspaces.find((w) => w.label === 'p5d-ws')
+      ?.tabs.find((t) => t.panes.some((p) => p.id === reuse.paneId))?.label;
+    assert.equal(reuseTab, 'p5d-second', 'the reuse path still labels its fresh tab');
+  }, 'herdr-p5d-tab-label');
+});
+
+test('P5b: the overlay form verifies set and unset in the pane without starting on mismatch', async () => {
+  await withKit(async (kit, fake) => {
+    // An overlay on a caller-owned pane lands the values, removes the named ones, and keeps
+    // every other export — where the replacement form would scrub them.
+    fake.world.panes.find((p) => p.pane_id === 'w1:p1')!.env =
+      { PATH: '/usr/bin:/bin', KEEP: 'yes', REMOVE: 'yes' };
+    const ref = await kit.startAgent({ kind: 'pi', cwd: '/app', place: { pane: 'w1:p1' },
+      env: { overlay: { ADDED: 'one' }, unset: ['REMOVE'] } });
+    assert.equal(ref.paneId, 'w1:p1');
+    const env = fake.world.panes.find((p) => p.pane_id === 'w1:p1')!.env!;
+    assert.equal(env.ADDED, 'one', 'the overlay value lands');
+    assert.ok(!('REMOVE' in env), 'the unset name is gone');
+    assert.equal(env.KEEP, 'yes', 'unrelated exports survive the overlay');
+    // A bad name fails typed without starting: the placed pane rolls back with no agent on it.
+    const before = panesOf(kit.snapshot()).sort();
+    let placedId: string | undefined;
+    const placed = (e: AgentStartEvent): void => {
+      if (e.phase === 'placed') placedId = e.ref.paneId;
+    };
+    await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/app', place: { workspace: 'new' },
+      env: { overlay: { 'bad;name': 'x' } }, timeoutMs: 5000, onEvent: placed }),
+      (e: { code?: string }) => e.code === 'env_mismatch');
+    assert.ok(placedId, 'the placement resolved before the overlay was verified');
+    assert.equal(agentOf(kit.snapshot(), placedId), undefined, 'no agent started on a mismatch');
+    await until(() => panesOf(kit.snapshot()).length, before.length, 3000, 'the created pane is rolled back');
+    // An unset/set overlap fails the same way, before anything starts.
+    await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/app', place: { workspace: 'new' },
+      env: { overlay: { CLASH: 'x' }, unset: ['CLASH'] }, timeoutMs: 5000 }),
+      (e: { code?: string }) => e.code === 'env_mismatch');
+    await until(() => panesOf(kit.snapshot()).length, before.length, 3000, 'no pane survives a mismatch');
+    assert.deepEqual(panesOf(kit.snapshot()).sort(), before);
+  }, 'herdr-p5b-overlay');
+});
