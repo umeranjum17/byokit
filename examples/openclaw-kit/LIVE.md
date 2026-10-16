@@ -31,7 +31,8 @@ into this folder's `.state`, a ChatGPT sign-in kept in the lab's retained test h
 
 At the computer, with the engine ready: type `add opencode-go` and paste the plan key (typed input stays hidden). The
 key is stored only on this computer. On the phone, send `Say hello in five words.`: the
-reply streams in, ends, and shows its token usage (`Tokens: …`) underneath. The key appears in no view, log or
+reply streams in, ends, and shows its token usage underneath (`Tokens: 12 in, 30 out, 42 total`, then
+`, on <model>` when the engine names the model). The key appears in no view, log or
 capture: record the phone and the streamed turn only.
 
 ## Results
