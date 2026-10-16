@@ -1,6 +1,7 @@
 // byokit on a phone (iOS and Android): every phone sign-in the catalogue offers, grouped by @byokit/ui's useConnect
 // ("Sign in with ChatGPT" via @byokit/accounts' device code, "Sign in with Claude" on its own page, whose code the
-// person pastes back), kept in the phone's secure storage, @byokit/ui's sheet
+// person pastes back, a pasted plan key for a plan with no sign-in such as OpenCode Go), kept in the phone's secure
+// storage, @byokit/ui's sheet
 // phases; asking either with the answer streaming in (expo/fetch), a decision
 // with @byokit/decide's answerer, pairing with a computer over @byokit/pair, and sealing data with @byokit/seal. For a demo with no account, point it
 // at the stand-in OpenAI and a link host on this computer (see e2e-android.sh):
@@ -17,14 +18,15 @@ import { StatusBar } from 'expo-status-bar';
 import * as SecureStore from 'expo-secure-store';
 import { CryptoDigestAlgorithm, digest, getRandomValues } from 'expo-crypto';
 import { fetch as streamingFetch } from 'expo/fetch';
-import { Accounts, PROVIDERS, planLabel, routeReadiness, say, secureStore, type Status } from '@byokit/accounts';
+import { Accounts, PROVIDERS, planLabel, routeReadiness, say, secureStore, type OpenCodeGoWorkspace, type Status } from '@byokit/accounts';
+import { nativeStore } from '@byokit/secrets';
 import { answerer, decide } from '@byokit/decide';
 import { DeviceLink, secureDeviceStore, type LinkStatus } from '@byokit/pair';
 import { boxKeyPairFromSeed, openBox, openSecretBox, sealBox, sealSecretBox, signDetached, signingKeyPairFromSeed, verifyDetached } from '@byokit/seal';
 import { forgettableStore, pairInput, pairingGeneration } from './pairing.ts';
 import { setupKey, setupProvider, setupWords } from './cloud-setup.ts';
 import { errorWords, MachineError, type MachineStore } from '@byokit/cloud';
-import { accountsSource, linkWords, pairingView, useAccounts, useConnect, useModelPicker, useSignIn, type ModelPickerSource, type PairPhase, type UseModelPicker, type UseSignIn } from '@byokit/ui';
+import { accountsSource, linkWords, pairingView, useAccounts, useConnect, useModelPicker, useSignIn, type ConnectAction, type ConnectView, type ModelPickerSource, type PairPhase, type UseModelPicker, type UseSignIn } from '@byokit/ui';
 import { overlay, stateWords, type OverlayState } from '@byokit/bubble';
 import { stateWords as chipWords, status as chip } from '@byokit/statusbar';
 import { focusedField } from '@byokit/bubble/focused-field';
@@ -34,6 +36,7 @@ const claudeBase = process.env.EXPO_PUBLIC_CLAUDE_BASE;
 const accounts = new Accounts<any, number>({
   app: 'byokit example',
   store: (member) => secureStore(SecureStore, `byokit.${member}`),
+  keyStore: (member) => nativeStore({ secureStore: SecureStore, prefix: `byokit.keys.${member}` }), // pasted plan keys
   authBase: process.env.EXPO_PUBLIC_OPENAI_BASE, // unset: the real OpenAI
   apiBase: process.env.EXPO_PUBLIC_OPENAI_BASE,
   deviceBase: process.env.EXPO_PUBLIC_DEVICE_BASE,
@@ -43,11 +46,12 @@ const accounts = new Accounts<any, number>({
     authorizeUrl: `${claudeBase}/oauth/authorize`, tokenUrl: `${claudeBase}/v1/oauth/token`, profileUrl: `${claudeBase}/api/oauth/profile`,
   } : {}), crypto: { getRandomValues, subtle: { digest: (_: unknown, data: BufferSource) => digest(CryptoDigestAlgorithm.SHA256, data) } } as unknown as Crypto },
 });
-/** Phone sign-ins use the offered provider identities; route metadata supplies the method and billing. */
+/** Phone sign-ins use the offered provider identities; route metadata supplies the method and billing. A provider
+ *  with no phone sign-in connects through its plan key route, if it has one. */
 const phoneRoutes = accounts.providers.flatMap((p) => {
-  const r = accounts.routes().find((r) => r.platforms.rn === 'yes' && (r.via === 'code' || r.via === 'paste')
-    && (r.upstream.id === p.pi || r.name === p.name));
-  return r ? [{ ...routeReadiness(r, { platform: 'rn' }), id: p.key, provider: p.key, name: p.name }] : [];
+  const mine = accounts.routes().filter((r) => r.platforms.rn === 'yes' && (r.upstream.id === p.pi || r.name === p.name));
+  const r = mine.find((r) => r.via === 'code' || r.via === 'paste') ?? mine.find((r) => r.via === 'plan_key');
+  return r ? [{ ...routeReadiness(r, { platform: 'rn' }), id: r.id, provider: p.key, name: p.name }] : [];
 });
 /** ChatGPT keeps its first testIDs (e2e-android.sh); other providers carry a prefix. */
 const tid = (key: string, id: string) => key === 'chatgpt' ? id : `${key}-${id}`;
@@ -88,6 +92,40 @@ function SignInSheet({ k, options, onClose }: { k: string; options: UseSignIn; o
         <Button id={tid(k, 'again')} label={`Sign in with ${name}`} onPress={() => sheet.start()} />
       </>}
       <Button id={tid(k, 'close')} label="Close" onPress={() => { sheet.close(); onClose(); }} />
+    </View>
+  );
+}
+
+/** A plan key, typed hidden and handed straight to the kit (`add` on the key route), never kept on screen. A key that
+ *  acts for several workspaces lists them (the kit asks the provider) and is saved with the one picked. */
+function KeySheet({ k, route, card, act, onClose }: { k: string; route: string; card: NonNullable<NonNullable<ConnectView['chosen']>['key']>;
+  act: (a: ConnectAction) => void; onClose: () => void }) {
+  const s = useStyles();
+  const [pasted, setPasted] = useState('');
+  const [workspaces, setWorkspaces] = useState<OpenCodeGoWorkspace[]>([]);
+  const [error, setError] = useState('');
+  const save = async (workspace?: string) => {
+    const key = pasted.trim();
+    if (!key) return;
+    setError(''); act({ type: 'submit' });
+    try {
+      const added = await accounts.add(ME, route, { key, ...(workspace ? { workspace } : {}) });
+      if (added.workspaces?.length) { setWorkspaces(added.workspaces); act({ type: 'result', result: 'workspace' }); return; }
+      setPasted(''); act({ type: 'result', result: 'ok' }); onClose();
+    } catch (e: any) { setError(e.message); act({ type: 'result', result: 'invalid' }); }
+  };
+  return (
+    <View testID={tid(k, 'sheet')} style={s.sheet}>
+      <Text style={s.small}>{card.label}</Text>
+      <Text testID={tid(k, 'key-status')} style={s.words}>{error || card.message}</Text>
+      {card.state === 'workspace' ? workspaces.map((w, i) =>
+        <Button key={w.id} id={tid(k, `workspace-${i}`)} label={w.name} onPress={() => save(w.id)} />)
+        : card.editable && <>
+          <TextInput testID={tid(k, 'paste')} value={pasted} onChangeText={setPasted} placeholder="Paste the key from your plan"
+            autoCapitalize="none" autoCorrect={false} secureTextEntry style={s.input} />
+          <Button id={tid(k, 'connect')} label="Connect" onPress={() => save()} />
+        </>}
+      <Button id={tid(k, 'close')} label="Close" onPress={() => { setPasted(''); onClose(); }} />
     </View>
   );
 }
@@ -193,7 +231,8 @@ function ProviderAccounts({ k, connected }: { k: string; connected: boolean }) {
 }
 
 /** One plan: signed out, signing in, or a connected card naming the plan ("Claude Max"), with Ask and a quiet sign-out. */
-function Plan({ k, options, onPick, onClose }: { k: string; options?: UseSignIn; onPick: () => void; onClose: () => void }) {
+function Plan({ k, options, keyCard, onPick, onClose }: { k: string; options?: UseSignIn; onPick: () => void; onClose: () => void;
+  keyCard?: { route: string; card: NonNullable<NonNullable<ConnectView['chosen']>['key']>; act: (a: ConnectAction) => void } }) {
   const s = useStyles();
   const { name } = PROVIDERS[k];
   const [status, setStatus] = useState<Status | null>(null);
@@ -217,8 +256,9 @@ function Plan({ k, options, onPick, onClose }: { k: string; options?: UseSignIn;
       <Text testID={tid(k, 'status')} style={s.small}>{status?.words ?? '…'}</Text>
       {!!plan?.email && <Text testID={tid(k, 'who')} style={s.small}>Signed in as {plan.email}</Text>}
       {!!note && <Text testID={tid(k, 'note')} style={s.small}>{note}</Text>}
-      {!options && <ProviderAccounts k={k} connected={signedIn(status)} />}
+      {!options && !keyCard && <ProviderAccounts k={k} connected={signedIn(status)} />}
       {options ? <SignInSheet key={k} k={k} options={options} onClose={() => { onClose(); refresh(); }} />
+        : keyCard ? <KeySheet key={k} k={k} {...keyCard} onClose={() => { onClose(); refresh(); }} />
         : signedIn(status) ? <>
           {k === 'chatgpt' && <Button id="recheck" label="Check the sign-in" onPress={async () => {
             // Forces a refresh (the token rotates): what the app does when ChatGPT turns a request away.
@@ -516,6 +556,7 @@ function KitDemo() {
         {group.rows.map((row) => <View key={row.key}>
           <Text style={s.small}>{row.billingWords} · {row.method}</Text>
           <Plan k={row.provider} options={connect.chosen?.row.key === row.key ? connect.signIn : undefined}
+            keyCard={connect.chosen?.row.key === row.key && connect.chosen.key ? { route: row.id, card: connect.chosen.key, act: connect.act } : undefined}
             onPick={() => connect.pick(row.key)} onClose={connect.back} />
         </View>)}
       </View>)}

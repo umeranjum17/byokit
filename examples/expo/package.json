@@ -10,6 +10,7 @@
     "@byokit/discover": "file:../../packages/discover",
     "@byokit/bubble": "file:../../packages/bubble",
     "@byokit/seal": "file:../../packages/seal",
+    "@byokit/secrets": "file:../../packages/secrets",
     "@byokit/statusbar": "file:../../packages/statusbar",
     "@byokit/ui": "file:../../packages/ui",
     "expo": "~57.0.25",

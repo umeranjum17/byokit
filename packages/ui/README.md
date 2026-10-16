@@ -208,7 +208,9 @@ const options = signInFor(view, { read: (row) => api.account(row.id), start: (ro
 ```
 
 A key route's `chosen.key` is the existing `keyView` card, labelled for its billing ("Key from your plan" or "Key
-(charged per use)"); submit the input straight to the kit and dispatch only `{ type: 'result', result }`.
+(charged per use)"); submit the input straight to the kit and dispatch only `{ type: 'result', result }`. A key
+that acts for several workspaces (`@byokit/accounts` `add` answers `workspaces`) dispatches `result: 'workspace'`:
+list those workspaces, then `submit` again with the one picked.
 `useConnect({ routes, read, start?, cancel })` holds the step in React and returns the view with `pick`, `back`,
 `act` and `signIn`, the options to pass to `useSignIn` in a sheet keyed by `chosen.row.key`.
 
@@ -363,7 +365,7 @@ with the device client made once (`useMemo(() => herdrDevice(link), [link])`).
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](../../NOTICE).
 
 `@byokit/ui/kits` also exports `keyStep(state, action)` and `keyView(state, words)` for an explicit
-**API key (billed per use)** entry card. States are `entry`, `checking`, `ok`, `invalid`, `not_included`;
+**API key (billed per use)** entry card. States are `entry`, `checking`, `workspace`, `ok`, `invalid`, `not_included`;
 actions are `submit`, `edit`, and `result` with the kit's add-key outcome. Supply the OpenClaw kit's `words`
 function for the label and sentences. These views never contain the entered key; submit it directly to the host
 and clear the input afterwards.
