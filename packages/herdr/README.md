@@ -211,6 +211,9 @@ confirmed scope. `sendKeys` reaches plain shells too: a pane with no agent falls
 mutations to get a tree that already carries them instead of waiting for the next event:
 
 ```ts
+import type { HerdrKit } from '@byokit/herdr';
+declare const kit: HerdrKit;        // a started kit
+
 await kit.call('tab.create', { workspace_id: 'w1', label: 'build' });
 await kit.refresh();
 // kit.snapshot() now carries the new tab and its pane.
