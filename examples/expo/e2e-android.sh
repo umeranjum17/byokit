@@ -88,6 +88,11 @@ if [ -n "${EXPO_CONNECT_EVIDENCE:-}" ]; then
   expect "ChatGPT isn't signed in yet."
   if [ "${EXPO_CONNECT_CAPTURE_ONLY:-0}" = 1 ]; then exit 0; fi
 fi
+# The live OpenCode Go paste-key journey runs alone, only when asked (it needs a real plan key).
+if [ -n "${EXPO_GO_EVIDENCE:-}" ]; then
+  . ./go-journey.sh
+  exit 0
+fi
 
 # Pair with the computer: issue its short-lived code after the build and captures, not before them.
 node e2e-host.mts "$((port + 1))" >"$hostlog" 2>&1 &
