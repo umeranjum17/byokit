@@ -1,6 +1,6 @@
 // Install readiness + startAgent lifecycle: a mise-style auto-install launcher/shim reads
 // `installs-on-first-start` (never `installed`), a real binary reads `installed`, and every
-// start emits `installing`/`ready`/`launchFailed` to the call's `onEvent` and `onStartAgent`
+// start emits `installing`/`placed`/`ready`/`launchFailed` to the call's `onEvent` and `onStartAgent`
 // without polling — all against the kit fake, never a real Herdr.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -87,10 +87,11 @@ test('startAgent with a shim install emits installing then ready — subscribabl
     const ref = await kit.startAgent({ kind: 'pi', cwd: '/tmp/umer', place: { workspace: 'new' },
       installProbe: { path: [dir] }, onEvent: (e) => { seen.call.push(e); } });
     assert.match(ref.paneId, /^w\d+:p\d+$/);
-    assert.equal(seen.call.length, 2);
+    assert.equal(seen.call.length, 3);
     assert.equal(seen.call[0]?.phase, 'installing');
     assert.equal((seen.call[0] as { message: string }).message, 'Installing pi…');
-    assert.deepEqual(seen.call[1], { phase: 'ready', kind: 'pi', ref });
+    assert.equal(seen.call[1]?.phase, 'placed');
+    assert.deepEqual(seen.call[2], { phase: 'ready', kind: 'pi', ref });
     assert.deepEqual(seen.wide, seen.call, 'the app-wide subscription hears the same events');
   });
 });
@@ -100,8 +101,9 @@ test('startAgent with a real binary emits only ready', async () => {
   await withKit(async (kit, seen) => {
     const ref = await kit.startAgent({ kind: 'pi', cwd: '/tmp/umer', place: { workspace: 'new' },
       installProbe: { path: [dir] }, onEvent: (e) => { seen.call.push(e); } });
-    assert.equal(seen.call.length, 1);
-    assert.deepEqual(seen.call[0], { phase: 'ready', kind: 'pi', ref });
+    assert.equal(seen.call.length, 2);
+    assert.equal(seen.call[0]?.phase, 'placed');
+    assert.deepEqual(seen.call[1], { phase: 'ready', kind: 'pi', ref });
   });
 });
 
@@ -117,9 +119,10 @@ test('a failed shim start emits launchFailed install-failed and rejects unchange
       kit.startAgent({ kind: 'pi', cwd: '/tmp/umer', place: { workspace: 'new' },
         installProbe: { path: [dir] }, onEvent: (e) => { seen.push(e); } }),
       (e: { code?: string }) => e.code === 'agent_failed');
-    assert.equal(seen.length, 2);
+    assert.equal(seen.length, 3);
     assert.equal(seen[0]?.phase, 'installing');
-    assert.deepEqual(seen[1], { phase: 'launchFailed', kind: 'pi', reason: 'install-failed',
+    assert.equal(seen[1]?.phase, 'placed');
+    assert.deepEqual(seen[2], { phase: 'launchFailed', kind: 'pi', reason: 'install-failed',
       message: "Installing pi didn't finish. Try again in a moment." });
   } finally {
     await kit.stop();
@@ -138,8 +141,9 @@ test('a failed start with a real binary emits launchFailed start-rejected', asyn
     await assert.rejects(
       kit.startAgent({ kind: 'pi', cwd: '/tmp/umer', place: { workspace: 'new' },
         installProbe: { path: [dir] }, onEvent: (e) => { seen.push(e); } }));
-    assert.equal(seen.length, 1);
-    assert.deepEqual(seen[0], { phase: 'launchFailed', kind: 'pi', reason: 'start-rejected',
+    assert.equal(seen.length, 2);
+    assert.equal(seen[0]?.phase, 'placed');
+    assert.deepEqual(seen[1], { phase: 'launchFailed', kind: 'pi', reason: 'start-rejected',
       message: "That helper couldn't start. Try again in a moment." });
   } finally {
     await kit.stop();

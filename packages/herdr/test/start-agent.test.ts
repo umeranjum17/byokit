@@ -2,14 +2,15 @@
 // `agent_pane_unavailable` inside a bounded 5 s budget, rolls the pane it created back with
 // `pane.close` when `agent.start` fails, sends `focus: false` with the env on `worktree.create`,
 // and takes an optional `worktree.branch` — all against the kit fake, never a real Herdr.
-import { readFileSync, existsSync, statSync } from 'node:fs';
+import { chmodSync, readFileSync, existsSync, statSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { launchEnv } from '../../accounts/src/isolate.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { scratchDir } from '../../test-support.ts';
 import { HerdrKit } from '../src/kit.ts';
 import { startFakeHerdr, type FakeHerdr } from '../src/testing/index.ts';
-import type { HerdrSnapshot } from '../src/types.ts';
+import type { AgentStartEvent, HerdrSnapshot } from '../src/types.ts';
 
 const panesOf = (snapshot: HerdrSnapshot): string[] =>
   snapshot.workspaces.flatMap((w) => w.tabs.flatMap((t) => t.panes.map((p) => p.id)));
@@ -173,4 +174,47 @@ test('launch env preparation uses private files, sanitizes errors and rolls back
     await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/app', place: { pane: 'w1:p1' }, env: launch, timeoutMs: NaN }),
       (e: { code?: string }) => e.code === 'env_mismatch');
   }, 'herdr-launch-env-failure');
+});
+
+test('placed fires with the pane/tab/workspace ids before the start settles', async () => {
+  await withKit(async (kit, fake) => {
+    // A pinned real binary keeps the install state off the host PATH: no `installing` event on
+    // any machine, so the phase lists below hold exactly (agent-install.test.ts's REAL pattern).
+    const dir = scratchDir('herdr-placed-real-pi');
+    writeFileSync(join(dir, 'pi'), '#!/bin/sh\nexit 0\n');
+    chmodSync(join(dir, 'pi'), 0o700);
+    const probe = { path: [dir] };
+    const seen: AgentStartEvent[] = [];
+    const off = kit.onStartAgent((e) => seen.push(e));
+    try {
+      // A tab placement: the placed ref names the fresh pane and the tab holding it.
+      const ref = await kit.startAgent({ kind: 'pi', cwd: '/tmp/k7', place: { tab: 'new', workspaceId: 'w1' }, installProbe: probe });
+      assert.deepEqual(seen.map((e) => e.phase), ['placed', 'ready'], 'placed lands before ready');
+      const placedRef = (e: AgentStartEvent) => (e as { ref?: { paneId: string; tabId: string; workspaceId: string } }).ref!;
+      assert.equal(placedRef(seen[0]!).paneId, ref.paneId);
+      assert.equal(placedRef(seen[0]!).workspaceId, 'w1');
+      const pane = fake.world.panes.find((p) => p.pane_id === ref.paneId);
+      assert.equal(pane?.tab_id, placedRef(seen[0]!).tabId, 'the placed tab id is the pane\'s own');
+      // A workspace-label placement reusing the seeded workspace: same guarantee.
+      seen.length = 0;
+      const reuse = await kit.startAgent({ kind: 'pi', cwd: '/tmp/k7', installProbe: probe,
+        place: { workspace: fake.world.workspaces[0]!.label } });
+      assert.deepEqual(seen.map((e) => e.phase), ['placed', 'ready']);
+      assert.equal(placedRef(seen[0]!).paneId, reuse.paneId);
+      assert.equal(placedRef(seen[0]!).workspaceId, 'w1');
+      // A placement failure fires launchFailed alone — nothing landed, nothing to route by.
+      seen.length = 0;
+      await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/tmp/k7', installProbe: probe,
+        place: { tab: 'new', workspaceId: 'missing' } }),
+        (e: { code?: string }) => e.code === 'workspace_not_found');
+      assert.deepEqual(seen.map((e) => e.phase), ['launchFailed'], 'no placed when the placement itself fails');
+      // A pane-owned start whose launch fails after placement: placed still came first.
+      seen.length = 0;
+      fake.agentStartFaults.push({ code: 'agent_failed', message: 'boom' });
+      await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/tmp/k7', installProbe: probe,
+        place: { pane: 'w1:p1' } }), /boom/);
+      assert.deepEqual(seen.map((e) => e.phase), ['placed', 'launchFailed'],
+        'a pane placement resolves before its launch can fail');
+    } finally { off(); }
+  }, 'herdr-placed-order');
 });

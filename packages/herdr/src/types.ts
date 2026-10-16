@@ -77,23 +77,36 @@ export type AgentStatusOptions = {
 };
 // `startAgent` lifecycle: `installing` fires before the start when the kind needs an install
 // (legacy auto-install launcher/shim — Muse missing is a typed refusal, not an install or blank
-// start), `ready` carries the fresh ref, and `launchFailed` carries a typed reason plus plain
-// words. Subscribable per call (`StartAgent.onEvent`, no polling) or app-wide (`onStartAgent`).
+// start), `placed` fires the moment the placement resolved its pane/tab/workspace ids — before
+// `agent.start` settles, so an app can seed routes and check env on the fresh placement while the
+// launch is still running — `ready` carries the fresh ref, and `launchFailed` carries a typed
+// reason plus plain words (a placement that never resolved fires `launchFailed` alone, with
+// reason `placement-failed`). Subscribable per call (`StartAgent.onEvent`, no polling) or
+// app-wide (`onStartAgent`).
 export type AgentLaunchFailureReason = 'placement-failed' | 'pane-busy' | 'install-failed' | 'start-rejected' | 'not-installed';
 export type AgentStartEvent =
   | { phase: 'installing'; kind: string; message: string }
+  | { phase: 'placed'; kind: string; ref: PlaceRef }
   | { phase: 'ready'; kind: string; ref: AgentRef }
   | { phase: 'launchFailed'; kind: string; reason: AgentLaunchFailureReason; message: string };
 export type AgentRef = { paneId: string; name?: string; created?: boolean };   // created: startAgent sets it always
+// Where a placement landed: the fresh (or named) pane plus the tab and workspace holding it.
+export type PlaceRef = { paneId: string; tabId: string; workspaceId: string };
+// The placement targets `startAgent` and the agentless `place` op share (docs/runtime-kits.md 6.4).
+// `workspace: 'new'` always creates a workspace; any other `workspace` string is a workspace
+// label: the agent lands in the matching workspace (new tab, created: false) or in a workspace
+// created with that label (created: true). Two workspaces with the label reject with
+// `workspace-ambiguous` and create nothing.
+export type PlaceTarget = { workspace: 'new'; label?: string } | { workspace: string; label?: string }
+  | { tab: 'new'; workspaceId: string; label?: string }
+  | { split: string; direction: 'right' | 'down' } | { pane: string };
+// Placement without an agent (6.4): the same ladder `startAgent` resolves, minus the launch —
+// a shell tab, an application tab (both `tab: 'new'`, the app's own cwd/env/label shape it), a
+// shell split, a new or labelled workspace. Every path creates its pane and starts nothing.
+export type PlaceRequest = { cwd?: string; place: PlaceTarget; env?: Record<string, string> };
 export type StartAgent = {
   kind: string; cwd: string; name?: string;             // name: /^[a-z][a-z0-9_-]{0,31}$/
-  // `workspace: 'new'` always creates a workspace; any other `workspace` string is a workspace
-  // label: the agent lands in the matching workspace (new tab, created: false) or in a workspace
-  // created with that label (created: true). Two workspaces with the label reject with
-  // `workspace-ambiguous` and create nothing (docs/runtime-kits.md 6.4).
-  place: { workspace: 'new'; label?: string } | { workspace: string; label?: string }
-       | { tab: 'new'; workspaceId: string; label?: string }
-       | { split: string; direction: 'right' | 'down' } | { pane: string };
+  place: PlaceTarget;
   worktree?: { branch?: string; base?: string };
   args?: string[]; env?: Record<string, string> | { env: Record<string, string>; unset: string[] }; timeoutMs?: number;   // default 60_000
   onEvent?: (e: AgentStartEvent) => void;   // per-call lifecycle: installing/ready/launchFailed
