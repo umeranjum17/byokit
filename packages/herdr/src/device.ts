@@ -2,12 +2,13 @@
 // link adapter (docs/runtime-kits.md 7.2).
 import type { DeviceLink, LinkStream } from '@byokit/pair';
 import type {
-  AgentRef, AgentStatus, BlockedAgent, HerdrEventName, HerdrEventOf, HerdrMethod, HerdrParams, HerdrResult,
-  HerdrSnapshot, HerdrState, HerdrSubscription, PromptReceipt, StartAgent,
+  AgentRef, AgentStatus, BlockedAgent, HerdrEventName, HerdrEventOf, HerdrLayout, HerdrMethod, HerdrParams,
+  HerdrRename, HerdrResult, HerdrSnapshot, HerdrState, HerdrSubscription, HerdrTarget, PromptReceipt, StartAgent,
 } from './types.ts';
 
 export type {
-  HerdrEventName, HerdrEventOf, HerdrEvents, HerdrMethod, HerdrMethods, HerdrParams, HerdrResult, HerdrSubscription,
+  HerdrEventName, HerdrEventOf, HerdrEvents, HerdrLayout, HerdrMethod, HerdrMethods, HerdrParams, HerdrRename,
+  HerdrResult, HerdrSubscription, HerdrTarget,
 } from './types.ts';
 
 /** One `hd.events` frame (7.2); `raw` carries a line that was not JSON. */
@@ -202,11 +203,10 @@ export function herdrDevice(link: DeviceLink): {
     Promise<{ text: string; truncated: boolean }>;
   blocked(): Promise<BlockedAgent[]>;
   answer(paneId: string, keys: string[], revision: number): Promise<void>;
-  close(o: { pane?: string; tab?: string; workspace?: string }): Promise<void>;
-  rename(o: { pane?: string; tab?: string; workspace?: string; label: string }): Promise<void>;
-  focus(o: { pane?: string; tab?: string; workspace?: string }): Promise<void>;
-  layout(o: { root: HerdrParams<'layout.apply'>['root']; focus?: boolean;
-    tabId?: string; tabLabel?: string; workspaceId?: string }): Promise<HerdrResult<'layout.apply'>>;
+  close(o: HerdrTarget): Promise<void>;
+  rename(o: HerdrRename): Promise<void>;
+  focus(o: HerdrTarget): Promise<void>;
+  layout(o: HerdrLayout): Promise<HerdrResult<'layout.apply'>>;
   events(): AsyncIterable<HerdrLinkEvent>;
   subscribe<E extends HerdrEventName>(subs: HerdrSubscription<E>[], on: (e: HerdrEventOf<E>) => void,
     onError?: (message: string) => void): () => void;
@@ -234,17 +234,16 @@ export function herdrDevice(link: DeviceLink): {
     answer: async (paneId: string, keys: string[], revision: number): Promise<void> => {
       await link.request('hd.answer', { paneId, keys, revision });
     },
-    close: async (o: { pane?: string; tab?: string; workspace?: string }): Promise<void> => {
+    close: async (o: HerdrTarget): Promise<void> => {
       await link.request('hd.close', o);
     },
-    rename: async (o: { pane?: string; tab?: string; workspace?: string; label: string }): Promise<void> => {
+    rename: async (o: HerdrRename): Promise<void> => {
       await link.request('hd.rename', o);
     },
-    focus: async (o: { pane?: string; tab?: string; workspace?: string }): Promise<void> => {
+    focus: async (o: HerdrTarget): Promise<void> => {
       await link.request('hd.focus', o);
     },
-    layout: (o: { root: HerdrParams<'layout.apply'>['root']; focus?: boolean;
-      tabId?: string; tabLabel?: string; workspaceId?: string }) =>
+    layout: (o: HerdrLayout) =>
       link.request('hd.layout', o) as Promise<HerdrResult<'layout.apply'>>,
     events: () => streamFrames(link, 'hd.events', {}) as AsyncIterable<HerdrLinkEvent>,
     subscribe: <E extends HerdrEventName>(subs: HerdrSubscription<E>[], on: (e: HerdrEventOf<E>) => void,

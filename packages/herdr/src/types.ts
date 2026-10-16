@@ -43,6 +43,7 @@ export type HerdrEvent = { type: string; [k: string]: unknown };
 // v0.9.1 schema snapshot (H2). Names and shapes are frozen by 6.2; only the tables' contents come
 // from the schema.
 export type { HerdrMethods, HerdrMethod, HerdrParams, HerdrResult } from './generated/methods.ts';
+import type { HerdrParams } from './generated/methods.ts';
 export type { HerdrEvents, HerdrEventName, HerdrEventOf, HerdrSubscription } from './generated/events.ts';
 
 // `failed` is not in the pinned 0.9.1 schema enum but live Herdr emits it for a crashed
@@ -104,6 +105,12 @@ export type PlaceTarget = { workspace: 'new'; label?: string } | { workspace: st
 // a shell tab, an application tab (both `tab: 'new'`, the app's own cwd/env/label shape it), a
 // shell split, a new or labelled workspace. Every path creates its pane and starts nothing.
 export type PlaceRequest = { cwd?: string; place: PlaceTarget; env?: Record<string, string> };
+// The typed edits (6.2, 7.1): `rename` and `focus` name exactly one pane, tab or workspace; `layout`
+// applies a `layout.apply` tree to a tab or workspace. Host (`HerdrKit`) and device take the same shapes.
+export type HerdrTarget = { pane?: string; tab?: string; workspace?: string };
+export type HerdrRename = HerdrTarget & { label: string };
+export type HerdrLayout = { root: HerdrParams<'layout.apply'>['root']; focus?: boolean;
+  tabId?: string; tabLabel?: string; workspaceId?: string };
 export type StartAgent = {
   kind: string; cwd: string; name?: string;             // name: /^[a-z][a-z0-9_-]{0,31}$/
   place: PlaceTarget;

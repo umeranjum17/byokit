@@ -449,6 +449,7 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
         pane.rect = leaf.rect;
       }
       if (p.focus === true && leaves[0] !== undefined) focusPane(leaves[0].paneId);
+      if (typeof p.tab_label === 'string') tab.label = p.tab_label;
       const layout = tabLayout(tab.tab_id);
       emitEvent('layout.updated', { layout });
       return { type: 'layout_apply', layout: { ...layout, root } };

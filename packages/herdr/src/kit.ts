@@ -8,7 +8,7 @@ import { closePane, closeTab, closeWorkspace } from './close.ts';
 import { Supervisor } from './supervise.ts';
 import type {
   AgentCliSignIn, AgentReadiness, AgentStartEvent, AgentStatusOptions, AgentRef, AgentSessionRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,
-  HerdrParams, HerdrResult, HerdrSnapshot, HerdrSnapshotAgent, HerdrSnapshotPane, HerdrSnapshotWorkspace, HerdrState, HerdrSubscription, HerdrSubscribeStop, PlaceRef, PlaceRequest, PromptReceipt, StartAgent, TerminalSession,
+  HerdrLayout, HerdrParams, HerdrRename, HerdrResult, HerdrSnapshot, HerdrSnapshotAgent, HerdrSnapshotPane, HerdrSnapshotWorkspace, HerdrState, HerdrSubscription, HerdrSubscribeStop, HerdrTarget, PlaceRef, PlaceRequest, PromptReceipt, StartAgent, TerminalSession,
   HerdrTransport, Move, MoveToAccount, MoveToAccountResult, MoveResult, OpenSignInTab,
 } from './types.ts';
 import type { AgentTurnEnd, AgentTurnOptions } from './types.ts';
@@ -156,6 +156,12 @@ function findPane(tree: HerdrSnapshot, paneId: string): HerdrSnapshotPane | unde
   }
   return undefined;
 }
+
+const editTarget = (op: string, o: HerdrTarget | undefined): 'pane' | 'tab' | 'workspace' => {
+  const picked = (['pane', 'tab', 'workspace'] as const).filter((key) => o?.[key] !== undefined);
+  if (picked.length !== 1) throw new Error(`herdr: ${op} picks exactly one of pane, tab or workspace`);
+  return picked[0];
+};
 
 export class HerdrKit {
   private readonly supervisor: Supervisor;
@@ -601,6 +607,31 @@ export class HerdrKit {
   closePane(paneId: string, o?: { confirmed?: { scope: 'tab'; id: string } }): Promise<void> { return closePane(this.callAny, paneId, o); }
   closeTab(tabId: string): Promise<void> { return closeTab(this.callAny, tabId); }
   closeWorkspace(workspaceId: string, o?: { confirmed?: { scope: 'worktreeGroup'; id: string } }): Promise<void> { return closeWorkspace(this.callAny, workspaceId, o); }
+  // Typed edits (6.2): the one pane, tab or workspace maps to its generated Herdr method, so a Herdr
+  // refusal rejects with Herdr's own code and sentence (`herdr: pane_not_found: pane w9:p9 not found`).
+  async rename(o: HerdrRename): Promise<void> {
+    const which = editTarget('rename', o);
+    if (typeof o.label !== 'string' || o.label.length === 0) throw new Error('herdr: rename needs a label');
+    if (which === 'pane') await this.call('pane.rename', { pane_id: o.pane!, label: o.label });
+    else if (which === 'tab') await this.call('tab.rename', { tab_id: o.tab!, label: o.label });
+    else await this.call('workspace.rename', { workspace_id: o.workspace!, label: o.label });
+  }
+  async focus(o: HerdrTarget): Promise<void> {
+    const which = editTarget('focus', o);
+    if (which === 'pane') await this.call('pane.focus', { pane_id: o.pane! });
+    else if (which === 'tab') await this.call('tab.focus', { tab_id: o.tab! });
+    else await this.call('workspace.focus', { workspace_id: o.workspace! });
+  }
+  // Every `layout.apply` option, passed through as given; Herdr picks the target when neither id is set.
+  layout(o: HerdrLayout): Promise<HerdrResult<'layout.apply'>> {
+    return this.call('layout.apply', {
+      root: o.root,
+      ...(o.focus === undefined ? {} : { focus: o.focus }),
+      ...(o.tabId === undefined ? {} : { tab_id: o.tabId }),
+      ...(o.workspaceId === undefined ? {} : { workspace_id: o.workspaceId }),
+      ...(o.tabLabel === undefined ? {} : { tab_label: o.tabLabel }),
+    });
+  }
   agentKinds(): Promise<string[]> { return this.agents.agentKinds(); }
   installedAgentKinds(kinds: readonly string[], o: { path: string[]; aliases?: Record<string, string[]> }): string[] { return this.agents.installedAgentKinds(kinds, o); }
   // Onboarding readiness (B5): a local PATH probe plus each installed CLI's own status
