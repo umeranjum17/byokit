@@ -16,7 +16,7 @@ import static org.junit.Assert.*;
 public final class DictationFlowTest {
     @Rule public GrantPermissionRule microphone = GrantPermissionRule.grant(Manifest.permission.RECORD_AUDIO);
     @Test public void systemRecognizerSettlesAndCancelsThroughThePublishedKit() throws Exception {
-        FixtureRecognizer.starts.set(0); FixtureRecognizer.stops.set(0); FixtureRecognizer.cancels.set(0);
+        FixtureRecognizer.starts.set(0); FixtureRecognizer.stops.set(0); FixtureRecognizer.cancels.set(0); FixtureRecognizer.connections.set(0);
         try (ActivityScenario<DictationActivity> app = ActivityScenario.launch(DictationActivity.class)) {
             long deadline = SystemClock.elapsedRealtime() + 20000;
             while ((DictationActivity.result.get() == null || FixtureRecognizer.cancels.get() == 0) && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(50);
@@ -35,6 +35,7 @@ public final class DictationFlowTest {
             assertEquals("cancelled", result.getString("cancelCode"));
             assertEquals(2, FixtureRecognizer.starts.get()); assertEquals(1, FixtureRecognizer.stops.get());
             assertEquals(1, FixtureRecognizer.cancels.get());
+            assertEquals("the restart must reuse the recognizer service connection", 1, FixtureRecognizer.connections.get());
             assertFalse(FixtureRecognizer.firstRequest.getBooleanExtra("byokit.fixture.punctuation", true));
             assertEquals("en-US", FixtureRecognizer.request.getStringExtra(RecognizerIntent.EXTRA_LANGUAGE));
             assertTrue(FixtureRecognizer.request.getBooleanExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false));

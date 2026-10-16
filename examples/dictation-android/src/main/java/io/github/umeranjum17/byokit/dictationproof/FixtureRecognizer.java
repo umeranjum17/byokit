@@ -17,11 +17,13 @@ public final class FixtureRecognizer extends RecognitionService {
     public static final AtomicInteger starts = new AtomicInteger();
     public static final AtomicInteger stops = new AtomicInteger();
     public static final AtomicInteger cancels = new AtomicInteger();
+    public static final AtomicInteger connections = new AtomicInteger();
     private Bundle words(String text) {
         Bundle b = new Bundle();
         b.putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, new ArrayList<>(List.of(text)));
         return b;
     }
+    @Override public void onCreate() { super.onCreate(); connections.incrementAndGet(); }
     @Override protected void onStartListening(Intent intent, Callback callback) {
         request = new Intent(intent);
         if (starts.incrementAndGet() == 1) firstRequest = request;

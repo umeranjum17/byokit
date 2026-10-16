@@ -11,8 +11,6 @@ import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
 import android.util.Log;
 import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.json.JSONObject;
 
@@ -20,7 +18,12 @@ import org.json.JSONObject;
 public final class DictationActivity extends Activity {
     public static final AtomicReference<String> result = new AtomicReference<>();
     private WebView web;
-    private final Map<String, SpeechRecognizer> recognizers = new HashMap<>();
+    // One recognizer serves every session. Android shares one system connection per app and recognition
+    // service, and a destroyed recognizer's asynchronous shutdown unbinds it once no client is listening, so a
+    // recognizer created right after another's destroy() can join that connection and get only
+    // ERROR_SERVER_DISCONNECTED.
+    private SpeechRecognizer recognizer;
+    private String session;
     @Override public void onCreate(Bundle state) {
         super.onCreate(state); result.set(null);
         web = new WebView(this); web.getSettings().setJavaScriptEnabled(true);
@@ -37,10 +40,7 @@ public final class DictationActivity extends Activity {
         catch (Exception e) { throw new IllegalStateException(e); }
         return o;
     }
-    private void dispose(String id) {
-        SpeechRecognizer recognizer = recognizers.remove(id);
-        if (recognizer != null) recognizer.destroy();
-    }
+    private void end(String id) { if (id.equals(session)) session = null; }
     public final class Port {
         @JavascriptInterface public String available(String locale) { return locale.equals("en-US") ? "ready" : "needs-download"; }
         @JavascriptInterface public void start(String id, String options) {
@@ -49,9 +49,9 @@ public final class DictationActivity extends Activity {
                     JSONObject o = new JSONObject(options);
                     if (!o.getBoolean("onDevice")) throw new IllegalArgumentException("local required");
                     // The component is explicitly this app's offline fixture, never a discovered cloud service.
-                    SpeechRecognizer recognizer = SpeechRecognizer.createSpeechRecognizer(DictationActivity.this,
+                    if (recognizer == null) recognizer = SpeechRecognizer.createSpeechRecognizer(DictationActivity.this,
                         new ComponentName(DictationActivity.this, FixtureRecognizer.class));
-                    recognizers.put(id, recognizer);
+                    session = id;
                     recognizer.setRecognitionListener(new RecognitionListener() {
                         private void words(Bundle bundle, boolean last) {
                             try {
@@ -59,7 +59,7 @@ public final class DictationActivity extends Activity {
                                 JSONObject segment = object("id", "0", "text", words.get(0), "language", o.getString("locale"));
                                 segment.put("final", last); segment.put("startMs", 0); segment.put("endMs", 1000);
                                 JSONObject message = object("type", "segment"); message.put("segment", segment); event(id, message);
-                                if (last) { event(id, object("type", "stopped")); dispose(id); }
+                                if (last) { event(id, object("type", "stopped")); end(id); }
                             } catch (Exception e) { onError(SpeechRecognizer.ERROR_CLIENT); }
                         }
                         public void onReadyForSpeech(Bundle b) {}
@@ -67,7 +67,7 @@ public final class DictationActivity extends Activity {
                         public void onRmsChanged(float rms) {}
                         public void onBufferReceived(byte[] b) {}
                         public void onEndOfSpeech() {}
-                        public void onError(int code) { event(id, object("type", "error", "code", String.valueOf(code))); dispose(id); }
+                        public void onError(int code) { event(id, object("type", "error", "code", String.valueOf(code))); end(id); }
                         public void onResults(Bundle b) { words(b, true); }
                         public void onPartialResults(Bundle b) { words(b, false); }
                         public void onEvent(int type, Bundle b) {}
@@ -79,17 +79,17 @@ public final class DictationActivity extends Activity {
                         .putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
                         .putExtra("byokit.fixture.punctuation", o.getBoolean("punctuation"));
                     recognizer.startListening(intent);
-                } catch (Exception e) { event(id, object("type", "error", "code", e.toString())); dispose(id); }
+                } catch (Exception e) { event(id, object("type", "error", "code", e.toString())); end(id); }
             });
         }
-        @JavascriptInterface public void stop(String id) { runOnUiThread(() -> { SpeechRecognizer r = recognizers.get(id); if (r != null) r.stopListening(); }); }
+        @JavascriptInterface public void stop(String id) { runOnUiThread(() -> { if (id.equals(session)) recognizer.stopListening(); }); }
         @JavascriptInterface public void cancel(String id) {
-            runOnUiThread(() -> { SpeechRecognizer r = recognizers.get(id); if (r != null) r.cancel(); });
+            runOnUiThread(() -> { if (id.equals(session)) { recognizer.cancel(); session = null; } });
         }
         @JavascriptInterface public void report(String text) { result.set(text); Log.i("DictationProof", text); }
     }
     @Override public void onDestroy() {
-        for (SpeechRecognizer r : recognizers.values()) r.destroy(); recognizers.clear();
+        if (recognizer != null) recognizer.destroy();
         web.destroy(); super.onDestroy();
     }
 }

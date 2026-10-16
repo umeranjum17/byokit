@@ -103,6 +103,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [OpenClaw kit example ways in](./openclaw-kit-connect.md) — the phone page lists the kit's routes grouped by `connectView`, starts only ready code plans (the ChatGPT plan row), says why for the rest; packed e2e plus light/dark phone frames.
 - [PWA review evidence](./pwa-review-evidence.md) — frames and motion for a user-visible change, in every theme and form factor the app has.
 - [Dictation long-take windows](./dictation-whisper-windows.md) — the built `@byokit/dictation` whisper.rn engine steps long-take windows from where the decoder stopped and joins the overlap once, driven by a stubbed decoder over synthetic WAV audio.
+- [Android dictation restart](./dictation-android-restart.md) — the example's real `SpeechRecognizer` path on a private emulator: the named `DictationFlowTest` journey settles with `DictationProof`, the restart keeps one recognizer service connection, and every run with `system_server` starved still settles.
 - [Decide slim install](./decide-slim-install.md) — the built `@byokit/decide/slim` decides with rules, any host-owned model and Jev with zero peers; the main entry is unchanged and account billing without the peer names it.
 - [Outbox requestId retry-safe enqueue](./outbox-request-id.md) — built `@byokit/outbox`: duplicate `requestId` enqueue returns the existing entry (queued, after reopen, and after sent) so flush never double-sends.
 
@@ -171,6 +172,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [relay-action-reply](./relay-action-reply.md) — the relay action route carries a bounded opaque sealed reply to the host callback, refuses bad replies and stores nothing.
 - [relay-provision-enroll](./relay-provision-enroll.md) — dial-out enrollment with a provisioning token through the hosted recipe: no-QR pairing, account scoping, misuse refusals, nothing secret kept.
 - [dictation-whisper-windows](./dictation-whisper-windows.md) — long-take automatic windows step from the decoded end (no skip at a pause) and the overlap is joined once (no repeated passage), plus the 30 s-or-shorter and silent-gap extremes.
+- [dictation-android-restart](./dictation-android-restart.md) — finish then restart on one Android recognizer: the journey's `DictationProof`, one service connection, and the starved-`system_server` extreme.
 - [pwa-review-evidence](./pwa-review-evidence.md) — before/after frames and motion per theme/form factor, including Grok device code, one dropped poll, approval, reload and sign-out; the separate built browser-API host-only negative is covered by the PWA journey test.
 - [decide-slim-install](./decide-slim-install.md) — slim entry, unchanged main entry, self-naming missing peer, and the offline alone-tarball install.
 - [release-publish-superseded](./release-publish-superseded.md) — a superseded workflow_run sha exits 0 with `superseded by <sha>`, while every other HEAD mismatch still fails.
