@@ -178,9 +178,15 @@ test("release lint CLI requires notes for unchanged shipped schemas and accepts 
 
 test("prepare CLI compiles fragments with existing notes and deletes them in its commit", () => {
   const dir = mkdtempSync(join(tmpdir(), "release-prepare-"));
-  const run = (cmd: string, args: string[]) => spawnSync(cmd, args, {
-    cwd: dir, encoding: "utf8", env: { ...process.env, PATH: join(dir, "bin") + ":" + process.env.PATH, npm_config_offline: "true" },
-  });
+  const run = (cmd: string, args: string[]) => {
+    const r = spawnSync(cmd, args, {
+      cwd: dir, encoding: "utf8", timeout: 120_000,
+      env: { ...process.env, PATH: join(dir, "bin") + ":" + process.env.PATH, npm_config_offline: "true" },
+    });
+    // A timed-out child returns status null with empty stderr; name it so the assertion shows the hang.
+    if (r.signal) r.stderr += `\n${cmd} ${args.join(" ")} was killed by ${r.signal} after the 120s timeout`;
+    return r;
+  };
   const git = (...args: string[]) => {
     const r = run("git", ["-c", "user.name=Umer", "-c", "user.email=umer@example.invalid", "-c", "commit.gpgsign=false", ...args]);
     assert.equal(r.status, 0, r.stderr);
@@ -189,7 +195,12 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
   try {
     for (const path of ["scripts", "bin", "examples/expo", "packages/probe/changes", "packages/a-consumer", "packages/b-range", "packages/c-dev"]) mkdirSync(join(dir, path), { recursive: true });
     copyFileSync(join(root, "scripts/release.ts"), join(dir, "scripts/release.ts"));
-    const realNpm = spawnSync("/bin/sh", ["-c", "command -v npm"], { encoding: "utf8" }).stdout.trim();
+    // Prefer the npm shipped beside the running node: a version-manager shim on
+    // PATH (e.g. mise) can spin forever under this test's isolated HOME.
+    const besideNode = join(dirname(process.execPath), "npm");
+    const realNpm = existsSync(besideNode)
+      ? besideNode
+      : spawnSync("/bin/sh", ["-c", "command -v npm"], { encoding: "utf8" }).stdout.trim();
     assert.ok(realNpm.startsWith("/"));
     // Only registry version discovery is canned; lockfile resolution uses the actual npm, offline.
     writeFileSync(join(dir, "bin/npm"), `#!/bin/sh\nif [ "$1" = view ]; then echo '["0.1.0"]'; else exec '${realNpm}' "$@"; fi\n`);
