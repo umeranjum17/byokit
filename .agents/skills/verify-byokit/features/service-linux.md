@@ -38,8 +38,7 @@ the echo answering on 127.0.0.1, a manual stop reading `status` `stopped`, a re-
 (sudo, setup only; the kit never runs sudo) denies the runner's own linger with a polkit rule, then
 `linger.journey.ts` asserts `ServiceError` `linger` with `detail.command` `sudo loginctl enable-linger runner`, linger
 still off and the unit file present (spec 4.1 writes it first); the rule is lifted, linger re-enabled, and the
-leftover unit uninstalls. CI job `service-macos` (`macos-latest`) runs `unsupported.journey.ts`: `install` and
-`uninstall` reject `unsupported`, `status` resolves `{ phase: 'unsupported' }`, nothing written.
+leftover unit uninstalls. macOS: [service-macos](./service-macos.md).
 
 Before a PR exists, run the same job from a throwaway branch with a one-job workflow (`on: push` to that
 branch only), save the run log as evidence, and delete the branch. Pass = the test line shows `✔`, not skipped.
