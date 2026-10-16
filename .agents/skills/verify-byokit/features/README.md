@@ -82,7 +82,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [Fresh-project pack gate](./pack-fresh-project.md) — `npm run smoke:pack`: install packed tarballs into a scratch app and import them.
 - [Gmail send](./connect-mail-send.md) — `@byokit/connect` `MailSender` with fixture OAuth and a canned Gmail transport: approved, denied and missing-scope legs.
 - [House Google client file](./connect-house-client.md) — `googleClientFile` from `@byokit/connect/node` feeding a loopback Gmail sign-in and send: missing, refused, consent approved/denied and send approved/denied legs.
-- [Herdr task-owned HOME](./herdr-task-home.md) — `@byokit/herdr` `startAgent` with a task HOME on a real, isolated Herdr lab session (needs the environment's Herdr lab helper; never the person's own Herdr).
+- [Herdr task-owned HOME](./herdr-task-home.md) — `@byokit/herdr` `startAgent` with a task HOME, and `openSignInTab` with a per-account Gemini root, on a real, isolated Herdr lab session (needs the environment's Herdr lab helper; never the person's own Herdr).
 - [Herdr example host restart](./herdr-example-restart.md) — the packed example's real paired Chromium page reconnects after its task-owned host restarts without enrolment or approval, preserving full grant identity with separately checked `lastSeen` activity updates and identical ingress bytes; initial code entry connects in under 10 seconds.
 - [Herdr waitPromptable](./herdr-wait-promptable.md) — the built `@byokit/herdr` `waitPromptable` against its stand-in Herdr: a still-pending launch rejects `agent-not-ready` at the deadline, a flipped launch resolves, and a pane closed mid-wait rejects `pane-unavailable`.
 - [Herdr turn start done and files:false](./herdr-turn-accept-done-files-false.md) — the built `@byokit/herdr` `runTurn` starts on an already-`done` agent like `idle`, `files: false` skips the scan so a >10,000-entry tree completes with no changed files, and the default scan still rejects that tree `turn-failed`.
@@ -160,7 +160,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [pack-fresh-project](./pack-fresh-project.md) — the packed-tarball fresh-consumer gate.
 - [connect-mail-send](./connect-mail-send.md) — one approval per message, denial without a request, `gmail.send` scope refusal.
 - [connect-house-client](./connect-house-client.md) — the house Google client file: missing/refused files, consent approve/deny, send approve/deny.
-- [herdr-task-home](./herdr-task-home.md) — an agent pane under a task-owned HOME, read from the agent process and from inside the pane.
+- [herdr-task-home](./herdr-task-home.md) — an agent pane under a task-owned HOME, read from the agent process and from inside the pane; a Gemini sign-in tab under its own account root.
 - [herdr-wait-promptable](./herdr-wait-promptable.md) — `waitPromptable` on the built `@byokit/herdr`: pending launch times out `agent-not-ready`, a flipped launch resolves, a mid-wait pane close rejects `pane-unavailable`.
 - [herdr-turn-accept-done-files-false](./herdr-turn-accept-done-files-false.md) — `runTurn` starts on a `done` agent like `idle`; `files: false` skips the scan on a >10,000-entry tree while the default scan still limits it.
 - [herdr-widen-scope](./herdr-widen-scope.md) — the built `@byokit/herdr` names the wider target on a refused widening close and a linked device hears the `close.wouldWiden` words.
