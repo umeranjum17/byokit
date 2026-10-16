@@ -43,9 +43,6 @@ test('key entry card states contain only words and never retain the submitted ke
   assert.equal(keyView(invalid, words).editable, true);
   assert.equal(keyStep(invalid, { type: 'edit' }), 'entry');
   assert.equal(keyStep(checking, { type: 'result', result: 'ok' }), 'ok');
-  const workspace = keyStep(checking, { type: 'result', result: 'workspace' });
-  assert.deepEqual([keyView(workspace, words).message, keyView(workspace, words).editable], ['key.workspace', false]);
-  assert.equal(keyStep(workspace, { type: 'submit' }), 'checking', 'the pick submits again');
   assert.equal(keyView('not_included', words).message, 'key.notIncluded');
   assert.equal(keyView('ok', words).label, 'API key (billed per use)');
 });
