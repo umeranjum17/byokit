@@ -517,15 +517,19 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     },
     'agent.send_keys': (p) => {
       const agent = live.agents.find((row) => row.pane_id === p.target);
+      // An agentless pane is a shell: the real server refuses agent-targeted keys with
+      // `agent_not_found` (like agent.get/agent.rename), which the kit maps to its pane fallback.
+      if (agent === undefined) {
+        paneOf(p.target);
+        throw fail('agent_not_found', 'agent not found');
+      }
       const keys = Array.isArray(p.keys) ? p.keys as string[] : [];
-      if (agent !== undefined) {
-        const pane = live.panes.find((row) => row.pane_id === agent.pane_id);
-        if (pane !== undefined) pane.text.push(keys.join(''));
-        // Answering a blocked agent resolves it (6.4: the kit never interprets the TUI, the agent does).
-        if (agent.agent_status === 'blocked' && keys.some((k) => k === 'y' || k === 'n')) {
-          agent.detection = undefined;
-          if (pane !== undefined) transition(pane, 'idle');
-        }
+      const pane = live.panes.find((row) => row.pane_id === agent.pane_id);
+      if (pane !== undefined) pane.text.push(keys.join(''));
+      // Answering a blocked agent resolves it (6.4: the kit never interprets the TUI, the agent does).
+      if (agent.agent_status === 'blocked' && keys.some((k) => k === 'y' || k === 'n')) {
+        agent.detection = undefined;
+        if (pane !== undefined) transition(pane, 'idle');
       }
       return { target: p.target, keys };
     },

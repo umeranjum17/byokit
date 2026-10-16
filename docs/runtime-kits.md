@@ -2580,14 +2580,20 @@ no new link/device operation; apps forward the result through their authorized j
   code `agent-not-ready`; when the pane is gone (the snapshot no longer holds it and `agent.get` answers `agent_not_found`)
   it rejects with code `pane-unavailable`, so a wait never hangs.
 - `wait` → `agent.wait { target, until, timeout_ms }` (always a timeout). `read` → `pane.read` and unwrap
-  `result.read`. `sendKeys` → `agent.send_keys { target, keys }`.
+  `result.read`. `sendKeys` → `agent.send_keys { target, keys }`; a pane with no agent (`agent_not_found`) falls
+  back to `pane.send_keys { pane_id, keys }`, so a shell route receives keys too (a gone pane surfaces
+  `pane.send_keys`' own `pane_not_found`).
 - Close guards = muxr `closeExactPane`/`closeExactTab`/`closeExactWorkspace`: look up the parent counts first and
   refuse with codes `pane-close-would-widen`, `tab-close-would-widen`, `workspace-close-would-widen`; not-found →
   `pane-unavailable`/`tab-unavailable`/`workspace-unavailable`. A would-widen refusal also carries the wider target
   as `{ scope: 'tab' | 'workspace', id, label }`, so the app can offer the bigger close instead: closing a pane
   widens to its tab (scope `tab`, the tab's id and label); closing a tab widens to its workspace (scope `workspace`,
   the workspace's id and label); closing a worktree-group root widens to its group, named by that root (scope
-  `workspace`, its id and label). `hd.close` maps all three codes to `PublicLinkError` with the `close.wouldWiden`
+  `workspace`, its id and label). A rollback close re-runs `closePane(paneId, { confirmed: { scope: 'tab', id } })`
+  with the wider target a `pane-close-would-widen` refusal named: the kit verifies the live tree still matches — the
+  pane is still that tab's sole pane, else `confirmed-scope-mismatch` — and closes exactly that tab through the exact
+  path, whose own widening guard still applies (a sole tab refuses `tab-close-would-widen` naming the workspace), so
+  the confirmed close never widens past the confirmed scope. `hd.close` maps all three codes to `PublicLinkError` with the `close.wouldWiden`
   words (6.9), so a device hears plain words instead of a bare failure.
 - Blocked approvals: when an agent's status becomes `blocked`, read `pane.read { source: 'detection' }` (plain text,
   last 40 lines) as `prompt` and add a `BlockedAgent` with the pane's current `revision`; leaving `blocked` resolves
