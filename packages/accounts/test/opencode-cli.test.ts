@@ -7,7 +7,8 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { join } from 'node:path';
 import type { Keystore } from '@byokit/secrets';
 import { cliAccounts, CliAccountError } from '@byokit/accounts/cli';
-import { OPENCODE_GO_PLAN_ROUTE, openCodeGoPlanAccount, openCodePlanKeyEntry, readOpenCodePlanKey, saveOpenCodePlanKey } from '@byokit/accounts/opencode-go';
+import { KeyRouteError } from '@byokit/accounts';
+import { OPENCODE_GO_PLAN_ROUTE, openCodeGoPlanAccount, openCodePlanKeyEntry, openCodeWorkspaceEntry, readOpenCodePlanKey, saveOpenCodePlanKey } from '@byokit/accounts/opencode-go';
 import { remoteCliHost, remoteCliState } from '../src/remote-cli-host.ts';
 import { scratchDir } from '../../test-support.ts';
 
@@ -277,6 +278,33 @@ test('opencode launch delivers the key through folder files; logout/remove delet
   assert.equal(await openCodeGoPlanAccount(store).access(new AbortController().signal), legacy);
   assert.equal(saved.size, 1);
   await kit.remove(bare.id);
+});
+
+test('opencode launch of a key saved without a workspace: one is written and stored, several ask for the pick', async () => {
+  const root = scratchDir('opencode-cli-workspace');
+  const { store, saved } = memoryKeys();
+  let orgs: { id: string; name: string }[] = [{ id: 'org_WORKING2', name: 'Working2' }];
+  let listed = 0;
+  const fetch = async (input: unknown) => {
+    if (String(input) !== 'https://opencode.ai/console/api/orgs') throw new Error(`unexpected fetch: ${String(input)}`);
+    listed++;
+    return new Response(JSON.stringify(orgs), { status: 200 });
+  };
+  const kit = cliAccounts({ stateDir: join(root, 'plans'), bins: { opencode: fakeBin(join(root, 'bins'), 'opencode-fake') },
+    env: { HOME: join(root, 'home'), PATH: '/unused' }, keyStore: store, fetch });
+  const { account } = await kit.add('opencode');
+  await kit.saveKey(account.id, CANARY);
+  assert.equal((await kit.launch(account.id)).ok, true);
+  const config = JSON.parse(readFileSync(join(kit.folderOf(account.id), 'opencode.json'), 'utf8'));
+  assert.equal(config.provider['opencode-go'].options.headers['x-opencode-org-id'], 'org_WORKING2');
+  assert.equal(saved.get(openCodeWorkspaceEntry(OPENCODE_GO_PLAN_ROUTE, account.id)), 'org_WORKING2', 'stored with the key');
+  await kit.launch(account.id);
+  assert.equal(listed, 1, 'a later launch uses the stored workspace');
+
+  orgs = [{ id: 'org_A', name: 'Working' }, { id: 'org_WORKING2', name: 'Working2' }];
+  await kit.saveKey(account.id, CANARY); // a new key drops the stored workspace
+  await assert.rejects(kit.launch(account.id), (e) => e instanceof KeyRouteError && e.code === 'needs_workspace');
+  await kit.remove(account.id);
 });
 
 test('opencode saveKey/logout refuse the wrong shape, and remote stays read-only', async () => {

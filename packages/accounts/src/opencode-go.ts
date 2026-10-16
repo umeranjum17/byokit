@@ -1,4 +1,5 @@
 import type { Keystore } from '@byokit/secrets';
+import { KeyRouteError } from './key-routes.ts';
 import { say } from './words.ts';
 
 /** An OpenCode Go plan account (route `opencode:plan_key:opencode-go`). `access` reads the saved plan
@@ -22,18 +23,40 @@ const CONSOLE = 'https://opencode.ai/console';
  * OpenCode CLI makes after sign-in). A key that is not a person's login (a service key bound to one
  * workspace, or anything the console refuses) answers empty: it needs no workspace header. */
 export async function openCodeWorkspaces(key: string, fetcher: typeof fetch = fetch): Promise<OpenCodeGoWorkspace[]> {
+  return await listWorkspaces(key, fetcher) ?? [];
+}
+
+/** The listing, or `undefined` when it could not be read (offline, timeout, a server error): only the
+ * console's own answer, a list or a refusal (401/403, a key that is not a login), says "no workspace". */
+async function listWorkspaces(key: string, fetcher: typeof fetch = fetch): Promise<OpenCodeGoWorkspace[] | undefined> {
   if (typeof key !== 'string' || !key.trim()) return [];
   const control = new AbortController();
   const timer = setTimeout(() => control.abort(), 10_000);
   try {
     const res = await fetcher(`${CONSOLE}/api/orgs`, { headers: { authorization: `Bearer ${key}`, accept: 'application/json' }, signal: control.signal });
-    if (res.status !== 200 || !res.body) return [];
+    if (res.status === 401 || res.status === 403) return [];
+    if (res.status !== 200 || !res.body) return undefined;
     const raw: unknown = await res.json();
-    if (!Array.isArray(raw)) return [];
+    if (!Array.isArray(raw)) return undefined;
     return raw.filter((o): o is { id: string; name: string } =>
       !!o && typeof o === 'object' && typeof (o as { id?: unknown }).id === 'string' && !!(o as { id?: string }).id &&
       typeof (o as { name?: unknown }).name === 'string').map((o) => ({ id: o.id, name: o.name }));
-  } catch { return []; } finally { clearTimeout(timer); }
+  } catch { return undefined; } finally { clearTimeout(timer); }
+}
+
+/** The workspace a Go call names (`''` when none), however the key was saved: the saved one, else the
+ * key's own listing. One workspace (or none) is handed to `save` so later calls skip the list; several
+ * throw the typed pick (`needs_workspace`) before any call goes out. A listing that could not be read
+ * saves nothing: the call goes out without the header, the gateway's own answer says why, and the next
+ * call lists again. */
+export async function openCodeWorkspace(key: string, saved: string | undefined, save: (workspace: string) => Promise<void>, fetcher?: typeof fetch): Promise<string> {
+  if (saved !== undefined) return saved;
+  const orgs = await listWorkspaces(key, fetcher);
+  if (!orgs) return '';
+  if (orgs.length > 1) throw new KeyRouteError('needs_workspace');
+  const workspace = orgs[0]?.id ?? '';
+  await save(workspace);
+  return workspace;
 }
 
 /** The plan-key route this seam keeps. Portable callers keep one store entry per route; managed CLI
@@ -98,7 +121,9 @@ export async function deleteOpenCodePlanKey(store: Keystore | undefined, route: 
 
 /** The plan route's own handle: resolves its key from the store on every use, so a BYOKit-only live
  * call needs no hand-exported key. Never reads OpenCode's own auth.json. */
-export function openCodeGoPlanAccount(store: Keystore, route: string = OPENCODE_GO_PLAN_ROUTE): OpenCodeGoAccount {
+export function openCodeGoPlanAccount(store: Keystore, route: string = OPENCODE_GO_PLAN_ROUTE, fetcher?: typeof fetch): OpenCodeGoAccount {
   return { billing: 'subscription', provider: 'opencode-go', access: async () => readOpenCodePlanKey(store, route),
-    workspace: async () => readOpenCodeWorkspace(store, route) };
+    // ponytail: a key with no workspace saves no entry here (the store refuses empty values), so it lists on each call.
+    workspace: async () => openCodeWorkspace(await readOpenCodePlanKey(store, route), await readOpenCodeWorkspace(store, route) || undefined,
+      (workspace) => workspace ? saveOpenCodeWorkspace(store, workspace, route) : Promise.resolve(), fetcher) };
 }

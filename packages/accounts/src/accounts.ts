@@ -18,7 +18,7 @@ import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
 import type { ChatGPTRespondAccount } from './chatgpt-plan.ts';
 import type { OpenCodeGoAccount, OpenCodeGoWorkspace } from './opencode-go.ts';
-import { OPENCODE_GO_PLAN_ROUTE, openCodeWorkspaces } from './opencode-go.ts';
+import { OPENCODE_GO_PLAN_ROUTE, openCodeWorkspace, openCodeWorkspaces } from './opencode-go.ts';
 import type { OllamaProAccount } from './ollama-pro.ts';
 import { emptyIndex, viewStore, memoryStore, RefreshRequiredError, refreshCredential, type AccountMetadata, type EndingStore, type RefreshStore } from './stores.ts';
 import { resolveSelection, type Account, type AccountPick, type AgentCapabilities, type Defaults, type ModelInfo, type Room, type RunSelection, type Via } from './multi.ts';
@@ -1024,12 +1024,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     checkKeyModel(r, ask.model, this.platform.kind ?? 'browser', runtime.supported);
     const secret = await this.key(member, ask.account);
     // The Go gateway refuses a login key that acts for several workspaces until its workspace is named;
-    // the stored one rides every call as request auth, from the account saved at connect. Every Go call
+    // the account's workspace rides every call as request auth (`goWorkspace`). Every Go call
     // also names its conversation (`x-opencode-session`, one id per call): without it the gateway answers
     // 400 MissingSessionID instead of routing the stream, workspace or not.
     if (r.upstream.id === 'opencode-go') {
-      const id = await this.resolveKey(member, ask.account);
-      const workspace = (await this.index(member)).accounts?.[id]?.workspace;
+      const workspace = await this.goWorkspace(member, await this.resolveKey(member, ask.account), secret);
       const session = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(16).slice(2);
       return keyRespond(r, { apiKey: secret, headers: { 'x-opencode-session': session,
         ...(workspace ? { 'x-opencode-org-id': workspace } : {}) } }, ask, this.opts.fetch, runtime);
@@ -1137,7 +1136,17 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
    * so every Go call carries `x-opencode-org-id` without exposing either value. */
   opencodeGo(member: M): OpenCodeGoAccount {
     return { provider: 'opencode-go', billing: 'subscription', access: async () => this.key(member, 'opencode:plan_key:opencode-go'),
-      workspace: async () => (await this.index(member)).accounts?.[await this.resolveKey(member, 'opencode:plan_key:opencode-go')]?.workspace ?? '' };
+      workspace: async () => this.goWorkspace(member, await this.resolveKey(member, 'opencode:plan_key:opencode-go'), await this.key(member, 'opencode:plan_key:opencode-go')) };
+  }
+
+  /** The workspace every Go call of this account names, however its key was saved (`add`, `saveKey`):
+   * the one stored at connect, else resolved once from the key's own listing and stored with the account. */
+  private async goWorkspace(member: M, id: string, key: string): Promise<string> {
+    return openCodeWorkspace(key, (await this.index(member)).accounts?.[id]?.workspace, async (workspace) => {
+      // A key replaced while this one was listed keeps its own record; its next call lists for itself.
+      if (await this.keys(member, (store) => store.get(`accounts.${id}`)) !== key) return;
+      await this.store(member).index((index) => { (index.accounts ??= {})[id] = { ...index.accounts?.[id], workspace }; });
+    }, this.opts.fetch);
   }
 
   /** Bind this member's saved Ollama Pro plan key. Each request reads the current plan key from the
