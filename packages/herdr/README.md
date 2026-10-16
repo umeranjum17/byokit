@@ -239,6 +239,31 @@ A record env with `HOME` gives the pane a task-owned home: unless the env sets t
 there. Other server variables still reach the pane; pass `{ env, unset }` for a fully replaced environment.
 Tokens stay on the device and are never logged. Each provider's own terms apply to how you use your plan.
 
+Gemini has no managed folder variable, so `folder` and `moveToAccount` do not apply to it; give each Gemini
+account a private root through `env` instead:
+
+```ts
+import { HerdrKit } from '@byokit/herdr';
+const kit = new HerdrKit({ mode: 'adopt', bin: '/app/bin/herdr', socketPath: '/app/herdr.sock' });
+await kit.start();
+
+const root = '/app/accounts/gemini-work'; // create `${root}/.tmp` first
+const signIn = await kit.openSignInTab({ workspaceId: 'w1', kind: 'gemini', cwd: '/home/me/project', env: {
+  HOME: root, GEMINI_CLI_HOME: root, TMPDIR: `${root}/.tmp`, GEMINI_FORCE_FILE_STORAGE: 'true',
+} });
+```
+
+Gemini CLI 0.56.0 keeps its Google sign-in as files in `.gemini/` under `GEMINI_CLI_HOME`, or else `HOME`
+(`oauth_creds.json`, `google_accounts.json`, `settings.json`), not in the OS keyring, so the root isolates it.
+Set `GEMINI_CLI_HOME` too: an inherited one wins over `HOME` and puts every account in that one folder.
+`GEMINI_FORCE_FILE_STORAGE` keeps an API key typed into Gemini's own dialog in the root's
+`.gemini/gemini-credentials.json` instead of the OS keyring, which every account would share. A `GEMINI_API_KEY` or
+`GOOGLE_*` variable inherited from the server, and `.env` or `.gemini/` files in the working folder or its parents,
+still reach every account; `{ env, unset }` drops the inherited variables. Herdr 0.9.1 readies Gemini only when its
+Node process is named `node` (Node 22); on Node 24 and 26 (`MainThread`, `node-MainThread`) the start times out, so put
+a `gemini` wrapper first on the pane `PATH` that sets `HERDR_AGENT=gemini` for Gemini's own process. In the pane env
+the hint marks the shell itself as Gemini, so the start fails.
+
 For managed-folder stores that supply resume arguments and credential shedding, use `move`:
 
 ```ts
