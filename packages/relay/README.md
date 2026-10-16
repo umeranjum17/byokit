@@ -90,7 +90,8 @@ reply: { pong: 'ping' }
 | `ownerClient` | The owner's HTTP API: `hosts`, `enrolment`, `revoke`; accepts an injected `fetch` |
 | `claimProvision` | A new computer's app: grants the phone key a provisioning token bound, through link's own durable grants |
 | `RelayOwnerError` | HTTP refusal with a numeric `status` and a `code`: `forbidden` (403), `not-found` (404), or `request-failed` |
-| `findHost` | The device's side: a short code → the link address to dial (also from `@byokit/relay/device`) |
+| `RelayLookupError` | A host lookup the relay refused or did not answer: a `code` of `wrong-code`, `unreachable` or `timeout` |
+| `findHost` | The device's side: a short code → the link address to dial, bounded by `timeoutMs` (default 8 s; also from `@byokit/relay/device`) |
 | `linkUrl` | A relay URL and known host id → the link address to dial (also from `@byokit/relay/device`) |
 | `JobChannel` | Host-owned bounded job history: `create`, `follow`, `drop`; replays ordered frames after a cursor |
 | `readJobStream` | Portable ordered text/image/usage/end reader (also from `@byokit/relay/device`) |
@@ -199,6 +200,11 @@ const known = linkUrl('https://relay.example', hostId);
 ```
 
 The relay only ever learns which host a short code points to, never link's code.
+
+The lookup is bounded: a relay that accepts the request but never answers rejects with `RelayLookupError`
+(`code: 'timeout'`) after `timeoutMs` (default 8 s, `RELAY_LOOKUP_MS`) and aborts the request, so a dropped relay
+cannot make pairing spin. A wrong or used code rejects `wrong-code`, a relay that answers but cannot resolve rejects
+`unreachable`, and a network failure that never reached the relay still rejects with the fetch error.
 
 ## Push notifications
 

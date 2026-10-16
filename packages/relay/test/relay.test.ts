@@ -2,8 +2,10 @@
 // reconnect that sends the queued requests, typed pairing through a short code, and the per-address limits.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { hostId, keyPair, pairWithCode } from '@byokit/pair';
-import { CLOSE, LIMITS, RelayClient, findHost } from '../src/index.ts';
+import { CLOSE, LIMITS, RELAY_LOOKUP_MS, Relay, RelayClient, RelayLookupError, findHost } from '../src/index.ts';
 import { closed, device, hostClient, paired, sleep, startHost, startRelay, until } from './helpers.ts';
 import { linkUrl } from '../src/device.ts';
 import { Handshake, firstFrame } from '../../pair/src/channel.ts';
@@ -128,6 +130,52 @@ test('typed pairing through the relay: a short code finds the host, and the rela
   let status = 0;
   for (let i = 0; i < LIMITS.code + 1 && status !== 429; i++) status = (await fetch(`${r.http}/relay/v1/codes/${short}`)).status;
   assert.equal(status, 429);
+});
+
+test('a dropped relay never answers the short-code lookup, so a bounded findHost fails within its bound and frees its socket', async () => {
+  // A real relay on loopback first: the same call resolves through it.
+  const r = await startRelay();
+  const host = await startHost();
+  await r.relay.admit(host.keys.publicKey);
+  const h = hostClient(host, r.ws);
+  const { code: short } = await h.client.code();
+  assert.equal(await findHost(r.http, short), `${r.ws}/link/v1/${host.id}`);
+
+  // The same relay class, but its HTTP routing stops answering: the connection opens and nothing comes back (a
+  // dropped relay), which made pairing spin for the platform's own ~140 s before there was a bound.
+  let dropped = false;
+  let carried: Promise<void> | undefined;
+  const relay = await Relay.open({ store: { load: () => undefined, save: () => {} } });
+  const server = createServer((req, res) => {
+    if (dropped) { carried = new Promise<void>((resolve) => req.socket.once('close', resolve)); return; } // never answers
+    void relay.request(req, res).then((ours) => { if (!ours) res.writeHead(404).end(); }, () => res.writeHead(400).end());
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const at = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    dropped = true;
+    const started = Date.now();
+    await assert.rejects(findHost(at, 'K7M2QX', { timeoutMs: 250 }),
+      (e: unknown) => e instanceof RelayLookupError && e.code === 'timeout' && /didn't answer in time/.test(e.message));
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed >= 200, `waits out the bound before failing (${elapsed}ms)`);
+    assert.ok(elapsed < 2000, `fails within the bound, not the platform default (${elapsed}ms)`);
+    // The abort tears down the socket that carried the lookup. Wait on that socket's real close, not a poll:
+    // Node <=22's fetch opens a second, idle keep-alive connection that lingers to the server's own timeout, so
+    // counting every connection would flake; the request's own socket closes at once on every supported version.
+    assert.ok(carried, 'the lookup opened a connection');
+    const carriedSocket = carried;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('the aborted lookup left the socket that carried it open')), 3000);
+      carriedSocket.then(() => { clearTimeout(timer); resolve(); }, (e) => { clearTimeout(timer); reject(e); });
+    });
+  } finally {
+    server.closeAllConnections();
+    server.close();
+    relay.close();
+  }
+  // The default is a single-digit number of seconds, not a magic value: link's own dial timeout is the same 8 s.
+  assert.equal(RELAY_LOOKUP_MS, 8000);
 });
 
 test('malicious relay lookup cannot substitute a machine key, even knowing the pairing secret', async () => {

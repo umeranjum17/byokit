@@ -2,7 +2,8 @@ export { Relay, LIMITS, contentFreeNotify, MAX_ENROLMENT_META_BYTES, parseProvis
 export { RelayClient, type PushAction, type RelayClientOptions, type RelayClientStore, type RelayStatus } from './client.ts';
 export { CLOSE } from './proof.ts';
 export { isAllowedEndpoint, isExpoToken, MAX_ACTION_REPLY, type Notification, type PushRecord, type Subscription, type WebSubscription } from './push.ts';
-export { findHost, linkUrl } from './device.ts';
+export { findHost, linkUrl, RELAY_LOOKUP_MS } from './device.ts';
+export { RelayLookupError, type RelayLookupErrorCode } from './words.ts';
 export { ownerClient, RelayOwnerError, type OwnerClient, type OwnerHost, type OwnerEnrolment, type RelayOwnerErrorCode } from './owner.ts';
 export { JobChannel, readJobStream, MAX_JOB_FRAME_BYTES, type JobPart, type JobFrame, type JobCursor, type JobWriter, type JobChannelOptions } from './jobs.ts';
 export { claimProvision } from './provision.ts';

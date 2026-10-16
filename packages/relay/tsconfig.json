@@ -2,5 +2,5 @@
   "extends": "../../tsconfig.base.json",
   "references": [{ "path": "../link" }, { "path": "../pair" }],
   "compilerOptions": { "rootDir": "src", "outDir": "dist" },
-  "include": ["src"]
+  "include": ["src", "src/**/*.json"]
 }
