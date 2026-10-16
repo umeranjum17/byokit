@@ -34,7 +34,7 @@
     "esbuild": "0.28.2",
     "json-schema-to-typescript": "16.0.0",
     "jsqr": "1.4.0",
-    "playwright": "^1.63.0",
+    "playwright": "^1.64.0",
     "tweetnacl": "1.0.3",
     "typescript": "^7.0.2",
     "ws": "^8.22.0"
