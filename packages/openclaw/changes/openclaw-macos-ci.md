@@ -1,1 +1,0 @@
-- FIX: README states the platform support (Linux/macOS supported, Windows unsupported), mirroring the herdr README wording.
