@@ -458,6 +458,9 @@ create/split call (a labelled workspace is reused, or created when no workspace 
 matches reject with `workspace-ambiguous`). An env on a caller-owned `pane` target is refused.
 
 ```ts
+import { HerdrKit } from '@byokit/herdr';
+
+const kit = new HerdrKit({ mode: 'adopt', bin: 'herdr', socketPath: '/tmp/herdr.sock' });
 const shell = await kit.place({ cwd: '/home/me/project', place: { tab: 'new', workspaceId: 'w1' } });
 const app = await kit.place({ cwd: '/opt/app', env: { APP_ENV: 'yes' }, place: { workspace: 'muxr' } });
 const split = await kit.place({ place: { split: shell.paneId, direction: 'right' } });
