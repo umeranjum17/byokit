@@ -34,5 +34,5 @@ def overlayWords = tasks.register('generateOverlayWords', Copy) {
   from('../src') { include 'words.json'; rename 'words.json', 'byokit-overlay-words.json' }
   into layout.buildDirectory.dir('generated/overlayWords')
 }
-android.sourceSets.main.assets.srcDir(layout.buildDirectory.dir('generated/overlayWords'))
+android.sourceSets.main.assets.srcDir(layout.buildDirectory.dir('generated/overlayWords').get().asFile)
 tasks.named('preBuild').configure { dependsOn overlayWords }

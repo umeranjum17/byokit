@@ -1,0 +1,1 @@
+- FIX: The Android module builds with Android Gradle Plugin 9 (React Native 0.88, Expo SDK 58).
