@@ -2358,10 +2358,17 @@ export declare class HerdrKit {
   closePane(paneId: string): Promise<void>;       // refuses when it would close the tab
   closeTab(tabId: string): Promise<void>;         // refuses when it would close the workspace
   closeWorkspace(workspaceId: string, o?: { confirmed?: { scope: 'worktreeGroup'; id: string } }): Promise<void>;   // refuses worktree-group widening; a confirmed group close sends close_group: true
+  // typed edits: the herdrDevice shapes (7.2); exactly one target, else a rejection before any call; Herdr's refusal keeps its code
+  rename(o: HerdrRename): Promise<void>;          // pane.rename / tab.rename / workspace.rename
+  focus(o: HerdrTarget): Promise<void>;           // pane.focus / tab.focus / workspace.focus
+  layout(o: HerdrLayout): Promise<HerdrResult<'layout.apply'>>;   // layout.apply, every option passed through as given
   agentKinds(): Promise<string[]>;                // server.agent_manifests
   installedAgentKinds(kinds: readonly string[], o: { path: string[]; aliases?: Record<string, string[]> }): string[];   // executable lookup, explicit path; aliases maps a kind to extra binary names that also count as installed
 }
 export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown';
+export type HerdrTarget = { pane?: string; tab?: string; workspace?: string };
+export type HerdrRename = HerdrTarget & { label: string };
+export type HerdrLayout = { root: HerdrParams<'layout.apply'>['root']; focus?: boolean; tabId?: string; tabLabel?: string; workspaceId?: string };
 export type AgentRef = { paneId: string; name?: string; created?: boolean };   // created: set by startAgent only
 export type PlaceRef = { paneId: string; tabId: string; workspaceId: string };   // where a placement landed
 export type PlaceTarget = { workspace: 'new'; label?: string } | { workspace: string; label?: string }   // any other workspace string is a label (6.4)
@@ -2898,7 +2905,7 @@ picker's list; no scope applies), `hd.agent.start { kind, cwd, place }`, `hd.pro
 { pane | tab | workspace, label }`, `hd.focus { pane | tab | workspace }`, `hd.layout
 { root, focus?, tabId?, tabLabel?, workspaceId? }` — all three control and scope-checked like `hd.close` (the one
 pane, tab or workspace they name must be in `scopeOf(grant)` or the op is `link.notAllowed` and no Herdr call is
-made), and mapped only to the typed calls in the generated table, never through `hd.call`: `hd.rename` to
+made), and mapped only to the typed calls in the generated table through the kit's own `rename`/`focus`/`layout`, never through `hd.call`: `hd.rename` to
 `pane.rename`/`tab.rename`/`workspace.rename` (a tab through its owning workspace, a workspace through itself),
 `hd.focus` to `pane.focus`/`tab.focus`/`workspace.focus`, and `hd.layout` to `layout.apply` with exactly one of its
 `tabId` (checked through its owning workspace) or `workspaceId` as the scope target — every `pane_id` leaf the layout
@@ -2981,10 +2988,9 @@ export declare function herdrDevice(link: DeviceLink): {
   blocked(): Promise<BlockedAgent[]>;
   answer(paneId: string, keys: string[], revision: number): Promise<void>;
   close(o: { pane?: string; tab?: string; workspace?: string }): Promise<void>;
-  rename(o: { pane?: string; tab?: string; workspace?: string; label: string }): Promise<void>;
-  focus(o: { pane?: string; tab?: string; workspace?: string }): Promise<void>;
-  layout(o: { root: HerdrParams<'layout.apply'>['root']; focus?: boolean; tabId?: string; tabLabel?: string;
-    workspaceId?: string }): Promise<HerdrResult<'layout.apply'>>;   // exactly one of tabId/workspaceId
+  rename(o: HerdrRename): Promise<void>;          // HerdrKit.rename's shape (6.2)
+  focus(o: HerdrTarget): Promise<void>;
+  layout(o: HerdrLayout): Promise<HerdrResult<'layout.apply'>>;   // exactly one of tabId/workspaceId
   events(): AsyncIterable<HerdrLinkEvent>;
   subscribe<E extends HerdrEventName>(subs: HerdrSubscription<E>[], on: (e: HerdrEventOf<E>) => void,
     onError?: (message: string) => void): () => void;       // hd.subscribe; the returned function stops it

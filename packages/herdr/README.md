@@ -162,13 +162,13 @@ kit does not have yet, and [Two ways in](#two-ways-in) plus
 
 | Export | What it does |
 |---|---|
-| `HerdrKit` (`@byokit/herdr`) | The host-side kit, in `adopt` or `own` mode: `start`/`stop`, `state`, `snapshot`/`onChange`, `refresh`, `startAgent`, `place`, `openSignInTab`, `move`, `moveToAccount`, `onStartAgent`, `prompt`, `waitPromptable`, `sendKeys`, `wait`, `read`, `blocked`/`onBlocked`/`answer`, `closePane`/`closeTab`/`closeWorkspace`, `agentKinds`, `installedAgentKinds`, `agentStatus`, `agentInstallState`, `terminal`, `onEvent`, `statusWatchReady`, and the pass-throughs `call`, `subscribe` and `cli` |
+| `HerdrKit` (`@byokit/herdr`) | The host-side kit, in `adopt` or `own` mode: `start`/`stop`, `state`, `snapshot`/`onChange`, `refresh`, `startAgent`, `place`, `openSignInTab`, `move`, `moveToAccount`, `onStartAgent`, `prompt`, `waitPromptable`, `sendKeys`, `wait`, `read`, `blocked`/`onBlocked`/`answer`, `closePane`/`closeTab`/`closeWorkspace`, the typed edits `rename`/`focus`/`layout`, `agentKinds`, `installedAgentKinds`, `agentStatus`, `agentInstallState`, `terminal`, `onEvent`, `statusWatchReady`, and the pass-throughs `call`, `subscribe` and `cli` |
 | `isPromptable`, `agentStatus`, `agentInstallState`, `agentProbePath`, `extraPathDirs`, `runStatusCommand`, `isAutoInstallShim`, `resolveAgentBinary` (`@byokit/herdr`) | `isPromptable(agent)` is the readiness rule `prompt` and `waitPromptable` share; the rest is onboarding readiness: per-kind install + CLI sign-in without a Herdr connection (see below) |
 | `HERDR_VERSION`, `HERDR_PROTOCOL` | The pinned Herdr release (`0.9.1`) and the protocol the kit speaks (`22`) |
 | `words`, `agentWords`, `stateWords`, `WORDS` | Plain sentences for agent statuses and kit states |
 | `herdrLink` (`@byokit/herdr/link`) | The host side of the `hd.*` link ops, spread into `Host.open`; scopes each grant to its workspaces and can push sealed approval notices through a relay |
 | `serve` (`@byokit/herdr/link`) | Finds the address with `@byokit/discover` and serves the link (and an optional page) on one port |
-| `herdrDevice` (`@byokit/herdr/device`) | The phone and browser side: typed calls over a `DeviceLink` (`tree`, `startAgent`, `prompt`, `read`, `blocked`, `answer`, `events`, `terminal`, notices); no Node import |
+| `herdrDevice` (`@byokit/herdr/device`) | The phone and browser side: typed calls over a `DeviceLink` (`tree`, `startAgent`, `prompt`, `read`, `blocked`, `answer`, `close`/`rename`/`focus`/`layout`, `events`, `terminal`, notices); no Node import |
 | `openNotice` (`@byokit/herdr/device`) | Opens a sealed approval notice with the device's own seed |
 | `startFakeHerdr`, `writeBinShim`, `herdrContract` (`@byokit/herdr/testing`) | The kit's stand-in Herdr, a bin shim that runs it, and the contract suite the kit passes |
 | `ensureHerdr`, `fetchHerdr`, `HERDR_ASSETS` (`@byokit/herdr/binary`) | Opt-in pinned fetch: the v0.9.1 asset for the current platform into an app-owned dir, sha256-verified, executable, returned as the absolute `own`-mode `bin`; refused (nothing left) on a hash mismatch or unsupported platform |
@@ -211,6 +211,28 @@ once the live tree no longer matches (the pane moved or gained a sibling), and s
 `tab-close-would-widen` when the confirmed tab is the workspace's last, so a confirmed close never widens past the
 confirmed scope. `sendKeys` reaches plain shells too: a pane with no agent falls back from `agent.send_keys` to
 `pane.send_keys`, so aborts and device keys land on shell routes.
+
+The typed edits take the same shapes on the host (`HerdrKit`) and over the link (`herdrDevice`), so a host never
+calls Herdr raw for them. `rename({ pane | tab | workspace, label })` maps to `pane.rename`/`tab.rename`/
+`workspace.rename`, `focus({ pane | tab | workspace })` to `pane.focus`/`tab.focus`/`workspace.focus`, and
+`layout({ root, focus?, tabId?, tabLabel?, workspaceId? })` passes every `layout.apply` option through and answers
+Herdr's `layout.apply` result (the real server lays the tree out in a fresh tab and returns its id). `rename` and
+`focus` name exactly one target, else they reject before any call; a Herdr refusal rejects with Herdr's own code
+and sentence (`herdr: pane_not_found: pane w1:p9 not found`, `code: 'pane_not_found'`):
+
+```ts
+import type { HerdrKit } from '@byokit/herdr';
+declare const kit: HerdrKit;        // a started kit
+
+await kit.rename({ tab: 'w1:t1', label: 'build' });
+await kit.focus({ pane: 'w1:p2' });
+const applied = await kit.layout({
+  workspaceId: 'w1', tabLabel: 'review', focus: false,
+  root: { type: 'split', direction: 'right', ratio: 0.3,
+    first: { type: 'pane', pane_id: 'w1:p1' }, second: { type: 'pane', pane_id: 'w1:p2' } },
+});
+console.log(applied.layout.tab_id);
+```
 
 `refresh()` re-reads the tree and opens watches for the agents in it, resolving once that fresh snapshot
 (and its per-pane `pane.agent_status_changed` watches) has landed — await it after the app's own

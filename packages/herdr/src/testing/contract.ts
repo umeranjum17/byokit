@@ -586,6 +586,54 @@ export function herdrContract(
     });
   });
 
+  test('contract: host rename, focus and layout land in Herdr and read back', async () => {
+    await bench(async ({ kit }) => {
+      await kit.start();
+      const made = await kit.call('workspace.create', { cwd: '/tmp', label: 'umer-ops', focus: false });
+      const workspaceId = made.workspace.workspace_id;
+      const left = made.root_pane!.pane_id;
+      const tabId = made.root_pane!.tab_id;
+      const right = (await kit.call('pane.split', { target_pane_id: left, direction: 'right', focus: false })).pane.pane_id;
+
+      await kit.rename({ tab: tabId, label: 'Umer tab' });
+      await kit.rename({ pane: left, label: 'umer-left' });
+      await kit.rename({ workspace: workspaceId, label: 'Umer desk' });
+      assert.equal((await kit.call('tab.get', { tab_id: tabId })).tab.label, 'Umer tab');
+      assert.equal((await kit.call('pane.get', { pane_id: left })).pane.label, 'umer-left');
+      assert.equal((await kit.call('workspace.get', { workspace_id: workspaceId })).workspace.label, 'Umer desk');
+
+      await kit.focus({ pane: right });
+      assert.equal((await kit.call('pane.get', { pane_id: right })).pane.focused, true, 'the focused pane reads back focused');
+      assert.equal((await kit.call('pane.get', { pane_id: left })).pane.focused, false);
+
+      // The real server lays the tree out in a fresh tab; the fake moves the named panes. Both answer
+      // the applied tree, and the first leaf reads back at a quarter of the width, left of the second.
+      const applied = await kit.layout({
+        workspaceId, tabLabel: 'Umer layout', focus: false,
+        root: { type: 'split', direction: 'right', ratio: 0.25,
+          first: { type: 'pane', pane_id: right }, second: { type: 'pane', pane_id: left } },
+      });
+      const root = applied.layout.root as { type: string; first?: { pane_id?: string }; second?: { pane_id?: string } };
+      assert.equal(root.type, 'split');
+      const first = root.first?.pane_id;
+      const second = root.second?.pane_id;
+      assert.equal(typeof first, 'string');
+      assert.equal((await kit.call('tab.get', { tab_id: applied.layout.tab_id })).tab.label, 'Umer layout');
+      const rects = (await kit.call('pane.layout', { pane_id: first! })).layout.panes;
+      const firstRect = rects.find((p) => p.pane_id === first)!.rect;
+      const secondRect = rects.find((p) => p.pane_id === second)!.rect;
+      assert.ok(firstRect.x < secondRect.x && firstRect.width < secondRect.width,
+        `the 0.25 split reads back narrower on the left: ${JSON.stringify(rects)}`);
+
+      // A Herdr refusal surfaces Herdr's own code and sentence; a target that is not exactly one never calls.
+      await assert.rejects(kit.rename({ pane: `${workspaceId}:p99`, label: 'x' }),
+        (e: Error & { code?: string }) => e.code === 'pane_not_found' && e.message.startsWith('herdr: pane_not_found: '));
+      await assert.rejects(kit.focus({ tab: 'w99:t1' }), (e: Error & { code?: string }) => e.code === 'tab_not_found');
+      await assert.rejects(kit.focus({}), /focus picks exactly one of pane, tab or workspace/);
+      await assert.rejects(kit.rename({ pane: left, tab: tabId, label: 'x' }), /rename picks exactly one/);
+    });
+  });
+
   test('contract: the cli answers --version and the terminal echoes', async () => {
     await bench(async ({ kit }) => {
       await kit.start();
