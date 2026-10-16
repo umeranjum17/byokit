@@ -1,0 +1,1 @@
+- The README states platform support: Linux supported, macOS not yet verified, Windows unsupported.
