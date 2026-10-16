@@ -1,12 +1,21 @@
 <!doctype html>
 <html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Voice</title><link rel="stylesheet" href="/voice.css">
-<body><main id="screen" data-state="signed-out">
-<header><h1>Voice</h1><p>Runs on your ChatGPT plan.</p></header>
-<section id="sign-in-panel"><p>Sign in once with your ChatGPT account to start talking.</p>
-<button id="sign-in" class="pill">Sign in with ChatGPT</button><p id="code"></p><a id="authorize" class="pill" hidden target="_blank" rel="noopener">Approve sign-in</a></section>
+<body><main id="screen" data-state="pick">
+<header><h1>Voice</h1><p id="plan-line">Choose a plan or key.</p></header>
+<section id="pick-panel"><p>Talk with one of these. Your pick stays until you change it yourself.</p>
+<div id="providers"></div></section>
+<section id="sign-in-panel" hidden><p>Sign in once with your ChatGPT account to start talking.</p>
+<button id="sign-in" class="pill">Sign in with ChatGPT</button><p id="code"></p><a id="authorize" class="pill" hidden target="_blank" rel="noopener">Approve sign-in</a>
+<button id="back-sign-in" class="link">Choose a different plan or key</button></section>
+<section id="key-panel" hidden><p>Paste your <b id="key-name"></b> key to start talking.</p>
+<input id="api-key" type="password" autocomplete="off" spellcheck="false" placeholder="API key" aria-label="API key">
+<p id="key-note">Billed per use by the provider.</p>
+<button id="connect" class="pill">Connect</button><p id="key-error" role="alert"></p>
+<button id="back-key" class="link">Choose a different plan or key</button></section>
 <section id="talk-panel" hidden>
 <button id="talk" aria-pressed="false" aria-label="Talk" aria-describedby="status"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
 <output id="status" aria-live="polite"></output><p class="hint">Tap, say “Hello from BYOKit.”, then tap again.</p>
-<ol id="transcript" aria-label="Conversation"></ol></section>
+<ol id="transcript" aria-label="Conversation"></ol>
+<button id="change" class="link" hidden>Choose another plan or key</button></section>
 <footer>Nothing is recorded. Each conversation ends after 40 seconds.</footer>
 <audio id="audio" autoplay></audio></main><script type="module" src="/voice.js"></script></body></html>

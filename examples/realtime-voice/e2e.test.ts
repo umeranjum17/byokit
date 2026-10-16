@@ -9,6 +9,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Page } from 'playwright';
+import { providers } from '../../packages/realtime/src/index.ts';
 import { trackChild } from '../../packages/test-support.ts';
 
 const server = fileURLToPath(new URL('./server.ts', import.meta.url));
@@ -38,6 +39,8 @@ const openVoicePage = async (origin: string) => {
     navigator.mediaDevices.getUserMedia = async (constraints) => { seen.captures++; if (seen.slow) await new Promise((resolve) => setTimeout(resolve, seen.slow)); const stream = await capture(constraints); seen.tracks.push(...stream.getTracks()); return stream; };
   });
   await page.goto(origin);
+  await page.waitForFunction(() => document.getElementById('screen')?.dataset.state === 'pick', undefined, { timeout: 30000 });
+  await page.click('[data-provider="chatgpt"]');
   await page.waitForFunction(() => document.getElementById('screen')?.dataset.state === 'signed-out', undefined, { timeout: 30000 });
   await page.click('#sign-in');
   await Promise.all([context.waitForEvent('page'), page.click('#authorize')]);
@@ -76,7 +79,7 @@ test('offline voice: stand-in sign-in, tap to talk twice, then a blocked microph
   const words: Record<string, string> = {}, texts: string[] = [];
   const reach = async (state: string, width: number) => {
     await page.waitForFunction((s) => document.getElementById('screen')?.dataset.state === s, state, { timeout: 30000 });
-    words[state] = await page.locator('#status').innerText();
+    if (state !== 'pick') words[state] = await page.locator('#status').innerText(); // the pick screen has no status line
     texts.push(await page.evaluate(() => `${document.title}\n${document.body.innerText}`));
     for (const colorScheme of stills ? ['light', 'dark'] as const : []) { // colour fades jump to their end
       await page.emulateMedia({ colorScheme });
@@ -96,9 +99,12 @@ test('offline voice: stand-in sign-in, tap to talk twice, then a blocked microph
     await reach('idle', width);
   };
   await page.goto(origin);
-  await reach('signed-out', 390);
+  await reach('pick', 390);
   await page.setViewportSize({ width: 320, height: 844 });
-  await reach('signed-out', 320);
+  await reach('pick', 320);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.click('[data-provider="chatgpt"]');
+  await reach('signed-out', 390);
   await page.click('#sign-in');
   // The stand-in sign-in opens where ChatGPT's approval page would, and becomes the voice peer.
   await Promise.all([context.waitForEvent('page'), page.click('#authorize')]);
@@ -116,10 +122,10 @@ test('offline voice: stand-in sign-in, tap to talk twice, then a blocked microph
   await reach('error', 390);
   const states = await page.evaluate(() => (window as unknown as { states: string[] }).states);
   const call = ['idle', 'listening', 'thinking', 'speaking', 'idle'];
-  assert.deepEqual(states, ['signed-out', 'idle', 'connecting', ...call.slice(1), 'connecting', ...call.slice(1), 'connecting', 'error'].filter((s, i, all) => s !== all[i - 1]));
+  assert.deepEqual(states, ['pick', 'signed-out', 'idle', 'connecting', ...call.slice(1), 'connecting', ...call.slice(1), 'connecting', 'error'].filter((s, i, all) => s !== all[i - 1]));
   assert.equal(new Set(Object.values(words)).size, Object.keys(words).length, `each state reads differently: ${JSON.stringify(words)}`);
   assert.equal(words.idle, 'Tap to talk');
-  assert.match(texts.join('\n'), /ChatGPT plan/);
+  assert.match(texts.join('\n'), /Runs on ChatGPT voice\./);
   assert.deepEqual(texts.join('\n').match(/gpt-|codex|realtime|webrtc|sdp/gi), null);
   const final = await until((p) => p.stopped === true);
   for (const key of ['signedIn', 'signalingAnswered', 'connected', 'microphone', 'stopped']) assert.equal(final[key], true, key);
@@ -127,6 +133,54 @@ test('offline voice: stand-in sign-in, tap to talk twice, then a blocked microph
   assert.equal(final.error, false);
   assert.deepEqual(Object.values(final).filter((v) => typeof v === 'string'), [], '/proof keeps counts, never text');
   assert.deepEqual(errors, []);
+  // A failure keeps the pick and hands the choice back: the change button leads to the pick screen.
+  await page.waitForFunction(() => !(document.getElementById('change') as HTMLButtonElement | undefined)?.hidden, undefined, { timeout: 30000 });
+  await page.click('#change');
+  await page.waitForFunction(() => document.getElementById('screen')?.dataset.state === 'pick', undefined, { timeout: 30000 });
+  assert.equal(await page.locator('#providers .pick').count(), providers.length);
+});
+
+test('offline pick: every provider the kit lists reaches its sign-in or key step', async () => {
+  const origin = await start({ BYOKIT_EXAMPLE_FAKE: '1' });
+  const proof = async () => (await fetch(`${origin}/proof`)).json() as Promise<Record<string, boolean | number>>;
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const page = await context.newPage();
+  await page.goto(origin);
+  await page.waitForFunction(() => document.getElementById('screen')?.dataset.state === 'pick', undefined, { timeout: 30000 });
+  // The pick rows are exactly the realtime kit's own catalogue — no hand list on the page.
+  const rows = await page.evaluate(() => [...document.querySelectorAll('#providers .pick')].map((row) => [ (row as HTMLElement).dataset.provider, row.textContent ]));
+  assert.deepEqual(rows.map(([id]) => id), providers.map((p) => p.id));
+  for (const [index, p] of providers.entries()) assert.match(String(rows[index]?.[1]), new RegExp(`${p.name.replace(/[/\\]/g, '\\$&')}.*${p.planSignIn ? 'Sign in with your plan' : 'billed per use'}`, 's'));
+  // An unknown provider is refused by the server, in plain words on the key form.
+  const refused = await fetch(`${origin}/login`, { method: 'POST', headers: { origin, 'content-type': 'application/json' }, body: JSON.stringify({ provider: 'nope', key: 'x' }) });
+  assert.equal(refused.status, 400);
+  // Each key provider reaches its key step and back again; nothing talks, so nothing dials out.
+  for (const p of providers.filter((p) => !p.planSignIn)) {
+    await page.click(`[data-provider="${p.id}"]`);
+    await page.waitForFunction(() => !document.getElementById('key-panel')?.hidden, undefined, { timeout: 30000 });
+    assert.equal(await page.locator('#key-name').innerText(), p.name);
+    await page.click('#back-key');
+    await page.waitForFunction(() => document.getElementById('screen')?.dataset.state === 'pick', undefined, { timeout: 30000 });
+  }
+  // A pasted key connects without any sign-in, and the page names the provider it runs on.
+  await page.click('[data-provider="openai"]');
+  await page.waitForFunction(() => !document.getElementById('key-panel')?.hidden, undefined, { timeout: 30000 });
+  await page.fill('#api-key', 'sk-test-offline');
+  await page.click('#connect');
+  await page.waitForFunction(() => document.getElementById('screen')?.dataset.state === 'idle', undefined, { timeout: 30000 });
+  assert.match(await page.locator('#plan-line').innerText(), /Runs on OpenAI\./);
+  assert.equal((await proof()).signedIn, true);
+  // A fresh visit keeps the pick screen (the server's sign-in alone never opens the talk screen).
+  const revisit = await context.newPage();
+  await revisit.goto(origin);
+  await revisit.waitForFunction(() => document.getElementById('screen')?.dataset.state === 'pick', undefined, { timeout: 30000 });
+  // An empty key stays on the form with the reason shown; the talk screen never opens.
+  await revisit.click('[data-provider="gemini"]');
+  await revisit.waitForFunction(() => !document.getElementById('key-panel')?.hidden, undefined, { timeout: 30000 });
+  await revisit.click('#connect');
+  await revisit.waitForFunction(() => (document.getElementById('key-error') as HTMLElement).textContent !== '', undefined, { timeout: 30000 });
+  assert.equal(await revisit.evaluate(() => document.getElementById('talk-panel')?.hidden), true);
+  await context.close();
 });
 
 test('a tap while connecting cancels before the microphone opens', async () => {
