@@ -11,7 +11,7 @@ import { build } from 'esbuild';
 const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
 const TYPES: Record<string, string> = { html: 'text/html', js: 'text/javascript', webmanifest: 'application/manifest+json', png: 'image/png', ico: 'image/x-icon', svg: 'image/svg+xml' };
 /** The provider endpoints that don't answer other web pages, which the page asks through `/fwd/<name>/…` instead. */
-const UPSTREAM: Record<string, string> = { chatgpt: 'https://chatgpt.com/', claude: 'https://platform.claude.com/', anthropic: 'https://api.anthropic.com/' };
+const UPSTREAM: Record<string, string> = { chatgpt: 'https://chatgpt.com/', claude: 'https://platform.claude.com/', anthropic: 'https://api.anthropic.com/', opencode: 'https://opencode.ai/' };
 const DROP = /^(host|origin|referer|cookie|connection|content-length|accept-encoding|user-agent|sec-|proxy-)/i;
 
 const body = (req: import('node:http').IncomingMessage) => new Promise<Buffer>((resolve, reject) => {

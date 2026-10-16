@@ -180,14 +180,15 @@ test('Add an OpenCode Go plan account: its row opens the paste-key form, a paste
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(String(e)));
     // The kit lists the key's workspaces on OpenCode's console before it saves a Go key: one workspace here, never the
-    // real network. The first answer cannot be read (a server error): the form shows the kit's typed words and keeps nothing.
+    // real network; the page's own server carries the call. The first answer cannot be read (a server error): the form
+    // shows the kit's typed words and keeps nothing. The usage read stays unanswered either way, so the row keeps its
+    // unknown room.
     let consoleDown = true;
-    await page.route('https://opencode.ai/console/api/orgs', (route) => {
-      const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, accept' };
-      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
-      return consoleDown ? route.fulfill({ status: 503, headers: cors, body: '' })
-        : route.fulfill({ status: 200, headers: cors, json: [{ id: 'org_WORKING2', name: 'Working2' }] });
+    await page.route('**/fwd/opencode/console/api/orgs', (route) => {
+      return consoleDown ? route.fulfill({ status: 503, body: '' })
+        : route.fulfill({ status: 200, contentType: 'application/json', json: [{ id: 'org_WORKING2', name: 'Working2' }] });
     });
+    await page.route('**/fwd/opencode/zen/go/v1/usage', (route) => route.fulfill({ status: 401, body: '' }));
     await page.goto(site.url);
     await part(page, 'opencode', 'signin').waitFor();
     assert.equal(await part(page, 'opencode', 'billing').textContent(), 'Plan');
@@ -204,6 +205,7 @@ test('Add an OpenCode Go plan account: its row opens the paste-key form, a paste
     // The form opens on the card's async redraw, so wait for it instead of asserting one synchronous frame.
     await part(page, 'opencode', 'paste').waitFor({ state: 'visible' });
     assert.equal(await part(page, 'opencode', 'pasted').getAttribute('placeholder'), 'Paste the key from your plan');
+    assert.equal(await part(page, 'opencode', 'pasted').getAttribute('type'), 'password', 'a plan key is collected with hidden typing');
     await part(page, 'opencode', 'pasted').fill('fake-go-plan-key-canary');
     await part(page, 'opencode', 'connect').click();
     await page.locator('#opencode').getByText('Couldn’t reach OpenCode to check this key’s workspaces. Check the internet connection, then try again.').waitFor();
@@ -221,6 +223,56 @@ test('Add an OpenCode Go plan account: its row opens the paste-key form, a paste
 
     await part(page, 'opencode', 'signout').click();
     await part(page, 'opencode', 'signin').waitFor();
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('Add an OpenCode Go account whose key acts for several workspaces: the pick shows, the chosen workspace connects, its usage shows', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext({ serviceWorkers: 'block' });
+  try {
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    // The kit answers a multi-workspace key with typed workspaces, nothing saved yet; the page's own server
+    // carries the console and Go calls, so both stand-ins ride the same origin here.
+    const soon = new Date(Date.now() + 3_600_000).toISOString();
+    await page.route('**/fwd/opencode/console/api/orgs', (route) => route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify([{ id: 'wrk_01', name: 'Default' }, { id: 'wrk_02', name: 'Working' }]) }));
+    await page.route('**/fwd/opencode/zen/go/v1/usage', (route) => route.fulfill({ status: 200, contentType: 'application/json',
+      body: JSON.stringify({ usage: { rolling: { status: 'ok', percent: 20, resetsAt: soon },
+        weekly: { status: 'ok', percent: 10, resetsAt: soon }, monthly: { status: 'rate-limited', percent: 100, resetsAt: soon } } }) }));
+    await page.goto(site.url);
+    await part(page, 'opencode', 'signin').waitFor();
+    await page.locator('#add-open').click();
+    await page.locator('[data-route="opencode:plan_key:opencode-go"]').click();
+    await part(page, 'opencode', 'paste').waitFor({ state: 'visible' });
+    await part(page, 'opencode', 'pasted').fill('fake-go-plan-key-canary');
+    await part(page, 'opencode', 'connect').click();
+    // The key alone connects nothing: the pick shows first, and cancel keeps everything.
+    const pick = part(page, 'opencode', 'workspaces');
+    await pick.waitFor({ state: 'visible' });
+    assert.match((await part(page, 'opencode', 'words').textContent())!, /workspace/i);
+    await part(page, 'opencode', 'cancel').click();
+    await part(page, 'opencode', 'signin').waitFor();
+    assert.equal(await pick.isVisible(), false, 'cancel drops the pick and the kept key');
+
+    // Again, and this time pick the workspace: the account connects and its usage windows show.
+    await page.locator('#add-open').click();
+    await page.locator('[data-route="opencode:plan_key:opencode-go"]').click();
+    await part(page, 'opencode', 'paste').waitFor({ state: 'visible' });
+    await part(page, 'opencode', 'pasted').fill('fake-go-plan-key-canary');
+    await part(page, 'opencode', 'connect').click();
+    await pick.waitFor({ state: 'visible' });
+    await pick.selectOption({ label: 'Working' });
+    await part(page, 'opencode', 'connect').click();
+    await part(page, 'opencode', 'status').filter({ hasText: /is connected/ }).waitFor();
+    await page.locator('#opencode [data-room]').filter({ hasText: '0% left this month' }).waitFor();
+    await page.locator('#opencode [data-window]').filter({ hasText: 'Session: 80% left' }).waitFor();
+    await page.locator('#opencode [data-window]').filter({ hasText: 'Month: 0% left' }).waitFor();
+
+    await page.reload();
+    await part(page, 'opencode', 'status').filter({ hasText: /is connected/ }).waitFor(); // kept in this browser's stores
+    await page.locator('#opencode [data-room]').filter({ hasText: '0% left this month' }).waitFor();
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });

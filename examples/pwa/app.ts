@@ -17,7 +17,7 @@ declare const __BYOKIT_AUTH_BASE__: string | undefined;
 declare const __BYOKIT_DEVICE_BASE__: string | undefined;
 // ChatGPT's model endpoint and Claude's sign-in endpoints don't answer other web pages, so this page asks them through
 // its own server (serve.ts), which passes each request on unchanged and keeps nothing.
-const FORWARD: Record<string, string> = { 'https://chatgpt.com/': 'fwd/chatgpt/', 'https://platform.claude.com/': 'fwd/claude/', 'https://api.anthropic.com/': 'fwd/anthropic/' };
+const FORWARD: Record<string, string> = { 'https://chatgpt.com/': 'fwd/chatgpt/', 'https://platform.claude.com/': 'fwd/claude/', 'https://api.anthropic.com/': 'fwd/anthropic/', 'https://opencode.ai/': 'fwd/opencode/' };
 const forwarded: typeof fetch = (input, init) => {
   const url = String(input instanceof Request ? input.url : input);
   const from = Object.keys(FORWARD).find((f) => url.startsWith(f));
@@ -72,13 +72,42 @@ async function readingFor(id: string): Promise<Reading | undefined> {
   } catch { return undefined; }
 }
 
+/** The OpenCode Go plan's usage windows, read through the page's own server with the saved plan key and its
+ *  workspace (a Go login refuses every call until its workspace is named); undefined when they cannot be read. */
+async function goReading(): Promise<Reading | undefined> {
+  try {
+    const go = accounts.opencodeGo(ME);
+    const [key, workspace] = await Promise.all([go.access(AbortSignal.timeout(8000)), (go.workspace?.(AbortSignal.timeout(8000)) ?? Promise.resolve(''))]);
+    const res = await forwarded('https://opencode.ai/zen/go/v1/usage',
+      { headers: { authorization: `Bearer ${key}`, ...(workspace ? { 'x-opencode-org-id': workspace } : {}) }, signal: AbortSignal.timeout(8000) });
+    if (!res.ok) return undefined;
+    const raw: any = await res.json();
+    const panes: Window[] = [];
+    const take = (kind: Window['kind'], w: any) => {
+      if (typeof w?.percent !== 'number' || !['ok', 'rate-limited'].includes(w?.status)) return;
+      panes.push({ provider: 'opencode', usedPercent: w.percent, kind,
+        ...(typeof w.resetsAt === 'string' && Number.isFinite(Date.parse(w.resetsAt)) ? { resetsAt: Date.parse(w.resetsAt) } : {}),
+        ...(w.status === 'rate-limited' ? { limited: true as const } : {}) });
+    };
+    take('session', raw?.usage?.rolling);
+    take('weekly', raw?.usage?.weekly);
+    take('monthly', raw?.usage?.monthly);
+    return { provider: 'opencode', windows: panes, at: Date.now() };
+  } catch { return undefined; }
+}
+
 /** Fresh readings for these rows, reusing ones from seconds ago so neither paint nor Ask waits on quota. */
 async function readReadings(rows: Account[]): Promise<Map<string, Reading | undefined>> {
   const readings = new Map<string, Reading | undefined>();
   await Promise.all(rows.map(async (a) => {
     const kept = readingCache.get(a.id);
-    if (kept && Date.now() - kept.asked < ROOM_TTL_MS) { readings.set(a.id, kept.reading); return; }
-    const reading = (a.provider === 'chatgpt' ? await readingFor(a.id) : undefined) ?? kept?.reading;
+    // A fresh reading is reused; a failed one (the account was signed out) is not worth keeping once the row is
+    // ready, or the row would stare at its unknown room for a full minute after connecting.
+    if (kept && Date.now() - kept.asked < ROOM_TTL_MS && (kept.reading || a.state !== 'ready')) { readings.set(a.id, kept.reading); return; }
+    // Go usage reads the one Go account's saved key and workspace; with several Go accounts the key
+    // seam is route-wide, so each row keeps its unknown room rather than showing another row's numbers.
+    const reading = (a.provider === 'chatgpt' ? await readingFor(a.id)
+      : a.provider === 'opencode' && rows.filter((r) => r.provider === 'opencode').length === 1 ? await goReading() : undefined) ?? kept?.reading;
     readingCache.set(a.id, { reading, asked: Date.now() });
     readings.set(a.id, reading);
   }));
@@ -140,6 +169,8 @@ function card(key: string) {
   q('open').textContent = `Open ${name}`;
   q('connect').textContent = 'Connect';
   q<HTMLInputElement>('pasted').placeholder = keyMode ? 'Paste the key from your plan' : `Paste the code from the ${name} page`;
+  // A plan key is a secret: the kit's own words are "hidden typing", unlike a sign-in code pasted back in the open.
+  q<HTMLInputElement>('pasted').type = keyMode ? 'password' : 'text';
   q<HTMLTextAreaElement>('question').placeholder = `Ask ${name} something`;
   q('question').hidden = q('ask').hidden = !answers;
 
@@ -297,6 +328,11 @@ function card(key: string) {
   let pendingAdd: string | undefined;
   // A key card's paste box, open without any sign-in flow behind it.
   let keyOpen = false;
+  // A Go key that acts for several workspaces comes back typed, nothing saved yet: the box keeps the key in
+  // memory only while the person picks the workspace, then connects again with it. One workspace never asks.
+  let workspaces: { id: string; name: string }[] | undefined;
+  let pendingKey = '';
+  const resetPick = () => { workspaces = undefined; pendingKey = ''; };
   let cancelledHere = false;
   let signedIn = false;
   type Said = { tone: '' | 'error' | 'expired' | 'info'; words: string };
@@ -366,8 +402,12 @@ function card(key: string) {
       show('paste', key === 'claude');
     } else if (keyForm) {
       // The paste box is the whole form: a failed save keeps its words here, under the box it came from.
+      // With a workspace pick waiting, the box swaps the field for the pick; the key stays in memory only.
+      const picking = !!workspaces;
       banner(failure?.tone ?? '', failure?.words ?? '');
-      q('words').textContent = 'Paste the key from your plan.';
+      q<HTMLSelectElement>('workspaces').hidden = !picking;
+      q<HTMLInputElement>('pasted').hidden = picking;
+      q('words').textContent = picking ? 'This key works for more than one workspace. Pick the one to connect for.' : 'Paste the key from your plan.';
       show('codewell', false);
       show('open', false);
       show('paste', true);
@@ -405,7 +445,7 @@ function card(key: string) {
   const signIn = () => { failure = undefined; banner('', ''); return accounts.login(ME, key).then(draw); };
   const addAnother = async () => {
     // Another key account is another pasted key on the same box.
-    if (keyMode) { keyOpen = true; failure = undefined; banner('', ''); draw(); return; }
+    if (keyMode) { keyOpen = true; resetPick(); failure = undefined; banner('', ''); draw(); return; }
     failure = undefined;
     note('');
     try {
@@ -420,27 +460,41 @@ function card(key: string) {
   // A key row opens the paste box instead, whether or not an account is already connected.
   const start = () => {
     if (keyMode && keyRoute && accounts.view(ME, key)?.state !== 'waiting' && !pendingAdd) {
-      if (!keyOpen) { keyOpen = true; failure = undefined; banner('', ''); }
+      if (!keyOpen) { keyOpen = true; resetPick(); failure = undefined; banner('', ''); }
       return draw();
     }
     return (pendingAdd || accounts.view(ME, key)?.state === 'waiting' ? draw() : signedIn ? addAnother() : signIn());
   };
   q('cancel').onclick = () => {
     // Closing the paste box keeps nothing and says nothing: there was no sign-in to stop.
-    if (keyMode && keyOpen) { keyOpen = false; failure = undefined; banner('', ''); draw(); return; }
+    if (keyMode && keyOpen) { keyOpen = false; resetPick(); failure = undefined; banner('', ''); draw(); return; }
     cancelledHere = true;
     accounts.cancel(ME, pendingAdd ?? key);
     pendingAdd = undefined;
   };
   q('connect').onclick = () => {
     const pasted = q<HTMLInputElement>('pasted');
-    if (!pasted.value.trim()) return pasted.focus();
+    const pick = q<HTMLSelectElement>('workspaces');
+    if (!pick.hidden && !pick.value) return pick.focus();
+    if (pick.hidden && !pasted.value.trim()) return pasted.focus();
     // A key card saves the pasted plan key straight onto its key route; the save's own words stay on the box.
+    // A key acting for several workspaces comes back typed instead: the box shows the pick and connects again
+    // with the chosen workspace, the key never leaving this card's memory.
     if (keyMode && keyOpen && keyRoute) {
       const btn = q<HTMLButtonElement>('connect');
       btn.disabled = true;
-      accounts.add(ME, keyRoute.id, { key: pasted.value.trim() }).then(
-        () => { pasted.value = ''; keyOpen = false; failure = undefined; },
+      const key = workspaces ? pendingKey : pasted.value.trim();
+      const attempt = workspaces ? accounts.add(ME, keyRoute.id, { key, workspace: pick.value })
+        : accounts.add(ME, keyRoute.id, { key });
+      attempt.then((added) => {
+          if (added.workspaces?.length) {
+            workspaces = added.workspaces;
+            pendingKey = key;
+            pick.replaceChildren(...added.workspaces.map((w) => { const o = document.createElement('option'); o.value = w.id; o.textContent = w.name; return o; }));
+            return; // the box stays open for the pick; draw() shows it
+          }
+          pasted.value = ''; keyOpen = false; failure = undefined; resetPick();
+        },
         (e: any) => { failure = { tone: 'error', words: e.message }; },
       ).finally(() => { btn.disabled = false; draw(); });
       return;
