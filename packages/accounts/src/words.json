@@ -13,6 +13,7 @@
   "signIn.notIncluded": "Your {name} plan doesn't include this yet. Try another account.",
   "signIn.failed": "{name} didn't finish the sign-in. Tap Sign in with {name} to try again.",
   "status.ready": "{name} is connected.",
+  "connect.workspace": "This key works with more than one workspace. Pick the one to use.",
   "status.signing": "Signing in to {name}\u2026",
   "status.resting": "{name} is resting until {until}.",
   "status.busy": "{name} is busy right now.",

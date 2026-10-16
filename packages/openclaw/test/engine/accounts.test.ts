@@ -708,3 +708,63 @@ test('removeAccount with a seal: the sealed store is resealed at once, no file h
     assert.ok((await kit.providers('m1')).includes('openai'), 'restart keeps the member sign-in');
   } finally { await kit.stop(); }
 });
+
+// The workspace rule on the real pinned engine: the Go gateway refuses a multi-workspace login until its
+// workspace is named, and `addKey`'s stored workspace rides the activation probe and the first chat.
+test('addKey: a Go plan key with its workspace is probed and chats with x-opencode-org-id; without it the gateway refuses', { timeout: 900_000 }, async () => {
+  const dir = scratchDir('o14-go-workspace-header');
+  const stateDir = join(dir, 'state');
+  // A Go gateway that refuses every Go-route request unless it names org_WORKING2, on the loopback only.
+  const goStub = await startModelStub([], { goWorkspace: 'org_WORKING2' });
+  const key = 'byokit-go-stand-in-key-7781';
+  const preload = join(dir, 'go-workspace-fake.mjs');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(preload, `
+import { mock } from 'node:test';
+const fetch = globalThis.fetch;
+mock.method(globalThis, 'fetch', (input, options) => {
+  const url = new URL(input instanceof Request ? input.url : input);
+  if (url.origin === 'https://opencode.ai') {
+    const base = new URL(${JSON.stringify(goStub.url)});
+    url.protocol = base.protocol; url.host = base.host;
+    input = input instanceof Request ? new Request(url, input) : url;
+  }
+  return fetch(input, options);
+});
+`, { mode: 0o600 });
+  const spawn = childProcess.spawn;
+  mock.method(childProcess, 'spawn', (...args: Parameters<typeof spawn>) => {
+    const [file, argv, options] = args;
+    if (file === process.execPath && Array.isArray(argv) && argv[1] === 'gateway')
+      return spawn(file, ['--import', pathToFileURL(preload).href, ...argv], options);
+    return spawn(...args);
+  });
+  syncBuiltinESMExports();
+  const kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), callbackPort: 0 });
+  try {
+    await kit.start();
+    const go = (from: number, bearer: string) => goStub.calls.slice(from).filter((c) => c.authorization === `Bearer ${bearer}` && c.path.startsWith('/zen/go/'));
+    // Without the workspace the probe is refused and nothing is kept.
+    const refused = await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: key });
+    assert.ok(refused.status !== 'ok', JSON.stringify(refused));
+    const refusedCalls = go(0, key);
+    assert.ok(refusedCalls.length, 'the probe reached the gateway');
+    assert.ok(refusedCalls.every((c) => c.org === undefined), JSON.stringify(refusedCalls.map((c) => c.org)));
+    assert.deepEqual(await kit.callDynamic('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
+    // With the workspace the same key is accepted, and the first chat runs on it, header on every call.
+    const start = goStub.calls.length;
+    const accepted = await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: key, orgId: 'org_WORKING2' });
+    assert.deepEqual(accepted, { status: 'ok' });
+    const probe = go(start, key);
+    assert.ok(probe.length && probe.every((c) => c.org === 'org_WORKING2' && c.session), `probe: ${JSON.stringify(probe.map((c) => [c.org, !!c.session]))}`);
+    const before = goStub.calls.length;
+    const texts: string[] = [];
+    const end = await kit.run({ member: 'm2', auth: 'apiKey', sessionKey: 'agent:m2:o14:go-ws', message: 'hello go' }, (e) => { if (e.type === 'text') texts.push(e.text); });
+    assert.ok(end.ok, JSON.stringify(end));
+    assert.ok(texts.length && end.usage?.total, 'streamed with usage');
+    const calls = go(before, key);
+    assert.ok(calls.length && calls.every((c) => c.org === 'org_WORKING2' && c.body.model === 'deepseek-v4-pro' && c.session),
+      JSON.stringify(calls.map((c) => [c.org, c.body.model, !!c.session])));
+    assert.ok(!JSON.stringify([end, texts]).includes(key), 'the key is never shown');
+  } finally { await kit.stop(); await goStub.close(); mock.restoreAll(); syncBuiltinESMExports(); }
+});

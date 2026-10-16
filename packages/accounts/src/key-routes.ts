@@ -9,12 +9,13 @@ export type KeyAsk<T extends Api = Api> = {
   onText?: (delta: string) => void; onEvent?: (event: AssistantMessageEvent) => void;
 };
 export class KeyRouteError extends Error {
-  readonly code: 'unsupported_platform' | 'needs_host' | 'needs_keys' | 'no_upstream_flow' | 'provider' | 'request' | 'aborted' | 'auth_override';
+  readonly code: 'unsupported_platform' | 'needs_host' | 'needs_keys' | 'no_upstream_flow' | 'provider' | 'request' | 'needs_workspace' | 'aborted' | 'auth_override';
   constructor(code: KeyRouteError['code']) {
     super({ unsupported_platform: 'This model adapter is not available on this platform.', needs_host: 'This model adapter needs an isolated app-owned host.',
       needs_keys: 'Key routes need the @byokit/accounts/keys entry: withKeys(platform).',
       no_upstream_flow: 'This sign-in method is not in the pinned upstream.', provider: 'Choose a model from this account’s provider.',
-      request: 'This account could not answer. Try again.', aborted: 'The request was cancelled.',
+      request: 'This account could not answer. Try again.', needs_workspace: 'This account works with more than one workspace. Pick the one to use and connect it again.',
+      aborted: 'The request was cancelled.',
       auth_override: 'A prebuilt client owns its own sign-in. Use the native adapter explicitly.' }[code]);
     this.name = 'KeyRouteError'; this.code = code;
   }
@@ -93,8 +94,13 @@ export async function keyRespond<T extends Api>(r: Route, access: string | Model
     } } as unknown as ModelsApiStreamOptions<T>);
     for await (const raw of stream) {
       const event = publicValue(raw, secrets);
-      // Pi error events carry raw diagnostics; the public error is intentionally bounded.
-      if (event.type === 'error') throw new KeyRouteError(event.reason === 'aborted' ? 'aborted' : 'request');
+      // Pi error events carry raw diagnostics; the public error is intentionally bounded. The gateway's own
+      // workspace refusal names its cause, so it maps to its own typed words instead of the generic retry.
+      if (event.type === 'error') {
+        const reason = (event as { error?: { errorMessage?: unknown } }).error?.errorMessage;
+        throw new KeyRouteError(typeof reason === 'string' && /workspace selection is required/i.test(reason) ? 'needs_workspace'
+          : event.reason === 'aborted' ? 'aborted' : 'request');
+      }
       ask.onEvent?.(event);
       if (event.type === 'text_delta') ask.onText?.(event.delta);
     }

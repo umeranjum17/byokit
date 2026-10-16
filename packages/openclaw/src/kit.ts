@@ -705,7 +705,8 @@ export class OpenClawKit {
       request: (method, params, options) => this.request()(method, params, options),
       ensure: (member) => this.ensureMember(member),
       authConfig: () => this.authSnapshot(),
-      restarted: (authBefore, signal) => this.restarted(authBefore, signal) });
+      restarted: (authBefore, signal) => this.restarted(authBefore, signal),
+      setProviderHeaders: (provider, headers) => this.patchConfig({ models: { providers: { [provider]: { headers: headers ?? null } } } }) });
     const slot: { bridge?: Pick<Bridge, 'resolveAsk'> } = {};
     this.approvalsCtl = new Approvals({
       request: (method, params, co) => this.request()(method, params, co),
@@ -1070,8 +1071,10 @@ export class OpenClawKit {
     return this.accountsCtl.setDefaults(member, d);
   }
 
-  /** Save an explicitly supplied API key (billed per use) in this member's separate key agent. */
-  addKey(agentId: Member, o: { authChoice: string; apiKey: string; model?: string }): AddKeyHandle {
+  /** Save an explicitly supplied API key (billed per use) in this member's separate key agent.
+   * `orgId` names the workspace a Go plan login acts for (the pick the app captured at connect);
+   * it rides every probe and run as `x-opencode-org-id`, and replacing the key rewrites it. */
+  addKey(agentId: Member, o: { authChoice: string; apiKey: string; model?: string; orgId?: string }): AddKeyHandle {
     return this.keys.add(agentId, o);
   }
 

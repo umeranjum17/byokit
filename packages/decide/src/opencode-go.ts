@@ -15,7 +15,8 @@ import type { OpenAIRequestOptions } from './openai.ts';
 export { UnsupportedAccountError } from './account-error.ts';
 export type { OpenCodeGoAccount };
 /** Either the member's OpenCode Go plan key itself, or the plan account from the
- * @byokit/accounts peer (`accounts.opencodeGo(member)`) that reads it. Never both. */
+ * @byokit/accounts peer (`accounts.opencodeGo(member)`) that reads it. Never both.
+ * An account that carries a workspace names it on every call (`x-opencode-org-id`); a bare key never does. */
 export type OpenCodeGoOptions = RetryOptions & {
   model: string;
   fetch?: typeof fetch;
@@ -63,7 +64,10 @@ export function opencodeGo(o: OpenCodeGoOptions): Backend {
       // `sessionId` option to this header and omits it only when the caller has none; Go rejects
       // the request without it). One decide call is one conversation; retries keep its id.
       const sessionId = globalThis.crypto?.randomUUID?.() ?? Math.random().toString(16).slice(2);
-      const headers = { 'content-type': 'application/json', authorization: `Bearer ${token}`, 'x-opencode-session': sessionId };
+      // A login key that acts for several workspaces is refused until its workspace is named.
+      const workspace = typeof o.key === 'string' || !o.account.workspace ? '' : await o.account.workspace(signal);
+      const headers = { 'content-type': 'application/json', authorization: `Bearer ${token}`, 'x-opencode-session': sessionId,
+        ...(workspace ? { 'x-opencode-org-id': workspace } : {}) };
       const body = { ...request, model: o.model, instructions, input, text };
       const res = await send(`${BASE}/responses`, { method: 'POST', signal, headers, body: JSON.stringify(body) });
       if (!res.ok) {

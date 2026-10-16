@@ -78,6 +78,24 @@ test('an app decides on an OpenCode Go plan account over the Responses endpoint,
   })] }), UnsupportedAccountError);
 });
 
+test('an account with a workspace names it on every Go call; a bare key sends no workspace header', async () => {
+  const orgs: (string | undefined)[] = [];
+  const workspaceAccount = { ...account(), workspace: async () => 'org_WORKING2' };
+  await decide({}, { intent: questions.intent }, { privacy: 'may-leave', backends: [opencodeGo({
+    model: 'muse-spark-1.3-contributor', account: workspaceAccount, fetch: async (_url, init) => {
+      orgs.push((init!.headers as any)['x-opencode-org-id']);
+      return Response.json(fixture.completed);
+    },
+  })] });
+  await decide({}, { intent: questions.intent }, { privacy: 'may-leave', backends: [opencodeGo({
+    model: 'muse-spark-1.3-contributor', account: account(), fetch: async (_url, init) => {
+      orgs.push((init!.headers as any)['x-opencode-org-id']);
+      return Response.json(fixture.completed);
+    },
+  })] });
+  assert.deepEqual(orgs, ['org_WORKING2', undefined], 'the stored workspace rides the call, a bare key stays headerless');
+});
+
 test('a host holding the plain Go plan key decides without the accounts peer, still plan-billed', async () => {
   let sent: any;
   const backend = opencodeGo({ model: 'muse-spark-1.3-contributor', key: 'plan-key', fetch: async (url, init) => {
@@ -188,7 +206,8 @@ test('the accounts peer binds the member’s saved Go plan key for the backend',
   assert.ok(id.startsWith('opencode:plan_key:opencode-go.'));
   const handle = accounts.opencodeGo('Umer');
   assert.equal(handle.billing, 'subscription');
-  assert.deepEqual(Object.keys(handle).sort(), ['access', 'billing', 'provider']);
+  assert.deepEqual(Object.keys(handle).sort(), ['access', 'billing', 'provider', 'workspace']);
+  assert.equal(await handle.workspace!(new AbortController().signal), '', 'a key the console refused needs no workspace');
   assert.equal(await handle.access(new AbortController().signal), 'member-plan-key');
   let sent: any;
   const result = await decide({}, { intent: questions.intent }, { privacy: 'may-leave', backends: [opencodeGo({

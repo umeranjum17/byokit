@@ -76,7 +76,8 @@ const isPlainObject = (v: unknown): v is Record<string, unknown> =>
 function mergeInto(target: Record<string, unknown>, patch: Record<string, unknown>): void {
   for (const [key, value] of Object.entries(patch)) {
     const current = target[key];
-    if (isPlainObject(current) && isPlainObject(value)) mergeInto(current, value);
+    if (value === null) delete target[key]; // JSON merge-patch: null deletes, as the engine's config.patch does.
+    else if (isPlainObject(current) && isPlainObject(value)) mergeInto(current, value);
     else target[key] = value;
   }
 }

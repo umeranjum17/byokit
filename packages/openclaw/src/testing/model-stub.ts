@@ -23,7 +23,7 @@ export type StubRequest = {
   messages?: { role?: string; content?: unknown; name?: unknown; tool_call_id?: unknown }[];
   stream_options?: { include_usage?: boolean };
 };
-export type StubCall = { authorization: string; path: string; body: StubRequest; session?: string };
+export type StubCall = { authorization: string; path: string; body: StubRequest; session?: string; org?: string };
 
 /** The token usage every stub reply reports when asked (`stream_options.include_usage`), per model call. */
 export const STUB_USAGE = { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 } as const;
@@ -65,7 +65,10 @@ const words = (m: { content?: unknown }) =>
  * One loopback HTTP server that speaks the script. `script` queues plain replies consumed one per completion
  * request before the message-embedded grammar applies.
  */
-export type ModelStubOptions = { idPattern?: RegExp; routingMarker?: string; onCall?: (call: StubCall) => void };
+export type ModelStubOptions = { idPattern?: RegExp; routingMarker?: string; onCall?: (call: StubCall) => void;
+  /** The Go gateway's own rule, for tests that prove the workspace header: a Go-route request without
+   *  `x-opencode-org-id` (or with another workspace's) is refused exactly as the real one refuses it. */
+  goWorkspace?: string };
 
 export function startModelStub(script: string[] = [], o: ModelStubOptions = {}): Promise<ModelStub> {
   const calls: StubCall[] = [];
@@ -78,8 +81,15 @@ export function startModelStub(script: string[] = [], o: ModelStubOptions = {}):
     let body: StubRequest;
     try { body = JSON.parse(Buffer.concat(chunks).toString()) as StubRequest; } catch { res.writeHead(400).end(); return; }
     const call = { authorization: String(req.headers.authorization ?? ''), path: req.url ?? '', body,
-      ...(req.headers['x-opencode-session'] ? { session: String(req.headers['x-opencode-session']) } : {}) };
+      ...(req.headers['x-opencode-session'] ? { session: String(req.headers['x-opencode-session']) } : {}),
+      ...(req.headers['x-opencode-org-id'] ? { org: String(req.headers['x-opencode-org-id']) } : {}) };
     calls.push(call); o.onCall?.(call); // Fixture evidence is persisted before any response/hold awaits.
+    if (o.goWorkspace !== undefined && call.path.startsWith('/zen/go/')) {
+      if (call.org !== o.goWorkspace) {
+        res.writeHead(403, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ type: 'error', error: { type: 'permission_error', message: 'Workspace selection is required' } }));
+      }
+    }
     if (req.url === '/api/embed' || req.url === '/api/embeddings') {
       res.writeHead(200, { 'content-type': 'application/json' });
       return res.end(JSON.stringify({

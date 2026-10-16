@@ -24,6 +24,9 @@ export function createKeys(ctx: ActivationCtx & {
   indexLane(member: Member, route: RouteView): Promise<void>;
   dropLane(member: Member, provider?: string): Promise<void>;
   backfillLane(member: Member, model: string | undefined): Promise<void>;
+  /** The provider config headers a live-catalog key's calls and probes must carry (`null` clears them),
+   *  written through the kit's own config patch. The Go workspace header is the one user. */
+  setProviderHeaders(provider: string, headers: Record<string, string> | null): Promise<void>;
 }) {
   // Serialize key replacement and key runs, so an in-flight run never sees a half-installed replacement.
   const tails = new Map<string, Promise<unknown>>();
@@ -82,7 +85,7 @@ export function createKeys(ctx: ActivationCtx & {
   return {
     models,
     exclusive,
-    add(member: Member, o: { authChoice: string; apiKey: string; model?: string }): AddKeyHandle {
+    add(member: Member, o: { authChoice: string; apiKey: string; model?: string; orgId?: string }): AddKeyHandle {
       const ac = new AbortController();
       const cancel = (): void => { if (!ac.signal.aborted) ac.abort(); };
       const done = (async (): Promise<AddKeyResult> => {
@@ -90,6 +93,13 @@ export function createKeys(ctx: ActivationCtx & {
         if (!o.apiKey.trim()) return failure('invalid', 'empty');
         const route = routes().find((r) => r.choice === o.authChoice && r.keyEntry && r.readiness === 'ready');
         if (!route || (o.model !== undefined && !LIVE_CATALOGS.includes(route.provider))) return failure('not_included', 'model');
+        // A workspace names a live-catalog login's own workspace only; another route takes no header, and a
+        // refusal here leaves the member's lanes untouched (it lands before any prepare or activation).
+        const orgId = typeof o.orgId === 'string' ? o.orgId.trim() : '';
+        if (orgId) {
+          if (orgId.length > 256) return failure('invalid', 'auth');
+          if (!LIVE_CATALOGS.includes(route.provider)) return failure('not_included', 'model');
+        }
         if (ac.signal.aborted) return failure('retry', 'busy');
         return exclusive(member, async () => {
           let sent = false;
@@ -112,6 +122,10 @@ export function createKeys(ctx: ActivationCtx & {
             await untilListed(ctx.request, agentId);
             if (ac.signal.aborted) return cancelled();
             if (!(await control(member, 'prepare', route.provider)).ok) return failure('retry', 'engine');
+            // The workspace rides the provider's probe and every run from its config; it is written before the
+            // activation, so the probe itself carries it. The slot is provider-wide (shared by every member's
+            // key on this engine), so a replacement with no `orgId` keeps the standing one and `removeKey` drops it.
+            if (orgId) await ctx.setProviderHeaders(route.provider, { 'x-opencode-org-id': orgId });
             // The public pin's typed API-key path, never a CLI-login import. Discard the engine's lines/errors.
             sent = true;
             if (ac.signal.aborted) return abandon(cancelled());
@@ -170,8 +184,12 @@ export function createKeys(ctx: ActivationCtx & {
           if (!ready) refused();
           else if (ready.ok !== true || providerOf(ready.model ?? '') !== o.provider) return;
         }
+        // The lane's own provider, when the removal can name it: the header clear below is scoped like the removal.
         const cleared = await control(member, 'clear').catch(() => undefined);
         if (cleared?.ok !== true && cleared?.absent !== true) refused();
+        // A workspace header the removed key named must not outlive it; the next add names its own (or none).
+        if (o.provider !== undefined && LIVE_CATALOGS.includes(o.provider))
+          await ctx.setProviderHeaders(o.provider, null).catch(() => { throw new Error('The key could not be removed.'); });
         await ctx.dropLane(member, o.provider);
       });
     },
