@@ -2,6 +2,7 @@
 // Usage: node scripts/ci-changes.ts <base-sha>   (no base: every area runs, as on a push to main)
 // An area runs when a changed file sits under one of its paths or under a shared build input; Markdown never counts.
 // Each area lists its job's packages with their @byokit dependencies, so a change in a dependency still runs the job.
+// `code` is false only for a docs-only change (Markdown, docs/, LICENSE files): the every-PR jobs then skip their tests.
 import { execFileSync } from 'node:child_process';
 
 const kits = (...names: string[]): string[] => names.map((n) => `packages/${n}/`);
@@ -24,6 +25,7 @@ const base = process.argv[2];
 const changed = base
   ? execFileSync('git', ['diff', '--name-only', `${base}...HEAD`], { encoding: 'utf8' }).split('\n').filter((f) => f && !f.endsWith('.md'))
   : null;
+console.log(`code=${changed === null || changed.some((f) => !f.startsWith('docs/') && !/(^|\/)LICENSE[^/]*$/.test(f))}`);
 const shared = changed === null || changed.some((f) => SHARED.includes(f));
 for (const [area, paths] of Object.entries(AREAS)) {
   const run = shared || changed!.some((f) => paths.some((p) => f.startsWith(p)));

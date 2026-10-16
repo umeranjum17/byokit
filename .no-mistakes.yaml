@@ -2,12 +2,17 @@
 # test.instructions is read from the trusted default branch once merged.
 test:
   instructions: |
-    Run tests only through `npm test` / `sh scripts/test.sh` — never bare `node --test`
-    and never `--experimental-test-coverage` or any other coverage flag; run a heavy
-    suite through the host memory gate when one exists.
+    Run only the tests of the packages and paths this change touches, plus one user
+    journey below; CI runs the full suite on every pull request, so never run the
+    whole `npm test` here. Name the changed parts' test files or globs, e.g.
+    `sh scripts/test.sh 'packages/<kit>/test/*.test.ts'`; a change to a shared build
+    input (root package.json, lockfile, tsconfig, scripts/test.sh) runs the tests of
+    the kits it can break. Run tests only through `sh scripts/test.sh` — never bare
+    `node --test` and never `--experimental-test-coverage` or any other coverage
+    flag; run a heavy suite through the host memory gate when one exists.
     Prove changes against the real built SDK through done-done, not summaries and
     never by hand: `done-done verify <journey> --foreground --outcome "<what a user
-    can now do>"` with the journey the change touches (`.done-done.yaml`: build,
+    can now do>"` with the one journey the change touches (`.done-done.yaml`: build,
     node-tests, browser-tests), or `done-done verify --outcome "<claim>" --feature
     <name>` for a user-visible change, driving the matching feature in the repo's
     verify skill. `done-done doctor` must pass before any proof run.
