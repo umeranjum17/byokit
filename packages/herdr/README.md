@@ -11,8 +11,9 @@ Workspaces, tabs, panes, coding agents and blocked-approval answers, from a Node
 <a href="../pair"><code>@byokit/pair</code></a>. Each agent inside Herdr keeps its own subscription login; the kit
 never sees a credential.</p>
 
-<p align="center"><sub>This kit depends on <a href="../pair"><code>@byokit/pair</code></a>, and its examples
-import from there.</sub></p>
+<p align="center"><sub>Phone-link apps depend on <a href="../pair"><code>@byokit/pair</code></a> and its examples import from
+there; the kit ships <code>@byokit/pair</code>, <code>@byokit/discover</code> and <code>@byokit/relay</code> as optional peers that only the
+<code>@byokit/herdr/link</code> entry loads, so a cli-only install stays small.</sub></p>
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/umeranjum17/byokit/main/examples/herdr-kit/docs/3-agent.png" width="240" alt="Phone page titled Agents, Connected to Kitchen computer - same Wi-Fi.: two Pi agents marked Ready for you, and under Talk to it the agent's screen reading '> Add a --json flag to export', 'Read src/cli/export.ts', 'Edited src/cli/export.ts +18 -3' and 'export --json now prints JSON.' above a Message box, a Send button and Waiting for the reply below." />
@@ -33,6 +34,11 @@ Herdr.</sub></p>
 ```sh
 npm install @byokit/herdr
 ```
+
+The base install covers the kit itself (`HerdrKit`, `cli`, agents, `./binary`): no React Native or native-crypto
+packages come along. Serving a link (`@byokit/herdr/link`) additionally needs the optional peers
+`@byokit/pair`, `@byokit/discover` and `@byokit/relay` in the app — `npm install @byokit/pair @byokit/discover @byokit/relay`
+— and importing the entry without one says exactly which.
 
 [![npm](https://img.shields.io/npm/v/@byokit/herdr?style=flat&label=)](https://www.npmjs.com/package/@byokit/herdr) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=herdr-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
 

@@ -57,14 +57,17 @@ export class Supervisor {
     this.socketPath = o.mode === 'own' ? join(o.stateDir, 'herdr', 'herdr.sock') : o.socketPath;
   }
   env(): Record<string, string> {
+    const base = { PATH: this.o.path?.join(':') || '/usr/bin:/bin', LANG: 'C.UTF-8', ...this.o.env };
+    // An adopt kit that names no session socket passes none on: an empty HERDR_SOCKET_PATH would
+    // override the child's own resolution (`--session` > HERDR_SOCKET_PATH > HERDR_SESSION > default).
+    const socket: Record<string, string> = this.socketPath ? { HERDR_SOCKET_PATH: this.socketPath } : {};
     if (this.o.mode === 'adopt') {
-      return { HERDR_SOCKET_PATH: this.socketPath, PATH: this.o.path?.join(':') || '/usr/bin:/bin', LANG: 'C.UTF-8', ...this.o.env };
+      return { ...socket, ...base };
     }
     const home = join(this.root!, 'home');
     return {
       HOME: home, XDG_CONFIG_HOME: join(home, '.config'), XDG_STATE_HOME: join(home, '.local/state'),
-      XDG_CACHE_HOME: join(home, '.cache'), HERDR_SOCKET_PATH: this.socketPath,
-      PATH: this.o.path?.join(':') || '/usr/bin:/bin', LANG: 'C.UTF-8', ...this.o.env,
+      XDG_CACHE_HOME: join(home, '.cache'), ...socket, ...base,
     };
   }
   private state(phase: HerdrState['phase'], why?: HerdrState['why']) { this.onState({ phase, ...(why ? { why } : {}) }); }

@@ -42,6 +42,23 @@ require('node:child_process').execFileSync(${JSON.stringify(join(fake, 'herdr'))
   assert.equal(seen.HERDR_SOCKET_PATH, join(dir, 'herdr.sock'));
 });
 
+test('adopt cli() omits HERDR_SOCKET_PATH when the session socket is unset (empty string)', async () => {
+  const bin = join(dir, 'herdr-env-empty');
+  const envOut = join(dir, 'env-empty.json');
+  await writeFile(bin, `#!/usr/bin/env node
+require('node:fs').writeFileSync(${JSON.stringify(envOut)}, JSON.stringify(process.env));
+`, { mode: 0o700 });
+  // An app that adopts ``whichever session Herdr resolved on its own'' passes no socket path: the
+  // empty value must stay out of the child env so the child keeps its own resolution
+  // (`--session` > HERDR_SOCKET_PATH > HERDR_SESSION > default).
+  const kit = new HerdrKit({ mode: 'adopt', bin, socketPath: '', env: { HERDR_SESSION: 'k6-empty' } });
+  const r = await kit.cli(['--version']);
+  assert.equal(r.exitCode, 0, r.stderr);
+  const seen = JSON.parse(await readFile(envOut, 'utf8')) as Record<string, string>;
+  assert.ok(!('HERDR_SOCKET_PATH' in seen), `HERDR_SOCKET_PATH must be absent, got ${JSON.stringify(seen.HERDR_SOCKET_PATH)}`);
+  assert.equal(seen.HERDR_SESSION, 'k6-empty');
+});
+
 test('a paused terminal holds the stream back to a fixed backlog, and resume() delivers every frame in order', async (t) => {
   const bin = writeBinShim({ dir: join(dir, 'fake-term'), socketPath: join(dir, 'herdr.sock') });
   const kit = new HerdrKit({ mode: 'adopt', bin, socketPath: join(dir, 'herdr.sock') });

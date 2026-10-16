@@ -51,10 +51,23 @@
   "scripts": {
     "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"
   },
-  "dependencies": {
-    "@byokit/pair": "0.10.0",
-    "@byokit/relay": "0.6.1",
+  "peerDependencies": {
     "@byokit/discover": "0.8.1",
+    "@byokit/pair": "0.10.0",
+    "@byokit/relay": "0.6.1"
+  },
+  "peerDependenciesMeta": {
+    "@byokit/discover": {
+      "optional": true
+    },
+    "@byokit/pair": {
+      "optional": true
+    },
+    "@byokit/relay": {
+      "optional": true
+    }
+  },
+  "dependencies": {
     "@byokit/seal": "0.3.0",
     "ws": "8.22.0"
   },
