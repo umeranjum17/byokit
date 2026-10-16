@@ -89,6 +89,8 @@ export async function isolationContract(install?: (dir: string) => string | Prom
         BYOKIT_ENGINE_USAGE_LEDGER: join(engine.root, 'usage') } : {}) };
       if (bootId) assert.match(bootId, /^[0-9a-f-]{36}$/);
       assert.equal(child.env.OPENCLAW_GATEWAY_TOKEN === expected.OPENCLAW_GATEWAY_TOKEN, true, 'token matches without entering failure traces');
+      // macOS itself adds __CF_USER_TEXT_ENCODING to every process at launch; the spawn env above never carries it.
+      if (process.platform === 'darwin') delete child.env.__CF_USER_TEXT_ENCODING;
       assert.deepEqual({ ...child.env, OPENCLAW_GATEWAY_TOKEN: '<redacted>' }, { ...expected, OPENCLAW_GATEWAY_TOKEN: '<redacted>' },
         'the child actually received only the isolated environment and accounting identity');
       assert.equal(child.cwd, env.HOME);
