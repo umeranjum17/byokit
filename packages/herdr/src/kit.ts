@@ -449,7 +449,7 @@ export class HerdrKit {
   blocked(): BlockedAgent[] { return this.blockedList.list(); }
   onBlocked(fn: (b: BlockedAgent, change: 'added' | 'resolved') => void): () => void { return this.blockedList.on(fn); }
   answer(paneId: string, keys: string[], o: { revision: number }): Promise<void> { return this.blockedList.answer(paneId, keys, o); }
-  closePane(paneId: string): Promise<void> { return closePane(this.callAny, paneId); }
+  closePane(paneId: string, o?: { confirmed?: { scope: 'tab'; id: string } }): Promise<void> { return closePane(this.callAny, paneId, o); }
   closeTab(tabId: string): Promise<void> { return closeTab(this.callAny, tabId); }
   closeWorkspace(workspaceId: string): Promise<void> { return closeWorkspace(this.callAny, workspaceId); }
   agentKinds(): Promise<string[]> { return this.agents.agentKinds(); }

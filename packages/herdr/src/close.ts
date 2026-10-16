@@ -17,7 +17,8 @@ const unavailable = (kind: 'pane' | 'tab' | 'workspace'): Error =>
   fail(`${kind}-unavailable`, `That ${kind} is no longer available.`);
 const count = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
 
-export async function closePane(call: Call, paneId: string): Promise<void> {
+export async function closePane(call: Call, paneId: string,
+  o?: { confirmed?: { scope: 'tab'; id: string } }): Promise<void> {
   let tabId: unknown;
   try {
     const made = (await call('pane.get', { pane_id: paneId })) as Raw;
@@ -27,6 +28,27 @@ export async function closePane(call: Call, paneId: string): Promise<void> {
     throw error;
   }
   if (typeof tabId !== 'string') throw unavailable('pane');
+  // Confirmed-scope close (rollback): the caller echoes the wider target a
+  // `pane-close-would-widen` refusal named. The live tree must still match — the pane is still
+  // the confirmed tab's sole pane — then exactly that tab closes through the exact path, whose
+  // own widening guard still applies (a sole tab closes as `tab-close-would-widen` naming the
+  // workspace, never past the confirmed scope).
+  if (o?.confirmed !== undefined) {
+    let paneCount = 0;
+    try {
+      const made = (await call('tab.get', { tab_id: tabId })) as Raw;
+      paneCount = count(made?.tab?.pane_count);
+    } catch (error) {
+      if (codeOf(error) === 'tab_not_found') throw unavailable('pane');
+      throw error;
+    }
+    if (tabId !== o.confirmed.id || paneCount > 1) {
+      throw fail('confirmed-scope-mismatch',
+        'The pane is no longer the confirmed tab\'s sole pane; look at the tree and close fresh.');
+    }
+    await closeTab(call, o.confirmed.id);
+    return;
+  }
   let paneCount = 0;
   let tabLabel: string | undefined;
   try {

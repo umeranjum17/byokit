@@ -190,6 +190,14 @@ kit's snapshot is promptable — the same gate (`isPromptable`: not `launch_pend
 `prompt` itself uses. At the deadline it rejects with code `agent-not-ready`; a pane that closes while waiting rejects
 with code `pane-unavailable`, so the wait never hangs.
 
+Closes stay exact: `closePane` still refuses `pane-close-would-widen` (naming the wider target) when the pane is its
+tab's last. For a rollback close of a pane the caller just made, echo that target back:
+`closePane(paneId, { confirmed: { scope: 'tab', id } })` closes exactly that tab — refusing `confirmed-scope-mismatch`
+once the live tree no longer matches (the pane moved or gained a sibling), and still refusing
+`tab-close-would-widen` when the confirmed tab is the workspace's last, so a confirmed close never widens past the
+confirmed scope. `sendKeys` reaches plain shells too: a pane with no agent falls back from `agent.send_keys` to
+`pane.send_keys`, so aborts and device keys land on shell routes.
+
 ## Account-specific sign-ins and moves
 
 The host supplies account folders and shares conversation history as needed. The kit never reads or copies

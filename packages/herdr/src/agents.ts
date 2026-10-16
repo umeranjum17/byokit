@@ -315,7 +315,15 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
   }
 
   async function sendKeys(target: AgentRef, keys: string[]): Promise<void> {
-    await call('agent.send_keys', { target: target.paneId, keys });
+    try {
+      await call('agent.send_keys', { target: target.paneId, keys });
+    } catch (error) {
+      // A plain shell pane has no agent: fall through to the pane's own key path, so aborts and
+      // device keys reach shell routes too (muxr's pane.send_keys fallback). A pane that is gone
+      // surfaces `pane.send_keys`' own `pane_not_found`.
+      if (codeOf(error) !== 'agent_not_found') throw error;
+      await call('pane.send_keys', { pane_id: target.paneId, keys });
+    }
   }
 
   async function agentKinds(): Promise<string[]> {

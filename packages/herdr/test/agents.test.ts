@@ -139,6 +139,20 @@ test('prompt queues, appends the reply and waits; reads unwrap and keys land', a
   }, 'h5-prompt');
 });
 
+test('sendKeys reaches a shell pane through pane.send_keys', async () => {
+  await withKit(async (kit, fake) => {
+    // w1:p1 is the world's plain shell: no agent record, so agent.send_keys refuses and the
+    // kit falls back to the pane's own key path (muxr's abort route).
+    await kit.sendKeys({ paneId: 'w1:p1' }, ['ls\r']);
+    assert.equal(fake.world.panes.find((p) => p.pane_id === 'w1:p1')?.text.at(-1), 'ls\r');
+    // An agent pane still rides agent.send_keys.
+    await kit.sendKeys({ paneId: 'w1:p2' }, ['ok']);
+    assert.equal(fake.world.panes.find((p) => p.pane_id === 'w1:p2')?.text.at(-1), 'ok');
+    // A gone pane surfaces the pane error instead of pretending to deliver.
+    await assert.rejects(kit.sendKeys({ paneId: 'w9:p9' }, ['x']), (e: { code?: string }) => e.code === 'pane_not_found');
+  }, 'h5-keys-shell');
+});
+
 test('agentKinds reads the manifests and installedAgentKinds checks the given dirs', async () => {
   await withKit(async (kit) => {
     assert.deepEqual(await kit.agentKinds(), ['pi']);
