@@ -20,7 +20,8 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 [ -d android ] || CI=1 npx expo prebuild --platform android --no-install
-(cd android && EXPO_PUBLIC_OPENAI_BASE="http://10.0.2.2:$port" EXPO_PUBLIC_DEVICE_BASE="http://10.0.2.2:$port" \
+# EXPO_E2E_BUILT=1: the APK was just built by this script's own build line (say, before booting the emulator).
+[ "${EXPO_E2E_BUILT:-0}" = 1 ] || (cd android && EXPO_PUBLIC_OPENAI_BASE="http://10.0.2.2:$port" EXPO_PUBLIC_DEVICE_BASE="http://10.0.2.2:$port" \
   EXPO_PUBLIC_CLAUDE_BASE="http://10.0.2.2:$port" NODE_ENV=production ./gradlew assembleRelease --rerun-tasks -q)
 
 node ../../packages/accounts/src/testing/mock-openai.ts "$port" >"$log" 2>&1 &

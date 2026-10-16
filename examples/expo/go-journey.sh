@@ -18,8 +18,9 @@ for theme in light dark; do
   case "$theme" in light) night=no;; dark) night=yes;; esac
   a shell cmd uimode night "$night"
   start
-  expect "OpenCode Go isn't signed in yet."
+  expect "ChatGPT isn't signed in yet."
   seek opencode-signin
+  expect "OpenCode Go isn't signed in yet."
   shot "${theme}__go-row"
 done
 a shell cmd uimode night no
