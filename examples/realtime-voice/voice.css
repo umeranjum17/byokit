@@ -6,11 +6,21 @@
 body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 main { max-width: 480px; min-height: 100dvh; margin: 0 auto; padding: 24px 16px; display: flex; flex-direction: column; gap: 24px; }
 header h1 { margin: 0; font-size: 22px; }
-header p, footer, .hint, #sign-in-panel p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
+header p, footer, .hint, #sign-in-panel p, #key-panel p, #pick-panel p { margin: 4px 0 0; color: var(--muted); font-size: 14px; }
 section { display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; }
 section[hidden], a[hidden] { display: none; }
 .pill { font: inherit; font-weight: 600; padding: 12px 22px; border-radius: 999px; border: 0; background: var(--ink); color: var(--bg); text-decoration: none; cursor: pointer; }
 .pill:disabled { opacity: .5; }
+#providers { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 360px; }
+.pick { display: flex; flex-direction: column; gap: 2px; padding: 14px 18px; border-radius: 16px; border: 1px solid var(--line); background: var(--card); color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.pick b { font-size: 16px; }
+.pick span { font-size: 13px; color: var(--muted); }
+.pick:focus-visible, .link:focus-visible { outline: 3px solid var(--speaking); outline-offset: 2px; }
+.link { font: inherit; font-size: 14px; color: var(--muted); background: none; border: 0; padding: 4px; text-decoration: underline; cursor: pointer; }
+#api-key { font: inherit; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--ink); width: min(360px, 100%); text-align: center; }
+#api-key:focus-visible { outline: 3px solid var(--speaking); outline-offset: 2px; }
+#key-error { color: var(--error); font-size: 14px; min-height: 1.2em; margin: 0; }
+#key-error:empty { display: none; }
 #code { font: 600 24px/1 ui-monospace, monospace; letter-spacing: .12em; color: var(--ink); }
 #code:empty { display: none; }
 #talk { --c: var(--idle); width: min(176px, 52vw); aspect-ratio: 1; border-radius: 50%; border: 3px solid var(--c); background: var(--card); color: var(--c);
