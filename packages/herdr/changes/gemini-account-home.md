@@ -1,1 +1,0 @@
-- FEAT: Document the per-account Gemini root (`HOME`, `GEMINI_CLI_HOME`, `TMPDIR` and `GEMINI_FORCE_FILE_STORAGE` through `env`, since Gemini has no managed folder variable), proven on Gemini CLI 0.56.0, which keeps its sign-in in files under that root rather than the OS keyring, plus the `HERDR_AGENT=gemini` wrapper Herdr 0.9.1 needs to start Gemini on Node 24 and 26.

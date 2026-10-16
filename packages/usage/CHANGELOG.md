@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.9.0 (2026-10-16)
+
+- FEAT: `{ provider: 'cursor', folder }` reads the dashboard's current-period window (`GetCurrentPeriodUsage` on `api2.cursor.sh`) with the token read in process from `<folder>/cursor/auth.json`, parsed to one monthly window (`totalPercentUsed`, resetting at `billingCycleEnd`); the folder must resolve inside the reader's `stateDir` as `<stateDir>/cursor/<hex>`, and a missing or refused reading is `unknown`, never zero.
+- FEAT: `{ provider: 'pi', folder, piProvider }` reads the plan the selected Pi provider id names from that folder's own login in `<folder>/auth.json`: `openai-codex` reads ChatGPT's Codex windows (`wham/usage`, addressed by the stored ChatGPT account id or the access token's own claim) and `kimi-coding` reads Kimi's windows (`coding/v1/usages`). The folder must resolve inside the reader's `stateDir` as `<stateDir>/pi/<hex>`; any other Pi provider id is refused as an invalid source, and a missing or refused reading is `unknown`, never zero.
+
 ## 0.8.0 (2026-10-12)
 
 - SECURITY: A `credentialsFile`, `configFile` or `statuslineFile` source now refuses, with `UsageError` before any open, any path that carries a `.claude`, `.codex` or `.pi` segment either lexically or once symlinks are resolved, so an app can no longer be pointed at the person's own default sign-in; an app-owned file elsewhere still reads normally, and the segment check is shared with the managed-folder guard.

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.24.1 (2026-10-16)
+
+- FIX: an OpenCode Go login key that acts for several workspaces no longer has every call refused with the gateway's `403 Workspace selection is required`. Connect (`add` on `opencode:plan_key:opencode-go`) lists the workspaces the key can act for (`openCodeWorkspaces`, the OpenCode console's own listing): one is stored with the account unasked, several come back typed as `{ id: '', workspaces }` with nothing saved so the app shows the pick (words key `connect.workspace`) and adds again with `workspace`, and a key the console refuses keeps connecting with no header. The stored id rides every Go call — key-route asks, `opencodeGo(member)` handles, the standalone `openCodeGoPlanAccount` and managed-CLI launches (delivery config header, as the desktop OpenCode CLI stores it) — as `x-opencode-org-id`, and the gateway's refusal maps to the typed `KeyRouteError` code `needs_workspace` ("This account works with more than one workspace. Pick the one to use and connect it again.") instead of the generic retry words. Workspace ids are row ids, never secrets, and are never logged.
+- FIX: every OpenCode Go key-route call also names its conversation (`x-opencode-session`, one id per call). Without it the gateway answers `400 MissingSessionID` instead of routing the stream, workspace or not — found proving the workspace lane live.
+
+## 0.24.0 (2026-10-16)
+
+- Dependency update: pins @byokit/usage 0.9.0.
+
+- FEAT: `respond(member, { account, model, context })` answers for a signed-in MiniMax plan account through the pinned Pi Models path chosen by the account's saved region (`minimax` global, `minimax-cn` China) with that account's own OAuth bearer as the only credential: an expired token (MiniMax has no refresh grant, so nothing is sent) ends `signed_out` and the account reads `needs_again`; a 429 rests only that account (typed `rate_limit`, never retried). The pinned OpenClaw `minimax-portal` sources confirm regional inference bases `api.minimax.io/anthropic` and `api.minimaxi.com/anthropic`; device sign-in remains on the corresponding `account` hosts.
+- FIX: Computer refresh refusals now durably end only the rejected Grok, GitHub Copilot, Kimi or Meta sign-in through `respond`, `keepFresh` and `recheck`. `keepFresh` calls `onExpired`; `recheck` returns `false` and notifies through `onChange`, without calling `onExpired`. See [Key routes](https://github.com/umeranjum17/byokit/blob/main/packages/accounts/README.md#key-routes) for refusal classification and the computer fetch requirement.
+- FEAT: Managed OpenCode CLI delivers the Go plan key through folder files: `launch` writes `<folder>/opencode.json` (`opencode-go` provider, `apiKey: "{file:<folder>/go.key}"`) plus `<folder>/go.key` (0600, folder 0700) and sets `OPENCODE_CONFIG`, never argv/env; `logout`/`remove` delete the copies; the first managed row claims the old route entry only without an account key, preserving independent portable credentials once it owns a key; Go entries use `accounts.opencode:plan_key:opencode-go:<id>` (previous per-account dot entries remain readable); `usageSource(id)` is now asynchronous for every provider (await existing Codex/Cursor calls too) and returns `{provider:'opencode', key}` for OpenCode.
+- FEAT: Managed Pi rows carry room: `usageSource(id)` returns `{provider:'pi', folder, piProvider}` for the `openai-codex` (ChatGPT's Codex windows) and `kimi-coding` (Kimi's window) accounts and `undefined` for every other Pi provider, so `pick` and the pool `list` show the same reading and an unsupported Pi provider stays `unknown`, never zero. The token is read in process from the managed folder's `auth.json` by `@byokit/usage` and never reaches a row, the store or a log.
+
 ## 0.23.0 (2026-10-15)
 
 - A failed Claude plan answer now names its cause in plain words without echoing the provider's message:

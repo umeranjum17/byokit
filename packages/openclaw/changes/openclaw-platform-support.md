@@ -1,1 +1,0 @@
-- The README states platform support: Linux and macOS x64/arm64 supported, Windows unsupported. CI runs the offline suite on macOS.

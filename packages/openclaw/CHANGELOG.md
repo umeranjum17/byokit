@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+## 0.14.2 (2026-10-16)
+
+- Dependency update: pins @byokit/relay 0.7.1.
+- Dependency update: pins @byokit/accounts 0.24.1.
+
+- FIX: `addKey` takes `orgId` for the Go live-catalog route and writes it into the engine's provider config (`models.providers['opencode-go'].headers['x-opencode-org-id']`) before the activation, so a multi-workspace login token is accepted — the engine's own probe and every run carry the header, and the first chat runs. The slot is provider-wide (shared by every member's key on one engine): a replacement key with no `orgId` keeps the standing workspace, `removeKey` drops it, and naming an `orgId` on a route with no workspace is refused `not_included`/`model` instead of silently dropped. Keys and workspace ids never reach logs, errors or views.
+
+## 0.14.1 (2026-10-16)
+
+- Dependency update: pins @byokit/ui 0.8.0.
+- Dependency update: pins @byokit/discover 0.8.2.
+- Dependency update: pins @byokit/relay 0.7.0.
+- Dependency update: pins @byokit/pair 0.10.1.
+- Dependency update: pins @byokit/accounts 0.24.0.
+
+- FIX: when the engine answers a sign-in's cancel `cancelled`, `done` now also waits (up to 10 s) for it to free its setup admission, so a sign-in started right after is admitted instead of ending `why: 'busy'`.
+- FIX: The kit now resolves `stateDir` to one absolute path through no symlink before it uses it. A native Claude CLI sign-in (`claude-cli`, browser or phone) with a relative `stateDir`, or one under a symlinked folder such as macOS `/tmp` or `os.tmpdir()`, failed with "The app supplied invalid account options." Engine paths the kit reports (for example the bridge socket and `identityPath`) now use that resolved path.
+- FIX: `removeKey` (and `signOut`, which calls it for that provider) also drops the lane's `<provider>.key` index entry, so `accounts()` no longer lists a removed key; a scoped removal keeps another provider's entry.
+- FIX: `pick` builds its live room/models reads from the filtered pick rows, so an Auto pick for a member whose only other account is the unnamed key lane makes no `models.list`/`models.authStatus` calls for the lane it never consults.
+- FIX: the key-lane docs now scope the "no `<member>--<hex6>` per later key" claim to the `addKey` path; a plan key added with `addAccount` when the member agent already holds that provider still mints one `<member>--<hex6>` agent per key. The Choosing spec names the kit-only lane filter.
+- The README states platform support: Linux and macOS x64/arm64 supported, Windows unsupported. CI runs the offline suite on macOS.
+
 ## 0.14.0 (2026-10-15)
 
 - Dependency update: pins @byokit/accounts 0.23.0.

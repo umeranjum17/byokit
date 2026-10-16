@@ -1,1 +1,0 @@
-- FIX: a notification id may start with `-` or `_`, so base64url ids (an approval or a sign-in request, as the OpenClaw kit mints them) are sent instead of refused as a bad notification. The rest of the id rule is unchanged.

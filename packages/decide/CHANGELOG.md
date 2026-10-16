@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.9.2 (2026-10-16)
+
+- Dependency update: pins @byokit/accounts 0.24.1.
+
+- FIX: `opencodeGo({ account })` now names the account's workspace on every Go call (`x-opencode-org-id`, from the account's optional `workspace()` accessor that `accounts.opencodeGo(member)` and `openCodeGoPlanAccount(store)` supply), so a login key that acts for several workspaces answers instead of being refused with the gateway's workspace error; a bare `key` (or an account with no workspace) sends no header, exactly as before.
+
+## 0.9.1 (2026-10-16)
+
+- Dependency update: pins @byokit/pair 0.10.1.
+- Dependency update: pins @byokit/accounts 0.24.0.
+- FIX: (from @byokit/accounts 0.24.0) Computer refresh refusals now durably end only the rejected Grok, GitHub Copilot, Kimi or Meta sign-in through `respond`, `keepFresh` and `recheck`. `keepFresh` calls `onExpired`; `recheck` returns `false` and notifies through `onChange`, without calling `onExpired`. See [Key routes](https://github.com/umeranjum17/byokit/blob/main/packages/accounts/README.md#key-routes) for refusal classification and the computer fetch requirement.
+
 ## 0.9.0 (2026-10-15)
 
 - Dependency update: pins @byokit/accounts 0.23.0.

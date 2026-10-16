@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Dependency update: pins @byokit/discover 0.8.2.
+
 - Dependency update: pins @byokit/discover 0.8.1.
 
 ## 0.7.1 (2026-10-12)

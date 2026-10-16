@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Dependency update: pins @byokit/accounts 0.24.1.
+
+## 0.8.0 (2026-10-16)
+
+- Dependency update: pins @byokit/accounts 0.24.0.
+
+- FEAT: `accountRows(accounts, room, now, windows?)` and `AccountsSource.windows` take an account's `windowsView` from `@byokit/usage/view`: a ready row gains `windows` (each usage window, tightest first, with its line, its reset line and its millisecond reset) and `asOf` (`Read 2 minutes ago`, `Read 2 days ago (stale)` past a day). A window whose reset is already past reads `Session: reset since this reading` (no percent, no countdown), and so does the row's room line (`Plus · Reset since this reading`). A stale row is never `low`, and a reading without its own time (an openclaw room) shows its resets and no age. New types `UsageWindow`, `UsageWindows` and `AsOf`. The PWA example's account card draws both windows with their resets and age, keeps the last reading when a refresh fails so it shows as stale instead of unknown, and fits the longest address at 320px with larger text.
+- FEAT: `runStore` tolerates an account run's first frame: the run stream may open with an `account` event (O14m) naming the account the reply bills to, which the run view ignores while the reply, tools and end behave as before.
+- FIX: a subscription row whose route name already says plan ("Qwen Token Plan", "Qwen Token Plan CN", "Qwen Token Plan Individual") no longer reads "Uses your ... plan" with the word twice: `connectView` leaves the template's trailing plan out when the name already carries the word (any case). Names without it ("Qwen") still read "Uses your Qwen plan".
+
 - Dependency update: pins @byokit/accounts 0.23.0.
 
 ## 0.7.0 (2026-10-12)

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.2 (2026-10-16)
+
+- **Deprecated:** new home is `@platform-kits/statusbar`; new work goes there.
+
 ## 0.1.1
 
 - FIX: Export the Expo config plugin and package metadata so installed apps can resolve the plugin; support Expo 55 and later.
