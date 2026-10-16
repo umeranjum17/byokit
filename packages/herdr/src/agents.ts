@@ -13,7 +13,7 @@ import type { AgentCliSignIn, AgentInstallProbe, AgentInstallState, AgentLaunchF
   PlaceTarget, PromptReceipt, StartAgent } from './types.ts';
 import { words } from './words.ts';
 import { accountKind } from './kinds.ts';
-import { prepareLaunchEnv, prepareOverlayEnv, isLaunchEnvironment, isOverlayEnvironment } from './launch-env.ts';
+import { prepareLaunchEnv, prepareOverlayEnv, isLaunchEnvironment, isOverlayEnvironment, prepareAgentHint } from './launch-env.ts';
 import { museNative, MUSE_INSTALL_URL, isMiseLauncher } from './muse.ts';
 
 export type Call = (method: string, params: Record<string, unknown>, timeoutMs?: number) => Promise<unknown>;
@@ -289,6 +289,12 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       }
     }
     hooks?.start?.();
+    // Node 24+ runtimes rename the main thread (`MainThread`, `node-MainThread`); Herdr 0.9.1
+    // names a pane's foreground agent by process name, so a start of a CLI on those runtimes
+    // times out unidentified. The HERDR_AGENT hint rides the launch command (launch-env.ts),
+    // on the agent's own process — never the pane env, which marks the shell and busies the
+    // pane. Best effort: a pane that cannot take it starts exactly as before.
+    await prepareAgentHint(call, paneId, o.kind, Math.min(timeout, START_RETRY_BUDGET_MS));
     const name = agentName(o);
     const params = { pane_id: paneId, kind: o.kind, name,
       ...(o.args === undefined ? {} : { args: o.args }), timeout_ms: timeout };

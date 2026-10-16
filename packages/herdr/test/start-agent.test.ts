@@ -151,14 +151,18 @@ test('launch env preparation uses private files, sanitizes errors and rolls back
         files.push(file);
         assert.equal(statSync(file).mode & 0o777, 0o600);
         assert.equal(statSync(file.slice(0, file.lastIndexOf('/'))).mode & 0o777, 0o700);
-        assert.ok(!text.includes('fake-launch-token'));
-        assert.equal(readFileSync(file, 'utf8').includes('fake-launch-token'), true);
+        if (file.includes('byokit-env-')) {
+          assert.ok(!text.includes('fake-launch-token'));
+          assert.equal(readFileSync(file, 'utf8').includes('fake-launch-token'), true);
+        }
       }
       return call(method, params, timeout);
     };
     const launch = launchEnv({ base: { PATH: '/usr/bin:/bin' }, set: { EXPLICIT_TOKEN: 'fake-launch-token' } });
     const ref = await kit.startAgent({ kind: 'pi', cwd: '/app', place: { workspace: 'new' }, env: launch });
-    assert.ok(files.length === 1 && files.every((p) => !existsSync(p)), 'private files removed');
+    // The start sourced its launch env and its agent hint from private files of its own;
+    // both are removed when the flow ends.
+    assert.ok(files.length === 2 && files.every((p) => !existsSync(p)), 'private files removed');
     assert.ok(commands.every((text) => !text.includes('fake-launch-token')));
     const before = fake.world.panes.length;
     fake.agentStartFaults.push({ code: 'failed', message: 'fake-launch-token' });

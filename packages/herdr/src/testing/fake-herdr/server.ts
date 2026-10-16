@@ -79,6 +79,7 @@ export type FakeHerdr = {
   // directly (e.g. seed an agent name) before driving the kit over the socket.
   world: FakeWorld;
   agentStartFaults: AgentStartFault[]; // live queue: push faults, each `agent.start` shifts one (K7)
+  sentTexts: string[];                 // every `pane.send_text` text, in order (launch env, agent hint)
   emit(event: { type: string } & Record<string, unknown>): void;
   setStatus(paneId: string, status: string): void;
   // Panes with a held filtered subscription (`pane.agent_status_changed`, `pane.output_matched`
@@ -120,6 +121,9 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
   // scripts busy-then-ok or a permanent failure. The array is live on the handle — push more faults
   // any time before (or during) the starts under test.
   const agentStartFaults: AgentStartFault[] = [...(options.agentStartFaults ?? [])];
+  // Every `pane.send_text` text, in order: the launch-env and agent-hint sourcing lines a test
+  // asserts on. Live on the handle like the fault queue.
+  const sentTexts: string[] = [];
 
   const sockets = new Set<Socket>();
   const eventSubs = new Set<{ socket: Socket; kinds: Set<string> }>();
@@ -325,6 +329,7 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     'pane.send_text': (p) => {
       const pane = paneOf(p.pane_id);
       const text = String(p.text ?? '');
+      sentTexts.push(text);
       // A real offline shell exercises the private launch file, never a real agent CLI.
       if (!/^set \+x \+v; \. '/.test(text)) throw fail('unsupported', 'unsupported fake shell command');
       const r = spawnSync('/bin/sh', ['-c', text + "printf '\\0'; /usr/bin/env -0"], {
@@ -332,9 +337,11 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       });
       const [output, ...environment] = r.stdout.split('\0');
       pane.text.push(output!);
+      // The shell process's own bookkeeping (PWD, SHLVL, _, OLDPWD) is not a durable exported
+      // change, so the pane env records the sourced results only.
       pane.env = Object.fromEntries(environment.filter(Boolean).map((entry) => {
         const i = entry.indexOf('='); return [entry.slice(0, i), entry.slice(i + 1)];
-      }));
+      }).filter(([key]) => key !== 'PWD' && key !== 'SHLVL' && key !== '_' && key !== 'OLDPWD'));
       return {};
     },
     'pane.get': (p) => ({ pane: paneView(paneOf(p.pane_id)) }),
@@ -913,6 +920,7 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     bin,
     world: live,
     agentStartFaults,
+    sentTexts,
     emit(event) {
       // Filtered kinds route to the sockets watching that pane only; every other kind
       // broadcasts to the batch subscriptions holding it. Either spelling is accepted and
