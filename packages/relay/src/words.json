@@ -1,0 +1,5 @@
+{
+  "lookup.wrongCode": "That code is wrong or has run out. Show a new one.",
+  "lookup.unreachable": "Couldn't reach the relay. Try again.",
+  "lookup.timeout": "The relay didn't answer in time. Check your connection and try again."
+}
