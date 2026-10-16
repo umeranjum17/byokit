@@ -1,9 +1,9 @@
 // Explicit, opt-in official Muse installation. No auth, model calls or inherited environment.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, closeSync, constants, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { accessSync, closeSync, constants, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { delimiter, dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { delimiter, basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 
 export const MUSE_INSTALL_URL = 'https://dev.meta.ai/install.sh';
 const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+-R[0-9]+(?:\.[0-9]+)?$/;
@@ -94,6 +94,25 @@ function safePath(path: string): void {
     if (dirname(p) === p) break;
   }
 }
+// Canonicalize through existing ancestors so OS temp symlinks (/var -> /private/var,
+// /tmp -> /private/tmp on macOS) compare equal. A symlink planted inside the managed
+// home still resolves outside it and fails the caller's containment check.
+function canonical(path: string): string {
+  let p = path;
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      const base = realpathSync(p);
+      return tail.length ? join(base, ...tail) : base;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+    }
+    const parent = dirname(p);
+    if (parent === p) return tail.length ? join(p, ...tail) : p;
+    tail.unshift(basename(p));
+    p = parent;
+  }
+}
 function tool(name: string, path: string[]): string {
   for (const dir of path) {
     const file = join(dir, name);
@@ -140,9 +159,10 @@ export async function installMuse(o: InstallMuseOptions): Promise<MuseInstallRes
   let stage: string | undefined;
   const signal = AbortSignal.any([...(o.signal ? [o.signal] : []), AbortSignal.timeout(Math.min(300_000, Math.max(1, o.timeoutMs ?? 180_000)))]);
   try {
-    safePath(o.home); safePath(dir);
+    const chome = canonical(o.home); const cdir = canonical(dir);
+    safePath(chome); safePath(cdir);
     if (o.home === '/' || o.home === '/tmp' || o.home === homedir() || homedir().startsWith(o.home + sep)
-      || !dir.startsWith(o.home + sep) || /^\/(?:usr|bin|sbin|etc|opt|var|root|dev|proc|sys|run|lib|lib64|System|Library|Applications)(?:\/|$)/.test(o.home)
+      || cdir !== chome && !cdir.startsWith(chome + sep) || /^\/(?:usr|bin|sbin|etc|opt|var|root|dev|proc|sys|run|lib|lib64|System|Library|Applications)(?:\/|$)/.test(chome)
       || !o.path.length || o.path.some((p) => !isAbsolute(p) || /[\0\r\n:]/.test(p))) throw new Error('unsafe_path');
     try {
       const stat = lstatSync(o.home);
@@ -153,7 +173,11 @@ export async function installMuse(o: InstallMuseOptions): Promise<MuseInstallRes
     const env = { HOME: o.home, XDG_CONFIG_HOME: join(o.home, '.config'), XDG_CACHE_HOME: join(o.home, '.cache'),
       XDG_STATE_HOME: join(o.home, '.local/state'), TMPDIR: join(o.home, '.tmp'), PATH: path.join(delimiter),
       LANG: 'C.UTF-8', MUSE_LOGIN: '0', MUSE_NO_AUTO_UPDATE: '1', MUSE_AUTH_PATH: join(o.home, '.config/muse/auth.json') };
-    for (const p of [env.XDG_CONFIG_HOME, env.XDG_CACHE_HOME, env.XDG_STATE_HOME, env.TMPDIR, dirname(env.MUSE_AUTH_PATH)]) safePath(p);
+    for (const p of [env.XDG_CONFIG_HOME, env.XDG_CACHE_HOME, env.XDG_STATE_HOME, env.TMPDIR, dirname(env.MUSE_AUTH_PATH)]) {
+      const cp = canonical(p);
+      safePath(cp);
+      if (cp !== chome && !cp.startsWith(chome + sep)) throw new Error('unsafe_path');
+    }
     const receipt = (selected: { native: string; version: string }): MuseInstallResult => ({ ok: true, receipt: {
       bin: join(dir, 'muse'), ...selected, launcherSha256: hash(join(dir, 'muse')), nativeSha256: hash(selected.native),
       ...(installerSha256 ? { installerSha256 } : {}), source: MUSE_INSTALL_URL, path, env,
@@ -193,10 +217,13 @@ export async function installMuse(o: InstallMuseOptions): Promise<MuseInstallRes
     const selected = museNative(join(stagedDir, 'muse'));
     if (!selected) return bad('incomplete_install', 'The official installer did not produce an executable selected native release.');
     signal.throwIfAborted();
-    safePath(o.home); safePath(dir);
+    safePath(chome); safePath(cdir);
     mkdirSync(dirname(dir), { recursive: true, mode: 0o700 });
     for (const p of [env.XDG_CONFIG_HOME, env.XDG_CACHE_HOME, env.XDG_STATE_HOME, env.TMPDIR]) {
-      safePath(p); mkdirSync(p, { recursive: true, mode: 0o700 });
+      const cp = canonical(p);
+      safePath(cp);
+      if (cp !== chome && !cp.startsWith(chome + sep)) throw new Error('unsafe_path');
+      mkdirSync(p, { recursive: true, mode: 0o700 });
     }
     signal.throwIfAborted();
     renameSync(stagedDir, dir);

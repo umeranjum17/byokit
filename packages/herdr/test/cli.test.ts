@@ -22,7 +22,10 @@ test('argv is passed one entry per argument, and the env verbatim, never inherit
   assert.equal(r.stderr, 'to err\n');
   const recorded = JSON.parse(await readFile(shim.out, 'utf8'));
   assert.deepEqual(recorded.argv, ['record', shim.out, 'hello world', 'say "hi"', "it's", '--cols', '80']);
-  assert.deepEqual(recorded.env, { ...env, SHIM_OUT: shim.out },
+  // macOS injects __CF_USER_TEXT_ENCODING into every spawned process outside the kit's
+  // control, so exact-env assertions ignore that one key on all platforms.
+  const { __CF_USER_TEXT_ENCODING: _injected, ...seen } = recorded.env;
+  assert.deepEqual(seen, { ...env, SHIM_OUT: shim.out },
     'the child sees exactly the env the kit passed, nothing from process.env');
 });
 

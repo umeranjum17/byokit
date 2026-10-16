@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { HERDR_PROTOCOL } from '../src/constants.ts';
@@ -8,6 +9,10 @@ import { HerdrKit } from '../src/kit.ts';
 import { Supervisor } from '../src/supervise.ts';
 import { startFakeHerdr, writeBinShim } from '../src/testing/index.ts';
 import type { HerdrSubscribeStop, HerdrTransport } from '../src/types.ts';
+
+const alive = (pid: number): boolean => {
+  try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code !== 'ESRCH'; }
+};
 
 const until = async (ok: () => boolean, ms = 3000) => {
   const deadline = Date.now() + ms;
@@ -77,9 +82,61 @@ test('own spawns only the task-owned fake binary with explicit isolated environm
     const spawned = JSON.parse(readFileSync(join(stateDir, 'herdr/server.log'), 'utf8').split('\n')[0]) as {
       env: Record<string, string>;
     };
-    assert.deepEqual(Object.keys(spawned.env).sort(), Object.keys(supervisor.env()).sort());
+    // macOS injects __CF_USER_TEXT_ENCODING into every spawned process outside the
+    // kit's control; the isolation invariant is everything else matching exactly.
+    const seen = Object.keys(spawned.env).sort().filter((k) => k !== '__CF_USER_TEXT_ENCODING');
+    const wanted = Object.keys(supervisor.env()).sort().filter((k) => k !== '__CF_USER_TEXT_ENCODING');
+    assert.deepEqual(seen, wanted);
     assert.equal(spawned.env.HOME, join(stateDir, 'herdr/home'));
     assert.equal(spawned.env.TEST_ONLY, 'yes');
   } finally { await supervisor.stop(); }
+  await until(() => !existsSync(join(stateDir, 'herdr/herdr.sock')));
+});
+
+test('own restart stops its stale server and serves the new one', async () => {
+  const dir = scratchDir('kit-own-restart');
+  const bin = writeBinShim({ dir, socketPath: join(dir, 'unused.sock') });
+  const stateDir = join(dir, 'state');
+  const opts = { mode: 'own' as const, bin, stateDir, path: [dirname(process.execPath), '/usr/bin', '/bin'] };
+  // A first kit starts a fake-herdr server and never stops: the crash this restarts over.
+  const first = new Supervisor(opts, () => {});
+  const second = new Supervisor(opts, () => {});
+  try {
+    const firstTransport = await first.start();
+    assert.equal((await firstTransport.call('ping', {}) as { protocol: number }).protocol, HERDR_PROTOCOL);
+    const stalePid = Number(readFileSync(join(stateDir, 'herdr/server.pid'), 'utf8'));
+    assert.ok(Number.isSafeInteger(stalePid) && stalePid > 0 && alive(stalePid));
+    const transport = await second.start();
+    assert.equal((await transport.call('ping', {}) as { protocol: number }).protocol, HERDR_PROTOCOL);
+    const nextPid = Number(readFileSync(join(stateDir, 'herdr/server.pid'), 'utf8'));
+    assert.notEqual(nextPid, stalePid);
+    await until(() => !alive(stalePid));
+  } finally {
+    // First: cancel its respawn timer before it notices its server is gone; its
+    // stop may race the new server and is best effort. Then stop the new server.
+    await first.stop().catch(() => {});
+    await second.stop();
+  }
+  await until(() => !existsSync(join(stateDir, 'herdr/herdr.sock')));
+});
+
+test('own start never signals a pidfile naming an unrelated live process', async () => {
+  const dir = scratchDir('kit-own-unrelated-pid');
+  const bin = writeBinShim({ dir, socketPath: join(dir, 'unused.sock') });
+  const stateDir = join(dir, 'state');
+  mkdirSync(join(stateDir, 'herdr'), { recursive: true });
+  const sleeper = spawn('sleep', ['30'], { stdio: 'ignore' });
+  assert.ok(sleeper.pid !== undefined);
+  try {
+    writeFileSync(join(stateDir, 'herdr/server.pid'), String(sleeper.pid), { mode: 0o600 });
+    const supervisor = new Supervisor({ mode: 'own', bin, stateDir, path: [dirname(process.execPath), '/usr/bin', '/bin'] }, () => {});
+    try {
+      const transport = await supervisor.start();
+      assert.equal((await transport.call('ping', {}) as { protocol: number }).protocol, HERDR_PROTOCOL);
+      assert.ok(alive(sleeper.pid!), 'the unrelated sleep must stay alive');
+    } finally { await supervisor.stop(); }
+  } finally {
+    try { sleeper.kill('SIGKILL'); } catch { /* already gone */ }
+  }
   await until(() => !existsSync(join(stateDir, 'herdr/herdr.sock')));
 });

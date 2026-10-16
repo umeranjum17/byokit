@@ -1,4 +1,4 @@
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { accessSync, closeSync, constants, existsSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { protocolBounds } from './constants.ts';
@@ -6,6 +6,39 @@ import { socketTransport } from './socket.ts';
 import type { HerdrKitOptions, HerdrState, HerdrTransport } from './types.ts';
 
 const delay = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/**
+ * The command line of a live process, for the stale-pidfile check below. Linux reads
+ * /proc (no subprocess, NULs unfolded to spaces); every other Unix asks `ps -o command=`
+ * by absolute path with an empty env (no /proc on macOS). Windows and unknown, invalid
+ * or exited pids read as undefined, and only a command naming both `bin` and `server`
+ * ever counts as ours — a pid reused by an unrelated process never matches.
+ */
+export function commandOf(pid: number, platform: NodeJS.Platform = process.platform): string | undefined {
+  if (!Number.isSafeInteger(pid) || pid < 1) return undefined;
+  if (platform === 'linux') {
+    try {
+      return readFileSync(`/proc/${pid}/cmdline`, 'utf8').replaceAll('\0', ' ');
+    } catch {
+      return undefined;
+    }
+  }
+  if (platform === 'win32') return undefined;
+  for (const ps of ['/bin/ps', '/usr/bin/ps']) {
+    if (!existsSync(ps)) continue;
+    try {
+      const probed = spawnSync(ps, ['-o', 'command=', '-p', String(pid)], {
+        encoding: 'utf8', timeout: 5000, env: {},
+      });
+      if (probed.error !== undefined) continue; // binary unusable here, try the next path
+      const out = (probed.stdout ?? '').trim();
+      return out.length > 0 ? out : undefined; // empty: ps ran, the pid is unknown
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
 
 export class Supervisor {
   private transport?: HerdrTransport;
@@ -50,8 +83,10 @@ export class Supervisor {
       if (existsSync(pidfile)) {
         const pid = Number(readFileSync(pidfile, 'utf8'));
         try {
-          const cmdline = readFileSync(`/proc/${pid}/cmdline`, 'utf8');
-          if (cmdline.includes(this.o.bin) && cmdline.includes('server')) process.kill(-pid, 'SIGTERM');
+          const command = commandOf(pid);
+          if (command !== undefined && command.includes(this.o.bin) && command.includes('server')) {
+            process.kill(-pid, 'SIGTERM');
+          }
         } catch { /* no matching owned process */ }
         unlinkSync(pidfile);
       }
