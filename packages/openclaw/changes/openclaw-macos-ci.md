@@ -1,0 +1,1 @@
+- FIX: CI runs the OpenClaw offline suite (`packages/openclaw/test/*.test.ts`) on macos-latest alongside the Herdr suite, and the README states the platform support (Linux/macOS supported, Windows unsupported).

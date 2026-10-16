@@ -685,6 +685,8 @@ retained-login cleanup and sealed approval limits.
 
 ## Status
 
+Linux/macOS x64/arm64 are supported; Windows is unsupported.
+
 Pinned to OpenClaw `2026.8.35` (protocol 4); `ENGINE_VERSION` and `PROTOCOL_VERSION` carry the pin. Signatures are
 frozen (docs/runtime-kits.md §5).
 
