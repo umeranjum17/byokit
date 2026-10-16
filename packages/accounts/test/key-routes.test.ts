@@ -21,7 +21,10 @@ function harness(Kit: typeof Accounts | typeof Portable = Accounts) {
     if (!keys.has(id)) keys.set(id, secrets());
     return keys.get(id)!;
   };
-  const opts = { store: () => store, keyStore };
+  // The OpenCode console refuses the canary (a key with no Go workspace); every other address goes on as usual.
+  const fetch = async (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) =>
+    String(input) === 'https://opencode.ai/console/api/orgs' ? new Response('', { status: 401 }) : globalThis.fetch(input, init);
+  const opts = { store: () => store, keyStore, fetch };
   return { a: Kit === Portable ? new Portable(opts, withKeys(portable)) : new Kit(opts), opts, store, keyStore, data: () => data };
 }
 const model = <T extends Api>(provider: string, api: T): Model<T> => ({ id: 'fixture-model', name: 'Fixture', provider, api,

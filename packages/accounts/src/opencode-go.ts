@@ -21,9 +21,13 @@ const CONSOLE = 'https://opencode.ai/console';
 
 /** The workspaces a plan key can act for, from the OpenCode console's own listing (the same call the
  * OpenCode CLI makes after sign-in). A key that is not a person's login (a service key bound to one
- * workspace, or anything the console refuses) answers empty: it needs no workspace header. */
+ * workspace, or anything the console refuses with 401/403) answers empty: it needs no workspace header.
+ * A listing that cannot be read (offline, timeout, another status, a body that is not a list) throws the
+ * typed `KeyRouteError` `workspaces_unread`: it never reads as "no workspace". */
 export async function openCodeWorkspaces(key: string, fetcher: typeof fetch = fetch): Promise<OpenCodeGoWorkspace[]> {
-  return await listWorkspaces(key, fetcher) ?? [];
+  const orgs = await listWorkspaces(key, fetcher);
+  if (!orgs) throw new KeyRouteError('workspaces_unread');
+  return orgs;
 }
 
 /** The listing, or `undefined` when it could not be read (offline, timeout, a server error): only the

@@ -403,7 +403,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       const id = `${r.id}.${globalThis.crypto?.randomUUID?.() ?? Math.random().toString(16).slice(2)}`;
       // A Go plan login can act for several workspaces; the gateway refuses every call until one is named.
       // One workspace is stored unasked; several come back typed (nothing saved yet) so the app shows the
-      // pick and adds again with `workspace`. Any other key needs no workspace and connects with no header.
+      // pick and adds again with `workspace`. A key the console refuses needs none and connects with no header;
+      // a listing that cannot be read throws the typed `workspaces_unread` and saves nothing.
       let workspace: string | undefined;
       if (r.id === OPENCODE_GO_PLAN_ROUTE) {
         if (options.workspace !== undefined) {
@@ -411,8 +412,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
           workspace = options.workspace.trim();
         } else {
           const orgs = await openCodeWorkspaces(options.key, this.opts.fetch);
-          if (orgs.length === 1) workspace = orgs[0].id;
-          else if (orgs.length > 1) return { id: '', workspaces: orgs };
+          if (orgs.length > 1) return { id: '', workspaces: orgs };
+          workspace = orgs[0]?.id ?? '';
         }
       }
       await this.saveKey(member, id, options.key, { billedPerUse: true });

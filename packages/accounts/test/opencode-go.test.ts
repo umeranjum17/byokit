@@ -19,8 +19,11 @@ function local() {
     set: async (id: string, value: string) => { saved.set(id, value); },
     delete: async (id: string) => saved.delete(id),
     list: async () => [],
-  }) });
+  }), fetch: refusedConsole });
 }
+
+/** The console's answer for a key that is not a person's login: refused, so it needs no workspace. */
+const refusedConsole = async () => new Response('', { status: 401 });
 
 test('a saved Go plan key binds a subscription handle that hands only its own key', async () => {
   const accounts = local();
@@ -63,7 +66,7 @@ test('the catalogue offers OpenCode Go as a pasted plan key, on phones and brows
     set: async (id: string, value: string) => { saved.set(id, value); },
     delete: async (id: string) => saved.delete(id),
     list: async () => [],
-  }) }, portable);
+  }), fetch: refusedConsole }, portable);
   const { id } = await keyed.add(1, 'opencode:plan_key:opencode-go', { key: CANARY });
   assert.ok(id.startsWith('opencode:plan_key:opencode-go.'));
   assert.equal((await keyed.status(1, 'opencode')).state, 'ready', 'the provider resolves to its saved key account');
@@ -224,4 +227,26 @@ test('a Go key saved with saveKey alone resolves its workspace on the first call
     saved.delete(openCodeWorkspaceEntry());
     await assert.rejects(openCodeGoPlanAccount(store, undefined, consoleFetch([{ id: 'org_A', name: 'Working' }, { id: 'org_B', name: 'Working2' }])).workspace!(signal), pick);
   } finally { await gateway.close(); }
+});
+
+test('a Go workspace listing that cannot be read is a typed error, never "no workspace": add saves nothing', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const shapes: [string, typeof fetch][] = [
+    ['network error', async () => { throw new TypeError('fetch failed'); }],
+    // The 10 s abort: the fake never answers, and the kit's own timer cancels it.
+    ['timeout abort', (_input, init) => new Promise((_resolve, reject) => {
+      init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason));
+      queueMicrotask(() => t.mock.timers.tick(10_000));
+    })],
+    ['5xx', async () => new Response('busy', { status: 503 })],
+    ['non-array body', async () => new Response(JSON.stringify({ error: 'nope' }), { status: 200 })],
+  ];
+  for (const [shape, fetcher] of shapes) {
+    const unread = (e: unknown) => e instanceof KeyRouteError && e.code === 'workspaces_unread' &&
+      e.message === 'Couldn’t reach OpenCode to check this key’s workspaces. Check the internet connection, then try again.';
+    await assert.rejects(openCodeWorkspaces('plan-key-canary', fetcher), unread, `openCodeWorkspaces: ${shape}`);
+    const kit = goHarness(fetcher as ReturnType<typeof consoleFetch>);
+    await assert.rejects(kit.add('Umer', 'opencode:plan_key:opencode-go', { key: 'plan-key-canary' }), unread, `add: ${shape}`);
+    assert.equal((await kit.status('Umer', 'opencode')).state, 'signed_out', `add: ${shape} saved nothing`);
+  }
 });
