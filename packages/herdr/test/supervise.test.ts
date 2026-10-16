@@ -82,7 +82,11 @@ test('own spawns only the task-owned fake binary with explicit isolated environm
     const spawned = JSON.parse(readFileSync(join(stateDir, 'herdr/server.log'), 'utf8').split('\n')[0]) as {
       env: Record<string, string>;
     };
-    assert.deepEqual(Object.keys(spawned.env).sort(), Object.keys(supervisor.env()).sort());
+    // macOS injects __CF_USER_TEXT_ENCODING into every spawned process outside the
+    // kit's control; the isolation invariant is everything else matching exactly.
+    const seen = Object.keys(spawned.env).sort().filter((k) => k !== '__CF_USER_TEXT_ENCODING');
+    const wanted = Object.keys(supervisor.env()).sort().filter((k) => k !== '__CF_USER_TEXT_ENCODING');
+    assert.deepEqual(seen, wanted);
     assert.equal(spawned.env.HOME, join(stateDir, 'herdr/home'));
     assert.equal(spawned.env.TEST_ONLY, 'yes');
   } finally { await supervisor.stop(); }
