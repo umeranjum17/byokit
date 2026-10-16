@@ -371,7 +371,7 @@ setInterval(() => {}, 1000);
 });
 
 test('stop still ends its gateway and seals when an in-flight Claude reset fails removing the stale row', { timeout: 120_000 }, async () => {
-  const dir = scratchDir('engine-stop-reset'), engineDir = join(dir, 'engine'), bin = join(dir, 'bin'), folder = join(dir, 'openclaw', 'home', '.claude'), granted = join(folder, 'granted');
+  const dir = scratchDir('engine-stop-reset'), engineDir = join(dir, 'engine'), bin = join(dir, 'bin'), folder = join(fs.realpathSync(dir), 'openclaw', 'home', '.claude'), granted = join(folder, 'granted');
   const f = (n: string) => join(dir, n), js = JSON.stringify; mkdirSync(bin);
   writeFileSync(join(bin, 'claude'), `#!${process.execPath}
 const fs = require('node:fs'), f = (n) => ${js(dir)} + '/' + n, granted = ${js(granted)}, answer = () => { console.log(JSON.stringify({ loggedIn: fs.existsSync(granted) })); process.exit(); };
@@ -469,7 +469,7 @@ test('pidAlive is portable: macOS zombies read stale, live pids are never stolen
 });
 
 test('prepare defaults to bridge.sock/__byokit and honors explicit bridge options', async () => {
-  const dir = scratchDir('engine-unit');
+  const dir = fs.realpathSync(scratchDir('engine-unit')); // the engine canonicalizes its stateDir
   try {
     const plain = new Engine({ stateDir: dir, pluginId: 'byokit', tools: [], spawnEngine: false, onState() {}, onExit() {} });
     await plain.prepare();

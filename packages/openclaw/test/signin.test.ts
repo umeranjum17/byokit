@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, request as httpRequest, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setImmediate as turn, setTimeout as delay } from 'node:timers/promises';
 import { providers, signIn, type SignInCtx } from '../src/signin.ts';
@@ -614,7 +614,7 @@ test('a key activation whose restart does not finish fails retryably and keeps i
 
 // A fake `claude` in the engine's bin: checks the engine folder, its own login HOME and env, prints a sign-in address, takes one code (`wrong-code` is declined). Status waits for `status-release` unless `held`.
 function fakeClaude(root: string, held = false) {
-  const bin = join(root, 'bin'), folder = join(root, 'openclaw/home/.claude'), granted = join(folder, 'granted'); mkdirSync(bin, { recursive: true }); writeFileSync(join(root, 'mode'), 'success'); if (!held) writeFileSync(join(root, 'status-release'), '');
+  const bin = join(root, 'bin'), folder = join(realpathSync(root), 'openclaw/home/.claude'), granted = join(folder, 'granted'); mkdirSync(bin, { recursive: true }); writeFileSync(join(root, 'mode'), 'success'); if (!held) writeFileSync(join(root, 'status-release'), '');
   writeFileSync(join(bin, 'claude'), `#!${process.execPath}
 const fs = require('node:fs'), path = require('node:path'), f = (n) => path.join(${JSON.stringify(root)}, n), folder = ${JSON.stringify(folder)}, granted = path.join(folder, 'granted');
 if (process.env.CLAUDE_CONFIG_DIR !== folder || process.env.HOME !== path.join(folder, '../../login-home') || 'OPENCLAW_GATEWAY_TOKEN' in process.env || 'BYOKIT_BRIDGE_SOCK' in process.env) process.exit(3);
@@ -637,7 +637,8 @@ const phone = (kit: OpenClawKit, provider = 'claude-cli') => {
 const kitFor = (root: string, script: Parameters<typeof fakeGateway>[0], over: Partial<ConstructorParameters<typeof OpenClawKit>[0]> = {}) => new OpenClawKit({ stateDir: root, enginePath: [join(root, 'bin')], spawnEngine: false, transport: fakeGateway(script).factory, ...over });
 
 test('phone native Claude login uses the engine folder; wrong code, expiry and cancellation never activate', { timeout: 30_000 }, async () => {
-  const root = scratchDir('native-phone'), claude = fakeClaude(root), why: Record<string, string> = { expired: 'expired', cancel: 'declined' };
+  // The stateDir is reached through a symlink, as every path under macOS /tmp and /var is.
+  const real = scratchDir('native-phone'), root = `${real}-link`; symlinkSync(real, root); const claude = fakeClaude(root), why: Record<string, string> = { expired: 'expired', cancel: 'declined' };
   let activated = false, release!: () => void; const hold = new Promise<void>((resolve) => { release = resolve; }); // Sealed: a sealed engine creates its own home and still reaches the waiting address.
   const kit = kitFor(root, {
     'openclaw.setup.detect': () => ({ candidates: [{ kind: 'claude-cli', credentials: existsSync(claude.granted) }] }),

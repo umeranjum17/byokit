@@ -229,7 +229,8 @@ app (niche workflow + UI)
 
 - The app passes `stateDir`. OpenClaw kit writes only under `join(stateDir, 'openclaw')` and `join(stateDir, 'logs')`
   (Crewhouse's existing layout, so its state carries over byte-for-byte). Herdr kit in `own` mode writes only under
-  `join(stateDir, 'herdr')`; in `adopt` mode it writes nothing.
+  `join(stateDir, 'herdr')`; in `adopt` mode it writes nothing. OpenClaw kit first resolves `stateDir` to one absolute
+  path through no symlink (macOS `/tmp` and `/var` are symlinks): its native Claude login refuses any other.
 - Folders 0700, secret files 0600, atomic writes (temp + rename), as `@byokit/pair/node` does.
 - Never read or write `~/.pi`, `~/.openclaw`, `~/.clawdbot`, `~/.codex`, `~/.claude`, `~/.config/herdr` or any
   person-level path; `adopt` mode talks only to the socket path the app passes.

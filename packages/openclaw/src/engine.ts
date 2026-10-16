@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { randomBytes, generateKeyPairSync, randomUUID } from 'node:crypto';
 import { accessSync, constants, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, copyFileSync, rmSync, realpathSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
-import { basename, join, dirname } from 'node:path';
+import { basename, join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { cliAccounts, remoteCliHost } from '@byokit/accounts/cli';
@@ -17,6 +17,15 @@ import { sweepOrphans } from './accounts.ts';
 import type { KitOptions } from './kit.ts';
 import type { KitState, ToolSpec } from './types.ts';
 
+/** The app's stateDir as an absolute path with no symlinked ancestor (macOS /tmp and /var are symlinks):
+ * the native Claude login's accounts store refuses any other, so a relative or symlinked stateDir failed it. */
+export function canonicalStateDir(dir: string): string {
+  const path = resolve(dir);
+  try { return realpathSync(path); } catch {
+    const parent = dirname(path);
+    return parent === path ? path : join(canonicalStateDir(parent), basename(path));
+  }
+}
 export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'offered' | 'appOwnedSessions' | 'installPolicy' | 'log' | 'bridge' | 'authSeal'> & {
   pluginId: string; tools: ToolSpec[]; gateBuiltins?: boolean; spawnEngine: boolean;
   browserConfig?: () => { profiles: Record<string, { cdpUrl: string; attachOnly: true }>; tools: string[] };
@@ -100,6 +109,7 @@ export class Engine {
   private readonly appOwnedSessionPrefixes: string[];
   constructor(o: EngineOptions) {
     this.appOwnedSessionPrefixes = appRecoveryPrefixes(o.appOwnedSessions);
+    o = { ...o, stateDir: canonicalStateDir(o.stateDir) };
     this.o = o;
     const bridge = resolveBridge(o.bridge);
     this.root = join(o.stateDir, 'openclaw');

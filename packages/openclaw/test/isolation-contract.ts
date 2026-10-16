@@ -1,8 +1,9 @@
 import { strict as assert } from 'node:assert';
-import { mkdirSync, writeFileSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { removeScratch, scratchDir } from '../../test-support.ts';
 import { connect } from 'node:net';
+import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../src/engine.ts';
 
@@ -11,6 +12,18 @@ const listening = (port: number) => new Promise<boolean>(resolve => {
   socket.once('connect', () => { socket.destroy(); resolve(true); });
   socket.once('error', () => resolve(false));
 });
+
+// Every local address listening on `port`: Linux reads /proc/net/tcp and tcp6; macOS has no /proc, so lsof answers.
+function listenAddresses(port: number): string[] {
+  if (process.platform !== 'linux')
+    return execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fn'], { encoding: 'utf8' }).split('\n')
+      .filter(line => line.startsWith('n')).map(line => line.slice(1, line.lastIndexOf(':')).replace(/^\[|\]$/g, ''));
+  const hex = `:${port.toString(16).toUpperCase().padStart(4, '0')}`;
+  return ['tcp', 'tcp6'].flatMap(table => readFileSync(`/proc/net/${table}`, 'utf8').split('\n').slice(1)
+    .map(line => line.trim().split(/\s+/)).filter(([, local, , state]) => local?.endsWith(hex) && state === '0A')
+    .map(([, local]) => local.slice(0, -hex.length)))
+    .map(address => address === '0100007F' ? '127.0.0.1' : address === '00000000000000000000000001000000' ? '::1' : address);
+}
 
 // Shared by npm test's offline child and test:engine's pinned engine.
 export async function isolationContract(install?: (dir: string) => string | Promise<string>): Promise<void> {
@@ -60,19 +73,24 @@ export async function isolationContract(install?: (dir: string) => string | Prom
     assert.equal(c.memory.search.fallback, 'none');
     assert.equal(c.plugins.allow.includes('byokit'), true);
     assert.equal(JSON.parse(readFileSync(join(dir, 'own/openclaw/plugin/package.json'), 'utf8')).name, 'byokit-openclaw-bridge');
-    const listeners = readFileSync('/proc/net/tcp', 'utf8').split('\n').filter(line => line.trim().split(/\s+/)[1]?.endsWith(`:${port.toString(16).toUpperCase().padStart(4, '0')}`));
-    assert.ok(listeners.length && listeners.every(line => line.trim().split(/\s+/)[1]?.startsWith('0100007F:')), 'gateway listeners must be loopback only');
+    const listeners = listenAddresses(port);
+    assert.ok(listeners.length && listeners.every(address => address === '127.0.0.1' || address === '::1'), `gateway listeners must be loopback only: ${listeners.join(', ')}`);
     const log = readFileSync(join(dir, 'own/logs/openclaw.log'), 'utf8');
     assert.ok(!log.includes(token));
     assert.ok(!log.includes('PRIVATE KEY'));
     assert.ok(!log.includes('should-not-be-inherited'));
     if (install) {
       const child = JSON.parse(readFileSync(join(engine.root, 'home', 'child.json'), 'utf8'));
-      const identity = JSON.parse(readFileSync(join(engine.root, 'gateway.identity'), 'utf8'));
-      const expected: Record<string, string | undefined> = { ...env, ...(identity.bootId ? { BYOKIT_ENGINE_BOOT: identity.bootId,
+      // The supervisor records the boot in usage/boots.jsonl everywhere; gateway.identity backs Linux-only orphan recovery.
+      const boots = join(engine.root, 'usage', 'boots.jsonl');
+      const bootId: string | undefined = existsSync(boots) ? JSON.parse(readFileSync(boots, 'utf8').trim().split('\n').at(-1)!).bootId : undefined;
+      if (process.platform === 'linux') assert.equal(JSON.parse(readFileSync(join(engine.root, 'gateway.identity'), 'utf8')).bootId, bootId);
+      const expected: Record<string, string | undefined> = { ...env, ...(bootId ? { BYOKIT_ENGINE_BOOT: bootId,
         BYOKIT_ENGINE_USAGE_LEDGER: join(engine.root, 'usage') } : {}) };
-      if (identity.bootId) assert.match(identity.bootId, /^[0-9a-f-]{36}$/);
+      if (bootId) assert.match(bootId, /^[0-9a-f-]{36}$/);
       assert.equal(child.env.OPENCLAW_GATEWAY_TOKEN === expected.OPENCLAW_GATEWAY_TOKEN, true, 'token matches without entering failure traces');
+      // macOS itself adds __CF_USER_TEXT_ENCODING to every process at launch; the spawn env above never carries it.
+      if (process.platform === 'darwin') delete child.env.__CF_USER_TEXT_ENCODING;
       assert.deepEqual({ ...child.env, OPENCLAW_GATEWAY_TOKEN: '<redacted>' }, { ...expected, OPENCLAW_GATEWAY_TOKEN: '<redacted>' },
         'the child actually received only the isolated environment and accounting identity');
       assert.equal(child.cwd, env.HOME);

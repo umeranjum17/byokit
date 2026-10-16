@@ -89,8 +89,9 @@ jobs:
           RELEASE_BASE: ${{ github.event.before }}
         run: npm run release -- lint --base "$RELEASE_BASE" --direct
 
-  # macOS coverage for the Herdr kit: the stale-server restart reads live process
-  # state (/proc on Linux, `ps` elsewhere), which only runs green on Darwin here.
+  # macOS coverage for the Herdr and OpenClaw kits: the stale-server restart reads live process
+  # state (/proc on Linux, `ps` elsewhere), and /tmp there is a symlink, so canonical-path rules
+  # only run green on Darwin here.
   herdr-macos:
     runs-on: macos-latest
     timeout-minutes: 15
@@ -105,6 +106,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run build
       - run: sh scripts/test.sh 'packages/herdr/test/*.test.ts'
+      - run: sh scripts/test.sh 'packages/openclaw/test/*.test.ts'
 
   # done-done gate: the standing proof primitives run through done-done itself, so CI
   # speaks the same proof language as local runs (.done-done.yaml). Agent-free by
