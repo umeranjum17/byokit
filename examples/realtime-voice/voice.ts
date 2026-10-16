@@ -1,19 +1,23 @@
-import { realtimeClient, stateWords, errorWords, type AudioPorts, type RealtimeStream } from '../../packages/realtime/src/index.ts';
+import { realtimeClient, stateWords, errorWords, providers, type RealtimeProviderInfo, type AudioPorts, type RealtimeStream } from '../../packages/realtime/src/index.ts';
 import { webRtcPeer } from '../../packages/realtime/src/webrtc.ts';
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const screen = $('screen'), status = $<HTMLOutputElement>('status'), talk = $<HTMLButtonElement>('talk'), transcript = $<HTMLOListElement>('transcript');
 const remote = $<HTMLAudioElement>('audio'), code = $('code'), signIn = $<HTMLButtonElement>('sign-in'), authorize = $<HTMLAnchorElement>('authorize');
+const planLine = $('plan-line'), pickPanel = $('pick-panel'), providersBox = $('providers'), keyPanel = $('key-panel'), keyName = $('key-name'), keyNote = $('key-note'), keyError = $('key-error');
+const keyInput = $<HTMLInputElement>('api-key'), connect = $<HTMLButtonElement>('connect'), change = $<HTMLButtonElement>('change');
 let client: ReturnType<typeof realtimeClient> | undefined, socket: WebSocket | undefined, timer: ReturnType<typeof setTimeout> | undefined;
 let context: AudioContext | undefined, wait: ReturnType<typeof setTimeout> | undefined;
 // The call connects on the first tap with no microphone; each tap then attaches or releases it.
 let calling = false, connected = false, pending = false, mic = false, awaiting = false, failed = false, cancelled = false;
+let picked: RealtimeProviderInfo | undefined, signedInFor: string | undefined, closeReason: string | undefined;
 let voice: 'connected' | 'thinking' | 'speaking' = 'connected';
 const render = () => {
   const state = failed ? 'error' : mic ? 'listening' : voice === 'speaking' ? 'speaking'
     : voice === 'thinking' || awaiting ? 'thinking' : calling && (!connected || pending) ? 'connecting' : 'idle';
   screen.dataset.state = state;
-  status.value = state === 'error' ? errorWords(undefined) : state === 'idle' ? 'Tap to talk' : stateWords({ phase: state === 'listening' ? 'connected' : state });
+  status.value = state === 'error' ? closeReason || errorWords(undefined) : state === 'idle' ? 'Tap to talk' : stateWords({ phase: state === 'listening' ? 'connected' : state });
   talk.setAttribute('aria-pressed', String(mic)); talk.setAttribute('aria-label', mic ? 'Stop talking' : 'Talk');
+  change.hidden = !failed; // On a limit or failure the pick stays; only the person switches it.
 };
 const report = (facts: Record<string, boolean>) => { if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'demo.proof', ...facts })); };
 const audio: AudioPorts = {
@@ -21,20 +25,63 @@ const audio: AudioPorts = {
   capture: async () => { throw new Error('This demo streams audio over its peer connection.'); },
   player: { ensure() {}, bind() {}, unbind() {}, admit: () => 'ok', clear() {}, finish: fn => { fn?.(); return true; }, afterDrain: () => false, stop() {}, release() {} },
 };
-const show = () => { $('sign-in-panel').hidden = true; $('talk-panel').hidden = false; screen.dataset.state = 'idle'; render(); };
-void (async () => { // The server keeps sign-in in memory; the talk screen opens once it reports one.
-  while (!(await fetch('/proof').then(response => response.json()).catch(() => ({}))).signedIn) await new Promise(resolve => setTimeout(resolve, 1000));
-  show();
-})();
+const show = () => { pickPanel.hidden = true; $('sign-in-panel').hidden = true; keyPanel.hidden = true; $('talk-panel').hidden = false; screen.dataset.state = 'idle'; render(); };
+const toPick = () => {
+  clearTimeout(timer); client?.stop(); client = undefined;
+  calling = connected = pending = mic = awaiting = cancelled = false; failed = false; voice = 'connected'; picked = undefined;
+  $('talk-panel').hidden = true; $('sign-in-panel').hidden = true; keyPanel.hidden = true; pickPanel.hidden = false;
+  planLine.textContent = 'Choose a plan or key.'; screen.dataset.state = 'pick';
+};
+// One row per provider the realtime kit itself lists; the words come from its catalogue fields.
+for (const provider of providers) {
+  const row = document.createElement('button');
+  row.className = 'pick'; row.type = 'button'; row.dataset.provider = provider.id;
+  const name = document.createElement('b'); name.textContent = provider.name;
+  const words = document.createElement('span');
+  words.textContent = provider.planSignIn ? 'Sign in with your plan' : 'Paste your API key — billed per use';
+  row.append(name, words);
+  row.onclick = () => choose(provider);
+  providersBox.append(row);
+}
+const choose = (provider: RealtimeProviderInfo) => {
+  picked = provider; closeReason = undefined;
+  planLine.textContent = `Runs on ${provider.name}.`;
+  if (provider.id === signedInFor) { show(); return; } // Already connected this provider this run: straight to talk.
+  signIn.hidden = false; signIn.disabled = false; signIn.textContent = 'Sign in with ChatGPT'; code.textContent = ''; authorize.hidden = true;
+  keyInput.value = ''; keyError.textContent = ''; keyName.textContent = provider.name;
+  keyNote.textContent = provider.billing === 'api' ? 'Billed per use by the provider.' : '';
+  pickPanel.hidden = true;
+  $('sign-in-panel').hidden = !provider.planSignIn;
+  keyPanel.hidden = provider.planSignIn;
+  screen.dataset.state = 'signed-out';
+  if (!provider.planSignIn) keyInput.focus();
+};
+const post = (payload: Record<string, string>) => fetch('/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
 signIn.onclick = async () => {
   signIn.disabled = true;
   try {
-    const response = await fetch('/login', { method: 'POST' }); if (!response.ok) throw new Error();
+    const response = await post({ provider: picked!.id }); if (!response.ok) throw new Error();
     const login = await response.json();
     if (!login.url || !login.code) throw new Error();
     code.textContent = login.code; authorize.href = login.url; authorize.hidden = false; signIn.hidden = true;
-  } catch { code.textContent = ''; signIn.disabled = false; signIn.textContent = 'Sign-in could not start. Try again'; }
+  } catch { code.textContent = ''; signIn.hidden = false; signIn.disabled = false; signIn.textContent = 'Sign-in could not start. Try again'; }
 };
+connect.onclick = async () => {
+  connect.disabled = true; keyError.textContent = '';
+  try {
+    const response = await post({ provider: picked!.id, key: keyInput.value });
+    if (!response.ok) { const data = await response.json().catch(() => undefined) as { error?: string } | undefined; throw new Error(data?.error ?? ''); }
+    signedInFor = picked!.id; show();
+  } catch (error) { keyError.textContent = error instanceof Error && error.message ? error.message : 'The key could not be saved. Try again.'; }
+  connect.disabled = false;
+};
+$('back-sign-in').onclick = toPick;
+$('back-key').onclick = toPick;
+change.onclick = toPick;
+void (async () => { // The server keeps sign-in in memory; the talk screen opens once it reports one.
+  while (!(await fetch('/proof').then(response => response.json()).catch(() => ({}))).signedIn) await new Promise(resolve => setTimeout(resolve, 1000));
+  if (screen.dataset.state === 'signed-out') { signedInFor = picked?.id; show(); }
+})();
 const end = (error: boolean) => {
   clearTimeout(timer); clearTimeout(wait); client = undefined;
   calling = connected = pending = mic = awaiting = cancelled = false; voice = 'connected'; failed = error; render();
@@ -50,7 +97,7 @@ const attach = async () => {
   if (released) void current.releaseMic().catch(() => { if (client === current) current.stop('Microphone could not be released.'); });
 };
 const call = () => {
-  calling = true; pending = true; cancelled = false;
+  calling = true; pending = true; cancelled = false; closeReason = undefined;
   client = realtimeClient({ audio, capture: 'lazy',
     retryableClose: () => false, // One bounded call; the next tap starts a fresh one.
     open: () => new Promise<RealtimeStream>((resolve, reject) => {
@@ -79,11 +126,11 @@ const call = () => {
       },
     } }),
     onStatus(value, reason) {
-      if (value === 'disconnected') { end(reason !== undefined); return; }
+      if (value === 'disconnected') { closeReason = reason; end(reason !== undefined); return; }
       if (value === 'connecting') { render(); return; } // A muted input reads as connecting; the call itself is unchanged.
       if (!connected) { connected = true; if (pending && !cancelled) void attach(); else { pending = false; cancelled = false; } }
       if (value === 'speaking') awaiting = false;
-      voice = value; render();
+      voice = value as 'connected' | 'thinking' | 'speaking'; render();
     },
     // Final turns show on this page only; /proof keeps counts, never text.
     onTurn(role, text) {

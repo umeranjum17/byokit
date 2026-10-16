@@ -126,7 +126,8 @@ function Ask({ k, picker }: { k: string; picker: UseModelPicker }) {
   };
   return (
     <>
-      <TextInput testID={tid(k, 'question')} value={question} onChangeText={setQuestion} placeholder={`Ask ${name} something`} style={s.input} />
+      {/* multiline: the question and its placeholder wrap instead of clipping when the system font is large */}
+      <TextInput testID={tid(k, 'question')} value={question} onChangeText={setQuestion} placeholder={`Ask ${name} something`} multiline style={s.input} />
       <Button id={tid(k, 'ask')} label="Ask" onPress={ask} />
       {!!answer && <Text testID={tid(k, 'answer')} style={s.words}>{answer}</Text>}
       {!!decision && <Text testID="decision" style={s.small}>{decision}</Text>}

@@ -12,7 +12,9 @@ import type {
 import type { ServeIngress, Via } from '@byokit/discover';
 import type { RelayClient } from '@byokit/relay';
 import type { HerdrKit } from './kit.ts';
-import type { AgentStatus, BlockedAgent, HerdrEvent, HerdrSnapshot, HerdrSubscription } from './types.ts';
+import type {
+  AgentStatus, BlockedAgent, HerdrEvent, HerdrLayout, HerdrSnapshot, HerdrSubscription, HerdrTarget,
+} from './types.ts';
 import { stateWords, words } from './words.ts';
 import { decodeB64Url, sealNotice } from './notices.ts';
 
@@ -99,6 +101,19 @@ const eventWorkspaces = (e: HerdrEvent, snap: HerdrSnapshot): Set<string> => {
     if (where) found.add(where.workspaceId);
   }
   return found;
+};
+
+/** The one pane, tab or workspace a link op names, refused unless it is known and in scope. */
+const scopedTarget = (op: string, args: Record<string, unknown>, scope: HerdrScope, snap: HerdrSnapshot): HerdrTarget => {
+  const target = { pane: asString(args.pane), tab: asString(args.tab), workspace: asString(args.workspace) };
+  if (Object.values(target).filter((v) => v !== undefined).length !== 1) {
+    throw new Error(`herdr: ${op} picks exactly one of pane, tab or workspace`);
+  }
+  const owner = target.pane !== undefined ? findPane(snap, target.pane)?.workspaceId
+    : target.tab !== undefined ? snap.workspaces.find((w) => w.tabs.some((t) => t.id === target.tab))?.id
+      : snap.workspaces.find((w) => w.id === target.workspace)?.id;
+  if (owner === undefined || !inScope(scope, owner)) deny();
+  return target;
 };
 
 export function herdrLink(kit: HerdrKit, o: {
@@ -245,81 +260,27 @@ export function herdrLink(kit: HerdrKit, o: {
         }
         return null;
       }
+      // hd.close and the typed edit ops share one shape (7.1): exactly one target, control only, and the
+      // target's owning workspace checked against scope before any Herdr call is made (a tab through its
+      // workspace, a workspace through itself). Out of scope — or unknown — is link.notAllowed.
       case 'hd.close': {
         if (grant.role !== 'control') deny();
-        const snap = kit.snapshot();
-        const paneId = asString(args.pane);
-        const tabId = asString(args.tab);
-        const workspaceId = asString(args.workspace);
-        const picked = [paneId, tabId, workspaceId].filter((v) => v !== undefined);
-        if (picked.length !== 1) throw new Error('herdr: hd.close picks exactly one of pane, tab or workspace');
-        if (paneId !== undefined) {
-          const where = findPane(snap, paneId);
-          if (!where || !inScope(scope, where.workspaceId)) deny();
-          try { await kit.closePane(paneId); } catch (e) { throw widenError(e) ?? e; }
-          return null;
-        }
-        if (tabId !== undefined) {
-          const owner = snap.workspaces.find((w) => w.tabs.some((t) => t.id === tabId));
-          if (!owner || !inScope(scope, owner.id)) deny();
-          try { await kit.closeTab(tabId); } catch (e) { throw widenError(e) ?? e; }
-          return null;
-        }
-        if (!snap.workspaces.some((w) => w.id === workspaceId && inScope(scope, w.id))) deny();
-        try { await kit.closeWorkspace(workspaceId!); } catch (e) { throw widenError(e) ?? e; }
+        const target = scopedTarget('hd.close', args, scope, kit.snapshot());
+        try {
+          if (target.pane !== undefined) await kit.closePane(target.pane);
+          else if (target.tab !== undefined) await kit.closeTab(target.tab);
+          else await kit.closeWorkspace(target.workspace!);
+        } catch (e) { throw widenError(e) ?? e; }
         return null;
       }
-      // The typed edit ops copy hd.close's shape (7.1): exactly one target, control only, and the
-      // target's owning workspace checked against scope before any Herdr call is made (a tab through
-      // its workspace, a workspace through itself). Out of scope — or unknown — is link.notAllowed.
       case 'hd.rename': {
         if (grant.role !== 'control') deny();
-        const snap = kit.snapshot();
-        const paneId = asString(args.pane);
-        const tabId = asString(args.tab);
-        const workspaceId = asString(args.workspace);
-        const label = asString(args.label);
-        const picked = [paneId, tabId, workspaceId].filter((v) => v !== undefined);
-        if (picked.length !== 1) throw new Error('herdr: hd.rename picks exactly one of pane, tab or workspace');
-        if (label === undefined || label.length === 0) throw new Error('herdr: hd.rename needs a label');
-        if (paneId !== undefined) {
-          const where = findPane(snap, paneId);
-          if (!where || !inScope(scope, where.workspaceId)) deny();
-          await kit.call('pane.rename', { pane_id: paneId, label });
-          return null;
-        }
-        if (tabId !== undefined) {
-          const owner = snap.workspaces.find((w) => w.tabs.some((t) => t.id === tabId));
-          if (!owner || !inScope(scope, owner.id)) deny();
-          await kit.call('tab.rename', { tab_id: tabId, label });
-          return null;
-        }
-        if (!snap.workspaces.some((w) => w.id === workspaceId && inScope(scope, w.id))) deny();
-        await kit.call('workspace.rename', { workspace_id: workspaceId!, label });
+        await kit.rename({ ...scopedTarget('hd.rename', args, scope, kit.snapshot()), label: asString(args.label) ?? '' });
         return null;
       }
       case 'hd.focus': {
         if (grant.role !== 'control') deny();
-        const snap = kit.snapshot();
-        const paneId = asString(args.pane);
-        const tabId = asString(args.tab);
-        const workspaceId = asString(args.workspace);
-        const picked = [paneId, tabId, workspaceId].filter((v) => v !== undefined);
-        if (picked.length !== 1) throw new Error('herdr: hd.focus picks exactly one of pane, tab or workspace');
-        if (paneId !== undefined) {
-          const where = findPane(snap, paneId);
-          if (!where || !inScope(scope, where.workspaceId)) deny();
-          await kit.call('pane.focus', { pane_id: paneId });
-          return null;
-        }
-        if (tabId !== undefined) {
-          const owner = snap.workspaces.find((w) => w.tabs.some((t) => t.id === tabId));
-          if (!owner || !inScope(scope, owner.id)) deny();
-          await kit.call('tab.focus', { tab_id: tabId });
-          return null;
-        }
-        if (!snap.workspaces.some((w) => w.id === workspaceId && inScope(scope, w.id))) deny();
-        await kit.call('workspace.focus', { workspace_id: workspaceId! });
+        await kit.focus(scopedTarget('hd.focus', args, scope, kit.snapshot()));
         return null;
       }
       case 'hd.layout': {
@@ -351,12 +312,12 @@ export function herdrLink(kit: HerdrKit, o: {
           if (node.second !== undefined) pending.push(node.second);
         }
         const tabLabel = asString(args.tabLabel);
-        return kit.call('layout.apply', {
-          root: root as never,
+        return kit.layout({
+          root: root as HerdrLayout['root'],
           ...(args.focus === true ? { focus: true } : {}),
-          ...(tabId !== undefined ? { tab_id: tabId } : {}),
-          ...(workspaceId !== undefined ? { workspace_id: workspaceId } : {}),
-          ...(tabLabel !== undefined ? { tab_label: tabLabel } : {}),
+          ...(tabId !== undefined ? { tabId } : {}),
+          ...(workspaceId !== undefined ? { workspaceId } : {}),
+          ...(tabLabel !== undefined ? { tabLabel } : {}),
         });
       }
       case 'hd.notices.register': {

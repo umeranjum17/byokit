@@ -294,6 +294,58 @@ const SCREENS: Screen[] = [
     },
   },
   {
+    id: 'go-workspace', path: '',
+    what: 'OpenCode Go: a key that acts for several workspaces shows the workspace pick on the paste box, the key held in memory only',
+    themes: [...themes],
+    formFactors: ['narrow', 'phone', 'desktop'],
+    interaction: 'go-workspace',
+    before: { via: 'ref' },
+    beforeDrive: true, // the same drive on the base page: the box closes on a multi-workspace key and saves nothing
+    async drive(page) {
+      await page.route('**/fwd/opencode/console/api/orgs', (route) => route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify([{ id: 'wrk_01', name: 'Default' }, { id: 'wrk_02', name: 'Working' }]) }));
+      await part(page, 'chatgpt', 'status').filter({ hasText: /isn't signed in/ }).waitFor();
+      if (!await page.locator('#opencode').count()) return;
+      await page.locator('#add-open').click();
+      await page.locator('[data-route="opencode:plan_key:opencode-go"]').click();
+      await part(page, 'opencode', 'paste').waitFor({ state: 'visible' });
+      await part(page, 'opencode', 'pasted').fill('plan-key');
+      await part(page, 'opencode', 'connect').click();
+      // The candidate shows the pick; the base page silently closes the box instead.
+      await part(page, 'opencode', 'workspaces').waitFor({ state: 'visible', timeout: 4_000 }).catch(() => {});
+      await page.locator('#opencode').evaluate((e) => e.scrollIntoView({ block: 'start' }));
+    },
+  },
+  {
+    id: 'go-usage', path: '',
+    what: 'OpenCode Go connected for its one workspace: the row carries the live usage windows and the room meter',
+    themes: [...themes],
+    formFactors: ['narrow', 'phone', 'desktop'],
+    interaction: 'go-usage',
+    before: { via: 'ref' },
+    beforeDrive: true, // the same connect ran on the base page: its row keeps the unknown room this change replaces
+    async drive(page) {
+      const soon = (ms: number) => new Date(Date.now() + ms).toISOString();
+      await page.route('**/fwd/opencode/console/api/orgs', (route) => route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify([{ id: 'wrk_01', name: 'Personal' }]) }));
+      await page.route('**/fwd/opencode/zen/go/v1/usage', (route) => route.fulfill({ status: 200, contentType: 'application/json',
+        body: JSON.stringify({ usage: { rolling: { status: 'ok', percent: 20, resetsAt: soon(3_600_000) },
+          weekly: { status: 'ok', percent: 58, resetsAt: soon(3 * 86_400_000) },
+          monthly: { status: 'ok', percent: 34, resetsAt: soon(28 * 86_400_000) } } }) }));
+      await part(page, 'chatgpt', 'status').filter({ hasText: /isn't signed in/ }).waitFor();
+      if (!await page.locator('#opencode').count()) return;
+      await page.locator('#add-open').click();
+      await page.locator('[data-route="opencode:plan_key:opencode-go"]').click();
+      await part(page, 'opencode', 'paste').waitFor({ state: 'visible' });
+      await part(page, 'opencode', 'pasted').fill('plan-key');
+      await part(page, 'opencode', 'connect').click();
+      await part(page, 'opencode', 'status').filter({ hasText: /is connected/ }).waitFor();
+      // The usage windows are this change's own: the base page keeps its unknown room here.
+      await page.locator('#opencode [data-window]').filter({ hasText: 'Session: 80% left' }).waitFor({ timeout: 4_000 }).catch(() => {});
+      await page.locator('#opencode').evaluate((e) => e.scrollIntoView({ block: 'start' }));
+    },
+  },
+  {
     id: 'signin',
     path: '',
     what: 'Sign in with ChatGPT by device code',
