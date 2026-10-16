@@ -946,6 +946,7 @@ function paneView(pane: FakePane) {
     cwd: pane.cwd,
     foreground_cwd: pane.foreground_cwd,
     ...(pane.agent_status === undefined ? {} : { agent_status: pane.agent_status }),
+    ...(pane.display_agent === undefined ? {} : { display_agent: pane.display_agent }),
     label: pane.label,
     terminal_title: pane.terminal_title,
     terminal_title_stripped: pane.terminal_title_stripped,

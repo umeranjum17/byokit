@@ -21,6 +21,20 @@ const empty = (): HerdrSnapshot => ({ connected: false, workspaces: [] });
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
+const STATUSES = new Set(['idle', 'working', 'blocked', 'done', 'unknown']);
+
+/** A pane's `agent_status`, accepted only when it is one of the five statuses. */
+function statusOf(v: unknown): AgentStatus | undefined {
+  return typeof v === 'string' && STATUSES.has(v) ? v as AgentStatus : undefined;
+}
+
+/** True when a pane payload names the agent itself (its kind or session), not merely the
+ *  `agent_status`/`revision` every pane record carries. A plain shell's `pane.updated` carries
+ *  neither, so it must never invent an agent with status `unknown`. */
+function namesAgent(p: Raw): boolean {
+  return str(p.agent) !== undefined || sessionOf(p.agent_session) !== undefined;
+}
+
 function tokensOf(v: unknown): Record<string, string> | undefined {
   if (typeof v !== 'object' || v === null || Array.isArray(v)) return undefined;
   const out: Record<string, string> = {};
@@ -78,12 +92,20 @@ function paneOf(p: Raw, a: Raw | undefined): HerdrSnapshotPane {
   const label = str(p.label);
   const terminalTitle = str(p.terminal_title_stripped);
   const tokens = tokensOf(p.tokens);
+  // Pane-level agent fields (docs/runtime-kits.md 6.3): kept on the pane whether or not an agents
+  // record exists, so a shell's status, name and cwd survive (`agentStatus`, `displayAgent`, `foregroundCwd`).
+  const agentStatus = statusOf(p.agent_status);
+  const displayAgent = str(p.display_agent);
+  const foregroundCwd = str(p.foreground_cwd);
   const pane: HerdrSnapshotPane = {
     id: p.pane_id as string, focused: p.focused === true,
     ...(cwd === undefined ? {} : { cwd }),
     ...(label === undefined ? {} : { label }),
     ...(terminalTitle === undefined ? {} : { terminalTitle }),
     ...(tokens === undefined ? {} : { tokens }),
+    ...(agentStatus === undefined ? {} : { agentStatus }),
+    ...(displayAgent === undefined ? {} : { displayAgent }),
+    ...(foregroundCwd === undefined ? {} : { foregroundCwd }),
   };
   // Pane-level agent fields first, the agents record wins — mirrors the live merge below.
   if (a !== undefined) pane.agent = mergeAgent(mergeAgent(undefined, p), a);
@@ -99,6 +121,12 @@ function mergePane(pane: HerdrSnapshotPane, p: Raw): void {
   if (typeof p.focused === 'boolean') pane.focused = p.focused;
   const terminalTitle = str(p.terminal_title_stripped);
   if (terminalTitle !== undefined) pane.terminalTitle = terminalTitle;
+  const agentStatus = statusOf(p.agent_status);
+  if (agentStatus !== undefined) pane.agentStatus = agentStatus;
+  const displayAgent = str(p.display_agent);
+  if (displayAgent !== undefined) pane.displayAgent = displayAgent;
+  const foregroundCwd = str(p.foreground_cwd);
+  if (foregroundCwd !== undefined) pane.foregroundCwd = foregroundCwd;
   if (typeof p.tokens === 'object' && p.tokens !== null && !Array.isArray(p.tokens)) {
     const tokens = tokensOf(p.tokens);
     if (tokens === undefined) delete pane.tokens;
@@ -176,7 +204,9 @@ export class HerdrKit {
       // the kind string (PaneAgentStatusChangedEvent), never the record to merge.
       const a = typeof raw.pane === 'object' && raw.pane !== null ? raw.pane : raw;
       mergePane(pane, a);
-      pane.agent = mergeAgent(pane.agent, a);
+      // Never conjure an agent for a plain shell: a `pane.updated` title tick carries no agent
+      // identity, and a shell with no agents record must stay agentless (and unwatched).
+      if (pane.agent !== undefined || namesAgent(a)) pane.agent = mergeAgent(pane.agent, a);
       // Every asserted status stamps the pane's lifecycle epoch — even an unchanged one, since a
       // racing snapshot read may carry a staler revision. The bootstrap below keeps the live push.
       if (a.agent_status !== undefined) {

@@ -177,6 +177,13 @@ null), `agentSession` is absent; callers can fall back to their existing checks.
 Types (`HerdrKitOptions`, `HerdrState`, `StartAgent`, `PromptReceipt`, `BlockedAgent`, `HerdrSnapshot`,
 `HerdrMethod`/`HerdrParams`/`HerdrResult`, `HerdrEventName`/`HerdrEventOf`, ...) come from the main entry.
 
+`kit.snapshot()` / `onChange` mirror Herdr's tree; each pane carries the pane-level agent fields Herdr
+reports on every pane — `agentStatus`, `displayAgent` and `foregroundCwd` — whether or not the pane has an
+agents record, so a shell (no `agent`) still keeps its status, name and cwd. A pane with an agent also
+carries the same values inside its `agent` record (`status`, `displayAgent`, `foregroundCwd`). A
+`pane.updated` title tick on a plain shell never invents an agent: `pane.agent` appears only from an
+agents record or a payload that names an agent.
+
 A just-started agent is not promptable until its launch settles. Instead of polling `prompt` and catching
 `agent-not-ready`, wait once: `await kit.waitPromptable(agent, { timeoutMs: 30_000 })` resolves the moment the
 kit's snapshot is promptable — the same gate (`isPromptable`: not `launch_pending` and status idle/working/blocked/done)

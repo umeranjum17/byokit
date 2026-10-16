@@ -2403,6 +2403,9 @@ export type HerdrSnapshotAgent = {
 export type HerdrSnapshotPane = {
   id: string; cwd?: string; label?: string; focused: boolean; terminalTitle?: string;
   tokens?: Record<string, string>; agent?: HerdrSnapshotAgent;
+  // Pane-level agent fields Herdr reports on every pane, shell or agent; an agent pane also carries
+  // them inside `agent`, a shell with no agents record keeps them here.
+  agentStatus?: AgentStatus; displayAgent?: string; foregroundCwd?: string;
 };
 export type HerdrSnapshotTab = { id: string; label: string; panes: HerdrSnapshotPane[] };
 export type HerdrSnapshotWorkspace = {
@@ -2525,8 +2528,11 @@ no new link/device operation; apps forward the result through their authorized j
   `pane.updated`, `workspace.created`, `workspace.closed`, `workspace.renamed`, `workspace.updated`, `tab.created`,
   `tab.closed`, `tab.renamed` (muxr's verified list); per-pane `pane.agent_status_changed` for every pane with an agent.
   Agent records merge partial events (`{ ...current, ...incoming }`); `pane.updated` titles and labels merge the
-  same way with no re-bootstrap. A per-pane lifecycle epoch keeps a status push that races a snapshot read: the
-  push stamps its pane before the read returns, and the install keeps the live status and revision over the read.
+  same way with no re-bootstrap. Pane-level `agent_status`/`display_agent`/`foreground_cwd` ride every snapshot
+  pane (camelCase `agentStatus`/`displayAgent`/`foregroundCwd`) even with no agents record, and a `pane.updated`
+  title tick on a plain shell never invents an agent: `pane.agent` comes only from an agents record or a payload
+  naming an agent (`agent` kind or `agent_session`). A per-pane lifecycle epoch keeps a status push that races a
+  snapshot read: the push stamps its pane before the read returns, and the install keeps the live status and revision over the read.
 
 ### 6.4 Helpers (`src/agents.ts`, `src/close.ts`, `src/approvals.ts`)
 

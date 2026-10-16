@@ -125,6 +125,60 @@ test('K2: a pane.updated title change appears in the next onChange with no extra
   }
 });
 
+test('K2: a pane.updated title tick on a plain shell invents no agent and starts no status watch', async () => {
+  const fake: FakeHerdr = await startFakeHerdr({ dir: scratchDir('herdr-agentless-shell') });
+  const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath });
+  try {
+    await kit.start();
+    await kit.statusWatchReady();
+    assert.equal(fake.watching('w1:p1'), false, 'the plain shell starts with no status watch');
+    // Hold the next bootstrap's snapshot read so a title tick lands while booting: bootstrap replays
+    // buffered events through update() right before it opens the status watches. A phantom agent here
+    // would ride that replay into an unwanted status watch for the shell.
+    const release = fake.holdSnapshot();
+    fake.emit({ type: 'pane.created', pane: { pane_id: 'w1:p9', tab_id: 'w1:t1', workspace_id: 'w1' } });
+    await until(() => fake.snapshotCount(), (n) => n >= 2);
+    fake.emit({ type: 'pane.updated', pane: {
+      pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1',
+      label: 'zsh', terminal_title_stripped: 'zsh · renamed', agent_status: 'unknown',
+    } });
+    release();
+    await kit.statusWatchReady();
+    const shell = paneOf(kit.snapshot(), 'w1:p1');
+    assert.ok(shell !== undefined);
+    assert.equal(shell.pane.terminalTitle, 'zsh · renamed', 'the title tick landed');
+    assert.equal(shell.pane.agent, undefined, 'a title tick never conjures an agent');
+    assert.equal(fake.watching('w1:p1'), false, 'and opens no status watch for the shell');
+  } finally {
+    await kit.stop().catch(() => {});
+    await fake.stop().catch(() => {});
+  }
+});
+
+test('K2: a shell pane with no agents record keeps agent_status, display_agent and foreground_cwd', async () => {
+  const fake: FakeHerdr = await startFakeHerdr({ dir: scratchDir('herdr-agentless-fields') });
+  const shell = fake.world.panes.find((p) => p.pane_id === 'w1:p1');
+  assert.ok(shell !== undefined);
+  // Herdr reports these pane-level fields on every pane, shells included.
+  shell.agent_status = 'unknown';
+  shell.display_agent = 'zsh';
+  const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath });
+  try {
+    await kit.start();
+    await kit.statusWatchReady();
+    const found = paneOf(kit.snapshot(), 'w1:p1');
+    assert.ok(found !== undefined);
+    assert.equal(found.pane.agent, undefined, 'no agents record: still no agent');
+    assert.equal(found.pane.agentStatus, 'unknown');
+    assert.equal(found.pane.displayAgent, 'zsh');
+    assert.equal(found.pane.foregroundCwd, fake.world.cwd);
+    assert.equal(fake.watching('w1:p1'), false, 'a shell with pane-level fields still opens no watch');
+  } finally {
+    await kit.stop().catch(() => {});
+    await fake.stop().catch(() => {});
+  }
+});
+
 test('K2: a status push racing the snapshot read wins over the read', async () => {
   // The race the per-pane status socket loses without the guard: bootstrap #2 reads the snapshot
   // while the previous generation's status watch delivers a newer status onto the old tree. The

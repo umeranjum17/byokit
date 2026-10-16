@@ -156,6 +156,10 @@ export type HerdrSnapshotAgent = {
 export type HerdrSnapshotPane = {
   id: string; cwd?: string; label?: string; focused: boolean; terminalTitle?: string;
   tokens?: Record<string, string>; agent?: HerdrSnapshotAgent;
+  // Pane-level agent fields Herdr reports on every pane, shell or agent. An agent pane also carries
+  // them inside its `agent` record; a shell with no agents record keeps them here (`agentStatus`,
+  // `displayAgent`, `foregroundCwd`), which is where an app reads a shell's status, name and cwd.
+  agentStatus?: AgentStatus; displayAgent?: string; foregroundCwd?: string;
 };
 export type HerdrSnapshotTab = { id: string; label: string; panes: HerdrSnapshotPane[] };
 export type HerdrSnapshotWorkspace = {
