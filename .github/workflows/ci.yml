@@ -17,11 +17,13 @@ permissions:
 
 jobs:
   # Slow jobs below run on a pull request only when it changes their area (scripts/ci-changes.ts); a push to main runs
-  # them all. A skipped job reports as skipped, which does not block a merge.
+  # them all. A docs-only pull request (code=false) also skips the every-PR jobs' tests, keeping check's README, M6 and
+  # release lints. ci-ok at the bottom is the one required check: a job skipped by design passes it.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
+      code: ${{ steps.areas.outputs.code }}
       openclaw: ${{ steps.areas.outputs.openclaw }}
       write: ${{ steps.areas.outputs.write }}
       record: ${{ steps.areas.outputs.record }}
@@ -42,6 +44,7 @@ jobs:
         run: node scripts/ci-changes.ts ${BASE:+"$BASE"} | tee -a "$GITHUB_OUTPUT"
 
   check:
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -57,9 +60,11 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm run build
-      - run: npm run check
+      - if: needs.changes.outputs.code == 'true'
+        run: npm run check
       - run: node scripts/readme-check.ts
       - name: Isolated tests (including hosted MCP HTTP round trip)
+        if: needs.changes.outputs.code == 'true'
         env:
           BYOKIT_DIAGNOSTICS: ${{ runner.temp }}/diagnostics
         run: |
@@ -69,7 +74,7 @@ jobs:
           sh scripts/test.sh examples/decide-plan/e2e.test.ts
       # The link browser test's own account (timeline, runner pressure, Chrome's scrubbed launch log), kept for every run so
       # a failure is read here instead of re-run, and passing runs show where the time went.
-      - if: always()
+      - if: always() && needs.changes.outputs.code == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: link-browser-diagnostics-node${{ matrix.node }}
@@ -93,6 +98,8 @@ jobs:
   # state (/proc on Linux, `ps` elsewhere), and /tmp there is a symlink, so canonical-path rules
   # only run green on Darwin here.
   herdr-macos:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
@@ -111,6 +118,8 @@ jobs:
   # The service kit's real-host journey (docs/service-kit.md 7) on a disposable runner's own systemd --user manager.
   # Outside scripts/test.sh: its throwaway HOME hides the user manager. sudo below is setup only; the kit never runs it.
   service-linux:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -147,6 +156,8 @@ jobs:
 
   # Off Linux every call is the typed unsupported result until the launchd half lands (docs/service-kit.md S5).
   service-macos:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
@@ -163,6 +174,8 @@ jobs:
   # speaks the same proof language as local runs (.done-done.yaml). Agent-free by
   # construction: the journey drives, the judge is skipped, no model is started.
   done-done:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -180,6 +193,8 @@ jobs:
 
   # Pack consumers get their own budget; the isolated suite above can use most of check's fifteen minutes.
   pack:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
@@ -234,6 +249,8 @@ jobs:
   # Real browsers (headless Chromium): the PWA example's sign-in against a stand-in OpenAI, the Herdr and OpenClaw
   # kit examples, and the realtime-voice screen offline.
   browser:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -264,7 +281,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        part: [day-usage, contract-signin, generated-learning-migrate, rest, packed]
+        part: [day-usage, accounts, contract-signin, generated-learning-migrate, rest, packed]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -282,9 +299,10 @@ jobs:
           dir=packages/openclaw/test/engine
           case "$PART" in
             day-usage) files="$dir/day-usage.test.ts" ;;
+            accounts) files="$dir/accounts.test.ts" ;;
             contract-signin) files="$dir/contract.test.ts $dir/signin.test.ts" ;;
             generated-learning-migrate) files="$dir/generated.test.ts $dir/learning.test.ts $dir/migrate.test.ts" ;;
-            rest) files=$(find "$dir" -name '*.test.ts' ! -name 'browser-*.test.ts' ! -name day-usage.test.ts ! -name contract.test.ts \
+            rest) files=$(find "$dir" -name '*.test.ts' ! -name 'browser-*.test.ts' ! -name day-usage.test.ts ! -name accounts.test.ts ! -name contract.test.ts \
               ! -name signin.test.ts ! -name generated.test.ts ! -name learning.test.ts ! -name migrate.test.ts | sort) ;;
           esac
           # shellcheck disable=SC2086
@@ -370,6 +388,8 @@ jobs:
   # React Native (Expo) on iOS and Android: the example typechecks and Metro builds both Hermes bundles from the kit's
   # react-native side. The emulator run is examples/expo/e2e-android.sh.
   react-native:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -651,6 +671,8 @@ jobs:
         working-directory: examples/expo
 
   audit:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
@@ -717,3 +739,21 @@ jobs:
         working-directory: examples/expo/ios
       - run: xcodebuild -workspace byokitexample.xcworkspace -scheme byokitexample -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
         working-directory: examples/expo/ios
+
+  # The one required check (branch rule on main). It fails when any job below failed or was cancelled, and passes when
+  # each succeeded or was skipped by its area. overlay-android-webview is left out on purpose: it must never block.
+  ci-ok:
+    if: always()
+    needs: [changes, check, herdr-macos, service-linux, service-macos, done-done, pack, seal-swift, secrets-keyring, browser,
+      openclaw-engine, openclaw-browser, write-engine, record-recorder, react-native, android, overlay-android, share-android,
+      share-android-app, share-ios-prebuild, statusbar-android, audit, push-android, push-ios]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs) }}
+        shell: node {0}
+        run: |
+          const bad = Object.entries(JSON.parse(process.env.RESULTS)).filter(([, j]) => !['success', 'skipped'].includes(j.result));
+          for (const [name, j] of bad) console.error(`${name}: ${j.result}`);
+          process.exit(bad.length ? 1 : 0);
