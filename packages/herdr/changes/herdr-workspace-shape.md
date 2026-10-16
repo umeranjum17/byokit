@@ -1,0 +1,7 @@
+- FIX: `workspace.updated` now merges into the tree. The event was subscribed but `update()` had no branch for it, so workspace label, focused, number, tokens and worktree changes never landed until the next structural event forced a re-bootstrap.
+- FIX: The focus events (`pane.focused`, `tab.focused`, `workspace.focused`) are now subscribed and move pane and workspace focus in the tree (`pane.focused` focuses the pane and clears the others, `workspace.focused` flips the workspace flags; `tab.focused` carries no tree field and changes nothing).
+- FIX: A workspace `worktree` record with only `checkout_path` is kept. The mirror previously dropped the whole worktree unless all five wire fields were typed; `HerdrSnapshotWorktree` now keeps `checkoutPath` required and the rest optional.
+- FIX: `pane.moved` now clears the previous pane id's status epoch, so the replaced pane id no longer leaks a stale lifecycle-epoch entry (the epoch map previously only shrank on close).
+- The agent record carries its own `cwd` (`HerdrSnapshotAgent.cwd`), merged like the other agent fields with the pane-level record as the fallback.
+- `AgentStatus` includes `failed` — live Herdr emits it for a crashed launch; the kit now types it instead of collapsing it, and `isPromptable` treats it as not promptable.
+- `HerdrSnapshot` carries a `revision` that increases on every tree change, so consumers can key routing reuse off it instead of diffing workspaces.

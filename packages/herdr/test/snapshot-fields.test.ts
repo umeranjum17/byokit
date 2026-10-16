@@ -6,9 +6,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { scratchDir } from '../../test-support.ts';
 import { HerdrKit } from '../src/kit.ts';
+import { isPromptable } from '../src/agents.ts';
 import { socketTransport } from '../src/socket.ts';
 import { startFakeHerdr, type FakeHerdr } from '../src/testing/index.ts';
-import type { HerdrEvent, HerdrSnapshot, HerdrSubscribeStop, HerdrTransport } from '../src/types.ts';
+import type { AgentStatus, HerdrEvent, HerdrSnapshot, HerdrSnapshotWorktree, HerdrSubscribeStop, HerdrTransport } from '../src/types.ts';
 import { HERDR_PROTOCOL } from '../src/constants.ts';
 
 const settle = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -237,5 +238,191 @@ test('K2: a status push racing the snapshot read wins over the read', async () =
       'no duplicate pane from the race');
   } finally {
     await kit.stop().catch(() => {});
+  }
+});
+
+test('K2: workspace.updated merges label, focused, tokens and worktree into the tree', async () => {
+  const fake: FakeHerdr = await startFakeHerdr({ dir: scratchDir('herdr-k2-ws-updated') });
+  const real = socketTransport(fake.socketPath);
+  let snapshots = 0;
+  const counting: HerdrTransport = {
+    call: (method, params, timeoutMs) => {
+      if (method === 'session.snapshot') snapshots += 1;
+      return real.call(method, params, timeoutMs);
+    },
+    subscribe: (subs, on, onError) => real.subscribe(subs, on, onError),
+    close: () => real.close(),
+  };
+  const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath, transport: counting });
+  try {
+    await kit.start();
+    assert.equal(snapshots, 1, 'the bootstrap reads the snapshot once');
+    const seen: HerdrSnapshot[] = [];
+    const stop = kit.onChange((s) => seen.push(s));
+    try {
+      // The tokens leg rides the real call path: the fake announces it with workspace_updated.
+      await kit.call('workspace.report_metadata', { workspace_id: 'w1', source: 'byokit-k2', tokens: { k2: 'ws' } });
+      await until(() => seen.at(-1), (s) => s.workspaces[0]?.tokens?.k2 === 'ws');
+      // Label, focused and worktree ride the wire frame Herdr sends on workspace field changes.
+      fake.emit({ type: 'workspace.updated', workspace: {
+        workspace_id: 'w1', label: 'renamed', focused: false, number: 1, tokens: { k2: 'ws' },
+        worktree: { repo_key: 'k', repo_name: 'n', repo_root: '/r', checkout_path: '/r', is_linked_worktree: true },
+      } });
+      const next = await until(() => seen.at(-1), (s) => s.workspaces[0]?.label === 'renamed');
+      const w = next.workspaces[0];
+      assert.equal(w.focused, false);
+      assert.deepEqual(w.tokens, { k2: 'ws' });
+      assert.deepEqual(w.worktree, { repoKey: 'k', repoName: 'n', repoRoot: '/r', checkoutPath: '/r', isLinkedWorktree: true });
+      assert.equal(snapshots, 1, 'no re-bootstrap: the merge lands without another session.snapshot');
+    } finally {
+      stop();
+    }
+  } finally {
+    await kit.stop().catch(() => {});
+    await fake.stop().catch(() => {});
+  }
+});
+
+test('K2: focus events are subscribed and move pane and workspace focus in the tree', async () => {
+  const fake = await startFakeHerdr({ dir: scratchDir('herdr-k2-focus') });
+  const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath });
+  try {
+    await kit.start();
+    await kit.statusWatchReady();
+    // A second workspace arrives through the structural path first.
+    await kit.call('workspace.create', { label: 'two' });
+    await until(() => kit.snapshot(), (s) => s.workspaces.length === 2);
+    // workspace_focused (and the pane_focused riding it) flips the tree.
+    await kit.call('workspace.focus', { workspace_id: 'w2' });
+    await until(() => kit.snapshot(), (s) => s.workspaces.find((w) => w.id === 'w2')?.focused === true);
+    let snap = kit.snapshot();
+    assert.equal(snap.workspaces.find((w) => w.id === 'w1')?.focused, false);
+    const focused = snap.workspaces.flatMap((w) => w.tabs.flatMap((t) => t.panes)).filter((p) => p.focused);
+    assert.equal(focused.length, 1);
+    assert.ok(focused[0]?.id.startsWith('w2:'), 'the focused pane moved with the workspace');
+    // pane_focused moves pane focus back across workspaces; the workspace flag rides.
+    await kit.call('pane.focus', { pane_id: 'w1:p1' });
+    await until(() => kit.snapshot(), (s) => paneOf(s, 'w1:p1')?.pane.focused === true);
+    snap = kit.snapshot();
+    assert.equal(snap.workspaces.find((w) => w.id === 'w1')?.focused, true);
+    assert.equal(snap.workspaces.find((w) => w.id === 'w2')?.focused, false);
+    // tab_focused is subscribed: it carries no tree field, so it changes nothing (and breaks nothing).
+    fake.emit({ type: 'tab.focused', tab_id: 'w1:t1', workspace_id: 'w1' });
+    await settle(50);
+    assert.equal(paneOf(kit.snapshot(), 'w1:p1')?.pane.focused, true);
+  } finally {
+    await kit.stop().catch(() => {});
+    await fake.stop().catch(() => {});
+  }
+});
+
+test('K2: a worktree record with only checkout_path is kept', async () => {
+  const fake = await startFakeHerdr({ dir: scratchDir('herdr-k2-worktree-partial') });
+  const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath });
+  try {
+    await kit.start();
+    fake.emit({ type: 'workspace.updated',
+      workspace: { workspace_id: 'w1', worktree: { checkout_path: '/srv/checkout-only' } } });
+    await until(() => kit.snapshot(), (s) => s.workspaces[0]?.worktree?.checkoutPath === '/srv/checkout-only');
+    assert.deepEqual(kit.snapshot().workspaces[0]?.worktree, { checkoutPath: '/srv/checkout-only' });
+    // The type keeps the other fields optional: checkout_path alone is a valid record.
+    const partial: HerdrSnapshotWorktree = { checkoutPath: '/x' };
+    assert.equal(partial.checkoutPath, '/x');
+  } finally {
+    await kit.stop().catch(() => {});
+    await fake.stop().catch(() => {});
+  }
+});
+
+test('K2: the seeded agent carries its cwd', async () => {
+  const fake = await startFakeHerdr({ dir: scratchDir('herdr-k2-agent-cwd') });
+  const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath });
+  try {
+    await kit.start();
+    assert.equal(paneOf(kit.snapshot(), 'w1:p2')?.pane.agent?.cwd, fake.world.cwd);
+  } finally {
+    await kit.stop().catch(() => {});
+    await fake.stop().catch(() => {});
+  }
+});
+
+test('K2: a failed agent status lands in the tree and is not promptable', async () => {
+  const fake = await startFakeHerdr({ dir: scratchDir('herdr-k2-failed-status') });
+  const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath });
+  try {
+    await kit.start();
+    await kit.statusWatchReady();
+    fake.setStatus('w1:p2', 'failed');
+    await until(() => kit.snapshot(), (s) => paneOf(s, 'w1:p2')?.pane.agent?.status === 'failed');
+    const status: AgentStatus = 'failed';   // the union carries it
+    assert.equal(status, 'failed');
+    assert.equal(isPromptable(paneOf(kit.snapshot(), 'w1:p2')?.pane.agent), false);
+  } finally {
+    await kit.stop().catch(() => {});
+    await fake.stop().catch(() => {});
+  }
+});
+
+test('K2: snapshot revision increases on every tree change', async () => {
+  const fake = await startFakeHerdr({ dir: scratchDir('herdr-k2-revision') });
+  const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath });
+  try {
+    await kit.start();
+    const r0 = kit.snapshot().revision;
+    assert.ok(r0 >= 1, 'the bootstrap publishes a first revision');
+    fake.setStatus('w1:p2', 'working');
+    await until(() => kit.snapshot(), (s) => paneOf(s, 'w1:p2')?.pane.agent?.status === 'working');
+    const r1 = kit.snapshot().revision;
+    assert.ok(r1 > r0);
+    fake.setStatus('w1:p2', 'idle');
+    await until(() => kit.snapshot(), (s) => paneOf(s, 'w1:p2')?.pane.agent?.status === 'idle');
+    assert.ok(kit.snapshot().revision > r1);
+    // Delivered onChange snapshots carry the revision too.
+    const seen: HerdrSnapshot[] = [];
+    const stop = kit.onChange((s) => seen.push(s));
+    fake.emit({ type: 'pane.updated', pane: { pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1', label: 'fish' } });
+    await until(() => seen.at(-1), (s) => paneOf(s, 'w1:p1')?.pane.label === 'fish');
+    assert.ok(seen.every((s) => Number.isInteger(s.revision)));
+    assert.equal(seen.at(-1)?.revision, kit.snapshot().revision);
+    stop();
+  } finally {
+    await kit.stop().catch(() => {});
+    await fake.stop().catch(() => {});
+  }
+});
+
+test('K2: pane.moved clears the previous pane id and its status epoch', async () => {
+  const fake = await startFakeHerdr({ dir: scratchDir('herdr-k2-moved-epoch') });
+  const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath });
+  try {
+    await kit.start();
+    await kit.statusWatchReady();
+    // The epoch map is kit-private lifecycle bookkeeping; this journey asserts its one
+    // pane.moved contract: the replaced pane id drops its entry.
+    const epochs = (kit as unknown as { statusEpoch: Map<string, number> }).statusEpoch;
+    fake.setStatus('w1:p2', 'working');
+    await until(() => kit.snapshot(), (s) => paneOf(s, 'w1:p2')?.pane.agent?.status === 'working');
+    assert.ok(epochs.get('w1:p2') !== undefined, 'the push stamps the pane epoch');
+    // The move replaces w1:p2 with a fresh pane id (the account-move shape).
+    const old = fake.world.panes.find((p) => p.pane_id === 'w1:p2');
+    const agent = fake.world.agents.find((a) => a.pane_id === 'w1:p2');
+    assert.ok(old !== undefined && agent !== undefined);
+    fake.world.panes = fake.world.panes.filter((p) => p.pane_id !== 'w1:p2')
+      .concat({ ...structuredClone(old), pane_id: 'w1:p9' });
+    fake.world.agents = fake.world.agents.filter((a) => a.pane_id !== 'w1:p2')
+      .concat({ ...structuredClone(agent), pane_id: 'w1:p9' });
+    fake.emit({ type: 'pane.moved', previous_pane_id: 'w1:p2',
+      pane: { pane_id: 'w1:p9', tab_id: 'w1:t1', workspace_id: 'w1', focused: false,
+        agent_status: 'working', revision: agent.revision },
+      previous_tab_id: 'w1:t1', previous_workspace_id: 'w1' });
+    await until(() => kit.snapshot(), (s) => paneOf(s, 'w1:p9') !== undefined && paneOf(s, 'w1:p2') === undefined);
+    assert.equal(epochs.has('w1:p2'), false, 'the replaced pane id drops its epoch');
+    // The successor still gets live status pushes.
+    fake.setStatus('w1:p9', 'idle');
+    await until(() => kit.snapshot(), (s) => paneOf(s, 'w1:p9')?.pane.agent?.status === 'idle');
+    assert.ok(epochs.get('w1:p9') !== undefined, 'the successor pane stamps its own epoch');
+  } finally {
+    await kit.stop().catch(() => {});
+    await fake.stop().catch(() => {});
   }
 });

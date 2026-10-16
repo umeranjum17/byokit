@@ -20,7 +20,7 @@ export const stateWords = (s: HerdrState): string => (s.phase === 'stopped' ? ''
 
 const STATUS_KEY: Record<AgentStatus | 'starting', WordKey> = {
   starting: 'agent.starting', idle: 'agent.idle', working: 'agent.working',
-  blocked: 'agent.blocked', done: 'agent.done', unknown: 'agent.unknown',
+  blocked: 'agent.blocked', done: 'agent.done', failed: 'agent.failed', unknown: 'agent.unknown',
 };
 
 /** The sentence for an agent's status. */

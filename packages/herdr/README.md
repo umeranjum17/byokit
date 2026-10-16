@@ -184,9 +184,17 @@ carries the same values inside its `agent` record (`status`, `displayAgent`, `fo
 `pane.updated` title tick on a plain shell never invents an agent: `pane.agent` appears only from an
 agents record or a payload that names an agent.
 
+The mirror stays current without re-reads: `pane.updated` merges titles, labels and tokens,
+`workspace.updated` merges label, focused, number, tokens and worktree, and the focus events
+(`pane.focused`, `tab.focused`, `workspace.focused`) move pane and workspace focus. Every snapshot carries
+a `revision` that increases on every tree change, so a consumer can key routing reuse off it instead of
+diffing. A workspace's `worktree` keeps whatever Herdr reported — only `checkoutPath` is guaranteed, the
+other fields are optional — and an agent record carries its own `cwd` beside `foregroundCwd`.
+`AgentStatus` includes `failed` (a crashed launch), which `isPromptable` treats as not promptable.
+
 A just-started agent is not promptable until its launch settles. Instead of polling `prompt` and catching
 `agent-not-ready`, wait once: `await kit.waitPromptable(agent, { timeoutMs: 30_000 })` resolves the moment the
-kit's snapshot is promptable — the same gate (`isPromptable`: not `launch_pending` and status idle/working/blocked/done)
+kit's snapshot is promptable — the same gate (`isPromptable`: not `launch_pending` and status idle/working/blocked/done/failed)
 `prompt` itself uses. At the deadline it rejects with code `agent-not-ready`; a pane that closes while waiting rejects
 with code `pane-unavailable`, so the wait never hangs.
 
