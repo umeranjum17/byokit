@@ -121,7 +121,7 @@ function KeySheet({ k, route, card, act, onClose }: { k: string; route: string; 
       {card.state === 'workspace' ? workspaces.map((w, i) =>
         <Button key={w.id} id={tid(k, `workspace-${i}`)} label={w.name} onPress={() => save(w.id)} />)
         : card.editable && <>
-          <TextInput testID={tid(k, 'paste')} value={pasted} onChangeText={setPasted} placeholder="Paste the key from your plan"
+          <TextInput testID={tid(k, 'paste')} value={pasted} onChangeText={setPasted} placeholder="Paste the key"
             autoCapitalize="none" autoCorrect={false} secureTextEntry style={s.input} />
           <Button id={tid(k, 'connect')} label="Connect" onPress={() => save()} />
         </>}
