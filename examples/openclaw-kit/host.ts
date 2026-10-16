@@ -70,7 +70,11 @@ if (gateway) Object.assign(options, { spawnEngine: false, transport: gateway.fac
 const kit = new OpenClawKit(options);
 
 // The fake's ChatGPT sign-in, held a few seconds on its code so a person (or the e2e test) can read it, and its
-// OpenCode Go plan: any pasted key but `wrong-key` is the plan's.
+// OpenCode Go plan: any pasted key but `wrong-key` is the plan's. A pasted key's check is held a few seconds too,
+// the way the engine's restart after it is: the terminal stays hidden for it, so a Ctrl-C in that window has to
+// quit at once (e2e.test.ts).
+const SETTLE_MS = 3000;
+
 async function fakeSignIn() {
   const { fakeGateway } = await import('@byokit/openclaw/testing');
   const answered = new Set<string>();
@@ -89,9 +93,10 @@ async function fakeSignIn() {
       return { done: true, status: 'done' };
     },
     'wizard.cancel': (p: { sessionId: string }) => { answered.delete(p.sessionId); return { status: 'cancelled' }; },
-    'openclaw.setup.activate': (p: { agentId?: string; authChoice?: string; apiKey?: string }) => {
+    'openclaw.setup.activate': async (p: { agentId?: string; authChoice?: string; apiKey?: string }) => {
       if (p.authChoice !== 'opencode-go') return { ok: false, status: 'unavailable' };
       if (p.apiKey === 'wrong-key') return { ok: false, status: 'invalid' };
+      await delay(SETTLE_MS); // the engine checks the key and restarts; the terminal stays hidden for it
       planKey = true;
       // The engine stores the key as the agent's profile and points its model at it; the sign-in's seal reads that.
       gateway!.seedProfile(String(p.agentId), 'opencode-go:default', { provider: 'opencode-go', type: 'api_key', key: String(p.apiKey) });
@@ -268,11 +273,11 @@ async function addChoice(choice: string): Promise<void> {
 }
 
 // From the start of a plan-key sign-in until showInput: the line interface is closed and raw mode switches the
-// terminal's echo off, so keys typed meanwhile stay queued where nothing reads them. showInput drops that queue
-// while the terminal still echoes nothing, so a pasted key is never echoed back or run as a command, on success,
-// on failure, or on cancel. Ctrl-C anywhere in the window quits through quitOnCancel, like SIGINT outside it.
-// Without a terminal there is nothing to hide from, and the line is read echoed through
-// `asking` instead.
+// terminal's echo off, so a key typed meanwhile is never echoed back and never runs as a command, on success, on
+// failure or on cancel; showInput still drops what is queued while the terminal echoes nothing. The window's
+// whole length, the key check after the paste included, keeps quitOnCancel on stdin, so a 0x03 anywhere in it
+// quits at once, like SIGINT outside it. Without a terminal there is nothing to hide from, and the line is read
+// echoed through `asking` instead.
 function hideInput(): void {
   if (!process.stdin.isTTY) return;
   const rl = input;
@@ -319,7 +324,10 @@ function readSecret(prompt: string): Promise<string> {
     let text = '';
     const finish = (value: string) => {
       stdin.removeListener('data', onData);
-      stdin.pause();
+      // Not paused: the terminal stays hidden until showInput, and the computer checks the key for a while after
+      // the Enter. Keeping the bytes flowing leaves quitOnCancel (attached in hideInput) watching them, so a 0x03
+      // in that window quits at once; nothing else is read.
+      stdin.resume();
       process.stdout.write('\n');
       resolve(value);
     };

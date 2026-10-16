@@ -10,7 +10,7 @@
 // BYOKIT_EXAMPLE_SHOTS=<folder> keeps a light and a dark screenshot of each step.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, execFileSync } from 'node:child_process';
+import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer as httpServer } from 'node:http';
@@ -334,51 +334,63 @@ test('away from home: a phone pairs through the relay, gets an approval sealed, 
   assert.match(notes(), /from away\n$/);
 });
 
-test('a key typed while the terminal is hidden is neither echoed nor run', async () => {
-  // The hidden plan-key prompt runs only on a terminal: this host gets a pty through `script`, with the kit's fake
-  // Gateway (no engine, no account, no network). Bytes written in the same breath as the prompt's Enter arrive while
-  // input is still hidden, so showInput must drop them instead of echoing or running them as commands.
-  const app2 = join(dir, 'pty');
-  cpSync(app, app2, { recursive: true, filter: (f) => !/[/\\]\.state$/.test(f) });
-  const port2 = await new Promise<number>((resolve) => {
+// The hidden plan-key prompt runs only on a terminal: these hosts get a pty through `script`, with the kit's fake
+// Gateway (no engine, no account, no network). `heard` waits for the first match of `pattern` in what the host said
+// after `from` characters; `said` is everything it has said so far.
+async function ptyHost(dir: string, folder: string, name: string) {
+  const at = join(dir, folder);
+  cpSync(app, at, { recursive: true, filter: (f) => !/[/\\]\.state$/.test(f) });
+  const port = await new Promise<number>((resolve) => {
     const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address() as { port: number }; s.close(() => resolve(port)); });
   });
-  const pty = trackChild(spawn('script', ['-qec', `node host.ts --via lan --port ${port2} --name Pty`, '/dev/null'],
-    { cwd: app2, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
+  const pty = trackChild(spawn('script', ['-qec', `node host.ts --via lan --port ${port} --name ${name}`, '/dev/null'],
+    { cwd: at, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
+  let said = '';
+  pty.stdout.on('data', (b: Buffer) => { said += b.toString(); });
+  const heard = async (pattern: RegExp, from = 0) => {
+    for (let i = 0; i < 300 && !pattern.test(said.slice(from)); i++) await new Promise((r) => setTimeout(r, 50));
+    const m = said.slice(from).match(pattern);
+    assert.ok(m, `pty host never said ${pattern}; it said:\n${said}`);
+    return m;
+  };
+  await heard(new RegExp(WORDS['engine.ready'].replace('.', '\\.')));
+  return { pty, heard, said: () => said };
+}
+/** A pty host's exit code, or null when it is still running after `ms`. */
+const exitWithin = (pty: ChildProcess, ms: number) => new Promise<number | null>((resolve) => {
+  const timer = setTimeout(() => resolve(null), ms);
+  pty.once('exit', (c) => { clearTimeout(timer); resolve(c); });
+});
+
+test('a key typed while the terminal is hidden is neither echoed nor run', async () => {
+  // Bytes written in the same breath as the prompt's Enter arrive while input is still hidden, so showInput must
+  // drop them instead of echoing or running them as commands.
+  const { pty, heard, said } = await ptyHost(dir, 'pty-hidden', 'Pty');
   try {
-    let said2 = '';
-    pty.stdout.on('data', (b: Buffer) => { said2 += b.toString(); });
-    const heard2 = async (pattern: RegExp, from = 0) => {
-      for (let i = 0; i < 300 && !pattern.test(said2.slice(from)); i++) await new Promise((r) => setTimeout(r, 50));
-      const m = said2.slice(from).match(pattern);
-      assert.ok(m, `pty host never said ${pattern}; it said:\n${said2}`);
-      return m;
-    };
-    await heard2(new RegExp(WORDS['engine.ready'].replace('.', '\\.')));
     // A failed add: an empty paste cancels it, and the key bytes in the same breath must be dropped.
-    let mark = said2.length;
+    let mark = said().length;
     pty.stdin.write('add opencode-go\n');
-    await heard2(/Paste the/, mark);
+    await heard(/Paste the/, mark);
     const CANARY = 'sk-go-CANARY-HIDDEN-5521';
-    mark = said2.length;
+    mark = said().length;
     pty.stdin.write('\n');
     pty.stdin.write(`${CANARY}\n`);
-    await heard2(/Cancelled\./, mark);
+    await heard(/Cancelled\./, mark);
     await new Promise((r) => setTimeout(r, 1500));
-    assert.doesNotMatch(said2, new RegExp(CANARY), 'the typed key is never echoed');
-    assert.equal((said2.slice(mark).match(CODE) ?? []).length, 0, 'the typed Enter shows no fresh codes');
+    assert.doesNotMatch(said(), new RegExp(CANARY), 'the typed key is never echoed');
+    assert.equal((said().slice(mark).match(CODE) ?? []).length, 0, 'the typed Enter shows no fresh codes');
     // A signed-in add: trailing bytes past the paste meet the same drop.
-    mark = said2.length;
+    mark = said().length;
     pty.stdin.write('add opencode-go\n');
-    await heard2(/Paste the/, mark);
+    await heard(/Paste the/, mark);
     const TRAIL = 'sk-go-CANARY-TRAIL-5522';
-    mark = said2.length;
+    mark = said().length;
     pty.stdin.write('sk-go-CANARY-SIGNED-IN-9\n');
     pty.stdin.write(`${TRAIL}\n`);
-    await heard2(/Signed in to/, mark);
+    await heard(/Signed in to/, mark);
     await new Promise((r) => setTimeout(r, 1500));
-    assert.doesNotMatch(said2, new RegExp('CANARY-TRAIL'), 'trailing bytes are never echoed');
-    assert.equal((said2.slice(mark).match(CODE) ?? []).length, 0, 'trailing bytes run no command');
+    assert.doesNotMatch(said(), new RegExp('CANARY-TRAIL'), 'trailing bytes are never echoed');
+    assert.equal((said().slice(mark).match(CODE) ?? []).length, 0, 'trailing bytes run no command');
   } finally {
     pty.kill('SIGTERM');
   }
@@ -386,31 +398,31 @@ test('a key typed while the terminal is hidden is neither echoed nor run', async
 
 test('Ctrl-C during a hidden plan-key sign-in quits', async () => {
   // While raw mode hides the terminal, Ctrl-C arrives as a byte, not SIGINT: the host stops like it does outside.
-  const app3 = join(dir, 'pty-quit');
-  cpSync(app, app3, { recursive: true, filter: (f) => !/[/\\]\.state$/.test(f) });
-  const port3 = await new Promise<number>((resolve) => {
-    const s = createServer().listen(0, '127.0.0.1', () => { const { port } = s.address() as { port: number }; s.close(() => resolve(port)); });
-  });
-  const pty = trackChild(spawn('script', ['-qec', `node host.ts --via lan --port ${port3} --name PtyQuit`, '/dev/null'],
-    { cwd: app3, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
+  const { pty, heard } = await ptyHost(dir, 'pty-quit', 'PtyQuit');
   try {
-    let said3 = '';
-    pty.stdout.on('data', (b: Buffer) => { said3 += b.toString(); });
-    const heard3 = async (pattern: RegExp, from = 0) => {
-      for (let i = 0; i < 300 && !pattern.test(said3.slice(from)); i++) await new Promise((r) => setTimeout(r, 50));
-      const m = said3.slice(from).match(pattern);
-      assert.ok(m, `pty host never said ${pattern}; it said:\n${said3}`);
-      return m;
-    };
-    await heard3(new RegExp(WORDS['engine.ready'].replace('.', '\\.')));
     pty.stdin.write('add opencode-go\n');
-    await heard3(/Paste the/);
+    await heard(/Paste the/);
     pty.stdin.write(String.fromCharCode(3)); // Ctrl-C while hidden: quit, the same as SIGINT
-    const code = await new Promise<number | null>((resolve) => {
-      const timer = setTimeout(() => resolve(null), 15000);
-      pty.once('exit', (c) => { clearTimeout(timer); resolve(c); });
-    });
-    assert.equal(code, 0, 'the host quits on Ctrl-C during a hidden sign-in');
+    assert.equal(await exitWithin(pty, 15000), 0, 'the host quits on Ctrl-C during a hidden sign-in');
+  } finally {
+    pty.kill('SIGTERM');
+  }
+});
+
+test('Ctrl-C after the plan key is pasted quits while the sign-in still settles', async () => {
+  // The computer checks the pasted key for a few seconds (the fake's SETTLE_MS, as the engine's restart does) with
+  // the terminal still hidden, so a Ctrl-C there arrives as a byte too: it must quit at once, not once the check
+  // ends and the terminal is back.
+  const { pty, heard, said } = await ptyHost(dir, 'pty-quit-settling', 'PtySettle');
+  try {
+    const from = said().length;
+    pty.stdin.write('add opencode-go\n');
+    await heard(/Paste the/, from);
+    pty.stdin.write('sk-go-CANARY-SETTLING-5523\n');
+    await new Promise((r) => setTimeout(r, 500)); // the check is under way, and has said nothing yet
+    pty.stdin.write(String.fromCharCode(3));
+    assert.equal(await exitWithin(pty, 5000), 0, 'the host quits on Ctrl-C while the key check runs');
+    assert.doesNotMatch(said(), /Signed in to/, 'it quit before the check ended');
   } finally {
     pty.kill('SIGTERM');
   }

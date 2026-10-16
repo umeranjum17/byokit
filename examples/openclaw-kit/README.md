@@ -27,7 +27,8 @@ npm start
    there and type the code. The phone moves on by itself once ChatGPT says yes. With an OpenCode Go plan, tap
    **OpenCode Go catalog — paste the key from your plan** instead and paste the key from your OpenCode Go dashboard:
    it goes to this computer over the paired link, which keeps it and checks it; the phone keeps nothing.
-5. Type a message and tap **Send**. The reply streams in under it, with its token usage (`Tokens: …`) underneath.
+5. Type a message and tap **Send**. The reply streams in under it, with its token usage underneath (`Tokens: 12 in,
+   30 out, 42 total`, then `, on <model>` when the engine names the model).
 6. Ask it to save a note (for example "save a note that says buy milk"). Before it does, the phone shows **Your
    helper wants to save a note. Allow it?** Tap **Allow** and the note lands in `.state/notes.txt`, or **Deny** and
    nothing is saved. Everything else the helper would do on this computer (searching the web, say) asks the same way.
