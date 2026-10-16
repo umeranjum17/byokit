@@ -51,7 +51,7 @@ require('node:fs').writeFileSync(${JSON.stringify(envOut)}, JSON.stringify(proce
   // An app that adopts ``whichever session Herdr resolved on its own'' passes no socket path: the
   // empty value must stay out of the child env so the child keeps its own resolution
   // (`--session` > HERDR_SOCKET_PATH > HERDR_SESSION > default).
-  const kit = new HerdrKit({ mode: 'adopt', bin, socketPath: '', env: { HERDR_SESSION: 'k6-empty' } });
+  const kit = new HerdrKit({ mode: 'adopt', bin, socketPath: '', path: [dirname(process.execPath), '/usr/bin', '/bin'], env: { HERDR_SESSION: 'k6-empty' } });
   const r = await kit.cli(['--version']);
   assert.equal(r.exitCode, 0, r.stderr);
   const seen = JSON.parse(await readFile(envOut, 'utf8')) as Record<string, string>;
