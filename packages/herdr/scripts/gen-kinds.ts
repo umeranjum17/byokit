@@ -8,6 +8,24 @@ const input = new URL('../schema/kinds-0.9.1/', import.meta.url);
 const read = (file: string) => readFileSync(new URL(file, input), 'utf8');
 const provenance = JSON.parse(read('provenance.json')) as { version: string; revision: string };
 
+// A kind reads the per-account wording when it keeps its sign-in in an account-private
+// home: a managed folder variable, or Gemini 0.56.0's GEMINI_CLI_HOME (else HOME) files.
+const signInLabel = (kind: string, folderVar: string | undefined) =>
+  folderVar !== undefined || kind === 'gemini'
+    ? 'Sign in to this account on this computer'
+    : 'One sign-in per computer user';
+
+// Kinds documented from vendor docs rather than the pinned v0.9.1 excerpts. They live here
+// so regenerating kinds.json keeps them instead of silently dropping them.
+const documentedKinds: AccountKind[] = [
+  { kind: 'vibe', aliases: ['mistral-vibe', 'mistral vibe'], folderVar: 'VIBE_HOME',
+    resume: true, sessionKinds: ['id'], resumeArgs: ['--resume', '{session}'],
+    loginLabel: signInLabel('vibe', 'VIBE_HOME'),
+    billing: 'unknown', offer: 'explicit',
+    upstream: { version: 'docs', revision: 'mistral-docs-vibe-cli-configuration',
+      source: 'https://docs.mistral.ai/vibe/code/cli/configuration; https://docs.mistral.ai/vibe/code/cli/work-with-cli; https://docs.mistral.ai/vibe/code/cli/api-keys-profiles' } },
+];
+
 export function generateKinds(): AccountKind[] {
   const detect = read('mod-detect.rs');
   const env = read('env.rs');
@@ -37,14 +55,15 @@ export function generateKinds(): AccountKind[] {
     return { kind, aliases, ...(kind === 'muse' ? { aliasPattern: '^muse-bin-[0-9]' } : {}),
       ...(folderVar === undefined ? {} : { folderVar }), resume: plan !== null, sessionKinds,
       ...(args === undefined ? {} : { resumeArgs: args }),
-      loginLabel: folderVar === undefined ? 'One sign-in per computer user' : 'Sign in to this account on this computer',
+      loginLabel: signInLabel(kind, folderVar),
       billing: 'unknown', offer: 'explicit',
       upstream: { version: provenance.version, revision: provenance.revision, source: 'src/detect/mod.rs; src/integration/env.rs; src/agent_resume.rs' } };
   });
   assert.equal(rows.length, 24);
   assert.equal(rows.filter((r) => r.folderVar).length, 12);
   assert.equal(rows.filter((r) => r.resume).length, 18);
-  return rows.sort((a, b) => a.kind.localeCompare(b.kind, 'en'));
+  const all = [...rows, ...documentedKinds];
+  return all.sort((a, b) => a.kind.localeCompare(b.kind, 'en'));
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
