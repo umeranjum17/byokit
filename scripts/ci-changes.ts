@@ -15,7 +15,7 @@ const AREAS: Record<string, string[]> = {
   android: ['android/', 'examples/dictation-android/', 'examples/realtime-android/', 'fixtures/', ...kits('dictation', 'audio', 'realtime', 'accounts')],
   expo: [
     'examples/expo/', 'scripts/share-expo-smoke.ts', 'scripts/statusbar-expo-smoke.ts',
-    ...kits('accounts', 'decide', 'pair', 'bubble', 'seal', 'statusbar', 'ui', 'push', 'usage', 'share', 'infer', 'secrets'),
+    ...kits('accounts', 'decide', 'pair', 'bubble', 'seal', 'statusbar', 'ui', 'push', 'usage', 'share', 'infer', 'secrets', 'discover'),
   ],
 };
 const SHARED = ['package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.base.json', '.github/workflows/ci.yml', 'scripts/fix-words-dts.cjs', 'scripts/test.sh', 'scripts/test-egress-guard.cjs', 'packages/test-support.ts'];
