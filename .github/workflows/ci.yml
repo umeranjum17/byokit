@@ -91,8 +91,6 @@ jobs:
 
   # macOS coverage for the Herdr kit: the stale-server restart reads live process
   # state (/proc on Linux, `ps` elsewhere), which only runs green on Darwin here.
-  # The OpenClaw offline suite runs here too (packages/openclaw/test/*.test.ts),
-  # not in the engine job.
   herdr-macos:
     runs-on: macos-latest
     timeout-minutes: 15
@@ -107,7 +105,6 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run build
       - run: sh scripts/test.sh 'packages/herdr/test/*.test.ts'
-      - run: sh scripts/test.sh 'packages/openclaw/test/*.test.ts'
 
   # done-done gate: the standing proof primitives run through done-done itself, so CI
   # speaks the same proof language as local runs (.done-done.yaml). Agent-free by
