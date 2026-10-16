@@ -6,6 +6,7 @@ import type { Call } from './agents.ts';
 import type { AgentReadiness, AgentStatusOptions, AgentRef, Move, MoveResult, MoveToAccount, MoveToAccountResult, OpenSignInTab, StartAgent } from './types.ts';
 import { words } from './words.ts';
 import { accountKind } from './kinds.ts';
+import { isLaunchEnvironment, isOverlayEnvironment } from './launch-env.ts';
 
 type Raw = Record<string, any>;
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -63,9 +64,11 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
         const variable = accountKind(start.kind)?.folderVar;
         if (!variable || !folder || /[\r\n\0]/.test(folder)) throw new Error('unsupported folder');
         const launch = start.env;
-        start.env = launch && typeof launch.env === 'object' && Array.isArray(launch.unset)
+        start.env = isLaunchEnvironment(launch)
           ? { env: { ...launch.env, [variable]: folder }, unset: launch.unset }
-          : { ...launch as Record<string, string> | undefined, [variable]: folder };
+          : isOverlayEnvironment(launch)
+            ? { overlay: { ...launch.overlay, [variable]: folder }, unset: launch.unset }
+            : { ...launch as Record<string, string> | undefined, [variable]: folder };
       }
       return await ctx.startAgent({ ...start, place: { tab: 'new', workspaceId,
         ...(label === undefined ? {} : { label }) } });

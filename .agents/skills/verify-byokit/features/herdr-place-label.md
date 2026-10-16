@@ -8,6 +8,7 @@ A host app calls `kit.startAgent({ ..., place: { workspace: '<label>', label: 'b
 
 - `reuse`: one workspace labelled `byokit` gets a new tab with the agent; `created` is `false` and the workspace count is unchanged.
 - `create`: no workspace with the label exists; the start creates it with that label and `created` is `true`.
+- `create-tab-label`: the create leg passes `label: 'task-title'` too; the new workspace's root tab carries `task-title` while the workspace keeps the workspace label.
 - `failed-keeps-workspace`: a failing `agent.start` into a reused workspace rolls back only the fresh pane; the workspace still exists afterwards.
 - `ambiguous`: two workspaces share one label; the start refuses with the named `workspace-ambiguous` error and creates nothing.
 
@@ -30,6 +31,9 @@ serves a real Unix socket under the scratch directory and answers the pinned pro
     resolves `{ paneId, name, created: false }` with the pane inside `w2`, and the workspace count is unchanged.
   - `create`: `kit.startAgent({ kind: 'pi', cwd: '/tmp/verify-place', place: { workspace: 'fresh-label' } })`
     resolves `{ paneId, name, created: true }` with the pane inside a new workspace labelled `fresh-label`.
+  - `create-tab-label`: `kit.startAgent({ kind: 'pi', cwd: '/tmp/verify-place', place: { workspace: 'fresh-tab-ws', label: 'task-title' } })`
+    resolves `created: true`; the new workspace is labelled `fresh-tab-ws` and its root tab (the pane's tab in
+    `kit.snapshot()`, waited for) is labelled `task-title`.
   - `failed-keeps-workspace`: with one `agent.start` fault queued (`fake.agentStartFaults.push({ code: 'agent_failed', message: 'boom' })`),
     `kit.startAgent({ kind: 'pi', cwd: '/tmp/verify-place', place: { workspace: 'byokit' } })` rejects with `boom`,
     the `byokit` workspace still exists, and the pane count is back to before.
@@ -41,6 +45,7 @@ serves a real Unix socket under the scratch directory and answers the pinned pro
   then run SKILL.md Evidence's capture block. Exit code `0`.
 - **reuse shows.** `{ paneId: <fresh pane in w2>, name: 'pi', created: false }`, workspace count unchanged.
 - **create shows.** `{ paneId: <fresh pane>, name: 'pi', created: true }`, one new workspace labelled `fresh-label`.
+- **create-tab-label shows.** The `fresh-tab-ws` workspace with its root tab labelled `task-title`.
 - **failed-keeps-workspace shows.** Rejection `herdr: agent_failed: boom`, the `byokit` workspace present, pane count restored.
 - **ambiguous shows.** Rejection `code: 'workspace-ambiguous'`, workspace and pane counts unchanged.
 

@@ -600,7 +600,7 @@ export class HerdrKit {
   answer(paneId: string, keys: string[], o: { revision: number }): Promise<void> { return this.blockedList.answer(paneId, keys, o); }
   closePane(paneId: string, o?: { confirmed?: { scope: 'tab'; id: string } }): Promise<void> { return closePane(this.callAny, paneId, o); }
   closeTab(tabId: string): Promise<void> { return closeTab(this.callAny, tabId); }
-  closeWorkspace(workspaceId: string): Promise<void> { return closeWorkspace(this.callAny, workspaceId); }
+  closeWorkspace(workspaceId: string, o?: { confirmed?: { scope: 'worktreeGroup'; id: string } }): Promise<void> { return closeWorkspace(this.callAny, workspaceId, o); }
   agentKinds(): Promise<string[]> { return this.agents.agentKinds(); }
   installedAgentKinds(kinds: readonly string[], o: { path: string[]; aliases?: Record<string, string[]> }): string[] { return this.agents.installedAgentKinds(kinds, o); }
   // Onboarding readiness (B5): a local PATH probe plus each installed CLI's own status

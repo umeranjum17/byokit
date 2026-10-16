@@ -210,10 +210,23 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       if (!live.workspaces.some((row) => row.workspace_id === p.workspace_id)) {
         throw fail('workspace_not_found', 'workspace not found');
       }
-      const tabs = live.tabs.filter((tab) => tab.workspace_id === p.workspace_id).map((tab) => tab.tab_id);
-      for (const tabId of tabs) removeTab(tabId);
-      live.workspaces = live.workspaces.filter((row) => row.workspace_id !== p.workspace_id);
-      emitEvent('workspace.closed', { workspace_id: p.workspace_id });
+      // Like the real server, a plain close on a worktree-group root is refused: the group
+      // closes only through `close_group: true`, which widens the one close atomically.
+      const closed = live.workspaces.find((row) => row.workspace_id === p.workspace_id)!;
+      const group = typeof closed.worktree?.repo_key === 'string' && closed.worktree.is_linked_worktree === false
+        ? live.workspaces.filter((row) => row.worktree?.repo_key === closed.worktree!.repo_key)
+        : [];
+      if (group.length >= 2 && p.close_group !== true) {
+        throw fail('workspace_group_close_required', 'use close_group to close a worktree group');
+      }
+      const gone = group.length >= 2 ? group.map((row) => row.workspace_id) : [p.workspace_id as string];
+      for (const workspaceId of gone) {
+        for (const tabId of live.tabs.filter((tab) => tab.workspace_id === workspaceId).map((tab) => tab.tab_id)) {
+          removeTab(tabId);
+        }
+      }
+      live.workspaces = live.workspaces.filter((row) => !gone.includes(row.workspace_id));
+      for (const workspaceId of gone) emitEvent('workspace.closed', { workspace_id: workspaceId });
       return {};
     },
     'workspace.focus': (p) => {
