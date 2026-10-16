@@ -62,7 +62,7 @@
   {
     "readme": "packages/decide/README.md",
     "block": 13,
-    "snapshot": "4e53e33512ea23be3a03f783a66c3ad769bd38bd5ad96e7dc5824cc132190b89",
+    "snapshot": "a549745a4b85fc74c045c49b9cc227de979560829459f6aa490e44a6a7d5bfab",
     "reason": "Cache/retry fragment omits hostConfig, input text and questions context."
   },
   {
@@ -80,19 +80,19 @@
   {
     "readme": "packages/pair/README.md",
     "block": 6,
-    "snapshot": "7c3c2c9fff6794c92f84f7a67d0ee40b560745f801193ff5372641855c0556e1",
+    "snapshot": "caa97eb04dd3e64584dbe697221cc5b63a7d7a473812370fb3ee592d00613116",
     "reason": "Device fragment omits scanned offer, UI callbacks and host-provided secure storage."
   },
   {
     "readme": "packages/pair/README.md",
     "block": 7,
-    "snapshot": "f6b80f4da0b89818f15a956c24c4470ab6282b4f472c86ccb3e362f75e42dd9f",
+    "snapshot": "fd5029dc2b1946cdbb61f4abfda724c26890229fcc201490465db5490012bb78",
     "reason": "Device-storage fragment omits imports, SecureStore, scanned offer and callbacks."
   },
   {
     "readme": "packages/pair/README.md",
     "block": 8,
-    "snapshot": "67ce688872f69c8c1f68316f396c70c25068889d295991053a6651be2284d5c0",
+    "snapshot": "95092f50030deb48563bea91c6798ffd1f4ff701995e1b509b28393ce69a38c1",
     "reason": "Stream fragment omits imports, host options, panes, device link and terminal context."
   },
   {
@@ -146,13 +146,13 @@
   {
     "readme": "packages/seal/README.md",
     "block": 2,
-    "snapshot": "256e122f46429c977473e86ad7bb38f7214d3d840ba3681515cd0e12dd74c8bc",
+    "snapshot": "d58034b3c23ea5054dfc16ee1952155b7728f226d5d8ffd9899d53db337afd3a",
     "reason": "Raw crypto fragment omits seed, plaintext and key inputs; strength item 6 supplies them."
   },
   {
     "readme": "packages/seal/README.md",
     "block": 3,
-    "snapshot": "9bd961b4bdf2350e0cd0d7f88e88ed0735b4abb4cdfdc0832c75dec544737b7c",
+    "snapshot": "8b8bf86973c6a925f764e4ea53d6c3c5583ad6513a274133be775b904087f8e0",
     "reason": "Authenticated-box fragment omits imports and text input; strength item 6 supplies them."
   }
 ]

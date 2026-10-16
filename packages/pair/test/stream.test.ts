@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
+import { WebSocket as WsClient, WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import { DeviceLink, Host, LinkError, NDJSON_LINE_TOO_LONG, PublicLinkError, WINDOW, b64url, keyPair, ndjson, type Grant, type HostOptions, type LinkStream, type Role } from '../src/index.ts';
 import { Streams } from '../src/stream.ts';
 
@@ -427,7 +427,7 @@ test('F4: stream bytes go as binary WebSocket messages on a direct socket, and a
   });
   await new Promise<void>((ok) => server.listen(0, '127.0.0.1', ok));
   const relay = `ws://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  const toRelay = new WebSocket(`${relay}/host`);
+  const toRelay = new WsClient(`${relay}/host`);
   await new Promise((ok) => { toRelay.onopen = ok; });
   r.host.relay(toRelay);
   closers.push(() => { toRelay.close(); wss.close(); server.close(); });

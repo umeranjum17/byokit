@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
-import ts from 'typescript';
+import { transformSync } from 'esbuild';
 import { words, type TailnetStep } from '@byokit/cloud';
 
 // Execute the actual demo export with inert native views/hooks and a fake machine.
@@ -35,11 +35,11 @@ test('M6 install shows the keyed approval message once, with or without an earli
       '@byokit/accounts': { ResponseError: Error, ClaudePlanExpiredError: Error },
       './cloud-m6.ts': { cloudRecipe: () => ({}) },
     };
-    const exports: any = {};
-    const output = ts.transpileModule(readFileSync(new URL('./CloudM6Demo.tsx', import.meta.url), 'utf8'), {
-      compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
-    }).outputText;
-    runInNewContext(output, { exports, process: { env: {} }, require: (name: string) => {
+    const module = { exports: {} as Record<string, unknown> };
+    const output = transformSync(readFileSync(new URL('./CloudM6Demo.tsx', import.meta.url), 'utf8'), {
+      loader: 'tsx', format: 'cjs', jsx: 'automatic', target: 'es2022', logLevel: 'silent',
+    }).code;
+    runInNewContext(output, { module, exports: module.exports, process: { env: {} }, require: (name: string) => {
       assert.ok(name in modules, `unexpected native import ${name}`); return modules[name];
     } });
     const findInstall = (node: any): any => {
@@ -48,7 +48,8 @@ test('M6 install shows the keyed approval message once, with or without an earli
         const found = child && findInstall(child); if (found) return found;
       }
     };
-    const button = findInstall(exports.CloudM6Demo({ accounts: {} }));
+    const demo = module.exports.CloudM6Demo as (props: { accounts: object }) => any;
+    const button = findInstall(demo({ accounts: {} }));
     assert.equal(button.props.disabled, false);
     button.props.onPress();
     await new Promise<void>(resolve => setImmediate(resolve));
