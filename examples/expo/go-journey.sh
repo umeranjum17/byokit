@@ -48,11 +48,19 @@ esac
 seek opencode-status
 expect "OpenCode Go is connected."
 start
+# The account list loads after the first frame and can scroll the page back: wait for it, then go to it.
+expect "ChatGPT isn't signed in yet."
+seek opencode-status
+expect "OpenCode Go is connected."
 seek opencode-picker
 expect 'Ready'
 shot light__ready
 a shell cmd uimode night yes
 start
+# The account list loads after the first frame and can scroll the page back: wait for it, then go to it.
+expect "ChatGPT isn't signed in yet."
+seek opencode-status
+expect "OpenCode Go is connected."
 seek opencode-picker
 expect 'Ready'
 shot dark__ready
