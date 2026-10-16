@@ -336,7 +336,9 @@ jobs:
         working-directory: examples/expo
       - run: sh scripts/test.sh examples/expo/pairing.test.ts examples/expo/cloud-m6.test.ts examples/expo/cloud-m6-demo.test.ts examples/expo/cloud-setup.test.ts examples/expo/infer-probe.test.ts examples/expo/infer-binding.test.ts
       - run: node examples/expo/cold-accounts.ts
-      - run: npx expo export --platform android --platform ios --output-dir dist
+      - run: npx expo export --platform android --platform ios --source-maps --output-dir dist
+        working-directory: examples/expo
+      - run: node ../../scripts/bundle-single-copy.ts dist
         working-directory: examples/expo
 
   # Frozen Kotlin mirror JVM tests, dictation, and real RN lazy microphone privacy on a disposable emulator.
