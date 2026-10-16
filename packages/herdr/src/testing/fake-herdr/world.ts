@@ -18,6 +18,7 @@ export type FakePane = {
   cwd: string;
   foreground_cwd: string;
   agent_status?: string;
+  display_agent?: string;                 // pane-level agent name Herdr also reports for shells
   label: string;
   terminal_title: string;
   terminal_title_stripped: string;

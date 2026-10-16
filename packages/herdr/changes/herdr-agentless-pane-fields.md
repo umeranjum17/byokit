@@ -1,0 +1,2 @@
+- FIX: A `pane.updated` title tick on a plain shell no longer gives the pane a phantom agent (status `unknown`) or opens a status watch for it; `pane.agent` is created only from an agents record or a payload that names an agent.
+- FIX: Pane-level `agent_status`, `display_agent` and `foreground_cwd` now ride every snapshot pane as `agentStatus`, `displayAgent` and `foregroundCwd`, so a shell with no agents record keeps them instead of losing them.
