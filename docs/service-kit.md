@@ -149,7 +149,7 @@ journey against a trivial companion binary:
 
 The runner is thrown away after the job, so nothing is installed on a person's computer. The Linux job also proves
 the per-user-only rule is real: the unit lands under `$HOME/.config/systemd/user`, `loginctl show-user <login>`
-reports `Linger=yes` after install, and the job never runs `sudo`. The macOS job's first run establishes which of
+reports `Linger=yes` after install, and the kit never runs `sudo`; CI setup may. The macOS job's first run establishes which of
 `launchctl bootstrap` or `launchctl load -w` the runner's launchd session accepts (4.2); that answer is recorded in
 the kit's README as the launchd fact, not re-derived.
 

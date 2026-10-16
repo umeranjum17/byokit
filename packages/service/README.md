@@ -45,5 +45,6 @@ resolves `{ phase: 'unsupported' }` there.
 
 **Status: in development** (private, not published). The CI job `service-linux` proves the
 journey on a disposable GitHub-hosted Ubuntu runner: install a loopback echo, see it `active`
-and answering, uninstall it and see the file gone. A hosted runner never reboots or signs out
+and answering, uninstall it and see the file gone; it also proves a refused linger rejects
+`linger`. The CI job `service-macos` proves the typed `unsupported` result on macOS. A hosted runner never reboots or signs out
 under the job, so starting again after a restart or sign-out is **unproven**.

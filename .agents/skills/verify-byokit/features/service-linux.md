@@ -33,7 +33,12 @@ CI job `service-linux` (`.github/workflows/ci.yml`) on `ubuntu-latest`: `loginct
 `sudo`, then `node --test packages/service/test/linux.journey.ts`. The journey installs a node loopback echo
 as `bin` and asserts `status` `not-installed` → `running`, `systemctl --user is-active` `active`, `Linger=yes`,
 the echo answering on 127.0.0.1, a re-install restarting it, then after `uninstall` the unit file gone,
-`is-active` `inactive` and `status` `not-installed`. It skips anywhere but GitHub Actions on Linux.
+`is-active` `inactive` and `status` `not-installed`. It skips anywhere but GitHub Actions on Linux. Before it, the same job proves a refused linger: a setup step
+(sudo, setup only; the kit never runs sudo) denies the runner's own linger with a polkit rule, then
+`linger.journey.ts` asserts `ServiceError` `linger` with `detail.command` `sudo loginctl enable-linger runner`, linger
+still off and the unit file present (spec 4.1 writes it first); the rule is lifted, linger re-enabled, and the
+leftover unit uninstalls. CI job `service-macos` (`macos-latest`) runs `unsupported.journey.ts`: `install` and
+`uninstall` reject `unsupported`, `status` resolves `{ phase: 'unsupported' }`, nothing written.
 
 Before a PR exists, run the same job from a throwaway branch with a one-job workflow (`on: push` to that
 branch only), save the run log as evidence, and delete the branch. Pass = the test line shows `✔`, not skipped.
