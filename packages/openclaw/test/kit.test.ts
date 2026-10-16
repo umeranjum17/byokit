@@ -3,14 +3,17 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { randomBytes } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { join } from 'node:path';
-import { scratchDir } from '../../test-support.ts';
-import { test } from 'node:test';
+import { fakeOpenCodeConsole, scratchDir } from '../../test-support.ts';
+import { mock, test } from 'node:test';
 import { AuthStoreUnreadableError } from '../src/auth-store.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import type { RunRef } from '../src/types.ts';
 import { hostKeySeal, osKeyringSeal, type KeyringBackend } from '../../secrets/src/index.ts';
 import { stateWords } from '../src/words.ts';
+
+// Go key adds list the key's workspaces; the console answers in this process (401 unless a test says otherwise).
+const orgs = fakeOpenCodeConsole();
 
 async function withKit(fn: (kit: OpenClawKit, fake: ReturnType<typeof fakeGateway>) => Promise<void>) {
   const stateDir = scratchDir('o4');
@@ -926,24 +929,70 @@ test('schema validation precedes explicit API-key readiness and keeps its snapsh
 
 type ProvidersConfig = { config?: { models?: { providers?: Record<string, { headers?: Record<string, string> }> } } };
 
-test('a Go plan key add names its workspace in the provider config; removal drops it; other routes refuse one', async () => withKit(async (kit, fake) => {
-  const headers = async () =>
-    ((await kit.call('config.get', {}) as ProvidersConfig).config?.models?.providers?.['opencode-go']?.headers);
-  assert.equal(await headers(), undefined, 'no workspace before any key');
-  assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY', orgId: 'org_WORKING2' }), { status: 'ok' });
-  assert.ok(fake.calls.some((c) => c.method === 'config.patch'), 'the workspace reached the engine through the kit patch');
-  assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_WORKING2' }, 'the workspace rides every probe and run from config');
-  // The slot is provider-wide, so a workspace-less replacement keeps the standing workspace; naming another rewrites it.
-  assert.deepEqual(await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY-2' }), { status: 'ok' });
-  assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_WORKING2' });
-  assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY', orgId: 'org_B' }), { status: 'ok' });
-  assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_B' });
-  // Removal takes the workspace with the key.
-  assert.equal(await kit.removeKey('m1', { provider: 'opencode-go' }), undefined);
-  assert.equal(await headers(), undefined);
-  // A route with no workspace refuses a named one instead of silently dropping it.
-  assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'CANARY-PAID-KEY', orgId: 'org_X' }),
-    { status: 'not_included', reason: 'model' });
-  assert.equal(((await kit.call('config.get', {}) as ProvidersConfig).config?.models?.providers?.openai?.headers), undefined);
-  assert.equal(JSON.stringify(fake.calls).includes('CANARY-GO-KEY'), false);
+test('a Go plan key add names its workspace: listed when the app names none; removal drops it; other routes refuse one', async () => withKit(async (kit, fake) => {
+  orgs.answer(async () => new Response('', { status: 401 }));
+  const asked0 = orgs.asked.length;
+  try {
+    const headers = async () =>
+      ((await kit.call('config.get', {}) as ProvidersConfig).config?.models?.providers?.['opencode-go']?.headers);
+    const keyReady = async (member: string) => (await kit.callDynamic('byokit.keys', { member, action: 'ready' }) as { ok: boolean }).ok;
+    assert.equal(await headers(), undefined, 'no workspace before any key');
+    // A named workspace is used as given, with no listing.
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY', orgId: 'org_WORKING2' }), { status: 'ok' });
+    assert.equal(orgs.asked.length, asked0);
+    assert.ok(fake.calls.some((c) => c.method === 'config.patch'), 'the workspace reached the engine through the kit patch');
+    assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_WORKING2' }, 'the workspace rides every probe and run from config');
+    // A key that acts for one workspace uses it unasked.
+    orgs.answer(async () => Response.json([{ id: 'org_ONLY', name: 'Umer' }]));
+    assert.deepEqual(await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY-2' }), { status: 'ok' });
+    assert.deepEqual(orgs.asked.slice(asked0), ['Bearer CANARY-GO-KEY-2'], 'the listing is the key\'s own');
+    assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_ONLY' });
+    // A key the console refuses (a workspace-bound service key) adds with no header of its own: the slot is
+    // provider-wide, so the standing workspace stays.
+    orgs.answer(async () => new Response('', { status: 401 }));
+    assert.deepEqual(await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-SERVICE' }), { status: 'ok' });
+    assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_ONLY' });
+    // Several come back for the app's pick, before anything changes; adding again with the pick saves it.
+    const patches = () => fake.calls.filter((c) => c.method === 'config.patch' || c.method === 'byokit.keys' || c.method === 'openclaw.setup.activate').length;
+    let before = patches();
+    orgs.answer(async () => Response.json([{ id: 'org_A', name: 'Umer' }, { id: 'org_B', name: 'Umer at work' }, { id: '', name: 'no id' }]));
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY' }),
+      { status: 'needs_workspace', workspaces: [{ id: 'org_A', name: 'Umer' }, { id: 'org_B', name: 'Umer at work' }] });
+    assert.equal(patches(), before, 'nothing was sent to the engine');
+    assert.ok(await keyReady('m1'), 'the standing key stays');
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY', orgId: 'org_B' }), { status: 'ok' });
+    assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_B' });
+    // A listing that could not be read (offline, a server error, a body that is no list) is never taken for
+    // "no workspace": the add fails as retryable and changes nothing.
+    for (const unread of [async () => { throw new TypeError('fetch failed'); }, async () => new Response('down', { status: 502 }),
+      async () => Response.json({ orgs: [] })]) {
+      orgs.answer(unread);
+      before = patches();
+      assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY' }), { status: 'retry', reason: 'network' });
+      assert.equal(patches(), before);
+      assert.ok(await keyReady('m1'));
+      assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_B' });
+    }
+    // Cancelling while the listing is pending stops it and changes nothing.
+    let listing!: AbortSignal;
+    orgs.answer((signal) => { listing = signal; return new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason))); });
+    before = patches();
+    const pending = kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY' });
+    while (!listing) await delay(5);
+    pending.cancel();
+    assert.deepEqual(await pending, { status: 'retry', reason: 'busy' });
+    assert.ok(listing.aborted, 'the listing request itself was cancelled');
+    assert.equal(patches(), before);
+    // Removal takes the workspace with the key.
+    assert.equal(await kit.removeKey('m1', { provider: 'opencode-go' }), undefined);
+    assert.equal(await headers(), undefined);
+    // A route with no workspace refuses a named one instead of silently dropping it, and never lists.
+    const asked = orgs.asked.length;
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'CANARY-PAID-KEY', orgId: 'org_X' }),
+      { status: 'not_included', reason: 'model' });
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: 'CANARY-PAID-KEY' }), { status: 'ok' });
+    assert.equal(orgs.asked.length, asked);
+    assert.equal(((await kit.call('config.get', {}) as ProvidersConfig).config?.models?.providers?.openai?.headers), undefined);
+    assert.equal(JSON.stringify(fake.calls).includes('CANARY-GO-KEY'), false);
+  } finally { orgs.answer(async () => new Response('', { status: 401 })); }
 }));

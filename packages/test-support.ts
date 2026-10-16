@@ -80,3 +80,21 @@ export function trackChild<T extends { kill(signal?: NodeJS.Signals): boolean; o
   child.once('exit', () => children.delete(child));
   return child;
 }
+
+const CONSOLE_ORGS = 'https://opencode.ai/console/api/orgs';
+let consoleFake: { asked: string[]; answer(next: (signal: AbortSignal) => Promise<Response>): void } | undefined;
+/** The OpenCode console's org listing, answered in this process for the rest of the file (a stand-in key is no
+ * login: 401, so an add needs no workspace); every other address goes to the real fetch. A plain assignment, not
+ * `mock.method`, so a test's `mock.restoreAll()` keeps it. */
+export function fakeOpenCodeConsole(): NonNullable<typeof consoleFake> {
+  if (consoleFake) return consoleFake;
+  const real = globalThis.fetch;
+  const asked: string[] = [];
+  let answer = async (_signal: AbortSignal): Promise<Response> => new Response('', { status: 401 });
+  globalThis.fetch = (input: string | URL | Request, init?: RequestInit) => {
+    if ((input instanceof Request ? input.url : String(input)) !== CONSOLE_ORGS) return real(input, init);
+    asked.push(new Headers(init?.headers).get('authorization') ?? '');
+    return answer(init?.signal ?? new AbortController().signal);
+  };
+  return consoleFake = { asked, answer: (next) => { answer = next; } };
+}

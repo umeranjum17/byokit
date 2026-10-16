@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { openCodeWorkspaces, type OpenCodeGoWorkspace } from '@byokit/accounts/opencode-go';
 import { activate, type ActivationCtx } from './activation.ts';
 import { keyAgentId, MEMBER_ID, KEY_PREFIX, untilListed } from './members.ts';
 import { providerOf } from './pick.ts';
@@ -11,8 +12,11 @@ import type { Member, ModelInfo } from './types.ts';
 // does not reach the engine, the key stays unsealed and unusable until the next key add or kit start, and runs fail
 // closed meanwhile.
 export type KeyFailureReason = 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy';
+/** `needs_workspace`: the Go plan login acts for several workspaces (console orgs); show the pick and add again with
+ *  its `orgId`. Nothing was saved or sent to the engine. Ids are row ids, never secrets. */
 export type AddKeyResult = { status: 'ok' } |
-  { status: 'invalid' | 'not_included' | 'retry'; reason: KeyFailureReason };
+  { status: 'invalid' | 'not_included' | 'retry'; reason: KeyFailureReason } |
+  { status: 'needs_workspace'; workspaces: { id: string; name: string }[] };
 /** The add resolves like a Promise; `cancel()` stops a pending add and clears any partial key (retry/busy). */
 export type AddKeyHandle = Promise<AddKeyResult> & { cancel(): void };
 
@@ -95,10 +99,25 @@ export function createKeys(ctx: ActivationCtx & {
         if (!route || (o.model !== undefined && !LIVE_CATALOGS.includes(route.provider))) return failure('not_included', 'model');
         // A workspace names a live-catalog login's own workspace only; another route takes no header, and a
         // refusal here leaves the member's lanes untouched (it lands before any prepare or activation).
-        const orgId = typeof o.orgId === 'string' ? o.orgId.trim() : '';
+        let orgId = typeof o.orgId === 'string' ? o.orgId.trim() : '';
         if (orgId) {
           if (orgId.length > 256) return failure('invalid', 'auth');
           if (!LIVE_CATALOGS.includes(route.provider)) return failure('not_included', 'model');
+        } else if (route.provider === 'opencode-go') {
+          // The Go gateway refuses a login acting for several workspaces until one is named (403 Workspace selection
+          // is required), so an add without `orgId` lists the key's own (the console listing `@byokit/accounts` uses):
+          // one is used, several come back for the app's pick, and a key the console refuses (a workspace-bound
+          // service key) needs none. A listing that could not be read fails the add before anything changes.
+          let workspaces: OpenCodeGoWorkspace[];
+          try {
+            workspaces = await openCodeWorkspaces(o.apiKey, (input, init) =>
+              fetch(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, ac.signal]) : ac.signal }));
+          } catch { // `workspaces_unread`: offline, timeout, a server error or a body that is no list
+            return ac.signal.aborted ? failure('retry', 'busy') : failure('retry', 'network');
+          }
+          if (ac.signal.aborted) return failure('retry', 'busy');
+          if (workspaces.length > 1) return { status: 'needs_workspace', workspaces };
+          orgId = workspaces[0]?.id ?? '';
         }
         if (ac.signal.aborted) return failure('retry', 'busy');
         return exclusive(member, async () => {
@@ -124,7 +143,7 @@ export function createKeys(ctx: ActivationCtx & {
             if (!(await control(member, 'prepare', route.provider)).ok) return failure('retry', 'engine');
             // The workspace rides the provider's probe and every run from its config; it is written before the
             // activation, so the probe itself carries it. The slot is provider-wide (shared by every member's
-            // key on this engine), so a replacement with no `orgId` keeps the standing one and `removeKey` drops it.
+            // key on this engine), so a replacement that names none keeps the standing one and `removeKey` drops it.
             if (orgId) await ctx.setProviderHeaders(route.provider, { 'x-opencode-org-id': orgId });
             // The public pin's typed API-key path, never a CLI-login import. Discard the engine's lines/errors.
             sent = true;

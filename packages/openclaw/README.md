@@ -157,6 +157,13 @@ register (`retry`). `network` is a timeout or transport failure; `inference` is 
 probe failure, or a typed request-validation refusal; `engine` is a control or preparation failure; `busy` is a rate limit or a
 restarting engine. `not_included` covers an unsupported route, an unknown chosen model and a probe reporting the route unavailable;
 every other failure is `retry`. Migrate from the old string result with `result.status === 'ok'`, not `result === 'ok'`.
+An OpenCode Go plan login can act for several workspaces, and the Go gateway refuses its every call until one is named
+(`403 Workspace selection is required`). Pass the workspace as `orgId` when you have it; it rides the probe and every run as
+`x-opencode-org-id`. Without `orgId` the add lists the key's workspaces first (the console listing `@byokit/accounts` uses):
+one is used unasked; several resolve `{ status: 'needs_workspace', workspaces: [{ id, name }] }` with nothing saved, so show
+the pick (the names) and add again with `orgId: '<picked id>'`; a key the console refuses (a workspace-bound service key) adds
+with no workspace. A listing that could not be read (offline, a server error) resolves `{ status: 'retry', reason: 'network' }`
+and changes nothing. Workspace ids are row ids, never secrets. Another route refuses an `orgId` with `not_included`/`model`.
 A member that is not your own throws. `retry` means the engine may have taken the key but it was not kept
 sealed (for example a gateway restart ran late); no usable key was kept, so add it again. Failures never contain keys, key fragments, headers or raw engine diagnostics. Label the option **API key (billed per use)**. Select only `routes()` rows with
 `keyEntry: true`; API rows remain `offer: false`. Each route also carries its engine `revision`, `checked` date,

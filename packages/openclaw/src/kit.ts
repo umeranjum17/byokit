@@ -1072,8 +1072,9 @@ export class OpenClawKit {
   }
 
   /** Save an explicitly supplied API key (billed per use) in this member's separate key agent.
-   * `orgId` names the workspace a Go plan login acts for (the pick the app captured at connect);
-   * it rides every probe and run as `x-opencode-org-id`, and replacing the key rewrites it. */
+   * `orgId` names the workspace a Go plan login acts for; it rides every probe and run as `x-opencode-org-id`,
+   * and replacing the key rewrites it. Without it a Go key's workspaces are listed: one is used, several resolve
+   * `needs_workspace` with the rows for the app's pick (add again with `orgId`). */
   addKey(agentId: Member, o: { authChoice: string; apiKey: string; model?: string; orgId?: string }): AddKeyHandle {
     return this.keys.add(agentId, o);
   }
