@@ -45,7 +45,9 @@ export type HerdrEvent = { type: string; [k: string]: unknown };
 export type { HerdrMethods, HerdrMethod, HerdrParams, HerdrResult } from './generated/methods.ts';
 export type { HerdrEvents, HerdrEventName, HerdrEventOf, HerdrSubscription } from './generated/events.ts';
 
-export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown';
+// `failed` is not in the pinned 0.9.1 schema enum but live Herdr emits it for a crashed
+// launch; the kit carries it rather than collapsing it to `unknown`.
+export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'failed' | 'unknown';
 // Onboarding readiness (B5): per-kind install + CLI sign-in state. `signedIn` answers only
 // what the kind's own CLI status command says — 'unknown' when the kind has no documented
 // non-secret status command or the command gives no answer. Credential files are never read.
@@ -146,12 +148,13 @@ export type AgentTurnEnd<T = unknown> = {
 };
 export type BlockedAgent = { paneId: string; workspaceId: string; tabId: string; kind?: string; revision: number; prompt: string; since: number };
 export type AgentSessionRef = { source: string; agent: string; kind: string; value: string };
+// Herdr reports partial worktree records: only `checkoutPath` is guaranteed.
 export type HerdrSnapshotWorktree = {
-  repoKey: string; repoName: string; repoRoot: string; checkoutPath: string; isLinkedWorktree: boolean;
+  repoKey?: string; repoName?: string; repoRoot?: string; checkoutPath: string; isLinkedWorktree?: boolean;
 };
 export type HerdrSnapshotAgent = {
   kind?: string; name?: string; displayAgent?: string; title?: string; status: AgentStatus; revision: number;
-  launchPending?: boolean; interactiveReady?: boolean; agentSession?: AgentSessionRef; foregroundCwd?: string;
+  cwd?: string; launchPending?: boolean; interactiveReady?: boolean; agentSession?: AgentSessionRef; foregroundCwd?: string;
 };
 export type HerdrSnapshotPane = {
   id: string; cwd?: string; label?: string; focused: boolean; terminalTitle?: string;
@@ -168,6 +171,8 @@ export type HerdrSnapshotWorkspace = {
 };
 export type HerdrSnapshot = {
   connected: boolean;
+  /** Increases by one on every tree change; muxr keys its routing reuse off it. */
+  revision: number;
   workspaces: HerdrSnapshotWorkspace[];
 };
 export type TerminalSession = {

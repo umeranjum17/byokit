@@ -3,7 +3,7 @@
 // `@byokit/herdr/device`, so nothing here imports the kit.
 import { retrying, store, type Store } from './follow.ts';
 
-export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown';
+export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'failed' | 'unknown';
 export type HerdrAgent = {
   kind?: string; name?: string; status: AgentStatus; revision: number; launchPending?: boolean; interactiveReady?: boolean;
 };

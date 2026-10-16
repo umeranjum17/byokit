@@ -10,6 +10,7 @@
   "agent.working": "Working.",
   "agent.blocked": "Waiting for your answer.",
   "agent.done": "Finished.",
+  "agent.failed": "That helper stopped. Start it again.",
   "agent.unknown": "Running.",
   "agent.signIn": "Sign in inside {agent}: follow its own steps on the screen.",
   "agent.notReady": "This helper isn't ready yet. Try again in a moment.",

@@ -225,6 +225,8 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       if (workspace === undefined) throw fail('workspace_not_found', 'workspace not found');
       if (p.tokens !== undefined && typeof p.tokens === 'object') {
         workspace.tokens = { ...workspace.tokens, ...(p.tokens as Params as Record<string, string>) };
+        // Real Herdr announces workspace field changes with `workspace_updated`.
+        emitEvent('workspace.updated', { workspace: workspaceView(workspace) });
       }
       return {};
     },
@@ -833,6 +835,7 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
 
   function focusWorkspace(workspaceId: string): void {
     for (const workspace of live.workspaces) workspace.focused = workspace.workspace_id === workspaceId;
+    emitEvent('workspace_focused', { workspace_id: workspaceId });
     const pane = live.panes.find((row) => row.workspace_id === workspaceId);
     if (pane !== undefined) focusPane(pane.pane_id);
   }
@@ -840,8 +843,11 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
   function focusPane(paneId: string): void {
     const pane = live.panes.find((row) => row.pane_id === paneId);
     if (pane === undefined) return;
+    const before = live.workspaces.find((row) => row.focused)?.workspace_id;
     for (const row of live.panes) row.focused = row.pane_id === paneId;
     for (const workspace of live.workspaces) workspace.focused = workspace.workspace_id === pane.workspace_id;
+    if (before !== pane.workspace_id) emitEvent('workspace_focused', { workspace_id: pane.workspace_id });
+    emitEvent('pane_focused', { pane_id: paneId, workspace_id: pane.workspace_id });
   }
 
   function tabLayout(tabId: string) {

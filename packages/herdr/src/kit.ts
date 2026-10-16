@@ -14,10 +14,11 @@ import type {
 import type { AgentTurnEnd, AgentTurnOptions } from './types.ts';
 import { createTurns } from './turns.ts';
 
-const kinds = ['pane.agent_detected', 'pane.created', 'pane.closed', 'pane.moved', 'pane.exited', 'pane.updated',
-  'workspace.created', 'workspace.closed', 'workspace.renamed', 'workspace.updated', 'tab.created', 'tab.closed', 'tab.renamed'];
+const kinds = ['pane.agent_detected', 'pane.created', 'pane.closed', 'pane.focused', 'pane.moved', 'pane.exited', 'pane.updated',
+  'workspace.created', 'workspace.closed', 'workspace.focused', 'workspace.renamed', 'workspace.updated',
+  'tab.created', 'tab.closed', 'tab.focused', 'tab.renamed'];
 type Raw = Record<string, any>;
-const empty = (): HerdrSnapshot => ({ connected: false, workspaces: [] });
+const empty = (): HerdrSnapshot => ({ connected: false, revision: 0, workspaces: [] });
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 
@@ -52,14 +53,18 @@ function sessionOf(v: unknown): AgentSessionRef | undefined {
   return { source: r.source, agent: r.agent, kind: r.kind, value: r.value };
 }
 
+// Only `checkout_path` is required: Herdr reports partial worktree records (muxr mirrors
+// `checkout_path` alone), so every other field is carried when the wire has it.
 function worktreeOf(v: unknown): HerdrSnapshotWorkspace['worktree'] {
   if (typeof v !== 'object' || v === null) return undefined;
   const r = v as Raw;
-  if (typeof r.repo_key !== 'string' || typeof r.repo_name !== 'string' || typeof r.repo_root !== 'string' ||
-      typeof r.checkout_path !== 'string' || typeof r.is_linked_worktree !== 'boolean') return undefined;
+  if (typeof r.checkout_path !== 'string') return undefined;
   return {
-    repoKey: r.repo_key, repoName: r.repo_name, repoRoot: r.repo_root,
-    checkoutPath: r.checkout_path, isLinkedWorktree: r.is_linked_worktree,
+    checkoutPath: r.checkout_path,
+    ...(typeof r.repo_key === 'string' ? { repoKey: r.repo_key } : {}),
+    ...(typeof r.repo_name === 'string' ? { repoName: r.repo_name } : {}),
+    ...(typeof r.repo_root === 'string' ? { repoRoot: r.repo_root } : {}),
+    ...(typeof r.is_linked_worktree === 'boolean' ? { isLinkedWorktree: r.is_linked_worktree } : {}),
   };
 }
 
@@ -69,6 +74,7 @@ function mergeAgent(current: HerdrSnapshotAgent | undefined, a: Raw): HerdrSnaps
   const name = str(a.name);
   const displayAgent = str(a.display_agent);
   const title = str(a.title);
+  const cwd = str(a.cwd);
   const foregroundCwd = str(a.foreground_cwd);
   const session = sessionOf(a.agent_session);
   return {
@@ -77,6 +83,7 @@ function mergeAgent(current: HerdrSnapshotAgent | undefined, a: Raw): HerdrSnaps
     ...(name !== undefined ? { name } : {}),
     ...(displayAgent !== undefined ? { displayAgent } : {}),
     ...(title !== undefined ? { title } : {}),
+    ...(cwd !== undefined ? { cwd } : {}),
     ...(foregroundCwd !== undefined ? { foregroundCwd } : {}),
     ...(session !== undefined ? { agentSession: session } : {}),
     ...(a.agent_status !== undefined ? { status: a.agent_status } : {}),
@@ -177,7 +184,9 @@ export class HerdrKit {
     this.turns = createTurns(this);
   }
   get state(): HerdrState { return this.current; }
-  private publish() { for (const fn of this.listeners) fn(this.snapshot()); }
+  // Every tree change ends here: the revision rides the tree itself, so snapshot() always shows
+  // the count and a wholesale tree swap carries it over.
+  private publish() { this.tree.revision += 1; for (const fn of this.listeners) fn(this.snapshot()); }
   private emitRaw(e: HerdrEvent) { for (const fn of [...this.rawListeners]) fn(e); }
   // The kit's own watches report rejections here so the host keeps its invalid_subscription
   // logging without tapping the transport.
@@ -213,6 +222,41 @@ export class HerdrKit {
         this.statusEpoch.set(paneId as string, (this.statusEpoch.get(paneId as string) ?? 0) + 1);
       }
       this.blockedList.update(paneId as string, pane.agent, owner);
+    }
+    if (name === 'pane.focused' && typeof paneId === 'string') {
+      for (const w of this.tree.workspaces) for (const t of w.tabs) for (const p of t.panes) {
+        p.focused = p.id === paneId;
+      }
+    }
+    if (name === 'workspace.focused' && typeof raw.workspace_id === 'string') {
+      for (const w of this.tree.workspaces) w.focused = w.id === raw.workspace_id;
+    }
+    if (name === 'workspace.updated') {
+      // `workspace.updated` nests its record under `workspace` and merges in place, like
+      // `pane.updated`: label/focused/number/tokens/worktree with no re-bootstrap.
+      const record = typeof raw.workspace === 'object' && raw.workspace !== null ? raw.workspace as Raw : undefined;
+      const workspace = this.tree.workspaces.find((w) => w.id === record?.workspace_id);
+      if (workspace !== undefined && record !== undefined) {
+        const label = str(record.label);
+        if (label !== undefined) workspace.label = label;
+        if (typeof record.focused === 'boolean') workspace.focused = record.focused;
+        if (typeof record.number === 'number') workspace.number = record.number;
+        if (typeof record.tokens === 'object' && record.tokens !== null && !Array.isArray(record.tokens)) {
+          const tokens = tokensOf(record.tokens);
+          if (tokens === undefined) delete workspace.tokens;
+          else workspace.tokens = tokens;
+        }
+        if (record.worktree === undefined || record.worktree === null) delete workspace.worktree;
+        else {
+          const worktree = worktreeOf(record.worktree);
+          if (worktree !== undefined) workspace.worktree = worktree;
+        }
+      }
+    }
+    if (name === 'pane.moved' && typeof raw.previous_pane_id === 'string') {
+      // The move replaces the pane with a fresh id; the old id's lifecycle epoch must not
+      // leak into a later pane that reuses it.
+      this.statusEpoch.delete(raw.previous_pane_id);
     }
     if (name === 'pane.closed') {
       this.blockedList.update(paneId as string, undefined, owner ?? { workspaceId: '', tabId: '' });
@@ -277,7 +321,7 @@ export class HerdrKit {
     for (const stop of this.statusStops) { stop(); this.stops.delete(stop); }
     this.statusStops.clear();
     const previous = this.tree;
-    this.tree = { connected: true, workspaces };
+    this.tree = { connected: true, revision: previous.revision, workspaces };
     // Lifecycle-epoch guard: a per-pane status push that raced the snapshot read landed on the
     // previous tree (and stamped its epoch) while the read was in flight — the read predates it,
     // so the live status and revision win over the snapshot's.
