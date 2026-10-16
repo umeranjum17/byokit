@@ -125,6 +125,13 @@ test('a pane.updated that introduces an agent opens a per-pane status watch', as
     } });
     await settle(80);
     assert.equal(fake.watching('w1:p1'), false, 'a title-only update opens no watch');
+    // A pane-level `display_agent` tick on a shell is still not an agent: no watch opens (#639).
+    fake.emit({ type: 'pane.updated', pane: {
+      pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1', label: 'zsh', display_agent: 'zsh',
+      focused: false, revision: 3, terminal_id: 'term-w1:p1',
+    } });
+    await settle(80);
+    assert.equal(fake.watching('w1:p1'), false, 'a display_agent-only tick on a shell opens no watch');
     // The same pane gains a real agent: the kit opens its watch without waiting for a structural event.
     fake.emit({ type: 'pane.updated', pane: {
       pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1', label: 'pi', agent: 'pi',

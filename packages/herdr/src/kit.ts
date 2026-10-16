@@ -236,12 +236,12 @@ export class HerdrKit {
         this.statusEpoch.set(paneId as string, (this.statusEpoch.get(paneId as string) ?? 0) + 1);
       }
       this.blockedList.update(paneId as string, pane.agent, owner);
-      // A merge that names a real agent (its kind, session or display name) on a pane the last
-      // bootstrap saw as a plain shell opens that pane's watch now, so its status changes reach the
-      // tree without waiting for the next structural event. A title-only `pane.updated` on a shell
-      // names none of these and opens nothing.
-      if (this.transport !== undefined && !this.statusWatched.has(paneId as string) &&
-          (str(a.agent) !== undefined || sessionOf(a.agent_session) !== undefined || str(a.display_agent) !== undefined)) {
+      // A merge that names a real agent (`namesAgent`, the same gate as the merge above) on a pane
+      // the last bootstrap saw as a plain shell opens that pane's watch now, so its status changes
+      // reach the tree without waiting for the next structural event. A title-only `pane.updated` —
+      // or any pane-level tick (`display_agent` alone) on a shell — names none of these and opens
+      // nothing, so a shell stays agentless and unwatched.
+      if (this.transport !== undefined && !this.statusWatched.has(paneId as string) && namesAgent(a)) {
         const ack = this.openStatusWatch(paneId as string);
         if (ack !== undefined) this.statusReadyPromise = this.statusReadyPromise.then(() => ack).then(() => undefined);
       }
