@@ -193,7 +193,7 @@
     "aliases": [],
     "resume": false,
     "sessionKinds": [],
-    "loginLabel": "One sign-in per computer user",
+    "loginLabel": "Sign in to this account on this computer",
     "billing": "unknown",
     "offer": "explicit",
     "upstream": {
