@@ -108,7 +108,7 @@ test('prepare writes only changed config and isolates its environment', async ()
     assert.equal(JSON.parse(readFileSync(path, 'utf8')).memory.search.provider, 'none');
     const env = engine.doctorContext().env;
     assert.equal(env.OPENCLAW_SKIP_CHANNELS, '1');
-    assert.equal(env.HOME, join(dir, 'openclaw', 'home'));
+    assert.equal(env.HOME, join(engine.root, 'home'));
     assert.equal(env.OPENAI_API_KEY, undefined);
     assert.equal(env.BYOKIT_BRIDGE_SOCK, engine.bridgeSock);
     await engine.stop();

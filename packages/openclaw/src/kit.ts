@@ -10,7 +10,7 @@ import { PROTOCOL_VERSION, LIVE_CATALOGS } from './constants.ts';
 import { atomic } from './engine-patches.ts';
 import { Approvals } from './approvals.ts';
 import { Bridge } from './bridge.ts';
-import { Engine, refusedOnly } from './engine.ts';
+import { Engine, canonicalStateDir, refusedOnly } from './engine.ts';
 import { AuthStoreSealSizeError } from './auth-store.ts';
 import { gatewayTransport } from './transport.ts';
 import { createMembers } from './members.ts';
@@ -686,7 +686,7 @@ export class OpenClawKit {
       if (!/^[a-z][a-z0-9_]*$/.test(t.name) || t.name === 'bash' || t.name === 'cron'
         || (o.browser && ['browser', 'request_sign_in', 'exec', 'process', 'code_execution', 'terminal', 'read', 'write', 'edit', 'apply_patch', 'gateway'].includes(t.name))) throw new Error(`invalid tool name: ${t.name}`);
     }
-    this.o = o;
+    this.o = { ...o, stateDir: canonicalStateDir(o.stateDir) };
     this.engine = new Engine({ ...o, pluginId: o.plugin?.id ?? 'byokit', tools: [...o.tools ?? [], ...(o.browser ? [{
       name: 'request_sign_in', description: 'Ask the person to sign in to the current browser site.',
       parameters: { type: 'object', additionalProperties: false, properties: {

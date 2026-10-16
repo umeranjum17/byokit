@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { removeScratch, scratchDir } from '../../test-support.ts';
 import { connect } from 'node:net';
+import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../src/engine.ts';
 
@@ -11,6 +12,18 @@ const listening = (port: number) => new Promise<boolean>(resolve => {
   socket.once('connect', () => { socket.destroy(); resolve(true); });
   socket.once('error', () => resolve(false));
 });
+
+// Every local address listening on `port`: Linux reads /proc/net/tcp and tcp6; macOS has no /proc, so lsof answers.
+function listenAddresses(port: number): string[] {
+  if (process.platform !== 'linux')
+    return execFileSync('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fn'], { encoding: 'utf8' }).split('\n')
+      .filter(line => line.startsWith('n')).map(line => line.slice(1, line.lastIndexOf(':')).replace(/^\[|\]$/g, ''));
+  const hex = `:${port.toString(16).toUpperCase().padStart(4, '0')}`;
+  return ['tcp', 'tcp6'].flatMap(table => readFileSync(`/proc/net/${table}`, 'utf8').split('\n').slice(1)
+    .map(line => line.trim().split(/\s+/)).filter(([, local, , state]) => local?.endsWith(hex) && state === '0A')
+    .map(([, local]) => local.slice(0, -hex.length)))
+    .map(address => address === '0100007F' ? '127.0.0.1' : address === '00000000000000000000000001000000' ? '::1' : address);
+}
 
 // Shared by npm test's offline child and test:engine's pinned engine.
 export async function isolationContract(install?: (dir: string) => string | Promise<string>): Promise<void> {
@@ -60,8 +73,8 @@ export async function isolationContract(install?: (dir: string) => string | Prom
     assert.equal(c.memory.search.fallback, 'none');
     assert.equal(c.plugins.allow.includes('byokit'), true);
     assert.equal(JSON.parse(readFileSync(join(dir, 'own/openclaw/plugin/package.json'), 'utf8')).name, 'byokit-openclaw-bridge');
-    const listeners = readFileSync('/proc/net/tcp', 'utf8').split('\n').filter(line => line.trim().split(/\s+/)[1]?.endsWith(`:${port.toString(16).toUpperCase().padStart(4, '0')}`));
-    assert.ok(listeners.length && listeners.every(line => line.trim().split(/\s+/)[1]?.startsWith('0100007F:')), 'gateway listeners must be loopback only');
+    const listeners = listenAddresses(port);
+    assert.ok(listeners.length && listeners.every(address => address === '127.0.0.1' || address === '::1'), `gateway listeners must be loopback only: ${listeners.join(', ')}`);
     const log = readFileSync(join(dir, 'own/logs/openclaw.log'), 'utf8');
     assert.ok(!log.includes(token));
     assert.ok(!log.includes('PRIVATE KEY'));

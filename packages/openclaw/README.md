@@ -568,7 +568,8 @@ for await (const e of oc.run('Say hello.')) console.log(e);
 
 ## Isolation and billing
 
-The kit writes only under the `stateDir` the app passes. It spawns the engine with an explicit isolated environment
+The kit writes only under the `stateDir` the app passes, resolved to one absolute path through no symlink (so a
+relative path or macOS `os.tmpdir()` works, and paths the kit reports use the resolved form). It spawns the engine with an explicit isolated environment
 (never `process.env`), reads no environment variables except `PATH` to find `npm`, and never bills an API behind the
 person's back (memory search is never a paid provider).
 
@@ -685,7 +686,7 @@ retained-login cleanup and sealed approval limits.
 
 ## Status
 
-Linux x64/arm64 is supported; macOS is not yet verified; Windows is unsupported.
+Linux and macOS x64/arm64 are supported; Windows is unsupported.
 
 Pinned to OpenClaw `2026.8.35` (protocol 4); `ENGINE_VERSION` and `PROTOCOL_VERSION` carry the pin. Signatures are
 frozen (docs/runtime-kits.md §5).

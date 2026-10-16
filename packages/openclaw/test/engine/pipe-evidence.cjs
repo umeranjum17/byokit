@@ -4,7 +4,10 @@ const cp = require('node:child_process');
 const log = process.env.BYOKIT_BROWSER_PIPE_RECEIPT;
 let sequence = 0;
 const tracked = new Map();
+// A pid plus its start time; macOS has no /proc, so ps supplies both the start time and the children there.
+const ps = (...args) => cp.spawnSync(args[0], args.slice(1), { encoding: 'utf8' }).stdout.trim();
 const identity = pid => {
+  if (process.platform !== 'linux') { const start = ps('ps', '-o', 'lstart=', '-p', String(pid)); return start ? { pid, start } : null; }
   try { const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8');
     return { pid, start: stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19] }; }
   catch (error) { if (error.code === 'ENOENT') return null; throw error; }
@@ -42,7 +45,8 @@ if (log) {
       const current = identity(pid);
       if (!current || current.start !== owned.start) { tracked.delete(pid); record({ kind: 'owned-absent', ...owned }); continue; }
       let children;
-      try { children = fs.readFileSync(`/proc/${pid}/task/${pid}/children`, 'utf8').trim().split(/\s+/).filter(Boolean).map(Number); }
+      if (process.platform !== 'linux') children = ps('pgrep', '-P', String(pid)).split(/\s+/).filter(Boolean).map(Number);
+      else try { children = fs.readFileSync(`/proc/${pid}/task/${pid}/children`, 'utf8').trim().split(/\s+/).filter(Boolean).map(Number); }
       catch (error) { if (error.code === 'ENOENT') continue; throw error; }
       for (const child of children) if (!tracked.has(child)) {
         const descendant = identity(child);

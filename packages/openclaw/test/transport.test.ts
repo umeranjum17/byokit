@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { Engine } from '../src/engine.ts';
@@ -99,7 +99,7 @@ test('Engine.start keeps a legacy device.json byte-for-byte', async () => {
     const ctx = await engine.start();
     assert.ok(ctx);
     try {
-      assert.equal(ctx.identityPath, join(root, 'device.json'));
+      assert.equal(ctx.identityPath, join(realpathSync(root), 'device.json'));
       assert.equal(readFileSync(join(root, 'device.json'), 'utf8'), before);
     } finally {
       await engine.stop();
