@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, readSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { identity, roomOf, usage, type Identity, type Reading, type Room, type Source, type Usage } from '@byokit/usage';
+import { identity, roomOf, usage, type Identity, type PiProvider as UsagePiProvider, type Reading, type Room, type Source, type Usage } from '@byokit/usage';
 import type { Keystore } from '@byokit/secrets';
 import { clock, say } from './words.ts';
 import { OPENCODE_GO_PLAN_ROUTE, deleteOpenCodePlanKey, readOpenCodePlanKey, saveOpenCodePlanKey } from './opencode-go.ts';
@@ -67,6 +67,8 @@ const text = (v: unknown): v is string => typeof v === 'string' && !v.includes('
 const providers: CliProvider[] = ['claude', 'codex', 'pi', 'opencode', 'kimi', 'vibe', 'cursor'];
 const piRoutes = routes.filter(r => r.upstream.surface === 'accounts' && r.billing === 'subscription' && r.upstream.flow === 'present' && (r.via === 'browser' || r.via === 'code'));
 const validPiProvider = (p: unknown): p is PiProvider => text(p) && piRoutes.some(r => r.upstream.id === p);
+/** The Pi provider ids a BYOKit-owned quota route reads the folder login for; every other Pi row stays unknown. */
+const piRoomProvider = (p: unknown): p is UsagePiProvider => p === 'openai-codex' || p === 'kimi-coding';
 const shed = {
   claude: ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_USE_ANTHROPIC_AWS', 'CLAUDE_CODE_USE_MANTLE', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_PROFILE', 'ANTHROPIC_FEDERATION_RULE_ID'],
   codex: ['OPENAI_API_KEY', 'CODEX_API_KEY'],
@@ -190,6 +192,10 @@ export function nativePiAccount(options: { stateDir: string; folder: string; bin
   };
 }
 
+/** The one usage source for a Pi row: the folder login read in process by `@byokit/usage`. */
+function piRoomSource(r: Row): { provider: 'pi'; folder: string; piProvider: UsagePiProvider } | undefined {
+  return piRoomProvider(r.piProvider) ? { provider: 'pi', folder: r.folder, piProvider: r.piProvider } : undefined;
+}
 /** Only app-managed folders and explicitly supplied absolute CLI binaries. */
 export function cliAccounts(options: CliOptions) {
   if (!record(options) || !text(options.stateDir) || !isAbsolute(options.stateDir) || !record(options.bins) || !record(options.env) || !text(options.env.PATH) || !text(options.env.HOME) || !isAbsolute(options.env.HOME)) throw new CliAccountError('bad-option');
@@ -216,6 +222,7 @@ export function cliAccounts(options: CliOptions) {
   function roomSource(r: Row): Source | undefined {
     if (r.provider === 'codex') return codexSource(r);
     if (r.provider === 'cursor') return { provider: 'cursor', folder: r.folder };
+    if (r.provider === 'pi') return piRoomSource(r);
     return r.provider === 'claude' && options.claudeHeaders ? { provider: 'claude', folder: r.folder, headers: options.claudeHeaders } : undefined;
   }
   // Never write kit bookkeeping into a default login: neither the state root itself nor a provider's
@@ -655,10 +662,11 @@ export function cliAccounts(options: CliOptions) {
       // kinds.json: pi/opencode/kimi `--session`, claude/vibe/cursor `--resume`, codex `resume`.
       return kind === 'pi' || kind === 'opencode' || kind === 'kimi' ? ['--session', ref.value] : kind === 'claude' || kind === 'vibe' || kind === 'cursor' ? ['--resume', ref.value] : ['resume', ref.value];
     },
-    async usageSource(id: string): Promise<{ provider: 'codex'; bin: string; home: string; env: Record<string, string> } | { provider: 'cursor'; folder: string } | { provider: 'opencode'; key: string } | undefined> {
+    async usageSource(id: string): Promise<{ provider: 'codex'; bin: string; home: string; env: Record<string, string> } | { provider: 'cursor'; folder: string } | { provider: 'opencode'; key: string } | { provider: 'pi'; folder: string; piProvider: UsagePiProvider } | undefined> {
       const r = row(id);
       if (r.provider === 'codex') return codexSource(r);
       if (r.provider === 'cursor') return { provider: 'cursor', folder: r.folder };
+      if (r.provider === 'pi') return piRoomSource(r);
       if (r.provider === 'opencode') return serial(id, async () => {
         try { return { provider: 'opencode' as const, key: await storedKey(row(id)) }; }
         catch { return undefined; }

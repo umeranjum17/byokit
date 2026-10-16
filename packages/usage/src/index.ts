@@ -5,10 +5,11 @@ import { claudeAuth, claudeUsage, codexUsage, customClaude, providerGet, type An
 import { fingerprint, store, memoryUsageStore, safeWindows, safePoll } from './store.ts';
 import { claudeWindows, codexWindows, goWindows, record, zaiWindows, type CodexRateLimitResult } from './windows.ts';
 import { codexHardLimit, codexTokenWindows, copilotWindows, grokWindows, minimaxWindows, geminiWindows, kimiWindows, cursorWindows } from './quota.ts';
-import { UsageError, type Reading, type ReadOptions, type Source, type Usage, type UsageOptions, type Poll } from './types.ts';
+import { UsageError, type Reading, type PiProvider, type ReadOptions, type Source, type Usage, type UsageOptions, type Poll } from './types.ts';
 import { codexIdentity, type Identity } from './identity.ts';
 import { claudeUsage as managedClaudeUsage, claudeCredential, managedClaudeFolder, defaultLoginPath } from './claude.ts';
 import { cursorCredential, cursorUsage, managedCursorFolder } from './cursor.ts';
+import { piCredential, piUsage, piWindows, managedPiFolder } from './pi.ts';
 import { ephemeralClaude } from './ephemeral.ts';
 export * from './types.ts';
 export { harnessLog, HarnessLogError, type HarnessLog, type HarnessLogFile, type HarnessLogFormat, type HarnessLogEntry, type HarnessLogOptions, type HarnessLogReadOptions, type HarnessLogPage, type HarnessLogWork } from './log.ts';
@@ -28,7 +29,8 @@ export { retryAfterMs, backoffDelayMs, memoryBackoffPolicy } from './backoff.ts'
 export { claudeWindows, codexWindows, goWindows, zaiWindows, type CodexRateLimitResult } from './windows.ts';
 export { codexHardLimit, codexTokenWindows, copilotWindows, grokWindows, minimaxWindows, geminiWindows, kimiWindows, cursorWindows } from './quota.ts';
 export { WORDS, words, usageWords, type WordKey } from './words.ts';
-const providers = ['claude', 'codex', 'opencode', 'zai', 'copilot', 'grok', 'minimax', 'gemini', 'kimi', 'cursor'];
+const providers = ['claude', 'codex', 'opencode', 'zai', 'copilot', 'grok', 'minimax', 'gemini', 'kimi', 'cursor', 'pi'];
+const piProviders: PiProvider[] = ['openai-codex', 'kimi-coding'];
 const validText = (v: unknown): v is string => typeof v === 'string' && !v.includes('\0') && !/[\r\n]/.test(v) && v.length <= 16384;
 function validate(source: Source, stateDir?: string): void {
   if (!record(source) || !providers.includes(source.provider)) throw new UsageError();
@@ -37,7 +39,9 @@ function validate(source: Source, stateDir?: string): void {
     if (!validText(source.folder) || !isAbsolute(source.folder) || !stateDir) throw new UsageError();
     if (source.provider === 'claude' && !managedClaudeFolder(source.folder, stateDir)) throw new UsageError();
     if (source.provider === 'cursor' && !managedCursorFolder(source.folder, stateDir)) throw new UsageError();
-    if (source.provider !== 'claude' && source.provider !== 'cursor') throw new UsageError();
+    if (source.provider === 'pi' && !managedPiFolder(source.folder, stateDir)) throw new UsageError();
+    if (source.provider !== 'claude' && source.provider !== 'cursor' && source.provider !== 'pi') throw new UsageError();
+    if (source.provider === 'pi' && !piProviders.includes(source.piProvider)) throw new UsageError();
     if (source.provider === 'claude' && (!record(source.headers) || !['anthropic-beta', 'User-Agent'].every((key) => validText(source.headers[key as keyof typeof source.headers]) && source.headers[key as keyof typeof source.headers].length <= 1024))) throw new UsageError();
   } else if ('credentialsFile' in source) {
     if (source.provider !== 'claude' || ![source.credentialsFile, ...[source.configFile, source.statuslineFile].filter((v) => v !== undefined)].every((v) => validText(v) && isAbsolute(v) && !defaultLoginPath(v))) throw new UsageError();
@@ -85,7 +89,7 @@ export function usage(options: UsageOptions): Usage {
   const readEphemeral = ephemeralClaude(options);
   function connected(source: Source): boolean {
     validate(source, options.stateDir);
-    if ('folder' in source) return (source.provider === 'claude' ? claudeCredential(source.folder) : cursorCredential(source.folder)) !== undefined;
+    if ('folder' in source) return (source.provider === 'claude' ? claudeCredential(source.folder) : source.provider === 'cursor' ? cursorCredential(source.folder) : piCredential(source.folder)) !== undefined;
     if ('credentialsFile' in source) return claudeAuth(source) !== undefined;
     if ('read' in source) { try { return source.connected?.() ?? true; } catch { return false; } }
     if ('bin' in source) { try { accessSync(source.bin, constants.X_OK); return statSync(source.bin).isFile(); } catch { return false; } }
@@ -95,8 +99,10 @@ export function usage(options: UsageOptions): Usage {
     validate(source, options.stateDir);
     let id: string | undefined;
     if ('folder' in source) {
-      const stat = source.provider === 'claude' ? claudeCredential(source.folder) : cursorCredential(source.folder);
-      id = stat ? `${source.folder}\0${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}` : undefined;
+      const stat = source.provider === 'claude' ? claudeCredential(source.folder) : source.provider === 'cursor' ? cursorCredential(source.folder) : piCredential(source.folder);
+      // Pi's auth.json holds one entry per provider id, so one folder login is one account per provider.
+      const scope = source.provider === 'pi' ? `${source.piProvider}\0` : '';
+      id = stat ? `${source.folder}\0${scope}${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}` : undefined;
     } else if ('credentialsFile' in source) id = claudeAuth(source)?.account;
     else if ('read' in source) id = 'ephemeral' in source ? undefined : source.accountUuid;
     else if ('bin' in source) {
@@ -123,6 +129,7 @@ export function usage(options: UsageOptions): Usage {
       case 'gemini': return geminiWindows(raw);
       case 'kimi': return kimiWindows(raw, clock);
       case 'cursor': return cursorWindows(raw);
+      case 'pi': return piWindows(source, raw, clock);
     }
   }
   function lastKnown(source: Source, opts?: ReadOptions): Reading | undefined {
@@ -171,6 +178,7 @@ export function usage(options: UsageOptions): Usage {
       try {
         answer = 'folder' in source ? await (source.provider === 'cursor'
           ? cursorUsage(source, options.fetch ?? globalThis.fetch, clock, pacing)
+          : source.provider === 'pi' ? piUsage(source, options.fetch ?? globalThis.fetch, clock, pacing)
           : managedClaudeUsage(source, options.fetch ?? globalThis.fetch, clock, pacing)) : 'read' in source ? await customClaude(source, clock, pacing) : 'credentialsFile' in source ? await claudeUsage(source, options.fetch ?? globalThis.fetch, clock, pacing)
           : 'bin' in source ? await codexUsage(source) : await providerGet(source, options.fetch ?? globalThis.fetch, clock, pacing);
       } catch { answer = { code: 'unavailable' }; }

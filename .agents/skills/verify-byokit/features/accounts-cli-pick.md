@@ -1,6 +1,6 @@
 # Managed CLI account pick
 
-A pool owner asks one function which managed CLI account a run should start on, and reads the same rows a pool view lists. `pick(provider, { prefer? })` considers only that tool's `ready`, not-resting rows, lets `prefer` win while it is ready, then takes the most room left — reading real room from `@byokit/usage` for Claude (`{folder, headers}`) and Codex (`usageSource`), unknown for a tool a later lane adds — and returns every row with its reading so a list shows the same numbers.
+A pool owner asks one function which managed CLI account a run should start on, and reads the same rows a pool view lists. `pick(provider, { prefer? })` considers only that tool's `ready`, not-resting rows, lets `prefer` win while it is ready, then takes the most room left — reading real room from `@byokit/usage` for Claude (`{folder, headers}`), Codex (`usageSource`), Cursor and Pi (`usageSource`), unknown for a tool a later lane adds — and returns every row with its reading so a list shows the same numbers.
 
 ## Sub-features
 

@@ -29,9 +29,15 @@ Sources:
 - `{ provider: 'cursor', folder }` reads the dashboard's current-period usage
   (`GetCurrentPeriodUsage` on `api2.cursor.sh`) with the folder's own login from
   `<folder>/cursor/auth.json`, parsed to one monthly window.
-  The account cache is keyed from the sign-in file's metadata only, never its contents, so
-  usage never opens or reads `<home>/auth.json`. A re-login or a refresh-only rewrite of that
-  file changes its metadata and drops the last-good reading.
+- `{ provider: 'pi', folder, piProvider }` reads the plan the selected Pi provider
+  id names, from that folder's own login in `<folder>/auth.json`: `openai-codex`
+  reads ChatGPT's Codex windows (`wham/usage`, addressed by the stored ChatGPT
+  account id or the access token's own claim) and `kimi-coding` reads Kimi's
+  windows (`coding/v1/usages`). Any other Pi provider id is refused as an invalid
+  source. A missing or refused reading is `unknown`, never zero.
+  The account cache fingerprint uses the sign-in file's metadata only, never its contents.
+  A re-login or a refresh-only rewrite of `<folder>/auth.json` changes its metadata
+  and drops the last-good reading.
 - `{ provider: 'claude', credentialsFile, configFile?, statuslineFile? }` is a
   read-only adapter for files the app explicitly supplies. It reads `claudeAiOauth`
   and optionally `oauthAccount.accountUuid`. A path carrying a `.claude`, `.codex`
@@ -77,9 +83,9 @@ original observation time. Poll 429 (`rate-limited`), host renewal failure
 (`refresh-failed`) and credential refusals are distinct; usage never changes
 account health or renews credentials.
 
-The managed-folder source is `{ provider: 'claude', folder, headers: { 'anthropic-beta', 'User-Agent' } }` or `{ provider: 'cursor', folder }`. Paths must be absolute; removed or empty keys mean disconnected. Claude headers are app-passed. A managed folder must resolve inside the reader's `stateDir` as `<stateDir>/<claude|cursor>/<hex>`, matching managed CLI account folders. Default `.claude` roots, paths outside the root, and symlinked folders or credential files are refused. Use the managed plans root as the usage reader's stateDir; its quota store coexists with the account roster. The default login's usage adapter remains with the host.
+The managed-folder source is `{ provider: 'claude', folder, headers: { 'anthropic-beta', 'User-Agent' } }`, `{ provider: 'cursor', folder }` or `{ provider: 'pi', folder, piProvider }`. Paths must be absolute; removed or empty keys mean disconnected. Claude headers are app-passed. A managed folder must resolve inside the reader's `stateDir` as `<stateDir>/<claude|cursor|pi>/<hex>`, matching managed CLI account folders. Default `.claude` roots, paths outside the root, and symlinked folders or credential files are refused. Use the managed plans root as the usage reader's stateDir; its quota store coexists with the account roster. The default login's usage adapter remains with the host.
 
-Approved exception: the `./cli` entry reads and runs only app-managed per-account folders under `stateDir` and the absolute CLI binaries the app passes; it never touches the person's default login; tokens never leave the device and are never logged. Under the same managed-folder boundary, usage may read `.credentials.json` only for a single Claude subscription usage request, or `cursor/auth.json` only for a single Cursor current-period request. It does not refresh, write, rename or copy credentials; expired or malformed credentials return `expired` or `not-connected`, requiring sign-in again. The token is held in memory only for that request and never enters readings, stored quotas, errors or logs. Folder and credential metadata supply the cache fingerprint without loading a token, and credential changes invalidate the cached account reading.
+Approved exception: the `./cli` entry reads and runs only app-managed per-account folders under `stateDir` and the absolute CLI binaries the app passes; it never touches the person's default login; tokens never leave the device and are never logged. Under the same managed-folder boundary, usage may read `.credentials.json` only for a single Claude subscription usage request, `cursor/auth.json` only for a single Cursor current-period request, or `auth.json` only for a single Pi plan request of the named Pi provider. It does not refresh, write, rename or copy credentials; expired or malformed credentials return `expired` or `not-connected`, requiring sign-in again. The token is held in memory only for that request and never enters readings, stored quotas, errors or logs. Folder and credential metadata supply the cache fingerprint without loading a token, and credential changes invalidate the cached account reading.
 
 `read(source, { nowMs? })` returns `{ provider, windows, at, code? }`; `at` and all
 `resetsAt` fields are **epoch milliseconds** in 0.2.0. This changes 0.1.0's seconds

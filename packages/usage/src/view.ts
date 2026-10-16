@@ -5,7 +5,7 @@ import { words, type WordKey } from './words.ts';
 
 const plans: Record<Provider, string> = {
   codex: 'ChatGPT', claude: 'Claude', copilot: 'GitHub Copilot', grok: 'Grok',
-  minimax: 'MiniMax', gemini: 'Gemini', kimi: 'Kimi', zai: 'GLM', opencode: 'AI', cursor: 'Cursor',
+  minimax: 'MiniMax', gemini: 'Gemini', kimi: 'Kimi', zai: 'GLM', opencode: 'AI', cursor: 'Cursor', pi: 'Pi',
 };
 /** Internal routing keys never serve as display names. */
 export function planLabel(provider: Provider): string {
