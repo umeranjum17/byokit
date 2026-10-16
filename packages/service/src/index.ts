@@ -1,11 +1,12 @@
 // `@byokit/service` — per-user autostart of an app's host companion on the person's own computer
 // (docs/service-kit.md). Node only: it spawns the OS's per-user service manager. Linux is
-// systemd --user (linux.ts); macOS lands with the launchd half (A2), so it is unsupported for now.
+// systemd --user (linux.ts); macOS is a per-user LaunchAgent (macos.ts); every other platform is unsupported.
 import { accessSync, constants, statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 import type { UnitExec } from '@byokit/cloud/unit';
 import { ServiceError } from './errors.ts';
 import * as linux from './linux.ts';
+import * as macos from './macos.ts';
 
 /** The command runner: argv in, exit code and output out (cloud's unit seam). */
 export type ServiceExec = UnitExec;
@@ -45,26 +46,30 @@ function checkBin(bin: string | undefined): string {
   return bin;
 }
 
+const half = (): typeof linux | typeof macos | null =>
+  process.platform === 'linux' ? linux : process.platform === 'darwin' ? macos : null;
+
 const unsupported = (): ServiceError => new ServiceError('unsupported', `no per-user service manager for ${process.platform}`);
 
 /** Write the unit, start it now and enable it at login. Re-running rewrites and restarts. */
 export async function install(o: ServiceOptions): Promise<void> {
   checkName(o.name);
   const bin = checkBin(o.bin);
-  if (process.platform !== 'linux') throw unsupported();
-  await linux.install({ ...o, bin, env: o.env ?? {} });
+  const h = half();
+  if (h === null) throw unsupported();
+  await h.install({ ...o, bin, env: o.env ?? {} });
 }
 
 /** Stop the unit and remove its file; a service that is not installed resolves. */
 export async function uninstall(o: ServiceOptions): Promise<void> {
   checkName(o.name);
-  if (process.platform !== 'linux') throw unsupported();
-  await linux.uninstall(o);
+  const h = half();
+  if (h === null) throw unsupported();
+  await h.uninstall(o);
 }
 
 /** Whether the unit is running, stopped, missing or failed; never throws for a missing service. */
 export async function status(o: ServiceOptions): Promise<ServiceState> {
   checkName(o.name);
-  if (process.platform !== 'linux') return { phase: 'unsupported' };
-  return linux.status(o);
+  return half()?.status(o) ?? { phase: 'unsupported' };
 }

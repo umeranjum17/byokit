@@ -10,12 +10,8 @@ import type { ServiceOptions, ServiceState } from './index.ts';
 
 const SYSTEM_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
 
-/**
- * Spawn with an env built from nothing (S3): a fixed PATH and the login's runtime dir, which is
- * how `systemctl --user` finds the user manager's bus.
- */
-const spawnExec: UnitExec = (argv, o) => new Promise((resolve) => {
-  const env = { LANG: 'C.UTF-8', PATH: SYSTEM_PATH, XDG_RUNTIME_DIR: `/run/user/${userInfo().uid}` };
+/** Spawn with an env built from nothing (S3): the caller passes the whole env. The macOS half shares it. */
+export const spawnIn = (env: Record<string, string>): UnitExec => (argv, o) => new Promise((resolve) => {
   const child = spawn(argv[0], argv.slice(1), { env, timeout: o.timeoutMs, stdio: ['pipe', 'pipe', 'pipe'] });
   let stdout = '';
   let stderr = '';
@@ -26,6 +22,10 @@ const spawnExec: UnitExec = (argv, o) => new Promise((resolve) => {
   child.stdin.on('error', () => undefined);
   child.stdin.end(o.input);
 });
+
+/** A fixed PATH and the login's runtime dir, which is how `systemctl --user` finds the user manager's bus. */
+const spawnExec: UnitExec = (argv, o) =>
+  spawnIn({ LANG: 'C.UTF-8', PATH: SYSTEM_PATH, XDG_RUNTIME_DIR: `/run/user/${userInfo().uid}` })(argv, o);
 
 const unitOf = (name: string): string => `byokit-${name}.service`;
 

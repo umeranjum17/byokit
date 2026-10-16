@@ -30,6 +30,14 @@ export const stop = (): Promise<void> => uninstall({ name: 'tracker' });
 - `uninstall({ name })` runs `systemctl --user disable --now`, removes the file and reloads; a
   service that is not installed resolves.
 
+On macOS the same calls drive one per-user LaunchAgent: `install` writes
+`~/Library/LaunchAgents/com.byokit.<name>.plist` (`ProgramArguments` `[bin]`, `EnvironmentVariables`,
+`RunAtLoad`, `KeepAlive`), loads it with `launchctl bootstrap gui/<uid>` (booting out a loaded
+copy first so a re-install runs the new bytes) and starts it now with `launchctl kickstart`; `status` reads `launchctl print gui/<uid>/com.byokit.<name>`
+(`state = running` is `running`, any other loaded state `stopped`, a failed print `not-installed`);
+`uninstall` runs `launchctl bootout` and removes the plist. The launchd fact (spec 7): a hosted
+runner's gui session accepts `launchctl bootstrap`, so the kit never falls back to `launchctl load -w`.
+
 `bin` is an absolute path to an executable file; the unit's environment is exactly `env` plus a
 `PATH` headed by `bin`'s directory. `name` matches `^[a-z][a-z0-9-]{0,30}$`. Failures reject a
 `ServiceError` with `code` `bad-name`, `bad-bin`, `missing-bin`, `linger` (with
@@ -37,7 +45,7 @@ export const stop = (): Promise<void> => uninstall({ name: 'tracker' });
 
 The library reads no environment variable. Home and login come from `os.userInfo()`; every
 spawned command gets an env built from nothing. It never writes a system unit, never runs `sudo`
-and only runs `systemctl --user` and `loginctl enable-linger`.
+and only runs `systemctl --user`, `loginctl enable-linger` and `launchctl` in the login's `gui/<uid>` domain.
 
 Entry: `.` is Node only. `./testing` (Node only) ships the test tooling: `FakeSystemd`, a fake
 `ServiceExec` that answers the commands the kit runs from memory (no real manager, nothing on
@@ -55,12 +63,16 @@ console.log(await status({ name: 'tracker', exec: fake.exec })); // { phase: 'ru
 console.log(fake.unitBytes('tracker')); // the rendered unit, from memory
 ```
 
-Platforms: Linux (`systemd --user`). macOS (a per-user LaunchAgent)
-lands next and rejects `unsupported` until then, as does every other platform; `status`
-resolves `{ phase: 'unsupported' }` there.
+`FakeSystemd` answers the Linux half's commands only; on macOS the kit runs `launchctl`, which
+it does not model, so a fake bench there rejects `provider` and writes nothing.
+
+Platforms: Linux (`systemd --user`) and macOS (a per-user LaunchAgent). Every other platform,
+Windows included, rejects `unsupported`; `status` resolves `{ phase: 'unsupported' }` there.
 
 **Status: in development** (private, not published). The CI job `service-linux` proves the
 journey on a disposable GitHub-hosted Ubuntu runner: install a loopback echo, see it `active`
 and answering, uninstall it and see the file gone; it also proves a refused linger rejects
-`linger`. The CI job `service-macos` proves the typed `unsupported` result on macOS. A hosted runner never reboots or signs out
+`linger`. The CI job `service-macos` proves the same journey on a disposable `macos-latest` runner:
+`launchctl print` shows `state = running`, the echo answers, and after uninstall the plist is gone
+and `launchctl print` fails. A hosted runner never reboots or signs out
 under the job, so starting again after a restart or sign-out is **unproven**.

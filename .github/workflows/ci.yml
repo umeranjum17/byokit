@@ -154,7 +154,7 @@ jobs:
       - run: node --test --test-name-pattern='leftover' packages/service/test/linger.journey.ts
       - run: node --test packages/service/test/linux.journey.ts
 
-  # Off Linux every call is the typed unsupported result until the launchd half lands (docs/service-kit.md S5).
+  # The same journey on a disposable runner's own launchd: a per-user LaunchAgent in its gui domain (docs/service-kit.md 4.2).
   service-macos:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -168,7 +168,7 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npx tsc -b packages/service
-      - run: node --test packages/service/test/unsupported.journey.ts
+      - run: node --test packages/service/test/macos.journey.ts
 
   # done-done gate: the standing proof primitives run through done-done itself, so CI
   # speaks the same proof language as local runs (.done-done.yaml). Agent-free by

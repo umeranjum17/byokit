@@ -89,6 +89,8 @@ linger step: a LaunchAgent with `RunAtLoad` starts at login by design.
 
 Install runs `launchctl bootstrap gui/<uid> <plist>` (`<uid>` from `process.getuid()`), falling back to
 `launchctl load -w <plist>` only when the runner's launchd session refuses `bootstrap` (section 7 decides which).
+Install then runs `launchctl kickstart gui/<uid>/com.byokit.<name>`, so the agent is running when `install` resolves
+(`bootstrap` only schedules the `RunAtLoad` spawn).
 Uninstall runs `launchctl bootout gui/<uid>/com.byokit.<name>`, removes the plist, and is idempotent. `status` runs
 `launchctl print gui/<uid>/com.byokit.<name>`: a nonzero exit is `not-installed`; a successful print whose `state`
 is `running` is `running`, otherwise `stopped`.
