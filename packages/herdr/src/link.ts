@@ -6,16 +6,32 @@
 // generic `view-only`/`not-allowed` words instead).
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketServer } from 'ws';
-import {
-  PublicLinkError,
-  type Grant, type Host, type HostOptions, type LinkRequest, type LinkStream, type Socket,
+import type {
+  Grant, Host, HostOptions, LinkRequest, LinkStream, Socket,
 } from '@byokit/pair';
-import { reach, type ServeIngress, type Via } from '@byokit/discover';
+import type { ServeIngress, Via } from '@byokit/discover';
 import type { RelayClient } from '@byokit/relay';
 import type { HerdrKit } from './kit.ts';
 import type { AgentStatus, BlockedAgent, HerdrEvent, HerdrSnapshot, HerdrSubscription } from './types.ts';
 import { stateWords, words } from './words.ts';
 import { decodeB64Url, sealNotice } from './notices.ts';
+
+// The link peers are optional (package.json peerDependenciesMeta): a cli-only kit never installs
+// them, and they load only on this path. A missing peer names itself and the one command that adds
+// it — never a bare module-not-found from deep inside the import.
+const missingPeer = (id: string, cause: unknown): Error =>
+  new Error(`herdr: @byokit/herdr/link needs the optional peer ${id} for this entry — add it to the app: npm install ${id}`, { cause });
+
+// `PublicLinkError` stays @byokit/pair's own class: the pair host `instanceof`-checks refusals so the
+// device hears this kit's sentence instead of a bare `failed`.
+type PairModule = typeof import('@byokit/pair');
+let PublicLinkError: PairModule['PublicLinkError'];
+type PublicLinkErrorInstance = InstanceType<PairModule['PublicLinkError']>;
+try {
+  ({ PublicLinkError } = await import('@byokit/pair'));
+} catch (e) {
+  throw missingPeer('@byokit/pair', e);
+}
 
 export type HerdrScope = { workspaces: 'all' | string[] };
 
@@ -28,7 +44,7 @@ const deny = (): never => {
 
 // A refused widening close is the kit's plain sentence for the device, not a bare failure (6.4, 6.9).
 const WIDEN_CODES = new Set(['pane-close-would-widen', 'tab-close-would-widen', 'workspace-close-would-widen']);
-const widenError = (e: unknown): PublicLinkError | undefined =>
+const widenError = (e: unknown): PublicLinkErrorInstance | undefined =>
   WIDEN_CODES.has((e as { code?: string } | undefined)?.code ?? '') ? new PublicLinkError(words('close.wouldWiden')) : undefined;
 
 type PaneWhere = { workspaceId: string; tabId: string };
@@ -480,6 +496,12 @@ export function herdrLink(kit: HerdrKit, o: {
 export function serve(o: { host: Host; port: number; via?: Via; previous?: ServeIngress;
   http?: (req: IncomingMessage, res: ServerResponse) => void }): Promise<{ urls: string[]; ingress?: ServeIngress; close(): Promise<void> }> {
   return (async () => {
+    let reach: typeof import('@byokit/discover').reach;
+    try {
+      ({ reach } = await import('@byokit/discover'));
+    } catch (e) {
+      throw missingPeer('@byokit/discover', e);
+    }
     const r = await reach({ port: o.port, via: o.via, previous: o.previous });
     const server = createServer((req, res) => {
       if (o.http) {
