@@ -5,7 +5,7 @@ import { createServer } from 'node:http';
 import { Accounts, memoryStore, ResponseError, KeyRouteError } from '../src/index.ts';
 import { Accounts as Portable } from '../src/portable.ts';
 import { withKeys } from '../src/keys.ts';
-import { openCodeWorkspaces } from '../src/opencode-go.ts';
+import { openCodeGoPlanAccount, openCodeWorkspaceEntry, openCodeWorkspaces, saveOpenCodePlanKey } from '../src/opencode-go.ts';
 import { offered, planKey, provider, route, signInChoices } from '../src/catalogue.ts';
 import { portable } from '../src/accounts.ts';
 import type { Model, Context } from '../src/index.ts';
@@ -19,8 +19,11 @@ function local() {
     set: async (id: string, value: string) => { saved.set(id, value); },
     delete: async (id: string) => saved.delete(id),
     list: async () => [],
-  }) });
+  }), fetch: refusedConsole });
 }
+
+/** The console's answer for a key that is not a person's login: refused, so it needs no workspace. */
+const refusedConsole = async () => new Response('', { status: 401 });
 
 test('a saved Go plan key binds a subscription handle that hands only its own key', async () => {
   const accounts = local();
@@ -63,7 +66,7 @@ test('the catalogue offers OpenCode Go as a pasted plan key, on phones and brows
     set: async (id: string, value: string) => { saved.set(id, value); },
     delete: async (id: string) => saved.delete(id),
     list: async () => [],
-  }) }, portable);
+  }), fetch: refusedConsole }, portable);
   const { id } = await keyed.add(1, 'opencode:plan_key:opencode-go', { key: CANARY });
   assert.ok(id.startsWith('opencode:plan_key:opencode-go.'));
   assert.equal((await keyed.status(1, 'opencode')).state, 'ready', 'the provider resolves to its saved key account');
@@ -173,4 +176,77 @@ test('every Go route call names the stored workspace, and the gateway refusal sa
         e.message === 'This account works with more than one workspace. Pick the one to use and connect it again.');
     assert.ok(gateway.calls.at(-1) && gateway.calls.at(-1)!.org === undefined, 'the refusal reached the gateway headerless');
   } finally { await gateway.close(); }
+});
+
+test('a Go key saved with saveKey alone resolves its workspace on the first call: one is sent and stored, several ask for the pick', async () => {
+  const gateway = await goGateway();
+  try {
+    const signal = new AbortController().signal;
+    // One workspace: the first call lists it, names it on the call and stores it, so the next call skips the list.
+    const listed: string[] = [];
+    const listing = consoleFetch([{ id: 'org_WORKING2', name: 'Working2' }]);
+    const kit = goHarness(async (input, init) => {
+      if (String(input) === 'https://opencode.ai/console/api/orgs') listed.push(String(input));
+      return listing(input, init);
+    });
+    await kit.saveKey('Umer', 'opencode:plan_key:opencode-go', 'plan-key-canary');
+    const answer = await kit.respondKey('Umer', { account: 'opencode:plan_key:opencode-go', model: goModel(gateway.url), context: goContext });
+    assert.equal(answer.stopReason, 'stop');
+    assert.equal(gateway.calls.at(-1)!.org, 'org_WORKING2', 'the only workspace rode the call');
+    assert.equal(await kit.opencodeGo('Umer').workspace!(signal), 'org_WORKING2', 'and was stored with the key');
+    await kit.respondKey('Umer', { account: 'opencode:plan_key:opencode-go', model: goModel(gateway.url), context: goContext });
+    assert.equal(listed.length, 1, 'later calls use the stored workspace without listing again');
+
+    // Several workspaces: no call goes out headerless; the typed pick error says to pick one.
+    const many = goHarness(consoleFetch([{ id: 'org_A', name: 'Working' }, { id: 'org_WORKING2', name: 'Working2' }]));
+    await many.saveKey('Umer', 'opencode:plan_key:opencode-go', 'plan-key-canary');
+    const before = gateway.calls.length;
+    const pick = (e: unknown) => e instanceof KeyRouteError && e.code === 'needs_workspace';
+    await assert.rejects(many.respondKey('Umer', { account: 'opencode:plan_key:opencode-go', model: goModel(gateway.url), context: goContext }), pick);
+    await assert.rejects(many.opencodeGo('Umer').workspace!(signal), pick);
+    assert.equal(gateway.calls.length, before, 'nothing reached the gateway');
+
+    // A listing that cannot be read (console down) saves nothing: the call goes out and the gateway's own
+    // answer shows why; the next call lists again instead of keeping a guess.
+    let down = true;
+    const flaky = goHarness(async (input, init) => down && String(input) === 'https://opencode.ai/console/api/orgs'
+      ? new Response('', { status: 503 }) : listing(input, init));
+    await flaky.saveKey('Umer', 'opencode:plan_key:opencode-go', 'plan-key-canary');
+    await assert.rejects(flaky.respondKey('Umer', { account: 'opencode:plan_key:opencode-go', model: goModel(gateway.url), context: goContext }), pick);
+    down = false;
+    assert.equal((await flaky.respondKey('Umer', { account: 'opencode:plan_key:opencode-go', model: goModel(gateway.url), context: goContext })).stopReason, 'stop');
+    assert.equal(gateway.calls.at(-1)!.org, 'org_WORKING2', 'resolved once the console answers');
+
+    // The store seam (`saveOpenCodePlanKey` + `openCodeGoPlanAccount`) resolves the same way.
+    const saved = new Map<string, string>();
+    const store = { get: async (id: string) => saved.get(id) ?? null, set: async (id: string, value: string) => { saved.set(id, value); },
+      delete: async (id: string) => saved.delete(id), list: async () => [] };
+    await saveOpenCodePlanKey(store, 'plan-key-canary');
+    assert.equal(await openCodeGoPlanAccount(store, undefined, consoleFetch([{ id: 'org_WORKING2', name: 'Working2' }])).workspace!(signal), 'org_WORKING2');
+    assert.equal(saved.get(openCodeWorkspaceEntry()), 'org_WORKING2', 'stored beside the key');
+    saved.delete(openCodeWorkspaceEntry());
+    await assert.rejects(openCodeGoPlanAccount(store, undefined, consoleFetch([{ id: 'org_A', name: 'Working' }, { id: 'org_B', name: 'Working2' }])).workspace!(signal), pick);
+  } finally { await gateway.close(); }
+});
+
+test('a Go workspace listing that cannot be read is a typed error, never "no workspace": add saves nothing', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const shapes: [string, typeof fetch][] = [
+    ['network error', async () => { throw new TypeError('fetch failed'); }],
+    // The 10 s abort: the fake never answers, and the kit's own timer cancels it.
+    ['timeout abort', (_input, init) => new Promise((_resolve, reject) => {
+      init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason));
+      queueMicrotask(() => t.mock.timers.tick(10_000));
+    })],
+    ['5xx', async () => new Response('busy', { status: 503 })],
+    ['non-array body', async () => new Response(JSON.stringify({ error: 'nope' }), { status: 200 })],
+  ];
+  for (const [shape, fetcher] of shapes) {
+    const unread = (e: unknown) => e instanceof KeyRouteError && e.code === 'workspaces_unread' &&
+      e.message === 'Couldn’t reach OpenCode to check this key’s workspaces. Check the internet connection, then try again.';
+    await assert.rejects(openCodeWorkspaces('plan-key-canary', fetcher), unread, `openCodeWorkspaces: ${shape}`);
+    const kit = goHarness(fetcher as ReturnType<typeof consoleFetch>);
+    await assert.rejects(kit.add('Umer', 'opencode:plan_key:opencode-go', { key: 'plan-key-canary' }), unread, `add: ${shape}`);
+    assert.equal((await kit.status('Umer', 'opencode')).state, 'signed_out', `add: ${shape} saved nothing`);
+  }
 });

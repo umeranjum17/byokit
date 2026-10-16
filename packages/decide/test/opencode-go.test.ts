@@ -138,7 +138,7 @@ test('a misplaced plan handle is refused on both providers, naming the provider,
     set: async (id: string, value: string) => { saved.set(id, value); },
     delete: async (id: string) => saved.delete(id),
     list: async () => [],
-  }) });
+  }), fetch: async () => new Response('', { status: 401 }) }); // the console refuses: a key with no workspace
   await accounts.add('Umer', 'opencode:plan_key:opencode-go', { key: 'member-plan-key' });
   const go = accounts.opencodeGo('Umer');
   assert.equal(go.provider, 'opencode-go');
@@ -201,7 +201,7 @@ test('the accounts peer binds the member’s saved Go plan key for the backend',
     set: async (id: string, value: string) => { saved.set(id, value); },
     delete: async (id: string) => saved.delete(id),
     list: async () => [],
-  }) });
+  }), fetch: async () => new Response('', { status: 401 }) }); // the console refuses: a key with no workspace
   const { id } = await accounts.add('Umer', 'opencode:plan_key:opencode-go', { key: 'member-plan-key' });
   assert.ok(id.startsWith('opencode:plan_key:opencode-go.'));
   const handle = accounts.opencodeGo('Umer');

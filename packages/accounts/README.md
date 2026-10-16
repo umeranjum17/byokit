@@ -509,7 +509,14 @@ act for (`openCodeWorkspaces(key)` — the OpenCode console's own listing, the c
 makes after sign-in): one is stored with the account unasked; several come back typed as
 `{ id: '', workspaces: [{ id, name }] }` with nothing saved, so the app shows the pick (words key
 `connect.workspace`) and adds again with `workspace: '<picked id>'`; a key the console refuses (a
-workspace-bound service key) connects with no workspace. The stored id rides every Go call — key-route
+workspace-bound service key, `401`/`403`) connects with no workspace. A listing that cannot be read (offline,
+the 10 s timeout, another status, a body that is not a list) is never taken for "no workspace": `add` and
+`openCodeWorkspaces` reject with the typed `KeyRouteError` code `workspaces_unread` ("Couldn’t reach OpenCode to
+check this key’s workspaces. Check the internet connection, then try again.") and nothing is saved. A key saved another way (`saveKey`,
+`saveOpenCodePlanKey` for `openCodeGoPlanAccount`, or managed-CLI `saveKey` without `workspace`) gets the same
+listing on its first Go call or `launch`: one workspace is stored with the key, several reject with the typed
+`KeyRouteError` code `needs_workspace` before any call goes out (pick, then `add` with `workspace`). A listing
+that cannot be read (offline, timeout, a server error) saves nothing and is tried again on the next call. The stored id rides every Go call — key-route
 asks, `opencodeGo` handles and the standalone `openCodeGoPlanAccount` — as `x-opencode-org-id`, and the
 gateway's own refusal maps to the typed `KeyRouteError` code `needs_workspace` instead of the generic
 retry words. Workspace ids are row ids, never secrets; they are never logged or printed. Every key-route

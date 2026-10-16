@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { identity, roomOf, usage, type Identity, type PiProvider as UsagePiProvider, type Reading, type Room, type Source, type Usage } from '@byokit/usage';
 import type { Keystore } from '@byokit/secrets';
 import { clock, say } from './words.ts';
-import { OPENCODE_GO_PLAN_ROUTE, deleteOpenCodePlanKey, openCodeWorkspaceEntry, readOpenCodePlanKey, readOpenCodeWorkspace, saveOpenCodePlanKey, saveOpenCodeWorkspace } from './opencode-go.ts';
+import { OPENCODE_GO_PLAN_ROUTE, deleteOpenCodePlanKey, openCodeWorkspace, openCodeWorkspaceEntry, readOpenCodePlanKey, readOpenCodeWorkspace, saveOpenCodePlanKey, saveOpenCodeWorkspace } from './opencode-go.ts';
 import { launchEnv as cleanLaunchEnv } from './isolate.ts';
 import type { AccountLike } from './multi.ts';
 import routes from './routes.json' with { type: 'json' };
@@ -36,6 +36,8 @@ export type CliOptions = {
   /** Claude's two app-passed headers for the managed-folder usage source (the kit never invents a
    * client identity). Without them, Claude room is unknown. */
   claudeHeaders?: { 'anthropic-beta': string; 'User-Agent': string };
+  /** Reaches the OpenCode console when an OpenCode key saved without a workspace is launched (default: global fetch). */
+  fetch?: typeof fetch;
 };
 export type CliLaunchResult =
   | { ok: true; account: CliAccount; set: Record<string, string>; unset: string[] }
@@ -535,7 +537,8 @@ export function cliAccounts(options: CliOptions) {
    * one entry per managed account. The key never enters argv, env, or a log; its only file is the
    * OpenCode folder delivery copy that `launch` writes and `logout`/`remove` delete. `o.workspace`
    * names the workspace a multi-workspace OpenCode login acts for (from `openCodeWorkspaces`); the
-   * launch delivery config carries it as `x-opencode-org-id`, and a key without one keeps no header. */
+   * launch delivery config carries it as `x-opencode-org-id`. Without it, `launch` lists the key's workspaces:
+   * one is stored, several throw the typed `KeyRouteError` `needs_workspace`, none keeps no header. */
   async function saveKey(id: string, key: string, o?: { workspace?: string }): Promise<CliAccount> {
     await serial(id, async () => {
       const r = row(id);
@@ -638,7 +641,10 @@ export function cliAccounts(options: CliOptions) {
           let key: string;
           try { key = await storedKey(current); }
           catch { return { ok: false, code: 'signed_out', account, message: say('cli.signedOut', { name: account.name }) }; }
-          const workspace = await readOpenCodeWorkspace(options.keyStore, keyRoute('opencode'), current.id);
+          // A key saved without a workspace resolves it here, as every Go call does (several: typed `needs_workspace`).
+          // ponytail: a key with no workspace saves no entry (the store refuses empty values), so each launch lists again.
+          const workspace = await openCodeWorkspace(key, await readOpenCodeWorkspace(options.keyStore, keyRoute('opencode'), current.id) || undefined,
+            async (w) => { if (w) await saveOpenCodeWorkspace(options.keyStore!, w, keyRoute('opencode'), current.id); }, options.fetch);
           try { writeOpencodeLaunchFiles(current.folder, key, workspace || undefined); }
           catch (cause) { throw new Error(say('cli.prepareFailed'), { cause }); }
           return { ok: true, account,

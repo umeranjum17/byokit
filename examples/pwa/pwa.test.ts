@@ -179,6 +179,15 @@ test('Add an OpenCode Go plan account: its row opens the paste-key form, a paste
     const page = await context.newPage();
     const errors: string[] = [];
     page.on('pageerror', (e) => errors.push(String(e)));
+    // The kit lists the key's workspaces on OpenCode's console before it saves a Go key: one workspace here, never the
+    // real network. The first answer cannot be read (a server error): the form shows the kit's typed words and keeps nothing.
+    let consoleDown = true;
+    await page.route('https://opencode.ai/console/api/orgs', (route) => {
+      const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, accept' };
+      if (route.request().method() === 'OPTIONS') return route.fulfill({ status: 204, headers: cors });
+      return consoleDown ? route.fulfill({ status: 503, headers: cors, body: '' })
+        : route.fulfill({ status: 200, headers: cors, json: [{ id: 'org_WORKING2', name: 'Working2' }] });
+    });
     await page.goto(site.url);
     await part(page, 'opencode', 'signin').waitFor();
     assert.equal(await part(page, 'opencode', 'billing').textContent(), 'Plan');
@@ -196,6 +205,10 @@ test('Add an OpenCode Go plan account: its row opens the paste-key form, a paste
     await part(page, 'opencode', 'paste').waitFor({ state: 'visible' });
     assert.equal(await part(page, 'opencode', 'pasted').getAttribute('placeholder'), 'Paste the key from your plan');
     await part(page, 'opencode', 'pasted').fill('fake-go-plan-key-canary');
+    await part(page, 'opencode', 'connect').click();
+    await page.locator('#opencode').getByText('Couldn’t reach OpenCode to check this key’s workspaces. Check the internet connection, then try again.').waitFor();
+    assert.equal(await part(page, 'opencode', 'signout').isVisible(), false, 'nothing kept');
+    consoleDown = false;
     await part(page, 'opencode', 'connect').click();
     await part(page, 'opencode', 'status').filter({ hasText: /is connected/ }).waitFor();
     await page.locator('#opencode [data-room]').filter({ hasText: 'Room left unknown' }).waitFor();
