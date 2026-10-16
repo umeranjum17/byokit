@@ -278,8 +278,10 @@ test('O19 pinned Chromium: pipe-only, isolated private controller, canary-zero, 
     const controlled = await control.frames[Symbol.asyncIterator]().next();
     assert.ok(!controlled.done && controlled.value.w <= 320);
     assert.deepEqual(encodedDimensions(controlled.value.jpeg), { w: controlled.value.w, h: controlled.value.h });
-    const sx = controlled.value.w / seen.value.w, sy = controlled.value.h / seen.value.h;
-    const controlPoint = (x: number, y: number) => click(control, x * sx, y * sy);
+    // Screencast frames scale uniformly. Tabs share the window width, not its height: Chromium 156 gives the
+    // agent tab a shorter viewport than the private tab, so the agent frame's height is no reference here.
+    const scale = controlled.value.w / seen.value.w;
+    const controlPoint = (x: number, y: number) => click(control, x * scale, y * scale);
     assert.throws(() => broker!.attachViewer({ lease }));
     assert.throws(() => broker!.attachViewer({}));
     await controlPoint(100, 35); control.input({ kind: 'text', text: `${marker}@fixture.test` });
