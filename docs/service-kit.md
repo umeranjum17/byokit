@@ -133,7 +133,7 @@ failing command rejects `provider` with the command and the last 200 characters 
 `detail.command` as in section 5.
 
 `src/words.json` keys: `service.running`, `service.stopped`, `service.notInstalled`, `service.failed`,
-`service.unsupported` and `service.linger` (the last mirrors cloud's `host.linger`: the line to run, once). The kit
+`service.setupFailed`, `service.unsupported` and `service.linger` (the last mirrors cloud's `host.linger`: the line to run, once). The kit
 exports `WORDS`, `WordKey`, `words`, `stateWords` and `errorWords` (kit-conventions §9). `stateWords` returns `''`
 only for a phase with nothing to say.
 
@@ -149,7 +149,7 @@ journey against a trivial companion binary:
 
 The runner is thrown away after the job, so nothing is installed on a person's computer. The Linux job also proves
 the per-user-only rule is real: the unit lands under `$HOME/.config/systemd/user`, `loginctl show-user <login>`
-reports `Linger=yes` after install, and the job never runs `sudo`. The macOS job's first run establishes which of
+reports `Linger=yes` after install, and the kit never runs `sudo`; CI setup may. The macOS job's first run establishes which of
 `launchctl bootstrap` or `launchctl load -w` the runner's launchd session accepts (4.2); that answer is recorded in
 the kit's README as the launchd fact, not re-derived.
 

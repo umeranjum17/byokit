@@ -1,0 +1,37 @@
+{
+  "name": "@byokit/service",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Per-user autostart of an app's host companion on the person's own computer: systemd --user on Linux.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umeranjum17/byokit.git",
+    "directory": "packages/service"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"
+  },
+  "dependencies": {
+    "@byokit/cloud": "0.1.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -108,6 +108,57 @@ jobs:
       - run: sh scripts/test.sh 'packages/herdr/test/*.test.ts'
       - run: sh scripts/test.sh 'packages/openclaw/test/*.test.ts'
 
+  # The service kit's real-host journey (docs/service-kit.md 7) on a disposable runner's own systemd --user manager.
+  # Outside scripts/test.sh: its throwaway HOME hides the user manager. sudo below is setup only; the kit never runs it.
+  service-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc -b packages/service
+      # Setup only (the kit never runs sudo): polkit lets the runner set its own linger, so deny it to see a refusal.
+      - name: Deny the runner's own linger
+        run: |
+          sudo loginctl disable-linger "$(id -un)"
+          sudo mkdir -p /etc/polkit-1/rules.d
+          printf '%s\n' 'polkit.addRule(function (action, subject) {' \
+            '  if ((action.id == "org.freedesktop.login1.set-self-linger" || action.id == "org.freedesktop.login1.set-user-linger") && subject.user == "runner") return polkit.Result.NO;' \
+            '});' | sudo tee /etc/polkit-1/rules.d/10-byokit-deny-linger.rules
+          sleep 1
+          if loginctl enable-linger "$(id -un)"; then echo 'the deny rule did not take effect' >&2; exit 1; fi
+      - run: node --test --test-name-pattern='refused linger' packages/service/test/linger.journey.ts
+      - name: Allow linger again and wait for the user manager
+        run: |
+          sudo rm /etc/polkit-1/rules.d/10-byokit-deny-linger.rules
+          sleep 1
+          loginctl enable-linger "$(id -un)"
+          for _ in $(seq 60); do
+            XDG_RUNTIME_DIR="/run/user/$(id -u)" systemctl --user show --property=Version >/dev/null 2>&1 && exit 0
+            sleep 0.5
+          done
+          echo 'the user manager did not come back' >&2; exit 1
+      - run: node --test --test-name-pattern='leftover' packages/service/test/linger.journey.ts
+      - run: node --test packages/service/test/linux.journey.ts
+
+  # Off Linux every call is the typed unsupported result until the launchd half lands (docs/service-kit.md S5).
+  service-macos:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx tsc -b packages/service
+      - run: node --test packages/service/test/unsupported.journey.ts
+
   # done-done gate: the standing proof primitives run through done-done itself, so CI
   # speaks the same proof language as local runs (.done-done.yaml). Agent-free by
   # construction: the journey drives, the judge is skipped, no model is started.
