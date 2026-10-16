@@ -8,6 +8,7 @@ A provider's card lists its saved accounts through `useAccounts` and uses `useMo
 - Expand/collapse the picker; Auto carries the kit's reason, explicit accounts expose their models, and the chosen model is passed to both the answer and decision calls.
 - A remotely revoked short-lived fixture grant remains listed with its kit terminal marker. Choosing it explicitly says `Sign in first` (on its row while the picker is open, under the closed picker otherwise), without substituting Auto.
 - Native phone light/dark frames at 320 dp and font scale 1.3; connected before frames, account/picker/refusal after frames, one short real native recording. No desktop, web or native iOS runtime claim.
+- The Ask box and its Ask button fit the card at 390 dp phone width with the system font at its largest scale (2.0): the `Ask <plan> something` placeholder and any typed question wrap inside the box instead of clipping at the right edge, light and dark.
 
 ## How to get to it (user POV)
 
@@ -24,6 +25,14 @@ sh .agents/skills/verify-byokit/capture/expo-accounts.sh <private-emulator-seria
 The capture runs the unchanged acceptance command `sh examples/expo/e2e-android.sh <serial>` with optional evidence hooks. It builds and installs the real release app, completes the local-fixture pair/sign-in/restart/refresh/answer/sign-out journey, then signs in again for account captures. A short-lived `mockOpenAI()` grant is issued through the built public testing entry. Restarting that local mock removes its valid refresh grants; the app's normal `keepFresh` observes the refusal, and the kit supplies the unavailable row and explicit pick reason. No app-side seed, counterfeit hook rows, or real provider is used.
 
 With the base argument it builds the base App for connected before frames and restores the candidate even on failure. Review every PNG and decoded recording frames. Preserve the full command output and exit code in `e2e-android.txt`, and build/typecheck/bundle output in `test-own.txt`. Stop the private emulator immediately after qualification.
+
+For the Ask-box proof, build the release APK for each stage (base `App.tsx` for before, candidate for after — the base build temporarily replaces `App.tsx` the same way), set the emulator to 390 dp phone width, and run the maintained capture once per stage with the emulator booted outside any shared lock:
+
+```sh
+sh .agents/skills/verify-byokit/capture/expo-ask.sh <serial> <before|after> <absolute-private-evidence-dir> <release-apk>
+```
+
+It signs in through the same stand-in, sets `font_scale 2.0`, and writes `<stage>__<theme>__accounts.png` plus `<stage>__<theme>__ui.xml` for light and dark. The ui dump must show the `question` EditText inset inside the `accounts` card with room for the wrapped placeholder; read every PNG and confirm no text is cut at the card or box edge.
 
 ## Gotchas
 
