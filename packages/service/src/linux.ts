@@ -1,7 +1,6 @@
 // The systemd --user half (docs/service-kit.md 4.1), built on cloud's per-user unit writer (section 5):
 // no second writer, and cloud's linger rule. Only `systemctl --user` and `loginctl enable-linger` run.
 import { spawn } from 'node:child_process';
-import { existsSync, rmSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { userInfo } from 'node:os';
 import { MachineError } from '@byokit/cloud';
@@ -46,7 +45,8 @@ export async function install(o: ServiceOptions & { bin: string; env: Readonly<R
     { name: o.name, workDir: dirname(o.bin), run: { argv: [o.bin], env: o.env } },
     { kind: 'user', runUser: login, nodePath: o.bin, selfId: false },
   );
-  const had = existsSync(userUnitPath(home, o.name));
+  const unitPath = userUnitPath(home, o.name);
+  const had = (await exec(['test', '-f', unitPath], { timeoutMs })).code === 0;
   try {
     await writeUserUnit({ exec, home, name: o.name, bytes, machineUser: login, timeoutMs });
   } catch (e) {
@@ -62,9 +62,10 @@ export async function uninstall(o: ServiceOptions): Promise<void> {
   const exec = o.exec ?? spawnExec;
   const timeoutMs = o.timeoutMs ?? 10_000;
   const path = userUnitPath(userInfo().homedir, o.name);
-  if (!existsSync(path)) return;
+  if ((await exec(['test', '-f', path], { timeoutMs })).code !== 0) return;
   await systemctl(exec, timeoutMs, ['disable', '--now', unitOf(o.name)]);
-  rmSync(path, { force: true });
+  const rm = await exec(['rm', '-f', path], { timeoutMs });
+  if (rm.code !== 0) throw new ServiceError('provider', `rm -f ${path} failed with exit ${rm.code}: ${rm.stderr.slice(-200)}`);
   await systemctl(exec, timeoutMs, ['daemon-reload']);
 }
 

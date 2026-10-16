@@ -1,5 +1,6 @@
-// The docs/service-kit.md section 7 journey on a real systemd --user manager. It installs a real unit, so it runs
-// only on a disposable GitHub-hosted Linux runner (CI job service-linux), never under scripts/test.sh (whose
+// The docs/service-kit.md section 7 journey on a real systemd --user manager, plus the one contract
+// suite (./testing) against the same real manager. It installs a real unit, so it runs only on a
+// disposable GitHub-hosted Linux runner (CI job service-linux), never under scripts/test.sh (whose
 // throwaway HOME hides the user manager) and never on a person's computer.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,6 +10,7 @@ import { connect, createServer } from 'node:net';
 import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { install, status, uninstall } from '../src/index.ts';
+import { serviceContract, type ServiceBench } from '../src/testing.ts';
 
 const runner = process.platform === 'linux' && process.env.GITHUB_ACTIONS === 'true';
 const name = 'journey-echo';
@@ -59,6 +61,10 @@ test('install runs a loopback echo as a per-user unit, status reads it, uninstal
     assert.equal(execFileSync('loginctl', ['show-user', username, '-p', 'Linger'], { encoding: 'utf8' }).trim(), 'Linger=yes');
     assert.equal(await echo(port, 'hello from Umer\n'), 'hello from Umer\n');
 
+    // A manual stop keeps Restart=always down; status reads it as stopped, not failed.
+    spawnSync('systemctl', ['--user', 'stop', unit], { env: userEnv });
+    assert.deepEqual(await status({ name }), { phase: 'stopped' });
+
     // Re-install is a rewrite and restart, not a duplicate.
     await install({ name, bin, env: { ECHO_PORT: String(port) } });
     assert.equal(isActive(), 'active');
@@ -74,3 +80,21 @@ test('install runs a loopback echo as a per-user unit, status reads it, uninstal
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// The same contract suite (packages/service/src/testing.ts) against the real manager.
+const realBench = (): ServiceBench => {
+  const dir = mkdtempSync(join(tmpdir(), 'byokit-service-contract-'));
+  const bin = join(dir, 'host.sh');
+  writeFileSync(bin, '#!/bin/sh\nexec sleep 300\n');
+  chmodSync(bin, 0o755);
+  return {
+    bin,
+    service: { install, status, uninstall },
+    dispose: () => rmSync(dir, { recursive: true, force: true }),
+  };
+};
+
+serviceContract('systemd --user', realBench, (testName, fn) =>
+  test(testName, { skip: !runner && 'needs a disposable GitHub-hosted Linux runner' }, async (t) => {
+    await fn({ skip: (message) => t.skip(message) });
+  }));

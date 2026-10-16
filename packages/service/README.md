@@ -39,7 +39,23 @@ The library reads no environment variable. Home and login come from `os.userInfo
 spawned command gets an env built from nothing. It never writes a system unit, never runs `sudo`
 and only runs `systemctl --user` and `loginctl enable-linger`.
 
-Entry: `.` is Node only. Platforms: Linux (`systemd --user`). macOS (a per-user LaunchAgent)
+Entry: `.` is Node only. `./testing` (Node only) ships the test tooling: `FakeSystemd`, a fake
+`ServiceExec` that answers the commands the kit runs from memory (no real manager, nothing on
+disk), and `serviceContract(label, make)` — the one contract suite that runs the same assertions
+against the fake and a real manager:
+
+```ts
+import { install, status } from '@byokit/service';
+import { FakeSystemd } from '@byokit/service/testing';
+
+const fake = new FakeSystemd();
+const bin = process.execPath;
+await install({ name: 'tracker', bin, exec: fake.exec }); // runs nowhere; fake.runs records the commands
+console.log(await status({ name: 'tracker', exec: fake.exec })); // { phase: 'running' }
+console.log(fake.unitBytes('tracker')); // the rendered unit, from memory
+```
+
+Platforms: Linux (`systemd --user`). macOS (a per-user LaunchAgent)
 lands next and rejects `unsupported` until then, as does every other platform; `status`
 resolves `{ phase: 'unsupported' }` there.
 

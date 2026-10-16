@@ -30,9 +30,10 @@ Every refusal rejects before any command runs or any path is written.
 ## Real host (disposable runner only)
 
 CI job `service-linux` (`.github/workflows/ci.yml`) on `ubuntu-latest`: `loginctl enable-linger` without
-`sudo`, then `node --test packages/service/test/linux.journey.ts`. The journey installs a node loopback echo
+`sudo`, then `node --test packages/service/test/linux.journey.ts`. The file runs the one `serviceContract`
+suite (see [service-testing](./service-testing.md)) against the real manager and the section 7 journey: it installs a node loopback echo
 as `bin` and asserts `status` `not-installed` → `running`, `systemctl --user is-active` `active`, `Linger=yes`,
-the echo answering on 127.0.0.1, a re-install restarting it, then after `uninstall` the unit file gone,
+the echo answering on 127.0.0.1, a manual stop reading `status` `stopped`, a re-install restarting it, then after `uninstall` the unit file gone,
 `is-active` `inactive` and `status` `not-installed`. It skips anywhere but GitHub Actions on Linux. Before it, the same job proves a refused linger: a setup step
 (sudo, setup only; the kit never runs sudo) denies the runner's own linger with a polkit rule, then
 `linger.journey.ts` asserts `ServiceError` `linger` with `detail.command` `sudo loginctl enable-linger runner`, linger
