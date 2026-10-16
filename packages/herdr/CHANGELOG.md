@@ -2,13 +2,6 @@
 
 ## Unreleased
 
-## 0.12.0 (2026-10-16)
-
-- FIX: A cli-only `npm install @byokit/herdr` no longer pulls the link families: `@byokit/pair` (sodium-native), `@byokit/discover` (react-native-zeroconf and the React Native peer tail) and `@byokit/relay` are now optional peers that only the `@byokit/herdr/link` path loads, each with a typed refusal naming the missing package and the `npm install` line that adds it. `@byokit/herdr/device` needs no runtime peers at all (pair is types-only there); apps that serve a link already depend on pair/discover/relay directly and keep working unchanged.
-- FIX: An adopt kit that names no session socket (`socketPath: ''`) no longer sets `HERDR_SOCKET_PATH` in the child env, so a spawned `herdr` CLI or agent keeps its own session resolution (`--session` > `HERDR_SOCKET_PATH` > `HERDR_SESSION` > default) instead of reading an empty override.
-- FIX: Start every agent kind with Herdr's documented `HERDR_AGENT` hint on the agent's own process: each `agent.start` defines a shell function in the idle pane shell so the launch runs `env HERDR_AGENT=<kind> <executable>`. Node 24 and 26 rename the runtime main thread (`MainThread`, `node-MainThread`) and Herdr 0.9.1 names a pane's foreground agent by process name, so a plain start of Gemini CLI (and any CLI on those runtimes) timed out unidentified; the hint in the pane env instead marks the shell itself and is refused `agent_pane_busy`. Best effort: a busy pane, a non-POSIX shell or a server without `pane.process_info` starts exactly as before, and no consumer-side `gemini` wrapper is needed.
-- FEAT: Document the per-account Kilo root (`HOME` and `TMPDIR` through `env`, since Kilo has no managed folder variable), proven on Kilo CLI 7.8.12, which keeps its sign-in in `kilo/auth.json` under the XDG data root rather than the OS keyring; `KILO_CONFIG_DIR` moves only the settings folder, never authentication.
-
 ## 0.11.0 (2026-10-16)
 
 - `startAgent` with a label place that creates a workspace now renames the new workspace's root tab to `place.label` (`tab.rename`), so the tab carries the label instead of dropping it; a rename failure rolls the created workspace back like any other start failure. The reuse path (fresh tab in the matching workspace) is unchanged.
