@@ -214,3 +214,5 @@ This guide is the 5-minute path; the package READMEs are the contract:
 - A full browser app on the plan (sign-in page, pairing, offline shell):
   [`examples/pwa`](../examples/pwa). Plan-backed decisions with a human handoff:
   [`examples/decide-plan`](../examples/decide-plan).
+
+<!-- docs-only CI probe; this PR is closed unmerged -->
