@@ -9,7 +9,8 @@ import { delimiter, isAbsolute, join } from 'node:path';
 import type { HerdrKit } from './kit.ts';
 import type { AgentCliSignIn, AgentInstallProbe, AgentInstallState, AgentLaunchFailureReason,
   AgentReadiness, AgentStartEvent, AgentStatusOptions,
-  AgentStatusRunner, AgentRef, AgentStatus, HerdrSnapshot, HerdrSnapshotAgent, PromptReceipt, StartAgent } from './types.ts';
+  AgentStatusRunner, AgentRef, AgentStatus, HerdrSnapshot, HerdrSnapshotAgent, PlaceRef, PlaceRequest,
+  PlaceTarget, PromptReceipt, StartAgent } from './types.ts';
 import { words } from './words.ts';
 import { accountKind } from './kinds.ts';
 import { prepareLaunchEnv, type LaunchEnvironment } from './launch-env.ts';
@@ -32,6 +33,7 @@ const START_RETRY_BUDGET_MS = 5_000;
 const START_RETRY_DELAY_MS = 100;
 
 const isObj = (v: unknown): v is Raw => typeof v === 'object' && v !== null && !Array.isArray(v);
+const strOf = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
 const fail = (code: string, message: string): Error => Object.assign(new Error(message), { code });
 const codeOf = (error: unknown): string | undefined => {
   const code = (error as { code?: unknown } | null | undefined)?.code;
@@ -66,7 +68,7 @@ function rootPaneOf(result: unknown): string | undefined {
 }
 
 export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; reread(paneId: string): Promise<void>; emitStart?(e: AgentStartEvent): void; launchEnv?(): Record<string, string> | undefined }): Pick<HerdrKit,
-  'startAgent' | 'prompt' | 'waitPromptable' | 'sendKeys' | 'wait' | 'read' | 'agentKinds' | 'installedAgentKinds' | 'agentStatus'> {
+  'startAgent' | 'place' | 'prompt' | 'waitPromptable' | 'sendKeys' | 'wait' | 'read' | 'agentKinds' | 'installedAgentKinds' | 'agentStatus'> {
   const call = ctx.call;
   const emitStart = (e: AgentStartEvent): void => {
     try { ctx.emitStart?.(e); } catch { /* a listener never breaks a start */ }
@@ -107,7 +109,10 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
         catch { installExpected = false; }
       }
       if (installExpected) emit({ phase: 'installing', kind: o.kind, message: words('agent.installing', { agent: o.kind }) });
-      const ref = await startAgentInner(o, () => { stage = 'start'; });
+      const ref = await startAgentInner(o, {
+        placed: (placed) => emit({ phase: 'placed', kind: o.kind, ref: placed }),
+        start: () => { stage = 'start'; },
+      });
       emit({ phase: 'ready', kind: o.kind, ref });
       return ref;
     } catch (error) {
@@ -119,33 +124,43 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
     }
   }
 
-  async function startAgentInner(o: StartAgent, onStartPhase?: () => void): Promise<AgentRef> {
-    const launch = o.env && typeof o.env.env === 'object' && Array.isArray(o.env.unset)
-      ? o.env as LaunchEnvironment : undefined;
-    if (!launch && 'pane' in o.place && Object.keys(o.env ?? {}).length > 0) {
-      throw fail('env_mismatch', 'This pane needs to be opened again to use that sign-in.');
+  // The placed ref: the pane plus its tab and workspace ids. The pinned schema's create/split
+  // answers carry both on the pane record (`root_pane`/`pane` are full PaneInfo) and on the
+  // `tab`/`workspace` records beside it; a `pane` target has no answer and an older server may
+  // answer a bare pane id, so `pane.get` supplies the ids there.
+  async function placedRefOf(paneId: string, made: Raw | undefined): Promise<PlaceRef> {
+    const body = isObj(made) ? made : undefined;
+    const rootPane = body?.root_pane;
+    const pane = isObj(rootPane) ? rootPane : isObj(body?.pane) ? body?.pane : undefined;
+    const tab = body?.tab;
+    const workspace = body?.workspace;
+    const tabId = strOf(pane?.tab_id) ?? strOf(isObj(tab) ? tab.tab_id : undefined);
+    const workspaceId = strOf(pane?.workspace_id) ?? strOf(isObj(workspace) ? workspace.workspace_id : undefined);
+    if (tabId !== undefined && workspaceId !== undefined) return { paneId, tabId, workspaceId };
+    const read = await call('pane.get', { pane_id: paneId }) as Raw;
+    const full = isObj(read?.pane) ? read.pane : undefined;
+    const fullTab = strOf(full?.tab_id);
+    const fullWorkspace = strOf(full?.workspace_id);
+    if (fullTab === undefined || fullWorkspace === undefined) {
+      throw new Error('herdr: the placement answered no tab or workspace id');
     }
-    const timeout = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    // A pane HOME alone keeps the server's XDG dirs, so a sign-in would land outside it: confine them too.
-    const home = launch ? undefined : (o.env as Record<string, string> | undefined)?.HOME;
-    const env = o.env === undefined || launch ? {} : { env: home === undefined ? o.env : {
-      XDG_CONFIG_HOME: join(home, '.config'), XDG_DATA_HOME: join(home, '.local', 'share'),
-      XDG_STATE_HOME: join(home, '.local', 'state'), XDG_CACHE_HOME: join(home, '.cache'), ...o.env } };
+    return { paneId, tabId: fullTab, workspaceId: fullWorkspace };
+  }
+
+  // The one placement ladder (6.4), shared by `startAgent` and the agentless `place` op: every
+  // creating path sends `focus: false` and the placement env, and takes its ids from the server's
+  // answer, never a prediction. `worktree` stays a startAgent concern (a linked checkout exists
+  // for an agent's project; the agentless op never passes it).
+  async function resolvePlacement(o: { worktree?: { branch?: string; base?: string };
+    place: PlaceTarget; cwd?: string; env: Record<string, unknown> }): Promise<
+    PlaceRef & { createdPane: boolean; createdWorkspace: string | undefined; workspaceCreated: boolean }> {
+    let made: Raw | undefined;
     let paneId: string | undefined;
     let createdPane = false;                 // a pane this start made: roll it back on failure
     let createdWorkspace: string | undefined;   // a workspace this start made: roll it back instead
     let workspaceCreated = false;            // reported as `created`: a workspace was made
-    async function rollback(): Promise<void> {
-      if (createdWorkspace !== undefined) {
-        try { await call('workspace.close', { workspace_id: createdWorkspace }); return; }
-        catch { /* fall through to the pane when the workspace close misses */ }
-      }
-      if (createdPane && paneId !== undefined) {
-        try { await call('pane.close', { pane_id: paneId }); } catch { /* rollback is best-effort */ }
-      }
-    }
     if (o.worktree !== undefined) {
-      const made = await call('worktree.create', { cwd: o.cwd, focus: false, ...env,
+      made = await call('worktree.create', { cwd: o.cwd, focus: false, ...o.env,
         ...(o.worktree.branch === undefined ? {} : { branch: o.worktree.branch }),
         ...(o.worktree.base === undefined ? {} : { base: o.worktree.base }) }) as Raw;
       const worktree = isObj(made?.worktree) ? made.worktree : undefined;
@@ -153,9 +168,13 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
         : typeof worktree?.path === 'string' ? worktree.path : o.cwd;
       // The pinned schema's worktree.create carries the fresh root pane; a server that leaves the
       // new workspace empty gets its first tab opened in the checkout instead.
-      paneId = rootPaneOf(made) ?? rootPaneOf(await call('tab.create', {
-        workspace_id: made?.workspace?.workspace_id, cwd: checkout, focus: false, ...env,
-      }));
+      paneId = rootPaneOf(made);
+      if (paneId === undefined) {
+        made = await call('tab.create', {
+          workspace_id: isObj(made?.workspace) ? made.workspace.workspace_id : undefined,
+          cwd: checkout, focus: false, ...o.env }) as Raw;
+        paneId = rootPaneOf(made);
+      }
       createdPane = true;
       workspaceCreated = true;
     } else if ('workspace' in o.place && o.place.workspace !== 'new') {
@@ -169,11 +188,12 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       if (matches.length > 1) throw fail('workspace-ambiguous',
         `More than one workspace is named "${label}". Rename one, then try again.`);
       if (matches.length === 1) {
-        paneId = rootPaneOf(await call('tab.create', { workspace_id: matches[0].workspace_id, cwd: o.cwd,
-          ...(o.place.label === undefined ? {} : { label: o.place.label }), focus: false, ...env }));
+        made = await call('tab.create', { workspace_id: matches[0].workspace_id, cwd: o.cwd,
+          ...(o.place.label === undefined ? {} : { label: o.place.label }), focus: false, ...o.env }) as Raw;
+        paneId = rootPaneOf(made);
         createdPane = true;
       } else {
-        const made = await call('workspace.create', { cwd: o.cwd, label, focus: false, ...env }) as Raw;
+        made = await call('workspace.create', { cwd: o.cwd, label, focus: false, ...o.env }) as Raw;
         paneId = rootPaneOf(made);
         createdPane = true;
         workspaceCreated = true;
@@ -182,23 +202,64 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
         }
       }
     } else if ('workspace' in o.place) {
-      paneId = rootPaneOf(await call('workspace.create', { cwd: o.cwd,
-        ...(o.place.label === undefined ? {} : { label: o.place.label }), focus: false, ...env }));
+      made = await call('workspace.create', { cwd: o.cwd,
+        ...(o.place.label === undefined ? {} : { label: o.place.label }), focus: false, ...o.env }) as Raw;
+      paneId = rootPaneOf(made);
       createdPane = true;
       workspaceCreated = true;
     } else if ('tab' in o.place) {
-      paneId = rootPaneOf(await call('tab.create', { workspace_id: o.place.workspaceId, cwd: o.cwd,
-        ...(o.place.label === undefined ? {} : { label: o.place.label }), focus: false, ...env }));
+      made = await call('tab.create', { workspace_id: o.place.workspaceId, cwd: o.cwd,
+        ...(o.place.label === undefined ? {} : { label: o.place.label }), focus: false, ...o.env }) as Raw;
+      paneId = rootPaneOf(made);
       createdPane = true;
     } else if ('split' in o.place) {
-      const made = await call('pane.split', { target_pane_id: o.place.split,
-        direction: o.place.direction, focus: false, ...env }) as Raw;
+      made = await call('pane.split', { target_pane_id: o.place.split,
+        direction: o.place.direction, focus: false, ...o.env }) as Raw;
       paneId = typeof made?.pane?.pane_id === 'string' ? made.pane.pane_id : undefined;
       createdPane = true;
     } else {
       paneId = o.place.pane;
     }
     if (paneId === undefined) throw new Error('herdr: the placement answered no pane id');
+    return { ...(await placedRefOf(paneId, made)), createdPane, createdWorkspace, workspaceCreated };
+  }
+
+  // Placement without an agent (6.4): the same ladder `startAgent` resolves, minus the launch —
+  // it creates the tab/split/workspace and starts nothing, so nothing is rolled back or watched.
+  // An env on a caller-owned `pane` target has no create call to ride and is refused, never dropped.
+  async function place(o: PlaceRequest): Promise<PlaceRef> {
+    if ('pane' in o.place && o.env !== undefined && Object.keys(o.env).length > 0) {
+      throw fail('env_mismatch', 'An existing pane cannot receive a new environment.');
+    }
+    const env = o.env === undefined ? {} : { env: o.env };
+    const placement = await resolvePlacement({ place: o.place, cwd: o.cwd, env });
+    return { paneId: placement.paneId, tabId: placement.tabId, workspaceId: placement.workspaceId };
+  }
+
+  async function startAgentInner(o: StartAgent, hooks?: { placed?(ref: PlaceRef): void; start?(): void }): Promise<AgentRef> {
+    const launch = o.env && typeof o.env.env === 'object' && Array.isArray(o.env.unset)
+      ? o.env as LaunchEnvironment : undefined;
+    if (!launch && 'pane' in o.place && Object.keys(o.env ?? {}).length > 0) {
+      throw fail('env_mismatch', 'This pane needs to be opened again to use that sign-in.');
+    }
+    const timeout = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    // A pane HOME alone keeps the server's XDG dirs, so a sign-in would land outside it: confine them too.
+    const home = launch ? undefined : (o.env as Record<string, string> | undefined)?.HOME;
+    const env = o.env === undefined || launch ? {} : { env: home === undefined ? o.env : {
+      XDG_CONFIG_HOME: join(home, '.config'), XDG_DATA_HOME: join(home, '.local', 'share'),
+      XDG_STATE_HOME: join(home, '.local', 'state'), XDG_CACHE_HOME: join(home, '.cache'), ...o.env } };
+    const placement = await resolvePlacement({ worktree: o.worktree, place: o.place, cwd: o.cwd, env });
+    const { paneId, createdPane, createdWorkspace, workspaceCreated } = placement;
+    async function rollback(): Promise<void> {
+      if (createdWorkspace !== undefined) {
+        try { await call('workspace.close', { workspace_id: createdWorkspace }); return; }
+        catch { /* fall through to the pane when the workspace close misses */ }
+      }
+      if (createdPane) {
+        try { await call('pane.close', { pane_id: paneId }); } catch { /* rollback is best-effort */ }
+      }
+    }
+    hooks?.placed?.({ paneId: placement.paneId, tabId: placement.tabId, workspaceId: placement.workspaceId });
     if (launch) {
       try { await prepareLaunchEnv(call, paneId, launch, timeout); }
       catch (error) {
@@ -206,7 +267,7 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
         throw error;
       }
     }
-    onStartPhase?.();
+    hooks?.start?.();
     const name = agentName(o);
     const params = { pane_id: paneId, kind: o.kind, name,
       ...(o.args === undefined ? {} : { args: o.args }), timeout_ms: timeout };
@@ -362,7 +423,7 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
     }));
   }
 
-  return { startAgent, prompt, waitPromptable, sendKeys, wait, read, agentKinds, installedAgentKinds, agentStatus };
+  return { startAgent, place, prompt, waitPromptable, sendKeys, wait, read, agentKinds, installedAgentKinds, agentStatus };
 }
 
 // One source of truth for install detection (B5's probe plus the shim layer below): the first

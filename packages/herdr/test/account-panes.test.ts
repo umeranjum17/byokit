@@ -45,7 +45,7 @@ function harness(t: TestContext) {
         await state.splitGate;
         const id = `new${++next}`;
         panes.set(id, { env: params.env });
-        return { pane: { pane_id: id }, root_pane: { pane_id: id } };
+        return { pane: { pane_id: id, tab_id: `t${id}`, workspace_id: 'w1' }, root_pane: { pane_id: id, tab_id: `t${id}`, workspace_id: 'w1' } };
       }
       // Moves never type into the new pane: any keystroke would stay in its scrollback.
       if (method === 'pane.send_text' || method === 'pane.read') {
@@ -62,7 +62,7 @@ function harness(t: TestContext) {
           if (key) env[key] = '/wrong';
         }
         if (state.paneEnv === 'leaked-unset') env.ANTHROPIC_API_KEY = 'leak';
-        return { pane: { pane_id: id, env } };
+        return { pane: { pane_id: id, tab_id: `t${id}`, workspace_id: 'w1', env } };
       }
       if (method === 'agent.start') {
         if (state.failStart) throw new Error('secret-canary');

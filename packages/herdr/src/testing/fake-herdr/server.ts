@@ -201,7 +201,10 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       if (env !== undefined) pane.env = env;
       if (p.focus === true) focusWorkspace(workspace.workspace_id);
       emitEvent('workspace.created', { workspace: workspaceView(workspace) });
-      return { workspace: workspaceView(workspace), root_pane: { pane_id: pane.pane_id } };
+      // The pinned schema's root_pane is a full PaneInfo (tab_id, workspace_id); the kit reads
+      // the placed ids from it (6.4), so the fake answers them too.
+      return { workspace: workspaceView(workspace),
+        root_pane: { pane_id: pane.pane_id, tab_id: tab.tab_id, workspace_id: workspace.workspace_id } };
     },
     'workspace.close': (p) => {
       if (!live.workspaces.some((row) => row.workspace_id === p.workspace_id)) {
@@ -339,7 +342,8 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       if (env !== undefined) pane.env = env;
       if (p.focus === true) focusPane(pane.pane_id);
       emitEvent('pane.created', { pane: paneView(pane) });
-      return { pane: { pane_id: pane.pane_id } };
+      // Schema-shaped pane record: the kit reads the placed ids from it (6.4).
+      return { pane: { pane_id: pane.pane_id, tab_id: pane.tab_id, workspace_id: pane.workspace_id } };
     },
     'pane.read': (p) => {
       const pane = paneOf(p.pane_id);

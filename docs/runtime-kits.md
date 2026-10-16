@@ -2344,6 +2344,7 @@ export declare class HerdrKit {
   onChange(fn: (s: HerdrSnapshot) => void): () => void;
   // helpers
   startAgent(o: StartAgent): Promise<AgentRef>;
+  place(o: PlaceRequest): Promise<PlaceRef>;   // agentless: same ladder, no launch (6.4)
   openSignInTab(o: OpenSignInTab): Promise<AgentRef>;
   move(o: Move): Promise<MoveResult>;
   moveToAccount(target: AgentRef, o: MoveToAccount): Promise<MoveToAccountResult>;
@@ -2362,11 +2363,14 @@ export declare class HerdrKit {
 }
 export type AgentStatus = 'idle' | 'working' | 'blocked' | 'done' | 'unknown';
 export type AgentRef = { paneId: string; name?: string; created?: boolean };   // created: set by startAgent only
+export type PlaceRef = { paneId: string; tabId: string; workspaceId: string };   // where a placement landed
+export type PlaceTarget = { workspace: 'new'; label?: string } | { workspace: string; label?: string }   // any other workspace string is a label (6.4)
+  | { tab: 'new'; workspaceId: string; label?: string }
+  | { split: string; direction: 'right' | 'down' } | { pane: string };
+export type PlaceRequest = { cwd?: string; place: PlaceTarget; env?: Record<string, string> };   // agentless placement (6.4)
 export type StartAgent = {
   kind: string; cwd: string; name?: string;             // name: /^[a-z][a-z0-9_-]{0,31}$/
-  place: { workspace: 'new'; label?: string } | { workspace: string; label?: string }   // any other workspace string is a label (6.4)
-       | { tab: 'new'; workspaceId: string; label?: string }
-       | { split: string; direction: 'right' | 'down' } | { pane: string };
+  place: PlaceTarget;
   worktree?: { branch?: string; base?: string };
   args?: string[]; env?: Record<string, string> | { env: Record<string, string>; unset: string[] }; timeoutMs?: number;   // default 60_000
 };
@@ -2544,12 +2548,24 @@ no new link/device operation; apps forward the result through their authorized j
   exactly one workspace with that label gets a new tab (`tab.create { workspace_id, cwd, label, focus: false }`,
   `created: false`); no match creates the workspace with that label (`created: true`); two or more matches reject
   with `workspace-ambiguous` and create nothing. The placement `env` rides every create/split call (the pinned
-  `agent.start` has no `env` param). Then `agent.start { pane_id, kind, name?, args?, timeout_ms }` with call
-  timeout `timeoutMs + 5 s`, retrying `agent_pane_busy`/`agent_pane_unavailable` inside a bounded 5 s budget.
-  When the start fails, only what the kit created is rolled back: the fresh pane with `pane.close`, or the fresh
-  workspace with `workspace.close` when a label placement created one (a reused workspace and a caller-owned `pane`
-  placement are never closed). Returns `{ paneId, name, created }`. Exact param spellings come from the generated
-  types; where muxr and the schema disagree, the schema wins and H5 records it in `report.json`.
+  `agent.start` has no `env` param). The pinned schema's create/split answers carry the pane's `tab_id` and
+  `workspace_id` on the pane record (`root_pane`/`pane` are full `PaneInfo`); the kit reads the placed ref from
+  them, falling back to one `pane.get` for a `pane` placement or a bare answer. The start lifecycle emits `placed`
+  (`{ phase: 'placed', kind, ref: { paneId, tabId, workspaceId } }`) the moment the placement resolved — before
+  `agent.start` settles, so an app seeds routes and checks env on the fresh placement while the launch runs; a
+  placement that never resolves emits `launchFailed` (`placement-failed`) alone. Then `agent.start { pane_id, kind,
+  name?, args?, timeout_ms }` with call timeout `timeoutMs + 5 s`, retrying
+  `agent_pane_busy`/`agent_pane_unavailable` inside a bounded 5 s budget. When the start fails, only what the kit
+  created is rolled back: the fresh pane with `pane.close`, or the fresh workspace with `workspace.close` when a
+  label placement created one (a reused workspace and a caller-owned `pane` placement are never closed). Returns
+  `{ paneId, name, created }`. Exact param spellings come from the generated types; where muxr and the schema
+  disagree, the schema wins and H5 records it in `report.json`.
+- `place` (agentless placement): the same ladder minus the launch — no `agent.start`, nothing rolled back or
+  watched. `place { tab: 'new', workspaceId }` opens a shell or application tab, `place { split, direction }`
+  splits a shell pane, `place { workspace: 'new' | label }` creates or reuses a workspace by label (the same
+  `workspace-ambiguous` refusal), and `place { pane }` names an existing pane (its ref comes from `pane.get`; an
+  `env` there is refused, never dropped). `cwd` and `env` are optional and ride the create/split call verbatim.
+  Resolves `{ paneId, tabId, workspaceId }`.
 - Muse private readiness (additive Node helpers in `src/muse.ts`): `museReadiness(env?)` probes only
   the explicitly supplied effective PATH, returning unknown/missing/launcher-only/installed and always
   `signedIn: 'unknown'`. `installMuse({ home, path, installDir?, signal?, timeoutMs? })` is explicit

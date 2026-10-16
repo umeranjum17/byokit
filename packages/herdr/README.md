@@ -156,7 +156,7 @@ kit does not have yet, and [Two ways in](#two-ways-in) plus
 
 | Export | What it does |
 |---|---|
-| `HerdrKit` (`@byokit/herdr`) | The host-side kit, in `adopt` or `own` mode: `start`/`stop`, `state`, `snapshot`/`onChange`, `startAgent`, `openSignInTab`, `move`, `moveToAccount`, `onStartAgent`, `prompt`, `waitPromptable`, `sendKeys`, `wait`, `read`, `blocked`/`onBlocked`/`answer`, `closePane`/`closeTab`/`closeWorkspace`, `agentKinds`, `installedAgentKinds`, `agentStatus`, `agentInstallState`, `terminal`, `onEvent`, `statusWatchReady`, and the pass-throughs `call`, `subscribe` and `cli` |
+| `HerdrKit` (`@byokit/herdr`) | The host-side kit, in `adopt` or `own` mode: `start`/`stop`, `state`, `snapshot`/`onChange`, `startAgent`, `place`, `openSignInTab`, `move`, `moveToAccount`, `onStartAgent`, `prompt`, `waitPromptable`, `sendKeys`, `wait`, `read`, `blocked`/`onBlocked`/`answer`, `closePane`/`closeTab`/`closeWorkspace`, `agentKinds`, `installedAgentKinds`, `agentStatus`, `agentInstallState`, `terminal`, `onEvent`, `statusWatchReady`, and the pass-throughs `call`, `subscribe` and `cli` |
 | `isPromptable`, `agentStatus`, `agentInstallState`, `agentProbePath`, `extraPathDirs`, `runStatusCommand`, `isAutoInstallShim`, `resolveAgentBinary` (`@byokit/herdr`) | `isPromptable(agent)` is the readiness rule `prompt` and `waitPromptable` share; the rest is onboarding readiness: per-kind install + CLI sign-in without a Herdr connection (see below) |
 | `HERDR_VERSION`, `HERDR_PROTOCOL` | The pinned Herdr release (`0.9.1`) and the protocol the kit speaks (`22`) |
 | `words`, `agentWords`, `stateWords`, `WORDS` | Plain sentences for agent statuses and kit states |
@@ -427,9 +427,13 @@ kit versions 0.3.0 and 0.5.0 lack this helper/fix; this source change is not a p
 
 `startAgent` keeps its typed shape and rejection, and additionally reports the launch as events
 so an app shows `Installing…` instead of a blank start: `installing` (with the progress words)
-before a start that needs an install, `ready` with the fresh ref, and `launchFailed` with a typed
-`reason` (`placement-failed` | `pane-busy` | `install-failed` | `start-rejected` | `not-installed`) plus plain words.
-Subscribe per call with `onEvent`, or app-wide with `kit.onStartAgent` — no polling either way.
+before a start that needs an install, `placed` the moment the placement resolved its
+pane/tab/workspace ids — before the launch settles, so an app can seed routes or check env on the
+fresh placement while the start is still running (a placement that never resolves fires
+`launchFailed` with reason `placement-failed` alone) — `ready` with the fresh ref, and
+`launchFailed` with a typed `reason` (`placement-failed` | `pane-busy` | `install-failed` |
+`start-rejected` | `not-installed`) plus plain words. Subscribe per call with `onEvent`, or
+app-wide with `kit.onStartAgent` — no polling either way.
 
 ```ts
 import { HerdrKit } from '@byokit/herdr';
@@ -437,11 +441,26 @@ import { HerdrKit } from '@byokit/herdr';
 const kit = new HerdrKit({ mode: 'adopt', bin: 'herdr', socketPath: '/tmp/herdr.sock' });
 const off = kit.onStartAgent((e) => {
   if (e.phase === 'installing') console.log(e.message);       // Installing pi…
+  if (e.phase === 'placed') console.log(e.ref.workspaceId, e.ref.tabId, e.ref.paneId);
   if (e.phase === 'launchFailed') console.log(e.reason, e.message);
 });
 await kit.startAgent({ kind: 'pi', cwd: '/home/me/project', place: { workspace: 'new' },
   onEvent: (e) => { if (e.phase === 'ready') console.log(e.ref.paneId); } });
 off();
+```
+
+## Placement without an agent
+
+`place` resolves the same placement ladder as `startAgent` — a shell or application tab, a shell
+split, a new or labelled workspace — and starts no agent: it answers where the fresh pane landed
+(`{ paneId, tabId, workspaceId }`) and leaves a plain shell in it. The placement `env` rides the
+create/split call (a labelled workspace is reused, or created when no workspace carries it; two
+matches reject with `workspace-ambiguous`). An env on a caller-owned `pane` target is refused.
+
+```ts
+const shell = await kit.place({ cwd: '/home/me/project', place: { tab: 'new', workspaceId: 'w1' } });
+const app = await kit.place({ cwd: '/opt/app', env: { APP_ENV: 'yes' }, place: { workspace: 'muxr' } });
+const split = await kit.place({ place: { split: shell.paneId, direction: 'right' } });
 ```
 `call` and `subscribe` are typed pass-throughs to the complete socket API, and `cli()` reaches the full CLI.
 

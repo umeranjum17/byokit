@@ -8,7 +8,7 @@ import { closePane, closeTab, closeWorkspace } from './close.ts';
 import { Supervisor } from './supervise.ts';
 import type {
   AgentCliSignIn, AgentReadiness, AgentStartEvent, AgentStatusOptions, AgentRef, AgentSessionRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,
-  HerdrParams, HerdrResult, HerdrSnapshot, HerdrSnapshotAgent, HerdrSnapshotPane, HerdrSnapshotWorkspace, HerdrState, HerdrSubscription, HerdrSubscribeStop, PromptReceipt, StartAgent, TerminalSession,
+  HerdrParams, HerdrResult, HerdrSnapshot, HerdrSnapshotAgent, HerdrSnapshotPane, HerdrSnapshotWorkspace, HerdrState, HerdrSubscription, HerdrSubscribeStop, PlaceRef, PlaceRequest, PromptReceipt, StartAgent, TerminalSession,
   HerdrTransport, Move, MoveToAccount, MoveToAccountResult, MoveResult, OpenSignInTab,
 } from './types.ts';
 import type { AgentTurnEnd, AgentTurnOptions } from './types.ts';
@@ -433,6 +433,10 @@ export class HerdrKit {
   move(o: Move): Promise<MoveResult> { return this.accountPanes.move(o); }
   moveToAccount(target: AgentRef, o: MoveToAccount): Promise<MoveToAccountResult> { return this.accountPanes.moveToAccount(target, o); }
   startAgent(o: StartAgent): Promise<AgentRef> { return this.agents.startAgent(o); }
+  // Placement without an agent (6.4): the same ladder `startAgent` resolves — a shell or
+  // application tab, a shell split, a new or labelled workspace — minus the launch. Creates the
+  // pane and starts nothing; answers the placed pane/tab/workspace ref.
+  place(o: PlaceRequest): Promise<PlaceRef> { return this.agents.place(o); }
   // App-wide start lifecycle without polling: every startAgent's installing/ready/launchFailed
   // lands here as well as on that call's own `onEvent`. Returns the unsubscribe function.
   onStartAgent(fn: (e: AgentStartEvent) => void): () => void {

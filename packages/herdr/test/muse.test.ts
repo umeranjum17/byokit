@@ -58,7 +58,9 @@ done
 }
 const agents = (calls: string[], env?: Record<string, string>) => createAgents({
   call: async (method, params) => { calls.push(method); return method.endsWith('.create')
-    ? { root_pane: { pane_id: 'p1' } } : { params }; },
+    ? { root_pane: { pane_id: 'p1', tab_id: 't1', workspace_id: 'w1' } }
+    : method === 'pane.get' ? { pane: { pane_id: params.pane_id, tab_id: 't1', workspace_id: 'w1' } }
+    : { params }; },
   snapshot: () => ({ revision: 0, connected: true, workspaces: [] }), reread: async () => {},
   launchEnv: () => env,
 });
@@ -97,7 +99,7 @@ test('unobserved pane/adopt env stays unknown; existing env replacement guard is
   const calls: string[] = [];
   await agents(calls, { PATH: '/missing' }).startAgent({ kind: 'muse', cwd: '/fixture',
     place: { pane: 'p1' }, installProbe: { path: [] } });
-  assert.deepEqual(calls, ['agent.start']);
+  assert.deepEqual(calls, ['pane.get', 'agent.start']);   // pane.get names the placed ref's tab/workspace
   calls.length = 0;
   await assert.rejects(agents(calls).startAgent({ kind: 'muse', cwd: '/fixture', place: { pane: 'p1' },
     env: { HOME: '/private', PATH: '/missing' } }), { code: 'env_mismatch' });
@@ -131,7 +133,7 @@ test('explicit official install receives private env and returns a launchable se
   assert.ok(!readdirSync(f.home).some((n) => n.startsWith('.muse-install-')));
   const calls: { method: string; params: Record<string, unknown> }[] = [];
   const api = createAgents({ call: async (method, params) => { calls.push({ method, params });
-    return { root_pane: { pane_id: 'p1' } }; }, snapshot: () => ({ revision: 0, connected: true, workspaces: [] }), reread: async () => {} });
+    return { root_pane: { pane_id: 'p1', tab_id: 't1', workspace_id: 'w1' } }; }, snapshot: () => ({ revision: 0, connected: true, workspaces: [] }), reread: async () => {} });
   await api.startAgent({ kind: 'muse', cwd: '/fixture', place: { tab: 'new', workspaceId: 'w1' }, env: r.env });
   assert.deepEqual(calls.map((c) => c.method), ['tab.create', 'agent.start']);
   assert.equal((calls[0]!.params.env as Record<string, string>).PATH, r.env.PATH);
