@@ -266,13 +266,13 @@ test('Add an OpenCode Go account whose key acts for several workspaces: the pick
     await pick.selectOption({ label: 'Working' });
     await part(page, 'opencode', 'connect').click();
     await part(page, 'opencode', 'status').filter({ hasText: /is connected/ }).waitFor();
-    await page.locator('#opencode [data-room]').filter({ hasText: '0% left for now' }).waitFor();
+    await page.locator('#opencode [data-room]').filter({ hasText: '0% left this month' }).waitFor();
     await page.locator('#opencode [data-window]').filter({ hasText: 'Session: 80% left' }).waitFor();
     await page.locator('#opencode [data-window]').filter({ hasText: 'Month: 0% left' }).waitFor();
 
     await page.reload();
     await part(page, 'opencode', 'status').filter({ hasText: /is connected/ }).waitFor(); // kept in this browser's stores
-    await page.locator('#opencode [data-room]').filter({ hasText: '0% left for now' }).waitFor();
+    await page.locator('#opencode [data-room]').filter({ hasText: '0% left this month' }).waitFor();
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });
