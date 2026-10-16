@@ -13,6 +13,14 @@ updates:
     # Internal packages are versioned and cascaded together by release.ts.
     ignore:
       - dependency-name: '@byokit/*'
+      # An Expo SDK moves expo, its expo-* modules, react-native and the native template together
+      # (`npx expo install expo@^N --fix`); a lone major bump of any of them cannot build.
+      - dependency-name: 'expo'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'expo-*'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'react-native'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
     groups:
       development:
         dependency-type: development
