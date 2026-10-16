@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## 0.10.0 (2026-10-16)
+
+- Dependency update: pins @byokit/relay 0.7.1.
+
+- FIX: `sendKeys` now reaches plain shell panes: when `agent.send_keys` answers `agent_not_found` the kit falls back to `pane.send_keys`, so aborts and device keys land on shell routes (muxr's abort path) instead of failing; a pane that is gone surfaces `pane.send_keys`' own `pane_not_found`.
+- Confirmed-scope close for rollback closes: `closePane(paneId, { confirmed: { scope: 'tab', id } })` echoes the wider target a `pane-close-would-widen` refusal named; the kit verifies the live tree still matches (the pane is still that tab's sole pane, else `confirmed-scope-mismatch`) and closes exactly that tab through the exact path, whose own `tab-close-would-widen` guard still applies — a confirmed close never widens past the confirmed scope. The default `closePane` refusal is unchanged.
+- The kit's fake Herdr mirrors the real server's agent-targeted refusals: `agent.send_keys` on an agentless pane now answers `agent_not_found` (like `agent.get`/`agent.rename`); a pane that does not exist answers `pane_not_found`.
+- `placed` start-lifecycle event: `startAgent` (and `onStartAgent`) now emits `{ phase: 'placed', kind, ref: { paneId, tabId, workspaceId } }` the moment the placement resolves its pane/tab/workspace ids, before the launch settles — an app can seed routes and check env on the fresh placement while `agent.start` is still running. Existing `installing`/`ready`/`launchFailed` events are unchanged; a placement that never resolves still reports `launchFailed` (`placement-failed`) alone.
+- `kit.place({ cwd?, place, env? })`: placement without an agent — the same ladder `startAgent` resolves (shell or application tab, shell split, new or labelled workspace) minus the launch, answering the placed `{ paneId, tabId, workspaceId }`. An env on a caller-owned `pane` target is refused instead of dropped.
+- FEAT: `HerdrKit.refresh()` re-reads the tree and resolves once the fresh snapshot and its per-pane status watches have landed, so an app can await a tree that already carries its own mutations; a caller arriving while a bootstrap is running waits for a bootstrap that started after its call (at most one follow-up is queued), and a failed bootstrap rejects the waiters with its own error.
+- FIX: A pane, tab or workspace created, closed, moved or renamed while a bootstrap was in flight is no longer dropped until the next structural event: the kit queues one follow-up bootstrap so the next snapshot carries the change.
+- FIX: A `pane.updated` that introduces a real agent onto a pane the last bootstrap saw as a plain shell now opens that pane's `pane.agent_status_changed` watch, so the agent's later status changes reach the tree without waiting for a structural event. A title-only update on a plain shell opens nothing.
+- FIX: `workspace.updated` now merges into the tree. The event was subscribed but `update()` had no branch for it, so workspace label, focused, number, tokens and worktree changes never landed until the next structural event forced a re-bootstrap.
+- FIX: The focus events (`pane.focused`, `tab.focused`, `workspace.focused`) are now subscribed and move pane and workspace focus in the tree (`pane.focused` focuses the pane and clears the others, `workspace.focused` flips the workspace flags; `tab.focused` carries no tree field and changes nothing).
+- FIX: A workspace `worktree` record with only `checkout_path` is kept. The mirror previously dropped the whole worktree unless all five wire fields were typed; `HerdrSnapshotWorktree` now keeps `checkoutPath` required and the rest optional.
+- FIX: `pane.moved` now clears the previous pane id's status epoch, so the replaced pane id no longer leaks a stale lifecycle-epoch entry (the epoch map previously only shrank on close).
+- The agent record carries its own `cwd` (`HerdrSnapshotAgent.cwd`), merged like the other agent fields with the pane-level record as the fallback.
+- `AgentStatus` includes `failed` — live Herdr emits it for a crashed launch; the kit now types it instead of collapsing it, and `isPromptable` treats it as not promptable.
+- `HerdrSnapshot` carries a `revision` that increases on every tree change, so consumers can key routing reuse off it instead of diffing workspaces.
+
 ## 0.9.0 (2026-10-16)
 
 - Dependency update: pins @byokit/discover 0.8.2.

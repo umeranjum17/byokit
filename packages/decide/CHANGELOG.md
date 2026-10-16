@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.9.2 (2026-10-16)
+
+- Dependency update: pins @byokit/accounts 0.24.1.
+
+- FIX: `opencodeGo({ account })` now names the account's workspace on every Go call (`x-opencode-org-id`, from the account's optional `workspace()` accessor that `accounts.opencodeGo(member)` and `openCodeGoPlanAccount(store)` supply), so a login key that acts for several workspaces answers instead of being refused with the gateway's workspace error; a bare `key` (or an account with no workspace) sends no header, exactly as before.
+
 ## 0.9.1 (2026-10-16)
 
 - Dependency update: pins @byokit/pair 0.10.1.
