@@ -48,12 +48,12 @@ esac
 seek opencode-status
 expect "OpenCode Go is connected."
 start
-seek opencode-accounts
+seek opencode-picker
 expect 'Ready'
 shot light__ready
 a shell cmd uimode night yes
 start
-seek opencode-accounts
+seek opencode-picker
 expect 'Ready'
 shot dark__ready
 a shell cmd uimode night no
