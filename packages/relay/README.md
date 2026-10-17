@@ -8,9 +8,9 @@
 </p>
 
 <p align="center"><strong>A blind relay for <a href="../pair"><code>@byokit/pair</code></a>: the home computer dials out, phones reach it through the relay.</strong><br/>
-The home computer (the <b>host</b>) needs no open port. The relay routes link's encrypted frames by host address and cannot
+The home computer (the <b>host</b>) needs no open port. The relay routes pair's encrypted frames by host address and cannot
 read them. It also keeps what a sleeping phone needs (push notifications), a short code a person can type to find a host,
-and the owner's list of which hosts may use it. For apps that pair a phone or browser with a computer over link and want
+and the owner's list of which hosts may use it. For apps that pair a phone or browser with a computer over pair and want
 to reach it away from home.</p>
 
 The one exception to "cannot read": push notification text. The relay can read the title and any content the host

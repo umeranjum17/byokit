@@ -7,10 +7,10 @@
   <img alt="Node 22+ | browsers | React Native" src="https://img.shields.io/badge/platform-Node%2022%2B%20%7C%20browsers%20%7C%20React%20Native-666?style=flat" />
 </p>
 
-<p align="center"><strong>Portable NaCl-compatible box, secretbox and Ed25519 signatures.</strong><br/>
+<p align="center"><strong>Portable box, secretbox and Ed25519 signatures.</strong><br/>
 Box, secretbox and Ed25519 signatures for Node 22+, browsers/PWAs and React Native, with no native modules and no
-Node runtime imports. For apps that store or send small secrets and need the same bytes libsodium and tweetnacl
-produce.</p>
+Node runtime imports. For apps that store or send small secrets and need byte-identical sealed boxes everywhere
+(see the API table and Tests for the compatibility vectors).</p>
 
 ## Install
 

@@ -13,7 +13,7 @@ engine and a contract suite).
 Node 22.18 or later:
 
 ```sh
-npm install @byokit/write@0.1.0
+npm install @byokit/write
 ```
 
 The kit installs its exact dependency `ownvoice-engine@0.1.0` from npm. No engine checkout or separate install is

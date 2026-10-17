@@ -1,6 +1,6 @@
 # @byokit/connect
 
-Connect a person's Google, Drive, Notion, Canva, GitHub or other remote MCP account.
+Connect a person's online files, mail, calendar, notes, designs, code or other remote account.
 Sign-in opens the provider's own page. Credentials stay in the keystore the app
 passes, scoped to that person on their device. There is no account pool, proxy,
 ambient credential lookup, logging or extra opt-in switch.
