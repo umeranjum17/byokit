@@ -1,1 +1,0 @@
-- FEAT: Document the per-account Kilo root (`HOME` and `TMPDIR` through `env`, since Kilo has no managed folder variable), proven on Kilo CLI 7.8.12, which keeps its sign-in in `kilo/auth.json` under the XDG data root rather than the OS keyring; `KILO_CONFIG_DIR` moves only the settings folder, never authentication. Code already shipped in 0.11.0; changelog entry was missing.
