@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { scratchDir } from '../../test-support.ts';
+import { scratchDir, fakeOpenCodeConsole } from '../../test-support.ts';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import {
   DeviceLink,
@@ -28,6 +28,7 @@ import type { RunEvent } from '../src/types.ts';
 import { phaseOf } from '@byokit/ui';
 
 const NOT_ALLOWED = words('link.notAllowed');
+const orgs = fakeOpenCodeConsole();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function until<T>(fn: () => T | undefined | Promise<T | undefined>, ms = 5000): Promise<T> {
   for (const end = Date.now() + ms; Date.now() < end; await sleep(20)) {
@@ -419,7 +420,12 @@ test('sign-in over the link: an OpenCode Go plan key pasted on the device, kept 
   const a = await device(w, 'a');
   const KEY = 'sk-go-CANARY-LINK-PASTE-0042';
   const view = () => a.oc.signIn.view('opencode-go');
-  // A key the engine refuses, with the key in its words: the device sees only the kit's sentence.
+  const headers = async () =>
+    ((await w.kit.call('config.get', {}) as { config?: { models?: { providers?: Record<string, { headers?: Record<string, string> }> } } })
+      .config?.models?.providers?.['opencode-go']?.headers);
+  // A key the engine refuses, with the key in its words: the device sees only the kit's sentence. One workspace
+  // on the console listing, so the refusal itself is what the device watches.
+  orgs.answer(async () => Response.json([{ id: 'org_ONE', name: 'Umer' }]));
   w.fake.failNext('openclaw.setup.activate', `rejected ${KEY}`);
   await a.oc.signIn.start('opencode-go', 'code');
   await until(async () => ((await view()).signIn?.prompt ? true : undefined));
@@ -428,24 +434,56 @@ test('sign-in over the link: an OpenCode Go plan key pasted on the device, kept 
   assert.deepEqual(refused, { ready: false, signIn: { state: 'failed', via: 'code', why: 'failed', error: 'API key activation failed' } });
 
   // The plan key route starts whichever way the device asks; the device pastes into the kit's `Plan key` prompt.
+  // This key acts for several workspaces, so after the paste the sign-in asks which one, answered through the
+  // same paste (an exact name or the id); a mismatch re-asks, and the engine's probe carries the pick.
+  orgs.answer(async () => Response.json([{ id: 'org_DEFAULT', name: 'Default' }, { id: 'org_WORKING2', name: 'Working2' }]));
   const first = await a.oc.signIn.start('opencode-go', 'browser');
   assert.equal(first.state, 'waiting');
   const asked = await until(async () => { const v = await view(); return v.signIn?.prompt ? v : undefined; });
   assert.deepEqual(asked, { ready: false, signIn: { state: 'waiting', via: 'browser', prompt: 'Plan key' } });
   await a.oc.signIn.paste('opencode-go', KEY);
+  const pick = await until(async () => { const v = await view(); return v.signIn?.prompt?.startsWith('Which workspace?') ? v : undefined; });
+  assert.equal(pick.signIn?.prompt, 'Which workspace? Paste one of: Default, Working2');
+  await a.oc.signIn.paste('opencode-go', 'no-such-workspace');
+  const reasked = await until(async () => { const v = await view(); return v.signIn?.prompt?.startsWith('That is not one of them.') ? v : undefined; });
+  assert.equal(reasked.signIn?.prompt, 'That is not one of them. Which workspace? Paste one of: Default, Working2');
+  await a.oc.signIn.paste('opencode-go', 'Working2');
   const done = await until(async () => { const v = await view(); return v.signIn?.state === 'done' ? v : undefined; });
   assert.equal(done.ready, true);
   assert.equal(phaseOf(done), 'done');
   assert.deepEqual((await a.oc.state()).signedIn, ['opencode-go']);
-  // The key reached the host's engine whole, on the device member's agent, through typed activation.
+  // The key reached the host's engine whole, on the device member's agent, through typed activation; the listing
+  // was the key's own, and the named workspace rides the provider's config for the probe and every run.
   assert.deepEqual(w.activations.at(-1), { agentId: 'a', kind: 'api-key', authChoice: 'opencode-go', apiKey: KEY });
+  assert.equal(orgs.asked.at(-1), `Bearer ${KEY}`);
+  assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_WORKING2' });
 
   const frames = [];
   for await (const frame of a.oc.run('Hello', { model: 'opencode-go/fake-key-model' })) frames.push(frame);
   const end = frames.at(-1);
   assert.ok(end?.type === 'end' && end.end.ok && end.end.usage?.total, JSON.stringify(end));
-  assert.ok(!JSON.stringify([refused, first, asked, done, frames, await a.oc.state()]).includes(KEY),
+  assert.ok(!JSON.stringify([refused, first, asked, pick, reasked, done, frames, await a.oc.state()]).includes(KEY),
     'the key never comes back to a device');
+
+  // A key that acts for one workspace signs in with no second ask, and the listing failure (offline, a server
+  // error, a body that is no list) fails the sign-in before the engine sees anything.
+  orgs.answer(async () => Response.json([{ id: 'org_ONLY', name: 'Umer' }]));
+  await a.oc.signIn.start('opencode-go', 'code');
+  await until(async () => ((await view()).signIn?.prompt ? true : undefined));
+  await a.oc.signIn.paste('opencode-go', KEY);
+  const solo = await until(async () => { const v = await view(); return v.signIn?.state === 'done' ? v : undefined; });
+  assert.equal(solo.ready, true);
+  assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_ONLY' });
+  for (const unread of [async () => { throw new TypeError('fetch failed'); }, async () => new Response('down', { status: 502 }),
+    async () => Response.json({ orgs: [] })]) {
+    orgs.answer(unread);
+    await a.oc.signIn.start('opencode-go', 'code');
+    await until(async () => ((await view()).signIn?.prompt ? true : undefined));
+    await a.oc.signIn.paste('opencode-go', KEY);
+    const failed = await until(async () => { const v = await view(); return v.signIn?.state === 'failed' ? v : undefined; });
+    assert.equal(failed.signIn?.error, 'The workspace list could not be read. Try again.');
+    assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_ONLY' }, 'a failed listing changed nothing');
+  }
 });
 
 test('serve binds per reach and pairs over its urls', async () => {

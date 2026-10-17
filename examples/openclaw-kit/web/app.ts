@@ -175,6 +175,7 @@ async function pick(row: ConnectRow) {
 }
 
 let checking = false; // a pasted key is on its way to the computer, which checks it with the provider
+let answered = ''; // the question the last paste answered: the computer asking a different one ends the wait
 let keyError = ''; // why the last pasted key was refused, shown until the next submit or until the sign-in leaves the prompt
 /** Draws the ways in and the sign-in card, or the message box; true while the sign-in is still moving. */
 function drawAccount(view: AccountView | undefined): boolean {
@@ -182,7 +183,8 @@ function drawAccount(view: AccountView | undefined): boolean {
   const moving = view?.signIn?.state === 'waiting';
   // The kit asks for the plan's key: the phone sends it once, over the sealed link, and keeps nothing.
   const asked = moving && view?.signIn?.prompt ? view.signIn.prompt : '';
-  if (!asked) { checking = false; keyError = ''; }
+  if (!asked || asked !== answered) checking = false;
+  if (!asked) { keyError = ''; answered = ''; }
   $('signin-key').hidden = !asked || checking;
   $('signin-key-label').textContent = asked;
   $('signin').hidden = phase === 'done';
@@ -216,6 +218,7 @@ $('signin-key').onsubmit = async (e) => {
   input.value = '';
   if (!key || !account) return;
   checking = true;
+  answered = $('signin-key-label').textContent;
   keyError = '';
   $('signin-key').hidden = true;
   $('signin-title').textContent = words('key.checking');

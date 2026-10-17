@@ -78,7 +78,7 @@ const port = await new Promise<number>((resolve) => {
 });
 const host = trackChild(spawn(process.execPath, ['host.ts', '--via', 'lan', '--port', String(port), '--name', NAME,
   '--relay', relayAt, `--enrol=${token}`], // `=` form: the token is b64url and may start with `-`
-  { cwd: app, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1' }, stdio: ['pipe', 'pipe', 'inherit'] }));
+  { cwd: app, env: { ...process.env, BYOKIT_EXAMPLE_FAKE: '1', BYOKIT_EXAMPLE_ORGS: 'multi' }, stdio: ['pipe', 'pipe', 'inherit'] }));
 after(async () => { await browser.close(); host.kill('SIGTERM'); relay.close(); relayServer.closeAllConnections(); relayServer.close(); });
 let said = '';
 host.stdout.on('data', (b: Buffer) => { said += b.toString(); });
@@ -223,7 +223,8 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   await chatgpt.waitFor();
 
   // The OpenCode Go plan: the phone pastes the key from the plan into the kit's `Plan key` prompt, and the computer
-  // keeps and checks it. A refused key shows only the kit's sentence; the key is never shown back or said.
+  // keeps and checks it. This key acts for two workspaces, so the phone is asked which one and answers through the
+  // same hidden paste. A refused key shows only the kit's sentence; the key is never shown back or said.
   const go = row('opencode-go:plan_key:opencode-go');
   assert.equal(await go.getAttribute('aria-disabled'), null);
   await go.click();
@@ -234,10 +235,16 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   await shot(page, '9-plan-key');
   await page.fill('#signin-key-input', 'wrong-key');
   await page.click('#signin-key-go');
+  await text(page, '#signin-key-label', 'Which workspace? Paste one of: Default, Working2');
+  await page.fill('#signin-key-input', 'Working2');
+  await page.click('#signin-key-go');
   await text(page, '#signin-title', 'API key activation failed');
   const KEY = 'sk-go-CANARY-PHONE-PASTE-7731';
   await go.click();
   await page.fill('#signin-key-input', KEY);
+  await page.click('#signin-key-go');
+  await text(page, '#signin-key-label', 'Which workspace? Paste one of: Default, Working2');
+  await page.fill('#signin-key-input', 'Working2');
   await page.click('#signin-key-go');
   await page.locator('#talk').waitFor();
   await page.fill('#message', 'Hello Go');
