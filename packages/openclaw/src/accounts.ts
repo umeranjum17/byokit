@@ -13,7 +13,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createLocks } from './locks.ts';
 import { providerOf, resolveSelection } from './pick.ts';
 import { agentOf, memberOf as baseMemberOf } from './attribution.ts';
-import { KEY_PREFIX, MEMBER_ID, NEW_MEMBER_ID, keyAgentId, untilListed } from './members.ts';
+import { KEY_PREFIX, MEMBER_ID, NEW_MEMBER_ID, keyAgentId, untilListed, untilUnlisted } from './members.ts';
 import { routes, routeFor, type RouteView } from './routes.ts';
 import { words } from './words.ts';
 import type { Account, AccountId, AccountPick, Defaults, GatewayTransport, Member, ModelInfo, MoveResult, Room, RoomSpan, RunSelection, SignInOptions, SignInState, SignInView } from './types.ts';
@@ -907,6 +907,9 @@ export function createAccounts(ctx: {
         if (listed.ok !== true || !Array.isArray(listed.profiles)) throw new Error('removeAccount: the sign-ins could not be read');
         if (listed.profiles.length) throw new Error('removeAccount: the account is still signing in');
         await ctx.request('agents.delete', { agentId: agent, deleteFiles: false });
+        // The roster hot-reload applies a beat after the delete answer: wait until the agent is gone, so a
+        // roster read right after the removal no longer sees it.
+        await untilUnlisted(ctx.request, agent);
       }
       rmSync(agentDir(agent), { recursive: true, force: true });
       // Already holding the index lock: write directly instead of `edit`, which would wait on itself.
@@ -927,6 +930,9 @@ export function createAccounts(ctx: {
     if (created) {
       await ctx.request('byokit.accounts', { action: 'clear', agentId: agent });
       await ctx.request('agents.delete', { agentId: agent, deleteFiles: false });
+      // The roster hot-reload applies a beat after the delete answer: `done` resolves only once the agent is
+      // gone, so a roster read right after a cancelled sign-in no longer sees it.
+      await untilUnlisted(ctx.request, agent);
     }
     rmSync(agentDir(agent), { recursive: true, force: true });
     await edit(member, (file) => { delete file.accounts[id]; });

@@ -27,6 +27,16 @@ export async function untilListed(request: GatewayTransport['request'], id: stri
   }
 }
 
+/** Resolves once agents.list no longer shows `id`, which agents.delete answers before: the engine's roster
+ * hot-reload applies a beat after the delete answer, the same lag as after agents.create. */
+export async function untilUnlisted(request: GatewayTransport['request'], id: string): Promise<void> {
+  const deadline = Date.now() + VISIBLE_TIMEOUT_MS;
+  while (await listed(request, id)) {
+    if (Date.now() >= deadline) throw new Error(`agent ${id} is still listed by agents.list after agents.delete`);
+    await new Promise((resolve) => setTimeout(resolve, VISIBLE_POLL_MS));
+  }
+}
+
 export function createMembers(ctx: { request: GatewayTransport['request']; root: string }): {
   ensure(member: Member): Promise<{ agentId: string; workspace: string }>;
 } {
