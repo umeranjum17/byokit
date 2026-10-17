@@ -61,6 +61,7 @@ export { chooseAccount, consider, resolveSelection, type RoomOf } from './pick.t
 
 export { AuthStoreUnreadableError, AuthStoreSealSizeError } from './auth-store.ts';
 export { EngineAlreadyRunningError } from './engine-status.ts';
+export { PluginInstallError, type PluginInstallFailure } from './plugins.ts';
 export { readAgentDayUsage } from './day-usage.ts';
 export type { AgentDayUsage, DayUsageClient, EngineStartedCharge, EngineStartedKind } from './day-usage.ts';
 export { readAgentUsage, agentUsageOf } from './usage.ts';

@@ -276,6 +276,7 @@ the generated `report.json`.
 packages/openclaw/
   package.json  tsconfig.json  README.md  CHANGELOG.md  LICENSE
   engine/package.json  engine/package-lock.json      # { "dependencies": { "openclaw": "2026.8.35" } }, integrity-locked
+  engine/plugins.json                                # external provider plugin pins (B7): { "<id>": { spec, integrity } }
   plugin/index.js  plugin/accounts.js  plugin/package.json   # bridge plugin + account sealing (5.15); manifest at prepare
   policy/policy.mjs                                  # operator install policy (OpenClaw security.installPolicy, protocol 1)
   scripts/gen-methods.ts  scripts/method-types.json  # O2 generator + its override map
@@ -283,7 +284,7 @@ packages/openclaw/
   src/generated/methods.ts  src/generated/events.ts  src/generated/report.json
   src/engine.ts  src/config.ts  src/transport.ts  src/kit.ts
   src/bridge.ts  src/approvals.ts
-  src/signin.ts  src/routes.json  src/routes.ts  src/migrate.ts
+  src/signin.ts  src/routes.json  src/routes.ts  src/migrate.ts  src/plugins.ts
   src/runs.ts  src/classify.ts  src/members.ts
   src/accounts.ts  src/pick.ts  src/locks.ts       # 5.15
   src/words.json  src/words.ts
@@ -465,7 +466,8 @@ export declare class OpenClawKit {
   // members
   ensureMember(member: Member): Promise<{ agentId: string; workspace: string }>;
   // sign-in (5.7)
-  routes(): Route[];
+  routes(): Route[];                     // readiness counts the external plugins installPlugin installed
+  installPlugin(pluginId: string): Promise<void>;   // B7 (5.7); rejects PluginInstallError
   providerStatus(member: Member): Promise<string[] | undefined>;
   providers(member: Member): Promise<string[]>;
   signedIn(member: Member, provider: string): Promise<boolean>;
@@ -607,7 +609,8 @@ writing only if bytes change (0600):
   plugin id, the `plugin` id of every default-eligible bundled route in `routes.json` (`offerPolicy: 'default'`,
   no `needs.plugin`, so a route waiting only on its CLI and the explicit routes sharing its plugin work) (D17), and the
   `plugin` id of every route the app offers by name in `KitOptions.offered` (the provider, auth choice or alias a route
-  carries — e.g. `openrouter`; a route nobody offers stays out); the kit adds no other id;
+  carries — e.g. `openrouter`; a route nobody offers stays out), and every external plugin `installPlugin` installed
+  (B7, 5.7); the kit adds no other id;
   `plugins.entries[id].hooks.timeouts.before_tool_call = 200_000`. The pinned
   engine treats a non-empty `plugins.allow` as a restrictive allowlist: a provider sign-in, and that provider's runs,
   need the bundled plugin that owns the route's auth choice (`Route.plugin`) in it, else the wizard ends
@@ -625,8 +628,11 @@ writing only if bytes change (0600):
 - Install policy when `installPolicy` is given: `security.installPolicy = { enabled: true, exec: { source: 'exec',
   command: process.execPath, args: [<kit>/policy/policy.mjs], trustedDirs: [dirname(process.execPath),
   <kit>/policy], timeoutMs: 10_000, passEnv: ['OPENCLAW_STATE_DIR'], env: { BYOKIT_TRUSTED_SKILLS: <path>,
-  BYOKIT_OWN_ROOTS: JSON.stringify(ownRoots) } } }`. Without it: `enabled: true` with a policy that blocks every
-  install except the `@openclaw/` scope.
+  BYOKIT_OWN_ROOTS: JSON.stringify(ownRoots), BYOKIT_PLUGIN_PINS: <engine/plugins.json values> } } }`. Without it:
+  `enabled: true` with the same policy and no skills. A plugin install is allowed only from the npm registry (the
+  engine-derived `source.kind: 'npm'`; a manifest's own name proves nothing) at exactly a pinned spec, and the
+  preflight's registry resolution must carry the pinned integrity; the engine then checks the installed package
+  against that resolution, so the pin holds for the bytes installed. Every other plugin install is blocked.
 
 Crewhouse's product choices (tool profile and deny list, `skills.allowBundled`, workshop, `agents.defaults.sandbox`,
 `codex: { enabled: false }`, `memory-core` dreaming off) move into Crewhouse's `config` option unchanged.
@@ -767,6 +773,22 @@ key (subscription); `microsoft-foundry-entra` is Entra cloud credentials, not an
 `alibaba-model-studio-api-key` comes from a video-generation plugin; `copilot-proxy` billing is unverified
 (`unknown`). A sensitive wizard text step (`setup-token`) is answered from the paste channel without echo (B8).
 Until those packages merge, the table above is what ships.
+
+**External provider plugins (B7).** `installPlugin(pluginId)` is the one explicit install: discovery never runs it.
+`pluginId` is a `needs.plugin` a route names; its pin in `engine/plugins.json` must be exactly the route's
+`install.npmSpec` at `ENGINE_VERSION` (`@openclaw/zai-provider@2026.8.35`), with the registry's `sha512` integrity
+for that version. The kit adds the id to `plugins.allow` in `<root>/openclaw.json`, then runs the engine's own
+installer in the isolated engine env (5.5): `openclaw plugins install <spec> --force --accept-capabilities` (the
+explicit call is the consent; the policy, 5.6, holds the pin and integrity). The running gateway hot-reloads the
+installer's config write without loading the plugin, so the kit then asks for a safe restart (`gateway.restart.request`,
+after in-flight requests) and resolves once `plugins.list` shows the plugin enabled at the pinned version. Installed ids are kept in
+`<root>/installed-plugins.json`, feed `routes({ plugins })` and join `plugins.allow` at every prepare. A plugin no
+route names rejects `PluginInstallError` `unknown_plugin`; a missing pin or one at another version, `version`; a
+registry integrity that differs from the pin, `integrity` (blocked before the package is fetched); any other engine
+failure, `install` with the engine's own reason. A refused install leaves the allow list as it was and installs
+nothing. The person's own engine, `~/.openclaw` and other ClawHub sources are never used. `engine/plugins.json` is
+regenerated with the engine pin: one entry per external `install.npmSpec` in `routes.json`, from `npm view
+<spec>@<ENGINE_VERSION> dist.integrity`.
 
 **signIn(member, { authChoice, via, signal? }, on)** — provider-owned wizard drive:
 Native `anthropic-cli` runs unmodified `claude auth login --claudeai` with the engine's `CLAUDE_CONFIG_DIR` in its own login HOME (`<root>/login-home`: Accounts refuses a folder that is its HOME's default login), through Accounts' remote CLI driver and a `cliAccounts.managedFolders` option limited to app-owned folders; cancel removes only roster bookkeeping, never the folder or grant.
@@ -1335,10 +1357,11 @@ export declare class Engine {
   stop(): Promise<void>;
   doctor(timeoutMs: number): { status: number | null };                      // offline doctor --fix run
   doctorContext(): { entry: string; env: Record<string, string> };
+  installPlugin(spec: string): Promise<{ code: number | null; output: string }>; // the engine CLI's install (B7)
 }
 // config.ts (O3)
 export declare function reconcileConfig(saved: object | undefined, o: { root: string; stateDir: string; port: number;
-  pluginId: string; pluginDir: string; policyPath: string; app?: object; installPolicy?: KitOptions['installPolicy'] }): object;
+  pluginId: string; pluginDir: string; policyPath: string; app?: object; installPolicy?: KitOptions['installPolicy']; plugins?: readonly string[] }): object;
 export declare function memoryLimited(config: object, member: Member): boolean;
 // transport.ts (O4)
 export declare function gatewayTransport(ctx: { port: number; token: string; identityPath: string; bridgeSock: string }): GatewayTransport;

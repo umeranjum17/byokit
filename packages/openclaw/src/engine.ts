@@ -14,6 +14,7 @@ import { appendUsageBoot } from './usage-boots.ts';
 import { reconcileConfig, appRecoveryPrefixes } from './config.ts';
 import { writePlugin, resolveBridge } from './bridge.ts';
 import { sweepOrphans } from './accounts.ts';
+import { installedPlugins } from './plugins.ts';
 import type { KitOptions } from './kit.ts';
 import type { KitState, ToolSpec } from './types.ts';
 
@@ -257,8 +258,28 @@ export class Engine {
     const saved = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined;
     const config = reconcileConfig(saved, { root: this.root, stateDir: this.o.stateDir, port: this.port, pluginId: this.o.pluginId,
       pluginDir, policyPath: join(kitDir, 'policy', 'policy.mjs'), app: this.o.config, offered: this.o.offered,
-      installPolicy: this.o.installPolicy, browser: this.o.browserConfig?.() });
+      installPolicy: this.o.installPolicy, browser: this.o.browserConfig?.(), plugins: installedPlugins(this.root) });
     putChanged(path, JSON.stringify(config, null, 2) + '\n');
+  }
+  /** B7: the engine's own installer for one pinned external plugin, in the isolated engine env with the kit's npm
+   * first on PATH (the installer runs `npm`). The explicit kit call is the consent; the install policy holds the pin and
+   * its integrity. Resolves the installer's exit code and output tail; the kit then restarts the gateway to load it. */
+  installPlugin(spec: string): Promise<{ code: number | null; output: string }> {
+    const { entry, env } = this.doctorContext();
+    const npm = this.o.npmPath && this.o.npmPath.includes('/') ? [dirname(this.o.npmPath)] : (process.env.PATH ?? '').split(':');
+    return new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [entry, 'plugins', 'install', spec, '--force', '--accept-capabilities'], {
+        cwd: env.HOME, env: { ...env, PATH: [...npm, env.PATH].join(':'), npm_config_cache: join(this.root, 'npm-cache') },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      let output = '';
+      this.started.add(child);
+      const keep = (chunk: Buffer) => { output = (output + chunk).slice(-2000); };
+      child.stdout.on('data', keep); child.stderr.on('data', keep);
+      const timer = setTimeout(() => child.kill('SIGKILL'), 300_000);
+      child.once('error', error => { clearTimeout(timer); this.started.forget(child); reject(error); });
+      child.once('exit', code => { clearTimeout(timer); this.started.forget(child); resolve({ code, output }); });
+    });
   }
   doctorContext(): { entry: string; env: Record<string, string> } {
     const home = join(this.root, 'home');

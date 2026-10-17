@@ -3,6 +3,7 @@ import type { KitOptions } from './kit.ts';
 import type { Member } from './types.ts';
 import type { NeedSignIn } from './browser.ts';
 import { routes } from './routes.ts';
+import { pluginPins } from './plugins.ts';
 import { MEMBER_ID, KEY_PREFIX, BASE_AGENT, keyAgentId } from './members.ts';
 
 type Obj = Record<string, any>;
@@ -38,7 +39,7 @@ function offeredPlugins(offered: readonly string[] | undefined): string[] {
 
 export function reconcileConfig(saved: object | undefined, o: {
   root: string; stateDir: string; port: number; pluginId: string; pluginDir: string; policyPath: string;
-  app?: object; installPolicy?: KitOptions['installPolicy']; offered?: readonly string[];
+  app?: object; installPolicy?: KitOptions['installPolicy']; offered?: readonly string[]; plugins?: readonly string[];
   browser?: { profiles: Record<string, { cdpUrl: string; attachOnly: true }>; tools: string[] };
 }): object {
   const c: Obj = merge(merge({}, object(saved) ? saved : {}), object(o.app) ? o.app : {});
@@ -83,7 +84,9 @@ export function reconcileConfig(saved: object | undefined, o: {
     ...routes().filter(route => route.offerPolicy === 'default' && !route.needs?.plugin && route.plugin)
       .map(route => route.plugin),
     // Plus every explicitly offered route the app names, so an opted-in sign-in (OpenRouter) is not blocked.
-    ...offeredPlugins(o.offered)])];
+    ...offeredPlugins(o.offered),
+    // Plus every external plugin the kit installed (B7): an app's own allow list must not disable it at the next boot.
+    ...o.plugins ?? []])];
   c.plugins.entries ??= {};
   c.plugins.entries[o.pluginId] = merge(c.plugins.entries[o.pluginId] ?? {}, { hooks: { timeouts: { before_tool_call: 200_000 } } });
   if (o.browser) {
@@ -109,6 +112,7 @@ export function reconcileConfig(saved: object | undefined, o: {
     passEnv: ['OPENCLAW_STATE_DIR'], env: {
       BYOKIT_TRUSTED_SKILLS: o.installPolicy?.trustedSkills ?? '',
       BYOKIT_OWN_ROOTS: JSON.stringify(o.installPolicy?.ownRoots ?? []),
+      BYOKIT_PLUGIN_PINS: JSON.stringify(Object.values(pluginPins())),
     },
   } };
   return c;

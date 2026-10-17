@@ -7,6 +7,7 @@ import { fakeOpenCodeConsole, scratchDir } from '../../test-support.ts';
 import { mock, test } from 'node:test';
 import { AuthStoreUnreadableError } from '../src/auth-store.ts';
 import { OpenClawKit } from '../src/kit.ts';
+import { PluginInstallError } from '../src/plugins.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import type { RunRef } from '../src/types.ts';
 import { hostKeySeal, osKeyringSeal, type KeyringBackend } from '../../secrets/src/index.ts';
@@ -606,6 +607,100 @@ async function until(check: () => boolean, ms = 2000): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
+
+// A stand-in for the engine's own `openclaw plugins install <spec>`: it puts the kit's configured install policy the
+// three requests the pinned engine sends for an npm plugin (verified live against 2026.8.35: the preflight with the
+// registry's resolution, the extracted package, its dependency tree), then records the install the way the engine
+// does. `registry.json` beside it is what the registry would serve for each spec.
+const FAKE_INSTALLER = `
+import { spawnSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+const here = new URL('.', import.meta.url).pathname;
+const [, , command, verb, spec] = process.argv;
+if (command !== 'plugins' || verb !== 'install' || !process.argv.includes('--accept-capabilities')) process.exit(2);
+const served = JSON.parse(readFileSync(join(here, 'registry.json'), 'utf8'))[spec];
+const configPath = process.env.OPENCLAW_CONFIG_PATH;
+const config = JSON.parse(readFileSync(configPath, 'utf8'));
+const exec = config.security.installPolicy.exec;
+mkdirSync(process.env.TMPDIR, { recursive: true });
+const meta = join(mkdtempSync(join(process.env.TMPDIR, 'npm-policy-')), 'npm-package-metadata.json');
+writeFileSync(meta, JSON.stringify({ packageName: served.name, requestedSpecifier: spec, resolution: served }));
+const source = { kind: 'npm', authority: 'official', mutable: false, network: true };
+const request = { kind: 'plugin-npm', mode: 'install', requestedSpecifier: spec };
+for (const shape of [
+  { sourcePath: meta, sourcePathKind: 'file', plugin: { contentType: 'package', pluginId: served.id, packageName: served.name } },
+  { sourcePath: here, sourcePathKind: 'directory', plugin: { contentType: 'package', pluginId: served.id, packageName: served.name, version: served.version } },
+  { sourcePath: here, sourcePathKind: 'directory', plugin: { contentType: 'dependency-tree', pluginId: served.id } },
+]) {
+  const input = JSON.stringify({ protocolVersion: 1, openclawVersion: '2026.8.35', targetName: served.id, targetType: 'plugin', source, request, ...shape });
+  const verdict = JSON.parse(spawnSync(exec.command, exec.args, { input, encoding: 'utf8', env: { ...process.env, ...exec.env } }).stdout);
+  if (verdict.decision !== 'allow') { console.error('Install blocked by policy\\n  Reason: ' + verdict.reason); process.exit(1); }
+}
+writeFileSync(join(here, 'installed.json'), JSON.stringify({ id: served.id, version: served.version }));
+(config.plugins.entries ??= {})[served.id] = { enabled: config.plugins.allow.includes(served.id) };
+writeFileSync(configPath, JSON.stringify(config));
+console.log('Installed plugin: ' + served.id);
+`;
+
+test('a key route waiting on an external plugin: the explicit install at its pin makes it ready, a tampered one installs nothing', async () => {
+  const stateDir = scratchDir('o4-plugin');
+  const engineDir = join(stateDir, 'engine');
+  const cli = join(engineDir, 'node_modules', 'openclaw');
+  mkdirSync(cli, { recursive: true });
+  writeFileSync(join(cli, 'openclaw.mjs'), FAKE_INSTALLER);
+  const pinned = { id: 'zai', name: '@openclaw/zai-provider', version: '2026.8.35',
+    integrity: JSON.parse(readFileSync(new URL('../engine/plugins.json', import.meta.url), 'utf8')).zai.integrity };
+  const serve = (resolution: object) => writeFileSync(join(cli, 'registry.json'), JSON.stringify({ '@openclaw/zai-provider@2026.8.35': resolution }));
+  // Like the engine, a running gateway loads a newly installed plugin only at its next boot.
+  let booted = false;
+  const fake = fakeGateway({ 'gateway.restart.request': () => { booted = true; return { ok: true }; }, 'plugins.list': () => {
+    const allow = (JSON.parse(readFileSync(join(stateDir, 'openclaw', 'openclaw.json'), 'utf8')).plugins.allow) as string[];
+    const installed = booted && existsSync(join(cli, 'installed.json')) ? JSON.parse(readFileSync(join(cli, 'installed.json'), 'utf8')) : undefined;
+    return { mutationAllowed: true, diagnostics: [], plugins: [installed
+      ? { id: 'zai', name: 'Z.AI', installed: true, enabled: allow.includes('zai'), state: 'enabled', version: installed.version }
+      : { id: 'zai', name: 'Z.AI', installed: false, enabled: false, state: 'not-installed', version: '2026.10.4' }] };
+  } });
+  // The app's own allow list replaces the saved one at every boot; an installed plugin must survive it.
+  const options = { stateDir, engineDir, transport: fake.factory, spawnEngine: false, config: { plugins: { allow: ['app-plugin'] } } };
+  const allowed = () => JSON.parse(readFileSync(join(stateDir, 'openclaw', 'openclaw.json'), 'utf8')).plugins.allow as string[];
+  const plan = (kit: OpenClawKit) => kit.routes().find((r) => r.choice === 'zai-coding-global')!;
+  let kit = new OpenClawKit(options);
+  try {
+    await kit.start();
+    assert.equal(plan(kit).readiness, 'needs_plugin');
+    assert.equal(plan(kit).offer, false);
+    assert.deepEqual(await kit.addKey('umer', { authChoice: 'zai-coding-global', apiKey: 'invalid-umer-test' }), { status: 'not_included', reason: 'model' });
+
+    const refused = async (code: string) => {
+      const before = { allow: allowed(), list: await kit.call('plugins.list', {}) };
+      await assert.rejects(kit.installPlugin('zai'), (e: Error) => e instanceof PluginInstallError && e.code === code);
+      assert.deepEqual({ allow: allowed(), list: await kit.call('plugins.list', {}) }, before, 'a refused install changes nothing');
+      assert.equal(plan(kit).readiness, 'needs_plugin');
+    };
+    serve({ ...pinned, integrity: 'sha512-' + Buffer.alloc(64, 7).toString('base64') });
+    await refused('integrity');
+    serve({ ...pinned, version: '2026.8.34' });
+    await refused('version');
+    await assert.rejects(kit.installPlugin('nope'), (e: Error) => e instanceof PluginInstallError && e.code === 'unknown_plugin');
+
+    serve(pinned);
+    await kit.installPlugin('zai');
+    assert.equal(plan(kit).readiness, 'ready');
+    assert.equal(plan(kit).offer, true);
+    assert.ok(allowed().includes('zai') && allowed().includes('app-plugin'));
+    // The key now reaches the engine's own key test, which refuses it.
+    fake.handle('openclaw.setup.activate', () => ({ ok: false, status: 'auth', error: 'invalid api key' }));
+    assert.deepEqual(await kit.addKey('umer', { authChoice: 'zai-coding-global', apiKey: 'invalid-umer-test' }), { status: 'invalid', reason: 'auth' });
+    await kit.installPlugin('zai'); // already loaded: nothing runs again
+
+    await kit.stop();
+    kit = new OpenClawKit(options);
+    await kit.start();
+    assert.ok(allowed().includes('zai'), 'a restart keeps the installed plugin allowed');
+    assert.equal(plan(kit).readiness, 'ready');
+  } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
 
 test('after an engine restart signedIn still recognises a sealed key profile', async () => {
   const stateDir = scratchDir('o4-key-restart-signedin');

@@ -6,11 +6,13 @@
 //   BYOKIT_TRUSTED_SKILLS  path to the trusted-skills JSON file (Crewhouse's trusted-skills.json shape):
 //                          either a list [{ id|name, version, sha256|hash }] or a map { "<id>": { version, sha256 } }.
 //   BYOKIT_OWN_ROOTS        JSON array of own content roots; skills sourced under them are the app's own.
+//   BYOKIT_PLUGIN_PINS      JSON array [{ spec: '<package>@<version>', integrity }] of the external plugins the kit
+//                          installs (engine/plugins.json at the engine pin).
 // Rules: any request kind containing 'depend' is blocked everywhere (own roots included);
 // dependency installers (a skill installSpec carrying bins/formula/package/module/url/archive) are blocked;
 // skill installs are allowed only from own roots or with an exact id + version + SKILL.md sha256 trusted match
 // (the version is request.origin.version when present, else the SKILL.md frontmatter version);
-// plugin installs are allowed only in the @openclaw/ scope.
+// plugin installs are allowed only from the npm registry at exactly a pinned spec, with the pinned integrity.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
@@ -139,27 +141,54 @@ function decideSkill(request, trusted, roots) {
   return allow();
 }
 
+function pins() {
+  try {
+    const list = JSON.parse(process.env.BYOKIT_PLUGIN_PINS ?? '[]');
+    return Array.isArray(list) ? list.filter((p) => isRecord(p) && typeof p.spec === 'string' && typeof p.integrity === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 function decidePlugin(request) {
   const plugin = isRecord(request.plugin) ? request.plugin : {};
-  const scope = [plugin.packageName, plugin.pluginId, request.targetName].find((v) => typeof v === 'string');
-  if (!scope || !scope.startsWith('@openclaw/')) {
-    return block(`only the @openclaw/ plugin scope is allowed, not ${scope ?? request.targetName}`);
-  }
-  // N4: the scope name above is self-declared (the candidate manifest's own
-  // `name`). Allow only with engine proof of registry origin on the pinned
-  // engine: source.kind 'npm' (engine-derived from the install request kind;
-  // npm installs always carry authority 'third-party') plus the
-  // operator-requested specifier in the @openclaw/ scope. Anything else is a
+  // N4: the names in `plugin` are self-declared (the candidate manifest's own `name`, or only its id for the
+  // dependency tree). Only engine proof of registry origin on the pinned engine counts: source.kind 'npm'
+  // (engine-derived from the install request kind) plus the operator-requested specifier. Anything else is a
   // local/archive/git/file candidate spoofing the name. Fail closed.
   const source = isRecord(request.source) ? request.source : undefined;
   const specifier =
     isRecord(request.request) && typeof request.request.requestedSpecifier === 'string'
       ? request.request.requestedSpecifier
       : undefined;
-  if (source?.kind === 'npm' && specifier !== undefined && specifier.startsWith('@openclaw/')) return allow();
-  return block(`@openclaw/ plugin install is not from the npm registry: ${specifier ?? request.targetName}`, [
-    { ruleId: 'plugin-source', severity: 'critical', message: 'self-declared @openclaw/ name without registry source proof' },
-  ]);
+  const npm = source?.kind === 'npm' && specifier !== undefined;
+  const scope = npm ? specifier : [plugin.packageName, plugin.pluginId, request.targetName].find((v) => typeof v === 'string');
+  if (!scope || !scope.startsWith('@openclaw/')) {
+    return block(`only the @openclaw/ plugin scope is allowed, not ${scope ?? request.targetName}`);
+  }
+  if (!npm) {
+    return block(`@openclaw/ plugin install is not from the npm registry: ${specifier ?? request.targetName}`, [
+      { ruleId: 'plugin-source', severity: 'critical', message: 'self-declared @openclaw/ name without registry source proof' },
+    ]);
+  }
+  // B7: exactly a pinned spec (`<package>@<engine version>`), never a range, tag or latest.
+  const pin = pins().find((p) => p.spec === specifier);
+  if (!pin) return block(`not a pinned plugin version: ${specifier}`);
+  // The preflight carries the registry's resolution as a file; the engine then checks the installed package
+  // against that resolution's integrity, so a matching pin here holds for the bytes installed.
+  if (request.sourcePathKind === 'file') {
+    let resolution;
+    try {
+      resolution = JSON.parse(readFileSync(request.sourcePath, 'utf8')).resolution;
+    } catch {
+      return block(`pinned plugin integrity unreadable: ${specifier}`);
+    }
+    if (!isRecord(resolution) || `${resolution.name}@${resolution.version}` !== pin.spec) {
+      return block(`not a pinned plugin version: ${specifier}`);
+    }
+    if (resolution.integrity !== pin.integrity) return block(`pinned plugin integrity mismatch: ${specifier}`);
+  }
+  return allow();
 }
 
 function decide(request) {
