@@ -1,1 +1,0 @@
-- README install no longer pins a stale version; it installs the current release.

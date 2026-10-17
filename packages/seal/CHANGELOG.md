@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.1 (2026-10-17)
+
+- README intro now says in plain words what the kit does; compatibility vectors stay in the body.
+
 ## 0.3.0 (2026-10-02)
 
 - Add a Swift notice opener for iOS Notification Service Extensions (`ios/Sources/ByokitSeal`, CryptoKit only):

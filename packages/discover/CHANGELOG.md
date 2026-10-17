@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.8.4 (2026-10-17)
+
+- README intro now says in plain words what the kit does; network specifics stay in the body.
+
 ## 0.8.3 (2026-10-17)
 
 - Dependency update: pins @byokit/ui 0.9.0.

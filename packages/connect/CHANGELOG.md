@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.5.1 (2026-10-17)
+
+- Dependency update: pins @byokit/secrets 0.5.2.
+
 ## 0.5.0 (2026-10-17)
 
 - FEAT: `deviceSignIn(provider, options)` connects a person with an RFC 8628 device code: it returns `{ userCode, verificationUri, expiresAt, finish(), cancel() }`, polls with the app's own OAuth client ID (pending waits, `slow_down` adds 5 s), and stores the grant in the person's keystore only when they approve. An expired code rejects with `ConnectError` `expired`; a person cancelling on the provider's page, or `cancel()`, rejects with `declined`, and neither stores anything. New `github` provider (`device` endpoints on github.com) and `Provider.device`; `ConnectOptions.redirectUri` is now optional (`signIn()` still requires it). RFC 8628 error codes stay readable in `ConnectError.cause`. The `expired` message now reads "This sign-in has expired. Start again."

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.6 (2026-10-17)
+
+- Dependency update: pins @byokit/secrets 0.5.2.
+
 ## 0.1.5 (2026-10-17)
 
 - Dependency update: pins @byokit/pair 0.10.2.

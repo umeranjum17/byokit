@@ -1,1 +1,0 @@
-- README intro now says in plain words what the kit does; compatibility vectors stay in the body.
