@@ -75,7 +75,7 @@ const shed = {
   claude: ['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_USE_ANTHROPIC_AWS', 'CLAUDE_CODE_USE_MANTLE', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_PROFILE', 'ANTHROPIC_FEDERATION_RULE_ID'],
   codex: ['OPENAI_API_KEY', 'CODEX_API_KEY'],
   pi: ['PI_CODING_AGENT_SESSION_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'],
-  opencode: ['OPENCODE_API_KEY', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'],
+  opencode: ['OPENCODE_API_KEY', 'OPENCODE_CONFIG', 'OPENCODE_CONFIG_CONTENT', 'OPENCODE_DB', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'],
   // Kimi Code stores OAuth under KIMI_CODE_HOME; unset key/path overrides so a host key cannot replace the managed login.
   kimi: ['KIMI_API_KEY', 'MOONSHOT_API_KEY', 'KIMI_CODE_CREDENTIALS', 'KIMI_CREDENTIALS', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'],
   vibe: ['MISTRAL_API_KEY'],
@@ -366,6 +366,9 @@ export function cliAccounts(options: CliOptions) {
   // git's own global files, so name the pool HOME's real one (`~/.gitconfig` wins where both exist) or none
   // at all: `git commit` keeps its identity, and an ambient folder cannot outlive the managed one. Paths only.
   function launch(r: Row): { set: Record<string, string>; unset: string[] } {
+    // OpenCode keeps its sign-in store and database in the XDG roots (1.x auth.json, 2.x opencode.db): each account gets its own.
+    if (r.provider === 'opencode') return { set: { [folderVar(r.provider)]: r.folder, XDG_DATA_HOME: join(r.folder, 'data'),
+      XDG_STATE_HOME: join(r.folder, 'state'), XDG_CACHE_HOME: join(r.folder, 'cache') }, unset: [...shed.opencode] };
     if (r.provider !== 'cursor') return { set: { [folderVar(r.provider)]: r.folder }, unset: [...shed[r.provider]] };
     const gitGlobal = [join(env.HOME, '.gitconfig'), join(env.HOME, '.config', 'git', 'config')].find(existsSync);
     return {

@@ -1,5 +1,5 @@
 // OpenCode as a managed CLI: add/saveKey/logout/launch plus the plan-key route seam.
-// Fakes only: a Map-backed secrets store and a never-spawned binary; no live Go call, no real key.
+// Fakes only: a Map-backed secrets store and a placeholder binary path; no live Go call, no real key.
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
@@ -27,9 +27,10 @@ function memoryKeys() {
 function fakeBin(dir: string, name: string) {
   mkdirSync(dir, { recursive: true });
   const bin = join(dir, name);
-  writeFileSync(bin, '#!/bin/sh\necho never-spawned\n', { mode: 0o755 });
+  writeFileSync(bin, `#!/bin/sh\necho 'opencode: not a real binary' >&2\nexit 64\n`, { mode: 0o755 });
   return bin;
 }
+const XDG = [['XDG_DATA_HOME', 'data'], ['XDG_STATE_HOME', 'state'], ['XDG_CACHE_HOME', 'cache']] as const;
 
 function stateFiles(stateDir: string): string[] {
   const out: string[] = [];
@@ -174,6 +175,7 @@ test('opencode two accounts: isolated keys, folders, resume, and remove', async 
   assert.equal(launchB.ok, true);
   if (launchA.ok && launchB.ok) {
     assert.notEqual(launchA.set.OPENCODE_CONFIG_DIR, launchB.set.OPENCODE_CONFIG_DIR);
+    for (const [name] of XDG) assert.notEqual(launchA.set[name], launchB.set[name], `${name} differs per account`);
     assert.ok(!JSON.stringify(launchA).includes(canaryA) && !JSON.stringify(launchA).includes(canaryB));
     assert.ok(!JSON.stringify(launchB).includes(canaryA) && !JSON.stringify(launchB).includes(canaryB));
   }
@@ -227,6 +229,10 @@ test('opencode launch delivers the key through folder files; logout/remove delet
   if (!launched.ok) throw new Error('opencode launch was not ready');
   assert.equal(launched.set.OPENCODE_CONFIG, configPath);
   assert.ok(!launched.unset.includes('OPENCODE_CONFIG'));
+  // OpenCode keeps its sign-in store and database in the XDG roots (1.x auth.json, 2.x opencode.db),
+  // so each account's start uses its own, never the person's ~/.local/share/opencode.
+  for (const [name, sub] of XDG) assert.equal(launched.set[name], join(folder, sub), `launch sets ${name}`);
+  assert.ok(launched.unset.includes('OPENCODE_DB'), 'a host OPENCODE_DB cannot point the account at another database');
   assert.equal(readFileSync(keyPath, 'utf8'), canary);
   assert.equal(statSync(keyPath).mode & 0o777, 0o600);
   assert.equal(statSync(folder).mode & 0o777, 0o700);
@@ -243,6 +249,9 @@ test('opencode launch delivers the key through folder files; logout/remove delet
     const key = readFileSync(ref.slice(6, -1), 'utf8');
     assert.ok(key.length > 0);
     assert.ok(!JSON.stringify({argv:process.argv, env:process.env}).includes(key));
+    const {mkdirSync, writeFileSync} = await import('node:fs');
+    mkdirSync(process.env.XDG_DATA_HOME + '/opencode', {recursive: true});
+    writeFileSync(process.env.XDG_DATA_HOME + '/opencode/opencode.db', 'sessions');
     console.log('delivery ok');
   `], { env: { ...env, ...launched.set }, encoding: 'utf8' });
   assert.equal(child.status, 0, child.stderr);
@@ -251,6 +260,9 @@ test('opencode launch delivers the key through folder files; logout/remove delet
   // launchEnv stays folder-only: no key read, no delivery config.
   const envOnly = kit.launchEnv(account.id);
   assert.equal(envOnly.set.OPENCODE_CONFIG, undefined);
+  for (const [name, sub] of XDG) assert.equal(envOnly.set[name], join(folder, sub), `launchEnv sets ${name}`);
+  assert.equal(existsSync(join(folder, 'data', 'opencode', 'opencode.db')), true, 'the run wrote into the account data root');
+  assert.equal(existsSync(join(env.HOME, '.local')), false, 'nothing in the person\'s data root');
   assert.ok(!JSON.stringify(envOnly).includes(canary));
 
   await kit.logout(account.id);
@@ -269,6 +281,7 @@ test('opencode launch delivers the key through folder files; logout/remove delet
   await kit.remove(account.id);
   assert.equal(existsSync(keyPath), false, 'remove deletes the key copy');
   assert.equal(existsSync(configPath), false, 'remove deletes the config copy');
+  for (const [, sub] of XDG) assert.equal(existsSync(join(folder, sub)), false, `remove deletes the ${sub} root`);
   assert.equal(await kit.usageSource(bare.id), undefined, 'removal never reassigns the legacy key');
   assert.equal(await kit.usageSource(bare.id), undefined);
   // Already-published dot-separated account entries stay readable, then logout deletes them.

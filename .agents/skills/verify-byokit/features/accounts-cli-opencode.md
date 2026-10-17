@@ -1,6 +1,6 @@
 # Managed OpenCode CLI and plan-key route seam
 
-A host app driving the built `@byokit/accounts/cli` adds an OpenCode managed account, saves a plan key into a Map-backed `@byokit/secrets` store with hidden typing (never argv/env/log), launches with `OPENCODE_CONFIG_DIR` and `OPENCODE_CONFIG=<folder>/opencode.json`, and reads that account's key through `readOpenCodePlanKey(..., accountId)`. Two accounts keep distinct store entries and config dirs. Launch writes the key to `<folder>/go.key` (0600, folder 0700) and references it via `{file:}` in the config; logout/remove delete the delivery copies and that account's entry. The host supplies an OpenCode auth/data store with no console account; config-dir isolation alone is insufficient. `resumeArgs('opencode', { kind: 'id' })` returns `--session`. The portable `openCodeGoPlanAccount` route-only entry stays separate. Fakes only: no live Go call, no real key.
+A host app driving the built `@byokit/accounts/cli` adds an OpenCode managed account, saves a plan key into a Map-backed `@byokit/secrets` store with hidden typing (never argv/env/log), launches with `OPENCODE_CONFIG_DIR` and `OPENCODE_CONFIG=<folder>/opencode.json`, and reads that account's key through `readOpenCodePlanKey(..., accountId)`. Two accounts keep distinct store entries and config dirs. Launch writes the key to `<folder>/go.key` (0600, folder 0700) and references it via `{file:}` in the config; logout/remove delete the delivery copies and that account's entry. Every OpenCode env also sets `XDG_DATA_HOME`/`XDG_STATE_HOME`/`XDG_CACHE_HOME` to `<folder>/data|state|cache` (and unsets `OPENCODE_DB`), so OpenCode's own sign-in store and database are the account's; `remove` deletes them. `resumeArgs('opencode', { kind: 'id' })` returns `--session`. The portable `openCodeGoPlanAccount` route-only entry stays separate. Fakes only: no live Go call, no real key.
 
 ## Sub-features
 
@@ -9,6 +9,7 @@ A host app driving the built `@byokit/accounts/cli` adds an OpenCode managed acc
 - `cli-opencode-route-seam`: managed `saveKey` writes `accounts.<route>:<accountId>`; the first managed row claims the old route-only key only without an account key, leaving other rows unsigned even after its removal. Existing colon/dot account keys preserve an independent portable route key through status, launch, usageSource, logout/remove, restart, sign-in-again and later rows. Previous dot-separated account entries remain readable and are deleted on logout. Ollama Pro's shared route-only seam is unchanged.
 - `cli-opencode-usage`: `await usageSource(id)` returns `{provider:'opencode', key}` for each saved account, undefined without a key; never print the result.
 - `cli-opencode-two-accounts`: add A/`saveKey(A)`, add B/`saveKey(B)` → distinct store entries and canaries; `remove(A)` leaves B ready with its key; `launch(A)`/`launch(B)` set different `OPENCODE_CONFIG_DIR`; `resumeArgs('opencode', { kind:'id', value:'ses_1' })` is `['--session','ses_1']`; a value starting with `-` still throws `kind-mismatch`.
+- `cli-opencode-real-binaries`: real OpenCode 1.19.3 and 2.x through the built kit in a decoy HOME whose `~/.local/share/opencode/auth.json` (a canary Go key) and `opencode.db` (canary bytes) stand for the person's own; two accounts (`sk-umer-test-A`/`-B`) run at once against a loopback Go stand-in; each request carries its own key and workspace and never the canary, the decoy hashes hold, nothing lands in the person's OpenCode roots, the script passes `--standalone` on 2.x starts, and `remove` leaves no data root.
 - `cli-opencode-remote-readonly`: remote CLI state lists `opencode` as installed when binned, `supported: false`; `start('opencode')` returns `unsupported`.
 
 ## How to get to it (user POV)
@@ -24,6 +25,21 @@ Preconditions: baseline (features/README.md); no process of a previous drive is 
 - **Happy path shows.** `add: signing`, `saveKey: ready`, `launch: ok`, `account: access-ok`, `logout: signed_out`, `two: ready`, `two: dirs-differ`, `resume: --session`, `remove-a: b-ready`.
 - **Missing and error cases show.** Before saveKey: `account: Add the OpenCode plan key first.`; remote: `unsupported`; resume dash-value: `kind-mismatch`.
 - **Proof.** The captured artifact contains those lines and no canary bytes (`leak_check` exit 0).
+
+## Real binaries (`cli-opencode-real-binaries`)
+
+Not part of `npm test`; needs the two real binaries, installed into disk scratch (never the person's own install), and a loopback-only namespace (`unshare` user + network + PID: no route off the machine, every process, including a 2.x background server, dies with the run). Fake keys only; no Go call can happen.
+
+```bash
+s=~/.cache/fm-scratch/<task-id>; mkdir -p "$s/v1" "$s/v2home" "$s/tmp"
+(cd "$s/v1" && npm init -y >/dev/null && npm i opencode-ai@1.19.3 --no-audit --no-fund)   # binary: $s/v1/node_modules/opencode-linux-x64/bin/opencode
+curl -fsSL https://opencode.ai/v2/install -o "$s/install2.sh"   # read it first; it installs under $HOME/.opencode/bin
+HOME="$s/v2home" bash "$s/install2.sh" --no-modify-path          # binary: $s/v2home/.opencode/bin/opencode
+feature=cli-opencode-real-binaries; entry=capture/accounts-cli-opencode-live.mjs
+drive=(env TMPDIR="$s/tmp" unshare -rn --pid --fork --mount-proc sh -c 'ip link set lo up && exec node .agents/skills/verify-byokit/capture/accounts-cli-opencode-live.mjs "$0" "$1"' "$s/v1/node_modules/opencode-linux-x64/bin/opencode" "$s/v2home/.opencode/bin/opencode")
+```
+
+Then run SKILL.md Evidence's capture block. Exit `0` and `PASS`; the lines show `egress: blocked`, `both accounts ran at once`, `decoy auth.json and opencode.db hashes unchanged`, and `remove deleted both accounts' data, state and cache roots`. If npm skips the 1.x postinstall, the platform binary above is still the real one. 1.x writes `~/.config/opencode/.gitignore` (its global config folder, not a sign-in); the script lists any such decoy file it sees.
 
 ## Gotchas
 
