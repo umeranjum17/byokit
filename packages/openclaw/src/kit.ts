@@ -539,6 +539,7 @@ export class OpenClawKit {
   private starting?: Promise<void>;
   private stopping = false;
   private failures = 0;
+  private reachedReady = false;
   private retryWait?: AbortController;
   private swept = false;
   private catalogs: Promise<void> = Promise.resolve();
@@ -800,8 +801,9 @@ export class OpenClawKit {
       transport = (this.o.transport ?? gatewayTransport)({ ...ctx, bridgeSock: this.engine.bridgeSock });
       this.transport = transport;
       this.off = [transport.onEvent((e) => { for (const fn of this.listeners) fn(e); }), transport.onClose((why) => this.closed(why))];
-      const deadline = delay(this.o.handshakeMs ?? 90_000, undefined, { ref: false }).then(() => { throw new Error('gateway handshake timed out'); });
-      const hello = await Promise.race([transport.start(), deadline]).catch((error: unknown) => { handshake = true; throw error; });
+      const timeout = new Error('gateway handshake timed out');
+      const deadline = delay(this.o.handshakeMs ?? 90_000, undefined, { ref: false }).then(() => { throw timeout; });
+      const hello = await Promise.race([transport.start(), deadline]).catch((error: unknown) => { handshake = error === timeout; throw error; });
       if (this.stopping || this.transport !== transport) return;
       if (hello.protocol !== PROTOCOL_VERSION) {
         this.setState({ phase: 'needs-update', why: 'version' });
@@ -820,6 +822,7 @@ export class OpenClawKit {
       await this.bridge.start();
       this.off.push(transport.onEvent((e) => this.approvalsCtl.handleEvent(e)));
       this.failures = 0;
+      this.reachedReady = true;
       this.setState({ phase: 'ready' });
       this.syncCatalogs();
       // A failed key add whose abandon clear never reached the engine leaves an unsealed key with no ready marker;
@@ -853,7 +856,7 @@ export class OpenClawKit {
       if (patchFailure) { this.setState({ phase: 'failed', why: 'engine-patch' }); throw error; }
       // A missed handshake on a loaded host is the engine still coming up: retry in place, on the reconnect backoff,
       // until START_ATTEMPTS starts have failed. start() settles once the kit is ready, stopped or given up.
-      if (starting && handshake && !this.stopping && this.failures + 1 < START_ATTEMPTS) {
+      if (starting && handshake && !this.reachedReady && !this.stopping && this.failures + 1 < START_ATTEMPTS) {
         if (await this.backoff()) return this.connect();
         return;
       }
@@ -928,6 +931,7 @@ export class OpenClawKit {
 
   async stop(): Promise<void> {
     this.stopping = true;
+    this.reachedReady = false;
     this.retryWait?.abort();
     await this.disconnect();
     await this.engine.stop();

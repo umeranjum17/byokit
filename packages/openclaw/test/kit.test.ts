@@ -276,6 +276,44 @@ test('a start after a stop during a first-start retry gets a fresh attempt budge
   finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
+test('a terminal connect pause fails the first start at once without a retry', async () => {
+  const stateDir = scratchDir('o4-first-start-paused');
+  const fake = fakeGateway();
+  let attempts = 0;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200,
+    transport: (ctx) => ({ ...fake.factory(ctx), start: () => { attempts++; return Promise.reject(new Error('gateway connect paused: 4008 bad token')); } }) });
+  try {
+    await assert.rejects(kit.start(), /connect paused/);
+    assert.equal(attempts, 1);
+    assert.deepEqual(kit.state, { phase: 'failed', why: 'handshake' });
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a missed hello on a reconnect after ready fails without a retry', async () => {
+  const stateDir = scratchDir('o4-reconnect-miss');
+  const fake = fakeGateway();
+  const states: Array<{ phase: string }> = [];
+  let attempts = 0;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200, onState: (s) => states.push(s),
+    transport: (ctx) => {
+      const transport = fake.factory(ctx);
+      return ++attempts === 2 ? { ...transport, start: () => new Promise<never>(() => {}) } : transport;
+    } });
+  try {
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    fake.drop('test');
+    assert.deepEqual(kit.state, { phase: 'failed', why: 'handshake' });
+    states.length = 0;
+    await assert.rejects(kit.start(), /handshake timed out/);
+    assert.equal(attempts, 2);
+    assert.equal(states.some((s) => s.phase === 'restarting'), false);
+    assert.deepEqual(kit.state, { phase: 'failed', why: 'handshake' });
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 test('stop during a first-start retry starts no further attempt', async () => {
   const stateDir = scratchDir('o4-first-start-stop');
   const fake = fakeGateway();
