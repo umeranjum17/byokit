@@ -3,6 +3,7 @@
 // and a target that is gone maps to `<kind>-unavailable`. Ported from muxr's
 // closeExactPane/closeExactTab/closeExactWorkspace.
 import type { Call } from './agents.ts';
+import type { ClosePlan } from './types.ts';
 
 type Raw = Record<string, any>;
 
@@ -126,6 +127,23 @@ export async function closeWorkspace(call: Call, workspaceId: string,
       'The worktree group changed since the refusal; look at the tree and close fresh.');
   }
   await call('workspace.close', { workspace_id: workspaceId, close_group: true });
+}
+
+// The close sentence's topology from live reads, never the kit's tree, so an unreachable Herdr
+// rejects as any socket read does instead of answering a stale tree (6.4).
+export async function closePlan(call: Call, paneId: string): Promise<ClosePlan> {
+  const gone = (code: string) => (error: unknown): never => {
+    throw codeOf(error) === code ? unavailable('pane') : error;
+  };
+  const pane = ((await call('pane.get', { pane_id: paneId }).catch(gone('pane_not_found'))) as Raw)?.pane;
+  const tabId: unknown = pane?.tab_id;
+  const workspaceId: unknown = pane?.workspace_id;
+  if (typeof tabId !== 'string' || typeof workspaceId !== 'string') throw unavailable('pane');
+  const workspace = ((await call('workspace.get', { workspace_id: workspaceId })
+    .catch(gone('workspace_not_found'))) as Raw)?.workspace;
+  const group = await groupOf(call, workspace?.worktree);
+  return { paneId, tabId, workspaceId, workspaceLabel: typeof workspace?.label === 'string' ? workspace.label : '',
+    ...(group === undefined ? {} : { group: { label: group.repoName, size: group.size } }) };
 }
 
 async function groupOf(call: Call, worktree: Raw | undefined): Promise<{ repoName: string; size: number } | undefined> {

@@ -93,6 +93,10 @@ export type AgentStartEvent =
 export type AgentRef = { paneId: string; name?: string; created?: boolean };   // created: startAgent sets it always
 // Where a placement landed: the fresh (or named) pane plus the tab and workspace holding it.
 export type PlaceRef = { paneId: string; tabId: string; workspaceId: string };
+// Where a pane sits for a close sentence (closePlan): `group` is the worktree group its workspace
+// would widen to on close, named as the `workspace-close-would-widen` refusal names it.
+export type ClosePlan = { paneId: string; tabId: string; workspaceId: string; workspaceLabel: string;
+  group?: { label: string; size: number } };
 // The placement targets `startAgent` and the agentless `place` op share (docs/runtime-kits.md 6.4).
 // `workspace: 'new'` always creates a workspace; any other `workspace` string is a workspace
 // label: the agent lands in the matching workspace (new tab, created: false) or in a workspace

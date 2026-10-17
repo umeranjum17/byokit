@@ -2442,6 +2442,7 @@ export declare class HerdrKit {
   closePane(paneId: string): Promise<void>;       // refuses when it would close the tab
   closeTab(tabId: string): Promise<void>;         // refuses when it would close the workspace
   closeWorkspace(workspaceId: string, o?: { confirmed?: { scope: 'worktreeGroup'; id: string } }): Promise<void>;   // refuses worktree-group widening; a confirmed group close sends close_group: true
+  closePlan(paneId: string): Promise<ClosePlan>;  // live reads for a close sentence: where the pane sits and the group its workspace would widen to (6.4)
   // typed edits: the herdrDevice shapes (7.2); exactly one target, else a rejection before any call; Herdr's refusal keeps its code
   rename(o: HerdrRename): Promise<void>;          // pane.rename / tab.rename / workspace.rename
   focus(o: HerdrTarget): Promise<void>;           // pane.focus / tab.focus / workspace.focus
@@ -2455,6 +2456,8 @@ export type HerdrRename = HerdrTarget & { label: string };
 export type HerdrLayout = { root: HerdrParams<'layout.apply'>['root']; focus?: boolean; tabId?: string; tabLabel?: string; workspaceId?: string };
 export type AgentRef = { paneId: string; name?: string; created?: boolean };   // created: set by startAgent only
 export type PlaceRef = { paneId: string; tabId: string; workspaceId: string };   // where a placement landed
+export type ClosePlan = { paneId: string; tabId: string; workspaceId: string; workspaceLabel: string;
+  group?: { label: string; size: number } };   // group: set when closing the workspace widens to its worktree group (6.4)
 export type PlaceTarget = { workspace: 'new'; label?: string } | { workspace: string; label?: string }   // any other workspace string is a label (6.4)
   | { tab: 'new'; workspaceId: string; label?: string }
   | { split: string; direction: 'right' | 'down' } | { pane: string };
@@ -2546,6 +2549,7 @@ export declare function createAgents(ctx: { call: Call; snapshot(): HerdrSnapsho
 export declare function closePane(call: Call, paneId: string): Promise<void>;
 export declare function closeTab(call: Call, tabId: string): Promise<void>;
 export declare function closeWorkspace(call: Call, workspaceId: string): Promise<void>;
+export declare function closePlan(call: Call, paneId: string): Promise<ClosePlan>;
 // approvals.ts (H5)
 export declare class Blocked {
   constructor(ctx: { call: Call });
@@ -2722,6 +2726,13 @@ no new link/device operation; apps forward the result through their authorized j
   which Herdr widens atomically (a plain close on a group root is refused with
   `workspace_group_close_required`); members are never closed one by one. `hd.close` maps all three codes to `PublicLinkError` with the `close.wouldWiden`
   words (6.9), so a device hears plain words instead of a bare failure.
+- `closePlan(paneId)` answers the close sentence's topology from the same live reads the guards make, never from
+  the kit's tree: `pane.get` (the pane's `tab_id` and `workspace_id`), `workspace.get` (its label and worktree) and
+  the group lookup `closeWorkspace` uses (`workspace.list`). It resolves `{ paneId, tabId, workspaceId,
+  workspaceLabel, group? }`; `group` is `{ label, size }` exactly as a `workspace-close-would-widen` refusal names
+  it (the repo name and member count) and is present only when the workspace is a worktree-group root. A gone pane
+  (`pane_not_found`, or its workspace `workspace_not_found` mid-read) rejects `pane-unavailable`; any other failure,
+  including an unreachable Herdr, rejects as that socket read does, so a caller keeps its retryable outage mode.
 - Blocked approvals: when an agent's status becomes `blocked`, read `pane.read { source: 'detection' }` (plain text,
   last 40 lines) as `prompt` and add a `BlockedAgent` with the pane's current `revision`; leaving `blocked` resolves
   it. `answer(paneId, keys, { revision })`: `pane.get`; refuse unless still `blocked` and `revision` equals the
