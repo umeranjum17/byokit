@@ -253,6 +253,29 @@ test('a second start after an exhausted first start gets its own attempts', asyn
   finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
+test('a start after a stop during a first-start retry gets a fresh attempt budget', async () => {
+  const stateDir = scratchDir('o4-stop-then-start');
+  const fake = fakeGateway();
+  let attempts = 0;
+  let silentFor = 1;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200,
+    transport: (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, start: () => { attempts++; return silentFor-- > 0 ? new Promise<never>(() => {}) : transport.start(); } };
+    } });
+  try {
+    const started = kit.start();
+    for (let i = 0; i < 200 && kit.state.phase !== 'restarting'; i++) await delay(20);
+    await kit.stop();
+    await started;
+    silentFor = 4;
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    assert.equal(attempts, 6);
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 test('stop during a first-start retry starts no further attempt', async () => {
   const stateDir = scratchDir('o4-first-start-stop');
   const fake = fakeGateway();

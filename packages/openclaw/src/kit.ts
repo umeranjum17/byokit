@@ -781,7 +781,7 @@ export class OpenClawKit {
   start(): Promise<void> {
     if (this.current.phase === 'ready') return Promise.resolve();
     if (this.starting) return this.starting;
-    if (this.current.phase === 'failed') this.failures = 0;
+    if (this.current.phase !== 'restarting') this.failures = 0;
     this.stopping = false;
     const task = this.connect();
     this.starting = task;
@@ -834,6 +834,7 @@ export class OpenClawKit {
       const needsUpdate = this.current.phase === 'needs-update';
       const patchFailure = this.current.why === 'engine-patch';
       if (transport && this.transport === transport) await this.disconnect();
+      const starting = this.current.phase === 'starting';
       const refused = await this.engine.stop().then(() => undefined, refusedOnly);
       await this.closeBrowsers();
       const sealRefusal = refused ?? (error instanceof AuthStoreSealSizeError ? error : undefined);
@@ -852,7 +853,7 @@ export class OpenClawKit {
       if (patchFailure) { this.setState({ phase: 'failed', why: 'engine-patch' }); throw error; }
       // A missed handshake on a loaded host is the engine still coming up: retry in place, on the reconnect backoff,
       // until START_ATTEMPTS starts have failed. start() settles once the kit is ready, stopped or given up.
-      if (handshake && !this.stopping && this.failures + 1 < START_ATTEMPTS) {
+      if (starting && handshake && !this.stopping && this.failures + 1 < START_ATTEMPTS) {
         if (await this.backoff()) return this.connect();
         return;
       }
