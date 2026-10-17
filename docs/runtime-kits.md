@@ -446,6 +446,7 @@ export type KitOptions = {
   channels?: { telegram?: TelegramChannel };   // off by default: one chat channel, every message to the app (5.18)
   callbackPort?: number;                 // default 1455
   approvalTimeoutMs?: number;            // default 180_000
+  handshakeMs?: number;                  // default 90_000: hello-ok deadline per start attempt (5.4 step 2)
   transport?: (ctx: { port: number; token: string; identityPath: string; bridgeSock: string }) => GatewayTransport;  // tests
   spawnEngine?: boolean;                 // default true; false skips install, doctor and spawn (layout, token,
                                          // port, config, plugin and bridge still happen)
@@ -555,9 +556,12 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
     cwd = isolated HOME, env = 5.5, stdout/stderr appended to `logs/openclaw.log` (0600); write the pidfile. Device
     identity `openclaw/device.json` (ed25519, created once when missing, 0600; the transport reads both the kit's
     `{ privateKey, publicKey }` shape and the Crewhouse legacy `{ deviceId, publicKeyPem, privateKeyPem }` shape, and
-    never rewrites an existing file so an upgraded house keeps its keys). Connect the transport; wait up to 90 s for
+    never rewrites an existing file so an upgraded house keeps its keys). Connect the transport; wait up to `handshakeMs` (default 90 s) for
    hello-ok, polling the child every 200 ms. Exit code 78 once → run `doctor --fix --yes --non-interactive` (60 s)
-   with state `repairing`, relaunch. Other exit → `failed/exited`. Timeout → `failed/handshake`. Protocol ≠ 4 →
+   with state `repairing`, relaunch. Other exit → `failed/exited`. A handshake timeout, or the transport's start
+   rejecting before hello (a close before hello), → state `restarting` with `retryAt` on step 3's backoff, then
+   step 2 runs again with the engine stopped and spawned afresh; the fifth consecutive failed start → `failed/handshake`.
+   `stop()` cancels a pending retry, and `start()` resolves only when the kit reaches `ready` or fails. Protocol ≠ 4 →
    `needs-update/version`. Then start the bridge socket; state `ready`.
 3. **Crash**: on child exit while not stopping: drop the transport, state `restarting` with
    `retryAt = now + min(30 s, 1 s × 2^failures)`, then `start()` again; failures reset on a successful handshake.
