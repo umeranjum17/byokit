@@ -1,0 +1,1 @@
+- FEAT: `KeyRouteError.affordable` is the count a low-credit OpenRouter 402 names ("can only afford N"), set only on `out_of_credit`, so Crewhouse re-asks with what the key can pay for (for example 3257 of 4096 tokens) and the packing list still arrives. The kit never retries; the app decides.

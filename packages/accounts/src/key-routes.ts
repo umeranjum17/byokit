@@ -14,7 +14,10 @@ export class KeyRouteError extends Error {
   /** For logs and an optional details line, never the shown words: the HTTP status the provider answered, and its own
    *  message (or the network error) with the account's secrets replaced, on one line of at most 300 characters. */
   readonly status?: number; readonly detail?: string;
-  constructor(code: KeyRouteError['code'], cause?: { status?: number; detail?: string }) {
+  /** Only for `out_of_credit`: the count a 402 names in its own words ("can only afford N"), so the app can re-ask
+   *  with it. Never retried here; absent for any other body or status. */
+  readonly affordable?: number;
+  constructor(code: KeyRouteError['code'], cause?: { status?: number; detail?: string; affordable?: number }) {
     super({ unsupported_platform: 'This model adapter is not available on this platform.', needs_host: 'This model adapter needs an isolated app-owned host.',
       needs_keys: 'Key routes need the @byokit/accounts/keys entry: withKeys(platform).',
       no_upstream_flow: 'This sign-in method is not in the pinned upstream.', provider: 'Choose a model from this account’s provider.',
@@ -26,6 +29,7 @@ export class KeyRouteError extends Error {
     this.name = 'KeyRouteError'; this.code = code;
     if (cause?.status) this.status = cause.status;
     if (cause?.detail) this.detail = cause.detail;
+    if (cause?.affordable !== undefined) this.affordable = cause.affordable;
   }
 }
 
@@ -57,16 +61,24 @@ function publicValue<T>(value: T, secrets: readonly string[]): T {
   return JSON.parse(JSON.stringify(value, (_key, entry) => typeof entry === 'string' ? secrets.reduce((text, secret) => text.split(secret).join('[redacted]'), entry) : entry)) as T;
 }
 
-/** Pi's error text without its status prefix, the body's own message when it is JSON. Scrub before capping, so a cut
- *  never leaves part of a secret. */
-function detailOf(said: unknown, secrets: readonly string[]): string | undefined {
+/** Pi's error text without its status prefix, the body's own message when it is JSON, secrets scrubbed (not capped). */
+function messageOf(said: unknown, secrets: readonly string[]): string | undefined {
   if (typeof said !== 'string') return;
   let text = publicValue(said, secrets).replace(/^\d{3}:?\s*/, '');
   let body: { message?: unknown; error?: { message?: unknown } } | undefined;
   try { body = JSON.parse(text); } catch { body = undefined; }
   const message = body?.error?.message ?? body?.message;
   if (typeof message === 'string') text = message;
-  return text.replace(/\s+/g, ' ').trim().slice(0, 300) || undefined;
+  return text;
+}
+
+/** The message on one line of at most 300 characters. Scrub before capping, so a cut never leaves part of a secret. */
+const detailOf = (message: string | undefined): string | undefined => message?.replace(/\s+/g, ' ').trim().slice(0, 300) || undefined;
+
+/** The count a 402 names in its own words; anything else, or a count that is not a safe integer, is absent. */
+function affordableOf(message: string | undefined): number | undefined {
+  const count = Number(/can only afford (\d+)/i.exec(message ?? '')?.[1]);
+  return Number.isSafeInteger(count) ? count : undefined;
 }
 
 /** A provider's own refusal, by the HTTP status it answered; anything else is the bounded generic. */
@@ -97,8 +109,10 @@ export async function keyRespond<T extends Api>(r: Route, access: string | Model
       throw e;
     }
   };
-  const failed = (code: KeyRouteError['code'], said?: unknown) =>
-    new KeyRouteError(code, { status, detail: detailOf(network ?? said, secrets) });
+  const failed = (code: KeyRouteError['code'], said?: unknown) => {
+    const message = messageOf(network ?? said, secrets);
+    return new KeyRouteError(code, { status, detail: detailOf(message), affordable: code === 'out_of_credit' ? affordableOf(message) : undefined });
+  };
   try {
   let api = await runtime.api(ask.model.api);
   if (r.provider === 'cloudflare') api = (await runtime.cloudflare()).cloudflareStreams(api);
