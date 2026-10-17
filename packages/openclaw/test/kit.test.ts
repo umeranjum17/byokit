@@ -231,7 +231,7 @@ test('a first start that never answers fails as a handshake once its attempts ru
   finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
-test('a second start after an exhausted first start gets its own attempts', async () => {
+test('a second start after an exhausted first start gets a full budget of attempts', async () => {
   const stateDir = scratchDir('o4-second-start');
   const fake = fakeGateway();
   let attempts = 0;
@@ -245,10 +245,10 @@ test('a second start after an exhausted first start gets its own attempts', asyn
     await assert.rejects(kit.start(), /handshake timed out/);
     assert.deepEqual(kit.state, { phase: 'failed', why: 'handshake' });
     assert.equal(attempts, 5);
-    silentFor = 1;
+    silentFor = 4;
     await kit.start();
     assert.equal(kit.state.phase, 'ready');
-    assert.equal(attempts, 7);
+    assert.equal(attempts, 10);
   }
   finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
@@ -310,6 +310,29 @@ test('a manual start after a dropped ready kit that misses its hello fails witho
     assert.equal(attempts, 2);
     assert.equal(states.some((s) => s.phase === 'restarting'), false);
     assert.deepEqual(kit.state, { phase: 'failed', why: 'handshake' });
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('stop during the second retry wait of a first start starts no further attempt', async () => {
+  const stateDir = scratchDir('o4-first-start-stop-second');
+  const fake = fakeGateway();
+  const waits: number[] = [];
+  let attempts = 0;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200,
+    onState: (s) => { if (s.phase === 'restarting') waits.push(s.retryAt!); },
+    transport: (ctx) => ({ ...fake.factory(ctx), start: () => { attempts++; return new Promise<never>(() => {}); } }) });
+  try {
+    const started = kit.start();
+    for (let i = 0; i < 300 && waits.length < 2; i++) await delay(20);
+    assert.equal(waits.length, 2);
+    assert.equal(kit.state.phase, 'restarting');
+    await kit.stop();
+    await started;
+    await delay(2500);
+    assert.equal(attempts, 2);
+    assert.equal(waits.length, 2);
+    assert.notEqual(kit.state.phase, 'ready');
   }
   finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });

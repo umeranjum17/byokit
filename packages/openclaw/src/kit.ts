@@ -540,7 +540,8 @@ export class OpenClawKit {
   private stopping = false;
   private failures = 0;
   private reachedReady = false;
-  private retryWait?: AbortController;
+  private startRun?: AbortController;
+  private engineExit?: () => void;
   private swept = false;
   private catalogs: Promise<void> = Promise.resolve();
   browser?: BrowserHost;
@@ -782,17 +783,32 @@ export class OpenClawKit {
   start(): Promise<void> {
     if (this.current.phase === 'ready') return Promise.resolve();
     if (this.starting) return this.starting;
-    if (this.current.phase !== 'restarting') this.failures = 0;
     this.stopping = false;
-    const task = this.connect();
+    const task = this.attempts(this.reachedReady ? 1 : START_ATTEMPTS);
     this.starting = task;
     void task.finally(() => { if (this.starting === task) this.starting = undefined; }).catch(() => {});
     return task;
   }
 
-  private async connect(): Promise<void> {
+  // One start() call's attempts (5.4 step 2): a missed hello waits the reconnect backoff and starts the engine afresh
+  // until `budget` attempts have missed. The call owns its wait (stop() aborts it) and, on a first start, every close.
+  private async attempts(budget: number): Promise<void> {
+    const run = this.startRun = new AbortController();
+    try {
+      for (let missed = 0; ;) {
+        const miss = await this.connect();
+        if (!miss) return;
+        if (++missed === budget) { this.setState({ phase: 'failed', why: 'handshake' }); throw miss; }
+        try { await this.backoff(missed - 1, run.signal); } catch { return; }
+      }
+    } finally { if (this.startRun === run) this.startRun = undefined; }
+  }
+
+  // Resolves the error of a missed hello (a deadline miss, or an engine exit before hello) for attempts() to retry.
+  private async connect(): Promise<Error | undefined> {
     let transport: GatewayTransport | undefined;
-    let handshake = false;
+    const timeout = new Error('gateway handshake timed out');
+    const exited = new Error('engine exited before the gateway handshake');
     try {
       await this.prepareBrowsers();
       const ctx = await this.engine.start();
@@ -801,9 +817,9 @@ export class OpenClawKit {
       transport = (this.o.transport ?? gatewayTransport)({ ...ctx, bridgeSock: this.engine.bridgeSock });
       this.transport = transport;
       this.off = [transport.onEvent((e) => { for (const fn of this.listeners) fn(e); }), transport.onClose((why) => this.closed(why))];
-      const timeout = new Error('gateway handshake timed out');
       const deadline = delay(this.o.handshakeMs ?? 90_000, undefined, { ref: false }).then(() => { throw timeout; });
-      const hello = await Promise.race([transport.start(), deadline]).catch((error: unknown) => { handshake = error === timeout; throw error; });
+      const exit = new Promise<never>((_, reject) => { this.engineExit = () => reject(exited); });
+      const hello = await Promise.race([transport.start(), deadline, exit]).finally(() => { this.engineExit = undefined; });
       if (this.stopping || this.transport !== transport) return;
       if (hello.protocol !== PROTOCOL_VERSION) {
         this.setState({ phase: 'needs-update', why: 'version' });
@@ -854,12 +870,9 @@ export class OpenClawKit {
         throw error;
       }
       if (patchFailure) { this.setState({ phase: 'failed', why: 'engine-patch' }); throw error; }
-      // A missed handshake on a loaded host is the engine still coming up: retry in place, on the reconnect backoff,
-      // until START_ATTEMPTS starts have failed. start() settles once the kit is ready, stopped or given up.
-      if (starting && handshake && !this.reachedReady && !this.stopping && this.failures + 1 < START_ATTEMPTS) {
-        if (await this.backoff()) return this.connect();
-        return;
-      }
+      // A missed hello on a loaded host is the engine still coming up: attempts() decides whether to retry.
+      const miss = error === exited ? exited : error === timeout && starting ? timeout : undefined;
+      if (miss && !this.stopping) return miss;
       if (needsUpdate) this.setState({ phase: 'needs-update', why: 'version' });
       if (!needsUpdate && !this.stopping) this.setState({ phase: 'failed', why: 'handshake' });
       throw error;
@@ -908,31 +921,28 @@ export class OpenClawKit {
     });
   }
 
-  private closed(_why: string): void {
-    const engineFailed = _why === 'engine exited' && this.current.phase === 'failed' && this.current.why === 'exited';
+  private closed(why: string): void {
+    // A first start's loop owns every close until it reaches ready; an engine exit before hello misses that attempt.
+    if (this.startRun && !this.reachedReady) { if (why === 'engine exited') this.engineExit?.(); return; }
+    const engineFailed = why === 'engine exited' && this.current.phase === 'failed' && this.current.why === 'exited';
     if (this.stopping || (this.current.phase !== 'ready' && !engineFailed)) return;
     for (const fn of this.signInDisconnects) fn();
     void this.disconnect();
     if (this.o.spawnEngine === false) { this.setState({ phase: 'failed', why: 'handshake' }); return; }
-    void this.backoff().then((again) => { if (again) void this.start().catch(() => {}); });
+    void this.backoff(this.failures++).then(() => { if (!this.stopping && this.current.phase === 'restarting') void this.start().catch(() => {}); });
   }
 
-  // The reconnect backoff (1 s, 2 s, 4 s, capped at 30 s) shared by a reconnect after ready and a retried first start.
-  // Resolves true once the wait ran out and the kit is still restarting; stop() cancels the wait and resolves false.
-  private async backoff(): Promise<boolean> {
-    const retryAt = Date.now() + Math.min(30_000, 1000 * 2 ** this.failures++);
+  // The reconnect backoff (step 3): state restarting, resolving at retryAt = now + min(30 s, 1 s × 2^failures).
+  private backoff(failures: number, signal?: AbortSignal): Promise<void> {
+    const retryAt = Date.now() + Math.min(30_000, 1000 * 2 ** failures);
     this.setState({ phase: 'restarting', retryAt });
-    const wait = this.retryWait = new AbortController();
-    try { await delay(retryAt - Date.now(), undefined, { signal: wait.signal }); }
-    catch { return false; }
-    finally { this.retryWait = undefined; }
-    return !this.stopping && this.current.phase === 'restarting';
+    return delay(retryAt - Date.now(), undefined, { signal });
   }
 
   async stop(): Promise<void> {
     this.stopping = true;
     this.reachedReady = false;
-    this.retryWait?.abort();
+    this.startRun?.abort();
     await this.disconnect();
     await this.engine.stop();
     await this.closeBrowsers();
