@@ -28,7 +28,8 @@ function memoryKeys() {
 function fakeBin(dir: string, name: string, version = '1.19.3') {
   mkdirSync(dir, { recursive: true });
   const bin = join(dir, name);
-  writeFileSync(bin, `#!/bin/sh\n[ "$1" = --version ] && [ -n '${version}' ] && { echo '${version}'; exit 0; }\necho 'opencode: not a version' >&2\nexit 64\n`, { mode: 0o755 });
+  writeFileSync(`${bin}.version`, version);
+  writeFileSync(bin, `#!/bin/sh\n[ "$1" = --version ] && [ -s '${bin}.version' ] && { /bin/cat '${bin}.version'; exit 0; }\necho 'opencode: not a version' >&2\nexit 64\n`, { mode: 0o755 });
   return bin;
 }
 const XDG = [['XDG_DATA_HOME', 'data'], ['XDG_STATE_HOME', 'state'], ['XDG_CACHE_HOME', 'cache']] as const;
@@ -325,6 +326,22 @@ test('opencode prerelease 2.x still gets --standalone', async () => {
   assert.deepEqual(launched.args, ['--standalone']);
   await kit.remove(account.id);
 });
+
+for (const [label, banner] of [['leading newline', '\n2.0.32'], ['ANSI-coloured', '\x1b[1m2.0.32\x1b[0m'], ['parenthesised', 'opencode (2.0.32)']] as const) {
+  test(`opencode 2.x version on a ${label} first line still gets --standalone`, async () => {
+    const root = scratchDir('opencode-cli-banner-shape');
+    const { store } = memoryKeys();
+    const env = { HOME: join(root, 'home'), PATH: '/unused' };
+    const bin = fakeBin(join(root, 'bins'), 'opencode-shape', banner);
+    const kit = cliAccounts({ stateDir: join(root, 'plans'), bins: { opencode: bin }, env, keyStore: store });
+    const { account } = await kit.add('opencode');
+    await kit.saveKey(account.id, CANARY, { workspace: 'org_SHAPE' });
+    const launched = await kit.launch(account.id);
+    if (!launched.ok) throw new Error('opencode launch was not ready');
+    assert.deepEqual(launched.args, ['--standalone']);
+    await kit.remove(account.id);
+  });
+}
 
 test('opencode launch of a key saved without a workspace: one is written and stored, several ask for the pick', async () => {
   const root = scratchDir('opencode-cli-workspace');
