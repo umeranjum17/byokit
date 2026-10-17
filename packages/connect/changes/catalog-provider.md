@@ -1,1 +1,0 @@
-- FEAT: `catalog(sources)` lists apps a person can connect from the sources an app picks: `knownApps` (the kit's own presets, no network) and `mcpDirectory(url)` (a remote MCP directory in the MCP registry's shape, read only when listed). Each listed app has an id, name, icon and sign-in kind, and connects through the usual `connect()`, `connectLoopback()` or `deviceSignIn()`.

@@ -1,1 +1,0 @@
-- FIX: A pairing code that runs out while the computer's person has not answered now tells the device "That pairing code has run out" instead of "Your computer said no to this device". `confirm` gets a second argument, `{ signal }`, that aborts when the code runs out so the computer's prompt can close; a yes that comes later grants nothing.

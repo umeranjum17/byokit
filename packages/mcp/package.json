@@ -1,6 +1,6 @@
 {
   "name": "@byokit/mcp",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Hosted streamable HTTP tools and resources with device sign-in and authenticated sessions.",
   "license": "Apache-2.0",
   "type": "module",
@@ -28,7 +28,7 @@
     "prepack": "tsc -b"
   },
   "dependencies": {
-    "@byokit/pair": "0.10.2",
+    "@byokit/pair": "0.10.3",
     "@byokit/secrets": "0.5.2",
     "@modelcontextprotocol/sdk": "1.32.1",
     "zod": "3.25.76"

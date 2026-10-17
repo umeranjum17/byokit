@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.15.1 (2026-10-17)
+
+- Dependency update: pins @byokit/relay 0.8.1.
+- Dependency update: pins @byokit/pair 0.10.3.
+- Dependency update: pins @byokit/accounts 0.25.1.
+
 ## 0.15.0 (2026-10-17)
 
 - Dependency update: pins @byokit/secrets 0.5.2.

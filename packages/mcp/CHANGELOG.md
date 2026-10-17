@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.7 (2026-10-17)
+
+- Dependency update: pins @byokit/pair 0.10.3.
+
+- Dependency update: pins @modelcontextprotocol/sdk 1.32.1.
+
 ## 0.1.6 (2026-10-17)
 
 - Dependency update: pins @byokit/secrets 0.5.2.

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.25.1 (2026-10-17)
+
+- Dependency update: pins @google/genai 2.29.0 and @modelcontextprotocol/sdk 1.32.1.
+
 ## 0.25.0 (2026-10-17)
 
 - Dependency update: pins @byokit/secrets 0.5.2.
