@@ -1,1 +1,0 @@
-- FEAT: `addKey` on `opencode-go` says why a Go workspace listing could not be read. A `retry` `network` result now carries the optional `code` (`workspaces_unread`) and `message` (the accounts words to show), so the app can tell the user to check the connection instead of guessing. Other results are unchanged.

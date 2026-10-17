@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.16.0 (2026-10-17)
+
+- Dependency update: pins @byokit/accounts 0.26.0.
+
+- FEAT: `addKey` on `opencode-go` says why a Go workspace listing could not be read. A `retry` `network` result now carries the optional `code` (`workspaces_unread`) and `message` (the accounts words to show), so the app can tell the user to check the connection instead of guessing. Other results are unchanged.
+
 ## 0.15.1 (2026-10-17)
 
 - Dependency update: pins @byokit/relay 0.8.1.
