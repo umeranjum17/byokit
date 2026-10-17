@@ -1,0 +1,1 @@
+- FEAT: `kit.place` takes `worktree: { branch?, base? }`: it creates the linked checkout first and opens the shell in it. A failed `worktree.create` leaves no tab, workspace or pane behind.

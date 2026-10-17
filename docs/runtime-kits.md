@@ -2411,6 +2411,7 @@ export type PlaceTarget = { workspace: 'new'; label?: string } | { workspace: st
   | { tab: 'new'; workspaceId: string; label?: string }
   | { split: string; direction: 'right' | 'down' } | { pane: string };
 export type PlaceRequest = { cwd?: string; place: PlaceTarget;   // agentless placement (6.4)
+  worktree?: { branch?: string; base?: string };   // a linked checkout first, as startAgent (6.4)
   env?: Record<string, string> | { overlay: Record<string, string>; unset?: string[] } };
 export type StartAgent = {
   kind: string; cwd: string; name?: string;             // name: /^[a-z][a-z0-9_-]{0,31}$/
@@ -2617,7 +2618,11 @@ no new link/device operation; apps forward the result through their authorized j
   create/split call verbatim; an `env: { overlay, unset? }` instead lands on the fresh pane's inherited
   environment and is checked there exactly as `startAgent`'s overlay (`env_mismatch` on a miss). A failed
   rename or overlay check rolls back what the placement made, as a failed start does. Resolves
-  `{ paneId, tabId, workspaceId }`.
+  `{ paneId, tabId, workspaceId }`. `worktree` (`{ branch?, base? }`) is the same first step as
+  `startAgent`'s: `worktree.create { cwd, focus: false, env?, branch?, base? }` opens the linked checkout with its
+  own root tab and pane, and the shell is that root pane (`cwd` is the checkout). The checkout is the placement,
+  so a `place` target given beside it is not used; a failed `worktree.create` creates nothing, and a
+  rollback after it closes only the root pane, as a failed `startAgent` does.
 - Muse private readiness (additive Node helpers in `src/muse.ts`): `museReadiness(env?)` probes only
   the explicitly supplied effective PATH, returning unknown/missing/launcher-only/installed and always
   `signedIn: 'unknown'`. `installMuse({ home, path, installDir?, signal?, timeoutMs? })` is explicit

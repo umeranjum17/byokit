@@ -106,7 +106,9 @@ export type PlaceTarget = { workspace: 'new'; label?: string } | { workspace: st
 // shell split, a new or labelled workspace. Every path creates its pane and starts nothing. A
 // created workspace's root tab takes `place.label`; an `{ overlay, unset? }` env is set and
 // checked in the fresh pane like `startAgent`'s, and a failed rename or check closes what was made.
+// `worktree` opens a linked checkout first and the shell is its root pane; a `place` beside it is unused.
 export type PlaceRequest = { cwd?: string; place: PlaceTarget;
+  worktree?: { branch?: string; base?: string };
   env?: Record<string, string> | { overlay: Record<string, string>; unset?: string[] } };
 // The typed edits (6.2, 7.1): `rename` and `focus` name exactly one pane, tab or workspace; `layout`
 // applies a `layout.apply` tree to a tab or workspace. Host (`HerdrKit`) and device take the same shapes.
