@@ -2645,7 +2645,9 @@ no new link/device operation; apps forward the result through their authorized j
 
 `terminal(paneId, { mode, cols, rows })` spawns `bin terminal session <control|observe> <paneId> [--takeover]
 --cols <cols> --rows <rows>` (`--takeover` only for `control`). Env: in `own` mode the 6.3 server env; in `adopt`
-mode `{ HERDR_SOCKET_PATH: socketPath, PATH: path.join(':') || '/usr/bin:/bin', LANG: 'C.UTF-8', ...env }` so the
+mode `{ PATH: path.join(':') || '/usr/bin:/bin', LANG: 'C.UTF-8', ...env }` plus `HERDR_SOCKET_PATH: socketPath`
+only when the kit names a session socket — an empty `socketPath` passes none, so a spawned `herdr` CLI or agent
+keeps its own session resolution (12) instead of reading an empty override — so the
 CLI reaches the same server (never the host process's env; the app passes `HOME`, `HERDR_CLIENT_SOCKET_PATH`,
 `HERDR_SESSION` or a wider `PATH` explicitly when its Herdr needs them). `cli()` uses the same env rule. Returns
 `{ ready: Promise<void>; onFrame(fn: (line: string) => void); send(line: string); close(); pause(); resume();
