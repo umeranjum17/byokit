@@ -5,6 +5,7 @@ A key-route ask that the provider refuses reads as its own typed `KeyRouteError`
 ## Sub-features
 
 - `refusal-credit`: a `402` (OpenRouter's "requires more credits" body, or an empty body) rejects with `out_of_credit` and the words "This account is out of credit. Add credit with the provider, then try again."
+- `refusal-affordable`: a `402` whose body says "can only afford N" (OpenRouter's low-credit body) also carries `affordable: N`; a `402` without that sentence, a `401` with it, or a 5 MB `402` body (the sentence at its end, `affordable` 77, `detail` at most 300 characters) is bounded and never retried. Integration test: "a 402 that names what the key can afford sets affordable".
 - `refusal-key`: a `401` (or `403` that is not the OpenCode workspace refusal) rejects with `key_refused`.
 - `refusal-rate`: a `429` rejects with `rate_limited`, never retried.
 - `refusal-unknown`: any other failure (a `500`, a dropped connection, even right after a `402`) stays `request`.

@@ -286,6 +286,9 @@ bounded words for its `code`. A failed ask also says why, for logs and an option
 `status` is the HTTP status the provider answered (absent when no answer came back), and `detail` is the provider's
 own message, or the network error such as `fetch failed: connect ECONNREFUSED …`, on one line of at most 300
 characters with the account's key replaced by `[redacted]`. Key-store failures never reach either.
+An `out_of_credit` refusal whose 402 body says "can only afford N" also carries `affordable: N`, the count the key can
+pay for, so an app can ask again with that many tokens (Crewhouse does, so a low-credit OpenRouter key still gets its
+answer). The kit never retries it; `affordable` is absent for any other status or body.
 
 Plan keys keep subscription billing and are eligible for Auto; API/free/local/unknown billing is never an
 Auto or Default **fallback**. A deliberately saved API default remains an explicit selection. `saveKey` retains

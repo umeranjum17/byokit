@@ -302,6 +302,32 @@ test('a provider refusal reads as its own typed error: out of credit, refused ke
   } finally { server.close(); }
 });
 
+test('a 402 that names what the key can afford sets affordable; other refusals and bodies do not, and a huge body stays bounded', async () => {
+  // OpenRouter's low-credit 402 names the count in its own words, and the app re-asks with it; nothing is retried.
+  const low = (afford: string) => JSON.stringify({ error: { code: 402, message: `This request requires more credits, or fewer max_tokens. You requested up to 4096 tokens, but can only afford ${afford}. To increase, visit https://openrouter.ai/settings/credits` } });
+  const answers: Array<[number, string]> = [[402, low('3257')], [402, JSON.stringify({ error: { code: 402, message: 'Payment required.' } })],
+    [401, low('3257')], [402, `<html>${'x'.repeat(5_000_000)} can only afford 77</html>`]];
+  const server = createServer((_req, res) => { const [status, body] = answers.shift()!; res.writeHead(status, { 'content-type': 'application/json' }).end(body); });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const h = harness();
+    const { id } = await h.a.add('member', 'openrouter:key', { key: canary });
+    const ask = { account: id, model: { ...model('openrouter', 'openai-completions'), baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1` }, context };
+    const failure = (e: unknown) => e as KeyRouteError;
+    const named = failure(await h.a.respond('member', ask).catch((e) => e));
+    assert.deepEqual([named.code, named.status, named.affordable], ['out_of_credit', 402, 3257]);
+    const unnamed = failure(await h.a.respond('member', ask).catch((e) => e));
+    assert.deepEqual([unnamed.code, unnamed.affordable], ['out_of_credit', undefined]);
+    const wrongStatus = failure(await h.a.respond('member', ask).catch((e) => e));
+    assert.deepEqual([wrongStatus.code, wrongStatus.affordable], ['key_refused', undefined]);
+    const huge = failure(await h.a.respond('member', ask).catch((e) => e));
+    assert.deepEqual([huge.code, huge.status, huge.affordable], ['out_of_credit', 402, 77]);
+    assert.ok(huge.detail!.startsWith('<html>xxx') && huge.detail!.length <= 300, `${huge.detail?.length}`);
+    assert.equal(answers.length, 0, 'one request per ask, never retried');
+  } finally { server.close(); }
+});
+
 test('a failed ask says why: the status and the provider’s own words, scrubbed and capped, under the same calm message', async () => {
   const key = 'sk-umer-test-SECRET';
   const answers: Array<[number, string, string]> = [[500, 'application/json', JSON.stringify({ error: { message: `model not enabled for umer-test ${key}` } })],
