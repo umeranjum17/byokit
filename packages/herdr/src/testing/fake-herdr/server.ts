@@ -357,6 +357,30 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       focusPane(paneOf(p.pane_id).pane_id);
       return {};
     },
+    // Directional focus (muxr pock-herdr-kit-round4): the neighbour whose rect overlaps the
+    // source on the perpendicular axis and sits closest past its edge in `direction` takes
+    // focus. At an edge — nothing past the edge — the answer keeps the source focused with
+    // `reason: 'no_neighbor'`, like real Herdr. An omitted `pane_id` starts from the focused pane.
+    'pane.focus_direction': (p) => {
+      const direction = p.direction;
+      if (direction !== 'left' && direction !== 'right' && direction !== 'up' && direction !== 'down') {
+        throw fail('invalid_direction', 'direction is one of left, right, up or down');
+      }
+      const source = typeof p.pane_id === 'string'
+        ? paneOf(p.pane_id)
+        : (live.panes.find((row) => row.focused) ?? live.panes[0]);
+      if (source === undefined) throw fail('pane_not_found', 'pane not found');
+      const target = neighborIn(direction, source);
+      if (target === undefined) {
+        return { type: 'pane_focus_direction',
+          focus: { changed: false, source_pane_id: source.pane_id, focused_pane_id: source.pane_id,
+            layout: tabLayout(source.tab_id), reason: 'no_neighbor' } };
+      }
+      focusPane(target.pane_id);
+      return { type: 'pane_focus_direction',
+        focus: { changed: true, source_pane_id: source.pane_id, focused_pane_id: target.pane_id,
+          layout: tabLayout(source.tab_id) } };
+    },
     'pane.split': (p) => {
       const target = paneOf(p.target_pane_id);
       const pane = addPane(target.tab_id, target.workspace_id, target.cwd);
@@ -453,6 +477,30 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       const layout = tabLayout(tab.tab_id);
       emitEvent('layout.updated', { layout });
       return { type: 'layout_apply', layout: { ...layout, root } };
+    },
+
+    // Layout export (muxr pock-herdr-kit-round4): the tab's current geometry as a
+    // `LayoutDescription` — a split tree rebuilt from the pane rects, so an export after
+    // `pane.split` or `layout.apply` names every live pane. The target is an explicit
+    // `tab_id`, else the `pane_id`'s tab, else the focused pane's tab.
+    'layout.export': (p) => {
+      let tab: FakeWorld['tabs'][number] | undefined;
+      if (typeof p.tab_id === 'string') {
+        tab = live.tabs.find((row) => row.tab_id === p.tab_id);
+        if (tab === undefined) throw fail('tab_not_found', 'tab not found');
+      } else if (typeof p.pane_id === 'string') {
+        const pane = paneOf(p.pane_id);
+        tab = live.tabs.find((row) => row.tab_id === pane.tab_id);
+      } else {
+        const focused = live.panes.find((row) => row.focused) ?? live.panes[0];
+        if (focused !== undefined) tab = live.tabs.find((row) => row.tab_id === focused.tab_id);
+      }
+      if (tab === undefined) throw fail('tab_not_found', 'tab not found');
+      const panes = live.panes.filter((row) => row.tab_id === tab.tab_id);
+      const focusedPane = panes.find((row) => row.focused) ?? panes[0];
+      return { type: 'layout_export',
+        layout: { workspace_id: tab.workspace_id, tab_id: tab.tab_id, zoomed: live.zoomed,
+          focused_pane_id: focusedPane?.pane_id, root: exportRoot(panes) } };
     },
 
     'agent.start': (p) => {
@@ -873,6 +921,50 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     for (const workspace of live.workspaces) workspace.focused = workspace.workspace_id === pane.workspace_id;
     if (before !== pane.workspace_id) emitEvent('workspace_focused', { workspace_id: pane.workspace_id });
     emitEvent('pane_focused', { pane_id: paneId, workspace_id: pane.workspace_id });
+  }
+
+  // The neighbour past the source's edge in `direction`: a same-tab pane overlapping the
+  // source on the perpendicular axis and sitting closest past its edge. Nothing past the
+  // edge (or no overlap) means the source sits at that edge — real Herdr's `no_neighbor`.
+  function neighborIn(direction: string, source: FakePane): FakePane | undefined {
+    const s = source.rect;
+    const overlapY = (r: FakeRect): number => Math.min(r.y + r.height, s.y + s.height) - Math.max(r.y, s.y);
+    const overlapX = (r: FakeRect): number => Math.min(r.x + r.width, s.x + s.width) - Math.max(r.x, s.x);
+    const ranked: { pane: FakePane; distance: number; overlap: number }[] = [];
+    for (const pane of live.panes) {
+      if (pane.tab_id !== source.tab_id || pane.pane_id === source.pane_id) continue;
+      const r = pane.rect;
+      if (direction === 'right' && r.x >= s.x + s.width && overlapY(r) > 0) {
+        ranked.push({ pane, distance: r.x - (s.x + s.width), overlap: overlapY(r) });
+      } else if (direction === 'left' && r.x + r.width <= s.x && overlapY(r) > 0) {
+        ranked.push({ pane, distance: s.x - (r.x + r.width), overlap: overlapY(r) });
+      } else if (direction === 'down' && r.y >= s.y + s.height && overlapX(r) > 0) {
+        ranked.push({ pane, distance: r.y - (s.y + s.height), overlap: overlapX(r) });
+      } else if (direction === 'up' && r.y + r.height <= s.y && overlapX(r) > 0) {
+        ranked.push({ pane, distance: s.y - (r.y + r.height), overlap: overlapX(r) });
+      }
+    }
+    ranked.sort((a, b) => a.distance - b.distance || b.overlap - a.overlap);
+    return ranked[0]?.pane;
+  }
+
+  // The tab's current geometry as a `LayoutDescription` root: a chain of splits rebuilt from
+  // the pane rects — side-by-side panes split `right`, stacked panes split `down`, ratios from
+  // the rect extents — so every live pane is a leaf and an export re-applies cleanly.
+  function exportRoot(panes: FakePane[]): LayoutNode {
+    const sorted = [...panes].sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x);
+    const first = sorted[0];
+    if (first === undefined) return { type: 'pane', pane_id: null };
+    if (sorted.length === 1) return { type: 'pane', pane_id: first.pane_id };
+    const second = sorted[1]!;
+    const direction = second.rect.x !== first.rect.x && second.rect.y === first.rect.y ? 'right' : 'down';
+    const min = Math.min(...sorted.map((row) => direction === 'right' ? row.rect.x : row.rect.y));
+    const max = Math.max(...sorted.map((row) => direction === 'right' ? row.rect.x + row.rect.width : row.rect.y + row.rect.height));
+    const total = max - min;
+    const head = direction === 'right' ? first.rect.width : first.rect.height;
+    const ratio = total > 0 ? Math.min(0.99, Math.max(0.01, head / total)) : 0.5;
+    return { type: 'split', direction, ratio,
+      first: { type: 'pane', pane_id: first.pane_id }, second: exportRoot(sorted.slice(1)) };
   }
 
   function tabLayout(tabId: string) {

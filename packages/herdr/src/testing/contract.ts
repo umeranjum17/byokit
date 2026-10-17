@@ -634,6 +634,80 @@ export function herdrContract(
     });
   });
 
+  test('contract: pane.focus_direction moves focus to the neighbour and holds at an edge', async () => {
+    await bench(async ({ kit }) => {
+      await kit.start();
+      const made = await kit.call('workspace.create', { cwd: '/tmp', label: 'umer-focus-dir', focus: false });
+      const workspaceId = made.workspace.workspace_id;
+      const left = made.root_pane!.pane_id;
+      const right = (await kit.call('pane.split', { target_pane_id: left, direction: 'right', focus: false })).pane.pane_id;
+      // Side by side, so `right` is the neighbour past the left edge and vice versa.
+      await kit.layout({ workspaceId, focus: false,
+        root: { type: 'split', direction: 'right', ratio: 0.5,
+          first: { type: 'pane', pane_id: left }, second: { type: 'pane', pane_id: right } } });
+      await kit.focus({ pane: left });
+
+      const moved = await kit.call('pane.focus_direction', { pane_id: left, direction: 'right' });
+      assert.equal(moved.type, 'pane_focus_direction');
+      assert.equal(moved.focus.changed, true);
+      assert.equal(moved.focus.source_pane_id, left);
+      assert.equal(moved.focus.focused_pane_id, right);
+      assert.equal((await kit.call('pane.get', { pane_id: right })).pane.focused, true);
+      assert.equal((await kit.call('pane.get', { pane_id: left })).pane.focused, false);
+
+      // Past the outer edge there is no neighbour: focus holds with `no_neighbor`, like real Herdr.
+      const held = await kit.call('pane.focus_direction', { pane_id: right, direction: 'right' });
+      assert.equal(held.focus.changed, false);
+      assert.equal(held.focus.source_pane_id, right);
+      assert.equal(held.focus.focused_pane_id, right);
+      assert.equal(held.focus.reason, 'no_neighbor');
+      assert.equal((await kit.call('pane.get', { pane_id: right })).pane.focused, true);
+
+      // Back across the split, and nothing above a full-height pane either.
+      const back = await kit.call('pane.focus_direction', { pane_id: right, direction: 'left' });
+      assert.equal(back.focus.changed, true);
+      assert.equal(back.focus.focused_pane_id, left);
+      const top = await kit.call('pane.focus_direction', { pane_id: left, direction: 'up' });
+      assert.equal(top.focus.changed, false);
+      assert.equal(top.focus.reason, 'no_neighbor');
+
+      await assert.rejects(kit.call('pane.focus_direction', { pane_id: `${workspaceId}:p99`, direction: 'right' }),
+        (e: Error & { code?: string }) => e.code === 'pane_not_found');
+    });
+  });
+
+  test('contract: layout.export returns the tab layout with every live pane as a leaf', async () => {
+    await bench(async ({ kit }) => {
+      await kit.start();
+      const made = await kit.call('workspace.create', { cwd: '/tmp', label: 'umer-export', focus: false });
+      const workspaceId = made.workspace.workspace_id;
+      const tabId = made.root_pane!.tab_id;
+      const first = made.root_pane!.pane_id;
+      const second = (await kit.call('pane.split', { target_pane_id: first, direction: 'right', focus: false })).pane.pane_id;
+      const leaves = (root: unknown): string[] => {
+        const node = root as { type?: string; pane_id?: string; first?: unknown; second?: unknown };
+        if (node.type === 'pane') return typeof node.pane_id === 'string' ? [node.pane_id] : [];
+        return [...leaves(node.first), ...leaves(node.second)];
+      };
+
+      const exported = await kit.call('layout.export', { tab_id: tabId });
+      assert.equal(exported.type, 'layout_export');
+      assert.equal(exported.layout.tab_id, tabId);
+      assert.equal(exported.layout.workspace_id, workspaceId);
+      assert.equal(typeof exported.layout.focused_pane_id, 'string');
+      assert.equal(typeof exported.layout.zoomed, 'boolean');
+      assert.deepEqual(leaves(exported.layout.root).sort(), [first, second].sort());
+
+      // The pane-addressed form exports the same tab.
+      const viaPane = await kit.call('layout.export', { pane_id: second });
+      assert.equal(viaPane.layout.tab_id, tabId);
+      assert.deepEqual(leaves(viaPane.layout.root).sort(), [first, second].sort());
+
+      await assert.rejects(kit.call('layout.export', { tab_id: 'w99:t9' }),
+        (e: Error & { code?: string }) => e.code === 'tab_not_found');
+    });
+  });
+
   test('contract: the cli answers --version and the terminal echoes', async () => {
     await bench(async ({ kit }) => {
       await kit.start();
