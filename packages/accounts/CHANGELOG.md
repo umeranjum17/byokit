@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.26.0 (2026-10-17)
+
+- FEAT: `KeyRouteError.affordable` is the count a low-credit OpenRouter 402 names ("can only afford N"), set only on `out_of_credit`, so Crewhouse re-asks with what the key can pay for (for example 3257 of 4096 tokens) and the packing list still arrives. The kit never retries; the app decides.
+
 ## 0.25.1 (2026-10-17)
 
 - Dependency update: pins @google/genai 2.29.0 and @modelcontextprotocol/sdk 1.32.1.

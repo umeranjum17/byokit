@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.9.7 (2026-10-17)
+
+- Dependency update: pins @byokit/accounts 0.26.0.
+
+- A refused key or account now says so: when the provider answers 401/403, 402 or a 429 that outlasts the retries, the abstained answer carries `failure: { code: 'key_refused' | 'out_of_credit' | 'rate_limited', status }` (the same codes as the accounts kit), on Jev, OpenAI, Anthropic, OpenCode Go and `answerer` alike. A plan account's 401/403 now abstains this way instead of throwing `UnsupportedAccountError`. New export: `BackendRefusedError` (`RateLimitError` is one).
+
 ## 0.9.6 (2026-10-17)
 
 - Dependency update: pins @byokit/pair 0.10.3.
