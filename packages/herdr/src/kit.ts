@@ -168,7 +168,7 @@ export class HerdrKit {
   private transport?: HerdrTransport;
   private current: HerdrState = { phase: 'stopped' };
   private tree = empty();
-  private listeners = new Set<(s: HerdrSnapshot) => void>();
+  private listeners = new Set<(s: HerdrSnapshot, changed: string[]) => void>();
   private rawListeners = new Set<(e: HerdrEvent) => void>();
   private statusReadyPromise: Promise<void> = Promise.resolve();
   private statusReadyResolve?: () => void;
@@ -181,6 +181,8 @@ export class HerdrKit {
   private buffered: HerdrEvent[] = [];                     // events held to replay after the next bootstrap
   private waiters: Waiter[] = [];                          // awaiting the in-flight bootstrap
   private nextWaiters: Waiter[] = [];                      // awaiting the queued follow-up bootstrap
+  private refreshing?: Promise<void>;                      // the in-flight refresh() that concurrent callers join
+  private published = new Map<string, string | undefined>(); // pane id -> agent status in the last published tree
   private statusEpoch = new Map<string, number>();   // lifecycle epochs per pane: a status push racing
                                                     // a snapshot read wins over the read (see bootstrap)
   private readonly o: HerdrKitOptions;
@@ -211,8 +213,19 @@ export class HerdrKit {
     this.current = s; this.o.onState?.(s);
   }
   // Every tree change ends here: the revision rides the tree itself, so snapshot() always shows
-  // the count and a wholesale tree swap carries it over.
-  private publish() { this.tree.revision += 1; for (const fn of this.listeners) fn(this.snapshot()); }
+  // the count and a wholesale tree swap carries it over. `changed` names the panes whose agent
+  // status differs from the last published tree; a title-only revision names none.
+  private publish() {
+    this.tree.revision += 1;
+    const changed: string[] = [];
+    const statuses = new Map<string, string | undefined>();
+    for (const pane of this.tree.workspaces.flatMap((w) => w.tabs).flatMap((t) => t.panes)) {
+      statuses.set(pane.id, pane.agent?.status);
+      if (this.published.get(pane.id) !== pane.agent?.status) changed.push(pane.id);
+    }
+    this.published = statuses;
+    for (const fn of this.listeners) fn(this.snapshot(), changed);
+  }
   private emitRaw(e: HerdrEvent) { for (const fn of [...this.rawListeners]) fn(e); }
   // The kit's own watches report rejections here so the host keeps its invalid_subscription
   // logging without tapping the transport.
@@ -390,7 +403,7 @@ export class HerdrKit {
     void Promise.allSettled(statusAcks).then(() => { if (token === this.generation) resolveStatus(); });
     this.setState(newer ? { phase: 'needs-update', why: 'version' } : { phase: 'ready' });
   }
-  // Re-read one agent and land its status, revision and launch flags: after a watch acks (a status
+  // Re-read one agent and land its status, revision, session and launch flags: after a watch acks (a status
   // change before the ack reached no socket) and before `prompt` refuses (`launch_pending` rides
   // reads only, never a push). A push landing meanwhile is newer and wins status and revision (epoch
   // guard); the launch flags still land, since no push carries them.
@@ -401,7 +414,9 @@ export class HerdrKit {
     const agent = made?.agent;
     if (token !== this.generation || typeof agent?.agent_status !== 'string') return;
     // v0.9.1 leaves both flags out when false (`skip_serializing_if = is_false`): absent means false.
-    const flags = { launch_pending: agent.launch_pending === true, interactive_ready: agent.interactive_ready === true };
+    // The session rides the read too: a sessionless agent's session shows up here, not in any push.
+    const flags = { launch_pending: agent.launch_pending === true, interactive_ready: agent.interactive_ready === true,
+      agent_session: agent.agent_session };
     if (this.statusEpoch.get(paneId) !== epoch) {
       const pane = findPane(this.tree, paneId);
       if (pane?.agent !== undefined) {
@@ -423,7 +438,14 @@ export class HerdrKit {
   private openStatusWatch(paneId: string, token = this.generation): Promise<unknown> | undefined {
     if (this.transport === undefined || this.statusWatched.has(paneId)) return undefined;
     const stop = this.transport.subscribe([{ type: 'pane.agent_status_changed', pane_id: paneId }],
-      (e) => { this.emitRaw(e); this.update(e); }, this.watchError('status'));
+      (e) => {
+        this.emitRaw(e);
+        this.update(e);
+        // A sessionless agent's session can appear with no event of its own: each status push
+        // re-reads the agent until a session lands, so the tree never waits on the host to ask.
+        const agent = findPane(this.tree, paneId)?.agent;
+        if (agent !== undefined && agent.agentSession === undefined) void this.reread(paneId);
+      }, this.watchError('status'));
     this.stops.add(stop);
     this.statusStops.add(stop);
     this.statusWatched.set(paneId, stop);
@@ -482,6 +504,7 @@ export class HerdrKit {
     this.queued = false;
     this.waiters = [];
     this.nextWaiters = [];
+    this.refreshing = undefined;
     const stop = this.transport.subscribe(kinds.map((type) => ({ type })), (e) => {
       // Raw tap (K3): fire on arrival, before buffering/refresh/update, so listeners see every
       // wire payload (pane.moved.previous_pane_id, workspace.*) exactly once. Buffered replays
@@ -554,7 +577,8 @@ export class HerdrKit {
   cli(args: string[], o?: { timeoutMs?: number; env?: Record<string, string> }): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }> { return runCli(this.o.bin, { ...this.supervisor.env(), ...o?.env }, args, o?.timeoutMs); }
   terminal(paneId: string, o: { mode: 'control' | 'observe'; cols: number; rows: number; killGraceMs?: number }): TerminalSession { return openTerminal(this.o.bin, this.supervisor.env(), paneId, o); }
   snapshot(): HerdrSnapshot { return structuredClone(this.tree); }
-  onChange(fn: (s: HerdrSnapshot) => void): () => void { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; }
+  // `changed` names the panes whose agent status moved in this revision (empty for a title-only one).
+  onChange(fn: (s: HerdrSnapshot, changed: string[]) => void): () => void { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; }
   /**
    * Raw event tap (K3): delivers every event arriving on the kit's own batch and per-pane
    * status sockets, with wire payloads intact (`pane.moved.previous_pane_id`, `workspace.*`).
@@ -573,21 +597,28 @@ export class HerdrKit {
   /**
    * Re-read the tree and open watches for the agents in it, resolving once the fresh tree (and its
    * per-pane status watches) has landed. Call it after the app's own mutations to await a snapshot
-   * that already carries them. Waiters arriving during a bootstrap resolve only on a bootstrap that
-   * started after their call; a failed bootstrap rejects them with the failure. Rejects
-   * `herdr: not connected` when the kit is not started.
+   * that already carries them. A call while a refresh is in flight joins it and resolves with that
+   * one result; a call after it settles starts a new refresh. A failed refresh rejects every joined
+   * caller with the failure. Rejects `herdr: not connected` when the kit is not started.
    */
   refresh(): Promise<void> {
     if (this.transport === undefined) return Promise.reject(notConnected());
-    return new Promise<void>((resolve, reject) => {
+    if (this.refreshing !== undefined) return this.refreshing;
+    const refreshing = new Promise<void>((resolve, reject) => {
+      const waiter: Waiter = {
+        resolve: () => { this.refreshing = undefined; resolve(); },
+        reject: (reason) => { this.refreshing = undefined; reject(reason); },
+      };
       if (this.booting) {
         this.queued = true;
-        this.nextWaiters.push({ resolve, reject });
+        this.nextWaiters.push(waiter);
       } else {
-        this.waiters.push({ resolve, reject });
+        this.waiters.push(waiter);
         void this.runBootstrap(this.generation, true).catch(() => {});
       }
     });
+    this.refreshing = refreshing;
+    return refreshing;
   }
   openSignInTab(o: OpenSignInTab): Promise<AgentRef> { return this.accountPanes.openSignInTab(o); }
   move(o: Move): Promise<MoveResult> { return this.accountPanes.move(o); }

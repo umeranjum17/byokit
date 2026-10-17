@@ -2426,7 +2426,7 @@ export declare class HerdrKit {
   terminal(paneId: string, o: { mode: 'control' | 'observe'; cols: number; rows: number }): TerminalSession;
   // live tree
   snapshot(): HerdrSnapshot;     // workspaces → tabs → panes → agents, kept current by events; `revision` moves only on a tree change
-  onChange(fn: (s: HerdrSnapshot) => void): () => void;
+  onChange(fn: (s: HerdrSnapshot, changed: string[]) => void): () => void;   // changed: pane ids whose agent status moved in this revision ([] for a title-only one)
   // helpers
   startAgent(o: StartAgent): Promise<AgentRef>;
   place(o: PlaceRequest): Promise<PlaceRef>;   // agentless: same ladder, no launch (6.4)
@@ -2637,6 +2637,7 @@ no new link/device operation; apps forward the result through their authorized j
   title tick on a plain shell never invents an agent: `pane.agent` comes only from an agents record or a payload
   naming an agent (`agent` kind or `agent_session`). A per-pane lifecycle epoch keeps a status push that races a
   snapshot read: the push stamps its pane before the read returns, and the install keeps the live status and revision over the read.
+  A detected agent with no `agent_session` yet is re-read (`agent.get`, landing status, revision, session and launch flags) when its status watch acks and on each later status push until its session lands, so a session reported with no event of its own reaches the tree and `onChange` without a host re-read. `refresh()` calls made while a refresh is in flight join it and resolve with its one result.
 
 ### 6.4 Helpers (`src/agents.ts`, `src/close.ts`, `src/approvals.ts`)
 

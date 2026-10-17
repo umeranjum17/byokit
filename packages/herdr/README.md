@@ -187,7 +187,9 @@ null), `agentSession` is absent; callers can fall back to their existing checks.
 Types (`HerdrKitOptions`, `HerdrState`, `StartAgent`, `PromptReceipt`, `BlockedAgent`, `HerdrSnapshot`,
 `HerdrMethod`/`HerdrParams`/`HerdrResult`, `HerdrEventName`/`HerdrEventOf`, ...) come from the main entry.
 
-`kit.snapshot()` / `onChange` mirror Herdr's tree; each pane carries the pane-level agent fields Herdr
+`kit.snapshot()` / `onChange` mirror Herdr's tree. `onChange` is called with `(snapshot, changed)`, where
+`changed` lists the pane ids whose agent status moved in that revision (`[]` for a title-only change), so a
+host can emit just those agent states at once. Each pane carries the pane-level agent fields Herdr
 reports on every pane — `agentStatus`, `displayAgent` and `foregroundCwd` — whether or not the pane has an
 agents record, so a shell (no `agent`) still keeps its status, name and cwd. A pane with an agent also
 carries the same values inside its `agent` record (`status`, `displayAgent`, `foregroundCwd`). A
@@ -254,9 +256,10 @@ await kit.refresh();
 // kit.snapshot() now carries the new tab and its pane.
 ```
 
-Callers that arrive while a bootstrap is already running wait for a bootstrap that started after their
-call, and at most one follow-up is queued, so a burst of `refresh()` calls costs one re-read. A failed
-bootstrap rejects the waiters with its own error. Calling `refresh()` on a kit that is not started
+A `refresh()` call made while another refresh is in flight joins it: every joined caller resolves with that
+one result, so a burst of concurrent calls costs one re-read, and a call after it settles starts a new one.
+A failed refresh rejects every joined caller with its own error. A refresh asked for while an event-driven
+bootstrap is running waits for one follow-up bootstrap, and at most one is queued. Calling `refresh()` on a kit that is not started
 rejects `herdr: not connected`. A pane/tab/workspace created, closed, moved or renamed while a
 bootstrap is in flight queues the same follow-up, so the change is not dropped until the next event.
 
