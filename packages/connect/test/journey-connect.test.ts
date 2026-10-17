@@ -308,6 +308,20 @@ test('a person connects GitHub by typing a device code; only an approved code is
   const cancelled = memory(), seen = polls.length, waiting = await deviceSignIn(github, { ...opts, store: cancelled });
   const finishing = waiting.finish(); await until(() => polls.length > seen); waiting.cancel();
   await refusal('declined', () => finishing); assert.equal(cancelled.values.size, 0);
+  // So does a cancel that lands while the approved answer is already being written to the store.
+  answers = [{ access_token: 'gho_access-canary', token_type: 'bearer', scope: 'repo' }];
+  const racing = memory(), raced = await deviceSignIn(github, { ...opts, store: racing });
+  const racingFinish = raced.finish();
+  let release: ((value: ArrayBuffer) => void) | undefined;
+  const subtle = Object.getPrototypeOf(crypto.subtle) as { digest: unknown };
+  const realDigest = subtle.digest;
+  subtle.digest = () => new Promise<ArrayBuffer>(resolve => { release = resolve; });
+  t.after(() => { subtle.digest = realDigest; });
+  await until(() => release !== undefined);
+  raced.cancel();
+  release!(new ArrayBuffer(0));
+  await refusal('declined', () => racingFinish);
+  assert.equal(racing.values.size, 0);
   let clock = 0; const late = memory(), lapsing = await deviceSignIn(github, { ...opts, store: late, now: () => clock });
   clock = 900_000; const before = polls.length;
   await refusal('expired', () => lapsing.finish()); assert.equal(polls.length, before); assert.equal(late.values.size, 0);

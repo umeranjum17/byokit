@@ -185,7 +185,9 @@ export class Connection {
           if (ended()) throw new ConnectError('declined');
           // GitHub lists granted scopes with commas; RFC 6749 with spaces.
           if (tokens.scope !== undefined && !scopes.every(sc => tokens.scope!.split(/[\s,]+/).includes(sc))) throw new ConnectError('scope');
-          await this.options.store.set(await this.storeKey(), JSON.stringify({ ...info, client, tokens } satisfies Saved));
+          const key = await this.storeKey();
+          if (ended()) throw new ConnectError('declined');
+          await this.options.store.set(key, JSON.stringify({ ...info, client, tokens } satisfies Saved));
         });
         await wait(interval, stop.signal);
       }
