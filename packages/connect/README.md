@@ -1,6 +1,6 @@
 # @byokit/connect
 
-Connect a person's Google, Drive, Notion, Canva or other remote MCP account.
+Connect a person's Google, Drive, Notion, Canva, GitHub or other remote MCP account.
 Sign-in opens the provider's own page. Credentials stay in the keystore the app
 passes, scoped to that person on their device. There is no account pool, proxy,
 ambient credential lookup, logging or extra opt-in switch.
@@ -359,7 +359,7 @@ sh scripts/test.sh 'packages/connect/test/*.test.ts'
 ```
 
 `packages/connect/test/journey-connect.test.ts` drives the built package the way a
-host app does — `connect`/`signIn`/`token`/`mcp`, the loopback listener, the house
+host app does — `connect`/`signIn`/`deviceSignIn`/`token`/`mcp`, the loopback listener, the house
 Google client, `MailReader`/`MailSender` and `MailHistory`. Fake providers and a real
 loopback callback only. It covers PKCE/state and exact-callback binding, per-person
 isolation, refresh races and revocation, discovery/DCR/resource binding, rich MCP
