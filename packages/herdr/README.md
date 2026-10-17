@@ -173,6 +173,10 @@ kit does not have yet, and [Two ways in](#two-ways-in) plus
 | `startFakeHerdr`, `writeBinShim`, `herdrContract` (`@byokit/herdr/testing`) | The kit's stand-in Herdr, a bin shim that runs it, and the contract suite the kit passes |
 | `ensureHerdr`, `fetchHerdr`, `HERDR_ASSETS` (`@byokit/herdr/binary`) | Opt-in pinned fetch: the v0.9.1 asset for the current platform into an app-owned dir, sha256-verified, executable, returned as the absolute `own`-mode `bin`; refused (nothing left) on a hash mismatch or unsupported platform |
 
+The fake's test controls script what a real Herdr does on the wire. `fake.losePrompt(paneId)` makes the pane's next
+`agent.prompt` start no turn: a caller that passes `wait` gets `agent_prompt_stalled`, and the pane stays idle. `fake.scriptDrawingReads(paneId, reads)`
+makes the next `reads` pane reads show the agent still drawing (`drawing`) before the screen returns.
+
 `PromptReceipt` contains `paneId`, `terminalId`, `revision`, and `status`. Its optional
 `agentSession` (`{ source, agent, kind, value }`) identifies the conversation that received
 this prompt, taken directly from the `agent.prompt` response without another read.
