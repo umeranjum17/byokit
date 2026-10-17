@@ -290,7 +290,7 @@ test('a terminal connect pause fails the first start at once without a retry', a
   finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
-test('a missed hello on a reconnect after ready fails without a retry', async () => {
+test('a manual start after a dropped ready kit that misses its hello fails without a retry', async () => {
   const stateDir = scratchDir('o4-reconnect-miss');
   const fake = fakeGateway();
   const states: Array<{ phase: string }> = [];
