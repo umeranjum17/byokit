@@ -819,7 +819,7 @@ export class OpenClawKit {
       this.off = [transport.onEvent((e) => { for (const fn of this.listeners) fn(e); }), transport.onClose((why) => this.closed(why))];
       const deadline = delay(this.o.handshakeMs ?? 90_000, undefined, { ref: false }).then(() => { throw timeout; });
       const exit = new Promise<never>((_, reject) => { this.engineExit = () => reject(exited); });
-      const hello = await Promise.race([transport.start(), deadline, exit]).finally(() => { this.engineExit = undefined; });
+      const hello = await Promise.race([transport.start(), deadline, exit]);
       if (this.stopping || this.transport !== transport) return;
       if (hello.protocol !== PROTOCOL_VERSION) {
         this.setState({ phase: 'needs-update', why: 'version' });
@@ -835,7 +835,7 @@ export class OpenClawKit {
         signIn: (agentId, o, on, fresh) => startSignIn({ ...this.signInCtx(), ensure: async () => ({ agentId }), fresh }, agentId, o, on),
         routes: this.routeMap, log: this.o.log, reseal: () => this.engine.authStore.reseal() });
       // The fail-closed tool bridge feeds the kit's single Approval surface (5.9, O5).
-      await this.bridge.start();
+      await Promise.race([this.bridge.start(), exit]);
       this.off.push(transport.onEvent((e) => this.approvalsCtl.handleEvent(e)));
       this.failures = 0;
       this.reachedReady = true;
@@ -854,6 +854,7 @@ export class OpenClawKit {
       const patchFailure = this.current.why === 'engine-patch';
       if (transport && this.transport === transport) await this.disconnect();
       const starting = this.current.phase === 'starting';
+      const engineFailure = this.current.phase === 'failed' ? this.current : undefined;
       const refused = await this.engine.stop().then(() => undefined, refusedOnly);
       await this.closeBrowsers();
       const sealRefusal = refused ?? (error instanceof AuthStoreSealSizeError ? error : undefined);
@@ -871,12 +872,13 @@ export class OpenClawKit {
       }
       if (patchFailure) { this.setState({ phase: 'failed', why: 'engine-patch' }); throw error; }
       // A missed hello on a loaded host is the engine still coming up: attempts() decides whether to retry.
-      const miss = error === exited ? exited : error === timeout && starting ? timeout : undefined;
+      if (engineFailure && engineFailure.why !== 'exited' && !this.stopping) { this.setState(engineFailure); throw error; }
+      const miss = error === exited && engineFailure?.why === 'exited' ? exited : error === timeout && starting ? timeout : undefined;
       if (miss && !this.stopping) return miss;
       if (needsUpdate) this.setState({ phase: 'needs-update', why: 'version' });
       if (!needsUpdate && !this.stopping) this.setState({ phase: 'failed', why: 'handshake' });
       throw error;
-    }
+    } finally { this.engineExit = undefined; }
   }
 
   private async disconnect(): Promise<void> {
@@ -922,7 +924,7 @@ export class OpenClawKit {
   }
 
   private closed(why: string): void {
-    // A first start's loop owns every close until it reaches ready; an engine exit before hello misses that attempt.
+    // A first start's loop owns an engine exit until it reaches ready; other closes are the transport client's to retry.
     if (this.startRun && !this.reachedReady) { if (why === 'engine exited') this.engineExit?.(); return; }
     const engineFailed = why === 'engine exited' && this.current.phase === 'failed' && this.current.why === 'exited';
     if (this.stopping || (this.current.phase !== 'ready' && !engineFailed)) return;
