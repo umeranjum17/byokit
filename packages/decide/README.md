@@ -102,8 +102,9 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
 | `openai({ model, key, request?, ... })` / `openai({ model, auth: 'account', account, request?, ... })` | OpenAI general models used for decisions; explicit API key or consented ChatGPT plan session |
 | `anthropic({ model, key, maxTokens?, instructions?, ... })` | Anthropic general models used for decisions; explicit API key (billed per use), never a plan sign-in |
 | `opencodeGo({ model, key, request?, ... })` / `opencodeGo({ model, account, request?, ... })` | OpenCode Go plan models used for decisions; the member's Go plan key itself or its saved plan account, never an API-billed route |
+| `zai({ model, key, route?, request?, ... })` / `zai({ model, account, request?, ... })` | Z.AI (GLM) coding-plan models used for decisions; the plan key (`zai` or `zai-coding-cn` route) or its plan account, never an API-billed route |
 | `parseConfig(objectOrJSON)`, `createDecider(config, options)` | Validate portable config and set it once, with optional per-call overrides |
-| `ConfigError`, `UnsupportedAccountError`, `UnsupportedImagesError`, `InvalidImageError`, `OPENAI_ROUTES`, `ANTHROPIC_ROUTES`, `OPENCODE_GO_ROUTES` | Typed config/account errors and billing labels (API keys are never offered by default; the Go plan key bills subscription) |
+| `ConfigError`, `UnsupportedAccountError`, `UnsupportedImagesError`, `InvalidImageError`, `OPENAI_ROUTES`, `ANTHROPIC_ROUTES`, `OPENCODE_GO_ROUTES`, `ZAI_ROUTES` | Typed config/account errors and billing labels (API keys are never offered by default; the Go plan key bills subscription) |
 | `BackendRefusedError`, `RefusalCode` | The provider refused the key or account: `code` is `'key_refused'` (401/403), `'out_of_credit'` (402) or `'rate_limited'` (429 after retries), with its `status`; `decide()` abstains with `failure: { code, status }` |
 | `RateLimitError` | A `BackendRefusedError` with `code: 'rate_limited'`: 429 retries exhausted (`status: 429`, `retries`) |
 | `MemoryCache`, `cacheKey(state, questions, images?)` | In-memory reference cache for `decide({ cache })`, and the stable request key it uses |
@@ -433,6 +434,29 @@ the account route labels `'subscription'` with consent required. A plan account 
 serve the request (http 400/404) throws `UnsupportedAccountError`; a refused key or account (http 401/402/403,
 such as Go's "Workspace access denied") abstains with `failure: { code: 'key_refused', status: 403 }` (or
 `'out_of_credit'` for 402). There is no API-billed fallback and no fallback between the key and account inputs.
+
+### The person's Z.AI plan
+
+A host that already holds the member's Z.AI coding-plan key passes it directly (no accounts peer at runtime):
+
+```ts
+import { zai } from '@byokit/decide';
+
+const backend = zai({ key: hostConfig.zaiPlanKey, model: 'glm-5.2' }); // route: 'zai' (default) or 'zai-coding-cn'
+```
+
+A plan account from the accounts peer works the same way (`zai({ account, model })`); its provider tag names
+the route, so a Z.AI plan account reaches only its own endpoint and any other plan account is refused. The key
+and the account are never both given, and there is no API-billed route or fallback between them.
+
+Requests go to `https://api.z.ai/api/coding/paas/v4/chat/completions` (`zai`) or
+`https://open.bigmodel.cn/api/coding/paas/v4/chat/completions` (`zai-coding-cn`) with the key as Bearer, as the
+chat-completions wire with a strict `json_schema` response format. The endpoints come from the pinned upstream
+(`@earendil-works/pi-ai`, providers `zai` and `zai-coding-cn`). The answers carry the same self-reported
+probabilities and floors as the other plan backends, with reported usage and the raw response. A refused key
+or account (http 401/403 `key_refused`, 402 `out_of_credit`, 429 after retries `rate_limited`) abstains with its
+`failure` code; a plan account the endpoint cannot serve (http 400/404) throws `UnsupportedAccountError`. Text
+only: images are refused with `UnsupportedImagesError`. `ZAI_ROUTES` labels both inputs `'subscription'`.
 
 ## Set configuration once
 
