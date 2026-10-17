@@ -60,7 +60,7 @@ A restored old snapshot may restore revoked authority; the kit supplies no at-re
 
 ## Controls and limits
 
-- Host registration has a fresh challenge per socket and a 10-second hello timeout. Enrolment secrets
+- Host registration has a fresh challenge per socket and a hello timeout (10 seconds by default, `helloMs`). Enrolment secrets
   have 256 random bits; a consumed or expired claim cannot authorize a second host.
 - Store transitions clone, serialize and save before publishing memory. A failed save does not
   install authority. Revocation closes live host/device sockets after persistence and removes

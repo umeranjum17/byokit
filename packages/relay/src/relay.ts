@@ -60,6 +60,8 @@ export type RelayOptions = {
   push?: { subject?: string; fetch?: typeof fetch; hosts?: readonly string[] };
   /** How long a push action waits for the host's answer. Default 15 s. */
   actionMs?: number;
+  /** How long a host has to answer the challenge with its hello. Default 10 s. */
+  helloMs?: number;
   /** A daily quiet window: notifications wait inside it and go when it ends. Held only in memory. */
   quietHours?: QuietHours;
   now?: () => number;
@@ -175,6 +177,9 @@ export class Relay {
       throw new Error('bad signup policy');
     }
     if (opts.quietHours) quietMinutes(opts.quietHours.start), quietMinutes(opts.quietHours.end);
+    if (opts.helloMs !== undefined && (!Number.isSafeInteger(opts.helloMs) || opts.helloMs <= 0)) {
+      throw new Error('bad hello budget');
+    }
     const s = await opts.store?.load();
     const sent = Object.fromEntries(Object.entries(s?.sent ?? {})
       .filter((e): e is [string, string[]] => Array.isArray(e[1]))
@@ -399,7 +404,7 @@ export class Relay {
   private host(ws: WebSocket, req: IncomingMessage) {
     const ch = challenge();
     let l: Live | undefined;
-    const timer = later(HELLO_MS, () => { if (!l) ws.close(4408, 'too slow'); });
+    const timer = later(this.opts.helloMs ?? HELLO_MS, () => { if (!l) ws.close(4408, 'too slow'); });
     ws.send(JSON.stringify(ch.msg));
     ws.on('error', () => ws.terminate());
     ws.on('close', () => {
