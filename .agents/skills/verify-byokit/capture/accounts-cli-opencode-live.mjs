@@ -101,8 +101,6 @@ try {
     }
     // The app passes --standalone itself on 2.x, as the kit's README tells it to.
     const standalone = label === '2.x' ? ['--standalone'] : [];
-    console.log(`${label}: version ${(await run([bin, '--version'], launchEnv({ base: { PATH: '/usr/bin:/bin', HOME: home }, account: launched.A }).env, project)).out.trim()}; start flags ${JSON.stringify(standalone)}`);
-
     // Both accounts at once, the way an app starts them: the launch env over the app's own, argv `bin run ...args`.
     fake.leg = label; fake.barrier = true; fake.timedOut = false; seen.clear();
     const start = (who, args) => run([bin, 'run', ...args, '-m', 'opencode-go/fake-model', `say pong from account ${who}`],
@@ -122,20 +120,6 @@ try {
     }
     assert.ok(legRequests.some((r) => r.from === 'A') && legRequests.some((r) => r.from === 'B'));
     console.log(`${label}: both accounts ran at once; ${legRequests.length} requests, each with its own key and workspace, none with the decoy key`);
-    for (const who of ['A', 'B']) {
-      const own2 = files(join(kit.folderOf(ids[who]), 'data', 'opencode'));
-      console.log(`${label}: account ${who} data root holds ${own2.filter((f) => /^(opencode\.db|auth\.json|storage)/.test(f)).slice(0, 3).join(', ') || own2.slice(0, 3).join(', ')}`);
-    }
-
-    if (label === '2.x') {
-      // Control: the same two starts without --standalone share 2.x's one background server port, and the second fails.
-      fake.leg = '2.x-control';
-      const [ca, cb] = await Promise.all([start('A', []), start('B', [])]);
-      const failedOne = [ca, cb].find((r) => r.code !== 0);
-      console.log(`2.x control without --standalone: exits ${ca.code}/${cb.code}${failedOne ? `; ${(/port \d+ on [\d.]+ is already in use/.exec(failedOne.out) ?? ['other error'])[0]}` : ''}`);
-      for (const who of ['A', 'B']) await run([bin, 'service', 'stop'], launchEnv({ base: { PATH: '/usr/bin:/bin', HOME: home }, account: launched[who] }).env, project);
-    }
-
     const after = { auth: sha(join(own, 'auth.json')), db: sha(join(own, 'opencode.db')), tree: files(home) };
     assert.equal(after.auth, before.auth, `${label}: decoy auth.json changed`);
     assert.equal(after.db, before.db, `${label}: decoy opencode.db changed`);
