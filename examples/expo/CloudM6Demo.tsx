@@ -68,7 +68,7 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
     try { await run(); } catch (e) { console.warn(diagnostic(e)); const key = await SecureStore.getItemAsync(M6_KEY); say(cause.current || (key ? String((e as Error).message).split(key).join('[private]') : e instanceof ResponseError || e instanceof ClaudePlanExpiredError ? e.message : `Lab step failed (${(e as Error & { code?: string }).code ?? (e as Error).name}).`)); }
     finally { locked.current = false; setBusy(false); }
   };
-  // The one approved Claude plan sign-in: Main opens the link and pastes the code here; nothing leaves this phone.
+  // The one approved Claude plan sign-in: the device owner opens the link and pastes the code here; nothing leaves this phone.
   const claude = async () => { const v = await accounts.login(1, 'claude'); if (!v?.url) throw new Error('Claude did not offer a sign-in link.'); setSignUrl(v.url); say('Open the Claude link, then paste the code.'); };
   const finish = async () => {
     accounts.paste(1, 'claude', code); setCode(''); await accounts.finished(1, 'claude');
@@ -101,7 +101,7 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
     while (await computer.state() !== 'on') { if (Date.now() > until) throw new Error('Cloud creation did not finish within five minutes.'); await new Promise(r => setTimeout(r, 2000)); }
     say(words('tailnet.joining'));
     let approvalShown = false;
-    const joined = await computer.joinTailnet({ hostname: 'umer-cloud' }, s => {
+    const joined = await computer.joinTailnet({ hostname: 'byokit-cloud' }, s => {
       if ((s.step === 'open-page' || s.step === 'approve') && !approvalShown) {
         approvalShown = true; say(words('tailnet.approvalNeeded'));
       }

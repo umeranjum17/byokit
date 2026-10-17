@@ -855,12 +855,12 @@ its directory return value but no longer changes global environment variables.
 
 ### The `byokit-accounts` command
 
-The package ships one `bin`, `byokit-accounts`, for a person who keeps several CLI accounts and wants one list to read and one switch to use. It is a thin front end: every answer comes from `cliAccounts.status`, `cliAccounts.pick`, `cliAccounts.preferOf`/`setPrefer` and `cliAccounts.rest`/`unrest`, so the fleet's pick and the person's list can never disagree, and nothing else holds account state. Every command prints JSON and never a secret, except `list` without `--json` (a plain aligned table), `env` (shell `export`/`unset` lines carrying folder paths only), and standalone `--help` (usage text, exit 0, no pool or sign-in required). Pool commands read `<stateDir>/pool.json` — the tool's absolute CLI binary paths, `HOME` and `PATH` — and `--state <dir>` names the pool folder that holds it:
+The package ships one `bin`, `byokit-accounts`, for a person who keeps several CLI accounts and wants one list to read and one switch to use. It is a thin front end: every answer comes from `cliAccounts.status`, `cliAccounts.pick`, `cliAccounts.preferOf`/`setPrefer` and `cliAccounts.rest`/`unrest`, so the pool's pick and the person's list can never disagree, and nothing else holds account state. Every command prints JSON and never a secret, except `list` without `--json` (a plain aligned table), `env` (shell `export`/`unset` lines carrying folder paths only), and standalone `--help` (usage text, exit 0, no pool or sign-in required). Pool commands read `<stateDir>/pool.json` — the tool's absolute CLI binary paths, `HOME` and `PATH` — and `--state <dir>` names the pool folder that holds it:
 
 ```json
 {
   "bins": { "claude": "/usr/local/bin/claude", "codex": "/usr/local/bin/codex", "pi": "/usr/local/bin/pi" },
-  "home": "/home/umer",
+  "home": "/home/you",
   "path": "/usr/local/bin:/usr/bin:/bin"
 }
 ```
@@ -875,7 +875,7 @@ byokit-accounts add claude --state ~/.local/state/byokit-pool     # { account, s
 byokit-accounts add pi --provider openai-codex --state <dir>      # Pi needs the subscription provider id
 byokit-accounts status <id> --state <dir>
 byokit-accounts pick codex --json --state <dir>                   # { ok, id, room, rows, set, unset } for one launch
-byokit-accounts use <id> --state <dir>                            # the fleet's pick uses this account while it is ready
+byokit-accounts use <id> --state <dir>                            # the pool's pick uses this account while it is ready
 byokit-accounts use --clear codex --state <dir>                   # ends that tool's preference
 byokit-accounts env <id> --state <dir>                            # eval "$(byokit-accounts env <id>)" sets the folder
 byokit-accounts rest <id> --until 45m --why rate_limit --state <dir>

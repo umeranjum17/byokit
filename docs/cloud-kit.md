@@ -38,7 +38,7 @@ machine's OS, macOS or Windows machines, model credentials (they stay with the r
 
 ## 2. Decisions
 
-These close every design call. Builders do not reopen them; a reviewer who disagrees raises it with firstmate.
+These close every design call. Builders do not reopen them; a reviewer who disagrees raises it with the maintainer.
 
 | # | Decision |
 |---|---|
@@ -1333,7 +1333,7 @@ Builders: **Opus** (spec, architecture, real-provider proof) and **Muse** (build
 ```
 M0 (this doc, README and CONTRIBUTING lines)
  ├─ M1 Muse ─┬─ M2 Muse ── M3 Muse ─┐
- │           └─ M4 Muse ────────────┼─ M6 Opus (captain's go to spend) ─┬─ M7 Opus check, Muse build
+ │           └─ M4 Muse ────────────┼─ M6 Opus (the maintainer's chosen spend) ─┬─ M7 Opus check, Muse build
  └─ M5 Muse ────────────────────────┘                                   └─ M8 Muse (claim, copy detection)
 ```
 
@@ -1478,7 +1478,7 @@ the `installs` switch on the sandbox bench.
 
   Existing relay tests stay green.
 
-**M6 — real-provider proof** · Opus · deps: M3, M4, M5 and **the captain's go to spend**
+**M6 — real-provider proof** · Opus · deps: M3, M4, M5 and **the maintainer's chosen spend**
 - **Files:** `packages/cloud/test/lab/proof.ts` (excluded from `npm test`; `lab/` is not in the glob), a
   "Real-provider run" section appended to this document, README "Tested against a real provider" line (date and
   adapter only), `private` removed, CHANGELOG bullet.

@@ -33,14 +33,14 @@ person's own Herdr, HOME or agent sign-ins.
 
 | Date | Kit version | Herdr version (sha256) | Agent | Route | Steps passed | Screenshots | Notes |
 |---|---|---|---|---|---|---|---|
-| 2026-09-29 | 0.1.0 (RC, this tree) | 0.9.1 (`2a02fed1…5c54b7`, matches `packages/herdr/schema/SOURCE.md`) | none — skipped, see §5 | lan (app boot) + loopback (H7 link proof) | 1, 2, 3 (boot only) | none — no phone in the lab | Lab run under a `--herdr-lab` brief; fleet `default` tripwire verified unchanged at teardown. Phone/agent steps skipped with reasons below. |
+| 2026-09-29 | 0.1.0 (RC, this tree) | 0.9.1 (`2a02fed1…5c54b7`, matches `packages/herdr/schema/SOURCE.md`) | none — skipped, see §5 | lan (app boot) + loopback (H7 link proof) | 1, 2, 3 (boot only) | none — no phone in the lab | Lab run under a `--herdr-lab` brief; the machine's `default` session verified unchanged at teardown. Phone/agent steps skipped with reasons below. |
 | 2026-10-04 | 0.7.0 (this tree, `0913c2d2`) | 0.9.1 (`2a02fed1…5c54b7`, published asset, unmodified) | none — no agent started, see step 5 | lan (app boot) + guarded named session, `adopt` mode | 1, 2, 3 (boot only), 9 | none — the run stopped before the phone steps | Boot proof only: the example adopted an externally managed session instead of owning its lifecycle. Steps 4–8 have written reasons below. |
 
 ### 2026-10-04 run notes (0.7.0 against published Herdr 0.9.1, guarded named session)
 
-Isolation: the guarded lab helper provisioned the named non-`default` session
-`fm-lab-byk-pm3-live-303358-14623`, recorded the live fleet `default` session before provisioning and verified the
-identical fleet state at teardown; teardown ran only through the helper and its EXIT trap. The task `HOME` and all
+Isolation: the guarded lab helper provisioned a named non-`default` session,
+recorded the live `default` session before provisioning and verified the
+identical state at teardown; teardown ran only through the helper and its EXIT trap. The task `HOME` and all
 state stayed under the task's own scratch dir, and the four lab canaries were `OK` throughout. The person's own
 Herdr, `HOME` and sign-ins were never touched, and no upstream patch or locally modified Herdr build took part.
 
@@ -52,7 +52,7 @@ Herdr, `HOME` and sign-ins were never touched, and no upstream patch or locally 
 - Step 3 — started with `--herdr <helper wrapper> --socket <session socket>`, which puts the kit in `adopt` mode:
   the example connects to the managed session and never provisions, stops or deletes it. It printed `Connected to
   Herdr.` and `GET /` returned 200 (the Agents page).
-- Step 9 — teardown ran only through the helper's `teardown`, which re-checks the fleet `default` session
+- Step 9 — teardown ran only through the helper's `teardown`, which re-checks the machine's `default` session
   immediately before stopping and again before deleting, and fails closed rather than guessing; it exited clean, so
   no tripwire fired. All four canaries were still `OK` afterwards.
 
@@ -72,8 +72,8 @@ What did not pass, and why:
 
 ### 2026-09-29 run notes (release 0.1.0)
 
-- Lab isolation: provisioned `fm-lab-byk-hd-publish-*` via `bin/fm-herdr-lab.sh`; the running
-  fleet `default` session (`/home/umer/.config/herdr/herdr.sock`) was recorded before anything
+- Lab isolation: provisioned a task-named lab session via the guarded helper; the running
+  `default` session (`~/.config/herdr/herdr.sock`) was recorded before anything
   started and verified identical at teardown. Task `HOME` and all state lived under a
   task-owned scratch dir; the person's own Herdr, HOME and sign-ins were never touched.
 - Step 1: asset `herdr-linux-x86_64` downloaded from the H2-recorded URL into the task dir,

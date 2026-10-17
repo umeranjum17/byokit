@@ -17,7 +17,7 @@ The diagnostic observed the ordinary kit request, callback and result boundary:
 | `agent.wait.terminalReply.text` | 4,089 | no |
 | Kit final callback and successful `RunEnd.text` | 4,089 | no |
 
-Source: firstmate's existing `v1-pm-2/evidence/localhost-real-kit-api-gap.txt`
+Source: a prior capture, `localhost-real-kit-api-gap.txt`
 and `localhost-real-kit-boundary-summary.json` (the latter's SHA-256:
 `3a38ce2ffd8d9167498f16b27dc08db122eebb8981099a2c3921939c11bdf9b5`). This is historical real API output evidence, not a live
 qualification of this patch. The same capture reports successful dispatch and

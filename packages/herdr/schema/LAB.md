@@ -24,21 +24,20 @@ From the v0.9.1 binary itself, with the kit's own-mode env
 (`HOME=<stateDir>/herdr/home`, `HERDR_SOCKET_PATH=<stateDir>/herdr/herdr.sock`):
 
 - `status --json` reports `server.socket` = the task `herdr.sock`,
-  `server.running: false`, `client.binary` = the task binary. The fleet server
-  (`/home/umer/.config/herdr/herdr.sock`, running) is not visible through this env:
+  `server.running: false`, `client.binary` = the task binary. The machine's default server
+  (`~/.config/herdr/herdr.sock`, running) is not visible through this env:
   `HERDR_SOCKET_PATH` relocates the API socket on v0.9.1.
 - `session list --json` under the task HOME shows only a non-running `default`
   session whose `session_dir`/`socket_path` sit under the task HOME. State lives
-  under the task HOME; the fleet's sessions are unreachable from this env.
-- A fresh task server bootstraps an **empty** live tree while the fleet holds many
+  under the task HOME; the machine's other sessions are unreachable from this env.
+- A fresh task server bootstraps an **empty** live tree while an established session holds many
   workspaces (asserted in the run: `snapshot().workspaces` is `[]` at start).
 
-The whole run sat inside Herdr lab sessions: provision recorded the running fleet
-`default` session as the tripwire before any lab Herdr started (`fm-lab-byk-hd-lab-922247-9781`),
-and teardown verified it identical afterwards; a second explicit provision/verify/teardown
-cycle (`fm-lab-byk-hd-lab-3031438-133`) confirmed the outcome. The fleet `default`
-session was running before and is unchanged after
-(`socket_path: /home/umer/.config/herdr/herdr.sock`, `running: true` throughout).
+The whole run sat inside Herdr lab sessions: provision recorded the running `default`
+session as the tripwire before any lab Herdr started, and teardown verified it
+identical afterwards; a second explicit provision/verify/teardown cycle confirmed the
+outcome. The machine's `default` session was running before and is unchanged after
+(`socket_path: ~/.config/herdr/herdr.sock`, `running: true` throughout).
 
 ## Contract cases (`src/testing/contract.ts` names verbatim)
 

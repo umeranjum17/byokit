@@ -18,8 +18,8 @@ test('describeRoute parses pairing links on React Native, where URL.canParse is 
   (globalThis as unknown as { URL: unknown }).URL = PolyfillURL;
   try {
     assert.equal((globalThis.URL as unknown as { canParse?: unknown }).canParse, undefined);
-    assert.equal(new globalThis.URL('wss://desk.tail0de54.ts.net').hostname, '');
-    assert.equal(describeRoute('wss://desk.tail0de54.ts.net'), 'Tailscale');
+    assert.equal(new globalThis.URL('wss://desk.tail012345.ts.net').hostname, '');
+    assert.equal(describeRoute('wss://desk.tail012345.ts.net'), 'Tailscale');
     assert.equal(describeRoute('ws://100.64.0.1:8792'), 'Private network');
     assert.equal(describeRoute('ws://100.64.0.1:8792', 'direct'), 'Tailscale');
     assert.equal(describeRoute('ws://192.168.1.8:8792'), 'Same Wi-Fi');

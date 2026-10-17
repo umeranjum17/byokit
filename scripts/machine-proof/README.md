@@ -146,7 +146,7 @@ muxr source: [host config](https://github.com/umeranjum17/muxr/blob/main/apps/ho
 [host](https://github.com/umeranjum17/muxr/blob/main/apps/host/src/main.ts),
 [relay config](https://github.com/umeranjum17/muxr/blob/main/apps/relay/src/config.ts),
 [current startup](https://github.com/umeranjum17/muxr/blob/main/scripts/setup/presentation/hostUp.mjs).
-Read-only local checkout: `/home/umer/.treehouse/pockit-497a78/10/pockit`.
+Read-only local checkout: a task-owned scratch checkout.
 The app supplies a prebuilt Linux release tree with `host.js`, `relay.js`, its lockfile
 and diagnostics scripts (its source build also includes mobile/native steps and is not
 run on the rented computer). `muxrRecipe` takes a separate pinned Herdr `HostRecipe`,
@@ -158,7 +158,7 @@ Provision its selfhost registration and owner-only `selfhost.json` through the a
 normal setup on this machine before first use; copying a desktop file is not setup.
 No real Herdr server, socket, CLI or local session is used by this lane's tests.
 
-The engine repository was discovered using `gh-axi repo list umeranjum17`:
+The engine repository was discovered using `gh repo list`:
 [manifest](https://github.com/umeranjum17/v1-design-engine/blob/master/package.json),
 [entry](https://github.com/umeranjum17/v1-design-engine/blob/master/bin/engine.mjs),
 [HTTP routes](https://github.com/umeranjum17/v1-design-engine/blob/master/src/http/server.ts),

@@ -1,6 +1,6 @@
 # The `byokit-accounts` command
 
-A person who keeps several agent-CLI accounts gets one list to read and one switch to use, without any of that state living anywhere else. The package's `byokit-accounts` bin prints JSON rows for every account of every tool (`id`, `tool`, `name`, `state`, `restUntil`, `why`, `room`, `windows`, `readAt`, `stale`, `preferred`) or a plain aligned table, answers `pick` for one tool with the account a launch should start on plus its `set`/`unset`, answers `list --json --cached` from a saved reading with no read at all, keeps a tool's chosen account in `prefer-v1.json` for `use`/`use --clear`, and prints folder-path `export`/`unset` lines for `eval "$(byokit-accounts env <id>)"`; it adds, reads, rests and un-rests accounts through the same `cliAccounts` functions the fleet calls, so the list and the pick can never disagree.
+A person who keeps several agent-CLI accounts gets one list to read and one switch to use, without any of that state living anywhere else. The package's `byokit-accounts` bin prints JSON rows for every account of every tool (`id`, `tool`, `name`, `state`, `restUntil`, `why`, `room`, `windows`, `readAt`, `stale`, `preferred`) or a plain aligned table, answers `pick` for one tool with the account a launch should start on plus its `set`/`unset`, answers `list --json --cached` from a saved reading with no read at all, keeps a tool's chosen account in `prefer-v1.json` for `use`/`use --clear`, and prints folder-path `export`/`unset` lines for `eval "$(byokit-accounts env <id>)"`; it adds, reads, rests and un-rests accounts through the same `cliAccounts` functions the pool's API calls, so the list and the pick can never disagree.
 
 ## Sub-features
 
@@ -23,7 +23,7 @@ A person who keeps several agent-CLI accounts gets one list to read and one swit
 - `… add claude --state <dir>` prints `{ account, signIn }` and the shell to run next; `… pick codex --json --state <dir>` is what a spawn hook calls.
 - `… use <id> --state <dir>` makes that account the tool's pick; `… use --clear codex --state <dir>` ends it.
 - `eval "$(node packages/accounts/dist/accounts-cli.js env <id> --state <dir>)"` sets the tool's folder variable in that shell.
-- `… rest <id> --until 45m --state <dir>` keeps the fleet off an account; `… unrest <id> --state <dir>` puts it back.
+- `… rest <id> --until 45m --state <dir>` keeps the pool off an account; `… unrest <id> --state <dir>` puts it back.
 
 ## Driving it with node scratch consumers
 

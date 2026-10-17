@@ -1,5 +1,5 @@
 // O11 cold boot: the first kit.start() on a fresh state dir rides out gateway boot instead of rejecting
-// `connect ECONNREFUSED 127.0.0.1:<port>` (firstmate steer 002; Crewhouse reproduced it on a cold state:
+// `connect ECONNREFUSED 127.0.0.1:<port>` (a steering review finding; Crewhouse reproduced it on a cold state:
 // connect() handed the transport to the gateway before it listened and the transport rejected on the first
 // onConnectError ~6s in). Now the transport retries within start's 90s handshake budget while the child is
 // alive; a throw here fails the case. Runs only in the engine job (npm run test:engine), never in npm test.

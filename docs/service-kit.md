@@ -162,7 +162,7 @@ deferred with that limitation on the record.
 
 ## 8. Tests and work packages
 
-Tests are contract and integration tests only (the worker rules forbid unit or mock-heavy tests): `./testing` ships
+Tests are contract and integration tests only (the contribution rules forbid unit or mock-heavy tests): `./testing` ships
 a fake `ServiceExec` and a contract suite that drives `install`, `status` and `uninstall` against it on both
 platform code paths; the section 7 CI jobs are the end-to-end proof. No test reboots a runner.
 

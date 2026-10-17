@@ -131,7 +131,7 @@ test('resolves match with or without a trailing dot and a .local suffix, on any 
   const pending = scan({ type: 'crewhouse', ms: 60, zeroconf: zc });
   await wait(10);
   // Android (react-native-zeroconf): `host._type._protocol`, no trailing dot.
-  zc.emit('resolved', service({ name: 'extreme', fullName: 'extreme._crewhouse._tcp', host: 'extreme', port: 39773 }));
+  zc.emit('resolved', service({ name: 'studio', fullName: 'studio._crewhouse._tcp', host: 'studio', port: 39773 }));
   // iOS/Bonjour: trailing dot.
   zc.emit('resolved', service({ name: 'lab', fullName: 'lab.local._crewhouse._tcp.', host: 'lab.local.', port: 39774 }));
   // Trailing `.local` domain suffix, either case.
@@ -142,7 +142,7 @@ test('resolves match with or without a trailing dot and a .local suffix, on any 
   zc.emit('resolved', service({ name: 'untyped', fullName: undefined }));
   const services = await pending;
   assert.deepEqual(services.map((s) => [s.name, s.port]), [
-    ['extreme', 39773], ['lab', 39774], ['desk', 39775], ['caps', 39776],
+    ['studio', 39773], ['lab', 39774], ['desk', 39775], ['caps', 39776],
   ]);
 });
 

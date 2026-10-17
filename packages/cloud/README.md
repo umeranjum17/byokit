@@ -161,7 +161,7 @@ elapsed Hetzner spend. `provider.url`, usage, plan and scoped keys are absent.
 
 ## Your own tailnet
 
-`await m.joinTailnet({ hostname: 'umer-cloud' }, showStep)` installs the pinned, SHA256-checked Tailscale release as root and starts it.
+`await m.joinTailnet({ hostname: 'byokit-cloud' }, showStep)` installs the pinned, SHA256-checked Tailscale release as root and starts it.
 `showStep` receives `open-page` with the sign-in link (approve it on your phone), or `approve` when the
 tailnet must approve the machine (with or without a sign-in link), then `joined` with the MagicDNS name. `await m.tailnet()` reads `joined`, `needs-login`, `needs-approval`, `starting` or `off` without joining.
 This slice supports keyless Boat joins only. Passing `authKey` is a typed `unsupported` refusal:

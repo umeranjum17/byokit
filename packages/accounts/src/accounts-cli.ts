@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // `byokit-accounts` — one source of truth for the CLI accounts a pool owner keeps. `list` and `pick` read the
-// same rows `cliAccounts` already produces, so the fleet's pick and the captain's list never disagree.
+// same rows `cliAccounts` already produces, so the pool's pick and the person's list never disagree.
 // Output formats and pool setup: ../README.md#the-byokit-accounts-command. Never prints a secret.
 // Reads `<stateDir>/pool.json`: the absolute path of each CLI
 // binary, plus HOME and PATH. Writes `<stateDir>/readings-v1.json` after every read, so `list --json

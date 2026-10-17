@@ -3,7 +3,8 @@
 import json, os, re, signal, subprocess as sp, sys, time, xml.etree.ElementTree as ET
 from pathlib import Path
 serial, apk, evidence, keyfile = sys.argv[1:]
-assert serial == 'a4b93ea2', 'Only the approved physical lab phone'
+approved = os.environ.get('M6_APPROVED_SERIAL', '')
+assert approved and serial == approved, 'Set M6_APPROVED_SERIAL to the approved physical lab phone serial'
 out = Path(evidence); out.mkdir(parents=True, exist_ok=True)
 app = 'io.github.umeranjum17.byokit.example'
 def adb(*args, data=None):
@@ -35,7 +36,7 @@ def tap(name):
 def mark(step): record.setdefault('steps', {})[step] = round(time.time() - record['setup_start'], 1)  # seconds since setup start
 def shot(name): (out / (name + '.png')).write_bytes(adb('exec-out', 'screencap', '-p'))
 signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))  # a lock timeout still runs the cleanup below
-record = {'device': serial, 'setup_start': time.time(), 'human_steps': ['Main unlock (PIN not observed)'], 'qualified': False}
+record = {'device': serial, 'setup_start': time.time(), 'human_steps': ['Owner unlock (PIN not observed)'], 'qualified': False}
 video = None; video_pid = None; secret = None; opened = False
 try:
     adb('install', '-r', apk)
@@ -43,7 +44,7 @@ try:
     wait('No lab key.'); shot('missing-key')
     record['signins'] = next(n.get('text') for n in ui() if n.get('resource-id') == 'm6-signins')
     if not any('Existing Claude sign-in available.' in n.get('text', '') for n in ui()):
-        raise RuntimeError('Existing phone-local Claude sign-in unavailable; ask Main, do not sign in')
+        raise RuntimeError('Existing phone-local Claude sign-in unavailable; ask the device owner, do not sign in')
     mark('signin_checked')
     secret = Path(keyfile).read_bytes().strip()
     record['key_imported'] = True; (out / 'manifest.tmp').write_text(json.dumps(record)); (out / 'manifest.tmp').replace(out / 'manifest.json')

@@ -1150,7 +1150,7 @@ export class OpenClawKit {
   }
 
   // runs (5.8): the facade owns no run state; every call delegates to the O8 module
-  // with this kit's live transport, member table and bridge (firstmate clearance, O9).
+  // with this kit's live transport, member table and bridge (spec item O9).
   private runs(): ReturnType<typeof createRuns> {
     return createRuns({
       request: (method, params, o) => this.request()(method, params, o),

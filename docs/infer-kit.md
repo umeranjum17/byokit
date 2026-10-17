@@ -21,7 +21,7 @@ support check. `@byokit/dictation` is speech, not text. This kit is that missing
 |---|---|---|
 | I1 | Package `@byokit/infer`, first version **0.1.0**, published before §6 passes by byk decision (2026-10-04); qualification claims still require §6. Name accepted by Root for first publication (kit-conventions §1.2). | One plain word for the capability (run a model here). `generate`/`decide` are already function names. |
 | I2 | Native binding: stock published **`llama.rn@0.12.9`** (npm, MIT, 2026-08-04, gitHead `2a20c13e6665cc7278f68c6b2b5819899d0e84fd`, llama.cpp build `10256`/`6c8dcaa`), an **exact optional peer**. The kit types a structural subset and the host injects `initLlama`, as dictation does with whisper.rn. | Same engine family as the shipped dictation kit; one GGUF path for Android and iOS; prebuilt Android JNI libs and iOS XCFramework pinned by SHA-256 in its own `install/native-artifacts.json`. Latest stable, not the `0.13.0-rc.*` `latest` tag. No fork or patch. |
-| I3 | Default candidate: **Qwen2.5-1.5B-Instruct Q4_K_M GGUF** (§3), authorized by Main313 after realistic Smol360M output was still `enough:false`. Smol360M and Qwen3-0.6B stay catalogued with `offer: false`; no automatic model switch/fallback. | Official Apache-2.0 instruct model with structured-output support. Source pinning is not qualification; the accepted physical summary is still pending (§6). |
+| I3 | Default candidate: **Qwen2.5-1.5B-Instruct Q4_K_M GGUF** (§3), a maintainer decision taken after realistic Smol360M output was still `enough:false`. Smol360M and Qwen3-0.6B stay catalogued with `offer: false`; no automatic model switch/fallback. | Official Apache-2.0 instruct model with structured-output support. Source pinning is not qualification; the accepted physical summary is still pending (§6). |
 | I4 | One `LocalModel` per model: at most one native context; calls never queue (`busy`). | A pane summary is only useful for the card on screen; queued stale work wastes battery. |
 | I5 | Greedy decoding (`temperature: 0`, `seed: 0`), CPU only (`n_gpu_layers: 0`), `n_ctx` 2048, ≤256 output tokens, 4 threads, `use_mmap`, no `mlock`. Thinking off through the template (`enable_thinking: false`). | Repeatable output, predictable memory; GPU offload is device-specific (Android OpenCL is Adreno-only) and is a later measured opt-in. |
 | I6 | Summaries are grammar-constrained JSON `{enough, lines[≤4]}` with a discriminated `oneOf` schema: `enough` const `true` plus 3–4 nonempty ≤100-character single-line strings, or const `false` plus `lines: {const: []}`. Stock llama.rn's converter ignores `maxItems` when `items` is absent and prioritizes `pattern` over string lengths; the empty-array literal and `{1,100}` pattern bounds avoid those unsupported combinations. Grammar requests plain sentence text without double quotes/backslashes so encoded escapes cannot defeat newline bounds; JS validation remains unchanged and is still authoritative. The prompt states that same contract; no decoder Boolean coercion or legacy contradictory-output acceptance. JS rejects inconsistent flags, extra keys, embedded newlines, >100-character strings and wrong cardinality. (llama.rn `response_format: json_schema`) and validated again in JS. Only a leading literal `<\|im_start\|>assistant` header and a whole enclosing markdown `json` fence may be removed before JSON parsing; trailing garbage, other tags and malformed bodies remain invalid. No `force_pure_content`: its one packaged-native confirmation rejected before a result. | The model cannot ramble or emit a partial structure that looks complete; `enough: false` is the honest "not enough output" path. |
@@ -36,7 +36,7 @@ support check. `@byokit/dictation` is speech, not text. This kit is that missing
 Verified from the publisher's Hugging Face API (`?blobs=true`) and `HEAD` of the `resolve` URL at the pinned
 revision (`x-repo-commit`, `x-linked-size`, `x-linked-etag`). Original candidates were metadata-only; the stronger candidate's first16MiB was inspected as GGUF metadata before its authorized full device download/hash.
 
-**Default candidate: Qwen2.5-1.5B-Instruct Q4_K_M** (Main313 conditional step triggered by Smol's actual1000-prompt-token realistic run still returning enough:false):
+**Default candidate: Qwen2.5-1.5B-Instruct Q4_K_M** (the maintainer's conditional step, triggered by Smol's actual1000-prompt-token realistic run still returning enough:false):
 - Official repo `Qwen/Qwen2.5-1.5B-Instruct-GGUF`, revision `91cad51170dc346986eccefdc2dd33a9da36ead9`, file `qwen2.5-1.5b-instruct-q4_k_m.gguf`.
 - **1,117,320,736 bytes**, SHA-256 `6a1a2eb6d15622bf3c96857206351ba97e1af16c30d7a74ee38970e434e9407e`; publisher API LFS and pinned resolve HEAD agree. Apache-2.0 LICENSE at that revision.
 - Header inspection: GGUFv3, qwen2 architecture, Q4_K_M/file_type15, 28 layers, 12Q/2KV heads, context32768, GPT2/Qwen2 BPE vocabulary151936, BOS151643/EOS151645, embedded ChatML Jinja template without thinking. Base official config at `989aa7980e4cf806f80c7fef2b1adb7bc71aa306` agrees; tokenizer config's131072 advisory does not override trained/GGUF32768.
@@ -125,10 +125,10 @@ measurement logs outside the pooled worktree before cleanup.
   the real `initLlama`: one context, abort → `interrupted` and the supplied reason (or `AbortError` when unavailable),
   `release()` mid-decode, JSON schema
   honoured, `tokenize` count vs `tokens_evaluated` (set `TEMPLATE_TOKENS` from it), `stopped_limit` on a tiny budget.
-- **WP3 — Android qualification on test phone a4b93ea2** under the discovered keeper lock (never bypassed, never
+- **WP3 — Android qualification on the test phone** under the device's lock (never bypassed, never
   shared). Own lab app only; never open, read or screenshot personal apps, change accounts or uninstall anything.
-  Run, holding the keeper lock and `state/heavy-jobs.lock` for the build:
-  `OUT=<receipts dir outside the worktree> RUNS=10 examples/expo/e2e-infer.sh a4b93ea2` (`KEEP_MODEL=1` reuses
+  Run, holding the device lock and `state/heavy-jobs.lock` for the build:
+  `OUT=<receipts dir outside the worktree> RUNS=10 examples/expo/e2e-infer.sh <device-serial>` (`KEEP_MODEL=1` reuses
   a downloaded model; `SKIP_BUILD=1` reuses a verified APK). It writes `receipts.txt` and the screenshots listed below:
   - receipts: device, OS and ABI; APK SHA-256 and size; download and verify seconds; cold time (fresh process:
     load + hash + first summary) and `RUNS` warm times; PSS/RSS after cold, after warm and after backgrounding;
@@ -139,7 +139,7 @@ measurement logs outside the pooled worktree before cleanup.
   (e.g. 30 summaries) if the level delta is 0; an airplane-mode rerun with `KEEP_MODEL=1` to show summaries need no
   network. Tune `minMemoryBytes` from the data.
 - **WP4 — Summary quality.** Score the three demo panes plus ≥20 recorded synthetic panes (no personal data) for
-  invented completion, missed failure and noise. Main313 permits only the recorded realistic Smol run then, on enough:false/badJSON, one Qwen2.5-1.5B confirmation; native exception is STOP, not an automatic model change.
+  invented completion, missed failure and noise. The maintainer decision permits only the recorded realistic Smol run then, on enough:false/badJSON, one Qwen2.5-1.5B confirmation; native exception is STOP, not an automatic model change.
 - **WP5 — iOS.** Same lab app on a physical iPhone once Root/main grants the Mac and Xcode 26.2 is installed; same
   measurements as WP3. Simulator results are labelled Simulator and never stand in for the phone.
 - **WP6 — Release prep.** Owner confirmed the name; `private` flipped for the 0.1.0 first publication; add `infer` to CI pack smoke; New/Fixed/Improved/
@@ -164,10 +164,10 @@ Source (CI, offline) — done in the foundation unless marked:
 - [x] I9–I11 local: resolves to Nano only when AICore reports it ready, else GGUF (absent, unavailable, silent,
       failed AICore); Nano abort, `busy`, error codes, cut-off; distinct labels.
 - [ ] I10 plan slice: `where: 'plan'` through a real Accounts sign-in (mock), skipped by `stays-here`, API-billed refused.
-- [ ] Nano native module in the lab app; Nano and GGUF time to first token, tokens per second and memory on a4b93ea2.
+- [ ] Nano native module in the lab app; Nano and GGUF time to first token, tokens per second and memory on the test phone.
 - [x] WP1 source: lab screen, exact pins, store adapter, device driver script; typecheck and Metro bundle pass.
 - [ ] WP1 lab app builds with the real binding (Android `assembleRelease`, APK has arm64 `librnllama`), and the iOS prebuild.
-- [ ] WP2 real-binding contract passes on a4b93ea2.
+- [ ] WP2 real-binding contract passes on the test phone.
 
 Device qualification (not provable by fixtures, typechecks or emulators):
 - [ ] WP3 Android numbers and demo screenshots, with exact device, OS, conditions and limits.
