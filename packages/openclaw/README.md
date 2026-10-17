@@ -437,11 +437,14 @@ agent: the kit claims each one before the engine dispatches it, so a message tha
 such as `/new`, is just text for your handler. You decide who answers (Crewhouse: Chief) and reply with `kit.reply`.
 
 ```ts
-const kit = new OpenClawKit({ stateDir, channels: { telegram: {
+import { OpenClawKit, type ChannelMessage } from '@byokit/openclaw';
+
+declare const stateDir: string, botToken: string, chiefThread: string;
+const kit: OpenClawKit = new OpenClawKit({ stateDir, channels: { telegram: {
   token: botToken,              // from BotFather; the engine gets it as process env, never config, disk or logs
   allowFrom: ['123456789'],     // numeric Telegram user ids; everyone else is dropped
   member: 'm1',                 // the member your replies are sent as
-  onMessage: async ({ chat, from, text }) => {
+  onMessage: async ({ chat, text }: ChannelMessage) => {
     const end = await kit.run({ member: 'm1', sessionKey: chiefThread, message: text }, () => {});
     if (end.ok) await kit.reply(chat, end.text);
   },
