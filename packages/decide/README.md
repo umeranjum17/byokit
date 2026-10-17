@@ -264,8 +264,9 @@ must be trusted with answers and any backend raw responses they store.
   HTTP errors with `status: 429` retry twice by default, using `retryAfter` or `headers.get('retry-after')` when
   supplied. Current `accounts.respond` errors expose that metadata. Other errors never retry. Waits use the same
   exponential backoff as Jev/OpenAI (`retryBaseMs: 1000`, `retryMaxMs: 2000`), capped per wait, and stop on abort.
-  Calling the backend's `ask` directly throws `RateLimitError` on exhaustion; `decide` abstains and may try the next
-  backend. Callback messages and provider bodies are omitted from failure reasons; a refusal keeps only its
+  Calling the backend's `ask` directly throws `RateLimitError` on exhaustion when the callback's error carries the
+  `rate_limited` code; a bare HTTP 429 throws a plain `http 429` error with no `failure`. `decide` abstains and may try
+  the next backend. Callback messages and provider bodies are omitted from failure reasons; a refusal keeps only its
   `failure` code and status. Each retry uses the same billing
   route as its first call (subscription or API key, billed per use).
   - **Billing**: `rules` costs nothing. `answerer` with the person's ChatGPT uses their subscription. `jev()` is billed
@@ -362,9 +363,10 @@ reject unsupported fields (including `max_output_tokens`, `temperature` and `met
 may be unsupported for accounts.
 
 `UnsupportedAccountError` (`code: 'unsupported_account'`) is thrown for missing consent, missing account sessions,
-unavailable chosen models, a model catalogue that answers http 400, or an unsupported account request (http 400/404 on the request), including from `decide`. There is no
-API-key fallback. A refused account (http 401/402/403) abstains with its `failure` code like a refused key;
-ordinary transport/429 failures follow decide's existing failed-backend abstention behavior.
+unavailable chosen models, a model catalogue that answers http 400, or an unsupported account request (http 400/404
+on the request), including from `decide`. There is no API-key fallback. On the fetch path, a refused account (http
+401/402/403) abstains with its `failure` code like a refused key; the `respond` route abstains as a plain failure for
+now. Ordinary transport/429 failures follow decide's existing failed-backend abstention behavior.
 `OPENAI_ROUTES.apiKey` labels billing `'api'` with `offer: false`; the account route labels `'subscription'` with consent required.
 
 ### Anthropic models used for decisions

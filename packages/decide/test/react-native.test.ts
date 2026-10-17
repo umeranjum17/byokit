@@ -118,6 +118,11 @@ test('answerer labels every abstention and never retains injected or credential-
     assert.deepEqual([a.abstained, a.reason, a.failure], [true, `opencode failed: http ${status}`, { code, status }]);
     assert.ok(!JSON.stringify(a).includes('sk-go-echoed-key') && !JSON.stringify(a).includes('Workspace'));
   }
+  const busy = answerer({ name: 'model', leaves: false, maxRetries: 1, retryBaseMs: 0, ask: async () => {
+    throw Object.assign(new Error('gateway busy'), { status: 429 });
+  } });
+  const exhausted = (await decide({}, q, { privacy: 'stays-here', backends: [busy] })).urgent;
+  assert.deepEqual([exhausted.reason, exhausted.failure], ['model failed', undefined], 'a host 429 without a refusal code is a plain failure');
   const incomplete = answerer({ name: 'model', leaves: false, ask: async () => {
     throw Object.assign(new Error('synthetic private credential in partial output'), { name: 'IncompleteError' });
   } });

@@ -120,7 +120,7 @@ export class MemoryCache implements DecideCache {
 }
 
 function copyAnswer(a: Answer): Answer {
-  return { ...a, ...(Array.isArray(a.answer) && { answer: [...a.answer] }), ...(a.failure && { failure: { ...a.failure } }),
+  return { ...a, ...(Array.isArray(a.answer) && { answer: [...a.answer] }),
     ...(a.scores && { scores: { ...a.scores } }), ...(a.probabilities && { probabilities: { ...a.probabilities } }) };
 }
 
@@ -219,7 +219,7 @@ export async function decideWithKey(state: unknown, questions: Record<string, Qu
   if (opts.cache && key) {
     try {
       const hit = await opts.cache.get(key);
-      if (hit && typeof hit === 'object' && Object.keys(questions).every((k) => Object.hasOwn(hit, k) && hit[k] && !hit[k].failure)) {
+      if (hit && typeof hit === 'object' && Object.keys(questions).every((k) => Object.hasOwn(hit, k) && hit[k])) {
         const out: Record<string, Answer> = Object.create(null);
         for (const k of Object.keys(questions)) out[k] = { ...copyAnswer(hit[k]), source: 'cache' };
         return out;
@@ -312,8 +312,6 @@ export async function decideWithKey(state: unknown, questions: Record<string, Qu
 function backendFailure(name: string, error: unknown): string {
   // A transport or custom backend may throw credentials or private state. Keep only kit diagnostics.
   if (error instanceof Error && error.name === 'IncompleteError') return `${name} failed: answer was cut off`;
-  // Built only from its code and status, never a provider body.
-  if (error instanceof BackendRefusedError) return `${name} failed: ${error.message}`;
   const message = error instanceof Error ? error.message : '';
   return `${name} failed` + (/^(http \d{3}|timed out|aborted)$/.test(message) ? `: ${message}` : '');
 }
@@ -462,7 +460,6 @@ export function answerer(o: AnswererOptions): AnswererBackend {
       let reply: string | AnswererReply;
       try { reply = await send(() => o.ask(prompt, signal, images, { instructions, ...(o.text && { text: o.text }) }), signal); }
       catch (e) {
-        if (e instanceof BackendRefusedError) throw e;
         // Callbacks may throw messages containing request bodies or credentials; none enter decision reasons,
         // only a refusal's code and status (an accounts KeyRouteError's, or a refused HTTP status).
         const refused = refusalOf(e);

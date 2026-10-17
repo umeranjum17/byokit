@@ -46,8 +46,7 @@ export function httpError(status: number): Error {
 export function refusalOf(e: unknown): BackendRefusedError | undefined {
   const { code, status } = (e ?? {}) as { code?: unknown; status?: unknown };
   if (code !== 'key_refused' && code !== 'out_of_credit' && code !== 'rate_limited') return undefined;
-  const known = Number.isSafeInteger(status) && (status as number) >= 400 && (status as number) <= 599 ? status as number : undefined;
-  return new BackendRefusedError(code, known);
+  return new BackendRefusedError(code, typeof status === 'number' ? status : undefined);
 }
 
 function retryPolicy(name: string, o: RetryOptions) {
@@ -83,7 +82,7 @@ export function retryCall(name: string, o: RetryOptions) {
       try { return await call(); } catch (e) {
         const http = e as { status?: number; retryAfter?: string; headers?: { get?: (name: string) => string | null } } | null;
         if (http?.status !== 429) throw e;
-        if (attempt >= policy.maxRetries) throw new RateLimitError(attempt);
+        if (attempt >= policy.maxRetries) throw refusalOf(e)?.code === 'rate_limited' ? new RateLimitError(attempt) : new Error('http 429');
         await policy.wait(attempt, http.retryAfter ?? http.headers?.get?.('retry-after') ?? null, signal);
       }
     }
