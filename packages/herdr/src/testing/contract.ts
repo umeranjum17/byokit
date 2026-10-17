@@ -825,8 +825,8 @@ export function herdrContract(
       await kit.prompt({ paneId: 'w1:p2' }, 'hello world');
       assert.equal(await kit.wait({ paneId: 'w1:p2' }, { until: ['idle'], timeoutMs: 2000 }), 'idle');
       fake.scriptDrawingReads('w1:p2', 2);
-      assert.doesNotMatch((await kit.read('w1:p2')).text, /fake pi: hello world/, 'the first read is still drawing');
-      assert.doesNotMatch((await kit.read('w1:p2')).text, /fake pi: hello world/, 'the second read is still drawing');
+      assert.equal((await kit.read('w1:p2')).text, 'drawing', 'the first read is still drawing');
+      assert.equal((await kit.read('w1:p2')).text, 'drawing', 'the second read is still drawing');
       assert.match((await kit.read('w1:p2')).text, /fake pi: hello world/, 'the third read shows the screen');
     });
   });

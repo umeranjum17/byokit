@@ -563,13 +563,17 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       }
       return { type: 'agent_info', agent: { ...agent } };
     },
-    'agent.prompt': (p) => {
+    'agent.prompt': async (p) => {
       const pane = paneOf(p.target);
       const agent = agentOf(pane);
       const text = typeof p.text === 'string' ? p.text : '';
       // A lost prompt is accepted but starts no turn; like Herdr, only a caller that waits learns it.
       if (lostPrompts.delete(pane.pane_id)) {
-        if (p.wait !== undefined) throw fail('agent_prompt_stalled', 'agent prompt produced no observed working or blocked state within 5000 ms');
+        if (p.wait !== undefined) {
+          const ms = (p.wait as { timeout_ms: number }).timeout_ms;
+          await new Promise<void>((resolve) => timers.push(setTimeout(resolve, ms)));
+          throw fail('agent_prompt_stalled', `agent prompt produced no observed working or blocked state within ${ms} ms`);
+        }
       } else {
         transition(pane, 'working');
         timers.push(setTimeout(() => {
