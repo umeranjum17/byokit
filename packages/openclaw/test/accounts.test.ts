@@ -23,7 +23,7 @@ import crypto from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, rmSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
-import { scratchDir } from '../../test-support.ts';
+import { fakeOpenCodeConsole, scratchDir } from '../../test-support.ts';
 import { Engine } from '../src/engine.ts';
 import { hostKeySeal } from '../../secrets/src/index.ts';
 import { OpenClawKit } from '../src/kit.ts';
@@ -36,6 +36,9 @@ import { createLocks } from '../src/locks.ts';
 import { keyAgentId } from '../src/members.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import type { RunEvent, RunRef, SignInView } from '../src/types.ts';
+
+// Go key adds list the key's workspaces; the stand-in keys are no login, so the console answers 401 in this process.
+fakeOpenCodeConsole();
 
 const indexOf = (stateDir: string, member: string): string => join(stateDir, 'openclaw', 'accounts', `${member}.json`);
 

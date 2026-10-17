@@ -421,7 +421,8 @@ import type { SealingAdapter } from '@byokit/secrets';
 type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
 type AddKeyResult = { status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry';
-  reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' };
+  reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' }
+  | { status: 'needs_workspace'; workspaces: { id: string; name: string }[] };
 type AddKeyHandle = Promise<AddKeyResult> & { cancel(): void };   // cancel clears a pending add (retry/busy)
 
 export type KitOptions = {
@@ -479,7 +480,7 @@ export declare class OpenClawKit {
   addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId },
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
     done: Promise<{ view: SignInView; id: AccountId }> }>;
-  addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string }): AddKeyHandle;
+  addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string; orgId?: string }): AddKeyHandle;
   removeKey(member: Member, o?: { provider?: string }): Promise<void>;   // 5.8: clears the saved key lane
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account>;
   removeAccount(member: Member, id: AccountId): Promise<void>;
@@ -1007,7 +1008,15 @@ the engine. External retained sources are touched only when explicitly passed to
   account; every further account is its own agent holding a scoped view of the shared grant (5.15).
   Absent, the request is unchanged and the engine uses its own selection.
 - API keys are opt-in, labelled **API key (billed per use)**, and every API route retains `offer: false`.
-  `addKey(member, { authChoice, apiKey, model? })` uses typed `openclaw.setup.activate` with `kind: 'api-key'` only.
+  `addKey(member, { authChoice, apiKey, model?, orgId? })` uses typed `openclaw.setup.activate` with `kind: 'api-key'` only.
+  `orgId` is Go-only (another route returns `{ status: 'not_included', reason: 'model' }`): the workspace a Go plan login acts for,
+  written before activation as the provider's `x-opencode-org-id` config header, so the probe and every run carry it; the slot is
+  provider-wide, `removeKey` drops it, and an add that names none keeps the standing one. With no `orgId` a Go add first lists the
+  key's workspaces (`openCodeWorkspaces` from `@byokit/accounts/opencode-go`, the console listing `Accounts.add` uses): one is
+  used as `orgId`; several resolve `{ status: 'needs_workspace', workspaces }` (row ids and names, never secrets) for the app's pick,
+  then the app adds again with `orgId`; a key the console refuses (a workspace-bound service key) adds with no header. A listing
+  that could not be read (its typed `workspaces_unread`: offline, timeout, a server error, a body that is no list) resolves `retry`/`network`; like
+  `needs_workspace` it lands before any prepare or activation, so the member's lanes are untouched. `cancel()` also stops the listing.
   It returns an `AddKeyHandle`: a thenable `AddKeyResult` with `cancel()` that stops a pending add, clears any partial
   key best-effort, and settles `retry`/`busy` (no wizard.cancel; key activation is not a wizard session).
   `AddKeyResult` is `{ status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry'; reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' }`.
@@ -1297,10 +1306,11 @@ declare function outputSchema(value: unknown): { prompt: string; parse(text: str
 type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
 type AddKeyResult = { status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry';
-  reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' };   // 5.8, fixed discriminants only
+  reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' }
+  | { status: 'needs_workspace'; workspaces: { id: string; name: string }[] };   // 5.8, fixed discriminants only
 type AddKeyHandle = Promise<AddKeyResult> & { cancel(): void };   // 5.8; cancel clears a pending add (retry/busy)
 interface OpenClawKit {   // 5.3 signatures; the built kit has addKey and the account methods through removeAccount, the rest lands with O14
-  addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string }): AddKeyHandle;
+  addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string; orgId?: string }): AddKeyHandle;
   addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId },
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
     done: Promise<{ view: SignInView; id: AccountId }> }>;

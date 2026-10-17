@@ -3,6 +3,12 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { OpenClawKit } from '@byokit/openclaw';
 import { fakeGateway } from '@byokit/openclaw/testing';
 
+// Offline, the console's org listing (a Go key add lists the key's workspaces) is answered in this process: the
+// stand-in key is no login (401), so the drive never leaves the machine. Every other address passes through.
+const realFetch = globalThis.fetch;
+globalThis.fetch = (input, init) => String(input instanceof Request ? input.url : input) === 'https://opencode.ai/console/api/orgs'
+  ? Promise.resolve(new Response('', { status: 401 })) : realFetch(input, init);
+
 const stateDir = mkdtempSync('.verify-artifacts/session-binding-');
 const fake = fakeGateway();
 const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0 });
