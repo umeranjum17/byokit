@@ -1,0 +1,1 @@
+- FEAT: The herdr test fake answers `pane.report_agent` and the `herdr pane report-agent --pane <id> --state <state>` verb, so a status set from another process shows in the kit's snapshot and `onChange`; `failed` is refused as the pinned schema refuses it. `fake.holdAgentWait()` holds `agent.wait` answers until the release runs.

@@ -735,4 +735,56 @@ export function herdrContract(
       assert.ok(exited.code === 0 || exited.code === null);
     });
   });
+
+  test('contract: pane.report_agent sets the status the snapshot shows', async () => {
+    await bench(async ({ kit }) => {
+      await kit.start();
+      await settle(100);   // the bootstrap's per-pane watch registers on its own socket
+      await kit.call('pane.report_agent', { pane_id: 'w1:p2', agent: 'pi', source: 'contract', state: 'working' });
+      await until(() => agentStatusOf(kit.snapshot(), 'w1:p2').status, (s) => s === 'working');
+    });
+  });
+
+  test('contract: pane.report_agent refuses a state the pinned schema does not report', async () => {
+    await bench(async ({ kit }) => {
+      await kit.start();
+      await settle(100);
+      // The typed surface forbids `failed`; the refusal the real server gives is what this case proves.
+      const failed = { pane_id: 'w1:p2', agent: 'pi', source: 'contract', state: 'failed' } as never;
+      await assert.rejects(kit.call('pane.report_agent', failed));
+      assert.notEqual(agentStatusOf(kit.snapshot(), 'w1:p2').status, 'failed');
+    });
+  });
+
+  test('contract: pane report-agent from a child process sets the status, and failed is refused', async (t) => {
+    await bench(async ({ kit, fake }) => {
+      if (!fake) return t.skip('the child-process verb is checked against the fake bin here');
+      await kit.start();
+      await settle(100);
+      const reported = await kit.cli(['pane', 'report-agent', '--pane', 'w1:p2', '--source', 'contract', '--agent', 'pi', '--state', 'blocked']);
+      assert.equal(reported.exitCode, 0, reported.stderr);
+      await until(() => agentStatusOf(kit.snapshot(), 'w1:p2').status, (s) => s === 'blocked');
+      const refused = await kit.cli(['pane', 'report-agent', '--pane', 'w1:p2', '--source', 'contract', '--agent', 'pi', '--state', 'failed']);
+      assert.notEqual(refused.exitCode, 0);
+      assert.match(refused.stderr, /failed/);
+      assert.equal(agentStatusOf(kit.snapshot(), 'w1:p2').status, 'blocked');
+    });
+  });
+
+  test('contract: a held agent.wait answers only after release', async (t) => {
+    await bench(async ({ kit, fake }) => {
+      if (!fake) return t.skip('the hold is a fake-only control');
+      await kit.start();
+      const release = fake.holdAgentWait();
+      let answered: string | undefined;
+      const waiting = kit.wait({ paneId: 'w1:p2' }, { until: ['idle'], timeoutMs: 2000 }).then((status) => {
+        answered = status;
+        return status;
+      });
+      await settle(100);
+      assert.equal(answered, undefined, 'the held wait has not answered');
+      release();
+      assert.equal(await waiting, 'idle');
+    });
+  });
 }

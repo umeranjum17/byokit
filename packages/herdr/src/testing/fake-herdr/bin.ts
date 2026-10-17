@@ -175,8 +175,15 @@ async function runCliVerb(argv: string[]): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  // A CLI verb spells its method with dashes (`pane report-agent` is `pane.report_agent`), and
+  // `pane report-agent` takes its pane as `--pane <id>` (or as the positional after the verb).
+  const method = `${positional[0]}.${positional[1].replaceAll('-', '_')}`;
+  if (method === 'pane.report_agent') {
+    params.pane_id ??= params.pane ?? positional[2];
+    delete params.pane;
+  }
   try {
-    const result = await rpc(socketPath, `${positional[0]}.${positional[1]}`, params);
+    const result = await rpc(socketPath, method, params);
     process.stdout.write(`${JSON.stringify({ result })}\n`);
   } catch (error) {
     process.stderr.write(`${(error as Error).message}\n`);
