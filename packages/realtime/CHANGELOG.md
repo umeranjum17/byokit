@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.2 (2026-10-17)
+
 - Dependency update: ws 8.22.0.
 
 ## 0.3.1 (2026-10-01)

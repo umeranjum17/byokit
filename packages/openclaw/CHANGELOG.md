@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.14.4 (2026-10-17)
+
+- Dependency update: pins @byokit/relay 0.8.0.
+- Dependency update: pins @byokit/pair 0.10.2.
+- Dependency update: pins @byokit/accounts 0.24.3.
+
+- FIX: `routes()` now describes the engine the kit actually pins. The generated table was still built from the 2026.8.1 pin while `ENGINE_VERSION` is 2026.8.35, so every row said `source: "... (2026.8.1)"` and `revision: "2026.8.1"`. `scripts/gen-routes.ts` pins 2026.8.35 (upstream commit from `engine/patches.json`), reads manifest directories only (the 2026.8.35 source tree keeps an `extensions/.npmignore` file), and a new public-API journey test fails whenever the table names anything but `ENGINE_VERSION`. All 96 rows re-verified against the 2026.8.35 manifests: the choice set is identical (nothing added or removed); every row now carries `(2026.8.35)`.
+
 ## 0.14.3 (2026-10-17)
 
 - Dependency update: pins @byokit/ui 0.9.0.

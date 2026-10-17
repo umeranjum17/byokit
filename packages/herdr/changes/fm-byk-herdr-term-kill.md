@@ -1,1 +1,0 @@
-- FIX: `kit.terminal(...).close()` now sends SIGKILL after `killGraceMs` (default 3000) when the `herdr terminal session` child ignores SIGTERM, and `exited` settles in both cases, so a stuck terminal client cannot leak on the host.

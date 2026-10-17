@@ -1,6 +1,6 @@
 {
   "name": "@byokit/herdr",
-  "version": "0.12.1",
+  "version": "0.12.2",
   "description": "Drive the Herdr on this computer — workspaces, tabs, panes, agents and blocked-approval answers — from an app, or hand it to a phone over @byokit/pair.",
   "license": "Apache-2.0",
   "type": "module",
@@ -53,8 +53,8 @@
   },
   "peerDependencies": {
     "@byokit/discover": "0.8.3",
-    "@byokit/pair": "0.10.1",
-    "@byokit/relay": "0.7.1"
+    "@byokit/pair": "0.10.2",
+    "@byokit/relay": "0.8.0"
   },
   "peerDependenciesMeta": {
     "@byokit/discover": {

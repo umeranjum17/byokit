@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.9.4 (2026-10-17)
+
+- Dependency update: pins @byokit/pair 0.10.2.
+- Dependency update: pins @byokit/accounts 0.24.3.
+- FIX: (from @byokit/accounts 0.24.3) a key-route ask the provider refuses no longer reads as the generic "This account could not answer. Try again." `KeyRouteError` has three new codes, read from the HTTP status the request got back: `out_of_credit` (402, with or without a body: "This account is out of credit. Add credit with the provider, then try again."), `key_refused` (401, or a 403 that is not the OpenCode workspace refusal) and `rate_limited` (429), each with its words in `words.json` (`ask.outOfCredit`, `ask.keyRefused`, `ask.rateLimited`). Still never retried; any other failure stays `request`. Adapters that take no app `fetch` (Google AI Studio, Vertex, Bedrock) keep `request` for these.
+
 ## 0.9.3 (2026-10-17)
 
 - Dependency update: pins @byokit/accounts 0.24.2.

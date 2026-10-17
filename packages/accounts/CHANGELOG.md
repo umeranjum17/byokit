@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.24.3 (2026-10-17)
+
+- FIX: a key-route ask the provider refuses no longer reads as the generic "This account could not answer. Try again." `KeyRouteError` has three new codes, read from the HTTP status the request got back: `out_of_credit` (402, with or without a body: "This account is out of credit. Add credit with the provider, then try again."), `key_refused` (401, or a 403 that is not the OpenCode workspace refusal) and `rate_limited` (429), each with its words in `words.json` (`ask.outOfCredit`, `ask.keyRefused`, `ask.rateLimited`). Still never retried; any other failure stays `request`. Adapters that take no app `fetch` (Google AI Studio, Vertex, Bedrock) keep `request` for these.
+
 ## 0.24.2 (2026-10-17)
 
 - FIX: an OpenCode Go key saved with `saveKey` (or `saveOpenCodePlanKey`, or the managed CLI's `saveKey` without `workspace`) instead of `add` no longer has every call refused with `403 Workspace selection is required`. The first Go call (or CLI `launch`) lists the key's workspaces: one is sent and stored with the key, so later calls skip the list; several reject with the typed `KeyRouteError` `needs_workspace` before any call goes out. A listing that cannot be read (console offline, timeout, server error) is no longer taken for "no workspace": nothing is saved, the call shows the gateway's own answer, and the next call lists again. `openCodeGoPlanAccount` and `cliAccounts` take an optional `fetch`.
