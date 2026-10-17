@@ -24,6 +24,22 @@ async function register(url: string, hello: (c: Challenge) => object): Promise<{
   });
 }
 
+/** A raw host socket that answers the challenge after `delay` ms, and what the relay did with it. */
+async function registerLate(url: string, keys: ReturnType<typeof keyPair>, delay: number): Promise<{ ready?: any; close?: [number, string] }> {
+  const ws = new WebSocket(`${url}/relay/v1/host`);
+  return new Promise((resolve) => {
+    ws.addEventListener('message', (e) => {
+      const m = JSON.parse(String(e.data));
+      if (m.t === 'ready') { resolve({ ready: m }); ws.close(); return; }
+      if (m.t !== 'challenge') return;
+      setTimeout(() => {
+        try { ws.send(JSON.stringify({ t: 'hello', key: b64u(keys.publicKey), proof: b64u(prove(keys, m)) })); } catch { /* already closed: the budget ran out */ }
+      }, delay);
+    });
+    ws.addEventListener('close', (e) => resolve({ close: [e.code, e.reason] }));
+  });
+}
+
 test('strict auth holds for tunnelled peers: no proof, a forged proof, a replayed proof and an unknown host are refused', async () => {
   const r = await startRelay({ ownerToken: 'owner' });
   const keys = keyPair();
@@ -85,4 +101,24 @@ test('open signup still rejects forged proofs before registration or host bucket
   assert.equal(denied.close?.[0], CLOSE.badProof);
   assert.deepEqual(r.relay.hosts(), []);
   assert.deepEqual(hosts, []);
+});
+
+test('a host stalled past its hello budget gets 4408, and a longer helloMs lets the same late hello register', async () => {
+  const keys = keyPair();
+  const LATE = 300; // a machine stall: the hello answers 300 ms after the challenge
+  const strict = await startRelay({ helloMs: 200 });
+  await strict.relay.admit(keys.publicKey);
+  assert.deepEqual((await registerLate(strict.ws, keys, LATE)).close, [4408, 'too slow'], 'past the budget');
+
+  const patient = await startRelay({ helloMs: 600 });
+  await patient.relay.admit(keys.publicKey);
+  const ok = await registerLate(patient.ws, keys, LATE);
+  assert.equal(ok.ready?.id, hostId(keys.publicKey), 'the same late hello registers with a longer budget');
+  assert.equal(patient.relay.hosts().filter((h) => h.online).length, 1);
+
+  // The default is unchanged: a 300 ms hello is far inside the 10 s budget.
+  const plain = await startRelay();
+  await plain.relay.admit(keys.publicKey);
+  const also = await registerLate(plain.ws, keys, LATE);
+  assert.equal(also.ready?.id, hostId(keys.publicKey), 'omitted helloMs still allows a slow hello');
 });

@@ -149,7 +149,9 @@ BYOKit supplies the library; the app chooses and runs its relay.
 A host's address is link's `host.id`, a hash of its public key. To register, a host proves it holds that key: the relay
 sends a fresh X25519 key and a nonce, and the host answers with an HMAC keyed by their DH. A proof is good for that one
 socket, so it can't be replayed, and nobody can register under another host's address. The relay never trusts where a
-connection comes from: behind a tunnel everything looks like loopback.
+connection comes from: behind a tunnel everything looks like loopback. The host must answer within its hello budget
+(`helloMs` in `Relay.open`, default 10 s); a slower hello is closed with `4408 too slow`. A self-hosted relay beside
+a machine that stalls under load can set a longer budget.
 
 A host must also be allowed:
 

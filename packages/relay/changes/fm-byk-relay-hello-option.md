@@ -1,0 +1,1 @@
+- FEAT: `Relay.open({ helloMs })` sets how long a host has to answer the challenge with its hello (default 10 s); a slower hello is still closed with `4408 too slow`. A self-hosted relay beside a machine that stalls can allow a longer budget.
