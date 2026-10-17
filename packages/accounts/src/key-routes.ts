@@ -2,6 +2,7 @@
 import type { createModels, createProvider } from '@earendil-works/pi-ai';
 import type { Api, AssistantMessage, AssistantMessageEvent, Context, Model, ModelAuth, ModelsApiStreamOptions, ProviderResponse, ProviderStreams, ProviderHeaders } from '@earendil-works/pi-ai';
 import type { Route } from './catalogue.ts';
+import { say } from './words.ts';
 
 /** Full Pi request shape; auth always comes from the selected device-owned account. */
 export type KeyAsk<T extends Api = Api> = {
@@ -9,7 +10,7 @@ export type KeyAsk<T extends Api = Api> = {
   onText?: (delta: string) => void; onEvent?: (event: AssistantMessageEvent) => void;
 };
 export class KeyRouteError extends Error {
-  readonly code: 'unsupported_platform' | 'needs_host' | 'needs_keys' | 'no_upstream_flow' | 'provider' | 'request' | 'needs_workspace' | 'workspaces_unread' | 'aborted' | 'auth_override';
+  readonly code: 'unsupported_platform' | 'needs_host' | 'needs_keys' | 'no_upstream_flow' | 'provider' | 'request' | 'needs_workspace' | 'workspaces_unread' | 'aborted' | 'auth_override' | 'out_of_credit' | 'key_refused' | 'rate_limited';
   constructor(code: KeyRouteError['code']) {
     super({ unsupported_platform: 'This model adapter is not available on this platform.', needs_host: 'This model adapter needs an isolated app-owned host.',
       needs_keys: 'Key routes need the @byokit/accounts/keys entry: withKeys(platform).',
@@ -17,7 +18,8 @@ export class KeyRouteError extends Error {
       request: 'This account could not answer. Try again.', needs_workspace: 'This account works with more than one workspace. Pick the one to use and connect it again.',
       workspaces_unread: 'Couldn’t reach OpenCode to check this key’s workspaces. Check the internet connection, then try again.',
       aborted: 'The request was cancelled.',
-      auth_override: 'A prebuilt client owns its own sign-in. Use the native adapter explicitly.' }[code]);
+      auth_override: 'A prebuilt client owns its own sign-in. Use the native adapter explicitly.',
+      out_of_credit: say('ask.outOfCredit'), key_refused: say('ask.keyRefused'), rate_limited: say('ask.rateLimited') }[code]);
     this.name = 'KeyRouteError'; this.code = code;
   }
 }
@@ -50,6 +52,10 @@ function publicValue<T>(value: T, secrets: readonly string[]): T {
   return JSON.parse(JSON.stringify(value, (_key, entry) => typeof entry === 'string' ? secrets.reduce((text, secret) => text.split(secret).join('[redacted]'), entry) : entry)) as T;
 }
 
+/** A provider's own refusal, by the HTTP status it answered; anything else is the bounded generic. */
+const refusal = (status: number): KeyRouteError['code'] =>
+  status === 402 ? 'out_of_credit' : status === 401 || status === 403 ? 'key_refused' : status === 429 ? 'rate_limited' : 'request';
+
 /** `access` is a saved key, or an OAuth sign-in's request auth as its pinned Pi provider derives it (a bearer key, Kimi's
  *  header or Copilot's base), which replaces the route's key auth. */
 export async function keyRespond<T extends Api>(r: Route, access: string | ModelAuth, ask: KeyAsk<T>, fetcher: typeof fetch | undefined, runtime: KeyRuntime): Promise<AssistantMessage> {
@@ -57,6 +63,15 @@ export async function keyRespond<T extends Api>(r: Route, access: string | Model
   const auth: ModelAuth = typeof access === 'string' ? { apiKey: access } : access;
   const secrets = [auth.apiKey, ...Object.values(auth.headers ?? {}).map((value) => value?.replace(/^Bearer\s+/i, ''))].filter((s): s is string => !!s);
   if (ask.model.api === 'google-vertex' && typeof access === 'string' && /^<[^>]+>$/.test(access.trim())) throw new KeyRouteError('request');
+  // The status only, read where this request went out: Pi's error event keeps it inside its message. Adapters that
+  // take no fetch (Google, Bedrock) never set it and stay 'request'.
+  let status = 0;
+  const send = options?.fetch ?? fetcher;
+  const watched: typeof fetch = async (input, init) => {
+    const res = await (send ?? fetch)(input, init);
+    status = res.status;
+    return res;
+  };
   try {
   let api = await runtime.api(ask.model.api);
   if (r.provider === 'cloudflare') api = (await runtime.cloudflare()).cloudflareStreams(api);
@@ -80,7 +95,7 @@ export async function keyRespond<T extends Api>(r: Route, access: string | Model
   const env: Record<string, string> = { ...defaults, ...options?.env };
   for (const [key, value] of Object.entries(defaults)) if (!env[key]) env[key] = value;
   const stream = models.stream(model, ask.context, { ...options, apiKey: auth.apiKey, env, maxRetries: 0,
-    fetch: options?.fetch ?? (['google-generative-ai', 'google-vertex'].includes(ask.model.api) ? undefined : fetcher), transformHeaders: undefined,
+    fetch: options?.fetch || !['google-generative-ai', 'google-vertex'].includes(ask.model.api) ? watched : undefined, transformHeaders: undefined,
     headers: { ...nonAuthHeaders(options?.headers), ...authHeaders },
     onResponse: options?.onResponse && ((response: ProviderResponse, model: Model<Api>) => options.onResponse!(publicValue(response, secrets), model)),
     onPayload: async (payload: unknown, model: Model<Api>) => {
@@ -100,7 +115,7 @@ export async function keyRespond<T extends Api>(r: Route, access: string | Model
       if (event.type === 'error') {
         const reason = (event as { error?: { errorMessage?: unknown } }).error?.errorMessage;
         throw new KeyRouteError(typeof reason === 'string' && /workspace selection is required/i.test(reason) ? 'needs_workspace'
-          : event.reason === 'aborted' ? 'aborted' : 'request');
+          : event.reason === 'aborted' ? 'aborted' : refusal(status));
       }
       ask.onEvent?.(event);
       if (event.type === 'text_delta') ask.onText?.(event.delta);
@@ -110,6 +125,6 @@ export async function keyRespond<T extends Api>(r: Route, access: string | Model
     return result;
   } catch (error) {
     if (error instanceof KeyRouteError) throw error;
-    throw new KeyRouteError(options?.signal?.aborted ? 'aborted' : 'request');
+    throw new KeyRouteError(options?.signal?.aborted ? 'aborted' : refusal(status));
   }
 }

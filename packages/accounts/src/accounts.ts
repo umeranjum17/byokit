@@ -1074,7 +1074,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     try {
       return await keyRespond(r, auth, { ...ask, options: { ...ask.options, fetch: watched } as KeyAsk<T>['options'] }, undefined, runtime);
     } catch (e) {
-      if (!(e instanceof KeyRouteError && e.code === 'request' && refused?.status === 429)) throw e;
+      if (!(e instanceof KeyRouteError && e.code === 'rate_limited' && refused)) throw e;
       // Retry-After in seconds or as an HTTP date; none (or one already past) rests the default.
       const wait = Number(refused.retryAfter) * 1000 || Date.parse(refused.retryAfter ?? '') - Date.now();
       const acted = (await this.failed(member, key, new ResponseError('', 'rate_limit', wait > 0 ? Date.now() + wait : 0), true))!;

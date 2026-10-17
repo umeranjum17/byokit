@@ -5,6 +5,9 @@ import { Accounts as Portable } from '../src/portable.ts';
 import { keys, withKeys } from '../src/keys.ts';
 import type { Record as CredentialRecord } from '../src/stores.ts';
 import type { Keystore } from '@byokit/secrets';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
+import type { AddressInfo } from 'node:net';
 import streamFixture from '../../../fixtures/conformance/pi-streams.json' with { type: 'json' };
 
 const canary = 'B2-exact-secret-canary-987654321';
@@ -270,6 +273,33 @@ test('request errors are bounded and never retried; cancellation, wrong provider
   await assert.rejects(a.respondKey('member', { account: 'groq:key', model: model('other', 'openai-completions'), context }), { code: 'provider' });
   await assert.rejects(h.a.respondKey('member', { account: 'aws-bedrock:key', model: model('amazon-bedrock', 'bedrock-converse-stream'), context }), { code: 'needs_host' });
   assert.equal(reads, 0);
+});
+
+test('a provider refusal reads as its own typed error: out of credit, refused key, rate limit; no stale status leaks', async () => {
+  // A loopback OpenAI-compatible fake answering as OpenRouter does, one queued answer per request.
+  const credits = JSON.stringify({ error: { code: 402, message: 'This request requires more credits, or fewer max_tokens. You requested up to 4096 tokens, but can only afford 1234. To increase, visit https://openrouter.ai/settings/credits and add more credits' } });
+  const answers: Array<[number, string] | 'drop'> = [[402, credits], [401, JSON.stringify({ error: { code: 401, message: 'User not found.' } })],
+    [429, JSON.stringify({ error: { code: 429, message: 'Rate limit exceeded' } })], [402, ''], [500, '{}'], [402, credits], 'drop'];
+  const server = createServer((req, res) => {
+    const answer = answers.shift()!;
+    if (answer === 'drop') return req.socket.destroy();
+    res.writeHead(answer[0], { 'content-type': 'application/json' }).end(answer[1]);
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  try {
+    const h = harness();
+    const { id } = await h.a.add('member', 'openrouter:key', { key: canary });
+    const ask = { account: id, model: { ...model('openrouter', 'openai-completions'), baseUrl: `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1` }, context };
+    const codes: string[] = [];
+    for (let i = 0; i < 4; i++) await h.a.respond('member', ask).catch((e: KeyRouteError) => { codes.push(e.code); assert.ok(!e.message.includes(canary)); });
+    assert.deepEqual(codes, ['out_of_credit', 'key_refused', 'rate_limited', 'out_of_credit']);
+    await assert.rejects(h.a.respond('member', ask), { code: 'request' }, 'an unknown failure stays the generic');
+    await assert.rejects(h.a.respond('member', ask), { code: 'out_of_credit', message: 'This account is out of credit. Add credit with the provider, then try again.' });
+    await assert.rejects(h.a.respond('member', ask), { code: 'request' }, 'a dropped connection after a 402 never reads the earlier status');
+    assert.equal(answers.length, 0, 'one request per ask, never retried');
+    assert.equal(await h.a.signedIn('member', id), true);
+  } finally { server.close(); }
 });
 
 test('no plaintext fallback or key-store error leakage; failed metadata commit restores the previous secret', async () => {
