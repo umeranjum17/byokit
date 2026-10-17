@@ -6,7 +6,7 @@ with no agents record, never invents a phantom agent for a plain shell, and stay
 shape change: `workspace.updated` merges label, focused, number, tokens and worktree; the focus events
 (`pane.focused`, `tab.focused`, `workspace.focused`) move pane and workspace focus; a partial worktree
 (`checkout_path` alone) is kept; agent records carry their `cwd`; a `failed` agent status lands and is
-not promptable; every snapshot carries a `revision` that increases on each tree change; and a moved
+not promptable; every snapshot carries a `revision` that moves only on a tree change (an identical title tick or a focus on the already-focused pane moves nothing); and a moved
 pane drops its old id while its successor keeps tracking live status pushes.
 
 ## Sub-features
@@ -18,7 +18,7 @@ pane drops its old id while its successor keeps tracking live status pushes.
 - `partial-worktree`: a worktree record with only `checkout_path` is kept as `{ checkoutPath }`.
 - `agent-cwd`: the seeded agent's snapshot record carries `cwd`.
 - `failed-status`: a `failed` agent status lands in the tree and `isPromptable` reads false.
-- `revision`: the snapshot revision strictly increases across status and title changes.
+- `revision`: the snapshot revision strictly increases across status and title changes, and moves only on a tree change: ten identical `pane.updated` title ticks plus a `pane.focused` for the focused pane leave the revision and the `onChange` count unchanged, and that same burst plus one `setStatus` is exactly +1.
 - `pane-moved`: a `pane_moved` (account-move shape) swaps the pane id in the tree and the successor tracks a later status push.
 
 ## How to get to it (user POV)
@@ -65,7 +65,13 @@ Herdr serves a real Unix socket under the scratch directory and answers the pinn
   - `failed-status`: `fake.setStatus('w1:p2', 'failed')`, wait for the tree to carry `failed`, and
     `isPromptable(agent)` is false.
   - `revision`: read the revision, drive `fake.setStatus('w1:p2', 'working')`, wait for the tree,
-    read again — strictly greater; drive a second change, strictly greater again.
+    read again — strictly greater; drive a second change, strictly greater again. Then the no-op leg:
+    `kit.onEvent` as a raw tap whose `pane.focused` frame is the sentinel (each frame is merged before
+    the next tap callback, so the sentinel's arrival means every earlier frame landed). Emit the title
+    tick `pane.updated` for `w1:p1` with `terminal_title_stripped: 'zsh'` once, sentinel, read `r0`, count
+    `onChange` calls, emit that tick ten more times, emit `pane.focused` for the focused pane, sentinel.
+    Assert the revision is still `r0` and zero `onChange` calls. Then `fake.setStatus('w1:p2', 'idle')`,
+    wait for `idle` in the tree, and assert the revision is exactly `r0 + 1` with one `onChange`.
   - `pane-moved`: move `w1:p2` to a fresh id (`fake.world` mutation swapping the pane/agent ids to
     `w1:p9` plus `fake.emit({ type: 'pane.moved', previous_pane_id: 'w1:p2', pane: { pane_id: 'w1:p9', ... }, previous_tab_id: 'w1:t1', previous_workspace_id: 'w1' })`),
     wait for `w1:p9` in the tree with `w1:p2` gone, then `fake.setStatus('w1:p9', 'working')` and wait for
@@ -82,7 +88,7 @@ Herdr serves a real Unix socket under the scratch directory and answers the pinn
 - **partial-worktree shows.** `{ checkoutPath }` alone, no optional fields conjured.
 - **agent-cwd shows.** The agent record's `cwd` equals the fake world's cwd.
 - **failed-status shows.** `failed` in the tree, `isPromptable` false.
-- **revision shows.** Strictly increasing across a status push and a title merge.
+- **revision shows.** Strictly increasing across a status push and a title merge; unchanged across ten identical title ticks and a focus no-op; exactly +1 after a status change that follows the burst.
 - **pane-moved shows.** The old id is gone and the successor tracks `fake.setStatus` on the new id.
 
 ## Gotchas

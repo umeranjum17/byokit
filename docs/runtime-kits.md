@@ -2376,7 +2376,7 @@ export declare class HerdrKit {
   cli(args: string[], o?: { timeoutMs?: number; env?: Record<string, string> }): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }>;
   terminal(paneId: string, o: { mode: 'control' | 'observe'; cols: number; rows: number }): TerminalSession;
   // live tree
-  snapshot(): HerdrSnapshot;     // workspaces → tabs → panes → agents, kept current by events
+  snapshot(): HerdrSnapshot;     // workspaces → tabs → panes → agents, kept current by events; `revision` moves only on a tree change
   onChange(fn: (s: HerdrSnapshot) => void): () => void;
   // helpers
   startAgent(o: StartAgent): Promise<AgentRef>;

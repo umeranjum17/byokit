@@ -220,6 +220,7 @@ export class HerdrKit {
     return (code, message) => this.o.onLog?.(`herdr: ${where} subscription rejected: ${code}: ${message}`);
   }
   private update(e: HerdrEvent) {
+    const before = JSON.stringify(this.tree);
     const raw = e as Raw;
     // The pinned schema spells subscription kinds with dots (`pane.created`) while live
     // frames carry the underscore const (`pane_created`, schema/SOURCE.md); match both.
@@ -310,7 +311,9 @@ export class HerdrKit {
       if (workspace !== undefined) for (const t of workspace.tabs) for (const p of t.panes) this.statusEpoch.delete(p.id);
       this.tree.workspaces = this.tree.workspaces.filter((w) => w.id !== raw.workspace_id);
     }
-    this.publish();
+    // `revision` moves only on a tree change: an event that leaves the tree as it was publishes nothing.
+    // ponytail: the compare serialises the whole tree per event; per-branch changed flags if trees grow large.
+    if (JSON.stringify(this.tree) !== before) this.publish();
   }
   private async bootstrap(token: number, buffered: HerdrEvent[]): Promise<void> {
     let resolveStatus!: () => void;
@@ -402,8 +405,9 @@ export class HerdrKit {
     if (this.statusEpoch.get(paneId) !== epoch) {
       const pane = findPane(this.tree, paneId);
       if (pane?.agent !== undefined) {
+        const before = JSON.stringify(this.tree);
         pane.agent = mergeAgent(pane.agent, flags);
-        this.publish();
+        if (JSON.stringify(this.tree) !== before) this.publish();
       }
       return;
     }

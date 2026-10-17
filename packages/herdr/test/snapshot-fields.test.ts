@@ -391,6 +391,47 @@ test('K2: snapshot revision increases on every tree change', async () => {
   }
 });
 
+test('K2: revision moves only on a tree change', async () => {
+  const fake = await startFakeHerdr({ dir: scratchDir('herdr-k2-quiet-revision') });
+  const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath });
+  try {
+    await kit.start();
+    await kit.statusWatchReady();
+    const focusedPane = kit.snapshot().workspaces.flatMap((w) => w.tabs.flatMap((t) => t.panes)).find((p) => p.focused)?.id;
+    assert.ok(focusedPane !== undefined, 'the fake has a focused pane');
+    // The raw tap fires before each event is merged, so a `pane.focused` seen on it is the stream's
+    // sentinel: every frame sent earlier has been merged by the time the probe runs.
+    const raw: HerdrEvent[] = [];
+    const stopRaw = kit.onEvent((e) => raw.push(e));
+    const typeOf = (e: HerdrEvent) => String(e.type).replace(/_/g, '.');
+    const sentinel = async () => {
+      const before = raw.filter((e) => typeOf(e) === 'pane.focused').length;
+      fake.emit({ type: 'pane.focused', pane_id: focusedPane, workspace_id: 'w1' });
+      await until(() => raw.filter((e) => typeOf(e) === 'pane.focused').length > before || undefined, Boolean);
+    };
+    const tick = { type: 'pane.updated', pane: { pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1', terminal_title_stripped: 'zsh' } };
+    fake.emit(tick);
+    await sentinel();
+    const r0 = kit.snapshot().revision;
+    const seen: HerdrSnapshot[] = [];
+    const stop = kit.onChange((s) => seen.push(s));
+    for (let i = 0; i < 10; i++) fake.emit(tick);
+    await sentinel();
+    assert.equal(kit.snapshot().revision, r0, 'ten identical title ticks and a focus no-op move no revision');
+    assert.equal(seen.length, 0, 'and deliver no onChange');
+    // The same burst plus one real status change is exactly one revision bump.
+    fake.setStatus('w1:p2', 'working');
+    await until(() => kit.snapshot(), (s) => paneOf(s, 'w1:p2')?.pane.agent?.status === 'working');
+    assert.equal(kit.snapshot().revision, r0 + 1, 'the status change is the only bump');
+    assert.equal(seen.length, 1, 'and delivers one onChange');
+    stop();
+    stopRaw();
+  } finally {
+    await kit.stop().catch(() => {});
+    await fake.stop().catch(() => {});
+  }
+});
+
 test('K2: pane.moved clears the previous pane id and its status epoch', async () => {
   const fake = await startFakeHerdr({ dir: scratchDir('herdr-k2-moved-epoch') });
   const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath });
