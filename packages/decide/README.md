@@ -362,7 +362,7 @@ reject unsupported fields (including `max_output_tokens`, `temperature` and `met
 may be unsupported for accounts.
 
 `UnsupportedAccountError` (`code: 'unsupported_account'`) is thrown for missing consent, missing account sessions,
-unavailable chosen models or unsupported account requests (http 400/404), including from `decide`. There is no
+unavailable chosen models, a model catalogue that answers http 400, or an unsupported account request (http 400/404 on the request), including from `decide`. There is no
 API-key fallback. A refused account (http 401/402/403) abstains with its `failure` code like a refused key;
 ordinary transport/429 failures follow decide's existing failed-backend abstention behavior.
 `OPENAI_ROUTES.apiKey` labels billing `'api'` with `offer: false`; the account route labels `'subscription'` with consent required.

@@ -435,3 +435,21 @@ test('an operator gates a decision on labelled eval files, offline and from the 
     assert.equal(spawnSync(process.execPath, [cli, file, flag, value], { encoding: 'utf8' }).status, 2, `${flag} ${value}`);
   }
 });
+
+test('a refused ChatGPT plan account abstains with its typed failure, and a catalogue 404 stays an ordinary failure', async () => {
+  const questions = jevQuestions();
+  const { chatgptPlan } = await import('@byokit/accounts/chatgpt-plan');
+  const account = chatgptPlan({ session: async () => ({ accessToken: 'plan-token-secret', scopes: ['resource.invoke', 'chatgpt.tokens.use.direct'] }) });
+  const route = (status: number, catalogue = 200) => openai({ auth: 'account', account, model: 'gpt-6.1-sol', fetch: async (url) => {
+    if (url === 'https://api.openai.com/v1/models') return catalogue === 200
+      ? Response.json({ models: [{ slug: 'gpt-6.1-sol', visibility: 'list' }] }) : new Response('', { status: catalogue });
+    return Response.json({ error: { message: 'Workspace access denied for plan-token-secret' } }, { status });
+  } });
+  for (const [status, code] of [[401, 'key_refused'], [403, 'key_refused'], [402, 'out_of_credit']] as const) {
+    const a = (await decide({}, { intent: questions.intent }, { privacy: 'may-leave', backends: [route(status)] })).intent;
+    assert.deepEqual([a.abstained, a.reason, a.failure], [true, `openai failed: http ${status}`, { code, status }]);
+    assert.ok(!JSON.stringify(a).includes('plan-token-secret') && !JSON.stringify(a).includes('Workspace'), 'no token or provider words in the answer');
+  }
+  const missing = (await decide({}, { intent: questions.intent }, { privacy: 'may-leave', backends: [route(0, 404)] })).intent;
+  assert.deepEqual([missing.abstained, missing.reason, missing.failure], [true, 'openai failed: http 404', undefined]);
+});
