@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.15.0 (2026-10-17)
+
+- FEAT: `kit.onChange` is called with `(snapshot, changed)`: `changed` names the panes whose agent status moved in that revision, and is empty for a title-only change, so a host emits just those agent states without debouncing every tree revision.
+- FEAT: a detected agent with no Herdr session yet (Codex, for example) is re-read on its watch ack and on each status push until its session lands, so the session reaches the tree and `onChange` with no host re-read.
+- FEAT: concurrent `refresh()` calls join the one in-flight refresh and resolve with its result; a call after it settles starts a new one, and a failed refresh rejects every joined caller.
+- FEAT: The herdr test fake scripts two more behaviours muxr's launch tests needed a private fake for: `fake.losePrompt(paneId)` makes the pane's next prompt start no turn (a caller that waits gets `agent_prompt_stalled`), and `fake.scriptDrawingReads(paneId, reads, source?)` shows the agent still drawing for the next `reads` caller reads (the kit's own polls are not counted). Both are covered by `herdrContract` cases.
+
 ## 0.14.0 (2026-10-17)
 
 - Dependency update: pins @byokit/relay 0.8.1.
