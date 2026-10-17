@@ -2785,7 +2785,7 @@ unsupported agent/session kind → `unsupported`. The source account is never in
 
 **Signed-out target (MS-S2).** `moveToAccount` owns the target's readiness check; `move` has none and never returns
 `signed_out` (its caller owns readiness: an `@byokit/accounts` host calls `cliAccounts.launch(id)` and passes its
-`set`/`unset`), although its `MoveResult` type still carries the code through the shared union. The account helpers
+`set`/`unset`/`args`; OpenCode 2.x needs `launch.args` (`--standalone`) for a second concurrent account), although its `MoveResult` type still carries the code through the shared union. The account helpers
 receive `agentStatus`; the check runs once, after the refusals that need no wait and before any `whenBusy` wait or the
 split: `agentStatus([kind], { folders: { [kind]: folder }, env })` for the kind mapped from `provider`, on the kit's
 launch PATH, with the probe's own HOME/XDG confinement to the folder (B9), stricter than the replacement shell.
@@ -2795,7 +2795,7 @@ launch PATH, with the probe's own HOME/XDG confinement to the folder (B9), stric
 never refused here; a host gates Pi with `cliAccounts.launch` and `move`. The check is not a lock and only picks the
 words: an account that signs out between the check and the split still never reaches the default login through the
 kit, because the replacement starts only after step 2 verifies the target folder variable (plus the caller's `env`;
-`moveToAccount` has no `unset`, so a host that must drop inherited provider keys uses `move` with `launch`'s `unset`).
+`moveToAccount` has no `unset` or `args`, so a host that must drop inherited provider keys or start OpenCode 2.x standalone uses `move` with `launch`'s `unset` and `args`, which precede the resume arguments).
 The CLI then shows its own sign-in in the replacement or fails step 3 (`start_failed`, replacement closed); whether a
 kind honours its folder variable stays its own behaviour, proven per kind (B9). No path retries without the folder or
 falls back to the person's own sign-in.

@@ -383,12 +383,15 @@ export function cliAccounts(options: CliOptions) {
   }
   const launchArgs = (r: Row): string[] => r.provider === 'pi' ? ['--provider', r.piProvider!] : [];
   /** OpenCode 2.x shares one background server on a fixed port, so a second account's start fails; `--standalone`
-   * gives each start a private one. 1.x refuses the flag. */
+   * gives each start a private one. 1.x refuses the flag, and an unreadable version starts with no flag. */
   async function opencodeArgs(r: Row): Promise<string[]> {
-    const { stdout } = await promisify(execFile)(binary('opencode'), ['--version'], { env: spawnEnv(r), timeout: 15_000, maxBuffer: 64 * 1024 });
-    const major = /(\d+)\.\d+\.\d+/.exec(stdout)?.[1];
-    if (!major) throw new Error(`OpenCode printed no version: ${stdout.slice(0, 200)}`);
-    return Number(major) >= 2 ? ['--standalone'] : [];
+    try {
+      const { stdout } = await promisify(execFile)(binary('opencode'), ['--version'], { env: spawnEnv(r), timeout: 15_000, maxBuffer: 64 * 1024 });
+      const major = /(?:^|\s)v?(\d+)\.\d+\.\d+$/.exec(stdout.split('\n')[0].trim())?.[1];
+      return major !== undefined && Number(major) >= 2 ? ['--standalone'] : [];
+    } catch {
+      return [];
+    }
   }
   function command(r: Row): SignInCommand {
     // OpenCode and Vibe have no native login to spawn: the app collects the key with hidden typing and
@@ -654,9 +657,7 @@ export function cliAccounts(options: CliOptions) {
           let key: string;
           try { key = await storedKey(current); }
           catch { return { ok: false, code: 'signed_out', account, message: say('cli.signedOut', { name: account.name }) }; }
-          let args: string[];
-          try { args = await opencodeArgs(current); }
-          catch (cause) { throw new Error(say('cli.prepareFailed'), { cause }); }
+          const args = await opencodeArgs(current);
           // A key saved without a workspace resolves it here, as every Go call does (several: typed `needs_workspace`).
           // ponytail: a key with no workspace saves no entry (the store refuses empty values), so each launch lists again.
           const workspace = await openCodeWorkspace(key, await readOpenCodeWorkspace(options.keyStore, keyRoute('opencode'), current.id) || undefined,

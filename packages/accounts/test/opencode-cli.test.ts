@@ -298,6 +298,20 @@ test('opencode launch delivers the key through folder files; logout/remove delet
   await kit.remove(bare.id);
 });
 
+test('opencode version is read from the first line only: a banner naming another version keeps the real one', async () => {
+  const root = scratchDir('opencode-cli-banner');
+  const { store } = memoryKeys();
+  const env = { HOME: join(root, 'home'), PATH: '/unused' };
+  const bin = fakeBin(join(root, 'bins'), 'opencode-banner', 'update to 2.0.1 is available; running 1.19.3');
+  const kit = cliAccounts({ stateDir: join(root, 'plans'), bins: { opencode: bin }, env, keyStore: store });
+  const { account } = await kit.add('opencode');
+  await kit.saveKey(account.id, CANARY, { workspace: 'org_BANNER' });
+  const launched = await kit.launch(account.id);
+  if (!launched.ok) throw new Error('opencode launch was not ready');
+  assert.deepEqual(launched.args, [], '1.x refuses --standalone even when the banner names 2.x');
+  await kit.remove(account.id);
+});
+
 test('opencode launch of a key saved without a workspace: one is written and stored, several ask for the pick', async () => {
   const root = scratchDir('opencode-cli-workspace');
   const { store, saved } = memoryKeys();
@@ -347,9 +361,10 @@ test('opencode saveKey/logout refuse the wrong shape, and remote stays read-only
   assert.throws(() => kit.resumeArgs('opencode', { kind: 'id', value: '--flag' }), (e: unknown) => e instanceof CliAccountError && e.code === 'kind-mismatch');
   const broken = cliAccounts({ stateDir: join(root, 'broken'), bins: { opencode: fakeBin(join(root, 'bins'), 'opencode-broken', '') }, env, keyStore: store });
   const { account: unread } = await broken.add('opencode');
-  await broken.saveKey(unread.id, CANARY);
-  await assert.rejects(broken.launch(unread.id), (e: unknown) => e instanceof Error && e.message === 'Could not prepare the account. Try again.'
-    && e.cause instanceof Error && /not a version/.test(e.cause.message) && !JSON.stringify(e).includes(CANARY));
+  await broken.saveKey(unread.id, CANARY, { workspace: 'org_UNREAD' });
+  const unreadStart = await broken.launch(unread.id);
+  assert.equal(unreadStart.ok, true);
+  if (unreadStart.ok) assert.deepEqual(unreadStart.args, [], 'an unreadable version starts without --standalone');
   await broken.remove(unread.id);
   assert.throws(() => openCodePlanKeyEntry(''), /invalid account options/);
   assert.throws(() => openCodePlanKeyEntry(OPENCODE_GO_PLAN_ROUTE, ''), /invalid account options/);
