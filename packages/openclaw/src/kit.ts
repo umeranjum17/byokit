@@ -541,6 +541,7 @@ export class OpenClawKit {
   private failures = 0;
   private reachedReady = false;
   private startRun?: AbortController;
+  private retry?: AbortController;
   private engineExit?: () => void;
   private swept = false;
   private catalogs: Promise<void> = Promise.resolve();
@@ -931,7 +932,8 @@ export class OpenClawKit {
     for (const fn of this.signInDisconnects) fn();
     void this.disconnect();
     if (this.o.spawnEngine === false) { this.setState({ phase: 'failed', why: 'handshake' }); return; }
-    void this.backoff(this.failures++).then(() => { if (!this.stopping && this.current.phase === 'restarting') void this.start().catch(() => {}); });
+    const retry = this.retry = new AbortController();
+    void this.backoff(this.failures++, retry.signal).then(() => { if (!this.stopping && this.current.phase === 'restarting') void this.start().catch(() => {}); }, () => {});
   }
 
   // The reconnect backoff (step 3): state restarting, resolving at retryAt = now + min(30 s, 1 s × 2^failures).
@@ -945,6 +947,7 @@ export class OpenClawKit {
     this.stopping = true;
     this.reachedReady = false;
     this.startRun?.abort();
+    this.retry?.abort();
     await this.disconnect();
     await this.engine.stop();
     await this.closeBrowsers();
