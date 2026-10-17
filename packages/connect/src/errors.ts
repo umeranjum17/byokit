@@ -1,5 +1,5 @@
 import WORDS from './words.json' with { type: 'json' };
-export type ConnectErrorCode = 'configuration' | 'discovery' | 'registration' | 'callback' | 'expired' | 'declined' | 'scope' | 'token' | 'signin' | 'network';
+export type ConnectErrorCode = 'configuration' | 'discovery' | 'registration' | 'callback' | 'expired' | 'declined' | 'scope' | 'token' | 'signin' | 'network' | 'catalog';
 const words: Record<ConnectErrorCode, string> = WORDS.errors;
 export interface ProviderErrorCause { readonly error: string; readonly error_description?: string }
 /** Preserve OAuth diagnostics, removing credentials supplied to or returned by the provider. */

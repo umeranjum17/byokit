@@ -9,7 +9,8 @@
     "scope": "Some permissions were left out. Sign in again and select them.",
     "token": "The app did not finish connecting. Try again.",
     "signin": "Sign in to this app again.",
-    "network": "Could not reach the app. Check your connection and try again."
+    "network": "Could not reach the app. Check your connection and try again.",
+    "catalog": "Could not load the list of apps. Try again later."
   },
   "browser": {
     "unavailable": "This page is not available.",
