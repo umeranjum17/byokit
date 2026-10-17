@@ -162,7 +162,7 @@ kit does not have yet, and [Two ways in](#two-ways-in) plus
 
 | Export | What it does |
 |---|---|
-| `HerdrKit` (`@byokit/herdr`) | The host-side kit, in `adopt` or `own` mode: `start`/`stop`, `state`, `snapshot`/`onChange`, `refresh`, `startAgent`, `place`, `openSignInTab`, `move`, `moveToAccount`, `onStartAgent`, `prompt`, `waitPromptable`, `sendKeys`, `wait`, `read`, `blocked`/`onBlocked`/`answer`, `closePane`/`closeTab`/`closeWorkspace`, the typed edits `rename`/`focus`/`layout`, `agentKinds`, `installedAgentKinds`, `agentStatus`, `agentInstallState`, `terminal`, `onEvent`, `statusWatchReady`, and the pass-throughs `call`, `subscribe` and `cli` |
+| `HerdrKit` (`@byokit/herdr`) | The host-side kit, in `adopt` or `own` mode: `start`/`stop`, `state`, `snapshot`/`onChange`, `refresh`, `startAgent`, `place`, `openSignInTab`, `move`, `moveToAccount`, `onStartAgent`, `prompt`, `waitPromptable`, `sendKeys`, `wait`, `read`, `blocked`/`onBlocked`/`answer`, `closePane`/`closeTab`/`closeWorkspace`/`closePlan`, the typed edits `rename`/`focus`/`layout`, `agentKinds`, `installedAgentKinds`, `agentStatus`, `agentInstallState`, `terminal`, `onEvent`, `statusWatchReady`, and the pass-throughs `call`, `subscribe` and `cli` |
 | `isPromptable`, `agentStatus`, `agentInstallState`, `agentProbePath`, `extraPathDirs`, `runStatusCommand`, `isAutoInstallShim`, `resolveAgentBinary` (`@byokit/herdr`) | `isPromptable(agent)` is the readiness rule `prompt` and `waitPromptable` share; the rest is onboarding readiness: per-kind install + CLI sign-in without a Herdr connection (see below) |
 | `HERDR_VERSION`, `HERDR_PROTOCOL` | The pinned Herdr release (`0.9.1`) and the protocol the kit speaks (`22`) |
 | `words`, `agentWords`, `stateWords`, `WORDS` | Plain sentences for agent statuses and kit states |
@@ -209,7 +209,10 @@ tab's last. For a rollback close of a pane the caller just made, echo that targe
 `closePane(paneId, { confirmed: { scope: 'tab', id } })` closes exactly that tab — refusing `confirmed-scope-mismatch`
 once the live tree no longer matches (the pane moved or gained a sibling), and still refusing
 `tab-close-would-widen` when the confirmed tab is the workspace's last, so a confirmed close never widens past the
-confirmed scope. `sendKeys` reaches plain shells too: a pane with no agent falls back from `agent.send_keys` to
+confirmed scope. For the close sentence itself, `closePlan(paneId)` reads where the pane sits —
+`{ paneId, tabId, workspaceId, workspaceLabel, group? }`, `group` being the worktree group (repo name and member
+count) closing that workspace would take — from live reads, so it rejects with the socket read's own failure when
+Herdr is not answering and `pane-unavailable` when the pane has gone. `sendKeys` reaches plain shells too: a pane with no agent falls back from `agent.send_keys` to
 `pane.send_keys`, so aborts and device keys land on shell routes.
 
 The typed edits take the same shapes on the host (`HerdrKit`) and over the link (`herdrDevice`), so a host never

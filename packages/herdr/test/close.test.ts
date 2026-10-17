@@ -66,6 +66,27 @@ test('a worktree-group root refusal names the group; a confirmed close sends clo
   }, 'h5-close-group');
 });
 
+test('closePlan answers the close sentence from live reads and fails like a socket read', async () => {
+  await withKit(async (kit, fake) => {
+    // worktree.create links a checkout into w1's group: w1 is the root of a two-member group.
+    await kit.rename({ workspace: 'w1', label: 'Umer' });
+    const linked = await kit.startAgent({ kind: 'pi', cwd: '/tmp/plan', place: { workspace: 'new' }, worktree: { branch: 'plan' } });
+    assert.deepEqual(await kit.closePlan('w1:p1'),
+      { paneId: 'w1:p1', tabId: 'w1:t1', workspaceId: 'w1', workspaceLabel: 'Umer', group: { label: 'fake-herdr', size: 2 } },
+      'the root names its group as the would-widen refusal does: repo name plus member count');
+    const member = await kit.closePlan(linked.paneId);
+    assert.equal(member.group, undefined, 'a linked checkout closes alone: no group to name');
+    // A pane that has gone answers pane-unavailable.
+    await assert.rejects(kit.closePlan('w9:p9'), (e: { code?: string }) => e.code === 'pane-unavailable');
+    // Herdr down: the kit's tree still answers, the live read rejects as any socket read does.
+    await fake.stop();
+    assert.ok(kit.snapshot().workspaces.some((w) => w.id === 'w1'), 'the in-memory tree never fails closed');
+    await assert.rejects(kit.closePlan('w1:p1'),
+      (e: Error & { code?: string }) => e.message === 'herdr: socket closed' && e.code === undefined,
+      'an outage stays the retryable socket failure, never pane-unavailable');
+  }, 'h5-close-plan');
+});
+
 test('a gone target maps to <kind>-unavailable', async () => {
   await withKit(async (kit) => {
     await assert.rejects(kit.closePane('w9:p9'), (e: { code?: string }) => e.code === 'pane-unavailable');

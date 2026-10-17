@@ -4,11 +4,11 @@ import { Blocked } from './approvals.ts';
 import { runCli } from './cli.ts';
 import { openTerminal } from './terminal.ts';
 import { protocolBounds } from './constants.ts';
-import { closePane, closeTab, closeWorkspace } from './close.ts';
+import { closePane, closePlan, closeTab, closeWorkspace } from './close.ts';
 import { Supervisor } from './supervise.ts';
 import type {
   AgentCliSignIn, AgentReadiness, AgentStartEvent, AgentStatusOptions, AgentRef, AgentSessionRef, AgentStatus, BlockedAgent, HerdrEvent, HerdrEventName, HerdrEventOf, HerdrKitOptions, HerdrMethod,
-  HerdrLayout, HerdrParams, HerdrRename, HerdrResult, HerdrSnapshot, HerdrSnapshotAgent, HerdrSnapshotPane, HerdrSnapshotWorkspace, HerdrState, HerdrSubscription, HerdrSubscribeStop, HerdrTarget, PlaceRef, PlaceRequest, PromptReceipt, StartAgent, TerminalSession,
+  ClosePlan, HerdrLayout, HerdrParams, HerdrRename, HerdrResult, HerdrSnapshot, HerdrSnapshotAgent, HerdrSnapshotPane, HerdrSnapshotWorkspace, HerdrState, HerdrSubscription, HerdrSubscribeStop, HerdrTarget, PlaceRef, PlaceRequest, PromptReceipt, StartAgent, TerminalSession,
   HerdrTransport, Move, MoveToAccount, MoveToAccountResult, MoveResult, OpenSignInTab,
 } from './types.ts';
 import type { AgentTurnEnd, AgentTurnOptions } from './types.ts';
@@ -616,6 +616,7 @@ export class HerdrKit {
   closePane(paneId: string, o?: { confirmed?: { scope: 'tab'; id: string } }): Promise<void> { return closePane(this.callAny, paneId, o); }
   closeTab(tabId: string): Promise<void> { return closeTab(this.callAny, tabId); }
   closeWorkspace(workspaceId: string, o?: { confirmed?: { scope: 'worktreeGroup'; id: string } }): Promise<void> { return closeWorkspace(this.callAny, workspaceId, o); }
+  closePlan(paneId: string): Promise<ClosePlan> { return closePlan(this.callAny, paneId); }
   // Typed edits (6.2): the one pane, tab or workspace maps to its generated Herdr method, so a Herdr
   // refusal rejects with Herdr's own code and sentence (`herdr: pane_not_found: pane w9:p9 not found`).
   async rename(o: HerdrRename): Promise<void> {
