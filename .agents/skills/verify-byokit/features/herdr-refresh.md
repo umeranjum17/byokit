@@ -6,13 +6,15 @@ watches, and the promise resolves only once that fresh snapshot has landed. The 
 safety net means a pane/tab/workspace created, closed, moved or renamed while a bootstrap is in
 flight lands from the queued follow-up snapshot instead of being dropped, and a `pane.updated` that
 introduces an agent onto a pane the last bootstrap saw as a plain shell gets that pane's own status
-watch so its status changes reach the tree.
+watch so its status changes reach the tree. `onState` hears only a change of phase (or `why`), so a
+re-read that lands on an already `ready` kit stays silent and a host re-reading on `ready` cannot loop.
 
 ## Sub-features
 
 - `refresh-tab`: after `tab.create`, `await kit.refresh()` resolves with a tree that already carries the new tab.
 - `queued-bootstrap`: a pane created while a bootstrap is parked in flight is absent from that bootstrap's tree and present after the queued follow-up, with no later structural event.
 - `agent-watch`: a `pane.updated` that names an agent on a previously plain shell opens the pane's `pane.agent_status_changed` watch, and the agent's next status reaches the tree; a title-only update opens nothing.
+- `ready-on-change`: five `refresh()` calls record `onState` phases `connecting, ready` only; stopping the fake and starting a new one on the same `dir` adds `reconnecting, ready`; a kit whose `onState` calls `refresh()` on every `ready` reads the snapshot at most twice in 2 s.
 
 ## How to get to it (user POV)
 
@@ -38,12 +40,18 @@ Herdr serves a real Unix socket under the scratch directory and answers the pinn
     wait ~80 ms and assert no watch opened; `fake.emit({ type: 'pane.updated', pane: { pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1', label: 'pi', agent: 'pi', agent_status: 'idle', focused: false, revision: 2, terminal_id: 'term-w1:p1' } })`,
     wait until `fake.watching('w1:p1') === true`; `fake.emit({ type: 'pane_agent_status_changed', pane_id: 'w1:p1', agent_status: 'working', revision: 9 })`
     and wait until the snapshot pane's `agent.status === 'working'`.
+  - `ready-on-change`: a second kit and fake on their own scratch `dir` with `onState: (s) => states.push(s.phase)`;
+    `await kit.start()`, five `await kit.refresh()`, assert `states` is `['connecting', 'ready']`; `await fake.stop()`,
+    `startFakeHerdr({ dir })` again, wait until four states and assert `['connecting', 'ready', 'reconnecting', 'ready']`.
+    Then a third kit with `onState: (s) => { if (s.phase === 'ready') kit.refresh().catch(() => {}); }`, start it,
+    wait 2 s and assert `fake.snapshotCount() <= 2` (before the fix it climbs into the thousands).
   It exits non-zero on any mismatch, then `await kit.stop()` and `await fake.stop()`.
 - **Run and capture.** `feature=herdr-refresh; entry=@byokit/herdr; drive=(node "$scratch_dir/verify-herdr-refresh.mjs")`;
   then run SKILL.md Evidence's capture block. Exit code `0`.
 - **refresh-tab shows.** The refreshed tree lists the new tab by label.
 - **queued-bootstrap shows.** The pane is missing from the parked tree, then present after the follow-up (`session.snapshot` calls 1 → 3).
 - **agent-watch shows.** The watch list gains `w1:p1` only on the agent-bearing update, and `working` lands in the tree.
+- **ready-on-change shows.** The recorded phases after five refreshes and one reconnect, and the snapshot count of the re-read-on-ready kit (1 or 2).
 
 ## Gotchas
 

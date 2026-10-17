@@ -2570,7 +2570,9 @@ no new link/device operation; apps forward the result through their authorized j
   report it via `onError` and do **not** retry that subscription; other closes reconnect after 1 s (event socket) or
   2 s (per-pane). Start retries 250/500/1000/2000 ms, then the 1 s loop; the kit stays up (`reconnecting`).
 - **Bootstrap** (Herdr docs): open `events.subscribe`, wait for its ack, buffer events, call `session.snapshot`,
-  install it, apply buffered events in order, continue. Re-bootstrap after every event-socket reconnect. Unfiltered
+  install it, apply buffered events in order, continue. Re-bootstrap after every event-socket reconnect. `onState`
+  fires only when `phase` or `why` changes: a re-bootstrap (`refresh()`, a structural event) that lands in the state
+  the kit already holds emits nothing, while a reconnect still reports `reconnecting` then `ready`. Unfiltered
   kinds subscribed: `pane.agent_detected`, `pane.created`, `pane.closed`, `pane.moved`, `pane.exited`,
   `pane.updated`, `workspace.created`, `workspace.closed`, `workspace.renamed`, `workspace.updated`, `tab.created`,
   `tab.closed`, `tab.renamed` (muxr's verified list); per-pane `pane.agent_status_changed` for every pane with an agent.

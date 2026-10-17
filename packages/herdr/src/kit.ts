@@ -193,7 +193,7 @@ export class HerdrKit {
   private readonly turns: ReturnType<typeof createTurns>;
   constructor(o: HerdrKitOptions) {
     this.o = o;
-    this.supervisor = new Supervisor(o, (s) => { this.current = s; o.onState?.(s); });
+    this.supervisor = new Supervisor(o, (s) => this.setState(s));
     this.accountPanes = createAccountPanes({ call: this.callAny, startAgent: (o) => this.startAgent(o),
       agentStatus: (kinds, options) => this.agentStatus(kinds, options) });
     this.agents = createAgents({ call: this.callAny, snapshot: () => this.snapshot(),
@@ -204,6 +204,12 @@ export class HerdrKit {
     this.turns = createTurns(this);
   }
   get state(): HerdrState { return this.current; }
+  // `onState` hears a change of phase or why only (6.2): a re-read that lands where the kit already
+  // is stays silent, so a host that re-reads on `ready` triggers no endless loop.
+  private setState(s: HerdrState) {
+    if (s.phase === this.current.phase && s.why === this.current.why) return;
+    this.current = s; this.o.onState?.(s);
+  }
   // Every tree change ends here: the revision rides the tree itself, so snapshot() always shows
   // the count and a wholesale tree swap carries it over.
   private publish() { this.tree.revision += 1; for (const fn of this.listeners) fn(this.snapshot()); }
@@ -327,7 +333,7 @@ export class HerdrKit {
     const { min, max } = protocolBounds(this.o.protocolRange);
     const seen = [result.protocol, snap?.protocol].filter((v): v is number => typeof v === 'number');
     if (seen.some((v) => v < min)) {
-      this.current = { phase: 'needs-update', why: 'version' }; this.o.onState?.(this.current);
+      this.setState({ phase: 'needs-update', why: 'version' });
       resolveStatus();
       throw new Error('herdr: snapshot protocol mismatch');
     }
@@ -379,8 +385,7 @@ export class HerdrKit {
       if (ack !== undefined) statusAcks.push(ack);
     }
     void Promise.allSettled(statusAcks).then(() => { if (token === this.generation) resolveStatus(); });
-    this.current = newer ? { phase: 'needs-update', why: 'version' } : { phase: 'ready' };
-    this.o.onState?.(this.current);
+    this.setState(newer ? { phase: 'needs-update', why: 'version' } : { phase: 'ready' });
   }
   // Re-read one agent and land its status, revision and launch flags: after a watch acks (a status
   // change before the ack reached no socket) and before `prompt` refuses (`launch_pending` rides
@@ -494,7 +499,7 @@ export class HerdrKit {
         onDisconnect?: (fn: () => void) => void };
       control.onDisconnect?.(() => {
         if (token !== this.generation) return;
-        this.current = { phase: 'reconnecting' }; this.o.onState?.(this.current);
+        this.setState({ phase: 'reconnecting' });
         this.tree.connected = false; this.publish();
       });
       control.onReconnect?.(() => { if (token === this.generation) this.queueBootstrap(); });

@@ -1,0 +1,1 @@
+- FIX: `onState` now fires only when the phase (or its reason) changes. `refresh()` and other re-reads that land on an already `ready` kit stay silent, so a host that re-reads on every `ready` no longer loops forever; a reconnect still reports `reconnecting` then `ready`. A listener that counted every `ready` now hears one per phase change.

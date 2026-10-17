@@ -152,3 +152,39 @@ test('a pane.updated that introduces an agent opens a per-pane status watch', as
     await fake.stop().catch(() => {});
   }
 });
+
+test('onState fires on a phase change only: refresh() stays silent, a reconnect still reports', async () => {
+  const dir = scratchDir('herdr-refresh-state');
+  const first = await startFakeHerdr({ dir });
+  const states: string[] = [];
+  const kit = new HerdrKit({ mode: 'adopt', bin: first.bin, socketPath: first.socketPath,
+    onState: (s) => { states.push(s.phase); } });
+  try {
+    await kit.start();
+    for (let i = 0; i < 5; i++) await kit.refresh();
+    assert.deepEqual(states, ['connecting', 'ready'], 'five re-reads with no phase change emit nothing');
+    await first.stop();
+    const second = await startFakeHerdr({ dir });
+    try {
+      await until(() => states.length >= 4, 4000);
+      assert.deepEqual(states, ['connecting', 'ready', 'reconnecting', 'ready']);
+    } finally { await second.stop(); }
+  } finally {
+    await kit.stop().catch(() => {});
+    await first.stop().catch(() => {});
+  }
+});
+
+test('a listener that re-reads on every ready triggers one extra snapshot read, not a stream', async () => {
+  const fake = await startFakeHerdr({ dir: scratchDir('herdr-refresh-loop') });
+  const kit: HerdrKit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath,
+    onState: (s) => { if (s.phase === 'ready') kit.refresh().catch(() => {}); } });
+  try {
+    await kit.start();
+    await settle(2000);
+    assert.ok(fake.snapshotCount() <= 2, `${fake.snapshotCount()} snapshot reads in 2 s`);
+  } finally {
+    await kit.stop().catch(() => {});
+    await fake.stop().catch(() => {});
+  }
+});
