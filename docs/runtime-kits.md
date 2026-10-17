@@ -564,8 +564,8 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
    as a bad token fails at once): state `restarting` with `retryAt` on step 3's backoff, then step 2 runs again with the
    engine stopped and spawned afresh; the fifth missed attempt → `failed/handshake`. One loop owned by the `start()`
    call runs these attempts: each call has its own budget and its own wait, `stop()` cancels the wait of the call in
-   flight, step 3 stays out until a first start reaches `ready`, and `start()` resolves only when the kit reaches
-   `ready`, fails or is stopped. This retry applies only to a first start: once the kit has reached `ready` since the last `stop()`, a
+   flight, step 3 stays out until a first start reaches `ready`, and `start()` resolves when the kit reaches
+   `ready` and rejects when it fails or is stopped. This retry applies only to a first start: once the kit has reached `ready` since the last `stop()`, a
    `start()` has one attempt and reconnects stay with step 3. Protocol ≠ 4 →
    `needs-update/version`. Then start the bridge socket; state `ready`.
 3. **Crash**: on child exit while not stopping: drop the transport, state `restarting` with

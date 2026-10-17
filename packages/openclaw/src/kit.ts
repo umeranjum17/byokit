@@ -799,9 +799,12 @@ export class OpenClawKit {
     try {
       for (let missed = 0; ;) {
         const miss = await this.connect();
-        if (!miss) return;
+        if (!miss) {
+          if (this.stopping) throw new Error('kit stopped before ready');
+          return;
+        }
         if (++missed === budget) { this.setState({ phase: 'failed', why: 'handshake' }); throw miss; }
-        try { await this.backoff(missed - 1, run.signal); } catch { return; }
+        await this.backoff(missed - 1, run.signal);
       }
     } finally { if (this.startRun === run) this.startRun = undefined; }
   }

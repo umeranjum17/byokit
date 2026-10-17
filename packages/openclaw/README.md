@@ -607,7 +607,7 @@ engine exit before hello, moves the state to `restarting` with `retryAt` on the 
 `ready` (1 s, 2 s, 4 s, capped at 30 s), then starts the engine again. A transport that closes before hello keeps
 retrying inside the transport, so it ends as the timeout; a refused connect (a bad token) fails at once. The fifth
 missed attempt moves the state to `{ phase: 'failed', why: 'handshake' }` and `start()` rejects. Each `start()` call
-has its own five attempts, and `stop()` cancels its pending retry. Show `stateWords(kit.state)` while the state is
+has its own five attempts, and `stop()` cancels its pending retry and makes that `start()` reject. Show `stateWords(kit.state)` while the state is
 `restarting`; the tests pass a short `handshakeMs`. A timeout that fires while the engine is repairing (exit 78) waits for the
 repair to end before the engine is stopped and retried.
 

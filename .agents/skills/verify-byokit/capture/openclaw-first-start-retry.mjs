@@ -49,7 +49,7 @@ try {
     console.log(JSON.stringify({ leg: 'attempt cap', gateway: 'supplied fakeGateway', attempts, error: failure?.message, state: k.state }));
     await k.stop();
   }
-  // Leg 3: stop() during the backoff cancels the retry: no further attempt, start() settles.
+  // Leg 3: stop() during the backoff cancels the retry: no further attempt, start() rejects.
   {
     const fake = fakeGateway();
     let attempts = 0;
@@ -58,7 +58,7 @@ try {
     for (let i = 0; i < 200 && k.state.phase !== 'restarting'; i++) await delay(20);
     assert.equal(k.state.phase, 'restarting');
     await k.stop();
-    await started;
+    await started.catch(() => {});
     await delay(1500);
     assert.equal(attempts, 1);
     assert.notEqual(k.state.phase, 'ready');

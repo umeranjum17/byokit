@@ -268,7 +268,7 @@ test('a start after a stop during a first-start retry gets a fresh attempt budge
     const started = kit.start();
     for (let i = 0; i < 200 && kit.state.phase !== 'restarting'; i++) await delay(20);
     await kit.stop();
-    await started;
+    await assert.rejects(started);
     silentFor = 4;
     await kit.start();
     assert.equal(kit.state.phase, 'ready');
@@ -329,7 +329,7 @@ test('stop during the second retry wait of a first start starts no further attem
     assert.equal(waits.length, 2);
     assert.equal(kit.state.phase, 'restarting');
     await kit.stop();
-    await started;
+    await assert.rejects(started);
     await delay(2500);
     assert.equal(attempts, 2);
     assert.equal(waits.length, 2);
@@ -349,7 +349,7 @@ test('stop during a first-start retry starts no further attempt', async () => {
     for (let i = 0; i < 200 && kit.state.phase !== 'restarting'; i++) await delay(20);
     assert.equal(kit.state.phase, 'restarting');
     await kit.stop();
-    await started;
+    await assert.rejects(started);
     await delay(1500);
     assert.equal(attempts, 1);
     assert.notEqual(kit.state.phase, 'ready');
