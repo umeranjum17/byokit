@@ -38,17 +38,16 @@ export class RateLimitError extends BackendRefusedError {
 /** A non-ok response as decide reports it: a refusal keeps its code (the accounts kit's own status table), anything
  * else only its status. */
 export function httpError(status: number): Error {
-  const code = status === 402 ? 'out_of_credit' : status === 401 || status === 403 ? 'key_refused' : status === 429 ? 'rate_limited' : undefined;
+  const code = status === 402 ? 'out_of_credit' : status === 401 || status === 403 ? 'key_refused' : undefined;
   return code ? new BackendRefusedError(code, status) : new Error(`http ${status}`);
 }
 
-/** A callback's refusal, read by value: an accounts `KeyRouteError` refusal code, else a refused HTTP `status`. */
+/** A callback's refusal, read by its accounts `KeyRouteError` refusal code. A bare HTTP status is not a refusal. */
 export function refusalOf(e: unknown): BackendRefusedError | undefined {
   const { code, status } = (e ?? {}) as { code?: unknown; status?: unknown };
+  if (code !== 'key_refused' && code !== 'out_of_credit' && code !== 'rate_limited') return undefined;
   const known = Number.isSafeInteger(status) && (status as number) >= 400 && (status as number) <= 599 ? status as number : undefined;
-  if (code === 'key_refused' || code === 'out_of_credit' || code === 'rate_limited') return new BackendRefusedError(code, known);
-  const mapped = known === undefined ? undefined : httpError(known);
-  return mapped instanceof BackendRefusedError ? mapped : undefined;
+  return new BackendRefusedError(code, known);
 }
 
 function retryPolicy(name: string, o: RetryOptions) {

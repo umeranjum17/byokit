@@ -106,8 +106,8 @@ test('answerer labels every abstention and never retains injected or credential-
   const result = await decide({}, q, { privacy: 'stays-here', backends: [failing] });
   assert.equal(calls, 1, 'other statuses never retry');
   assert.equal(result.urgent.confidenceSource, 'self-reported');
-  assert.equal(result.urgent.reason, 'model failed: http 401');
-  assert.deepEqual(result.urgent.failure, { code: 'key_refused', status: 401 });
+  assert.equal(result.urgent.reason, 'model failed');
+  assert.equal(result.urgent.failure, undefined, 'a bare HTTP status from a host callback is not a provider refusal');
   assert.ok(!JSON.stringify(result).includes('synthetic private credential'));
   // A key route's own refusal through accounts.respond keeps its code: the writer account refused, not "unclear".
   for (const [code, status] of [['key_refused', 403], ['out_of_credit', 402], ['rate_limited', 429]] as const) {

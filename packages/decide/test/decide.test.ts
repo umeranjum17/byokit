@@ -156,6 +156,19 @@ const jevQuestions = (): Record<string, Question> => ({
   rough: { kind: 'score', levels: ['calm', 'upset'], instructions: 'How upset?' },
 });
 
+test('a refused answer is never cached, so the next decision asks the backend again', async () => {
+  const cache = new MemoryCache();
+  const questions = jevQuestions();
+  let refuse = true;
+  const backend = jev({ key: 'k', fetch: async () => refuse ? new Response('', { status: 403 }) : jevReply({
+    intent: { type: 'choice', choice: 'followup', confidence: 0.8, probabilities: { task: 0.1, followup: 0.85, chat: 0.05 } } }) });
+  const refused = await decide({ msg: 'x' }, { intent: questions.intent }, { privacy: 'may-leave', backends: [backend], cache });
+  assert.deepEqual(refused.intent.failure, { code: 'key_refused', status: 403 });
+  refuse = false;
+  const fresh = await decide({ msg: 'x' }, { intent: questions.intent }, { privacy: 'may-leave', backends: [backend], cache });
+  assert.deepEqual([fresh.intent.answer, fresh.intent.source, fresh.intent.failure], ['followup', 'api', undefined]);
+});
+
 test('an app asks Jev over TypeSafe and OpenRouter with the host key only in the header and bounded 429 retries', async () => {
   process.env.TYPESAFE_API_KEY = 'canary-environment-key';
   process.env.OPENROUTER_API_KEY = 'canary-environment-key';

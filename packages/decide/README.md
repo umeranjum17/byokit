@@ -169,8 +169,8 @@ When the provider refuses the key or account, the abstained answer also carries 
 app can say so in its own words instead of "unclear": `'key_refused'` (401 or 403, on a plain key and a plan account
 alike), `'out_of_credit'` (402) or `'rate_limited'` (429 after the retries). These are the codes of
 `@byokit/accounts`' `KeyRouteError`, read by value: an `answerer` callback that rethrows `accounts.respond`'s refusal
-keeps its code, as does any callback error with a refused HTTP `status`. Any other failure has no `failure`, only its
-`reason`. Neither field ever holds the provider's body or the key. For example, on
+keeps its code. A callback error with only an HTTP `status` is an ordinary failure with no `failure`, only its
+`reason`. Refused answers are never stored by `cache`, so the next decision asks the backend again. Neither field ever holds the provider's body or the key. For example, on
 `answer.failure?.code === 'key_refused'` an app can show "Your writer account refused. Connect it again."
 
 For custom `Backend.ask`, a rank `Raw` has `{ probabilities: {}, ranking, confidence, scores?, personReason? }`.

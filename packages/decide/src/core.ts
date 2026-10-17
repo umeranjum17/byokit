@@ -219,7 +219,7 @@ export async function decideWithKey(state: unknown, questions: Record<string, Qu
   if (opts.cache && key) {
     try {
       const hit = await opts.cache.get(key);
-      if (hit && typeof hit === 'object' && Object.keys(questions).every((k) => Object.hasOwn(hit, k) && hit[k])) {
+      if (hit && typeof hit === 'object' && Object.keys(questions).every((k) => Object.hasOwn(hit, k) && hit[k] && !hit[k].failure)) {
         const out: Record<string, Answer> = Object.create(null);
         for (const k of Object.keys(questions)) out[k] = { ...copyAnswer(hit[k]), source: 'cache' };
         return out;
@@ -301,7 +301,7 @@ export async function decideWithKey(state: unknown, questions: Record<string, Qu
   for (const k of Object.keys(out)) out[k].source = 'api';
   if (opts.cache && key) {
     try {
-      await opts.cache.set(key, Object.fromEntries(Object.entries(out).map(([k, a]) => [k, copyAnswer(a)])));
+      await opts.cache.set(key, Object.fromEntries(Object.entries(out).filter(([, a]) => !a.failure).map(([k, a]) => [k, copyAnswer(a)])));
     } catch {
       // Storing must not fail the answer just decided.
     }
