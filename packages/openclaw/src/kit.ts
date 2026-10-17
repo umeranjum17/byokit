@@ -511,6 +511,7 @@ export class OpenClawKit {
   private members?: ReturnType<typeof createMembers>;
   private readonly locks = createLocks();
   private readonly routeMap = new Map<string, { session: string }>();
+  private installs: Promise<void> = Promise.resolve();
   private accountsCtl?: ReturnType<typeof createAccounts>;
   // One bridge and one approval surface per kit: listeners and run registrations survive reconnects (B3).
   // Only the socket itself is per-connection. Approvals always reaches the live transport through this.request().
@@ -966,8 +967,15 @@ export class OpenClawKit {
   }
 
   /** B7 (5.7): install one external provider plugin a `needs_plugin` route names into this kit's own engine, at its
-   * pin; resolves once the restarted gateway lists it enabled at that version. Discovery never installs. */
-  async installPlugin(pluginId: string): Promise<void> {
+   * pin; resolves once the restarted gateway lists it enabled at that version. Discovery never installs. Serialized:
+   * concurrent installs would race the allow-list update and double-spawn the installer into one engine tree. */
+  installPlugin(pluginId: string): Promise<void> {
+    const run = this.installs.then(() => this.runInstall(pluginId));
+    this.installs = run.catch(() => {});
+    return run;
+  }
+
+  private async runInstall(pluginId: string): Promise<void> {
     const pin = pinnedSpec(pluginId);
     const version = pin.spec.slice(pin.spec.lastIndexOf('@') + 1);
     const loaded = async (): Promise<boolean> => {
@@ -977,10 +985,18 @@ export class OpenClawKit {
     if (!(await loaded())) {
       // The installer enables a plugin only when the (restrictive once non-empty) allow list already names it.
       const allow = (this.getConfigKey('plugins.allow') ?? []) as string[];
-      if (!allow.includes(pluginId)) this.setConfigKey('plugins.allow', [...allow, pluginId]);
-      const { code, output } = await this.engine.installPlugin(pin.spec);
+      const added = !allow.includes(pluginId);
+      if (added) this.setConfigKey('plugins.allow', [...allow, pluginId]);
+      let code: number | null;
+      let output: string;
+      try {
+        ({ code, output } = await this.engine.installPlugin(pin.spec));
+      } catch (error) {
+        if (added) this.setConfigKey('plugins.allow', allow);
+        throw error;
+      }
       if (code !== 0) {
-        if (!allow.includes(pluginId)) this.setConfigKey('plugins.allow', allow);
+        if (added) this.setConfigKey('plugins.allow', allow);
         if (output.includes('pinned plugin integrity mismatch'))
           throw new PluginInstallError('integrity', `${pin.spec} does not match its pinned integrity; nothing was installed.`);
         if (output.includes('not a pinned plugin version'))
@@ -989,7 +1005,6 @@ export class OpenClawKit {
         throw new PluginInstallError('install', `${pin.spec} did not install: ${reason || `the installer exited ${code}`}`);
       }
     }
-    recordPlugin(this.engine.root, pluginId);
     // The running gateway hot-reloads the installer's config write without loading the plugin (verified live on
     // 2026.8.35); a safe restart (after in-flight requests) loads it, and the kit reconnects. Reads fail while it is down.
     if (!(await loaded())) await this.request()('gateway.restart.request', { reason: `byokit installed plugin ${pluginId}` });
@@ -998,6 +1013,8 @@ export class OpenClawKit {
       if (Date.now() >= deadline) throw new PluginInstallError('install', `${pin.spec} installed, but the engine did not load it.`);
       await delay(500);
     }
+    // Readiness (routes(), the keys gates) tracks this record, so it names the plugin only once the engine lists it loaded.
+    recordPlugin(this.engine.root, pluginId);
   }
 
   async providerStatus(member: Member): Promise<string[] | undefined> {
