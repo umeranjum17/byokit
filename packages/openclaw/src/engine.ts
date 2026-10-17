@@ -27,7 +27,7 @@ export function canonicalStateDir(dir: string): string {
     return parent === path ? path : join(canonicalStateDir(parent), basename(path));
   }
 }
-export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'offered' | 'appOwnedSessions' | 'installPolicy' | 'log' | 'bridge' | 'authSeal'> & {
+export type EngineOptions = Pick<KitOptions, 'stateDir' | 'engineDir' | 'npmPath' | 'enginePath' | 'config' | 'offered' | 'appOwnedSessions' | 'installPolicy' | 'log' | 'bridge' | 'authSeal' | 'channels'> & {
   pluginId: string; tools: ToolSpec[]; gateBuiltins?: boolean; spawnEngine: boolean;
   browserConfig?: () => { profiles: Record<string, { cdpUrl: string; attachOnly: true }>; tools: string[] };
   onState(s: KitState): void; onExit(code: number | null): void;
@@ -253,12 +253,14 @@ export class Engine {
     }
     // The bridge manifest and tool table follow the app's tools on every prepare (O5).
     writePlugin(pluginDir, { id: this.o.pluginId, tools: this.o.tools, paramPrefix: this.paramPrefix,
-      gateBuiltins: this.o.gateBuiltins !== false, browser: !!this.o.browserConfig });
+      gateBuiltins: this.o.gateBuiltins !== false, browser: !!this.o.browserConfig,
+      channels: this.o.channels?.telegram ? ['telegram'] : [] });
     const path = join(this.root, 'openclaw.json');
     const saved = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined;
     const config = reconcileConfig(saved, { root: this.root, stateDir: this.o.stateDir, port: this.port, pluginId: this.o.pluginId,
       pluginDir, policyPath: join(kitDir, 'policy', 'policy.mjs'), app: this.o.config, offered: this.o.offered,
-      installPolicy: this.o.installPolicy, browser: this.o.browserConfig?.(), plugins: installedPlugins(this.root) });
+      installPolicy: this.o.installPolicy, browser: this.o.browserConfig?.(), plugins: installedPlugins(this.root),
+      channels: this.o.channels });
     putChanged(path, JSON.stringify(config, null, 2) + '\n');
   }
   /** B7: the engine's own installer for one pinned external plugin, in the isolated engine env with the kit's npm
@@ -415,6 +417,8 @@ export class Engine {
     catch (error) { this.patchSet = null; this.state('failed', 'engine-patch'); throw error; }
     this.state('starting');
     const { entry, env } = this.doctorContext();
+    // A turned-on channel (5.18) starts in the gateway alone; doctor and installs keep channels off and never see the token.
+    if (this.o.channels?.telegram) { delete env.OPENCLAW_SKIP_CHANNELS; env.TELEGRAM_BOT_TOKEN = this.o.channels.telegram.token; }
     const fd = openSync(join(this.o.stateDir, 'logs', 'openclaw.log'), 'a', 0o600);
     const usageDir = join(this.root, 'usage'), bootId = randomUUID();
     try {

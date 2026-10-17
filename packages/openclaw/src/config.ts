@@ -41,6 +41,7 @@ export function reconcileConfig(saved: object | undefined, o: {
   root: string; stateDir: string; port: number; pluginId: string; pluginDir: string; policyPath: string;
   app?: object; installPolicy?: KitOptions['installPolicy']; offered?: readonly string[]; plugins?: readonly string[];
   browser?: { profiles: Record<string, { cdpUrl: string; attachOnly: true }>; tools: string[] };
+  channels?: KitOptions['channels'];
 }): object {
   const c: Obj = merge(merge({}, object(saved) ? saved : {}), object(o.app) ? o.app : {});
   merge(c, {
@@ -50,6 +51,16 @@ export function reconcileConfig(saved: object | undefined, o: {
     models: { catalogRefresh: { enabled: false } }, logging: { file: join(o.stateDir, 'logs', 'openclaw-events.log') },
   });
   c.channels ??= {};
+  const telegram = o.channels?.telegram;
+  if (telegram) {
+    // The one channel the engine starts (5.18), written whole: no app key can widen who reaches it or where it routes.
+    // DMs only, from listed ids; no groups, chat commands, channel config writes or exec approvals. The bridge claims
+    // every message before dispatch, so these are the second wall. The token is process env, never this file.
+    c.channels = { telegram: { enabled: true, dmPolicy: 'allowlist', allowFrom: [...telegram.allowFrom],
+      groupPolicy: 'disabled', configWrites: false, commands: { native: false, nativeSkills: false },
+      execApprovals: { enabled: false }, ...(telegram.apiRoot ? { apiRoot: telegram.apiRoot } : {}) } };
+    c.commands = { ...object(c.commands) ? c.commands : {}, allowFrom: { ...c.commands?.allowFrom, telegram: [] } };
+  }
   c.agents ??= {};
   c.agents.defaults ??= {};
   // Auth isolation (5.15): left unset, the pin makes the first agent the inherited owner once the roster grows, and
@@ -86,7 +97,8 @@ export function reconcileConfig(saved: object | undefined, o: {
     // Plus every explicitly offered route the app names, so an opted-in sign-in (OpenRouter) is not blocked.
     ...offeredPlugins(o.offered),
     // Plus every external plugin the kit installed (B7): an app's own allow list must not disable it at the next boot.
-    ...o.plugins ?? []])];
+    ...o.plugins ?? [],
+    ...telegram ? ['telegram'] : []])];
   c.plugins.entries ??= {};
   c.plugins.entries[o.pluginId] = merge(c.plugins.entries[o.pluginId] ?? {}, { hooks: { timeouts: { before_tool_call: 200_000 } } });
   if (o.browser) {

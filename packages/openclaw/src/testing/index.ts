@@ -4,3 +4,4 @@ export { fakeBrowserHost, createBrowserHostFake, browserHostContract, memorySign
   type FakeBrowserHost, type FakeBrowserHostOptions, type BrowserFixture } from './browser.ts';
 export { openclawContract, type ContractFixture } from './contract.ts';
 export { STUB_USAGE, startModelStub, useModelStub, releaseStub, stubHolding, toolCalls, type ModelStub, type ModelStubOptions, type StubCall, type StubRequest } from './model-stub.ts';
+export { fakeTelegram, type FakeTelegram, type FakeTelegramCall } from './fake-telegram.ts';

@@ -2,6 +2,7 @@
 // Built in O4 (and O5/O6/O8 for the delegated parts); until then every body refuses to run.
 import type { SealingAdapter } from '@byokit/secrets';
 import { openCodeWorkspaces } from '@byokit/accounts/opencode-go';
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -66,6 +67,9 @@ import type {
   SchemaOutput,
   SignInOptions,
   SignInView,
+  ChannelChat,
+  ChannelMessage,
+  TelegramChannel,
   ToolHost,
   ToolSpec,
 } from './types.ts';
@@ -88,6 +92,7 @@ export type KitOptions = {
   // so an opted-in sign-in such as OpenRouter is no longer blocked by the engine allow list
   appOwnedSessions?: { keyPrefixes: string[] }; // caller-owned task prefixes; omitted/empty preserves stock recovery (5.16)
   browser?: BrowserOptions; // explicit, private Chromium; handoff remains unprotected until recovery qualification
+  channels?: { telegram?: TelegramChannel }; // off by default: one chat channel, every message to onMessage (5.18)
   installPolicy?: { trustedSkills: string; ownRoots: string[] }; // trusted-skills JSON path, own content roots
   callbackPort?: number; // default 1455
   approvalTimeoutMs?: number; // default 180_000
@@ -687,6 +692,13 @@ export class OpenClawKit {
     if (o.browser && (!o.browser.executablePath.startsWith('/') || (o.browser.members !== 'all'
       && (!Array.isArray(o.browser.members) || o.browser.members.some(m => !MEMBER_ID.test(m) || m.startsWith(KEY_PREFIX))))))
       throw new Error('invalid browser options');
+    const telegram = o.channels?.telegram;
+    // The token never reaches an error, a log or the config (5.18).
+    if (telegram && (typeof telegram.token !== 'string' || !/^\d+:[\w-]+$/.test(telegram.token)
+      || !Array.isArray(telegram.allowFrom) || !telegram.allowFrom.length || telegram.allowFrom.some(id => typeof id !== 'string' || !/^\d+$/.test(id))
+      || typeof telegram.member !== 'string' || !MEMBER_ID.test(telegram.member) || telegram.member.startsWith(KEY_PREFIX)
+      || typeof telegram.onMessage !== 'function' || (telegram.apiRoot !== undefined && !/^https?:\/\/[^\s]+$/.test(telegram.apiRoot))))
+      throw new Error('invalid telegram channel options');
     // The engine lowercases and alias-maps a tool name before the gate hook sees it (bash -> exec, cron ->
     // automations); a name it would rewrite reaches the gate as a builtin, so refuse it here.
     for (const t of o.tools ?? []) {
@@ -745,6 +757,7 @@ export class OpenClawKit {
       } } : {}),
       permitted: o.permitted ?? (() => true), approvalTimeoutMs: o.approvalTimeoutMs ?? 180_000,
       memberOf: (ref) => this.memberOf(ref),
+      ...(o.channels?.telegram ? { onChannelMessage: (m: ChannelMessage) => o.channels!.telegram!.onMessage(m) } : {}),
       onAsk: (a) => this.approvalsCtl.add(a), onAskGone: (id) => this.approvalsCtl.remove(id) });
     slot.bridge = this.bridge;
   }
@@ -1310,10 +1323,19 @@ export class OpenClawKit {
       port: Number(readFileSync(join(this.engine.root, 'port'), 'utf8')), pluginId: this.o.plugin?.id ?? 'byokit',
       pluginDir: join(this.engine.root, 'plugin'), policyPath: fileURLToPath(new URL('../policy/policy.mjs', import.meta.url)), app: patch,
       offered: this.o.offered, installPolicy: this.o.installPolicy, plugins: installedPlugins(this.engine.root),
-      ...(this.o.browser ? { browser: this.browserConfig() } : {}) });
+      ...(this.o.browser ? { browser: this.browserConfig() } : {}), channels: this.o.channels });
     if (this.o.browser && !browserToolPolicySafe(safe, this.toolNames())) throw new Error('browser tool policy refused');
     if (this.o.browser) { this.browserSafe = false; for (const broker of this.brokers.values()) await broker.fence(true); }
     await this.request()('config.patch', { raw: JSON.stringify(safe), baseHash: response.hash, ...(o?.agentId ? { agentId: o.agentId } : {}) });
+  }
+
+  /** Answers one chat on a turned-on channel (5.18), through the engine's own outbound send. */
+  async reply(chat: ChannelChat, text: string): Promise<void> {
+    if (chat?.channel !== 'telegram' || !this.o.channels?.telegram) throw new Error(`channel is not turned on: ${String(chat?.channel)}`);
+    if (typeof chat.id !== 'string' || !chat.id || typeof text !== 'string' || !text) throw new Error('reply needs a chat and text');
+    // The engine needs one owning agent for an outbound send once several exist; the reply is the member's.
+    const { agentId } = await this.ensureMember(this.o.channels.telegram.member);
+    await this.request()('send', { channel: chat.channel, to: chat.id, message: text, agentId, idempotencyKey: randomUUID() });
   }
 
   memoryLimited(member: Member): boolean {
