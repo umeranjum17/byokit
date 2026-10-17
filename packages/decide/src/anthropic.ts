@@ -4,7 +4,7 @@
 // there is no plan sign-in here and no fallback between billing routes.
 import type { Backend, Question, Raw } from './core.ts';
 import { normalizeImages, validateImageReferences, UnsupportedImagesError } from './images.ts';
-import { parseUsage, retryFetch, type RetryOptions } from './http.ts';
+import { httpError, parseUsage, retryFetch, type RetryOptions } from './http.ts';
 import { isJsonRecord, parsedAnswers, responsesInstructions, responsesSchema } from './responses-wire.ts';
 
 export type AnthropicOptions = RetryOptions & {
@@ -59,7 +59,7 @@ export function anthropic(o: AnthropicOptions): Backend {
       const res = await send(`${BASE}/messages`, { method: 'POST', signal,
         headers: { 'content-type': 'application/json', 'x-api-key': o.key, 'anthropic-version': VERSION },
         body: JSON.stringify(body) });
-      if (!res.ok) throw new Error(`http ${res.status}`);
+      if (!res.ok) throw httpError(res.status);
       const json: unknown = await res.json();
       return anthropicAnswers(questions, json);
     },

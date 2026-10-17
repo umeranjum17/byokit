@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
 import { build } from 'esbuild';
 import { answerer, decide, MemoryCache, type Answer, type AnswererOptions } from '../src/index.ts';
-import { Accounts, memoryStore } from '../../accounts/src/portable.ts';
+import { Accounts, KeyRouteError, memoryStore } from '../../accounts/src/portable.ts';
 import { mockOpenAI } from '../../accounts/src/testing/index.ts';
 import { STATE_INSTRUCTIONS } from '../src/prompt.ts';
 
@@ -107,7 +107,22 @@ test('answerer labels every abstention and never retains injected or credential-
   assert.equal(calls, 1, 'other statuses never retry');
   assert.equal(result.urgent.confidenceSource, 'self-reported');
   assert.equal(result.urgent.reason, 'model failed');
+  assert.equal(result.urgent.failure, undefined, 'a bare HTTP status from a host callback is not a provider refusal');
   assert.ok(!JSON.stringify(result).includes('synthetic private credential'));
+  // A key route's own refusal through accounts.respond keeps its code: the writer account refused, not "unclear".
+  for (const [code, status] of [['key_refused', 403], ['out_of_credit', 402], ['rate_limited', 429]] as const) {
+    const refused = answerer({ name: 'opencode', leaves: false, maxRetries: 1, retryBaseMs: 0, ask: async () => {
+      throw new KeyRouteError(code, { status, detail: 'Workspace access denied for sk-go-echoed-key' });
+    } });
+    const a = (await decide({}, q, { privacy: 'stays-here', backends: [refused] })).urgent;
+    assert.deepEqual([a.abstained, a.reason, a.failure], [true, `opencode failed: http ${status}`, { code, status }]);
+    assert.ok(!JSON.stringify(a).includes('sk-go-echoed-key') && !JSON.stringify(a).includes('Workspace'));
+  }
+  const busy = answerer({ name: 'model', leaves: false, maxRetries: 1, retryBaseMs: 0, ask: async () => {
+    throw Object.assign(new Error('gateway busy'), { status: 429 });
+  } });
+  const exhausted = (await decide({}, q, { privacy: 'stays-here', backends: [busy] })).urgent;
+  assert.deepEqual([exhausted.reason, exhausted.failure], ['model failed', undefined], 'a host 429 without a refusal code is a plain failure');
   const incomplete = answerer({ name: 'model', leaves: false, ask: async () => {
     throw Object.assign(new Error('synthetic private credential in partial output'), { name: 'IncompleteError' });
   } });

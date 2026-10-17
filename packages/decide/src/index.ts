@@ -1,11 +1,11 @@
 // Typed questions in, a typed answer with confidence out, abstaining below a floor. Rules, Jev and configurable OpenAI backends, and an eval runner.
 export { generate, generationCacheKey, MemoryGenerationCache, type GenerationInput, type GenerationRequest, type GenerationBackend, type GenerationResult, type GenerationCache, type GenerationOptions, type GenerationBudget, type Generated } from './generate.ts';
 export { InvalidSchemaError, type OutputSchema, type SchemaOutput } from './schema.ts';
-export { resolve, rules, answerer, cacheKey, MemoryCache, FLOOR, RateLimitError,
+export { resolve, rules, answerer, cacheKey, MemoryCache, FLOOR, RateLimitError, BackendRefusedError,
   UnsupportedAccountError, UnsupportedImagesError, InvalidImageError,
   type Question, type QuestionOptions, type Answer, type Usage, type Raw, type Backend, type Options,
   type DecideCache, type RuleAnswer, type AnswererReply, type AnswererRequestOptions, type AnswererOptions,
-  type AnswererBackend, type RetryOptions, type ImageInput, type DecisionImage } from './core.ts';
+  type AnswererBackend, type RetryOptions, type RefusalCode, type ImageInput, type DecisionImage } from './core.ts';
 // Typed questions in, a typed answer with confidence out, abstaining below a floor. The floor, the per-option floors,
 // the runner-up and the tie are code, never a prompt.
 export { jev } from './jev.ts';

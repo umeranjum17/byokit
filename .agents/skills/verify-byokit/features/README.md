@@ -132,6 +132,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [PWA review evidence](./pwa-review-evidence.md) — frames and motion for a user-visible change, in every theme and form factor the app has.
 - [Dictation long-take windows](./dictation-whisper-windows.md) — the built `@byokit/dictation` whisper.rn engine steps long-take windows from where the decoder stopped and joins the overlap once, driven by a stubbed decoder over synthetic WAV audio.
 - [Android dictation restart](./dictation-android-restart.md) — the example's real `SpeechRecognizer` path on a private emulator: the named `DictationFlowTest` journey settles with `DictationProof`, the restart keeps one recognizer service connection, and every run with `system_server` starved still settles.
+- [Decide refusal codes](./decide-refusal-codes.md) — a refused key or plan account (401/403, 402, a 429 past the retries) abstains with `failure: { code, status }` on Go, Jev and an `answerer` over `accounts.respond`, never the body or key; a 500 has none and a plan 404 stays `UnsupportedAccountError`. Built kit on a loopback fake.
 - [Decide slim install](./decide-slim-install.md) — the built `@byokit/decide/slim` decides with rules, any host-owned model and Jev with zero peers; the main entry is unchanged and account billing without the peer names it.
 - [Outbox requestId retry-safe enqueue](./outbox-request-id.md) — built `@byokit/outbox`: duplicate `requestId` enqueue returns the existing entry (queued, after reopen, and after sent) so flush never double-sends.
 
@@ -220,6 +221,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [dictation-whisper-windows](./dictation-whisper-windows.md) — long-take automatic windows step from the decoded end (no skip at a pause) and the overlap is joined once (no repeated passage), plus the 30 s-or-shorter and silent-gap extremes.
 - [dictation-android-restart](./dictation-android-restart.md) — finish then restart on one Android recognizer: the journey's `DictationProof`, one service connection, and the starved-`system_server` extreme.
 - [pwa-review-evidence](./pwa-review-evidence.md) — before/after frames and motion per theme/form factor, including Grok device code, one dropped poll, approval, reload and sign-out; the separate built browser-API host-only negative is covered by the PWA journey test.
+- [decide-refusal-codes](./decide-refusal-codes.md) — refused key and account legs, the answerer's `KeyRouteError` leg, the unrefused 500 and the echoed-key extreme.
 - [decide-slim-install](./decide-slim-install.md) — slim entry, unchanged main entry, self-naming missing peer, and the offline alone-tarball install.
 - [release-publish-superseded](./release-publish-superseded.md) — a superseded workflow_run sha exits 0 with `superseded by <sha>`, while every other HEAD mismatch still fails.
 - [outbox-request-id](./outbox-request-id.md) — retry-safe `requestId` enqueue: one send for duplicate ids before flush, after reopen, and after already sent.

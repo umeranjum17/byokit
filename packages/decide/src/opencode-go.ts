@@ -8,7 +8,7 @@ import type { OpenCodeGoAccount } from '@byokit/accounts/opencode-go';
 import { UnsupportedAccountError } from './account-error.ts';
 import type { Backend } from './core.ts';
 import { normalizeImages, validateImageReferences, UnsupportedImagesError } from './images.ts';
-import { retryFetch, type RetryOptions } from './http.ts';
+import { httpError, retryFetch, type RetryOptions } from './http.ts';
 import { responsesAnswers, responsesInput, responsesInstructions, responsesSchema } from './responses-wire.ts';
 import type { OpenAIRequestOptions } from './openai.ts';
 
@@ -71,10 +71,11 @@ export function opencodeGo(o: OpenCodeGoOptions): Backend {
       const body = { ...request, model: o.model, instructions, input, text };
       const res = await send(`${BASE}/responses`, { method: 'POST', signal, headers, body: JSON.stringify(body) });
       if (!res.ok) {
-        if (o.account && [400, 401, 403, 404].includes(res.status)) {
+        // A refusal (401/402/403) abstains with its code on the key and the account alike.
+        if (o.account && [400, 404].includes(res.status)) {
           throw new UnsupportedAccountError(`OpenCode Go plan request unsupported (http ${res.status}).`);
         }
-        throw new Error(`http ${res.status}`);
+        throw httpError(res.status);
       }
       const json: unknown = await res.json();
       return responsesAnswers(questions, json);

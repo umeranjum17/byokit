@@ -156,6 +156,19 @@ const jevQuestions = (): Record<string, Question> => ({
   rough: { kind: 'score', levels: ['calm', 'upset'], instructions: 'How upset?' },
 });
 
+test('a refused answer is never cached, so the next decision asks the backend again', async () => {
+  const cache = new MemoryCache();
+  const questions = jevQuestions();
+  let refuse = true;
+  const backend = jev({ key: 'k', fetch: async () => refuse ? new Response('', { status: 403 }) : jevReply({
+    intent: { type: 'choice', choice: 'followup', confidence: 0.8, probabilities: { task: 0.1, followup: 0.85, chat: 0.05 } } }) });
+  const refused = await decide({ msg: 'x' }, { intent: questions.intent }, { privacy: 'may-leave', backends: [backend], cache });
+  assert.deepEqual(refused.intent.failure, { code: 'key_refused', status: 403 });
+  refuse = false;
+  const fresh = await decide({ msg: 'x' }, { intent: questions.intent }, { privacy: 'may-leave', backends: [backend], cache });
+  assert.deepEqual([fresh.intent.answer, fresh.intent.source, fresh.intent.failure], ['followup', 'api', undefined]);
+});
+
 test('an app asks Jev over TypeSafe and OpenRouter with the host key only in the header and bounded 429 retries', async () => {
   process.env.TYPESAFE_API_KEY = 'canary-environment-key';
   process.env.OPENROUTER_API_KEY = 'canary-environment-key';
@@ -204,14 +217,15 @@ test('an app asks Jev over TypeSafe and OpenRouter with the host key only in the
     };
     const retried = await decide('x', { intent: questions.intent }, { privacy: 'may-leave', backends: [jev({ key: 'k', fetch: flaky, retryMaxMs: 1000 })] });
     assert.deepEqual([retried.intent.answer, calls2], ['task', 2]);
-    for (const status of [400, 401, 500]) {
+    // A refused key carries its typed failure; any other status only its reason.
+    for (const [status, failure] of [[400, undefined], [401, { code: 'key_refused', status: 401 }], [402, { code: 'out_of_credit', status: 402 }], [500, undefined]] as const) {
       let n = 0;
       const r = await decide('x', { intent: questions.intent }, { privacy: 'may-leave', backends: [jev({ key: 'k', fetch: async () => { n++; return new Response('', { status }); }, retryBaseMs: 1 })] });
-      assert.deepEqual([r.intent.reason, n], [`jev failed: http ${status}`, 1], `no retry on ${status}`);
+      assert.deepEqual([r.intent.reason, r.intent.failure, n], [`jev failed: http ${status}`, failure, 1], `no retry on ${status}`);
     }
     let limited = 0;
     const exhausted = await decide('x', { intent: questions.intent }, { privacy: 'may-leave', backends: [jev({ key: 'k', maxRetries: 1, retryBaseMs: 1, fetch: async () => { limited++; return new Response('', { status: 429 }); } })] });
-    assert.deepEqual([exhausted.intent.reason, limited], ['jev failed: http 429', 2]);
+    assert.deepEqual([exhausted.intent.reason, exhausted.intent.failure, limited], ['jev failed: http 429', { code: 'rate_limited', status: 429 }, 2]);
     let backoff = 0;
     const start = Date.now();
     const aborted = await decide('x', { intent: questions.intent }, { privacy: 'may-leave', timeoutMs: 30, backends: [jev({ key: 'k', retryMaxMs: 60000, fetch: async () => { backoff++; return new Response('', { status: 429, headers: { 'retry-after': '30' } }); } })] });
@@ -420,4 +434,22 @@ test('an operator gates a decision on labelled eval files, offline and from the 
   for (const [flag, value] of [['--floor', 'nope'], ['--max-clear-wrong', '1.1'], ['--floor', '']] as const) {
     assert.equal(spawnSync(process.execPath, [cli, file, flag, value], { encoding: 'utf8' }).status, 2, `${flag} ${value}`);
   }
+});
+
+test('a refused ChatGPT plan account abstains with its typed failure, and a catalogue 404 stays an ordinary failure', async () => {
+  const questions = jevQuestions();
+  const { chatgptPlan } = await import('@byokit/accounts/chatgpt-plan');
+  const account = chatgptPlan({ session: async () => ({ accessToken: 'plan-token-secret', scopes: ['resource.invoke', 'chatgpt.tokens.use.direct'] }) });
+  const route = (status: number, catalogue = 200) => openai({ auth: 'account', account, model: 'gpt-6.1-sol', fetch: async (url) => {
+    if (url === 'https://api.openai.com/v1/models') return catalogue === 200
+      ? Response.json({ models: [{ slug: 'gpt-6.1-sol', visibility: 'list' }] }) : new Response('', { status: catalogue });
+    return Response.json({ error: { message: 'Workspace access denied for plan-token-secret' } }, { status });
+  } });
+  for (const [status, code] of [[401, 'key_refused'], [403, 'key_refused'], [402, 'out_of_credit']] as const) {
+    const a = (await decide({}, { intent: questions.intent }, { privacy: 'may-leave', backends: [route(status)] })).intent;
+    assert.deepEqual([a.abstained, a.reason, a.failure], [true, `openai failed: http ${status}`, { code, status }]);
+    assert.ok(!JSON.stringify(a).includes('plan-token-secret') && !JSON.stringify(a).includes('Workspace'), 'no token or provider words in the answer');
+  }
+  const missing = (await decide({}, { intent: questions.intent }, { privacy: 'may-leave', backends: [route(0, 404)] })).intent;
+  assert.deepEqual([missing.abstained, missing.reason, missing.failure], [true, 'openai failed: http 404', undefined]);
 });

@@ -5,8 +5,8 @@
 import { normalizeImages, validateImageReferences, UnsupportedImagesError, InvalidImageError, type ImageInput, type DecisionImage } from './images.ts';
 export { UnsupportedImagesError, InvalidImageError, type ImageInput, type DecisionImage } from './images.ts';
 import { parseUsage } from './http.ts';
-import { RateLimitError, retryCall, type RetryOptions } from './http.ts';
-export { RateLimitError, type RetryOptions } from './http.ts';
+import { BackendRefusedError, refusalOf, retryCall, type RefusalCode, type RetryOptions } from './http.ts';
+export { BackendRefusedError, RateLimitError, type RefusalCode, type RetryOptions } from './http.ts';
 import { STATE_INSTRUCTIONS } from './prompt.ts';
 import { PairedHostError } from './paired-errors.ts';
 import { UnsupportedAccountError } from './account-error.ts';
@@ -47,6 +47,8 @@ export type Answer = {
   abstained: boolean;
   /** Why it abstained, or which runner-up it fell to. For logs, not for people. */
   reason?: string;
+  /** Set when it abstained because the provider refused the key or account, so the app can say so in its own words. */
+  failure?: { code: RefusalCode; status?: number };
   /** Opt-in plain text for a person, at most 160 characters. Never a diagnostic or abstention reason. */
   personReason?: string;
   by: string;
@@ -239,6 +241,7 @@ export async function decideWithKey(state: unknown, questions: Record<string, Qu
     const t0 = Date.now();
     const raws: Record<string, Raw | undefined> = Object.create(null);
     const failures: Record<string, string> = Object.create(null);
+    const refusals: Record<string, BackendRefusedError> = Object.create(null);
     let failed = '';
     const controller = new AbortController();
     let timer!: ReturnType<typeof setTimeout>;
@@ -264,7 +267,10 @@ export async function decideWithKey(state: unknown, questions: Record<string, Qu
             }
           } catch (e) {
             if (e instanceof UnsupportedAccountError || e instanceof UnsupportedImagesError || e instanceof InvalidImageError || e instanceof PairedHostError) throw e;
-            for (const k of Object.keys(groupQuestions)) failures[k] = backendFailure(b.name, e);
+            for (const k of Object.keys(groupQuestions)) {
+              failures[k] = backendFailure(b.name, e);
+              if (e instanceof BackendRefusedError) refusals[k] = e;
+            }
           }
         };
         if (Object.keys(shared).length) await group(state, shared);
@@ -286,6 +292,8 @@ export async function decideWithKey(state: unknown, questions: Record<string, Qu
       const raw = Object.hasOwn(raws, k) ? raws[k] : undefined;
       const a = { ...(b.confidenceSource && { confidenceSource: b.confidenceSource }), ...resolve(q, raw), by: b.name, ms };
       if (!raw && (failures[k] || failed)) a.reason = failures[k] || failed;
+      const refused = raw ? undefined : refusals[k];
+      if (refused) a.failure = { code: refused.code, ...(refused.status && { status: refused.status }) };
       if (!Object.hasOwn(out, k) || !a.abstained || a.probabilities || (q.kind === 'rank' && raw?.ranking !== undefined)) out[k] = a;
     }
   }
@@ -293,7 +301,7 @@ export async function decideWithKey(state: unknown, questions: Record<string, Qu
   for (const k of Object.keys(out)) out[k].source = 'api';
   if (opts.cache && key) {
     try {
-      await opts.cache.set(key, Object.fromEntries(Object.entries(out).map(([k, a]) => [k, copyAnswer(a)])));
+      await opts.cache.set(key, Object.fromEntries(Object.entries(out).filter(([, a]) => !a.failure).map(([k, a]) => [k, copyAnswer(a)])));
     } catch {
       // Storing must not fail the answer just decided.
     }
@@ -452,8 +460,10 @@ export function answerer(o: AnswererOptions): AnswererBackend {
       let reply: string | AnswererReply;
       try { reply = await send(() => o.ask(prompt, signal, images, { instructions, ...(o.text && { text: o.text }) }), signal); }
       catch (e) {
-        if (e instanceof RateLimitError) throw e;
-        // Callbacks may throw messages containing request bodies or credentials; none enter decision reasons.
+        // Callbacks may throw messages containing request bodies or credentials; none enter decision reasons,
+        // only a refusal's code and status (an accounts KeyRouteError's, or a refused HTTP status).
+        const refused = refusalOf(e);
+        if (refused) throw refused;
         if (e instanceof Error && /IncompleteError$/.test(e.name)) throw Object.assign(new Error('answer was cut off'), { name: 'IncompleteError' });
         throw new Error(signal.aborted ? 'aborted' : 'model request failed');
       }

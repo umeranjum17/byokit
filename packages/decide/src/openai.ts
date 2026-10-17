@@ -5,7 +5,7 @@ import type { ChatGPTPlanAccount, ChatGPTRespondAccount } from '@byokit/accounts
 import type { Ask } from '@byokit/accounts';
 import type { Backend } from './core.ts';
 import { normalizeImages, validateImageReferences, UnsupportedImagesError } from './images.ts';
-import { retryFetch, type RetryOptions } from './http.ts';
+import { httpError, retryFetch, type RetryOptions } from './http.ts';
 import { responsesAnswers, responsesInput, responsesInstructions, responsesSchema, isJsonRecord, readResponsesStream } from './responses-wire.ts';
 
 export { UnsupportedAccountError } from './account-error.ts';
@@ -82,8 +82,8 @@ export function openai(o: OpenAIOptions): Backend {
       if (account) {
         const catalog = await send(`${BASE}/models`, { headers, signal });
         if (!catalog.ok) {
-          if ([400, 401, 403].includes(catalog.status)) throw new UnsupportedAccountError(`ChatGPT plan model catalogue unavailable (http ${catalog.status}).`);
-          throw new Error(`http ${catalog.status}`);
+          if (catalog.status === 400) throw new UnsupportedAccountError(`ChatGPT plan model catalogue unavailable (http ${catalog.status}).`);
+          throw httpError(catalog.status);
         }
         const models: unknown = await catalog.json();
         if (!isJsonRecord(models) || !Array.isArray(models.models) ||
@@ -99,10 +99,11 @@ export function openai(o: OpenAIOptions): Backend {
       };
       const res = await send(`${BASE}/responses`, { method: 'POST', signal, headers, body: JSON.stringify(body) });
       if (!res.ok) {
-        if (account && [400, 401, 403, 404].includes(res.status)) {
+        // A refusal (401/402/403) abstains with its code on the key and the account alike.
+        if (account && [400, 404].includes(res.status)) {
           throw new UnsupportedAccountError(`ChatGPT plan request unsupported (http ${res.status}).`);
         }
-        throw new Error(`http ${res.status}`);
+        throw httpError(res.status);
       }
       const json: unknown = body.stream ? await readResponsesStream(res) : await res.json();
       if (account && isJsonRecord(json) && isJsonRecord(json.error) &&

@@ -3,7 +3,7 @@
 // an environment variable, never ships a key and never puts it anywhere but the one request header.
 import type { Backend, Question, Raw } from './core.ts';
 import { UnsupportedImagesError } from './images.ts';
-import { parseUsage, retryFetch, type RetryOptions } from './http.ts';
+import { httpError, parseUsage, retryFetch, type RetryOptions } from './http.ts';
 
 const BASE = { typesafe: 'https://api.typesafe.ai', openrouter: 'https://openrouter.ai/api' };
 
@@ -26,7 +26,7 @@ export function jev(opts: {
         headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
         body,
       });
-      if (!res.ok) throw new Error(`http ${res.status}`);
+      if (!res.ok) throw httpError(res.status);
       const json: unknown = await res.json();
       const answers = json !== null && typeof json === 'object' ? (json as { answers?: unknown }).answers : undefined;
       const usage = parseUsage(json !== null && typeof json === 'object' ? (json as { usage?: unknown }).usage : undefined);

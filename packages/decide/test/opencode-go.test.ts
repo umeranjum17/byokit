@@ -73,9 +73,29 @@ test('an app decides on an OpenCode Go plan account over the Responses endpoint,
   assert.equal(retried.intent.answer, 'followup');
   assert.equal(tries, 2);
   assert.equal(sessions.size, 1, 'retries keep one conversation session');
-  await assert.rejects(decide({}, { intent: questions.intent }, { privacy: 'may-leave', backends: [opencodeGo({
-    model: 'muse-spark-1.3-contributor', account: account(), fetch: async () => new Response('', { status: 401 }),
-  })] }), UnsupportedAccountError);
+});
+
+test('a refused Go plan abstains with a typed failure the app can word, on the key and the account alike', async () => {
+  // Go's own refusal, with the key echoed back: neither its words nor the key reach the answer.
+  const refusal = (status: number, key: string) => async () =>
+    Response.json({ error: { message: `Workspace access denied for ${key}` } }, { status });
+  const ask = (status: number, input: { key: string } | { account: ReturnType<typeof account> }, key: string) =>
+    decide({}, { intent: questions.intent }, { privacy: 'may-leave', backends: [opencodeGo({
+      model: 'muse-spark-1.3-contributor', ...input, fetch: refusal(status, key), maxRetries: 1, retryBaseMs: 0 } as any)] });
+  for (const [input, key] of [[{ key: 'sk-go-plan-key' }, 'sk-go-plan-key'], [{ account: account('sk-go-account-key') }, 'sk-go-account-key']] as const) {
+    for (const [status, code] of [[401, 'key_refused'], [403, 'key_refused'], [402, 'out_of_credit'], [429, 'rate_limited']] as const) {
+      const a = (await ask(status, input, key)).intent;
+      assert.equal(a.abstained, true);
+      assert.deepEqual(a.failure, { code, status }, `${status} on ${'key' in input ? 'the key' : 'the account'}`);
+      assert.equal(a.reason, `opencode-go failed: http ${status}`);
+      assert.ok(!JSON.stringify(a).includes(key) && !JSON.stringify(a).includes('Workspace'), 'no key or provider words in the answer');
+    }
+  }
+  // Anything else is an unrefused failure: a status in the reason, no failure code.
+  const broken = (await ask(500, { key: 'sk-go-plan-key' }, 'sk-go-plan-key')).intent;
+  assert.deepEqual([broken.reason, broken.failure], ['opencode-go failed: http 500', undefined]);
+  // A plan account the endpoint cannot serve (rather than refuses) stays unsupported.
+  await assert.rejects(ask(404, { account: account() }, 'plan-token'), UnsupportedAccountError);
 });
 
 test('an account with a workspace names it on every Go call; a bare key sends no workspace header', async () => {

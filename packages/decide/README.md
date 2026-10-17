@@ -104,7 +104,8 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
 | `opencodeGo({ model, key, request?, ... })` / `opencodeGo({ model, account, request?, ... })` | OpenCode Go plan models used for decisions; the member's Go plan key itself or its saved plan account, never an API-billed route |
 | `parseConfig(objectOrJSON)`, `createDecider(config, options)` | Validate portable config and set it once, with optional per-call overrides |
 | `ConfigError`, `UnsupportedAccountError`, `UnsupportedImagesError`, `InvalidImageError`, `OPENAI_ROUTES`, `ANTHROPIC_ROUTES`, `OPENCODE_GO_ROUTES` | Typed config/account errors and billing labels (API keys are never offered by default; the Go plan key bills subscription) |
-| `RateLimitError` | An answerer callback exhausted its 429 retries (`status: 429`, `retries`); `decide()` abstains on this failure |
+| `BackendRefusedError`, `RefusalCode` | The provider refused the key or account: `code` is `'key_refused'` (401/403), `'out_of_credit'` (402) or `'rate_limited'` (429 after retries), with its `status`; `decide()` abstains with `failure: { code, status }` |
+| `RateLimitError` | A `BackendRefusedError` with `code: 'rate_limited'`: 429 retries exhausted (`status: 429`, `retries`) |
 | `MemoryCache`, `cacheKey(state, questions, images?)` | In-memory reference cache for `decide({ cache })`, and the stable request key it uses |
 | `resolve(question, raw)` | The floors on one raw answer, for an app that holds a recorded answer |
 | `FLOOR` | The default floor, 0.6 |
@@ -163,6 +164,15 @@ Jev's fallback measures relative Choice preference, not confidence in every pair
 [API reference](https://docs.typesafe.ai/api) documents Choice, Score and Noul, so no unsupported rank primitive or
 explanation field is sent. A custom backend without ranking can return `undefined` for that question; `decide`
 tries the next backend. If none answers, it abstains. The app can keep its original order or ask a person.
+
+When the provider refuses the key or account, the abstained answer also carries `failure: { code, status }`, so the
+app can say so in its own words instead of "unclear": `'key_refused'` (401 or 403, on a plain key and a plan account
+alike), `'out_of_credit'` (402) or `'rate_limited'` (429 after the retries). These are the codes of
+`@byokit/accounts`' `KeyRouteError`, read by value: an `answerer` callback that rethrows `accounts.respond`'s refusal
+keeps its code. A callback error with only an HTTP `status` is an ordinary failure with no `failure`, only its
+`reason`. Refused answers are never stored by `cache`, so the next decision asks the backend again. Neither field
+ever holds the provider's body or the key. For example, on `answer.failure?.code === 'key_refused'` an app can show
+"Your writer account refused. Connect it again."
 
 For custom `Backend.ask`, a rank `Raw` has `{ probabilities: {}, ranking, confidence, scores?, personReason? }`.
 `resolve` validates it and carries `usage`/`raw` as usual. Recorded Jev Choice responses can replay as ranks;
@@ -255,8 +265,10 @@ must be trusted with answers and any backend raw responses they store.
   HTTP errors with `status: 429` retry twice by default, using `retryAfter` or `headers.get('retry-after')` when
   supplied. Current `accounts.respond` errors expose that metadata. Other errors never retry. Waits use the same
   exponential backoff as Jev/OpenAI (`retryBaseMs: 1000`, `retryMaxMs: 2000`), capped per wait, and stop on abort.
-  Calling the backend's `ask` directly throws `RateLimitError` on exhaustion; `decide` abstains and may try the next
-  backend. Callback messages and provider bodies are omitted from failure reasons. Each retry uses the same billing
+  Calling the backend's `ask` directly throws `RateLimitError` on exhaustion when the callback's error carries the
+  `rate_limited` code; a bare HTTP 429 throws a plain `http 429` error with no `failure`. `decide` abstains and may try
+  the next backend. Callback messages and provider bodies are omitted from failure reasons; a refusal keeps only its
+  `failure` code and status. Each retry uses the same billing
   route as its first call (subscription or API key, billed per use).
   - **Billing**: `rules` costs nothing. `answerer` with the person's ChatGPT uses their subscription. `jev()` is billed
   to the TypeSafe or OpenRouter key you pass.
@@ -352,8 +364,10 @@ reject unsupported fields (including `max_output_tokens`, `temperature` and `met
 may be unsupported for accounts.
 
 `UnsupportedAccountError` (`code: 'unsupported_account'`) is thrown for missing consent, missing account sessions,
-unavailable chosen models or unsupported account requests, including from `decide`. There is no API-key fallback.
-Ordinary transport/429 failures follow decide's existing failed-backend abstention behavior.
+unavailable chosen models, a model catalogue that answers http 400, or an unsupported account request (http 400/404
+on the request), including from `decide`. There is no API-key fallback. On the fetch path, a refused account (http
+401/402/403) abstains with its `failure` code like a refused key; the `respond` route abstains as a plain failure for
+now. Ordinary transport/429 failures follow decide's existing failed-backend abstention behavior.
 `OPENAI_ROUTES.apiKey` labels billing `'api'` with `offer: false`; the account route labels `'subscription'` with consent required.
 
 ### Anthropic models used for decisions
@@ -416,8 +430,9 @@ wire format is the same Responses JSON schema as `openai()`: self-reported proba
 floors, plus reported usage and the raw response on answered and abstained answers alike.
 `OPENCODE_GO_ROUTES.apiKey` labels the plain plan key billing `'subscription'` with `offer: false`;
 the account route labels `'subscription'` with consent required. A plan account that cannot
-serve the request (http 400/401/403/404) throws `UnsupportedAccountError`; a refused plain key abstains with
-its http status. There is no API-billed fallback and no fallback between the key and account inputs.
+serve the request (http 400/404) throws `UnsupportedAccountError`; a refused key or account (http 401/402/403,
+such as Go's "Workspace access denied") abstains with `failure: { code: 'key_refused', status: 403 }` (or
+`'out_of_credit'` for 402). There is no API-billed fallback and no fallback between the key and account inputs.
 
 ## Set configuration once
 

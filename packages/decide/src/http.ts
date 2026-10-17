@@ -9,15 +9,44 @@ export type RetryOptions = {
   retryMaxMs?: number;
 };
 
-/** A callback's HTTP 429 exhausted its retry budget. Provider messages and credentials are never retained. */
-export class RateLimitError extends Error {
+/** The same codes as @byokit/accounts' `KeyRouteError` refusals, matched by value so neither kit imports the other. */
+export type RefusalCode = 'key_refused' | 'out_of_credit' | 'rate_limited';
+
+/** The provider turned the key or account away. Only its code and HTTP status: never its body or the credential. */
+export class BackendRefusedError extends Error {
+  readonly code: RefusalCode;
+  readonly status?: number;
+  constructor(code: RefusalCode, status?: number) {
+    super(status ? `http ${status}` : code);
+    this.name = 'BackendRefusedError';
+    this.code = code;
+    if (status) this.status = status;
+  }
+}
+
+/** A provider's HTTP 429 exhausted its retry budget. Provider messages and credentials are never retained. */
+export class RateLimitError extends BackendRefusedError {
   readonly status = 429;
   readonly retries: number;
   constructor(retries: number) {
-    super('http 429');
+    super('rate_limited', 429);
     this.name = 'RateLimitError';
     this.retries = retries;
   }
+}
+
+/** A non-ok response as decide reports it: a refusal keeps its code (the accounts kit's own status table), anything
+ * else only its status. */
+export function httpError(status: number): Error {
+  const code = status === 402 ? 'out_of_credit' : status === 401 || status === 403 ? 'key_refused' : undefined;
+  return code ? new BackendRefusedError(code, status) : new Error(`http ${status}`);
+}
+
+/** A callback's refusal, read by its accounts `KeyRouteError` refusal code. A bare HTTP status is not a refusal. */
+export function refusalOf(e: unknown): BackendRefusedError | undefined {
+  const { code, status } = (e ?? {}) as { code?: unknown; status?: unknown };
+  if (code !== 'key_refused' && code !== 'out_of_credit' && code !== 'rate_limited') return undefined;
+  return new BackendRefusedError(code, typeof status === 'number' ? status : undefined);
 }
 
 function retryPolicy(name: string, o: RetryOptions) {
@@ -36,8 +65,9 @@ export function retryFetch(name: string, f: typeof fetch, o: RetryOptions) {
     for (let attempt = 0; ; attempt++) {
       if (init.signal.aborted) throw abortError(init.signal);
       const res = await f(url, init);
-      if (res.status !== 429 || attempt >= policy.maxRetries) return res;
+      if (res.status !== 429) return res;
       await res.body?.cancel();
+      if (attempt >= policy.maxRetries) throw new RateLimitError(attempt);
       await policy.wait(attempt, res.headers.get('retry-after'), init.signal);
     }
   };
@@ -52,7 +82,7 @@ export function retryCall(name: string, o: RetryOptions) {
       try { return await call(); } catch (e) {
         const http = e as { status?: number; retryAfter?: string; headers?: { get?: (name: string) => string | null } } | null;
         if (http?.status !== 429) throw e;
-        if (attempt >= policy.maxRetries) throw new RateLimitError(attempt);
+        if (attempt >= policy.maxRetries) throw refusalOf(e)?.code === 'rate_limited' ? new RateLimitError(attempt) : new Error('http 429');
         await policy.wait(attempt, http.retryAfter ?? http.headers?.get?.('retry-after') ?? null, signal);
       }
     }
