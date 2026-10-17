@@ -1,0 +1,1 @@
+- FIX: adding a Go plan key that names no workspace (a bound service key the console refuses to list) now clears the standing workspace header before its probe, instead of carrying the previous workspace on its calls. A failed add's cleanup now drops the workspace header with the key, instead of leaving it behind for the next key.

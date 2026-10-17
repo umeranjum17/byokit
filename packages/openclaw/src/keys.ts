@@ -126,8 +126,12 @@ export function createKeys(ctx: ActivationCtx & {
           // A key the engine may have taken but not sealed is cleared (prepare already emptied the agent); if the clear
           // does not reach the engine, the key stays unsealed and unusable until the next key add or kit start, so runs
           // fail closed.
+          let wroteHeader = false;
           const abandon = async (result: AddKeyResult): Promise<AddKeyResult> => {
             await control(member, 'clear').catch(() => undefined);
+            // A header this add wrote must not outlive its abandoned key; a clear that fails never throws past
+            // the abandon, like the key clear itself.
+            if (wroteHeader) await ctx.setProviderHeaders(route.provider, null).catch(() => undefined);
             return result;
           };
           const cancelled = () => failure('retry', 'busy');
@@ -144,8 +148,15 @@ export function createKeys(ctx: ActivationCtx & {
             if (!(await control(member, 'prepare', route.provider)).ok) return failure('retry', 'engine');
             // The workspace rides the provider's probe and every run from its config; it is written before the
             // activation, so the probe itself carries it. The slot is provider-wide (shared by every member's
-            // key on this engine), so a replacement that names none keeps the standing one and `removeKey` drops it.
-            if (orgId) await ctx.setProviderHeaders(route.provider, { 'x-opencode-org-id': orgId });
+            // key on this engine), so a workspace-scoped add that names none clears the standing one before the
+            // probe: a bound service key never carries another workspace, and `removeKey` drops it.
+            if (orgId) {
+              await ctx.setProviderHeaders(route.provider, { 'x-opencode-org-id': orgId });
+              wroteHeader = true;
+            } else if (LIVE_CATALOGS.includes(route.provider)) {
+              await ctx.setProviderHeaders(route.provider, null);
+              wroteHeader = true;
+            }
             // The public pin's typed API-key path, never a CLI-login import. Discard the engine's lines/errors.
             sent = true;
             if (ac.signal.aborted) return abandon(cancelled());
