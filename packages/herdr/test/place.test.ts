@@ -123,6 +123,37 @@ test('place closes the workspace it made when the root tab rename fails', async 
   } finally { await kit.stop(); await fake.stop(); }
 });
 
+test('place with a worktree opens its shell in the new checkout', async () => {
+  await withKit(async (kit, fake) => {
+    const checkout = '/tmp/place-worktree/umer-try';
+    const ref = await kit.place({ cwd: checkout, worktree: { branch: 'umer/try' }, place: { tab: 'new', workspaceId: 'w1' } });
+    const pane = fake.world.panes.find((p) => p.pane_id === ref.paneId);
+    assert.equal(pane?.cwd, checkout, 'the shell opens in the checkout');
+    const workspace = fake.world.workspaces.find((w) => w.workspace_id === ref.workspaceId);
+    assert.equal(workspace?.worktree?.checkout_path, checkout, 'the checkout is the placed workspace');
+    assert.equal(workspace?.worktree?.is_linked_worktree, true);
+    assert.equal(fake.world.agents.some((a) => a.pane_id === ref.paneId), false, 'no agent on the worktree shell');
+  }, 'herdr-place-worktree');
+});
+
+test('place with a worktree that fails to create leaves no tab, workspace or pane', async () => {
+  const fake = await startFakeHerdr({ dir: scratchDir('herdr-place-worktree-fault') });
+  const socket = socketTransport(fake.socketPath);
+  const transport = { ...socket, call: (method: string, params: Record<string, unknown>, timeoutMs?: number) =>
+    method === 'worktree.create' ? Promise.reject(Object.assign(new Error('herdr: worktree_failed: no'), { code: 'worktree_failed' }))
+      : socket.call(method, params, timeoutMs) };
+  const kit = new HerdrKit({ mode: 'adopt', bin: '/not/used', socketPath: fake.socketPath, transport });
+  try {
+    await kit.start();
+    const { workspaces, tabs, panes } = { workspaces: fake.world.workspaces.length, tabs: fake.world.tabs.length, panes: fake.world.panes.length };
+    await assert.rejects(kit.place({ cwd: '/tmp/place-worktree/x', worktree: { branch: 'umer/try' }, place: { tab: 'new', workspaceId: 'w1' } }),
+      (e: { code?: string }) => e.code === 'worktree_failed');
+    assert.equal(fake.world.workspaces.length, workspaces, 'no workspace is left');
+    assert.equal(fake.world.tabs.length, tabs, 'no tab is left');
+    assert.equal(fake.world.panes.length, panes, 'no pane is left');
+  } finally { await kit.stop(); await fake.stop(); }
+});
+
 async function until(count: () => number, want: number, ms: number, what: string): Promise<void> {
   const deadline = Date.now() + ms;
   for (;;) {

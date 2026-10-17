@@ -151,8 +151,8 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
 
   // The one placement ladder (6.4), shared by `startAgent` and the agentless `place` op: every
   // creating path sends `focus: false` and the placement env, and takes its ids from the server's
-  // answer, never a prediction. `worktree` stays a startAgent concern (a linked checkout exists
-  // for an agent's project; the agentless op never passes it).
+  // answer, never a prediction. A `worktree` is the checkout the placement opens (its own root pane),
+  // so the `place` target is unused then; `startAgent` and `place` both pass it.
   async function resolvePlacement(o: { worktree?: { branch?: string; base?: string };
     place: PlaceTarget; cwd?: string; env: Record<string, unknown> }): Promise<
     PlaceRef & { createdPane: boolean; createdWorkspace: string | undefined; workspaceCreated: boolean }> {
@@ -258,7 +258,7 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
     }
     const overlay = isOverlayEnvironment(o.env) ? o.env : undefined;
     const env = o.env === undefined || overlay ? {} : { env: o.env };
-    const placement = await resolvePlacement({ place: o.place, cwd: o.cwd, env });
+    const placement = await resolvePlacement({ worktree: o.worktree, place: o.place, cwd: o.cwd, env });
     if (overlay) {
       try { await prepareOverlayEnv(call, placement.paneId, overlay, DEFAULT_TIMEOUT_MS); }
       catch (error) {
