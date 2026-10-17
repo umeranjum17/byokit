@@ -811,6 +811,9 @@ export function herdrContract(
       await settle(100);
       assert.equal(agentStatusOf(kit.snapshot(), 'w1:p2').status, 'idle', 'the lost prompt started no turn');
       assert.doesNotMatch((await kit.read('w1:p2')).text, /lost words/, 'the lost prompt never reached the screen');
+      fake.losePrompt('w1:p2');
+      const unwaited = await kit.prompt({ paneId: 'w1:p2' }, 'unwaited words');
+      assert.equal(unwaited.status, 'idle', 'an unwaited lost prompt reports the live status, not a turn');
       // The loss is one prompt long: the next prompt to the pane is delivered.
       await kit.prompt({ paneId: 'w1:p2' }, 'kept words');
       assert.equal(await kit.wait({ paneId: 'w1:p2' }, { until: ['idle'], timeoutMs: 2000 }), 'idle');

@@ -593,7 +593,7 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
         type: 'agent_prompted',
         agent: {
           terminal_id: `term-${pane.pane_id}`,
-          agent_status: 'working',
+          agent_status: pane.agent_status ?? 'unknown',
           workspace_id: pane.workspace_id,
           tab_id: pane.tab_id,
           pane_id: pane.pane_id,
