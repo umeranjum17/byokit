@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.14.3 (2026-10-17)
+
+- Dependency update: pins @byokit/ui 0.9.0.
+- Dependency update: pins @byokit/discover 0.8.3.
+- Dependency update: pins @byokit/accounts 0.24.2.
+
+- FIX: `addKey` for an OpenCode Go plan key with no `orgId` no longer saves a key whose every call is refused with `403 Workspace selection is required`. The add lists the key's workspaces first (`openCodeWorkspaces` from `@byokit/accounts/opencode-go`): one is used as the `x-opencode-org-id` header; several resolve the new `AddKeyResult` `{ status: 'needs_workspace', workspaces: [{ id, name }] }` for the app's pick (add again with `orgId`); a key the console refuses adds with no header. A listing that could not be read resolves `{ status: 'retry', reason: 'network' }` and changes nothing. An explicit `orgId` is used as before.
+
 ## 0.14.2 (2026-10-16)
 
 - Dependency update: pins @byokit/relay 0.7.1.

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.12.1 (2026-10-17)
+
+- Dependency update: pins @byokit/discover 0.8.3.
+
 ## 0.12.0 (2026-10-17)
 
 - FIX: A cli-only `npm install @byokit/herdr` no longer pulls the link families: `@byokit/pair` (sodium-native), `@byokit/discover` (react-native-zeroconf and the React Native peer tail) and `@byokit/relay` are now optional peers that only the `@byokit/herdr/link` path loads, each with a typed refusal naming the missing package and the `npm install` line that adds it. `@byokit/herdr/device` needs no runtime peers at all (pair is types-only there); apps that serve a link already depend on pair/discover/relay directly and keep working unchanged. Code already shipped in 0.11.0; changelog entry was missing.
