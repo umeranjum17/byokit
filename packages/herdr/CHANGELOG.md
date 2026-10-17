@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.12.2 (2026-10-17)
+
+- Dependency update: pins @byokit/relay 0.8.0.
+- Dependency update: pins @byokit/pair 0.10.2.
+
+- FIX: the fake Herdr answered `unknown_method` for `pane.focus_direction` and `layout.export`; it now answers both with the pinned shapes — directional focus moves to the overlapping neighbour and holds with `no_neighbor` at an edge, and the export names every live pane — so mirror tests can drive the kit fake instead of their own.
+- FIX: `kit.terminal(...).close()` now sends SIGKILL after `killGraceMs` (default 3000) when the `herdr terminal session` child ignores SIGTERM, and `exited` settles in both cases, so a stuck terminal client cannot leak on the host.
+
 ## 0.12.1 (2026-10-17)
 
 - Dependency update: pins @byokit/discover 0.8.3.

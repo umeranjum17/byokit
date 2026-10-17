@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.8.0 (2026-10-17)
+
+- Dependency update: pins @byokit/pair 0.10.2.
+
+- FEAT: `Relay.open({ helloMs })` sets how long a host has to answer the challenge with its hello (default 10 s); a slower hello is still closed with `4408 too slow`. A self-hosted relay beside a machine that stalls can allow a longer budget.
+
 ## 0.7.1 (2026-10-16)
 
 - FIX: the short-code host lookup (`findHost`) is bounded, so a relay that accepts the request but never

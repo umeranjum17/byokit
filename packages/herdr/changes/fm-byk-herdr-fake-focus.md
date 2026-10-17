@@ -1,1 +1,0 @@
-- FIX: the fake Herdr answered `unknown_method` for `pane.focus_direction` and `layout.export`; it now answers both with the pinned shapes — directional focus moves to the overlapping neighbour and holds with `no_neighbor` at an edge, and the export names every live pane — so mirror tests can drive the kit fake instead of their own.

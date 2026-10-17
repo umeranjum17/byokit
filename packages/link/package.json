@@ -32,7 +32,7 @@
     "prepack": "tsc -b"
   },
   "dependencies": {
-    "@byokit/pair": "0.10.1"
+    "@byokit/pair": "0.10.2"
   },
   "publishConfig": {
     "access": "public"
