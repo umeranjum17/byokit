@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@byokit/pair": "0.10.2",
-    "@byokit/openclaw": "0.14.4",
+    "@byokit/openclaw": "0.14.5",
     "@byokit/discover": "0.8.3",
     "@byokit/relay": "0.8.0",
     "@byokit/seal": "0.3.0",
