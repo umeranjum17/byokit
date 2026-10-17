@@ -8,9 +8,10 @@
 // GitHub's device-code sign-in against a loopback fake,
 // transient refresh preservation and invalid_grant removal, single-flight rotation across handles, provider-snapshot
 // immutability, credential redaction in every error, verified client details, discovery/DCR/resource binding, the
-// typed MCP client, the loopback listener and the house Google client, Gmail read/search and owner-bound history that
-// never exports bodies, one approval per send that never leaves without its `true`, and a portable entry that bundles
-// for browsers and React Native with no Node code and only plain words a person reads.
+// typed MCP client, the app catalog from the known apps and a remote MCP directory, the loopback listener and the house
+// Google client, Gmail read/search and owner-bound history that never exports bodies, one approval per send that never
+// leaves without its `true`, and a portable entry that bundles for browsers and React Native with no Node code and only
+// plain words a person reads.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -20,7 +21,7 @@ import { join } from 'node:path';
 import { build } from 'esbuild';
 import plain from '../../../fixtures/conformance/plain-words.json' with { type: 'json' };
 import {
-  connect, deviceSignIn, ConnectError, providers, MailReader, MailSender, MailError, MailHistory, HistoryError,
+  connect, deviceSignIn, catalog, knownApps, mcpDirectory, ConnectError, providers, MailReader, MailSender, MailError, MailHistory, HistoryError,
   CallToolResultSchema, ToolListChangedNotificationSchema,
   type Provider, type ConnectOptions,
 } from '@byokit/connect';
@@ -386,6 +387,112 @@ test('a remote MCP server is discovered, registered and driven through the typed
   await signedConnection.disconnect();
 });
 
+test('a host lists apps from the known apps and a remote MCP directory, then connects a listed app end to end', async t => {
+  // A loopback remote MCP app: a 401 challenge, protected-resource and authorization-server metadata, dynamic
+  // registration, an authorize page that redirects straight back, a token endpoint and the MCP endpoint itself.
+  const appCalls: string[] = [];
+  let challenge = '';
+  const appServer = createServer(async (req, res) => {
+    let body = ''; for await (const chunk of req) body += chunk;
+    const url = new URL(req.url!, origin); appCalls.push(url.pathname);
+    const send = (value: unknown, status = 200, headers: Record<string, string> = {}) => { res.writeHead(status, { 'content-type': 'application/json', ...headers }); res.end(JSON.stringify(value)); };
+    if (url.pathname === '/.well-known/oauth-protected-resource/mcp') return send({ resource: `${origin}/mcp`, authorization_servers: [origin], scopes_supported: ['notes'] });
+    if (url.pathname === '/.well-known/oauth-authorization-server') return send({ issuer: origin, authorization_endpoint: `${origin}/authorize`, token_endpoint: `${origin}/token`, registration_endpoint: `${origin}/register`, code_challenge_methods_supported: ['S256'] });
+    if (url.pathname === '/register') return send({ client_id: 'listed-client', token_endpoint_auth_method: 'none' }, 201);
+    if (url.pathname === '/authorize') {
+      assert.deepEqual([url.searchParams.get('client_id'), url.searchParams.get('resource'), url.searchParams.get('scope')], ['listed-client', `${origin}/mcp`, 'notes']);
+      challenge = url.searchParams.get('code_challenge')!;
+      const back = new URL(url.searchParams.get('redirect_uri')!); back.searchParams.set('state', url.searchParams.get('state')!); back.searchParams.set('code', 'listed-code');
+      res.writeHead(302, { location: back.href }); res.end(); return;
+    }
+    if (url.pathname === '/token') {
+      const form = new URLSearchParams(body);
+      assert.equal(createHash('sha256').update(form.get('code_verifier')!).digest('base64url'), challenge);
+      return send({ access_token: 'listed-access', refresh_token: 'listed-refresh', token_type: 'Bearer', expires_in: 3600, scope: 'notes' });
+    }
+    if (url.pathname !== '/mcp') return send({}, 404);
+    if (req.headers.authorization !== 'Bearer listed-access') return send({}, 401, { 'www-authenticate': `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"` });
+    if (req.method !== 'POST') return send({}, 405);
+    const m = JSON.parse(body);
+    if (m.id === undefined) { res.writeHead(202); res.end(); return; }
+    if (m.method === 'initialize') return send({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: m.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'notes', version: '1' } } }, 200, { 'mcp-session-id': 'listed-session' });
+    if (m.method === 'tools/list') return send({ jsonrpc: '2.0', id: m.id, result: { tools: [{ name: 'find-note', inputSchema: { type: 'object' } }] } });
+    send({ jsonrpc: '2.0', id: m.id, error: { code: -32601, message: 'unknown' } });
+  });
+  // A loopback remote MCP directory in the MCP registry's shape, two pages long. Entries the kit cannot sign in to
+  // (a local package, a required key header, a legacy SSE remote, plain HTTP) are left out; an id the known apps
+  // already hold keeps the known entry; an icon that is not a web address is dropped.
+  const pages: URLSearchParams[] = [];
+  let directoryAnswer: ((res: import('node:http').ServerResponse) => void) | undefined;
+  const directory = createServer((req, res) => {
+    const url = new URL(req.url!, 'http://127.0.0.1'); pages.push(url.searchParams);
+    if (directoryAnswer) return directoryAnswer(res);
+    res.setHeader('content-type', 'application/json');
+    if (url.searchParams.get('cursor') === 'page-2') { res.end(JSON.stringify({ servers: [
+      { server: { name: 'test.example/tasks', remotes: [{ type: 'streamable-http', url: 'https://tasks.test/mcp' }], icons: [{ src: 'javascript:alert(1)' }] } },
+      { server: { name: 'test.example/plain', remotes: [{ type: 'streamable-http', url: 'http://plain.test/mcp' }] } },
+    ], metadata: { count: 2 } })); return; }
+    res.end(JSON.stringify({ servers: [
+      { server: { name: 'test.example/notes', title: 'Notes', icons: [{ src: `${origin}/icon.png`, mimeType: 'image/png' }], remotes: [{ type: 'sse', url: `${origin}/sse` }, { type: 'streamable-http', url: `${origin}/mcp` }] } },
+      { server: { name: 'test.example/local', packages: [{ registryType: 'npm', identifier: 'local-notes' }] } },
+      { server: { name: 'test.example/keyed', remotes: [{ type: 'streamable-http', url: 'https://keyed.test/mcp', headers: [{ name: 'X-Key', isRequired: true, isSecret: true }] }] } },
+      { server: { name: 'test.example/legacy', remotes: [{ type: 'sse', url: 'https://legacy.test/sse' }] } },
+      { server: { name: 'drive', title: 'Not Drive', remotes: [{ type: 'streamable-http', url: 'https://other.test/mcp' }] } },
+      'not a server',
+    ], metadata: { nextCursor: 'page-2', count: 6 } }));
+  });
+  for (const server of [appServer, directory]) {
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    t.after(() => { server.close(); server.closeAllConnections(); });
+  }
+  const origin = `http://127.0.0.1:${(appServer.address() as { port: number }).port}`;
+  const directoryUrl = `http://127.0.0.1:${(directory.address() as { port: number }).port}/v0/servers?version=latest`;
+
+  // The known apps are the kit's own presets and read nothing; naming a directory reads nothing until it is listed.
+  const remote = mcpDirectory(directoryUrl);
+  const known = await catalog([knownApps]);
+  assert.deepEqual(known.map(a => a.id), Object.keys(providers));
+  assert.deepEqual(Object.fromEntries(known.map(a => [a.id, a.auth])), { google: 'oauth', drive: 'oauth', gmail: 'oauth', calendar: 'oauth', notion: 'discovery', canva: 'discovery', github: 'device' });
+  const { auth: _auth, ...drive } = known.find(a => a.id === 'drive')!;
+  assert.deepEqual(drive, providers.drive);
+  assert.equal(pages.length, 0);
+
+  // Listing both follows the directory's pages and keeps the caller's order.
+  const apps = await catalog([knownApps, remote]);
+  assert.deepEqual(pages.map(p => [p.get('version'), p.get('cursor')]), [['latest', null], ['latest', 'page-2']]);
+  assert.deepEqual(apps.map(a => a.id), [...Object.keys(providers), 'test.example/notes', 'test.example/tasks']);
+  assert.equal(apps.find(a => a.id === 'drive')!.name, 'Google Drive');
+  const notes = apps.find(a => a.id === 'test.example/notes')!;
+  assert.deepEqual(notes, { id: 'test.example/notes', name: 'Notes', mcpUrl: `${origin}/mcp`, icon: `${origin}/icon.png`, auth: 'discovery' });
+  assert.deepEqual(apps.find(a => a.id === 'test.example/tasks'), { id: 'test.example/tasks', name: 'test.example/tasks', mcpUrl: 'https://tasks.test/mcp', auth: 'discovery' });
+
+  // The listed app connects through the kit's own path: discovery, registration, the person's browser, then MCP.
+  const store = memory();
+  const attempt = await connectLoopback(notes, { store, person: 'Umer', open: async url => {
+    const page = await fetch(url, { redirect: 'manual' }); assert.equal(page.status, 302);
+    const back = await fetch(page.headers.get('location')!); assert.equal(back.status, 200); assertPlain(await back.text());
+  } });
+  await attempt.done;
+  assert.equal(store.values.size, 1);
+  const client = await connect(notes, { store, person: 'Umer' }).mcp();
+  try { assert.deepEqual((await client.listTools()).tools.map(tool => tool.name), ['find-note']); }
+  finally { await client.close(); }
+  assert.deepEqual([...new Set(appCalls)], ['/mcp', '/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-authorization-server', '/register', '/authorize', '/token']);
+
+  // A directory that fails, answers garbage or cannot be reached is refused plainly, and so is the whole listing.
+  directoryAnswer = res => { res.writeHead(500); res.end('down'); };
+  assert.equal((await refusal('catalog', () => catalog([knownApps, remote]))).status, 500);
+  directoryAnswer = res => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ servers: 'none' })); };
+  await refusal('catalog', () => remote.list());
+  directoryAnswer = res => { res.end('<html>'); };
+  await refusal('catalog', () => remote.list());
+  const closed = createServer(); await new Promise<void>(resolve => closed.listen(0, '127.0.0.1', resolve));
+  const gone = `http://127.0.0.1:${(closed.address() as { port: number }).port}/v0/servers`; closed.close();
+  await refusal('network', () => mcpDirectory(gone).list());
+  // Only HTTPS or loopback directories are read.
+  assert.throws(() => mcpDirectory('http://directory.test/v0/servers'), error('configuration'));
+});
+
 test('a computer signs in over loopback with the house Google client, then reads, exports and sends with one approval', async () => {
   // Loopback binds a real local callback: unrelated requests, wrong state and reused calls are refused, then closed.
   const http = fake(), loopOpts = options(http); const { redirectUri: _uri, ...rest } = loopOpts;
@@ -582,8 +689,8 @@ test('the owner reads and exports Gmail history, denies a foreign principal, and
   // The published entry bundles for the browser and React Native with no Node, filesystem or keystore code.
   const bundle = await build({
     stdin: {
-      contents: `import { connect, ConnectError, providers } from '@byokit/connect';
-        globalThis.probe = () => ({ scope: providers.gmail.scopes[0], message: new ConnectError('signin').message });`,
+      contents: `import { connect, ConnectError, providers, catalog, knownApps, mcpDirectory } from '@byokit/connect';
+        globalThis.probe = () => ({ scope: providers.gmail.scopes[0], message: new ConnectError('signin').message, apps: catalog([knownApps, mcpDirectory('https://directory.test/v0/servers')]) });`,
       resolveDir: import.meta.dirname, sourcefile: 'phone-connect.ts',
     },
     bundle: true, platform: 'browser', format: 'iife', conditions: ['react-native'], write: false, metafile: true, logLevel: 'silent',
@@ -594,5 +701,5 @@ test('the owner reads and exports Gmail history, denies a foreign principal, and
   assert.ok(bundle.outputFiles[0].text.length > 0);
   assert.equal(providers.gmail.scopes[0], 'https://www.googleapis.com/auth/gmail.readonly');
   // Every message a person reads stays a plain sentence (the same rule fixtures/conformance/plain-words.json checks).
-  for (const code of ['configuration', 'discovery', 'registration', 'callback', 'expired', 'declined', 'scope', 'token', 'signin', 'network'] as const) assertPlain(new ConnectError(code).message);
+  for (const code of ['configuration', 'discovery', 'registration', 'callback', 'expired', 'declined', 'scope', 'token', 'signin', 'network', 'catalog'] as const) assertPlain(new ConnectError(code).message);
 });
