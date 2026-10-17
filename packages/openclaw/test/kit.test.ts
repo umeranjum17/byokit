@@ -328,10 +328,10 @@ test('a Go plan key registers the live catalog once and runs any Go model', asyn
     && (c.params as { refresh?: boolean }).refresh === true).length, 1, 'prepared once, not on ordinary runs');
   assert.deepEqual((await goModels())?.map((m) => [m.id, m.api]),
     [['fake-key-model', 'openai-completions'], ['fake-live-model', 'openai-responses']]);
-  assert.equal(patches(), before + 1);
+  assert.equal(patches(), before + 2, 'the workspace-less add clears the header, then registers the catalog');
   assert.deepEqual(await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY' }), { status: 'ok' });
   await settled(3);
-  assert.equal(patches(), before + 1, 'an unchanged catalog is never rewritten');
+  assert.equal(patches(), before + 3, 'an unchanged catalog is never rewritten');
   const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:muse', auth: 'apiKey', message: 'Hi' });
   assert.equal(end.ok, true);
   assert.equal((fake.calls.findLast((c) => c.method === 'agent')?.params as Record<string, unknown>).model, 'fake-live-model');
@@ -575,7 +575,12 @@ test('a refusal before the key is sent is an engine failure, not an inference on
 
 test('a chosen live model the engine did not register is a retry and nothing is sealed', async () => withKit(async (kit, fake) => {
   const key = 'CANARY-UNREGISTERED-KEY-306';
-  fake.handle('config.patch', () => { throw new Error('config write refused'); });
+  // The engine refuses the catalog registration but not the header write, so the add reaches the
+  // registration check and fails there.
+  fake.handle('config.patch', (p) => {
+    if (String((p as { raw?: unknown }).raw ?? '').includes('"headers"')) return { hash: 'hash-headers' };
+    throw new Error('config write refused');
+  });
   const result = await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: key, model: 'opencode-go/fake-live-model' });
   assert.deepEqual(result, { status: 'retry', reason: 'model' });
   assert.equal(JSON.stringify([result, fake.calls]).includes(key), false);
@@ -1042,11 +1047,11 @@ test('a Go plan key add names its workspace: listed when the app names none; rem
     assert.deepEqual(await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY-2' }), { status: 'ok' });
     assert.deepEqual(orgs.asked.slice(asked0), ['Bearer CANARY-GO-KEY-2'], 'the listing is the key\'s own');
     assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_ONLY' });
-    // A key the console refuses (a workspace-bound service key) adds with no header of its own: the slot is
-    // provider-wide, so the standing workspace stays.
+    // A key the console refuses (a workspace-bound service key) adds with no header of its own: the add
+    // clears the standing workspace first, so its probe never carries another workspace.
     orgs.answer(async () => new Response('', { status: 401 }));
     assert.deepEqual(await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-SERVICE' }), { status: 'ok' });
-    assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_ONLY' });
+    assert.deepEqual(await headers(), undefined);
     // Several come back for the app's pick, before anything changes; adding again with the pick saves it.
     const patches = () => fake.calls.filter((c) => c.method === 'config.patch' || c.method === 'byokit.keys' || c.method === 'openclaw.setup.activate').length;
     let before = patches();
@@ -1090,4 +1095,37 @@ test('a Go plan key add names its workspace: listed when the app names none; rem
     assert.equal(((await kit.call('config.get', {}) as ProvidersConfig).config?.models?.providers?.openai?.headers), undefined);
     assert.equal(JSON.stringify(fake.calls).includes('CANARY-GO-KEY'), false);
   } finally { orgs.answer(async () => new Response('', { status: 401 })); }
+}));
+
+test('a failed Go add and a workspace-less Go add leave no stale workspace header', async () => withKit(async (kit, fake) => {
+  const headers = async () =>
+    ((await kit.call('config.get', {}) as ProvidersConfig).config?.models?.providers?.['opencode-go']?.headers);
+  const headerPatches = (calls: typeof fake.calls) => calls
+    .filter((c) => c.method === 'config.patch')
+    .map((c) => (c.params as { raw: string }).raw);
+  // A bound service key: the console refuses the workspace listing, so the add names no workspace.
+  orgs.answer(async () => new Response('', { status: 401 }));
+  // Pick a workspace, then fail its probe: the abandon must drop the header with the key.
+  const failedAt = fake.calls.length;
+  fake.failNext('openclaw.setup.activate', 'boom-probe');
+  assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-PROBE-FAIL', orgId: 'org_PICKED' }),
+    { status: 'retry', reason: 'engine' });
+  const failed = fake.calls.slice(failedAt);
+  const failedActivate = failed.findIndex((c) => c.method === 'openclaw.setup.activate');
+  assert.ok(failedActivate >= 0, 'the probe ran');
+  assert.ok(headerPatches(failed.slice(failedActivate + 1)).some((raw) => !raw.includes('x-opencode-org-id')),
+    'the abandoned add clears the workspace header after its failed probe');
+  assert.deepEqual(await headers(), undefined, 'a failed add leaves no workspace header behind');
+  // A bound service key names no workspace: its add clears any standing header before its probe.
+  const boundAt = fake.calls.length;
+  assert.deepEqual(await kit.addKey('m2', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-SERVICE' }), { status: 'ok' });
+  const bound = fake.calls.slice(boundAt);
+  const boundActivate = bound.findIndex((c) => c.method === 'openclaw.setup.activate');
+  assert.ok(boundActivate >= 0, 'the bound key probed');
+  const beforeProbe = headerPatches(bound.slice(0, boundActivate));
+  assert.equal(beforeProbe.length, 1, 'the workspace-less add writes the header slot once before its probe');
+  const clearing = beforeProbe.at(0);
+  assert.ok(typeof clearing === 'string' && !clearing.includes('x-opencode-org-id'),
+    'the probe runs with no workspace header');
+  assert.deepEqual(await headers(), undefined, 'a workspace-less add keeps no standing workspace');
 }));

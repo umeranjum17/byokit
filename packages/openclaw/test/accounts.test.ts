@@ -910,6 +910,8 @@ function spawnedEngine(t: TestContext): void {
     const root = (this as { root: string }).root;
     mkdirSync(root, { recursive: true });
     if (!existsSync(join(root, 'openclaw.json'))) writeFileSync(join(root, 'openclaw.json'), '{}');
+    // The real prepare always leaves a port file; key adds patch config through it.
+    if (!existsSync(join(root, 'port'))) writeFileSync(join(root, 'port'), '18788');
     return { port: 0, token: 'test', identityPath: '' };
   });
   t.mock.method(Engine.prototype, 'stop', async () => {});
