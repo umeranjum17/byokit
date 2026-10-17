@@ -543,7 +543,7 @@ export class HerdrKit {
     return this.transport.subscribe(subs, on as (e: HerdrEvent) => void, onError ?? (() => {}));
   }
   cli(args: string[], o?: { timeoutMs?: number; env?: Record<string, string> }): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut: boolean }> { return runCli(this.o.bin, { ...this.supervisor.env(), ...o?.env }, args, o?.timeoutMs); }
-  terminal(paneId: string, o: { mode: 'control' | 'observe'; cols: number; rows: number }): TerminalSession { return openTerminal(this.o.bin, this.supervisor.env(), paneId, o); }
+  terminal(paneId: string, o: { mode: 'control' | 'observe'; cols: number; rows: number; killGraceMs?: number }): TerminalSession { return openTerminal(this.o.bin, this.supervisor.env(), paneId, o); }
   snapshot(): HerdrSnapshot { return structuredClone(this.tree); }
   onChange(fn: (s: HerdrSnapshot) => void): () => void { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; }
   /**
