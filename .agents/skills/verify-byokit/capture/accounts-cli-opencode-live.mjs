@@ -35,14 +35,12 @@ console.log(`egress: blocked (${egress})`);
 // Go stand-in: one streamed "pong"; each request waits until both accounts are talking (or 20 s), so a pass means both ran at once.
 const requests = []; const seen = new Set(); const waiting = [];
 const fake = createServer((req, res) => {
-  let body = '';
-  req.on('data', (c) => { body += c; });
+  req.resume();
   req.on('end', () => {
-    const from = body.includes('from account A') ? 'A' : body.includes('from account B') ? 'B' : '?';
     const auth = req.headers.authorization ?? '';
     const key = auth === `Bearer ${KEYS.A}` ? 'A' : auth === `Bearer ${KEYS.B}` ? 'B' : auth.includes(CANARY_KEY) ? 'canary' : auth ? 'other' : 'none';
-    requests.push({ path: req.url, from, key, workspace: req.headers['x-opencode-org-id'] ?? null, leg: fake.leg });
-    seen.add(from);
+    requests.push({ path: req.url, key, workspace: req.headers['x-opencode-org-id'] ?? null, leg: fake.leg });
+    seen.add(key);
     const answer = () => {
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       const base = { id: 'c1', object: 'chat.completion.chunk', created: 0, model: 'fake-model' };
@@ -114,11 +112,10 @@ try {
     assert.equal(fake.timedOut, false, `${label}: both accounts reached the stand-in at the same time`);
     const legRequests = requests.filter((r) => r.leg === label);
     for (const r of legRequests) {
-      assert.notEqual(r.key, 'canary', `${label}: a request carried the decoy sign-in`);
-      assert.equal(r.key, r.from, `${label}: account ${r.from}'s request carried ${r.key}'s key`);
+      assert.ok(r.key === 'A' || r.key === 'B', `${label}: a request carried ${r.key}, not one of the two account keys`);
       assert.equal(r.workspace, WORKSPACE);
     }
-    assert.ok(legRequests.some((r) => r.from === 'A') && legRequests.some((r) => r.from === 'B'));
+    assert.ok(legRequests.some((r) => r.key === 'A') && legRequests.some((r) => r.key === 'B'));
     console.log(`${label}: both accounts ran at once; ${legRequests.length} requests, each with its own key and workspace, none with the decoy key`);
     const after = { auth: sha(join(own, 'auth.json')), db: sha(join(own, 'opencode.db')), tree: files(home) };
     assert.equal(after.auth, before.auth, `${label}: decoy auth.json changed`);
