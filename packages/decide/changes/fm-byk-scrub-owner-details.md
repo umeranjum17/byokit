@@ -1,0 +1,1 @@
+- DOCS: the package README and source comments now use neutral wording ("pool", "the owner") instead of internal fleet terms.
