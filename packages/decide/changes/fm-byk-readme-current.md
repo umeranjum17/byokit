@@ -1,1 +1,0 @@
-- README intro now says in plain words what the kit does; backend specifics stay in the body.

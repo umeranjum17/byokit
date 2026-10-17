@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.13.0 (2026-10-17)
+
+- Dependency update: pins @byokit/discover 0.8.4.
+- Dependency update: pins @byokit/seal 0.3.1.
+
+- FEAT: The herdr test fake answers `pane.report_agent` and the `herdr pane report-agent --pane <id> --state <state>` verb, so a status set from another process shows in the kit's snapshot and `onChange`; `failed` is refused as the pinned schema refuses it. `fake.holdAgentWait()` holds `agent.wait` answers until the release runs.
+- FEAT: `kit.place` now labels the root tab of a workspace it creates with `place.label`, and takes `env: { overlay, unset? }` like `startAgent`: the values are set and checked in the new pane, and a check that fails rejects with `env_mismatch`. A rename or check that fails closes what `place` made. An app no longer renames its shell tab or checks the pane's env itself.
+- FEAT: `kit.place` takes `worktree: { branch?, base? }`: it creates the linked checkout first and opens the shell in it. A failed `worktree.create` leaves no tab, workspace or pane behind.
+- FIX: A herdr event that leaves the tree as it was no longer moves the snapshot `revision` or fires `onChange`, so a repeated title tick or a focus on the pane already focused costs a host nothing. A real change still moves the revision once.
+- FIX: `onState` now fires only when the phase (or its reason) changes. `refresh()` and other re-reads that land on an already `ready` kit stay silent, so a host that re-reads on every `ready` no longer loops forever; a reconnect still reports `reconnecting` then `ready`. A listener that counted every `ready` now hears one per phase change.
+
 ## 0.12.2 (2026-10-17)
 
 - Dependency update: pins @byokit/relay 0.8.0.

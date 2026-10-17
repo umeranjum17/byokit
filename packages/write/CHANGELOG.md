@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.1 (2026-10-17)
+
+- README install no longer pins a stale version; it installs the current release.
+
 ## 0.2.0 (2026-10-01)
 
 - FIX: React Native now selects a portable `Compose` entry with a required app-supplied engine and no Node imports.

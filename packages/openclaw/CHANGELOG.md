@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.15.0 (2026-10-17)
+
+- Dependency update: pins @byokit/secrets 0.5.2.
+- Dependency update: pins @byokit/seal 0.3.1.
+- Dependency update: pins @byokit/discover 0.8.4.
+- Dependency update: pins @byokit/accounts 0.25.0.
+
+- FEAT: turn on one chat channel. `channels.telegram: { token, allowFrom, member, onMessage }` (off by default) hands every Telegram direct message from the people you list to your app's `onMessage`, never to an engine agent: a message naming a helper, or a chat command such as `/new`, is just text for your handler. `kit.reply(chat, text)` answers the chat. Groups, chat commands and channel config writes stay off, and the bot token reaches the engine only as process env, never config, disk or logs. `fakeTelegram()` in `./testing` stands in for the Bot API.
+
 ## 0.14.5 (2026-10-17)
 
 - FIX: adding a Go plan key that names no workspace (a bound service key the console refuses to list) now clears the standing workspace header before its probe, instead of carrying the previous workspace on its calls. A failed add's cleanup now drops the workspace header with the key, instead of leaving it behind for the next key.

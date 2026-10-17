@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.5.2 (2026-10-17)
+
+- Dependency update: pins @byokit/seal 0.3.1.
+
 ## 0.5.1 (2026-10-12)
 
 - Unreleased source dependency metadata: pin @byokit/seal 0.3.0; this package's existing version is not republished. Previously published consumer metadata remains unchanged.

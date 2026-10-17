@@ -1,1 +1,0 @@
-- FEAT: `kit.place` now labels the root tab of a workspace it creates with `place.label`, and takes `env: { overlay, unset? }` like `startAgent`: the values are set and checked in the new pane, and a check that fails rejects with `env_mismatch`. A rename or check that fails closes what `place` made. An app no longer renames its shell tab or checks the pane's env itself.

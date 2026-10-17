@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.1 (2026-10-17)
+
+- README intro now says in plain words what the kit does; model specifics stay in the body.
+- DOCS: the model-planning notes name the maintainer decision and the test phone generically instead of internal names.
+
 ## 0.2.0 (2026-10-12)
 
 - NEW: Android's built-in Gemini Nano (AICore, through an app-supplied ML Kit GenAI Prompt module) as a second local

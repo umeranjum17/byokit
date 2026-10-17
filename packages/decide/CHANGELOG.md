@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.9.5 (2026-10-17)
+
+- Dependency update: pins @byokit/accounts 0.25.0.
+
+- README intro now says in plain words what the kit does; backend specifics stay in the body.
+- DOCS: the package README and source comments now use neutral wording ("pool", "the owner") instead of internal fleet terms.
+
 ## 0.9.4 (2026-10-17)
 
 - Dependency update: pins @byokit/pair 0.10.2.

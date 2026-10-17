@@ -1,1 +1,0 @@
-- Sign in to ChatGPT with one button on a phone or in a browser: `login(member, 'chatgpt', { via: 'redirect' })` returns ChatGPT's own page and the address to watch for in the app's in-app browser, and `complete(member, 'chatgpt', address)` finishes it, refusing another sign-in's, a reused or a too-late address with `SignInReturnError`. Device code stays the default.

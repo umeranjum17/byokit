@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.25.0 (2026-10-17)
+
+- Dependency update: pins @byokit/secrets 0.5.2.
+
+- Sign in to ChatGPT with one button on a phone or in a browser: `login(member, 'chatgpt', { via: 'redirect' })` returns ChatGPT's own page and the address to watch for in the app's in-app browser, and `complete(member, 'chatgpt', address)` finishes it, refusing another sign-in's, a reused or a too-late address with `SignInReturnError`. Device code stays the default.
+- FIX: a failed key-route ask now says why. `KeyRouteError` keeps its `code` and calm `message`, and adds `status` (the HTTP status the provider answered) and `detail` (the provider's own message, or the network error such as `connect ECONNREFUSED`, on one line of at most 300 characters with the account's key replaced by `[redacted]`), for logs and an optional "details" line. Still never retried; no new codes.
+
 ## 0.24.3 (2026-10-17)
 
 - FIX: a key-route ask the provider refuses no longer reads as the generic "This account could not answer. Try again." `KeyRouteError` has three new codes, read from the HTTP status the request got back: `out_of_credit` (402, with or without a body: "This account is out of credit. Add credit with the provider, then try again."), `key_refused` (401, or a 403 that is not the OpenCode workspace refusal) and `rate_limited` (429), each with its words in `words.json` (`ask.outOfCredit`, `ask.keyRefused`, `ask.rateLimited`). Still never retried; any other failure stays `request`. Adapters that take no app `fetch` (Google AI Studio, Vertex, Bedrock) keep `request` for these.
