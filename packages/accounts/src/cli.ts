@@ -1,8 +1,7 @@
-import { execFile, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { chmodSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readlinkSync, readSync, realpathSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
-import { promisify } from 'node:util';
 import { identity, roomOf, usage, type Identity, type PiProvider as UsagePiProvider, type Reading, type Room, type Source, type Usage } from '@byokit/usage';
 import type { Keystore } from '@byokit/secrets';
 import { clock, say } from './words.ts';
@@ -41,7 +40,7 @@ export type CliOptions = {
   fetch?: typeof fetch;
 };
 export type CliLaunchResult =
-  | { ok: true; account: CliAccount; set: Record<string, string>; unset: string[]; args: string[] }
+  | { ok: true; account: CliAccount; set: Record<string, string>; unset: string[] }
   | { ok: false; code: 'signed_out' | 'not_included' | 'resting'; account: CliAccount; message: string };
 export type CliRest = { until: number; why: string };
 /** One managed row of a provider with its room reading, for `pick` and the `list` view of the same rows. */
@@ -381,19 +380,6 @@ export function cliAccounts(options: CliOptions) {
   function spawnEnv(r: Row) {
     return cleanLaunchEnv({ base: env, account: launch(r) }).env;
   }
-  const launchArgs = (r: Row): string[] => r.provider === 'pi' ? ['--provider', r.piProvider!] : [];
-  /** OpenCode 2.x shares one background server on a fixed port, so a second account's start fails; `--standalone`
-   * gives each start a private one. 1.x refuses the flag, and an unreadable version starts with no flag. */
-  async function opencodeArgs(r: Row): Promise<string[]> {
-    try {
-      const { stdout } = await promisify(execFile)(binary('opencode'), ['--version'], { env: spawnEnv(r), timeout: 15_000, maxBuffer: 64 * 1024 });
-      const firstLine = stdout.replace(/\x1b\[[0-9;]*[A-Za-z]/g, '').trim().split('\n')[0];
-      const major = /\bv?(\d+)\.\d+/.exec(firstLine)?.[1];
-      return major !== undefined && Number(major) >= 2 ? ['--standalone'] : [];
-    } catch {
-      return [];
-    }
-  }
   function command(r: Row): SignInCommand {
     // OpenCode and Vibe have no native login to spawn: the app collects the key with hidden typing and
     // completes the sign-in with saveKey. The shell is a no-op; the key never enters argv or env.
@@ -650,7 +636,7 @@ export function cliAccounts(options: CliOptions) {
       if (account.state === 'ready') {
         const r = row(id);
         const base = launch(r);
-        if (r.provider !== 'opencode') return { ok: true, account, ...base, args: launchArgs(r) };
+        if (r.provider !== 'opencode') return { ok: true, account, ...base };
         // The folder files are the delivery copy: the key reaches OpenCode through `{file:}`
         // substitution in the folder's opencode.json, never argv or env.
         return serial(id, async (): Promise<CliLaunchResult> => {
@@ -658,7 +644,6 @@ export function cliAccounts(options: CliOptions) {
           let key: string;
           try { key = await storedKey(current); }
           catch { return { ok: false, code: 'signed_out', account, message: say('cli.signedOut', { name: account.name }) }; }
-          const args = await opencodeArgs(current);
           // A key saved without a workspace resolves it here, as every Go call does (several: typed `needs_workspace`).
           // ponytail: a key with no workspace saves no entry (the store refuses empty values), so each launch lists again.
           const workspace = await openCodeWorkspace(key, await readOpenCodeWorkspace(options.keyStore, keyRoute('opencode'), current.id) || undefined,
@@ -667,7 +652,7 @@ export function cliAccounts(options: CliOptions) {
           catch (cause) { throw new Error(say('cli.prepareFailed'), { cause }); }
           return { ok: true, account,
             set: { ...base.set, OPENCODE_CONFIG: opencodeConfigPath(current.folder) },
-            unset: base.unset.filter((name) => name !== 'OPENCODE_CONFIG'), args };
+            unset: base.unset.filter((name) => name !== 'OPENCODE_CONFIG') };
         });
       }
       if (account.state === 'resting' && account.until) {
@@ -692,7 +677,7 @@ export function cliAccounts(options: CliOptions) {
       savePrefer(tools);
     },
     folderOf: (id: string): string => row(id).folder,
-    launchArgs: (id: string): string[] => launchArgs(row(id)),
+    launchArgs: (id: string): string[] => { const r = row(id); return r.provider === 'pi' ? ['--provider', r.piProvider!] : []; },
     kinds: (provider: CliProvider): string[] => providers.includes(provider) ? [provider] : [],
     resumeArgs(kind: string, ref: { kind: 'id' | 'path'; value: string }): string[] {
       if (!record(ref) || !text(ref.value) || !ref.value || ref.value.startsWith('-') || !providers.includes(kind as CliProvider) || (ref.kind !== 'id' && (kind !== 'pi' || ref.kind !== 'path'))) throw new CliAccountError('kind-mismatch');

@@ -1,5 +1,5 @@
 // OpenCode as a managed CLI: add/saveKey/logout/launch plus the plan-key route seam.
-// Fakes only: a Map-backed secrets store and a binary that only answers `--version`; no live Go call, no real key.
+// Fakes only: a Map-backed secrets store and a placeholder binary path; no live Go call, no real key.
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
@@ -24,12 +24,10 @@ function memoryKeys() {
   return { store, saved };
 }
 
-// `version` is what the binary prints for `--version` (1.x: `1.19.3`, 2.x: `opencode v2.0.32`); empty fails it.
-function fakeBin(dir: string, name: string, version = '1.19.3') {
+function fakeBin(dir: string, name: string) {
   mkdirSync(dir, { recursive: true });
   const bin = join(dir, name);
-  writeFileSync(`${bin}.version`, version);
-  writeFileSync(bin, `#!/bin/sh\n[ "$1" = --version ] && [ -s '${bin}.version' ] && { /bin/cat '${bin}.version'; exit 0; }\necho 'opencode: not a version' >&2\nexit 64\n`, { mode: 0o755 });
+  writeFileSync(bin, `#!/bin/sh\necho 'opencode: not a real binary' >&2\nexit 64\n`, { mode: 0o755 });
   return bin;
 }
 const XDG = [['XDG_DATA_HOME', 'data'], ['XDG_STATE_HOME', 'state'], ['XDG_CACHE_HOME', 'cache']] as const;
@@ -155,7 +153,7 @@ test('opencode two accounts: isolated keys, folders, resume, and remove', async 
   const stateDir = join(root, 'plans');
   const { store, saved } = memoryKeys();
   const env = { HOME: join(root, 'home'), PATH: '/unused' };
-  const kit = cliAccounts({ stateDir, bins: { opencode: fakeBin(join(root, 'bins'), 'opencode-fake', 'opencode v2.0.32') }, env, keyStore: store });
+  const kit = cliAccounts({ stateDir, bins: { opencode: fakeBin(join(root, 'bins'), 'opencode-fake') }, env, keyStore: store });
   const canaryA = 'canary-A-oc-two-accounts';
   const canaryB = 'canary-B-oc-two-accounts';
 
@@ -177,9 +175,6 @@ test('opencode two accounts: isolated keys, folders, resume, and remove', async 
   assert.equal(launchB.ok, true);
   if (launchA.ok && launchB.ok) {
     assert.notEqual(launchA.set.OPENCODE_CONFIG_DIR, launchB.set.OPENCODE_CONFIG_DIR);
-    // 2.x shares one background server on a fixed port; each account runs its own instead.
-    assert.deepEqual(launchA.args, ['--standalone']);
-    assert.deepEqual(launchB.args, ['--standalone']);
     for (const [name] of XDG) assert.notEqual(launchA.set[name], launchB.set[name], `${name} differs per account`);
     assert.ok(!JSON.stringify(launchA).includes(canaryA) && !JSON.stringify(launchA).includes(canaryB));
     assert.ok(!JSON.stringify(launchB).includes(canaryA) && !JSON.stringify(launchB).includes(canaryB));
@@ -238,7 +233,6 @@ test('opencode launch delivers the key through folder files; logout/remove delet
   // so each account's start uses its own, never the person's ~/.local/share/opencode.
   for (const [name, sub] of XDG) assert.equal(launched.set[name], join(folder, sub), `launch sets ${name}`);
   assert.ok(launched.unset.includes('OPENCODE_DB'), 'a host OPENCODE_DB cannot point the account at another database');
-  assert.deepEqual(launched.args, [], '1.x refuses --standalone');
   assert.equal(readFileSync(keyPath, 'utf8'), canary);
   assert.equal(statSync(keyPath).mode & 0o777, 0o600);
   assert.equal(statSync(folder).mode & 0o777, 0o700);
@@ -299,50 +293,6 @@ test('opencode launch delivers the key through folder files; logout/remove delet
   await kit.remove(bare.id);
 });
 
-test('opencode version is the first version token on the first line: a trailing 2.x mention keeps 1.x', async () => {
-  const root = scratchDir('opencode-cli-banner');
-  const { store } = memoryKeys();
-  const env = { HOME: join(root, 'home'), PATH: '/unused' };
-  const bin = fakeBin(join(root, 'bins'), 'opencode-banner', '1.19.3 → 2.0.1 available');
-  const kit = cliAccounts({ stateDir: join(root, 'plans'), bins: { opencode: bin }, env, keyStore: store });
-  const { account } = await kit.add('opencode');
-  await kit.saveKey(account.id, CANARY, { workspace: 'org_BANNER' });
-  const launched = await kit.launch(account.id);
-  if (!launched.ok) throw new Error('opencode launch was not ready');
-  assert.deepEqual(launched.args, [], '1.x refuses --standalone even when the banner names 2.x');
-  await kit.remove(account.id);
-});
-
-test('opencode prerelease 2.x still gets --standalone', async () => {
-  const root = scratchDir('opencode-cli-prerelease');
-  const { store } = memoryKeys();
-  const env = { HOME: join(root, 'home'), PATH: '/unused' };
-  const bin = fakeBin(join(root, 'bins'), 'opencode-beta', 'opencode v2.0.0-beta.1');
-  const kit = cliAccounts({ stateDir: join(root, 'plans'), bins: { opencode: bin }, env, keyStore: store });
-  const { account } = await kit.add('opencode');
-  await kit.saveKey(account.id, CANARY, { workspace: 'org_BETA' });
-  const launched = await kit.launch(account.id);
-  if (!launched.ok) throw new Error('opencode launch was not ready');
-  assert.deepEqual(launched.args, ['--standalone']);
-  await kit.remove(account.id);
-});
-
-for (const [label, banner] of [['leading newline', '\n2.0.32'], ['ANSI-coloured', '\x1b[1m2.0.32\x1b[0m'], ['parenthesised', 'opencode (2.0.32)']] as const) {
-  test(`opencode 2.x version on a ${label} first line still gets --standalone`, async () => {
-    const root = scratchDir('opencode-cli-banner-shape');
-    const { store } = memoryKeys();
-    const env = { HOME: join(root, 'home'), PATH: '/unused' };
-    const bin = fakeBin(join(root, 'bins'), 'opencode-shape', banner);
-    const kit = cliAccounts({ stateDir: join(root, 'plans'), bins: { opencode: bin }, env, keyStore: store });
-    const { account } = await kit.add('opencode');
-    await kit.saveKey(account.id, CANARY, { workspace: 'org_SHAPE' });
-    const launched = await kit.launch(account.id);
-    if (!launched.ok) throw new Error('opencode launch was not ready');
-    assert.deepEqual(launched.args, ['--standalone']);
-    await kit.remove(account.id);
-  });
-}
-
 test('opencode launch of a key saved without a workspace: one is written and stored, several ask for the pick', async () => {
   const root = scratchDir('opencode-cli-workspace');
   const { store, saved } = memoryKeys();
@@ -390,13 +340,6 @@ test('opencode saveKey/logout refuse the wrong shape, and remote stays read-only
   assert.deepEqual(kit.resumeArgs('opencode', { kind: 'id', value: 'abc' }), ['--session', 'abc']);
   assert.throws(() => kit.resumeArgs('opencode', { kind: 'path', value: 'abc' }), (e: unknown) => e instanceof CliAccountError && e.code === 'kind-mismatch');
   assert.throws(() => kit.resumeArgs('opencode', { kind: 'id', value: '--flag' }), (e: unknown) => e instanceof CliAccountError && e.code === 'kind-mismatch');
-  const broken = cliAccounts({ stateDir: join(root, 'broken'), bins: { opencode: fakeBin(join(root, 'bins'), 'opencode-broken', '') }, env, keyStore: store });
-  const { account: unread } = await broken.add('opencode');
-  await broken.saveKey(unread.id, CANARY, { workspace: 'org_UNREAD' });
-  const unreadStart = await broken.launch(unread.id);
-  assert.equal(unreadStart.ok, true);
-  if (unreadStart.ok) assert.deepEqual(unreadStart.args, [], 'an unreadable version starts without --standalone');
-  await broken.remove(unread.id);
   assert.throws(() => openCodePlanKeyEntry(''), /invalid account options/);
   assert.throws(() => openCodePlanKeyEntry(OPENCODE_GO_PLAN_ROUTE, ''), /invalid account options/);
 

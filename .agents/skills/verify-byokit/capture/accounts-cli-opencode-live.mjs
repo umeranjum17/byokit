@@ -99,14 +99,15 @@ try {
       const folder = kit.folderOf(ids[who]);
       for (const [name, sub] of [['XDG_DATA_HOME', 'data'], ['XDG_STATE_HOME', 'state'], ['XDG_CACHE_HOME', 'cache']]) assert.equal(l.set[name], join(folder, sub));
     }
-    console.log(`${label}: version ${(await run([bin, '--version'], launchEnv({ base: { PATH: '/usr/bin:/bin', HOME: home }, account: launched.A }).env, project)).out.trim()}; launch args ${JSON.stringify(launched.A.args)}`);
-    assert.deepEqual(launched.A.args, label === '2.x' ? ['--standalone'] : []);
+    // The app passes --standalone itself on 2.x, as the kit's README tells it to.
+    const standalone = label === '2.x' ? ['--standalone'] : [];
+    console.log(`${label}: version ${(await run([bin, '--version'], launchEnv({ base: { PATH: '/usr/bin:/bin', HOME: home }, account: launched.A }).env, project)).out.trim()}; start flags ${JSON.stringify(standalone)}`);
 
     // Both accounts at once, the way an app starts them: the launch env over the app's own, argv `bin run ...args`.
     fake.leg = label; fake.barrier = true; fake.timedOut = false; seen.clear();
     const start = (who, args) => run([bin, 'run', ...args, '-m', 'opencode-go/fake-model', `say pong from account ${who}`],
       launchEnv({ base: { PATH: '/usr/bin:/bin', HOME: home, TERM: 'dumb' }, account: launched[who] }).env, project);
-    const [a, b] = await Promise.all([start('A', launched.A.args), start('B', launched.B.args)]);
+    const [a, b] = await Promise.all([start('A', standalone), start('B', standalone)]);
     fake.barrier = false;
     for (const [who, r] of [['A', a], ['B', b]]) {
       assert.equal(r.code, 0, `${label} account ${who} run: ${r.out.slice(-400)}`);
@@ -127,11 +128,11 @@ try {
     }
 
     if (label === '2.x') {
-      // Control: the same two starts without `args` share 2.x's one background server port, and the second fails.
+      // Control: the same two starts without --standalone share 2.x's one background server port, and the second fails.
       fake.leg = '2.x-control';
       const [ca, cb] = await Promise.all([start('A', []), start('B', [])]);
       const failedOne = [ca, cb].find((r) => r.code !== 0);
-      console.log(`2.x control without args: exits ${ca.code}/${cb.code}${failedOne ? `; ${(/port \d+ on [\d.]+ is already in use/.exec(failedOne.out) ?? ['other error'])[0]}` : ''}`);
+      console.log(`2.x control without --standalone: exits ${ca.code}/${cb.code}${failedOne ? `; ${(/port \d+ on [\d.]+ is already in use/.exec(failedOne.out) ?? ['other error'])[0]}` : ''}`);
       for (const who of ['A', 'B']) await run([bin, 'service', 'stop'], launchEnv({ base: { PATH: '/usr/bin:/bin', HOME: home }, account: launched[who] }).env, project);
     }
 
