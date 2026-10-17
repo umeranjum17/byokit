@@ -23,6 +23,10 @@ const FILTERED = new Set(['pane_agent_status_changed', 'pane_output_matched', 'p
 
 const AGENT_NAME = /^[a-z][a-z0-9_-]{0,31}$/;
 
+// The `PaneAgentState` the pinned schema accepts (schema/herdr-api-0.9.1.json): `pane.report_agent`
+// refuses any other state, `failed` included.
+const REPORTABLE_STATES = ['idle', 'working', 'blocked', 'unknown'];
+
 // A `layout.apply` root (pinned LayoutNode): a pane leaf or a split of two subtrees. The fake only
 // needs the shape it reads back for `layout.updated`, so the fields are read defensively.
 type LayoutNode = {
@@ -90,6 +94,7 @@ export type FakeHerdr = {
   holdSnapshot(): () => void;         // hold the next snapshot answer(s) until the release runs
   failNextSnapshot(code?: string, message?: string): void;   // the next snapshot answer errors once
   holdAck(): () => void;              // hold the next subscribe ack(s) until the release runs
+  holdAgentWait(): () => void;        // hold `agent.wait` answers until the release runs (the deadline still starts on arrival)
   failNextAck(code?: string, message?: string): void;        // the next subscribe is rejected once
   subscriptionCount(): number;        // distinct sockets holding a subscription (batch + filtered)
   stop(): Promise<void>;
@@ -134,6 +139,7 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
   let snapshotGates: { promise: Promise<void>; release: () => void }[] = [];
   let nextSnapshotFailure: { code: string; message: string } | undefined;
   let ackGates: { promise: Promise<void>; release: () => void }[] = [];
+  let agentWaitGates: { promise: Promise<void>; release: () => void }[] = [];
   let nextAckFailure: { code: string; message: string } | undefined;
 
   const gate = (list: { promise: Promise<void>; release: () => void }[]): (() => void) => {
@@ -410,6 +416,14 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       }
       return {};
     },
+    'pane.report_agent': (p) => {
+      const pane = paneOf(p.pane_id);
+      if (typeof p.state !== 'string' || !REPORTABLE_STATES.includes(p.state)) {
+        throw fail('invalid_params', `unknown variant \`${String(p.state)}\`, expected one of ${REPORTABLE_STATES.map((s) => `\`${s}\``).join(', ')}`);
+      }
+      transition(pane, p.state);
+      return {};
+    },
     'pane.rename': (p) => {
       const pane = paneOf(p.pane_id);
       // A null label clears back to the shell default; a rename never moves the revision,
@@ -573,11 +587,12 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
         },
       };
     },
-    'agent.wait': (p) => {
+    'agent.wait': async (p) => {
       const paneId = p.target;
       const statuses = ['idle', 'working', 'blocked', 'done', 'unknown'];
       const until = Array.isArray(p.until) && (p.until as string[]).length > 0 ? p.until as string[] : statuses;
       const deadline = Date.now() + (typeof p.timeout_ms === 'number' ? p.timeout_ms : 0);
+      for (const held of agentWaitGates) await held.promise;
       return new Promise((resolve) => {
         const tick = () => {
           const agent = live.agents.find((row) => row.pane_id === paneId);
@@ -638,6 +653,8 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     snapshotGates = [];
     for (const held of ackGates) held.release();
     ackGates = [];
+    for (const held of agentWaitGates) held.release();
+    agentWaitGates = [];
     for (const socket of sockets) socket.destroy();
     sockets.clear();
     eventSubs.clear();
@@ -1052,6 +1069,9 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     },
     holdAck() {
       return gate(ackGates);
+    },
+    holdAgentWait() {
+      return gate(agentWaitGates);
     },
     failNextAck(code = 'invalid_subscription', message = 'the next subscribe is rejected') {
       nextAckFailure = { code, message };
