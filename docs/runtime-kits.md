@@ -558,10 +558,10 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
     `{ privateKey, publicKey }` shape and the Crewhouse legacy `{ deviceId, publicKeyPem, privateKeyPem }` shape, and
     never rewrites an existing file so an upgraded house keeps its keys). Connect the transport; wait up to `handshakeMs` (default 90 s) for
    hello-ok, polling the child every 200 ms. Exit code 78 once → run `doctor --fix --yes --non-interactive` (60 s)
-   with state `repairing`, relaunch. A handshake timeout or any other engine exit before hello is a missed attempt; a timeout
-   that fires during a repair waits for the repair to end before the engine is stopped (a
-   close before hello stays inside the transport's own retry, so it surfaces as the timeout; a terminal rejection such
-   as a bad token fails at once): state `restarting` with `retryAt` on step 3's backoff, then step 2 runs again with the
+   with state `repairing`, relaunch. A handshake timeout or any other engine exit before hello is a missed attempt, except an over-cap auth-store seal
+   refusal, which fails at once with `failed/auth-store-seal-size`; a timeout that fires during a repair waits for the
+   repair to end before the engine is stopped (a close before hello stays inside the transport's own retry, so it
+   surfaces as the timeout; a terminal rejection such as a bad token fails at once): state `restarting` with `retryAt` on step 3's backoff, then step 2 runs again with the
    engine stopped and spawned afresh; the fifth missed attempt → `failed/handshake`. One loop owned by the `start()`
    call runs these attempts: each call has its own budget and its own wait, `stop()` cancels the wait of the call in
    flight, step 3 stays out until a first start reaches `ready`, and `start()` resolves when the kit reaches
