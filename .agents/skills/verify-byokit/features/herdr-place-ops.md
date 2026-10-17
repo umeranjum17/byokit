@@ -12,7 +12,9 @@ shell/application tab, shell split, new or labelled workspace — with no agent 
 - `place-tab`: `kit.place({ place: { tab: 'new', workspaceId } })` opens a shell tab (or an application tab carrying its own `env`) and starts no agent; the ref names the fresh pane, its tab and workspace.
 - `place-split`: `kit.place({ place: { split, direction } })` splits a shell pane and starts no agent.
 - `place-label`: a labelled workspace is reused (tab lands in the existing workspace), created when missing, and two matches refuse with `workspace-ambiguous` creating nothing.
-- `place-pane`: `kit.place({ place: { pane } })` names an existing pane, answers its ids from `pane.get`, creates nothing, and refuses an `env` there.
+- `place-pane`: `kit.place({ place: { pane } })` names an existing pane, answers its ids from `pane.get`, creates nothing, and refuses an `env` there (a plain record or an overlay).
+- `place-root-label`: a workspace `place` creates carries `place.label` on its root tab; a refused `tab.rename` closes that workspace again.
+- `place-overlay`: `kit.place({ place, env: { overlay, unset? } })` sets and checks the overlay in the fresh pane (unset names gone); a check that fails rejects `env_mismatch` and closes what was made.
 
 ## How to get to it (user POV)
 
@@ -48,7 +50,15 @@ serves a real Unix socket under the scratch directory and answers the pinned pro
     `workspace.create` with the same label, a third rejects with `code: 'workspace-ambiguous'`.
   - `place-pane`: `kit.place({ place: { pane: 'w1:p1' } })` resolves exactly
     `{ paneId: 'w1:p1', tabId: 'w1:t1', workspaceId: 'w1' }` with no pane created; `kit.place({ env: { A: 'b' },
-    place: { pane: 'w1:p1' } })` rejects with `code: 'env_mismatch'`.
+    place: { pane: 'w1:p1' } })` rejects with `code: 'env_mismatch'`, and so does `env: { overlay: { A: 'b' } }`.
+  - `place-root-label`: `kit.place({ place: { workspace: 'Umer repo', label: 'shell' } })` creates the
+    `Umer repo` workspace whose root tab (`fake.world.tabs`, by the ref's `tabId`) reads `shell`;
+    `kit.place({ place: { workspace: 'Umer gone', label: '' } })` rejects with the fake's `invalid_label`
+    rename refusal and leaves no `Umer gone` workspace in `fake.world.workspaces`.
+  - `place-overlay`: `kit.place({ place: { workspace: 'new' }, env: { overlay: { BYOKIT_ACCOUNT: 'umer' },
+    unset: ['HOME'] } })` leaves `BYOKIT_ACCOUNT=umer`, `PATH` and no `HOME` in the new pane's `fake.world` env
+    (a fresh fake pane's shell starts with only `PATH` and `HOME`); an overlay with the name
+    `bad;name` rejects `env_mismatch` with the workspace count unchanged.
   It exits non-zero on any mismatch, then closes the kit and fake.
 - **Run and capture.** `feature=herdr-place-ops; entry=@byokit/herdr; drive=(node "$scratch_dir/verify-herdr-place-ops.mjs")`;
   then run SKILL.md Evidence's capture block. Exit code `0`.
@@ -56,6 +66,8 @@ serves a real Unix socket under the scratch directory and answers the pinned pro
 - **placed-panes-refusal shows.** `['launchFailed']` alone on the refused placement, `['placed', 'launchFailed']` on the failed launch.
 - **place-tab / place-split show.** Fresh tab and split panes in the fake with the right labels/env and no agents.
 - **place-label / place-pane show.** Reuse-then-ambiguous label behaviour, and the pane place creating nothing.
+- **place-root-label / place-overlay show.** The root tab labelled `shell`, the overlay value present and the
+  unset name absent, and both refusals leaving no new workspace.
 
 ## Gotchas
 
