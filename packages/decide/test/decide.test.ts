@@ -204,14 +204,15 @@ test('an app asks Jev over TypeSafe and OpenRouter with the host key only in the
     };
     const retried = await decide('x', { intent: questions.intent }, { privacy: 'may-leave', backends: [jev({ key: 'k', fetch: flaky, retryMaxMs: 1000 })] });
     assert.deepEqual([retried.intent.answer, calls2], ['task', 2]);
-    for (const status of [400, 401, 500]) {
+    // A refused key carries its typed failure; any other status only its reason.
+    for (const [status, failure] of [[400, undefined], [401, { code: 'key_refused', status: 401 }], [402, { code: 'out_of_credit', status: 402 }], [500, undefined]] as const) {
       let n = 0;
       const r = await decide('x', { intent: questions.intent }, { privacy: 'may-leave', backends: [jev({ key: 'k', fetch: async () => { n++; return new Response('', { status }); }, retryBaseMs: 1 })] });
-      assert.deepEqual([r.intent.reason, n], [`jev failed: http ${status}`, 1], `no retry on ${status}`);
+      assert.deepEqual([r.intent.reason, r.intent.failure, n], [`jev failed: http ${status}`, failure, 1], `no retry on ${status}`);
     }
     let limited = 0;
     const exhausted = await decide('x', { intent: questions.intent }, { privacy: 'may-leave', backends: [jev({ key: 'k', maxRetries: 1, retryBaseMs: 1, fetch: async () => { limited++; return new Response('', { status: 429 }); } })] });
-    assert.deepEqual([exhausted.intent.reason, limited], ['jev failed: http 429', 2]);
+    assert.deepEqual([exhausted.intent.reason, exhausted.intent.failure, limited], ['jev failed: http 429', { code: 'rate_limited', status: 429 }, 2]);
     let backoff = 0;
     const start = Date.now();
     const aborted = await decide('x', { intent: questions.intent }, { privacy: 'may-leave', timeoutMs: 30, backends: [jev({ key: 'k', retryMaxMs: 60000, fetch: async () => { backoff++; return new Response('', { status: 429, headers: { 'retry-after': '30' } }); } })] });

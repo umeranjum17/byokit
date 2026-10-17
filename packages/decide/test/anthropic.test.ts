@@ -75,6 +75,7 @@ test('an app decides on an Anthropic key over the Messages endpoint, API-billed 
   const refused = await decide({}, { intent: questions.intent },
     { privacy: 'may-leave', backends: [keyBackend] });
   assert.equal(refused.intent.abstained, true);
+  assert.deepEqual(refused.intent.failure, { code: 'key_refused', status: 401 });
 });
 
 test('the Anthropic backend needs an explicit model and key, and stays API-billed', async () => {
