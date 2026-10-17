@@ -5,6 +5,7 @@
 // `@byokit/connect/node` and `@byokit/secrets/node` — with no src or internals. The security and correctness
 // contracts the old unit/mock-heavy cases held survive as assertions inside a journey: PKCE/state and exact-callback
 // binding, one-shot exchange and per-person isolation, the accepted/declined/expired/cancelled/superseded flows,
+// GitHub's device-code sign-in against a loopback fake,
 // transient refresh preservation and invalid_grant removal, single-flight rotation across handles, provider-snapshot
 // immutability, credential redaction in every error, verified client details, discovery/DCR/resource binding, the
 // typed MCP client, the loopback listener and the house Google client, Gmail read/search and owner-bound history that
@@ -14,11 +15,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { chmodSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { build } from 'esbuild';
 import plain from '../../../fixtures/conformance/plain-words.json' with { type: 'json' };
 import {
-  connect, ConnectError, providers, MailReader, MailSender, MailError, MailHistory, HistoryError,
+  connect, deviceSignIn, ConnectError, providers, MailReader, MailSender, MailError, MailHistory, HistoryError,
   CallToolResultSchema, ToolListChangedNotificationSchema,
   type Provider, type ConnectOptions,
 } from '@byokit/connect';
@@ -255,6 +257,76 @@ test('declined, untimed, expired, cancelled, superseded and misconfigured sign-i
   await refusal('configuration', () => live.verifyClient({ id: 'entered' }));
   const malformed = connect(app, { ...signedOpts, fetch: async () => new Response('not JSON', { status: 502 }) });
   assert.equal((await malformed.verifyClient({ id: 'entered', secret: 'canary' })).outcome, 'inconclusive');
+});
+
+test('a person connects GitHub by typing a device code; only an approved code is stored', async t => {
+  // A loopback GitHub: /login/device/code hands out a code, /login/oauth/access_token answers each poll in turn (200 + error, as GitHub does).
+  const asked: URLSearchParams[] = [], polls: { at: number; form: URLSearchParams }[] = [];
+  let answers: Record<string, unknown>[] = [];
+  const server = createServer(async (req, res) => {
+    let body = ''; for await (const chunk of req) body += chunk;
+    // A fresh socket per poll, so the measured gaps are the kit's waits and not idle keep-alive reuse.
+    res.setHeader('content-type', 'application/json'); res.setHeader('connection', 'close');
+    if (req.url === '/login/device/code') { asked.push(new URLSearchParams(body)); res.end(JSON.stringify({ device_code: 'device-canary', user_code: 'WDJB-MJHT', verification_uri: 'https://github.com/login/device', expires_in: 900, interval: 0 })); return; }
+    polls.push({ at: performance.now(), form: new URLSearchParams(body) }); res.end(JSON.stringify(answers.shift() ?? { error: 'authorization_pending' }));
+  });
+  await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => { server.close(); server.closeAllConnections(); });
+  const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  const github: Provider = { ...providers.github, device: { code: `${origin}/login/device/code`, token: `${origin}/login/oauth/access_token` } };
+  const store = memory(), opts: ConnectOptions = { store, person: 'Umer', client: { id: 'app-client-id' }, scopes: ['repo'] };
+  const until = async (check: () => boolean) => { while (!check()) await new Promise(r => setTimeout(r, 10)); };
+
+  // Pending, then slow_down (the wait grows by 5 s), then approval: the grant lands in the person's store.
+  answers = [{ error: 'authorization_pending' }, { error: 'slow_down', interval: 10 }, { access_token: 'gho_access-canary', token_type: 'bearer', scope: 'repo' }];
+  const flow = await deviceSignIn(github, opts);
+  assert.deepEqual([flow.userCode, flow.verificationUri], ['WDJB-MJHT', 'https://github.com/login/device']);
+  assert.ok(flow.expiresAt > Date.now() + 890_000);
+  assert.deepEqual([asked[0].get('client_id'), asked[0].get('scope')], ['app-client-id', 'repo']);
+  assert.equal(await connect(github, opts).connected(), false);
+  assert.equal(flow.finish(), flow.finish());
+  await flow.finish();
+  assert.equal(polls.length, 3);
+  for (const { form } of polls) assert.deepEqual([form.get('grant_type'), form.get('device_code'), form.get('client_id')], ['urn:ietf:params:oauth:grant-type:device_code', 'device-canary', 'app-client-id']);
+  const [pending, slowed] = [polls[1].at - polls[0].at, polls[2].at - polls[1].at];
+  assert.ok(pending < 5000 && slowed >= 5985, `waits ${pending} then ${slowed} ms`);
+  const grant = await connect(github, opts).grant();
+  assert.deepEqual([grant?.accessToken, grant?.scope], ['gho_access-canary', 'repo']);
+  assert.equal(await connect(github, opts).token(), 'gho_access-canary');
+  assert.equal(store.values.size, 1);
+  // No redirect is involved, so the browser sign-in is refused plainly.
+  await refusal('configuration', () => connect(github, opts).signIn());
+
+  // GitHub says the code expired, or the person pressed Cancel: each is its own plain sentence and nothing is stored.
+  for (const [error, code] of [['expired_token', 'expired'], ['access_denied', 'declined']] as const) {
+    const empty = memory(); answers = [{ error }];
+    const ended = await refusal(code, async () => (await deviceSignIn(github, { ...opts, store: empty })).finish());
+    assert.equal(ended.cause?.error, error); assert.equal(empty.values.size, 0);
+  }
+  assert.notEqual(new ConnectError('expired').message, new ConnectError('declined').message);
+  // The app cancels while the person has not typed the code yet; an unanswered code also ends at its own deadline.
+  const cancelled = memory(), seen = polls.length, waiting = await deviceSignIn(github, { ...opts, store: cancelled });
+  const finishing = waiting.finish(); await until(() => polls.length > seen); waiting.cancel();
+  await refusal('declined', () => finishing); assert.equal(cancelled.values.size, 0);
+  // So does a cancel that lands while the approved answer is already being written to the store.
+  answers = [{ access_token: 'gho_access-canary', token_type: 'bearer', scope: 'repo' }];
+  const racing = memory(), raced = await deviceSignIn(github, { ...opts, store: racing });
+  const racingFinish = raced.finish();
+  let release: ((value: ArrayBuffer) => void) | undefined;
+  const subtle = Object.getPrototypeOf(crypto.subtle) as { digest: unknown };
+  const realDigest = subtle.digest;
+  subtle.digest = () => new Promise<ArrayBuffer>(resolve => { release = resolve; });
+  t.after(() => { subtle.digest = realDigest; });
+  await until(() => release !== undefined);
+  raced.cancel();
+  release!(new ArrayBuffer(0));
+  await refusal('declined', () => racingFinish);
+  assert.equal(racing.values.size, 0);
+  let clock = 0; const late = memory(), lapsing = await deviceSignIn(github, { ...opts, store: late, now: () => clock });
+  clock = 900_000; const before = polls.length;
+  await refusal('expired', () => lapsing.finish()); assert.equal(polls.length, before); assert.equal(late.values.size, 0);
+  // Without the app's own client there is no device sign-in (no house GitHub client).
+  await refusal('configuration', () => deviceSignIn(github, { ...opts, client: undefined }));
 });
 
 test('a remote MCP server is discovered, registered and driven through the typed client, with a 401 refreshed', async () => {

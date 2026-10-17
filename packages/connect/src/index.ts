@@ -1,4 +1,4 @@
-export { connect, Connection } from './connect.ts';
+export { connect, deviceSignIn, Connection } from './connect.ts';
 export { providers } from './providers.ts';
 export type { ProviderId } from './providers.ts';
 export { ConnectError } from './errors.ts';
@@ -7,7 +7,7 @@ export { MailHistory, HistoryError } from './history.ts';
 export type { HistoryFormat, HistoryErrorCode, MailHistoryOptions, HistoryQuery, HistoryExportQuery } from './history.ts';
 export type { MailErrorCode, MailCredential, MailReaderOptions, MailEnvelope, MailBody, MailMessage, MailPage, MailListOptions, MailGetOptions, MailSenderOptions, MailDraft, OutgoingMail, MailApproval, MailSendOptions, SentMail } from './mail.ts';
 export type { ConnectErrorCode, ProviderErrorCause } from './errors.ts';
-export type { Provider, OAuthClient, OAuthEndpoints, ConnectOptions, SignIn, McpOptions, Grant, ClientVerification } from './types.ts';
+export type { Provider, OAuthClient, OAuthEndpoints, ConnectOptions, SignIn, DeviceSignIn, McpOptions, Grant, ClientVerification } from './types.ts';
 // Expose the pinned engine for typed protocol pass-through without a second SDK pin.
 export { Client } from '@modelcontextprotocol/sdk/client/index.js';
 export * from '@modelcontextprotocol/sdk/types.js';

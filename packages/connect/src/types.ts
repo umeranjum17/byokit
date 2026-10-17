@@ -18,6 +18,8 @@ export interface Provider {
   mcpUrl?: string;
   issuer?: string;
   oauth?: OAuthEndpoints;
+  /** RFC 8628 device authorization: the person types a code on any device instead of returning to a redirect. */
+  device?: { code: string; token: string };
   scopes?: readonly string[];
   /** Provider-specific authorization parameters; PKCE/state cannot be overridden. */
   extra?: Readonly<Record<string, string>>;
@@ -27,8 +29,8 @@ export interface ConnectOptions {
   store: Keystore;
   /** Distinguishes connections belonging to different people sharing a store. */
   person: string;
-  /** HTTPS, loopback HTTP, or the host's registered native app URI. */
-  redirectUri: string;
+  /** HTTPS, loopback HTTP, or the host's registered native app URI. Needed by `signIn()`, not by `deviceSignIn()`. */
+  redirectUri?: string;
   client?: OAuthClient;
   clientName?: string;
   scopes?: readonly string[];
@@ -42,6 +44,16 @@ export interface SignIn {
   readonly redirectUri: string;
   /** Pass the complete callback URL; rejects mismatched, expired and reused callbacks. */
   finish(callback: string | URL): Promise<void>;
+  cancel(): void;
+}
+export interface DeviceSignIn {
+  /** Show this code and `verificationUri`; the person types the code there on any device. */
+  readonly userCode: string;
+  readonly verificationUri: string;
+  /** Unix milliseconds when the code stops working. */
+  readonly expiresAt: number;
+  /** Waits for the person; stores the grant only when they approve. The same promise on every call. */
+  finish(): Promise<void>;
   cancel(): void;
 }
 export interface McpOptions {

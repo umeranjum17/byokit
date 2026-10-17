@@ -4,7 +4,7 @@
     "discovery": "Could not find the app’s sign-in page.",
     "registration": "The app could not set up sign-in. Try again.",
     "callback": "This sign-in link does not match. Start again.",
-    "expired": "This sign-in link has expired. Start again.",
+    "expired": "This sign-in has expired. Start again.",
     "declined": "Nothing was connected. Try again whenever you like.",
     "scope": "Some permissions were left out. Sign in again and select them.",
     "token": "The app did not finish connecting. Try again.",

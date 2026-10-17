@@ -1,6 +1,6 @@
 # @byokit/connect
 
-Connect a person's Google, Drive, Notion, Canva or other remote MCP account.
+Connect a person's Google, Drive, Notion, Canva, GitHub or other remote MCP account.
 Sign-in opens the provider's own page. Credentials stay in the keystore the app
 passes, scoped to that person on their device. There is no account pool, proxy,
 ambient credential lookup, logging or extra opt-in switch.
@@ -128,6 +128,35 @@ outcome includes a plain `message`; failed provider replies may carry the same
 sanitized diagnostic `cause` as `ConnectError`. A secret is required. This checks
 client authentication only; it does not check consent-screen publishing, enabled
 APIs, redirect registration or scopes. Tests use injected fake endpoints only.
+
+## Connect GitHub with a device code
+
+```ts
+import { connect, deviceSignIn } from '@byokit/connect';
+import type { Keystore } from '@byokit/secrets';
+
+declare const store: Keystore;
+const options = { store, person: 'Umer', client: { id: 'your-github-oauth-app-client-id' }, scopes: ['repo'] };
+const flow = await deviceSignIn('github', options);
+// Show flow.userCode and flow.verificationUri (github.com/login/device);
+// the person types the code there on any device.
+await flow.finish(); // Resolves once they approve; call flow.cancel() when the sheet closes.
+
+const github = connect('github', options);
+await github.connected(); // true
+```
+
+`deviceSignIn(provider, options)` starts an RFC 8628 device sign-in and returns
+`{ userCode, verificationUri, expiresAt, finish, cancel }`; `expiresAt` is Unix
+milliseconds. It needs the app's own OAuth client ID with device flow enabled;
+there is no house GitHub client, and no `redirectUri`. `finish()` polls at the
+provider's interval, adds 5 seconds on `slow_down`, and keeps waiting through a
+poll that cannot get through. Only an approved code stores a grant, in the same
+keystore record `connect()` reads, so `connected()`, `grant()` and `token()`
+work afterwards. An expired code rejects with `ConnectError` code `expired`; a
+person pressing Cancel on GitHub, or `cancel()`, rejects with `declined`. Both
+store nothing. Any provider with `device: { code, token }` endpoints works the
+same way.
 
 ## Loopback on a computer
 
@@ -330,7 +359,7 @@ sh scripts/test.sh 'packages/connect/test/*.test.ts'
 ```
 
 `packages/connect/test/journey-connect.test.ts` drives the built package the way a
-host app does — `connect`/`signIn`/`token`/`mcp`, the loopback listener, the house
+host app does — `connect`/`signIn`/`deviceSignIn`/`token`/`mcp`, the loopback listener, the house
 Google client, `MailReader`/`MailSender` and `MailHistory`. Fake providers and a real
 loopback callback only. It covers PKCE/state and exact-callback binding, per-person
 isolation, refresh races and revocation, discovery/DCR/resource binding, rich MCP

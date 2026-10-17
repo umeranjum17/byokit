@@ -6,7 +6,7 @@ import { ConnectError, providerCause } from './errors.ts';
 import { discover, type Discovered } from './discovery.ts';
 import { endpoint, redirect, request, json } from './http.ts';
 import { providers, type ProviderId } from './providers.ts';
-import type { ConnectOptions, OAuthClient, Provider, SignIn, McpOptions, Grant, ClientVerification } from './types.ts';
+import type { ConnectOptions, OAuthClient, Provider, SignIn, DeviceSignIn, McpOptions, Grant, ClientVerification } from './types.ts';
 
 interface Tokens { access: string; refresh?: string; expires?: number; scope?: string; refreshExpiresIn?: number; refreshExpiresAt?: number }
 interface Saved extends Discovered { client: OAuthClient; tokens: Tokens }
@@ -31,6 +31,9 @@ function validClient(client: OAuthClient): OAuthClient {
       (client.authMethod?.startsWith('client_secret_') && !client.secret)) throw new ConnectError('configuration');
   return { id: client.id, secret: client.secret, authMethod: client.authMethod };
 }
+function wait(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise(resolve => { const timer = setTimeout(resolve, ms); signal.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true }); });
+}
 function validTime(value: unknown): boolean { return value === undefined || (typeof value === 'number' && Number.isFinite(value) && value >= 0); }
 
 /** One person's connection on one device; the host owns the store and browser. */
@@ -46,14 +49,15 @@ export class Connection {
       : target;
     this.provider = Object.freeze({ ...provider,
       oauth: provider.oauth && Object.freeze({ ...provider.oauth }),
+      device: provider.device && Object.freeze({ ...provider.device }),
       scopes: provider.scopes && Object.freeze([...provider.scopes]),
       extra: provider.extra && Object.freeze({ ...provider.extra }),
     });
     if (!options.person || !this.provider.id) throw new ConnectError('configuration');
-    redirect(options.redirectUri);
+    if (options.redirectUri !== undefined) redirect(options.redirectUri);
     if (this.provider.mcpUrl) endpoint(this.provider.mcpUrl);
     this.options = { ...options, scopes: options.scopes && Object.freeze([...options.scopes]), client: options.client && { ...options.client } };
-    this.key = `byokit.connect:${JSON.stringify([options.person, this.provider.id, this.provider.mcpUrl ?? '', this.provider.oauth?.token ?? this.provider.issuer ?? '', options.client?.id ?? ''])}`;
+    this.key = `byokit.connect:${JSON.stringify([options.person, this.provider.id, this.provider.mcpUrl ?? '', this.provider.oauth?.token ?? this.provider.device?.token ?? this.provider.issuer ?? '', options.client?.id ?? ''])}`;
     this.slot = slotFor(options.store, this.key);
   }
   private storeKey(): Promise<string> {
@@ -104,6 +108,8 @@ export class Connection {
   }
   /** Starts a fresh browser sign-in. No opt-in flag or server-held account is required. */
   async signIn(): Promise<SignIn> {
+    const uri = this.options.redirectUri;
+    if (!uri) throw new ConnectError('configuration');
     const epoch = ++this.slot.epoch;
     const info = await discover(this.provider, this.fetcher, this.timeout);
     const scopes = this.options.scopes ?? info.scopes;
@@ -111,7 +117,6 @@ export class Connection {
     if (!client.id || (client.authMethod !== 'none' && client.authMethod && !client.secret)) throw new ConnectError('configuration');
     const state = random(), verifier = random();
     const challenge = base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))));
-    const uri = this.options.redirectUri;
     const url = endpoint(info.endpoints.authorize);
     const fields = { ...this.provider.extra, response_type: 'code', client_id: client.id, redirect_uri: uri, state,
       code_challenge: challenge, code_challenge_method: 'S256', ...(info.resource ? { resource: info.resource } : {}) };
@@ -141,14 +146,62 @@ export class Connection {
       });
     } };
   }
+  /** RFC 8628 device sign-in with the app's own client: show `userCode` at `verificationUri`, then await `finish()`.
+   * The poll follows the token endpoint: pending waits, slow_down adds 5 s, and an unreachable poll waits for the next. */
+  async deviceSignIn(): Promise<DeviceSignIn> {
+    const device = this.provider.device;
+    if (!device || !this.options.client) throw new ConnectError('configuration');
+    const client = validClient(this.options.client);
+    const epoch = ++this.slot.epoch;
+    const scopes = this.options.scopes ?? this.provider.scopes ?? [];
+    const info: Discovered = { endpoints: { authorize: endpoint(device.code).href, token: endpoint(device.token).href }, scopes };
+    const response = await request(this.fetcher, device.code, { method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
+      body: new URLSearchParams({ client_id: client.id, ...(scopes.length ? { scope: scopes.join(' ') } : {}) }) }, this.timeout);
+    const m = await json(response, 'token');
+    if (!response.ok || m.error) throw new ConnectError('token', response.status, providerCause(m, [client.id, client.secret ?? '']));
+    const lives = Number(m.expires_in), seconds = m.interval === undefined ? 5 : Number(m.interval);
+    if (typeof m.device_code !== 'string' || !m.device_code || typeof m.user_code !== 'string' || !m.user_code || typeof m.verification_uri !== 'string' ||
+        !Number.isFinite(lives) || lives <= 0 || !Number.isFinite(seconds) || seconds < 0) throw new ConnectError('token');
+    const code = m.device_code, verificationUri = endpoint(m.verification_uri).href, expiresAt = this.now + lives * 1000;
+    const stop = new AbortController();
+    let interval = Math.max(1000, seconds * 1000), done: Promise<void> | undefined;
+    const ended = () => stop.signal.aborted || epoch !== this.slot.epoch;
+    const poll = async (): Promise<void> => {
+      for (;;) {
+        if (ended()) throw new ConnectError('declined');
+        if (this.now >= expiresAt) throw new ConnectError('expired');
+        const tokens = await this.exchange(info, client, { grant_type: 'urn:ietf:params:oauth:grant-type:device_code', device_code: code }).catch((error: unknown) => {
+          if (!(error instanceof ConnectError)) throw error;
+          const answer = error.cause?.error;
+          if (answer === 'expired_token') throw new ConnectError('expired', error.status, error.cause);
+          if (answer === 'access_denied') throw new ConnectError('declined', error.status, error.cause);
+          if (answer === 'slow_down') interval += 5000;
+          // A poll that cannot get through waits for the next, as a phone cuts a backgrounded app's network.
+          else if (answer !== 'authorization_pending' && error.code !== 'network') throw error;
+          return undefined;
+        });
+        if (tokens) return serial(this.slot, async () => {
+          if (ended()) throw new ConnectError('declined');
+          // GitHub lists granted scopes with commas; RFC 6749 with spaces.
+          if (tokens.scope !== undefined && !scopes.every(sc => tokens.scope!.split(/[\s,]+/).includes(sc))) throw new ConnectError('scope');
+          const key = await this.storeKey();
+          if (ended()) throw new ConnectError('declined');
+          await this.options.store.set(key, JSON.stringify({ ...info, client, tokens } satisfies Saved));
+        });
+        await wait(interval, stop.signal);
+      }
+    };
+    return { userCode: m.user_code, verificationUri, expiresAt, finish: () => done ??= poll(), cancel: () => stop.abort() };
+  }
   private async register(info: Discovered): Promise<OAuthClient> {
     if (!info.endpoints.register) throw new ConnectError('configuration');
     const response = await request(this.fetcher, info.endpoints.register, {
       method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ client_name: this.options.clientName ?? 'BYOKit', redirect_uris: [this.options.redirectUri], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none' }),
+      body: JSON.stringify({ client_name: this.options.clientName ?? 'BYOKit', redirect_uris: [this.options.redirectUri!], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none' }),
     }, this.timeout);
     const m = await json(response, 'registration');
-    if (!response.ok || m.error) throw new ConnectError('registration', response.status, providerCause(m, [this.options.clientName ?? 'BYOKit', this.options.redirectUri]));
+    if (!response.ok || m.error) throw new ConnectError('registration', response.status, providerCause(m, [this.options.clientName ?? 'BYOKit', this.options.redirectUri!]));
     if (typeof m.client_id !== 'string' || !m.client_id || (m.token_endpoint_auth_method !== undefined && m.token_endpoint_auth_method !== 'none')) throw new ConnectError('registration');
     return { id: m.client_id, authMethod: 'none' };
   }
@@ -236,3 +289,4 @@ export class Connection {
   }
 }
 export function connect(provider: ProviderId | Provider | string, options: ConnectOptions): Connection { return new Connection(provider, options); }
+export function deviceSignIn(provider: ProviderId | Provider, options: ConnectOptions): Promise<DeviceSignIn> { return connect(provider, options).deviceSignIn(); }
