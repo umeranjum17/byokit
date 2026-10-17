@@ -96,6 +96,7 @@ export type KitOptions = {
   installPolicy?: { trustedSkills: string; ownRoots: string[] }; // trusted-skills JSON path, own content roots
   callbackPort?: number; // default 1455
   approvalTimeoutMs?: number; // default 180_000
+  handshakeMs?: number; // default 90_000: hello-ok deadline per start attempt (5.4 step 2)
   transport?: (ctx: { port: number; token: string; identityPath: string; bridgeSock: string }) => GatewayTransport; // tests
   spawnEngine?: boolean; // default true; false skips install, doctor and spawn (layout, token, port, config, plugin
   // and bridge still happen)
@@ -112,6 +113,8 @@ export type RetainedLogin = { path: string } | { record: Record<string, unknown>
 /** The engine's learning-mode config key (5.6 "Engine learning state"). */
 const LEARNING_KEY = 'skills.workshop.autonomous.mode';
 const RESTART_MS = 60_000;
+/** Consecutive failed starts before `failed/handshake` (5.4 step 2): the first start plus four retries. */
+const START_ATTEMPTS = 5;
 
 const operatorMethods = new Set<string>([
   'agent',
@@ -536,6 +539,7 @@ export class OpenClawKit {
   private starting?: Promise<void>;
   private stopping = false;
   private failures = 0;
+  private retryWait?: AbortController;
   private swept = false;
   private catalogs: Promise<void> = Promise.resolve();
   browser?: BrowserHost;
@@ -786,6 +790,7 @@ export class OpenClawKit {
 
   private async connect(): Promise<void> {
     let transport: GatewayTransport | undefined;
+    let handshake = false;
     try {
       await this.prepareBrowsers();
       const ctx = await this.engine.start();
@@ -794,7 +799,8 @@ export class OpenClawKit {
       transport = (this.o.transport ?? gatewayTransport)({ ...ctx, bridgeSock: this.engine.bridgeSock });
       this.transport = transport;
       this.off = [transport.onEvent((e) => { for (const fn of this.listeners) fn(e); }), transport.onClose((why) => this.closed(why))];
-      const hello = await Promise.race([transport.start(), delay(90_000, undefined, { ref: false }).then(() => { throw new Error('gateway handshake timed out'); })]);
+      const deadline = delay(this.o.handshakeMs ?? 90_000, undefined, { ref: false }).then(() => { throw new Error('gateway handshake timed out'); });
+      const hello = await Promise.race([transport.start(), deadline]).catch((error: unknown) => { handshake = true; throw error; });
       if (this.stopping || this.transport !== transport) return;
       if (hello.protocol !== PROTOCOL_VERSION) {
         this.setState({ phase: 'needs-update', why: 'version' });
@@ -843,6 +849,12 @@ export class OpenClawKit {
         throw error;
       }
       if (patchFailure) { this.setState({ phase: 'failed', why: 'engine-patch' }); throw error; }
+      // A missed handshake on a loaded host is the engine still coming up: retry in place, on the reconnect backoff,
+      // until START_ATTEMPTS starts have failed. start() settles once the kit is ready, stopped or given up.
+      if (handshake && !this.stopping && this.failures + 1 < START_ATTEMPTS) {
+        if (await this.backoff()) return this.connect();
+        return;
+      }
       if (needsUpdate) this.setState({ phase: 'needs-update', why: 'version' });
       if (!needsUpdate && !this.stopping) this.setState({ phase: 'failed', why: 'handshake' });
       throw error;
@@ -897,13 +909,24 @@ export class OpenClawKit {
     for (const fn of this.signInDisconnects) fn();
     void this.disconnect();
     if (this.o.spawnEngine === false) { this.setState({ phase: 'failed', why: 'handshake' }); return; }
+    void this.backoff().then((again) => { if (again) void this.start().catch(() => {}); });
+  }
+
+  // The reconnect backoff (1 s, 2 s, 4 s, capped at 30 s) shared by a reconnect after ready and a retried first start.
+  // Resolves true once the wait ran out and the kit is still restarting; stop() cancels the wait and resolves false.
+  private async backoff(): Promise<boolean> {
     const retryAt = Date.now() + Math.min(30_000, 1000 * 2 ** this.failures++);
     this.setState({ phase: 'restarting', retryAt });
-    void delay(retryAt - Date.now()).then(() => { if (!this.stopping && this.current.phase === 'restarting') void this.start().catch(() => {}); });
+    const wait = this.retryWait = new AbortController();
+    try { await delay(retryAt - Date.now(), undefined, { signal: wait.signal }); }
+    catch { return false; }
+    finally { this.retryWait = undefined; }
+    return !this.stopping && this.current.phase === 'restarting';
   }
 
   async stop(): Promise<void> {
     this.stopping = true;
+    this.retryWait?.abort();
     await this.disconnect();
     await this.engine.stop();
     await this.closeBrowsers();

@@ -600,6 +600,14 @@ const oc = openclawDevice(link);
 for await (const e of oc.run('Say hello.')) console.log(e);
 ```
 
+## First start that misses its handshake
+
+`start()` waits up to `KitOptions.handshakeMs` (default 90 000) for the gateway's hello on each attempt. A timeout, or a
+transport that closes before hello, moves the state to `restarting` with `retryAt` on the same backoff as a reconnect
+after `ready` (1 s, 2 s, 4 s, capped at 30 s), then starts the engine again. The fifth consecutive failed start moves
+the state to `{ phase: 'failed', why: 'handshake' }` and `start()` rejects. `stop()` cancels a pending retry. Show
+`stateWords(kit.state)` while the state is `restarting`; the tests pass a short `handshakeMs`.
+
 ## Isolation and billing
 
 The kit writes only under the `stateDir` the app passes, resolved to one absolute path through no symlink (so a

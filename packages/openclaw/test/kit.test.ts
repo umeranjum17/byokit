@@ -197,6 +197,59 @@ test('close and bad protocol fail closed', async () => {
   finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
+test('a first start that misses its handshake retries inside the kit', async () => {
+  const stateDir = scratchDir('o4-first-start');
+  const fake = fakeGateway();
+  const states: Array<{ phase: string; retryAt?: number }> = [];
+  let attempts = 0;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200, onState: (s) => states.push(s),
+    transport: (ctx) => {
+      const transport = fake.factory(ctx);
+      return ++attempts === 1 ? { ...transport, start: () => new Promise<never>(() => {}) } : transport;
+    } });
+  try {
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    assert.equal(attempts, 2);
+    assert.equal(typeof states.find((s) => s.phase === 'restarting')?.retryAt, 'number');
+    assert.equal(states.some((s) => s.phase === 'failed'), false);
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a first start that never answers fails as a handshake once its attempts run out', async () => {
+  const stateDir = scratchDir('o4-first-start-cap');
+  const fake = fakeGateway();
+  let attempts = 0;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200,
+    transport: (ctx) => ({ ...fake.factory(ctx), start: () => { attempts++; return new Promise<never>(() => {}); } }) });
+  try {
+    await assert.rejects(kit.start(), /handshake timed out/);
+    assert.deepEqual(kit.state, { phase: 'failed', why: 'handshake' });
+    assert.equal(attempts, 5);
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('stop during a first-start retry starts no further attempt', async () => {
+  const stateDir = scratchDir('o4-first-start-stop');
+  const fake = fakeGateway();
+  let attempts = 0;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200,
+    transport: (ctx) => ({ ...fake.factory(ctx), start: () => { attempts++; return new Promise<never>(() => {}); } }) });
+  try {
+    const started = kit.start();
+    for (let i = 0; i < 200 && kit.state.phase !== 'restarting'; i++) await delay(20);
+    assert.equal(kit.state.phase, 'restarting');
+    await kit.stop();
+    await started;
+    await delay(1500);
+    assert.equal(attempts, 1);
+    assert.notEqual(kit.state.phase, 'ready');
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 test('config patch keeps memory search disabled', async () => withKit(async (kit, fake) => {
   await kit.patchConfig({ memory: { search: { provider: 'openai', fallback: 'openai' } } });
   const patch = fake.calls.find(({ method }) => method === 'config.patch')?.params as { raw: string; baseHash: string };
