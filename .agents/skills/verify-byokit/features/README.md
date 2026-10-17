@@ -84,6 +84,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [Dictation live preview](./dictation-live-preview.md) — `@byokit/dictation`'s live preview drops a shown silence sentinel as soon as words arrive, keeps a silence-only take's sentinel, and never retracts real shown words.
 - [Dictation live preview decode](./dictation-preview-decode.md) — a live preview decodes greedily over a bounded recent window; a final keeps the host's beam and whole-recording windows.
 - [Fresh-project pack gate](./pack-fresh-project.md) — `npm run smoke:pack`: install packed tarballs into a scratch app and import them.
+- [GitHub device sign-in](./connect-github-device.md) — `@byokit/connect` `deviceSignIn` against a loopback GitHub fake: pending, `slow_down` (+5 s), approved, `expired_token`, `access_denied` and app cancel, with a grant stored only on approval.
 - [Gmail send](./connect-mail-send.md) — `@byokit/connect` `MailSender` with fixture OAuth and a canned Gmail transport: approved, denied and missing-scope legs.
 - [House Google client file](./connect-house-client.md) — `googleClientFile` from `@byokit/connect/node` feeding a loopback Gmail sign-in and send: missing, refused, consent approved/denied and send approved/denied legs.
 - [Herdr task-owned HOME](./herdr-task-home.md) — `@byokit/herdr` `startAgent` with a task HOME, and `openSignInTab` with a per-account Gemini root, on a real, isolated Herdr lab session (needs the environment's Herdr lab helper; never the person's own Herdr).
@@ -177,6 +178,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [dictation-live-preview](./dictation-live-preview.md) — a shown silence sentinel drops when words arrive, a silence-only take keeps it, and real shown words are never retracted.
 - [dictation-preview-decode](./dictation-preview-decode.md) — previews decode greedily over a bounded recent window, finals keep the host beam and whole recording.
 - [pack-fresh-project](./pack-fresh-project.md) — the packed-tarball fresh-consumer gate.
+- [connect-github-device](./connect-github-device.md) — device code shown, slow_down widens the wait by 5 s, grant stored only on approval; expired, denied and cancelled store nothing.
 - [connect-mail-send](./connect-mail-send.md) — one approval per message, denial without a request, `gmail.send` scope refusal.
 - [connect-house-client](./connect-house-client.md) — the house Google client file: missing/refused files, consent approve/deny, send approve/deny.
 - [herdr-task-home](./herdr-task-home.md) — an agent pane under a task-owned HOME, read from the agent process and from inside the pane; a Gemini sign-in tab under its own account root.

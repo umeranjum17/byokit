@@ -129,6 +129,35 @@ sanitized diagnostic `cause` as `ConnectError`. A secret is required. This check
 client authentication only; it does not check consent-screen publishing, enabled
 APIs, redirect registration or scopes. Tests use injected fake endpoints only.
 
+## Connect GitHub with a device code
+
+```ts
+import { connect, deviceSignIn } from '@byokit/connect';
+import type { Keystore } from '@byokit/secrets';
+
+declare const store: Keystore;
+const options = { store, person: 'Umer', client: { id: 'your-github-oauth-app-client-id' }, scopes: ['repo'] };
+const flow = await deviceSignIn('github', options);
+// Show flow.userCode and flow.verificationUri (github.com/login/device);
+// the person types the code there on any device.
+await flow.finish(); // Resolves once they approve; call flow.cancel() when the sheet closes.
+
+const github = connect('github', options);
+await github.connected(); // true
+```
+
+`deviceSignIn(provider, options)` starts an RFC 8628 device sign-in and returns
+`{ userCode, verificationUri, expiresAt, finish, cancel }`; `expiresAt` is Unix
+milliseconds. It needs the app's own OAuth client ID with device flow enabled;
+there is no house GitHub client, and no `redirectUri`. `finish()` polls at the
+provider's interval, adds 5 seconds on `slow_down`, and keeps waiting through a
+poll that cannot get through. Only an approved code stores a grant, in the same
+keystore record `connect()` reads, so `connected()`, `grant()` and `token()`
+work afterwards. An expired code rejects with `ConnectError` code `expired`; a
+person pressing Cancel on GitHub, or `cancel()`, rejects with `declined`. Both
+store nothing. Any provider with `device: { code, token }` endpoints works the
+same way.
+
 ## Loopback on a computer
 
 ```ts

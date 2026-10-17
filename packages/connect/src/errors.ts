@@ -14,7 +14,7 @@ export function providerCause(body: Record<string, unknown>, secrets: readonly s
     }
     return text.replace(/https?:\/\/[^\s<>"']+/gi, '[redacted]').replace(/(?:Bearer|Basic)\s+[^\s,;]+/gi, '[redacted]');
   };
-  const standard = ['invalid_request', 'invalid_client', 'invalid_grant', 'unauthorized_client', 'unsupported_grant_type', 'invalid_scope', 'access_denied', 'server_error', 'temporarily_unavailable', 'invalid_client_metadata', 'invalid_redirect_uri'];
+  const standard = ['invalid_request', 'invalid_client', 'invalid_grant', 'unauthorized_client', 'unsupported_grant_type', 'invalid_scope', 'access_denied', 'server_error', 'temporarily_unavailable', 'invalid_client_metadata', 'invalid_redirect_uri', 'authorization_pending', 'slow_down', 'expired_token'];
   return Object.freeze({ error: standard.includes(body.error) && !values.includes(body.error) ? body.error : redact(body.error), ...(typeof body.error_description === 'string' ? { error_description: redact(body.error_description) } : {}) });
 }
 /** Plain message and optional sanitized OAuth cause; never includes raw response bodies. */

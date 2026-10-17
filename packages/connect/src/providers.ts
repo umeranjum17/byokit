@@ -8,5 +8,6 @@ export const providers = {
   calendar: { id: 'calendar', name: 'Google Calendar', oauth: googleOAuth, scopes: ['https://www.googleapis.com/auth/calendar.events'], extra: googleExtra },
   notion: { id: 'notion', name: 'Notion', mcpUrl: 'https://mcp.notion.com/mcp' },
   canva: { id: 'canva', name: 'Canva', mcpUrl: 'https://mcp.canva.com/mcp' },
+  github: { id: 'github', name: 'GitHub', device: { code: 'https://github.com/login/device/code', token: 'https://github.com/login/oauth/access_token' } },
 } as const satisfies Record<string, Provider>;
 export type ProviderId = keyof typeof providers;
