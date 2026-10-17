@@ -421,8 +421,8 @@ import type { Approval, ArtifactBytes, ArtifactRefusal, ArtifactsResult, CallOpt
 import type { SealingAdapter } from '@byokit/secrets';
 type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
-type AddKeyResult = { status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry';
-  reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' }
+type AddKeyResult = { status: 'ok' } | { status: 'invalid' | 'not_included'; reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' }
+  | { status: 'retry'; reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy'; code?: string; message?: string }
   | { status: 'needs_workspace'; workspaces: { id: string; name: string }[] };
 type AddKeyHandle = Promise<AddKeyResult> & { cancel(): void };   // cancel clears a pending add (retry/busy)
 
@@ -1047,11 +1047,12 @@ the engine. External retained sources are touched only when explicitly passed to
   key's workspaces (`openCodeWorkspaces` from `@byokit/accounts/opencode-go`, the console listing `Accounts.add` uses): one is
   used as `orgId`; several resolve `{ status: 'needs_workspace', workspaces }` (row ids and names, never secrets) for the app's pick,
   then the app adds again with `orgId`; a key the console refuses (a workspace-bound service key) adds with no header. A listing
-  that could not be read (its typed `workspaces_unread`: offline, timeout, a server error, a body that is no list) resolves `retry`/`network`; like
+  that could not be read (its typed `workspaces_unread`: offline, timeout, a server error, a body that is no list) resolves `retry`/`network` with `code` `workspaces_unread` and its `message` (the words to show); like
   `needs_workspace` it lands before any prepare or activation, so the member's lanes are untouched. `cancel()` also stops the listing.
   It returns an `AddKeyHandle`: a thenable `AddKeyResult` with `cancel()` that stops a pending add, clears any partial
   key best-effort, and settles `retry`/`busy` (no wizard.cancel; key activation is not a wizard session).
-  `AddKeyResult` is `{ status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry'; reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' }`.
+  `AddKeyResult` is `{ status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry'; reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy'; code?: string; message?: string }`.
+  On `retry` the optional `code` and `message` are set only when a Go workspace listing fails with a typed `@byokit/accounts` error (`code` `workspaces_unread`, `message` its words): `message` is the words to show the user, never provider text; other failures carry neither.
   `invalid` only means the provider refused the key (`auth`, from the typed activation probe status), the provider's billing refused it (`billing`, the same no-retry outcome: an unchanged key is not retried), or the key was blank (`empty`, checked locally before any provider call).
   An unsupported route or unknown chosen model is `not_included` with `model`. Every other failure is `retry`: timeout/transport `network`,
   a probe reply in an unexpected format or an unknown probe failure `inference`, a typed request-validation refusal (`INVALID_REQUEST`) `inference`, other control or preparation failures `engine`, and a retryable unavailable or restarting engine `busy`.
@@ -1343,9 +1344,9 @@ import type { AccountView, Approval, ArtifactBytes, ArtifactFrame, ArtifactPiece
 declare function outputSchema(value: unknown): { prompt: string; parse(text: string): { data: unknown } | undefined };
 type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
-type AddKeyResult = { status: 'ok' } | { status: 'invalid' | 'not_included' | 'retry';
-  reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' }
-  | { status: 'needs_workspace'; workspaces: { id: string; name: string }[] };   // 5.8, fixed discriminants only
+type AddKeyResult = { status: 'ok' } | { status: 'invalid' | 'not_included'; reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy' }
+  | { status: 'retry'; reason: 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy'; code?: string; message?: string }
+  | { status: 'needs_workspace'; workspaces: { id: string; name: string }[] };   // 5.8, fixed discriminants only; retry's code/message are the listing's typed code and words
 type AddKeyHandle = Promise<AddKeyResult> & { cancel(): void };   // 5.8; cancel clears a pending add (retry/busy)
 interface OpenClawKit {   // 5.3 signatures; the built kit has addKey and the account methods through removeAccount, the rest lands with O14
   addKey(member: Member, o: { authChoice: string; apiKey: string; model?: string; orgId?: string }): AddKeyHandle;

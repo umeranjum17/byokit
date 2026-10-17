@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { KeyRouteError } from '@byokit/accounts';
 import { openCodeWorkspaces, type OpenCodeGoWorkspace } from '@byokit/accounts/opencode-go';
 import { activate, type ActivationCtx } from './activation.ts';
 import { keyAgentId, MEMBER_ID, KEY_PREFIX, untilListed } from './members.ts';
@@ -13,9 +14,11 @@ import type { Member, ModelInfo } from './types.ts';
 // closed meanwhile.
 export type KeyFailureReason = 'auth' | 'billing' | 'empty' | 'model' | 'network' | 'engine' | 'inference' | 'busy';
 /** `needs_workspace`: the Go plan login acts for several workspaces (console orgs); show the pick and add again with
- *  its `orgId`. Nothing was saved or sent to the engine. Ids are row ids, never secrets. */
+ *  its `orgId`. Nothing was saved or sent to the engine. Ids are row ids, never secrets. `retry`'s `code` and `message`
+ *  are set only for a typed `@byokit/accounts` listing failure (`workspaces_unread`); `message` is the words to show. */
 export type AddKeyResult = { status: 'ok' } |
-  { status: 'invalid' | 'not_included' | 'retry'; reason: KeyFailureReason } |
+  { status: 'invalid' | 'not_included'; reason: KeyFailureReason } |
+  { status: 'retry'; reason: KeyFailureReason; code?: string; message?: string } |
   { status: 'needs_workspace'; workspaces: { id: string; name: string }[] };
 /** The add resolves like a Promise; `cancel()` stops a pending add and clears any partial key (retry/busy). */
 export type AddKeyHandle = Promise<AddKeyResult> & { cancel(): void };
@@ -113,8 +116,10 @@ export function createKeys(ctx: ActivationCtx & {
           try {
             workspaces = await openCodeWorkspaces(o.apiKey, (input, init) =>
               fetch(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, ac.signal]) : ac.signal }));
-          } catch { // `workspaces_unread`: offline, timeout, a server error or a body that is no list
-            return ac.signal.aborted ? failure('retry', 'busy') : failure('retry', 'network');
+          } catch (error) { // `workspaces_unread`: offline, timeout, a server error or a body that is no list
+            if (ac.signal.aborted) return failure('retry', 'busy');
+            if (!(error instanceof KeyRouteError)) return failure('retry', 'network');
+            return { status: 'retry', reason: 'network', code: error.code, message: error.message };
           }
           if (ac.signal.aborted) return failure('retry', 'busy');
           if (workspaces.length > 1) return { status: 'needs_workspace', workspaces };

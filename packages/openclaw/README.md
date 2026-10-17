@@ -162,8 +162,8 @@ An OpenCode Go plan login can act for several workspaces, and the Go gateway ref
 `x-opencode-org-id`. Without `orgId` the add lists the key's workspaces first (the console listing `@byokit/accounts` uses):
 one is used unasked; several resolve `{ status: 'needs_workspace', workspaces: [{ id, name }] }` with nothing saved, so show
 the pick (the names) and add again with `orgId: '<picked id>'`; a key the console refuses (a workspace-bound service key) adds
-with no workspace. A listing that could not be read (offline, a server error) resolves `{ status: 'retry', reason: 'network' }`
-and changes nothing. Workspace ids are row ids, never secrets. Another route refuses an `orgId` with `not_included`/`model`.
+with no workspace. A listing that could not be read (offline, a server error) resolves `{ status: 'retry', reason: 'network', code: 'workspaces_unread', message }`
+and changes nothing. The optional `code` and `message` on `retry` are set only for that typed listing failure; `message` is the words to show the user (never provider text). Workspace ids are row ids, never secrets. Another route refuses an `orgId` with `not_included`/`model`.
 A member that is not your own throws. `retry` means the engine may have taken the key but it was not kept
 sealed (for example a gateway restart ran late); no usable key was kept, so add it again. Failures never contain keys, key fragments, headers or raw engine diagnostics. Label the option **API key (billed per use)**. Select only `routes()` rows with
 `keyEntry: true`; API rows remain `offer: false`. Each route also carries its engine `revision`, `checked` date,

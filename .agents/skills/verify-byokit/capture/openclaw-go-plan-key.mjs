@@ -119,7 +119,7 @@ try {
       answer = () => new Response('', { status: 401 });
       assert.deepEqual(await addListed('m3'), { status: 'ok' });
       answer = () => new Response('down', { status: 502 });
-      assert.deepEqual(await addListed('m3'), { status: 'retry', reason: 'network' });
+      assert.deepEqual(await addListed('m3'), { status: 'retry', reason: 'network', code: 'workspaces_unread', message: 'Couldn’t reach OpenCode to check this key’s workspaces. Check the internet connection, then try again.' });
     }
   }
 
