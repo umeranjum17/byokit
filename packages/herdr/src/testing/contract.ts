@@ -805,9 +805,11 @@ export function herdrContract(
       if (!fake) return t.skip('the lost prompt is a fake-only control');
       await kit.start();
       fake.losePrompt('w1:p2');
+      const started = Date.now();
       await assert.rejects(
         kit.prompt({ paneId: 'w1:p2' }, 'lost words', { wait: { until: ['working'], timeoutMs: 500 } }),
         (e: { code?: string }) => e.code === 'agent_prompt_stalled');
+      assert.ok(Date.now() - started >= 450, 'the stall is reported only after the requested wait window');
       await settle(100);
       assert.equal(agentStatusOf(kit.snapshot(), 'w1:p2').status, 'idle', 'the lost prompt started no turn');
       assert.doesNotMatch((await kit.read('w1:p2')).text, /lost words/, 'the lost prompt never reached the screen');
@@ -818,6 +820,10 @@ export function herdrContract(
       await kit.prompt({ paneId: 'w1:p2' }, 'kept words');
       assert.equal(await kit.wait({ paneId: 'w1:p2' }, { until: ['idle'], timeoutMs: 2000 }), 'idle');
       assert.match((await kit.read('w1:p2')).text, /fake pi: kept words/);
+      fake.losePrompt('w1:p2')();
+      await kit.prompt({ paneId: 'w1:p2' }, 'disarmed words');
+      assert.equal(await kit.wait({ paneId: 'w1:p2' }, { until: ['idle'], timeoutMs: 2000 }), 'idle');
+      assert.match((await kit.read('w1:p2')).text, /fake pi: disarmed words/, 'a disarmed loss delivers the prompt');
     });
   });
 
@@ -827,9 +833,12 @@ export function herdrContract(
       await kit.start();
       await kit.prompt({ paneId: 'w1:p2' }, 'hello world');
       assert.equal(await kit.wait({ paneId: 'w1:p2' }, { until: ['idle'], timeoutMs: 2000 }), 'idle');
-      fake.scriptDrawingReads('w1:p2', 2);
-      assert.equal((await kit.read('w1:p2')).text, 'drawing', 'the first read is still drawing');
-      assert.equal((await kit.read('w1:p2')).text, 'drawing', 'the second read is still drawing');
+      fake.scriptDrawingReads('w1:p2', 1);
+      fake.scriptDrawingReads('w1:p2', 1);
+      assert.notEqual((await kit.read('w1:p2', { source: 'recent_unwrapped' })).text, 'drawing', 'the launch-env poll is not drawn');
+      assert.notEqual((await kit.read('w1:p2', { source: 'detection' })).text, 'drawing', 'the approval read is not drawn');
+      assert.equal((await kit.read('w1:p2')).text, 'drawing', 'the first caller read is still drawing');
+      assert.equal((await kit.read('w1:p2')).text, 'drawing', 'the second caller read is still drawing');
       assert.match((await kit.read('w1:p2')).text, /fake pi: hello world/, 'the third read shows the screen');
     });
   });

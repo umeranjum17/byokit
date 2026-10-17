@@ -95,8 +95,8 @@ export type FakeHerdr = {
   failNextSnapshot(code?: string, message?: string): void;   // the next snapshot answer errors once
   holdAck(): () => void;              // hold the next subscribe ack(s) until the release runs
   holdAgentWait(): () => void;        // hold `agent.wait` answers until the release runs (the deadline still starts on arrival)
-  losePrompt(paneId: string): void;   // the next `agent.prompt` to the pane starts no turn; a caller that waits gets `agent_prompt_stalled`
-  scriptDrawingReads(paneId: string, reads: number): void;   // the next `reads` `pane.read`s of the pane show the agent still drawing
+  losePrompt(paneId: string): () => void;   // the next `agent.prompt` to the pane starts no turn; a caller that waits gets `agent_prompt_stalled`; the returned disarm cancels it
+  scriptDrawingReads(paneId: string, reads: number, source?: string): void;   // the next `reads` `pane.read`s of the pane from `source` (default `recent`, the caller read) show the agent still drawing
   failNextAck(code?: string, message?: string): void;        // the next subscribe is rejected once
   subscriptionCount(): number;        // distinct sockets holding a subscription (batch + filtered)
   stop(): Promise<void>;
@@ -144,7 +144,7 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
   let agentWaitGates: { promise: Promise<void>; release: () => void }[] = [];
   let nextAckFailure: { code: string; message: string } | undefined;
   const lostPrompts = new Set<string>();   // panes whose next prompt starts no turn
-  const drawingReads = new Map<string, number>();   // pane -> reads left that show the agent still drawing
+  const drawingReads = new Map<string, number>();   // `${paneId} ${source}` -> reads left that show the agent still drawing
 
   const gate = (list: { promise: Promise<void>; release: () => void }[]): (() => void) => {
     let release!: () => void;
@@ -403,9 +403,10 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     },
     'pane.read': (p) => {
       const pane = paneOf(p.pane_id);
-      const drawing = drawingReads.get(pane.pane_id) ?? 0;
+      const key = `${pane.pane_id} ${typeof p.source === 'string' ? p.source : 'recent'}`;
+      const drawing = drawingReads.get(key) ?? 0;
       const body = drawing > 0 ? 'drawing' : paneText(pane, p.source);
-      if (drawing > 0) drawingReads.set(pane.pane_id, drawing - 1);
+      if (drawing > 0) drawingReads.set(key, drawing - 1);
       const lines = typeof p.lines === 'number' ? body.split('\n').slice(0, p.lines).join('\n') : body;
       return { read: { text: lines, truncated: false } };
     },
@@ -1090,9 +1091,11 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     },
     losePrompt(paneId) {
       lostPrompts.add(paneId);
+      return () => { lostPrompts.delete(paneId); };
     },
-    scriptDrawingReads(paneId, reads) {
-      drawingReads.set(paneId, reads);
+    scriptDrawingReads(paneId, reads, source = 'recent') {
+      const key = `${paneId} ${source}`;
+      drawingReads.set(key, (drawingReads.get(key) ?? 0) + reads);
     },
     failNextAck(code = 'invalid_subscription', message = 'the next subscribe is rejected') {
       nextAckFailure = { code, message };
