@@ -1,7 +1,8 @@
 // ChatGPT's sign-in with fetch alone: the engine on phones and in browsers, where Pi's own sign-in flows can't run (they
-// need Node's http and crypto, and load through imports a bundler can't follow). Device code only: ChatGPT's page returns
-// to a fixed address on the computer (localhost:1455), which a phone or a web page can't listen on. Same credential
-// shape, error wording and store seam as Pi; the rules are the shared fixtures (device-code.json, token-responses.json).
+// need Node's http and crypto, and load through imports a bundler can't follow). Device code by default: ChatGPT's page
+// returns to a fixed address on the computer (localhost:1455), which a phone or a web page can't listen on; an app that
+// watches its own in-app browser hands that address back instead (`redirectLogin`). Same credential shape, error wording
+// and store seam as Pi; the rules are the shared fixtures (device-code.json, token-responses.json, chatgpt-redirect-typescript.json).
 // OpenAI's sign-in endpoints answer any web page (CORS), so a PWA signs in directly.
 import type { Api, AuthEvent, AuthInteraction, Credential, CredentialStore, Model, OAuthCredential } from '@earendil-works/pi-ai';
 import type { AuthHost } from './accounts.ts';
@@ -369,6 +370,34 @@ export function portableEngine(credentials: CredentialStore, { base = 'https://a
     logout: (id: string) => credentials.delete(id),
   };
   return engine as unknown as AuthHost;
+}
+
+/** The one address ChatGPT's client may return to: OpenAI refuses any other (a custom scheme, another port) at its
+ *  authorize page (chatgpt-redirect-typescript.json). */
+export const CHATGPT_RETURN = 'http://localhost:1455/auth/callback';
+
+/** ChatGPT's own page, for an app that watches its in-app browser: PKCE and state stay here, the page goes out through
+ *  `notify`, and the address the browser was sent back to (`CHATGPT_RETURN?code&state`) comes in through `prompt`. The
+ *  caller checks that address's state before handing it over; this checks it again before the exchange. */
+export async function redirectLogin(credentials: CredentialStore, { signal, notify, prompt }: AuthInteraction, { base = 'https://auth.openai.com', crypto = globalThis.crypto }: EngineOptions = {}): Promise<Credential> {
+  const pk = await pkce(crypto);
+  const state = base64url(crypto.getRandomValues(new Uint8Array(16)));
+  const url = new URL(`${base}/oauth/authorize`);
+  // The same request Pi's computer sign-in sends, so the person sees the same page.
+  for (const [k, v] of Object.entries({ response_type: 'code', client_id: CLIENT_ID, redirect_uri: CHATGPT_RETURN, scope: 'openid profile email offline_access',
+    code_challenge: pk.challenge, code_challenge_method: 'S256', state, id_token_add_organizations: 'true', codex_cli_simplified_flow: 'true', originator: 'pi' })) url.searchParams.set(k, v);
+  notify({ type: 'auth_url', url: url.href } as AuthEvent);
+  const returned = new URL(await prompt({ type: 'manual_code', message: 'The address the page returned to' }));
+  if (returned.searchParams.get('state') !== state) throw new Error('State mismatch');
+  const error = returned.searchParams.get('error');
+  if (error) throw new Error(error);
+  const code = returned.searchParams.get('code');
+  if (!code) throw new Error('Missing authorization code');
+  const r = await form(`${base}/oauth/token`, { grant_type: 'authorization_code', client_id: CLIENT_ID, code, code_verifier: pk.verifier, redirect_uri: CHATGPT_RETURN }, signal);
+  if (r.status < 200 || r.status > 299) throw Object.assign(new Error(`OpenAI Codex token exchange failed (${r.status})`), { status: r.status });
+  const c = credentialOf(json(r.body));
+  await keep(credentials, PORTABLE[0], c, signal);
+  return c;
 }
 
 /** Adds the kit's portable device sign-in for a catalogue row the host engine cannot sign in to itself (MiniMax's

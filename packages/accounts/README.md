@@ -120,6 +120,34 @@ const answer = await accounts.respond(1, { instructions: 'Answer briefly.', inpu
 show(answer);
 ```
 
+#### ChatGPT with one button on a phone
+
+ChatGPT's page only ever sends the browser back to `http://localhost:1455/auth/callback` (OpenAI refuses an app
+scheme or any other address), and nothing on a phone answers there. So the app opens the page in its own in-app
+browser, watches where it goes, and hands the kit the address it is sent back to. The kit keeps the PKCE verifier and
+the state; the app sees only the page and the address to watch for:
+
+```ts
+import { WebView } from 'react-native-webview';
+import { Accounts, SignInReturnError } from '@byokit/accounts';
+
+const shown = await accounts.login(1, 'chatgpt', { via: 'redirect' }); // { state: 'waiting', via: 'browser', url, returnTo, expiresAt }
+
+<WebView source={{ uri: shown.url }} onShouldStartLoadWithRequest={({ url }) => {
+  if (!url.startsWith(shown.returnTo)) return true;
+  accounts.complete(1, 'chatgpt', url).then(close, (e) => show(e instanceof SignInReturnError ? e.message : 'Try again.'));
+  return false; // nothing on the phone answers that address
+}} />;
+```
+
+`complete` resolves with how the sign-in ended (`done`, or `failed` with its plain sentence, as when the person says no
+on the page). It refuses with `SignInReturnError` an address from another sign-in (`wrong_state`, and the sign-in on
+screen carries on), one handed over twice (`replayed`), one after `signInMs` (`expired`), or with no such sign-in
+waiting (`no_sign_in`). The view must be one whose navigations the app sees (an in-app WebView): a system browser tab
+(`ASWebAuthenticationSession`, Chrome Custom Tabs) hands back only an app scheme or the app's own web address, never this one. "Having
+trouble?" (`login(1, 'chatgpt', { via: 'code' })`) still switches the same sign-in to a code. On a computer the kit's own
+listener catches the same address, so `via: 'redirect'` is refused there.
+
 Examples: [`examples/expo`](../../examples/expo) (iOS and Android bundles; Android emulator sign-in, asking, pairing)
 and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 
@@ -127,8 +155,9 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 
 | Export | What it does |
 |---|---|
-| `Accounts` | Sign-in, status, sign-out, asking and limits for each member: `login`, `finished`, `status`, `plan`, `logout`, `respond`, `chatgpt`, `failed`, `ladder`, `keepFresh`, `pick`, `models`; explicit custom servers: `endpoint`, `endpointReadiness`, `endpointRuntime` |
+| `Accounts` | Sign-in, status, sign-out, asking and limits for each member: `login`, `complete`, `finished`, `status`, `plan`, `logout`, `respond`, `chatgpt`, `failed`, `ladder`, `keepFresh`, `pick`, `models`; explicit custom servers: `endpoint`, `endpointReadiness`, `endpointRuntime` |
 | `ENDPOINT_PRESETS`, `EndpointError`, `EndpointOptions`, `EndpointModel`, `EndpointDriver` | Local preset facts, typed readiness failures, public endpoint/model configuration and the same-device host driver seam |
+| `SignInReturnError` | Why `complete` turned an in-app browser's return address away: `no_sign_in`, `wrong_state`, `replayed` or `expired` |
 | `portable`, `computer`, `loopback` | The platform `Accounts` runs on: device code with `fetch` alone, or (Node entry only) Pi's flows and the loopback listener |
 | `machineStore`, `fileStore`, `secureStore`, `browserStore`, `recordStore`, `memoryStore` | One store per person: the computer's sealed file every app shares or a sealed 0600 file of your own (Node entry only), Keychain/Keystore, IndexedDB, your own load and save, or in memory |
 | `offered`, `provider`, `PROVIDERS` | The catalogue: each provider's billing, models and source |
@@ -148,7 +177,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 
 | | Computer (Node, Electron main) | Browser (PWA, Electron renderer) | Phone (React Native: iOS, Android) |
 |---|---|---|---|
-| ChatGPT (subscription) | Its own page, straight back to this computer (port 1455); a code when asked or stuck | Device code | Device code |
+| ChatGPT (subscription) | Its own page, straight back to this computer (port 1455); a code when asked or stuck | Device code; its own page in a view the app watches (`via: 'redirect'`) | Device code; its own page in the app's in-app browser (`via: 'redirect'`) |
 | Claude Pro/Max (subscription) | Paste by default; explicit browser callback prefers port 53692, then a free loopback port | Same PKCE flow, its token and profile requests through the app's own server | Same PKCE flow; app supplies Web Crypto |
 | Anthropic (API key, billed per use) | App passes its own key, explicitly | Same fetch-only Messages provider | Same fetch-only Messages provider |
 | OpenRouter (API billing) | Pi's browser callback or paste; explicit API selection and device-owned `keyStore` required | Not yet | Not yet |
@@ -446,7 +475,8 @@ only under the caller-supplied root; the caller owns its creation and cleanup.
 ## A stand-in OpenAI
 
 `mockOpenAI()` from `@byokit/accounts/testing` (or, from a repo checkout, `node packages/accounts/src/testing/mock-openai.ts [port]`) answers device code, its
-page where a person types the code, token exchange, refresh, revoke and streamed answers (echoing the question), so
+page where a person types the code, the authorize page (already signed in, it sends the browser straight to
+`returnTo`; `state.decline` says no instead), token exchange, refresh, revoke and streamed answers (echoing the question), so
 tests and demos sign in and ask end to end with no account. Point the kit at it with
 `new Accounts({ authBase, apiBase, store: () => memoryStore() })`, as the [Quickstart](#quickstart) does.
 

@@ -1,0 +1,21 @@
+{
+  "rule": "ChatGPT's own page on a phone or in a browser (`login(member, 'chatgpt', { via: 'redirect' })`): the authorize request carries `authorize` exactly plus a fresh S256 `code_challenge` and `state`; OpenAI's page accepts only `returnTo` as the return address and refuses each of `refused` with `invalid_authorize_request` (seen at auth.openai.com on 2026-10-17), so the app watches its in-app browser for `returnTo` and hands the full address to `complete`. `complete` turns an address away with `SignInReturnError` and the `outcomes` code; only `expired` ends the sign-in.",
+  "returnTo": "http://localhost:1455/auth/callback",
+  "authorize": {
+    "response_type": "code",
+    "client_id": "app_EMoamEEZ73f0CkXaXp7hrann",
+    "redirect_uri": "http://localhost:1455/auth/callback",
+    "scope": "openid profile email offline_access",
+    "code_challenge_method": "S256",
+    "id_token_add_organizations": "true",
+    "codex_cli_simplified_flow": "true",
+    "originator": "pi"
+  },
+  "refused": ["byokit://auth/callback", "com.example.app://oauth", "http://localhost:9876/auth/callback", "https://example.com/auth/callback"],
+  "outcomes": {
+    "another sign-in's state": "wrong_state",
+    "the same address twice": "replayed",
+    "after signInMs": "expired",
+    "no redirect sign-in waiting": "no_sign_in"
+  }
+}
