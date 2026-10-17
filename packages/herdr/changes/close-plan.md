@@ -1,1 +1,0 @@
-- FEAT: `kit.closePlan(paneId)` answers where a pane sits for a close sentence — its tab, its workspace and label, and the worktree group closing that workspace would take (repo name and member count) — from live reads, so it fails with the usual retryable error when Herdr is not answering. A pane that has gone rejects `pane-unavailable`.

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.14.0 (2026-10-17)
+
+- Dependency update: pins @byokit/relay 0.8.1.
+- Dependency update: pins @byokit/pair 0.10.3.
+
+- FEAT: `kit.closePlan(paneId)` answers where a pane sits for a close sentence — its tab, its workspace and label, and the worktree group closing that workspace would take (repo name and member count) — from live reads, so it fails with the usual retryable error when Herdr is not answering. A pane that has gone rejects `pane-unavailable`.
+
 ## 0.13.0 (2026-10-17)
 
 - Dependency update: pins @byokit/discover 0.8.4.

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.6.0 (2026-10-17)
+
+- FEAT: `catalog(sources)` lists apps a person can connect from the sources an app picks: `knownApps` (the kit's own presets, no network) and `mcpDirectory(url)` (a remote MCP directory in the MCP registry's shape, read only when listed). Each listed app has an id, name, icon and sign-in kind, and connects through the usual `connect()`, `connectLoopback()` or `deviceSignIn()`.
+- Dependency update: pins @modelcontextprotocol/sdk 1.32.1.
+
 ## 0.5.1 (2026-10-17)
 
 - Dependency update: pins @byokit/secrets 0.5.2.
