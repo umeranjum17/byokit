@@ -8,6 +8,8 @@ export type {
   AccountRef,
   Approval,
   CallOptions,
+  ChannelChat,
+  ChannelMessage,
   Considered,
   Decision,
   Defaults,
@@ -47,6 +49,7 @@ export type {
   ThinkingUsed,
   SignInOptions,
   SignInView,
+  TelegramChannel,
   ToolHost,
   ToolSpec,
 } from './types.ts';

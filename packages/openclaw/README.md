@@ -430,6 +430,30 @@ Public live view/thumbnail APIs are model-free; source tests alone do not prove 
 The opt-in physical fixture retains raw JPEG/control inputs before decoding, pipe chunk order, complete
 synthetic provider bodies and authoritative SQLite transcripts, including failures.
 
+## One chat channel (Telegram)
+
+Off by default. Turn it on and every Telegram message from the people you list reaches your app, never an engine
+agent: the kit claims each one before the engine dispatches it, so a message that names a helper, or a chat command
+such as `/new`, is just text for your handler. You decide who answers (Crewhouse: Chief) and reply with `kit.reply`.
+
+```ts
+const kit = new OpenClawKit({ stateDir, channels: { telegram: {
+  token: botToken,              // from BotFather; the engine gets it as process env, never config, disk or logs
+  allowFrom: ['123456789'],     // numeric Telegram user ids; everyone else is dropped
+  member: 'm1',                 // the member your replies are sent as
+  onMessage: async ({ chat, from, text }) => {
+    const end = await kit.run({ member: 'm1', sessionKey: chiefThread, message: text }, () => {});
+    if (end.ok) await kit.reply(chat, end.text);
+  },
+} } });
+```
+
+Direct messages only: groups, chat commands, channel config writes and Telegram exec approvals stay off. `apiRoot`
+points the channel at a self-hosted Bot API server; tests use `fakeTelegram()` from `@byokit/openclaw/testing`, a
+loopback Bot API, so no bot or account is needed. An agent the gate lets run shell commands can read the token from
+the engine's environment, as it can the gateway token. Telegram is the only channel so far; another one will be a
+new key of `channels`.
+
 ## One config key, narrowed
 
 `patchConfig` is the only whole-config writer, and it can only start from `config.get`, whose result redacts

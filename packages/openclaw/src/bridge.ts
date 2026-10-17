@@ -4,7 +4,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server, type Socket } from 'node:net';
 import { rm } from 'node:fs/promises';
 import { words } from './words.ts';
-import type { Approval, Decision, Member, RunRef, ToolHost, ToolSpec } from './types.ts';
+import type { Approval, ChannelMessage, Decision, Member, RunRef, ToolHost, ToolSpec } from './types.ts';
 
 /** Newline-framed JSON, one request per connection; anything larger is not a gate request. */
 const FRAME_CAP = 1_000_000;
@@ -37,7 +37,7 @@ export function resolveBridge(o?: { socketName?: string; paramPrefix?: string })
  */
 export function writePlugin(
   dir: string,
-  o: { id: string; tools: ToolSpec[]; paramPrefix: string; gateBuiltins: boolean; browser?: boolean },
+  o: { id: string; tools: ToolSpec[]; paramPrefix: string; gateBuiltins: boolean; browser?: boolean; channels?: string[] },
 ): void {
   resolveBridge({ paramPrefix: o.paramPrefix });
   const runParam = `${o.paramPrefix}_run`;
@@ -56,6 +56,8 @@ export function writePlugin(
     // true: engine builtins (web_fetch, memory, ...) are gated too, not only the app's tools.
     gateBuiltins: o.gateBuiltins,
     ...(o.browser ? { browser: true } : {}),
+    // The channels whose every inbound message the plugin claims for the app (5.18).
+    ...(o.channels?.length ? { channels: o.channels } : {}),
     tools: o.tools.map((t) => ({ name: t.name, description: t.description, parameters: t.parameters })),
   };
   for (const [file, data] of [['openclaw.plugin.json', manifest], ['tools.json', table]] as const) {
@@ -87,6 +89,7 @@ export class Bridge {
   private readonly onAskGone: (id: string) => void;
   private readonly beforeAgentRun?: (key: string, runId?: string) => Promise<boolean>;
   private readonly browserCapabilities?: () => readonly string[];
+  private readonly onChannelMessage?: (m: ChannelMessage) => void;
   private server?: Server;
   private closing: Promise<void> = Promise.resolve();
   private readonly sockets = new Set<Socket>();
@@ -111,6 +114,7 @@ export class Bridge {
     onAskGone(id: string): void;
     beforeAgentRun?: (key: string, runId?: string) => Promise<boolean>;
     browserCapabilities?: () => readonly string[];
+    onChannelMessage?: (m: ChannelMessage) => void; // a turned-on channel's inbound messages (5.18)
   }) {
     this.path = o.path;
     this.host = o.host;
@@ -122,6 +126,7 @@ export class Bridge {
     this.onAskGone = o.onAskGone;
     this.beforeAgentRun = o.beforeAgentRun;
     this.browserCapabilities = o.browserCapabilities;
+    this.onChannelMessage = o.onChannelMessage;
   }
 
   async start(): Promise<void> {
@@ -286,6 +291,14 @@ export class Bridge {
       if (typeof message.key !== 'string' || !message.key || !this.beforeAgentRun) return this.deny(socket, 'run unavailable');
       void this.beforeAgentRun(message.key, typeof message.runId === 'string' ? message.runId : undefined)
         .then(allow => this.reply(socket, { allow }), () => this.deny(socket, 'run unavailable'));
+      return;
+    }
+    if (message.kind === 'channel-message') {
+      const { channel, chat, from, text } = message;
+      if (!this.onChannelMessage || this.stopped || channel !== 'telegram' || typeof chat !== 'string' || !chat
+        || typeof from !== 'string' || typeof text !== 'string') return this.deny(socket, 'channel unavailable');
+      this.reply(socket, { ok: true });
+      try { this.onChannelMessage({ chat: { channel, id: chat }, from, text }); } catch { /* the app's handler, not the engine's */ }
       return;
     }
     if (message.kind === 'gate') return void this.gate(socket, message);

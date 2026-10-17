@@ -197,6 +197,19 @@ export interface GatewayTransport {
 
 export type CallOptions = { timeoutMs?: number | null; signal?: AbortSignal };
 
+/** A chat on a channel the kit turned on (5.18): `id` is the channel's own chat id. `kit.reply` takes it back. */
+export type ChannelChat = { channel: 'telegram'; id: string };
+/** One inbound channel message. The kit claims it before the engine dispatches, so no agent runs from a channel. */
+export type ChannelMessage = { chat: ChannelChat; from: string; text: string };
+/** `KitOptions.channels.telegram` (5.18): a bot's direct messages from listed people, handed to the app only. */
+export type TelegramChannel = {
+  token: string; // the bot's BotFather token: the engine gets it as process env, never config, disk or logs
+  allowFrom: readonly string[]; // numeric Telegram user ids allowed to message the bot; every other sender is dropped
+  member: Member; // the member the app answers as: kit.reply sends as its agent (in Crewhouse, Chief's member)
+  apiRoot?: string; // Bot API root, default https://api.telegram.org (a self-hosted Bot API server, or a test fake)
+  onMessage(message: ChannelMessage): void;
+};
+
 /** Kit-owned invalidation only: no origin, URL, input value or lease secret. */
 export type BrowserPing = { member: Member; kind: 'state' | 'signin' };
 export type KitEventName = GatewayEventName | 'byokit.browser';

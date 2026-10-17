@@ -18,6 +18,7 @@ const TOOLS = new Map(table.tools.map((t) => [t.name, t]));
 // Absent (a table from before the flag) reads as true: fail closed.
 const GATE_BUILTINS = table.gateBuiltins !== false;
 const BROWSER = table.browser === true;
+const CHANNELS = new Set(table.channels ?? []);
 let browserCapabilities = [];
 function scrubBrowserCapabilities(value) {
   let serialized = JSON.stringify(value).replace(/\b(?:wss?|https?):\/\/[^\s"'<>\\]+/g, url => {
@@ -167,6 +168,15 @@ export default {
       api.on('tool_result_persist', event => ({ message: scrubBrowserCapabilities(event.message) }));
       api.on('before_message_write', event => ({ message: scrubBrowserCapabilities(event.message) }));
     }
+    // A turned-on channel's messages belong to the app (5.18): claim each one before the engine dispatches it to any
+    // agent, hand it to the host without waiting, and stay claimed when the host is gone, so no agent ever runs from it.
+    if (CHANNELS.size) api.on('before_dispatch', (event, ctx) => {
+      const channel = ctx?.channelId ?? event?.channel;
+      if (!CHANNELS.has(channel)) return undefined;
+      void bridgeRequest({ kind: 'channel-message', channel, chat: ctx?.conversationId, from: event?.senderId ?? ctx?.senderId,
+        text: event?.content }, { timeoutMs: 10_000 }).catch(() => {});
+      return { handled: true };
+    });
     for (const spec of table.tools) {
       api.registerTool({
         name: spec.name,

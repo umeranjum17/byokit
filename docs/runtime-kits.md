@@ -415,9 +415,9 @@ and all usage RPCs remain available; no new engine API or patch build seam is cr
 
 ```ts
 import type { Account, AccountId, AccountPick, AccountRef, Defaults, ModelInfo, Room, RunSelection } from '@byokit/accounts';
-import type { Approval, ArtifactBytes, ArtifactRefusal, ArtifactsResult, CallOptions, Decision, GatewayEventName,
+import type { Approval, ArtifactBytes, ArtifactRefusal, ArtifactsResult, CallOptions, ChannelChat, Decision, GatewayEventName,
   GatewayEventPayload, GatewayMethod, GatewayParams, GatewayResult, GatewayTransport, Hello, KitState, LearningCapture, LearningMode, Member, OutputSchema, Route, RunEnd,
-  RunEvent, RunRef, RunSpec, SchemaOutput, SignInView, ToolHost, ToolSpec } from '@byokit/openclaw';
+  RunEvent, RunRef, RunSpec, SchemaOutput, SignInView, TelegramChannel, ToolHost, ToolSpec } from '@byokit/openclaw';
 import type { SealingAdapter } from '@byokit/secrets';
 type MoveResult = { ok: true; session: string } | { ok: false; code: 'too_early' | 'busy' | 'unsupported' |
   'env_mismatch' | 'close_failed' | 'start_failed'; message: string; live?: string };   // 5.15
@@ -443,6 +443,7 @@ export type KitOptions = {
   config?: object;                       // app OpenClaw config, deep-merged UNDER the invariants (5.6)
   appOwnedSessions?: { keyPrefixes: string[] }; // caller-owned task prefixes, default stock recovery (5.16)
   installPolicy?: { trustedSkills: string; ownRoots: string[] };   // trusted-skills JSON path, own content roots
+  channels?: { telegram?: TelegramChannel };   // off by default: one chat channel, every message to the app (5.18)
   callbackPort?: number;                 // default 1455
   approvalTimeoutMs?: number;            // default 180_000
   transport?: (ctx: { port: number; token: string; identityPath: string; bridgeSock: string }) => GatewayTransport;  // tests
@@ -465,6 +466,8 @@ export declare class OpenClawKit {
   onEvent<E extends GatewayEventName>(event: E | '*', fn: (payload: GatewayEventPayload<E>, event: E) => void): () => void;
   // members
   ensureMember(member: Member): Promise<{ agentId: string; workspace: string }>;
+  // one chat channel (5.18)
+  reply(chat: ChannelChat, text: string): Promise<void>;   // the engine's own send, as the channel's member
   // sign-in (5.7)
   routes(): Route[];                     // readiness counts the external plugins installPlugin installed
   installPlugin(pluginId: string): Promise<void>;   // B7 (5.7); rejects PluginInstallError
@@ -582,6 +585,9 @@ OPENCLAW_NO_RESPAWN=1  OPENCLAW_SKIP_CHANNELS=1  OPENCLAW_DISABLE_BONJOUR=1  OPE
 OPENCLAW_LOAD_SHELL_ENV=0  OPENCLAW_GATEWAY_TOKEN=<token>  BYOKIT_BRIDGE_SOCK=<root>/bridge.sock
 ```
 
+With `channels.telegram` (5.18) the gateway process alone drops `OPENCLAW_SKIP_CHANNELS` and gets
+`TELEGRAM_BOT_TOKEN=<token>`; doctor and plugin installs keep channels skipped and never see the token.
+
 `<root>` = `join(stateDir, 'openclaw')`. The socket file name is `bridge.socketName` (default `bridge.sock`); an
 app that already has a socket name in the wild passes it explicitly (Crewhouse passes `crewd.sock`).
 
@@ -594,7 +600,11 @@ writing only if bytes change (0600):
   `controlUi.enabled: false`, `tailscale.mode: 'off'`; `discovery.mdns.mode: 'off'`; `env.shellEnv.enabled: false`;
   `update.checkOnStart: false`, `update.auto.enabled: false`; `telemetry.enabled: false`;
   `models.catalogRefresh.enabled: false`; `logging.file: <stateDir>/logs/openclaw-events.log`; `channels` kept `{}`
-  unless the app config sets them.
+  unless the app config sets them (inert: the engine starts no channel without `KitOptions.channels`, 5.5). With
+  `channels.telegram` the kit replaces `channels` whole with `{ telegram: { enabled: true, dmPolicy: 'allowlist',
+  allowFrom, groupPolicy: 'disabled', configWrites: false, commands: { native: false, nativeSkills: false },
+  execApprovals: { enabled: false }, apiRoot? } }`, sets `commands.allowFrom.telegram = []` and adds `telegram` to
+  `plugins.allow` (5.18).
 - Auth isolation (5.15): `agents.defaults.authInheritance.agentId = 'byokit-base'`, an id the kit never creates or
   signs in to, so no agent reads another agent's sign-ins through.
 - Subscription runtime: `agents.defaults.models['openai/*'].agentRuntime = { id: 'openclaw' }`; if
@@ -610,7 +620,7 @@ writing only if bytes change (0600):
   no `needs.plugin`, so a route waiting only on its CLI and the explicit routes sharing its plugin work) (D17), and the
   `plugin` id of every route the app offers by name in `KitOptions.offered` (the provider, auth choice or alias a route
   carries — e.g. `openrouter`; a route nobody offers stays out), and every external plugin `installPlugin` installed
-  (B7, 5.7); the kit adds no other id;
+  (B7, 5.7), and `telegram` while that channel is on (5.18); the kit adds no other id;
   `plugins.entries[id].hooks.timeouts.before_tool_call = 200_000`. The pinned
   engine treats a non-empty `plugins.allow` as a restrictive allowlist: a provider sign-in, and that provider's runs,
   need the bundled plugin that owns the route's auth choice (`Route.plugin`) in it, else the wizard ends
@@ -1306,6 +1316,9 @@ differs from a fresh run against the pinned tarball in the engine job.
   (default `'[routing]'`); Crewhouse passes its own grammar explicitly. Tool results count from the message the
   script came from (O11): the engine appends runtime-context user messages after each tool result, so counting
   from the last user message replays the first scripted call forever.
+- `fakeTelegram({ token, username? })` (5.18): a loopback Telegram Bot API answering `getMe`, long-poll
+  `getUpdates`, `sendMessage` and every other method with `true`; `message(from, text)` queues one private message,
+  `sent` lists every `sendMessage`, `calls` every call (never the token). Another token answers 401.
 
 ### 5.12 Version pin and upgrades
 
@@ -2299,6 +2312,41 @@ on.", `browser.blocked.unprotected` "Signing in for {name} isn't available yet."
 not survive a browser restart; the profile at rest is protected by the precondition, not file modes;
 `Target.attachToBrowserTarget` is experimental, so O25 is the pin-bump gate for this feature; frames show the
 email and password length to the lease holder.
+
+### 5.18 One chat channel (Telegram)
+
+A person reaches the app from a chat app; the app, not the engine, decides who answers. Off by default.
+
+```ts
+type ChannelChat = { channel: 'telegram'; id: string };            // the channel's own chat id
+type ChannelMessage = { chat: ChannelChat; from: string; text: string };
+type TelegramChannel = {
+  token: string;                        // BotFather token: gateway process env only, never config, disk, logs or errors
+  allowFrom: readonly string[];         // numeric Telegram user ids; non-empty, no wildcard
+  member: Member;                       // the member the app answers as (Crewhouse: Chief's member)
+  apiRoot?: string;                     // Bot API root, default https://api.telegram.org
+  onMessage(message: ChannelMessage): void;
+};
+```
+
+- **Claimed before dispatch.** The bridge plugin's `before_dispatch` hook claims every message of a turned-on
+  channel (`{ handled: true }`, synchronously, also when the host is unreachable) and hands it to the host over the
+  bridge socket (`{ kind: 'channel-message', channel, chat, from, text }`); the host calls `onMessage`. The engine
+  therefore never dispatches a channel message to any agent: a message naming a helper, and chat commands such as
+  `/new` or `/acp spawn`, reach `onMessage` as text and nothing else. The app routes it (Crewhouse: into Chief's
+  thread, then `kit.run`) and answers with `kit.reply(chat, text)`.
+- **Second wall** (5.6): DMs only, from `allowFrom` (an unlisted sender is dropped by the engine), groups off, chat
+  commands and channel config writes off, Telegram exec approvals off; `channels` holds only `telegram`.
+- **Reply.** `reply` sends through the engine's `send` with `agentId` = `member`'s agent (the pin needs one owner
+  once several agents exist; it mirrors the sent text into that agent's DM session). It refuses a channel that is
+  not on (`channel is not turned on: <channel>`).
+- **Token.** Validated at construction (`/^\d+:[\w-]+$/`; a bad option throws `invalid telegram channel options`,
+  never echoing it). It lives in the gateway's process env, the same exposure as `OPENCLAW_GATEWAY_TOKEN`: an agent
+  the gate allows to run commands can read it.
+- **Another channel later** is one more key of `channels` with its own option type; `ChannelChat.channel` widens and
+  Telegram callers do not change.
+- Proof: `test/engine/channel.test.ts` (real pinned engine, `fakeTelegram`, model stub: no model request and no
+  session from the channel, the reply at the fake, no token on disk).
 
 ## 6. `@byokit/herdr`
 
