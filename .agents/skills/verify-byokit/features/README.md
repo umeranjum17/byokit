@@ -22,6 +22,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 ## Available on this host
 
 - [Accounts sign-in and ask](./accounts-signin.md) — the README quickstart against the built `@byokit/accounts` with `mockOpenAI()`.
+- [ChatGPT one-button sign-in on a phone](./accounts-phone-redirect.md) — `login(…, { via: 'redirect' })` on `portable` gives ChatGPT's page and `returnTo`; the in-app browser's return address handed to `complete` signs in, and another state, a replay and an expired sign-in are refused with `SignInReturnError`; plus the real provider's page opened (never signed in).
 - [Accounts key route on a Hermes runtime](./accounts-hermes-throwifaborted.md) — the built portable entry answers `openrouter:key` with `AbortSignal.prototype.throwIfAborted` deleted (Hermes), and an aborted signal still rejects as aborted.
 - [Accounts key-route refusals](./accounts-key-refusals.md) — an `openrouter:key` ask on a loopback fake: `402` (OpenRouter body or empty) reads `out_of_credit`, `401`/`403` `key_refused`, `429` `rate_limited` (never retried), each with plain words; a `500` or a dropped connection right after a `402` stays `request`; every failure carries `status` and a scrubbed, capped `detail` (provider words, or `connect ECONNREFUSED`).
 - [Accounts pick and models](./accounts-pick.md) — two signed-in ChatGPT accounts: `Accounts.pick` names the roomier one with its reason, `Accounts.models` lists each account's models, and a resting account's models say why and until when.

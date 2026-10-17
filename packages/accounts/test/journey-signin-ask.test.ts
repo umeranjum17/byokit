@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { Accounts, WORDS, billingWords, classify, fileStore, isolate, launchEnv, memoryStore, offered, portable, PROVIDERS, say } from '@byokit/accounts';
+import { Accounts, SignInReturnError, WORDS, billingWords, classify, fileStore, isolate, launchEnv, memoryStore, offered, portable, PROVIDERS, say } from '@byokit/accounts';
 import { mockOpenAI } from '@byokit/accounts/testing';
 import { scratchDir } from '../../test-support.ts';
 
@@ -71,6 +71,74 @@ test('a person signs in with the ChatGPT plan they already pay for, asks, and th
     await accounts.logout(1, 'chatgpt');
     assert.equal(await accounts.signedIn(1, 'chatgpt'), false);
     assert.equal(await reopened.read('openai-codex'), undefined);
+  } finally {
+    accounts.stop();
+    await openai.close();
+  }
+});
+
+test("on a phone, one button: ChatGPT's own page in the app's in-app browser, and the address it comes back to signs in", async () => {
+  const fixture = JSON.parse(readFileSync(new URL('../../../fixtures/conformance/chatgpt-redirect-typescript.json', import.meta.url), 'utf8'));
+  const openai = await mockOpenAI();
+  const options = { authBase: openai.base, apiBase: openai.base, app: 'byokit journey', store: () => memoryStore() };
+  const accounts = new Accounts<any, number>(options, portable);
+  // The app's in-app browser: it follows the page until the page sends it to the address the app watches for, and stops there.
+  const browse = async (shown: { url?: string; returnTo?: string }) => {
+    const next = (await fetch(shown.url!, { redirect: 'manual' })).headers.get('location')!;
+    assert.ok(next.startsWith(shown.returnTo!), next);
+    return next;
+  };
+  const refused = (code: string) => (e: unknown) => e instanceof SignInReturnError && e.code === code && !!e.message;
+  try {
+    // The stand-in refuses every other return address, as OpenAI's page does.
+    for (const other of fixture.refused) {
+      const asked = new URL(`${openai.base}/oauth/authorize`);
+      for (const [k, v] of Object.entries({ ...fixture.authorize, redirect_uri: other, code_challenge: 'c', state: 's' })) asked.searchParams.set(k, v as string);
+      assert.equal((await fetch(asked, { redirect: 'manual' })).status, 400, other);
+    }
+    // The device code stays the phone's default.
+    assert.equal((await accounts.login(3, 'chatgpt'))?.via, 'code');
+    accounts.cancel(3, 'chatgpt');
+
+    // One button: the page to open and the address to watch for; the PKCE verifier never leaves the kit.
+    const shown = (await accounts.login(1, 'chatgpt', { via: 'redirect' }))!;
+    assert.deepEqual([shown.state, shown.via, shown.returnTo], ['waiting', 'browser', fixture.returnTo]);
+    const page = new URL(shown.url!);
+    for (const [k, v] of Object.entries(fixture.authorize)) assert.equal(page.searchParams.get(k), v, k);
+    assert.ok(page.searchParams.get('state') && page.searchParams.get('code_challenge'));
+    assert.ok(shown.expiresAt! > Date.now());
+    assert.doesNotMatch(JSON.stringify(shown), /verifier/);
+    const back = await browse(shown);
+
+    // An address from another sign-in is turned away and the real one carries on.
+    await assert.rejects(accounts.complete(1, 'chatgpt', back.replace(/state=[^&]+/, 'state=another')), refused(fixture.outcomes["another sign-in's state"]));
+    assert.equal(accounts.view(1, 'chatgpt')?.state, 'waiting');
+    assert.equal((await accounts.complete(1, 'chatgpt', back))?.state, 'done');
+    assert.equal((await accounts.status(1, 'chatgpt')).words, 'ChatGPT is connected.');
+    assert.equal(await accounts.respond(1, { instructions: 'Answer briefly.', input: 'Plan my day' }), 'You said: Plan my day');
+    // Handed over twice, or with no sign-in waiting: turned away, and the sign-in made stays.
+    await assert.rejects(accounts.complete(1, 'chatgpt', back), refused(fixture.outcomes['the same address twice']));
+    await assert.rejects(accounts.complete(2, 'chatgpt', back), refused(fixture.outcomes['no redirect sign-in waiting']));
+    assert.equal(await accounts.signedIn(1, 'chatgpt'), true);
+
+    // Declined on the page: one plain sentence, nothing kept.
+    openai.state.decline = true;
+    const declined = await accounts.complete(2, 'chatgpt', await browse((await accounts.login(2, 'chatgpt', { via: 'redirect' }))!));
+    assert.deepEqual([declined?.state, declined?.why], ['failed', 'declined']);
+    assert.equal(await accounts.signedIn(2, 'chatgpt'), false);
+    openai.state.decline = false;
+
+    // Too late: the sign-in has ended, and the address is turned away as expired.
+    const slow = new Accounts<any, number>({ ...options, signInMs: 200 }, portable);
+    const late = await browse((await slow.login(1, 'chatgpt', { via: 'redirect' }))!);
+    await new Promise((r) => setTimeout(r, 300));
+    await assert.rejects(slow.complete(1, 'chatgpt', late), refused(fixture.outcomes['after signInMs']));
+    assert.deepEqual([slow.view(1, 'chatgpt')?.state, slow.view(1, 'chatgpt')?.why, await slow.signedIn(1, 'chatgpt')], ['failed', 'tooLong', false]);
+    slow.stop();
+
+    // Only ChatGPT has this way in, and a computer keeps its own listener on the same address.
+    await assert.rejects(accounts.login(1, 'grok', { via: 'redirect' }), /no in-app browser sign-in/);
+    await assert.rejects(new Accounts<any, number>({ store: () => memoryStore() }).login(1, 'chatgpt', { via: 'redirect' }), /On a computer/);
   } finally {
     accounts.stop();
     await openai.close();

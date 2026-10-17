@@ -1,8 +1,10 @@
-// OpenAI's sign-in, stood in for: device code, its page where a person types the code, token exchange and refresh
+// OpenAI's sign-in, stood in for: device code, its page where a person types the code, the authorize page (already
+// signed in, so it sends the browser straight back to the one address the client may return to), token exchange and refresh
 // (rotating), revoke, ChatGPT's streamed answers (`/codex/responses`, echoing the question), and the same CORS answer the
 // real sign-in endpoints give (the answers endpoint, like the real one, answers no web page), so a web page, a phone app or a test signs in
 // end to end with no account and no real network. Run it alone for a demo or an emulator:
 //   node packages/accounts/src/testing/mock-openai.ts [port]      (21455 by default, never ChatGPT's own 1455)
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +25,8 @@ export const mockJwt = (plan = 'plus', email = 'umer@example.com', n = 0, accoun
 
 export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', email = 'umer@example.com', expiresIn = 864_000, answers = [], log }: MockOpenAIOptions = {}) {
   const codes = new Map<string, { device: string; approved?: boolean; denied?: boolean }>();
+  /** Authorization codes the authorize page handed out, each spent once, with the PKCE challenge it was asked with. */
+  const authorized = new Map<string, string>();
   let issued = 0, asked = 0;
   const state = {
     /** Refresh tokens OpenAI still honours; a refresh spends the old one (rotation), sign-out revokes one. */
@@ -38,6 +42,8 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
     accountId: 'acct-1', email, plan,
     /** Drop this many device-code polls on the floor, as a phone does to a backgrounded app. */
     dropPolls: 0,
+    /** The authorize page sends the browser back declined (`error=access_denied`), as when the person says no. */
+    decline: false,
     /** Answer the next question with this HTTP error instead (a limit, a lapsed sign-in), then answer normally. */
     fail: undefined as { status: number; body: string } | undefined,
   };
@@ -84,7 +90,26 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
         if (c.denied) return send(400, { error: { code: 'access_denied', message: 'The user declined' } });
         return c.approved ? send(200, { authorization_code: `ac_${user_code}`, code_verifier: 'cv' }) : send(403, { error: { code: 'deviceauth_authorization_pending' } });
       }
+      case '/oauth/authorize': {
+        // As OpenAI does: any other return address (a custom scheme, another port) is refused on the page itself.
+        const q = url.searchParams;
+        if (q.get('client_id') !== 'app_EMoamEEZ73f0CkXaXp7hrann' || q.get('redirect_uri') !== 'http://localhost:1455/auth/callback' || q.get('code_challenge_method') !== 'S256' || !q.get('code_challenge'))
+          return send(400, { error: { message: 'Invalid authorize request', type: 'invalid_request_error', param: null, code: 'invalid_authorize_request' } });
+        const back = new URL(q.get('redirect_uri')!);
+        if (state.decline) back.searchParams.set('error', 'access_denied');
+        else { const code = `az_${++asked}`; authorized.set(code, q.get('code_challenge')!); back.searchParams.set('code', code); }
+        back.searchParams.set('state', q.get('state') ?? '');
+        res.writeHead(302, { location: back.href });
+        return res.end();
+      }
       case '/oauth/token':
+        if (form.get('grant_type') === 'authorization_code' && authorized.has(form.get('code') ?? '')) {
+          const challenge = authorized.get(form.get('code')!);
+          authorized.delete(form.get('code')!);
+          if (createHash('sha256').update(form.get('code_verifier') ?? '').digest('base64url') !== challenge || form.get('redirect_uri') !== 'http://localhost:1455/auth/callback')
+            return send(400, { error: { code: 'invalid_grant' } });
+          return send(200, issue());
+        }
         if (form.get('grant_type') === 'authorization_code') {
           const c = codes.get(form.get('code')?.replace(/^ac_/, '') ?? '');
           if (!c?.approved) return send(401, { error: { code: 'token_expired' } });

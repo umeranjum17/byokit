@@ -3,7 +3,7 @@
 // The engine does the signing in (Pi's own flows on a computer, portableEngine on phones and in browsers); the app only
 // shows the provider's page to open or the code to type. No Node import here: see index.ts for the computer's side.
 import type { Keystore } from '@byokit/secrets';
-import type { Api, ApiStreamOptions, AssistantMessage, AssistantMessageEventStream, AuthPrompt, CredentialStore, Model, ModelAuth, Models, Context } from '@earendil-works/pi-ai';
+import type { Api, ApiStreamOptions, AssistantMessage, AssistantMessageEventStream, AuthInteraction, AuthPrompt, CredentialStore, Model, ModelAuth, Models, Context } from '@earendil-works/pi-ai';
 import { cloudSelection, CloudAccountError, type CloudOptions, type CloudStream } from './cloud.ts';
 import type { AiBinding } from '@earendil-works/pi-ai/api/cloudflare-ai-binding';
 import { CLAUDE_PLAN_ID, ClaudePlanExpiredError, claudePlanMessages, claudeProfile, withClaudePlan, type ClaudePlanOptions } from './claude-plan.ts';
@@ -13,7 +13,7 @@ import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool 
 import { deviceFlow, offered, planKey, provider, route, routes, PROVIDERS, type Provider, type Route, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
 import { checkKeyModel, keyRespond, KeyRouteError, type KeyAsk, type KeyRuntime } from './key-routes.ts';
-import { claims, PORTABLE, portableEngine, signable, validEnterpriseDomain, withDevice } from './engine.ts';
+import { CHATGPT_RETURN, claims, PORTABLE, portableEngine, redirectLogin, signable, validEnterpriseDomain, withDevice } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
 import { respond, ResponseError, type Ask, type ResponseResult, type ResponseTool } from './responses.ts';
 import type { ChatGPTRespondAccount } from './chatgpt-plan.ts';
@@ -32,15 +32,32 @@ export type Member = string | number;
 /** What the person sees while signing in: the provider's own page to open (`via: 'browser'`), or a code to type there
  *  (`via: 'code'`), never the engine's own prompts. `why` names how a failed one failed, for apps that word it themselves. */
 /** Explicit method selection; Claude defaults to paste. Enterprise domains apply only to Copilot.
- *  OpenRouter authorization creates an API-billed key: billedPerUse explicitly selects that billing. */
-export type SignInOptions = { via?: 'browser' | 'code' | 'paste'; fresh?: boolean; enterpriseDomain?: string; billedPerUse?: true };
+ *  OpenRouter authorization creates an API-billed key: billedPerUse explicitly selects that billing.
+ *  `redirect` is ChatGPT's own page on a phone or in a browser, in a view the app watches: see `complete`. */
+export type SignInOptions = { via?: 'browser' | 'code' | 'paste' | 'redirect'; fresh?: boolean; enterpriseDomain?: string; billedPerUse?: true };
 /** `add`'s options: the public sign-in options plus the internal `region` the MiniMax route ids select, and the
  *  workspace a Go plan login was picked for (chosen from `workspaces` on the first add; one is stored unasked). */
 type AddOptions = Omit<SignInOptions, 'via'> & { via?: Via; key?: string; region?: 'global' | 'cn'; workspace?: string };
-export type SignIn = { id?: string; state: 'waiting' | 'done' | 'failed'; via?: 'browser' | 'code'; url?: string; code?: string; expiresAt?: number; error?: string; why?: Why };
+/** `returnTo` (a `via: 'redirect'` sign-in): the address the page sends the browser back to; hand the full address it
+ *  lands on to `complete`. */
+export type SignIn = { id?: string; state: 'waiting' | 'done' | 'failed'; via?: 'browser' | 'code'; url?: string; code?: string; returnTo?: string; expiresAt?: number; error?: string; why?: Why };
 export type Status = { id: string; provider: string; account: string; name: string; state: 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included'; until?: number; words: string };
 type Flow = SignIn & { generation: number; abort: AbortController; paste?: (text: string) => void; refuse?: (e: Error) => void; timedOut?: boolean; toCode?: boolean;
-  oauthState?: string; done?: Promise<void>; shown?: () => void; busyPort?: boolean };
+  oauthState?: string; done?: Promise<void>; shown?: () => void; busyPort?: boolean; returned?: boolean };
+
+/** Why `complete` turned an address away: no `via: 'redirect'` sign-in is waiting, the address belongs to another
+ *  sign-in, it was already handed over, or the sign-in ran out of time. Only `expired` ends the sign-in. */
+export class SignInReturnError extends Error {
+  readonly code: 'no_sign_in' | 'wrong_state' | 'replayed' | 'expired';
+  constructor(code: SignInReturnError['code']) {
+    super({ no_sign_in: 'No sign-in is waiting for this page. Start signing in again.',
+      wrong_state: 'This sign-in page is out of date. Finish the sign-in on screen, or start again.',
+      replayed: 'This sign-in page was already used. Start signing in again if it did not finish.',
+      expired: 'The sign-in took too long. Start signing in again.' }[code]);
+    this.name = 'SignInReturnError';
+    this.code = code;
+  }
+}
 
 /** Listens on this computer for the provider's page coming back: each request's path in, the page to answer with out. */
 export type Loopback = (port: number, handle: (path: string) => Promise<{ status: number; html: string }>) => Promise<{ close(): void }>;
@@ -1269,6 +1286,10 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     if (isGoogleClient(p.key) && body.via && !['browser', 'paste'].includes(body.via)) throw googleViaError();
     if (body.via === 'paste' && !isGoogleClient(p.key) && !['claude', 'chatgpt', 'openrouter'].includes(p.key))
       throw Object.assign(new Error('This provider has no paste sign-in flow.'), { readiness: 'no_upstream_flow' });
+    if (body.via === 'redirect' && p.key !== 'chatgpt')
+      throw Object.assign(new Error('This provider has no in-app browser sign-in flow.'), { readiness: 'no_upstream_flow' });
+    // A computer's tab comes back to the kit's own listener by itself.
+    if (body.via === 'redirect' && this.platform.loopback) throw new Error('On a computer, ChatGPT signs in with its page and comes back by itself.');
     if (p.key === 'openrouter') {
       if (body.via === 'code') throw new Error('OpenRouter uses a browser or a pasted code, not a device code.');
       if (body.billedPerUse !== true) throw new Error('Agree to billing per use before connecting this key.');
@@ -1295,7 +1316,10 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       : p.key === 'claude' && body.via === 'browser' ? this.platform.engine(this.boundStore(member, viewStore(this.additions.get(id) ?? this.store(member), 'anthropic', this.additions.has(id) ? p.pi : this.storageKey(key)), key)) : rt;
     const pi = p.key === 'claude' && body.via === 'browser' ? 'anthropic' : p.pi;
     let codeOffered = false;
-    const attempt = (via?: SignInOptions['via']) => driver.login(pi, 'oauth', {
+    const redirect = body.via === 'redirect';
+    const login = (via: SignInOptions['via'], io: AuthInteraction) => via === 'redirect'
+      ? redirectLogin(rt.credentialStore, io, { base: this.opts.authBase, crypto: this.opts.crypto }) : driver.login(pi, 'oauth', io);
+    const attempt = (via?: SignInOptions['via']) => login(via, {
       signal: flow.abort.signal,
       prompt: (q: AuthPrompt): Promise<string> => {
         if (q.type === 'select') {
@@ -1329,7 +1353,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         if (e.type === 'auth_url') {
           const url = new URL(e.url);
           if (body.fresh && p.fresh) url.searchParams.set(p.fresh.param, p.fresh.value); // "Use my personal account": ask which account, again
-          Object.assign(flow, { via: 'browser', url: url.toString(), code: undefined, oauthState: url.searchParams.get('state') ?? undefined });
+          Object.assign(flow, { via: 'browser', url: url.toString(), code: undefined, oauthState: url.searchParams.get('state') ?? undefined,
+            ...(redirect ? { returnTo: CHATGPT_RETURN, expiresAt: deadline } : {}) });
           // The port belongs to another sign-in here: the same page lets the person paste instead, without the timer's wait.
           if (flow.busyPort) this.offerCode(member, key, flow);
         }
@@ -1338,7 +1363,9 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         this.onChange?.(member, key);
       },
     });
-    const timer = setTimeout(() => { flow.timedOut = true; flow.abort.abort(); }, this.opts.signInMs ?? 15 * 60_000);
+    const lives = this.opts.signInMs ?? 15 * 60_000;
+    const deadline = Date.now() + lives;
+    const timer = setTimeout(() => { flow.timedOut = true; flow.abort.abort(); }, lives);
     let stuck: ReturnType<typeof setTimeout> | undefined;
     // Listen where the provider sends the browser back (the engine then finds the port taken and waits to be handed the address).
     const port = p.callbackPort && (this.opts.callbackPort ?? p.callbackPort);
@@ -1375,11 +1402,11 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         }
       }
       if (flow.abort.signal.aborted) throw new Error('Login cancelled');
-      stuck = p.key === 'claude' || googlePaste ? undefined : setTimeout(() => isGoogleClient(p.key) ? this.offerCode(member, key, flow) : this.toCode(flow), this.opts.redirectMs ?? 3 * 60_000);
-      try { await attempt(port && !reserved && body.via !== 'code' && !googlePaste ? 'code' : body.via ?? (catcher ? 'browser' : undefined)); } catch (e) {
+      stuck = p.key === 'claude' || googlePaste || redirect ? undefined : setTimeout(() => isGoogleClient(p.key) ? this.offerCode(member, key, flow) : this.toCode(flow), this.opts.redirectMs ?? 3 * 60_000);
+      try { await attempt(port && !reserved && body.via !== 'code' && !googlePaste && !redirect ? 'code' : body.via ?? (catcher ? 'browser' : undefined)); } catch (e) {
         // The code instead: asked for, or the page never came back. Also when a browser sign-in could not return here at all.
         if (!flow.toCode && (catcher || body.via === 'code' || !codeOffered || flow.abort.signal.aborted)) throw e;
-        Object.assign(flow, { url: undefined, code: undefined, via: 'code' });
+        Object.assign(flow, { url: undefined, code: undefined, returnTo: undefined, via: 'code' });
         close();
         await attempt('code');
       }
@@ -1473,6 +1500,28 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const f = this.flows.get(`${member}:${key}`);
     if (f?.state !== 'waiting' || !f.paste) throw Object.assign(new Error('no sign-in is waiting'), { status: 409 });
     f.paste(text.trim());
+  }
+
+  /** Finish a `via: 'redirect'` sign-in with the full address the app's in-app browser was sent back to (it starts with
+   *  the sign-in's `returnTo`; stop that navigation, nothing on the device answers it). The address must be this
+   *  sign-in's own, handed over once and in time, or `SignInReturnError` says why; a stray address leaves the sign-in
+   *  waiting. Resolves with how the sign-in ended. */
+  async complete(member: M, key: string, address: string): Promise<SignIn | null> {
+    key = this.preferred.get(`${member}:${key}`) ?? key;
+    const f = this.flows.get(`${member}:${key}`);
+    if (!f?.returnTo || !f.oauthState) throw new SignInReturnError('no_sign_in');
+    let state: string | null = null;
+    try { state = new URL(address.trim()).searchParams.get('state'); } catch {}
+    if (state !== f.oauthState) throw new SignInReturnError('wrong_state');
+    if (f.returned) throw new SignInReturnError('replayed');
+    // A phone may have paused the app's timers past the deadline: it ends here as the timer would have ended it.
+    if (!f.timedOut && f.state === 'waiting' && Date.now() >= (f.expiresAt ?? Infinity)) { f.timedOut = true; f.abort.abort(); }
+    if (f.timedOut) throw new SignInReturnError('expired');
+    if (f.state !== 'waiting' || !f.paste) throw new SignInReturnError('no_sign_in');
+    f.returned = true;
+    f.paste(address.trim());
+    await f.done;
+    return this.view(member, key);
   }
 
   /** Stop a sign-in and forget it; nothing it started is kept. */
@@ -1612,7 +1661,8 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   view(member: M, key: string): SignIn | null {
     key = this.preferred.get(`${member}:${key}`) ?? key;
     const f = this.flows.get(`${member}:${key}`);
-    return f ? { ...(f.id ? { id: f.id } : {}), state: f.state, via: f.via, url: f.url, code: f.code, expiresAt: f.state === 'waiting' ? f.expiresAt : undefined, error: f.error, why: f.why } : null;
+    return f ? { ...(f.id ? { id: f.id } : {}), state: f.state, via: f.via, url: f.url, code: f.code, ...(f.returnTo && f.state === 'waiting' ? { returnTo: f.returnTo } : {}),
+      expiresAt: f.state === 'waiting' ? f.expiresAt : undefined, error: f.error, why: f.why } : null;
   }
 
   stop() { for (const f of this.flows.values()) f.abort.abort(); }
