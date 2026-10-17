@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.27.0 (2026-10-17)
+
+- Each managed OpenCode account now keeps its own sign-in store, database, state and cache: `launch`, `launchEnv` and the sign-in env set `XDG_DATA_HOME`, `XDG_STATE_HOME` and `XDG_CACHE_HOME` under the account folder (and unset `OPENCODE_DB`), so an account never reads or writes the person's own `~/.local/share/opencode`; `remove` deletes them. On OpenCode 2.x the app passes `--standalone` to each start so two accounts run at once; 2.x otherwise shares one server port (49374) and the second start fails.
+- OpenCode sessions started through the kit before this version live in the shared OpenCode store and do not resume in the account's own folder.
+
 ## 0.26.0 (2026-10-17)
 
 - FEAT: `KeyRouteError.affordable` is the count a low-credit OpenRouter 402 names ("can only afford N"), set only on `out_of_credit`, so Crewhouse re-asks with what the key can pay for (for example 3257 of 4096 tokens) and the packing list still arrives. The kit never retries; the app decides.

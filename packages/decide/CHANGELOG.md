@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.10.0 (2026-10-17)
+
+- Dependency update: pins @byokit/accounts 0.27.0.
+
+- New `zai({ model, key, route?, ... })` and `zai({ model, account, ... })` backend: Z.AI (GLM) coding-plan models used for decisions, plan-billed only (`ZAI_ROUTES`). The `zai` and `zai-coding-cn` routes use the chat-completions wire with a strict `json_schema`; refusals abstain with the typed `failure` codes. New exports: `zai`, `ZAI_ROUTES`, `ZaiAccount`, `ZaiOptions`, `ZaiRoute`.
+
 ## 0.9.7 (2026-10-17)
 
 - Dependency update: pins @byokit/accounts 0.26.0.
