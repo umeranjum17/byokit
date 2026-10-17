@@ -8,9 +8,9 @@
 </p>
 
 <p align="center"><strong>The addresses a phone can dial the home computer on.</strong><br/>
-For <code>@byokit/pair</code>'s <code>offer({ urls })</code>: Tailscale Serve, direct Tailscale, a private overlay
-network or the LAN. On Node it can also advertise the computer over mDNS; on a phone (React Native) it browses the
-mDNS services around it.</p>
+For <code>@byokit/pair</code>'s <code>offer({ urls })</code>: a private tunnel served to the person's tailnet, a direct
+encrypted link, another private overlay network or the LAN. On Node it can also advertise the computer over mDNS;
+on a phone (React Native) it browses the mDNS services around it.</p>
 
 Formerly `@byokit/reach`, which stays published as a deprecated shim re-exporting this package through 0.7.x
 and is removed in 0.8.0.

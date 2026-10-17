@@ -1,6 +1,6 @@
 # Message desk
 
-A browser example of `@byokit/decide` on the person's ChatGPT and Claude plans.
+A browser example of `@byokit/decide` on the person's own AI plans.
 It uses BYOKit's real plan sign-ins and `Accounts.respond`, with no rules backend,
 API key, alternate billing route or installed tool credentials.
 Sign-ins are kept sealed at this computer's machine store (`machineStore`, sealed with

@@ -104,6 +104,9 @@ npm install \
 | 🎙️ **Give it a voice** — live conversation, dictation and audio | [realtime](packages/realtime) · [dictation](packages/dictation) · [audio](packages/audio) |
 | 🌿 **Know what's left** — plan windows, usage and cost preflight | [usage](packages/usage) |
 | 🧭 **Ask, don't guess** — typed answers with confidence and an option to abstain | [decide](packages/decide) |
+| 🔌 **Reach other apps** — connect a person's online accounts and act over the standard tool protocol | [connect](packages/connect) · [mcp](packages/mcp) |
+| 🖥️ **Run the helper at home** — an on-device runtime kit and your computer's agents from your phone | [openclaw](packages/openclaw) · [herdr](packages/herdr) |
+| 📣 **See it on the phone** — screenshots, on-device text generation, signaling and sealed drafts | [browser](packages/browser) · [infer](packages/infer) · [signaling](packages/signaling) · [write](packages/write) |
 | 🧰 **Keep your own look** — sign-in, pairing and consent state without a UI framework | [ui](packages/ui) |
 | 🔒 **Keep private things private** — app-owned secret stores and sealed data | [secrets](packages/secrets) · [seal](packages/seal) |
 | 🏡 **Bring work home** — runtime connections and on-device capabilities | [Runtime kits](docs/runtime-kits.md) · [Capability kits](docs/capability-kits.md) (bubble/overlay, status bar and record: new work in `@platform-kits/overlay`, `@platform-kits/statusbar`, `@platform-kits/record`) |

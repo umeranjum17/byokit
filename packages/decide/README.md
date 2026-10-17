@@ -9,9 +9,8 @@
 
 <p align="center"><strong>Typed questions in, a typed answer with confidence out.</strong><br/>
 Below a floor it abstains, so your app takes its safe default (ask the person) instead of guessing. Backends are your
-own <code>rules</code>, any model you can send a prompt to (on a phone, the person's own ChatGPT), OpenAI and Anthropic general models with structured answers,
-OpenCode Go plan models with a plan key or plan account, and
-<a href="https://openrouter.ai/docs/guides/community/jev">Jev</a> (API-billed) over TypeSafe's API or OpenRouter. Labelled eval files
+own <code>rules</code>, any model you can send a prompt to (on a phone, the person's own plan), general models with
+structured answers, plan models with a plan key or plan account, and a billed model gateway. Labelled eval files
 set the floors.</p>
 
 ## Install

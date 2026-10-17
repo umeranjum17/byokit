@@ -1,0 +1,1 @@
+- README intro now says in plain words what the kit does; model specifics stay in the body.

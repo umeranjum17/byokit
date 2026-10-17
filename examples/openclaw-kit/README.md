@@ -3,7 +3,7 @@
 Your AI plan working for you on this computer, from your phone: pair the phone with this computer, sign in to a plan,
 send the helper a message, and allow or deny what it asks before it acts. The computer runs `host.ts`
 (`@byokit/openclaw`, with its own OpenClaw engine in `./.state`); the phone opens a plain web page this computer
-serves, over your home network or Tailscale. Sign-ins are kept by the engine on this computer; this app
+serves, over your home network or a private tunnel. Sign-ins are kept by the engine on this computer; this app
 never sees them. Every way in is the kit's own route list: the phone page groups `oc.routes()`, and the terminal's
 `add <choice>` takes the same choices.
 

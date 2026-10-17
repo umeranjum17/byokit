@@ -3,7 +3,7 @@
 Your coding agents in Herdr, from your phone: pair the phone with this computer, start an agent, send it a message,
 and answer it when it stops to ask you something. The computer runs `host.ts` (`@byokit/herdr` in `own` mode, with
 its own Herdr in `./.state`); the phone opens a plain web page this computer serves, over your home network or
-Tailscale. Each agent keeps its own sign-in, made inside its own screen; this app never sees it.
+a private tunnel. Each agent keeps its own sign-in, made inside its own screen; this app never sees it.
 
 | Pair | Agent at work | A question | Answered |
 |---|---|---|---|
