@@ -55,13 +55,13 @@
   },
   {
     "readme": "packages/decide/README.md",
-    "block": 12,
+    "block": 13,
     "snapshot": "52e424bd5ee358ff7df2e7cae2d12afbec4abb3d0c5c7278f65a94d3545b9e1a",
     "reason": "Configuration fragment omits the host configuration, account, member and question inputs."
   },
   {
     "readme": "packages/decide/README.md",
-    "block": 13,
+    "block": 14,
     "snapshot": "a549745a4b85fc74c045c49b9cc227de979560829459f6aa490e44a6a7d5bfab",
     "reason": "Cache/retry fragment omits hostConfig, input text and questions context."
   },

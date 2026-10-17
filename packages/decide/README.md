@@ -442,7 +442,8 @@ A host that already holds the member's Z.AI coding-plan key passes it directly (
 ```ts
 import { zai } from '@byokit/decide';
 
-const backend = zai({ key: hostConfig.zaiPlanKey, model: 'glm-5.2' }); // route: 'zai' (default) or 'zai-coding-cn'
+declare const zaiPlanKey: string; // the member's Z.AI plan key, read from the host's own store
+const backend = zai({ key: zaiPlanKey, model: 'glm-5.2' }); // route: 'zai' (default) or 'zai-coding-cn'
 ```
 
 A plan account from the accounts peer works the same way (`zai({ account, model })`); its provider tag names
