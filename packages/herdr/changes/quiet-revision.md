@@ -1,0 +1,1 @@
+- FIX: A herdr event that leaves the tree as it was no longer moves the snapshot `revision` or fires `onChange`, so a repeated title tick or a focus on the pane already focused costs a host nothing. A real change still moves the revision once.
