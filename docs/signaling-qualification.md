@@ -28,7 +28,7 @@ The referenced inline example was read at upstream release commit `e8b8ae51`, pa
 - Scoped README check and release lint passed without new baseline entries.
 - Node **22.23.2**: source check and **33 scoped tests**, all passed, including 14 signaling tests and the
   existing pack-smoke, README and release tooling tests. Initial Node 26.7.0 focused signaling run also passed.
-- `npm pack --workspace @byokit/signaling`: installed into `/home/umer/.bkt/bsg/app`, outside the repository,
+- `npm pack --workspace @byokit/signaling`: installed into `~/.bkt/bsg/app`, outside the repository,
   using the tarball and public npm dependencies only. No workspace aliases or private source installs.
 - The README's **25-line App.tsx** typechecked strictly against the installed receiver. A separate contract
   check assigned both signaling and event unions in both directions and the full authorization session options.
@@ -71,7 +71,7 @@ The qualified implementation source SHA-256 is
 
 Raw logs, original foundation handoff, registry metadata/hash comparisons, lock, extracted quickstart, type
 contract, stock harness and own session checkpoint remain in this task worktree's `.receipts/signaling/`.
-The packed tar and outside consumer remain in the task-owned `/home/umer/.bkt/bsg/`; no broad cleanup was run.
+The packed tar and outside consumer remain in the task-owned `~/.bkt/bsg/`; no broad cleanup was run.
 The foundation commit/history is preserved. No physical phone, personal desktop, account, Mac or model call
 was involved. No capture, rendered frame, real input or clipboard journey is claimed. CI owns the full suites;
 local qualification was scoped, not a repeated repository-wide suite or native phone build.
@@ -83,8 +83,8 @@ or internal package dependencies, so no dependent cascade is required. This feat
 private. The publisher's release PR removes `private: true`, compiles the FEAT fragment using the release
 prepare flow, and qualifies the exact landed main/release candidate and tarball again. No other pending kit
 is part of this request. Publication must use
-`--userconfig /home/umer/firstmate/config/npm-platform-kits.npmrc`; the worker did not read it, alter default
-npm config, invoke publication or arrange authentication.
+`--userconfig <maintainer publish config>`; no default npm config was read or altered
+here, and publication was not invoked or arranged in this qualification.
 
 Expected public URL after that authorized cut: https://www.npmjs.com/package/@byokit/signaling/v/0.1.0 .
 Release notes source: `packages/signaling/changes/fm-byk-bridge-signaling.md` (FEAT only).

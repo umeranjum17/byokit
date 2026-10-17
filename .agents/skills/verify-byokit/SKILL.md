@@ -72,7 +72,7 @@ It drives the real example app in a real browser (Playwright's Chromium, else th
 
 ### Physical native lab surfaces
 
-An explicitly native-only lab journey uses its feature-indexed maintained device capture, not a browser stand-in or a hand-captured fallback. [Cloud M6 phone](features/cloud-m6-phone.md) owns `capture/cloud-m6.py`: physical a4b93ea2, whole-journey device/heavy locks and memory gate, approved USB stdin → SecureStore import, independent surviving trial watchdog, real subscription tool turn, own-machine cleanup and verified key removal. Its manifest records absent before/web/desktop/dark surfaces and exact timing boundaries; failed prerequisites stay unqualified. Review actual shots and decoded recording frames. The browser review matrix above remains unchanged for every web surface.
+An explicitly native-only lab journey uses its feature-indexed maintained device capture, not a browser stand-in or a hand-captured fallback. [Cloud M6 phone](features/cloud-m6-phone.md) owns `capture/cloud-m6.py`: the physical lab phone, whole-journey device/heavy locks and memory gate, approved USB stdin → SecureStore import, independent surviving trial watchdog, real subscription tool turn, own-machine cleanup and verified key removal. Its manifest records absent before/web/desktop/dark surfaces and exact timing boundaries; failed prerequisites stay unqualified. Review actual shots and decoded recording frames. The browser review matrix above remains unchanged for every web surface.
 
 ## Evidence
 

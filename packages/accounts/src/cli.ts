@@ -270,7 +270,7 @@ export function cliAccounts(options: CliOptions) {
   }
   const saveRests = (rows: RestRow[], nowMs = Date.now()) =>
     atomic(restsFile, { version: 1, rests: rows.filter((r) => r.until > nowMs) });
-  // `<tool> -> <id>`: the account the person's own `use` keeps for the fleet. Only ids, never a secret.
+  // `<tool> -> <id>`: the account the person's own `use` keeps for the pool. Only ids, never a secret.
   const preferFile = join(stateDir, 'prefer-v1.json');
   type PreferRecord = { version: 1; tools: Partial<Record<CliProvider, string>> };
   function parsePrefer(saved: unknown): PreferRecord['tools'] | undefined {

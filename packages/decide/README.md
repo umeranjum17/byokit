@@ -116,7 +116,7 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
 
 - **Questions**: `choice` (options with a one-line description each), `yesno`, `score` (an ordered rubric, lowest
   first; the answer is the level's index), and `rank` (candidate ids with descriptions, best first).
-- **The floors are code, not a prompt** (ported from firstmate's dispatch resolver): a 0.6 floor on the answer's
+- **The floors are code, not a prompt**: a 0.6 floor on the answer's
   confidence by default (`floor` per question). A choice option can declare its own floor (`floors`), checked against
   its own probability; a pick under it falls to the most probable other option that clears its own. A tie abstains.
 - An answer whose probabilities are missing an option, out of range or don't sum to 1 is an abstain, never an error.

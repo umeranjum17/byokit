@@ -60,7 +60,7 @@ SECURITY (2026-10-03, repository CI policy only): also temporarily except exactl
 [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm), npm
 `braces`, advisory affected range `<=3.0.3`. The accepted-risk rationale is build-tool
 DoS via developer-config glob patterns, no user input, and no patched release.
-This is the captain's risk acceptance, **not newly proved complete input safety**;
+This is the maintainer's risk acceptance, **not newly proved complete input safety**;
 the retained raw audit and earlier unresolved proof evidence remain unchanged.
 The exception fails at **2026-11-02 00:00:00 UTC**, with no silent renewal.
 The wrapper retrieves this exact advisory from GitHub's authoritative advisory API;

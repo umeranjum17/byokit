@@ -2,7 +2,7 @@
 // Endpoint and wire format come from the @byokit/accounts route `opencode:plan_key:opencode-go` and its pinned
 // upstream (`@earendil-works/pi-ai`, provider `opencode-go`): the OpenAI Responses shape at
 // https://opencode.ai/zen/go/v1, billed with the member's plan key as Bearer. Plan only: the key is the
-// captain's plan key whether passed directly or read from the member's saved account; there is no
+// owner's plan key whether passed directly or read from the member's saved account; there is no
 // API-billed route and no fallback between key inputs.
 import type { OpenCodeGoAccount } from '@byokit/accounts/opencode-go';
 import { UnsupportedAccountError } from './account-error.ts';

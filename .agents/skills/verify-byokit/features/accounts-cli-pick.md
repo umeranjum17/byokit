@@ -15,7 +15,7 @@ A pool owner asks one function which managed CLI account a run should start on, 
 
 - The consumer imports `cliAccounts` from `@byokit/accounts/cli`, adds one or more managed accounts per tool, and calls `accounts.pick('claude')`.
 - Room needs `claudeHeaders: { 'anthropic-beta', 'User-Agent' }` for Claude rows and the Codex executable in `bins`; `usage` may hand `pick` the app's own `@byokit/usage` reader.
-- `accounts.list()` answers the roster; `pick(...).rows` is the same roster with readings, so a pool view and the fleet agree.
+- `accounts.list()` answers the roster; `pick(...).rows` is the same roster with readings, so a pool view and the pool view agree.
 
 ## Driving it with node scratch consumers
 

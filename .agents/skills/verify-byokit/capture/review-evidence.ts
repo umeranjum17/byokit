@@ -93,7 +93,7 @@ async function withRooms(page: Page, rooms: Record<string, { usedPercent: number
 /** Two ChatGPT plans reporting both windows; Work's address is the longest a row has to fit. */
 const WINDOW_ROOMS = { 'umer-work': { usedPercent: 62, weekly: 41 }, 'umer-personal': { usedPercent: 12, weekly: 88 } };
 async function connectWindows(page: Page) {
-  await connectChatGPT(page, { accountId: 'umer-work', email: 'umer.anjum.engineering.team@longest-company-name.example', plan: 'team' }, true);
+  await connectChatGPT(page, { accountId: 'umer-work', email: 'first.last.engineering.team@longest-company-name.example', plan: 'team' }, true);
   await connectChatGPT(page, { accountId: 'umer-personal', email: 'umer@example.com', plan: 'plus' }, false);
 }
 

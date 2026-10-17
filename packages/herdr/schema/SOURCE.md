@@ -16,8 +16,8 @@ The snapshot, not muxr's usage, defines the kit's typed surface.
 
 ## Capture
 
-Captured 2026-09-28 inside an isolated firstmate Herdr lab session
-(`fm-lab-byk-h2-schema-*`, never the person's default session), using the
+Captured 2026-09-28 inside an isolated Herdr lab session
+(a task-named session, never the person's default session), using the
 release asset above downloaded into a task-owned directory and a task-owned
 empty `HOME`:
 

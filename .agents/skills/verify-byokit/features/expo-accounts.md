@@ -16,7 +16,7 @@ Open the default Expo example and sign in with ChatGPT. Its Accounts card appear
 
 ## Driving it with node scratch consumers
 
-Build and doctor the workspace per the parent verify skill, then run `cd examples/expo && npm run typecheck && npm run bundle`. Start only the caller's task-owned Android emulator with the fleet's lean flags. Hold the environment's device/heavy locks and memory gate around the complete maintained capture:
+Build and doctor the workspace per the parent verify skill, then run `cd examples/expo && npm run typecheck && npm run bundle`. Start only the caller's task-owned Android emulator with the lean emulator flags. Hold the environment's device/heavy locks and memory gate around the complete maintained capture:
 
 ```sh
 sh .agents/skills/verify-byokit/capture/expo-accounts.sh <private-emulator-serial> <absolute-private-evidence-dir> origin/main

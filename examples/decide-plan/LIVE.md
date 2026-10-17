@@ -10,8 +10,8 @@ First captured candidate: `5af2c8a93183b866d76838d57632e64e3b5cb734`.
 
 ## Re-verified on current main, still unsigned
 
-Main widened the typed question union with `rank` and hardened the answerer prompt while this
-example was parked. On the merged head the example was corrected and re-proved without a
+While this example was parked, the typed question union was widened with `rank` and the answerer prompt hardened.
+On the merged head the example was corrected and re-proved without a
 signed-in session: `npm ci`, `npm run build` and `npm run check` pass, and
 `sh scripts/test.sh 'packages/decide/test/*.test.ts' 'examples/decide-plan/*.test.ts'` passes
 63 decide tests plus the example end-to-end test. The real example process on

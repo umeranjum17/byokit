@@ -7,7 +7,7 @@ export { resolve, rules, answerer, cacheKey, MemoryCache, FLOOR, RateLimitError,
   type DecideCache, type RuleAnswer, type AnswererReply, type AnswererRequestOptions, type AnswererOptions,
   type AnswererBackend, type RetryOptions, type ImageInput, type DecisionImage } from './core.ts';
 // Typed questions in, a typed answer with confidence out, abstaining below a floor. The floor, the per-option floors,
-// the runner-up and the tie are code, never a prompt: ported from firstmate's bin/fm-dispatch-resolve.sh.
+// the runner-up and the tie are code, never a prompt.
 export { jev } from './jev.ts';
 export { pairedJev, jevHost, PAIRED_JEV_OP, type PairedJevLink, type JevHostKeys } from './paired.ts';
 export { PairedHostError, type PairedHostProblem } from './paired-errors.ts';

@@ -49,7 +49,7 @@ Out of scope for the build phase: any change to the upstream engine or recorder 
 
 ## 2. Decisions
 
-These close every design call. Builders do not reopen them; a reviewer who disagrees raises it with firstmate.
+These close every design call. Builders do not reopen them; a reviewer who disagrees raises it with the maintainer.
 
 | # | Decision |
 |---|---|
@@ -2056,7 +2056,7 @@ happened. Every statement here carries one of three labels; an unlabelled statem
 | Crewhouse | Crewhouse `mobile/` at fae80a2 (the consumer whose patches this replaces) |
 
 The scout evidence (extracted tarballs, consumer source copies, analyst and review outputs) and its integrity
-receipts live with firstmate, not in this repo. Anyone can reproduce the tarballs with `npm pack <name>@<version>`;
+receipts live outside this repo. Anyone can reproduce the tarballs with `npm pack <name>@<version>`;
 each `sha512` equals the registry `dist.integrity` and the Crewhouse lock entry:
 
 | Tarball | Integrity |
@@ -2959,9 +2959,9 @@ change (`:359-360`), which the WP1 lines satisfy. WP6, following precedent 7a692
   Unreleased must have bullets (`:501-503`). Prepare rolls Unreleased, SECURITY:/FIX: lines included, into
   `## 0.1.0 (<date>)`, and lint passes after it (`:356-358,754-755`). Merge on green.
 
-**Publishing belongs to main**, the sole publisher and npm-trust owner (hold **byk-npm-trust**): main runs
-`npm run release -- publish` on the green main head with its own npm session, once the npm404 publication hold
-(main285) lifts, and adds `@byokit/share` to its trusted-publishing scope (trust for a new name can likely be set only
+**Publishing belongs to the maintainer**, the sole publisher and npm-trust owner (hold **byk-npm-trust**): the maintainer runs
+`npm run release -- publish` on the green main head with their own npm session, once the npm404 publication hold
+lifts, and adds `@byokit/share` to its trusted-publishing scope (trust for a new name can likely be set only
 after that first publish [UNVERIFIED, npm behaviour]). This work never runs `npm login`, `npm trust` or a
 `release.yml` dispatch, and makes no second login or passkey request. Done means: `npm view @byokit/share@0.1.0`; tag
 `share-v0.1.0` whose GitHub release notes show the SECURITY:/FIX: lines (`release.ts:688-690`); D(ii) green; trust status reported as main reports it.

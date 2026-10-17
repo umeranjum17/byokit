@@ -36,7 +36,7 @@ export type LocalModelOptions = {
   log?: (line: string) => void;
 };
 
-// ponytail: minMemoryBytes and the token margin are unmeasured guesses; set them from the a4b93ea2/iPhone runs.
+// ponytail: minMemoryBytes and the token margin are unmeasured guesses; set them from the device/iPhone runs.
 export const DEFAULT_LIMITS: InferLimits = {
   contextTokens: 2048, maxOutputTokens: 256, maxInputChars: 12_000, threads: 4, minMemoryBytes: 3_000_000_000, verifyOnLoad: true,
 };

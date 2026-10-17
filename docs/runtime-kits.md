@@ -3,7 +3,7 @@
 Foundation spec and builder breakdown. Status: **built; `@byokit/herdr` 0.1.0 is published, and `@byokit/openclaw`
 0.1.0 is released from its example PR (O12).** Capability kits have their own spec:
 [docs/capability-kits.md](capability-kits.md).
-Direction: the captain's 2026-09-28 afternoon clarification and confirmation (firstmate `data/byokit/direction.md`).
+Direction: the maintainer's 2026-09-28 clarification.
 This document is the single source of truth for the build lanes. A builder follows it literally; where it is silent,
 the builder stops and asks rather than designs. Section 11 is the work-package list.
 
@@ -34,13 +34,13 @@ lowest-common-denominator interface. `@byokit/accounts` keeps serving direct-pro
 multi-account shapes (`Account`, `Room`, `RunSelection`, `Pick` as `AccountPick`) are restated structurally by this kit (5.15), never
 imported. CLI sign-in status lives in `@byokit/herdr` `agentStatus` (B5) and, for its managed Claude/Codex/Pi folders, `@byokit/accounts/cli` `status`; 6.6 names which one gates a move (MS-S2). Native CLI sign-in (`anthropic-cli`) is the only other accounts use: `cliAccounts` and `remoteCliHost`, named below.
 
-Out of scope for the build phase: releasing (firstmate/owner runs `release.yml`), muxr adoption (section 10), any
+Out of scope for the build phase: releasing (the maintainer runs `release.yml`), muxr adoption (section 10), any
 operated service, and any change to `@byokit/accounts`, `link`, `relay`, `discover`, `seal`, `decide` or `ui`
 source, except `@byokit/accounts/cli` `launch` (MS-S2, 6.6) and the native sign-in surface (`managedFolders`, `folderOf`, `remoteCliHost`, `signInLock`).
 
 ## 2. Decisions
 
-These close every design call. Builders do not reopen them; a reviewer who disagrees raises it with firstmate.
+These close every design call. Builders do not reopen them; a reviewer who disagrees raises it with the maintainer.
 
 | # | Decision |
 |---|---|
@@ -1991,7 +1991,7 @@ signalled or waited for.
   entries with equal type, mode, size, hash and link target, plus the patch set's `after` hashes. Checking only
   patched files never counts as drift detection. The adopted set's name and manifest sha256 are kept in
   `<root>/engine-set` (atomic write). O15 measures full verification on the real tree; if that cost is unacceptable,
-  the contract returns to firstmate for a different honest rule, never a silent weaker check.
+  the contract returns to the maintainer for a different honest rule, never a silent weaker check.
 - **Immutable.** After the rename no kit path, updater or `doctor --fix` run writes a final set, and none is ever
   deleted (`ponytail:` about 0.9 GB per set per `engineDir`, older pins' sets strand; collection needs per-launch
   leases, add when disk matters). A set failing verification is left byte for byte: the kit adopts a verifying
@@ -3342,7 +3342,7 @@ H1, and O12/H10 (README example rows); later merges rebase.
   `examples/openclaw-kit/e2e.test.ts`.
 - Acceptance: `e2e.test.ts` green in CI against the fake; README steps followed verbatim in a clean temp dir with
   packed tarballs work (the test does exactly this); `LIVE.md` present with the procedure (the live run itself is a
-  lab task for firstmate, recorded later).
+  a maintainer-run lab task, recorded later).
 
 **O14 — accounts as agents** · Sol · deps: O11; `@byokit/accounts` Auto (`chooseAccount`/`resolveSelection`) and
 its fixture; `@byokit/ui` `AccountsSource` (for `fits`) · version: openclaw next minor
@@ -3552,7 +3552,7 @@ its fixture; `@byokit/ui` `AccountsSource` (for `fits`) · version: openclaw nex
   `workspace.list|get|close|focus|create`, `tab.get|close|list|focus|create`, `plugin.list|log.list|action.invoke`,
   `session.snapshot`, `layout.export|apply`, `agent.start|prompt|send_keys|wait`, `worktree.create`,
   `server.agent_manifests`, `events.subscribe`, `ping`) is present, or is listed in `report.json` `missing` and the
-  package reports `blocked` to firstmate instead of merging.
+  package reports `blocked` to the maintainer instead of merging.
 
 **H3 — socket, supervision, bootstrap, facade** · Sol · deps: H1, H2, H6
 - Files: `src/socket.ts`, `src/supervise.ts`, `src/kit.ts`, `test/socket.test.ts`, `test/supervise.test.ts`.

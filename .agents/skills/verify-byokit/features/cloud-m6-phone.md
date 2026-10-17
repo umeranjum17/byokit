@@ -12,22 +12,24 @@ The explicit Expo lab screen creates one trial-only Boat machine, installs a sma
 
 ## How to get to it (user POV)
 
-Build the existing native example with `EXPO_PUBLIC_CLOUD_M6=1` and `EXPO_NO_DOTENV=1`, with no EXPO_PUBLIC_OPENAI_BASE override. Normal example behavior stays unchanged without the flag. Main unlocks a4b93ea2; the PIN is never supplied to the worker. This lab-only flag adds a USB shell-write-only ContentProvider pipe. The explicitly approved existing Boat key travels through adb stdin directly into app memory and Expo SecureStore, never argv, a textbox/clipboard, source, computer proxy or a cloud machine. No other credential transfer or sign-in is implied.
+Build the existing native example with `EXPO_PUBLIC_CLOUD_M6=1` and `EXPO_NO_DOTENV=1`, with no EXPO_PUBLIC_OPENAI_BASE override. Normal example behavior stays unchanged without the flag. The device owner unlocks the phone; the PIN is never shared with tooling. This lab-only flag adds a USB shell-write-only ContentProvider pipe. The explicitly approved existing Boat key travels through adb stdin directly into app memory and Expo SecureStore, never argv, a textbox/clipboard, source, computer proxy or a cloud machine. No other credential transfer or sign-in is implied.
 
 ## Driving it with node scratch consumers
 
 Native acceptance uses the maintained device capture, not a Node stand-in. Build/prebuild outside the device lock; then hold the home heavy-job lock, memory gate and one device lock for the entire install-to-capture journey:
 
 ```sh
-flock <authorized-heavy-jobs.lock> /home/umer/firstmate/config/fm-mem-gate.sh \
-  /home/umer/firstmate/config/fm-device-lock.sh a4b93ea2 \
+flock <authorized-heavy-jobs.lock> <memory-gate> \
+  <device-lock> <device-serial> \
   python3 .agents/skills/verify-byokit/capture/cloud-m6.py \
-  a4b93ea2 <candidate-app-release.apk> <absolute-task-evidence-dir> <explicitly-approved-existing-key-file>
+  <device-serial> <candidate-app-release.apk> <absolute-task-evidence-dir> <explicitly-approved-existing-key-file>
 ```
 
-Only paths, never credential values, enter argv. The capture records the missing-key screen and the ready/create/install/pair/agent/stop screens. It also makes one silent native recording of pair → agent turn → stop where the phone supports it: screenrecord hangs on some phones, and then the screenshots are the proof. On a miss it keeps the lab screen's words and the lab's `M6 diagnostic` log line (call, HTTP status, kind, reason, credential-redacted detail). The lab's Check Claude (no machine) button sends the turn's first Claude call alone, with no Boat key and no machine, to read a failure's cause cheaply. It preserves measured install/key-bootstrap → pairing boundaries in manifest.json; it does not pretend to measure owner signup or the prior Main unlock duration. Source build time is separate. ffprobe validates the recording container when there is one. Inspect every screenshot and decoded recording frames before reporting acceptance.
+`<memory-gate>`/`<device-lock>` are the caller's optional wrapper scripts (for example a `MEM_GATE` env var); run the command directly when none are configured.
 
-The command has no money-action retry, sign-in, permission grant, uninstall or personal-app action. A missing model sign-in is a blocker before key import/create. Each adb call names a4b93ea2. Safe guard/cleanup account reads belong to the authorized task home, not ambient credentials. In an offline source rehearsal, execute the clean M6 host program against built public pair/relay entries and Accounts with the repo's mockOpenAI; label that explicitly a loopback rehearsal, never physical/provider proof.
+Only paths, never credential values, enter argv. The capture records the missing-key screen and the ready/create/install/pair/agent/stop screens. It also makes one silent native recording of pair → agent turn → stop where the phone supports it: screenrecord hangs on some phones, and then the screenshots are the proof. On a miss it keeps the lab screen's words and the lab's `M6 diagnostic` log line (call, HTTP status, kind, reason, credential-redacted detail). The lab's Check Claude (no machine) button sends the turn's first Claude call alone, with no Boat key and no machine, to read a failure's cause cheaply. It preserves measured install/key-bootstrap → pairing boundaries in manifest.json; it does not pretend to measure owner signup or the prior manual unlock duration. Source build time is separate. ffprobe validates the recording container when there is one. Inspect every screenshot and decoded recording frames before reporting acceptance.
+
+The command has no money-action retry, sign-in, permission grant, uninstall or personal-app action. A missing model sign-in is a blocker before key import/create. Each adb call names the device serial. Safe guard/cleanup account reads belong to the authorized task home, not ambient credentials. In an offline source rehearsal, execute the clean M6 host program against built public pair/relay entries and Accounts with the repo's mockOpenAI; label that explicitly a loopback rehearsal, never physical/provider proof.
 
 ## Gotchas
 

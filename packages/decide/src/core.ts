@@ -349,7 +349,7 @@ export function resolve(q: Question, raw: Raw | undefined): Omit<Answer, 'by' | 
     ...(reason && { reason }), ...(personReason && k === picked && { personReason }), ...carried });
   const abstain = (reason: string) => ({ answer: null, confidence, probabilities: p, abstained: true, reason, ...carried });
   if (p[ranked[0]] === p[ranked[1]]) return abstain('tie');
-  // Without a declared floor on the pick, the one floor applies to the answer's confidence, exactly as firstmate's.
+  // Without a declared floor on the pick, the one floor applies to the answer's confidence.
   if (!(q.kind === 'choice' && q.floors && Object.hasOwn(q.floors, picked))) return confidence >= floor ? done(picked) : abstain(`confidence ${confidence} below floor ${floor}`);
   if (p[picked] >= own(picked)) return done(picked);
   // A runner-up never needs weaker support than it would as the pick: it must clear its own floor.

@@ -1,0 +1,1 @@
+- DOCS: the model-planning notes name the maintainer decision and the test phone generically instead of internal names.
