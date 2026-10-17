@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { scratchDir } from '../../test-support.ts';
 import { HerdrKit } from '../src/kit.ts';
 import { startFakeHerdr } from '../src/testing/index.ts';
+import { agentRecord } from '../src/testing/fake-herdr/world.ts';
 import type { HerdrEvent, HerdrSnapshot } from '../src/types.ts';
 
 const settle = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -183,6 +184,83 @@ test('a listener that re-reads on every ready triggers one extra snapshot read, 
     await kit.start();
     await settle(2000);
     assert.ok(fake.snapshotCount() <= 2, `${fake.snapshotCount()} snapshot reads in 2 s`);
+  } finally {
+    await kit.stop().catch(() => {});
+    await fake.stop().catch(() => {});
+  }
+});
+
+test('onChange names the panes whose agent status changed; a title-only revision names none', async () => {
+  const fake = await startFakeHerdr({ dir: scratchDir('herdr-refresh-changed') });
+  const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath });
+  const changes: string[][] = [];
+  try {
+    await kit.start();
+    kit.onChange((_snapshot, changed) => changes.push(changed));
+    fake.emit({ type: 'pane.updated', pane: {
+      pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1', label: 'pi', agent: 'pi',
+      agent_status: 'idle', focused: false, revision: 2, terminal_id: 'term-w1:p1',
+    } });
+    await until(() => fake.watching('w1:p1') === true);
+    await kit.statusWatchReady();
+    await until(() => changes.some((c) => c.join() === 'w1:p1'));
+    const seen = changes.length;
+    fake.emit({ type: 'pane.updated', pane: {
+      pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1', label: 'pi',
+      terminal_title_stripped: 'pi · working', focused: false, revision: 3, terminal_id: 'term-w1:p1',
+    } });
+    await until(() => changes.length > seen);
+    assert.ok(changes.slice(seen).every((c) => c.length === 0), 'a title-only revision names no pane');
+    const pushed = changes.length;
+    fake.emit({ type: 'pane_agent_status_changed', pane_id: 'w1:p1', agent_status: 'working', revision: 9 } as HerdrEvent);
+    await until(() => changes.slice(pushed).some((c) => c.join() === 'w1:p1'));
+    assert.equal(paneOf(kit.snapshot(), 'w1:p1')?.agent?.status, 'working');
+  } finally {
+    await kit.stop().catch(() => {});
+    await fake.stop().catch(() => {});
+  }
+});
+
+test('a sessionless agent gets its session on the next status push, with no re-bootstrap', async () => {
+  const fake = await startFakeHerdr({ dir: scratchDir('herdr-refresh-session') });
+  const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath });
+  try {
+    await kit.start();
+    // A Codex-style agent whose record exists before Herdr has reported its session.
+    const row = agentRecord({ paneId: 'w1:p1', tabId: 'w1:t1', workspaceId: 'w1', cwd: '/w', name: 'codex', kind: 'codex', revision: 1 });
+    delete (row as Partial<typeof row>).agent_session;
+    fake.world.agents.push(row);
+    fake.emit({ type: 'pane.updated', pane: {
+      pane_id: 'w1:p1', tab_id: 'w1:t1', workspace_id: 'w1', label: 'codex', agent: 'codex',
+      agent_status: 'idle', focused: false, revision: 2, terminal_id: 'term-w1:p1',
+    } });
+    await until(() => fake.watching('w1:p1') === true);
+    await kit.statusWatchReady();
+    assert.equal(paneOf(kit.snapshot(), 'w1:p1')?.agent?.agentSession, undefined, 'no session yet');
+    // The session is reported with no event of its own; the agent's next status push brings it in.
+    row.agent_session = { source: 'herdr:codex', agent: 'codex', kind: 'id', value: 'thread-1' };
+    fake.setStatus('w1:p1', 'working');
+    await until(() => paneOf(kit.snapshot(), 'w1:p1')?.agent?.agentSession?.value === 'thread-1');
+    assert.equal(paneOf(kit.snapshot(), 'w1:p1')?.agent?.status, 'working');
+  } finally {
+    await kit.stop().catch(() => {});
+    await fake.stop().catch(() => {});
+  }
+});
+
+test('concurrent refresh() callers join one in-flight refresh and reject together when it fails', async () => {
+  const fake = await startFakeHerdr({ dir: scratchDir('herdr-refresh-join') });
+  const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath });
+  try {
+    await kit.start();
+    assert.equal(fake.snapshotCount(), 1, 'start bootstrapped once');
+    await Promise.all([kit.refresh(), kit.refresh(), kit.refresh()]);
+    assert.equal(fake.snapshotCount(), 2, 'three concurrent callers cost one bootstrap');
+    await kit.refresh();
+    assert.equal(fake.snapshotCount(), 3, 'a call after the refresh settles starts a new one');
+    fake.failNextSnapshot('snapshot_failed', 'the snapshot read failed');
+    const settled = await Promise.allSettled([kit.refresh(), kit.refresh()]);
+    assert.deepEqual(settled.map((r) => r.status), ['rejected', 'rejected'], 'a failure rejects every joined caller');
   } finally {
     await kit.stop().catch(() => {});
     await fake.stop().catch(() => {});
