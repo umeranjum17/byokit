@@ -14,6 +14,7 @@ export { PairedHostError, type PairedHostProblem } from './paired-errors.ts';
 export { openai, OPENAI_ROUTES, type OpenAIAccount, type OpenAIOptions, type OpenAIRequestOptions } from './openai.ts';
 export { anthropic, ANTHROPIC_ROUTES, type AnthropicOptions } from './anthropic.ts';
 export { opencodeGo, OPENCODE_GO_ROUTES, type OpenCodeGoAccount, type OpenCodeGoOptions } from './opencode-go.ts';
+export { zai, ZAI_ROUTES, type ZaiAccount, type ZaiOptions, type ZaiRoute } from './zai.ts';
 export { parseConfig, createDecider, ConfigError, type DecideConfig, type ConfigHost, type ConfigOptions } from './config.ts';
 import { decide as decideCore } from './core.ts';
 import { decideForConfig, type ConfigOptions } from './config.ts';
