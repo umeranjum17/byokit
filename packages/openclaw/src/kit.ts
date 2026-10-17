@@ -1,6 +1,7 @@
 // The OpenClawKit facade: state, complete pass-through (D6), members, sign-in, runs, approvals, config (5.3).
 // Built in O4 (and O5/O6/O8 for the delegated parts); until then every body refuses to run.
 import type { SealingAdapter } from '@byokit/secrets';
+import { openCodeWorkspaces } from '@byokit/accounts/opencode-go';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -95,6 +96,10 @@ export type KitOptions = {
   // and bridge still happen)
   onState?: (s: KitState) => void;
   log?: (line: string) => void;
+  // Where a live-catalog key's workspace listing comes from (the console read a multi-workspace key needs
+  // before the workspace header can be written). Default: `@byokit/accounts`'s console listing. Tests and
+  // offline fakes name their own.
+  listWorkspaces?: (key: string, signal: AbortSignal) => Promise<{ id: string; name: string }[]>;
 };
 
 export type RetainedLogin = { path: string } | { record: Record<string, unknown> };
@@ -959,7 +964,11 @@ export class OpenClawKit {
       onDisconnect: (fn) => { this.signInDisconnects.add(fn); return () => { this.signInDisconnects.delete(fn); }; },
       stopSignal: this.engine.stopSignal,
       authConfig: () => this.authSnapshot(),
-      restarted: (authBefore, signal) => this.restarted(authBefore, signal) };
+      restarted: (authBefore, signal) => this.restarted(authBefore, signal),
+      setProviderHeaders: (provider, headers) => this.patchConfig({ models: { providers: { [provider]: { headers: headers ?? null } } } }),
+      listWorkspaces: (key, signal) => this.o.listWorkspaces
+        ? this.o.listWorkspaces(key, signal)
+        : openCodeWorkspaces(key, (input, init) => fetch(input, { ...init, signal: init?.signal ? AbortSignal.any([init.signal, signal]) : signal })) };
   }
 
   routes(): RouteView[] {

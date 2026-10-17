@@ -27,7 +27,8 @@ const { values: flags } = parseArgs({ options: {
 } });
 if (flags.relay) flags.relay = flags.relay.replace(/\/+$/, '');
 
-// The only environment read: the e2e test (and a try-out without the engine) runs the kit's fake Gateway.
+// The only environment reads: the e2e test (and a try-out without the engine) runs the kit's fake Gateway, and
+// BYOKIT_EXAMPLE_ORGS=multi gives that fake a multi-workspace Go key, so the phone journey shows the pick.
 const fake = process.env.BYOKIT_EXAMPLE_FAKE === '1';
 const state = resolve('.state');
 mkdirSync(state, { recursive: true, mode: 0o700 });
@@ -67,6 +68,14 @@ const options: KitOptions = {
 };
 const gateway = fake ? await fakeSignIn() : undefined;
 if (gateway) Object.assign(options, { spawnEngine: false, transport: gateway.factory });
+if (fake) {
+  // The fake mode lists workspaces offline too: one workspace is used unasked; `BYOKIT_EXAMPLE_ORGS=multi`
+  // makes the pasted key act for two, so the sign-in asks and the phone answers through the same paste.
+  const multi = process.env.BYOKIT_EXAMPLE_ORGS === 'multi';
+  Object.assign(options, { listWorkspaces: async () => multi
+    ? [{ id: 'org_DEFAULT', name: 'Default' }, { id: 'org_WORKING2', name: 'Working2' }]
+    : [{ id: 'org_ONE', name: 'Umer' }] });
+}
 const kit = new OpenClawKit(options);
 
 // The fake's ChatGPT sign-in, held a few seconds on its code so a person (or the e2e test) can read it, and its

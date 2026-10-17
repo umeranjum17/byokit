@@ -5,6 +5,7 @@ import type { remoteCliHost } from '@byokit/accounts/cli';
 import { createServer, type Server } from 'node:http';
 import { activate, LATE_RESTART } from './activation.ts';
 import { authStatus } from './auth-status.ts';
+import { LIVE_CATALOGS } from './constants.ts';
 import { routes } from './routes.ts';
 import { signedInProviders } from './runs.ts';
 import { words } from './words.ts';
@@ -24,6 +25,12 @@ export type SignInCtx = {
   stopSignal?: AbortSignal;
   // A further account of a provider the member already holds (5.15): its sign-in must not reuse the browser's session.
   fresh?: boolean;
+  // A live-catalog key's workspace rides the provider's config headers (`null` clears): written before the
+  // activation so the engine's own probe carries it, the same slot the kit's key lane writes.
+  setProviderHeaders?(provider: string, headers: Record<string, string> | null): Promise<void>;
+  // The workspaces a pasted live-catalog key can act for (the kit always names one; omitted by direct
+  // engine-test ctxs, whose keyEntry sign-ins then carry no workspace, as before).
+  listWorkspaces?(key: string, signal: AbortSignal): Promise<{ id: string; name: string }[]>;
 };
 
 // The pin's wizard contract (2026.8.1): steps arrive only from `wizard.next` (wizard.status answers {status, error}
@@ -284,6 +291,47 @@ export function signIn(
         returned = undefined;
         if (!apiKey) return { state: 'failed', via, why: signal.aborted ? 'declined' : 'expired' };
         secret = apiKey.trim() || undefined;
+        // A live-catalog key can act for several workspaces, and the Go gateway refuses every call until one is
+        // named (403 Workspace selection is required): the engine carries the workspace only from its provider
+        // config headers, so resolve it here the way the kit's key lane does, and write the header before the
+        // activation so the activation probe itself carries it. One workspace is used unasked; several ask here,
+        // answered through the same paste (an id or an exact name); a key the console refuses (a workspace-bound
+        // service key) needs none; a listing that cannot be read fails the sign-in before anything changes.
+        if (secret && keyRoute && LIVE_CATALOGS.includes(keyRoute.provider) && ctx.setProviderHeaders && ctx.listWorkspaces) {
+          let workspaces: { id: string; name: string }[];
+          try {
+            workspaces = await ctx.listWorkspaces(secret, signal);
+          } catch {
+            return { state: 'failed', via, why: 'failed', error: 'The workspace list could not be read. Try again.' };
+          }
+          if (signal.aborted) return cancelled();
+          const pickable = workspaces.filter((w) => w.id);
+          let orgId = workspaces.length === 1 ? pickable[0]?.id ?? '' : '';
+          let retrying = false;
+          while (orgId === '' && pickable.length > 1) {
+            if (signal.aborted) return cancelled();
+            // A re-ask says a different sentence, so an app that watches the prompt sees the answer was not taken.
+            // Names alone: the ids are unbreakable noise on a phone; the answer may still be an id.
+            say({ prompt: `${retrying ? 'That is not one of them. ' : ''}Which workspace? Paste one of: ${pickable.map((w) => w.name).join(', ')}` });
+            retrying = true;
+            const text = returned ?? await new Promise<string | undefined>((resolve) => {
+              const stop = (value?: string) => { clearTimeout(timer); signal.removeEventListener('abort', abort); pasteIn = undefined; resolve(value); };
+              const abort = () => stop();
+              const timer = setTimeout(abort, PASTE_MS);
+              pasteIn = stop;
+              signal.addEventListener('abort', abort, { once: true });
+              if (signal.aborted) abort();
+            });
+            returned = undefined;
+            if (!text) return { state: 'failed', via, why: signal.aborted ? 'declined' : 'expired' };
+            const given = text.trim().toLowerCase();
+            const match = pickable.find((w) => w.id.toLowerCase() === given)
+              ?? pickable.find((w) => w.name.toLowerCase() === given);
+            if (match) orgId = match.id;
+          }
+          if (signal.aborted) return cancelled();
+          if (orgId) await ctx.setProviderHeaders(keyRoute.provider, { 'x-opencode-org-id': orgId });
+        }
       }
       // The commit point: a phone cancel or host shutdown that landed before it activates nothing. Done waits for the gateway restart an `auth` change causes (activation.ts).
       // For Claude only host shutdown cuts that wait; a late restart has persisted the route and says saved. A key's cancel still declines its wait; a late key keeps the shared words.
