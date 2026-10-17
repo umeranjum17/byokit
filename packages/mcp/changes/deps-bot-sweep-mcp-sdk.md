@@ -1,0 +1,1 @@
+- Dependency update: pins @modelcontextprotocol/sdk 1.32.1.

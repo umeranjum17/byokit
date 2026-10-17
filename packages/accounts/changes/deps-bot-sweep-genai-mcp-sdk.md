@@ -1,0 +1,1 @@
+- Dependency update: pins @google/genai 2.29.0 and @modelcontextprotocol/sdk 1.32.1.

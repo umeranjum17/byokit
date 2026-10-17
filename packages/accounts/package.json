@@ -79,8 +79,8 @@
     "@byokit/secrets": "0.5.2",
     "@byokit/usage": "0.9.0",
     "@earendil-works/pi-ai": "1.2.0",
-    "@google/genai": "2.21.0",
-    "@modelcontextprotocol/sdk": "1.31.0",
+    "@google/genai": "2.29.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "openai": "7.19.0",
     "partial-json": "0.1.7",
     "undici-types": "8.11.2"
