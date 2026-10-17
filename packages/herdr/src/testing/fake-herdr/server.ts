@@ -95,6 +95,8 @@ export type FakeHerdr = {
   failNextSnapshot(code?: string, message?: string): void;   // the next snapshot answer errors once
   holdAck(): () => void;              // hold the next subscribe ack(s) until the release runs
   holdAgentWait(): () => void;        // hold `agent.wait` answers until the release runs (the deadline still starts on arrival)
+  losePrompt(paneId: string): () => void;   // the next `agent.prompt` to the pane starts no turn; a caller that waits gets `agent_prompt_stalled`; the returned disarm cancels it
+  scriptDrawingReads(paneId: string, reads: number, source?: string): void;   // the next `reads` `pane.read`s of the pane from `source` (default `recent`, the caller read) show the agent still drawing
   failNextAck(code?: string, message?: string): void;        // the next subscribe is rejected once
   subscriptionCount(): number;        // distinct sockets holding a subscription (batch + filtered)
   stop(): Promise<void>;
@@ -141,6 +143,8 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
   let ackGates: { promise: Promise<void>; release: () => void }[] = [];
   let agentWaitGates: { promise: Promise<void>; release: () => void }[] = [];
   let nextAckFailure: { code: string; message: string } | undefined;
+  const lostPrompts = new Set<string>();   // panes whose next prompt starts no turn
+  const drawingReads = new Map<string, number>();   // `${paneId} ${source}` -> reads left that show the agent still drawing
 
   const gate = (list: { promise: Promise<void>; release: () => void }[]): (() => void) => {
     let release!: () => void;
@@ -399,7 +403,10 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     },
     'pane.read': (p) => {
       const pane = paneOf(p.pane_id);
-      const body = paneText(pane, p.source);
+      const key = `${pane.pane_id} ${typeof p.source === 'string' ? p.source : 'recent'}`;
+      const drawing = drawingReads.get(key) ?? 0;
+      const body = drawing > 0 ? 'drawing' : paneText(pane, p.source);
+      if (drawing > 0) drawingReads.set(key, drawing - 1);
       const lines = typeof p.lines === 'number' ? body.split('\n').slice(0, p.lines).join('\n') : body;
       return { read: { text: lines, truncated: false } };
     },
@@ -557,28 +564,37 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       }
       return { type: 'agent_info', agent: { ...agent } };
     },
-    'agent.prompt': (p) => {
+    'agent.prompt': async (p) => {
       const pane = paneOf(p.target);
       const agent = agentOf(pane);
-      transition(pane, 'working');
       const text = typeof p.text === 'string' ? p.text : '';
-      const revision = agent !== undefined ? agent.revision : live.nextRevision;
-      timers.push(setTimeout(() => {
-        if (stopping) return;
-        if (text === 'ask permission') {
-          if (agent !== undefined) agent.detection = 'Allow this? (y/n)';
-          pane.text.push('Allow this? (y/n)');
-          transition(pane, 'blocked');
-        } else {
-          pane.text.push(`fake ${agent?.agent ?? 'pi'}: ${text}`);
-          transition(pane, 'idle');
+      // A lost prompt is accepted but starts no turn; like Herdr, only a caller that waits learns it.
+      if (lostPrompts.delete(pane.pane_id)) {
+        if (p.wait !== undefined) {
+          const ms = (p.wait as { timeout_ms: number }).timeout_ms;
+          await new Promise<void>((resolve) => timers.push(setTimeout(resolve, ms)));
+          throw fail('agent_prompt_stalled', `agent prompt produced no observed working or blocked state within ${ms} ms`);
         }
-      }, PROMPT_SETTLE_MS));
+      } else {
+        transition(pane, 'working');
+        timers.push(setTimeout(() => {
+          if (stopping) return;
+          if (text === 'ask permission') {
+            if (agent !== undefined) agent.detection = 'Allow this? (y/n)';
+            pane.text.push('Allow this? (y/n)');
+            transition(pane, 'blocked');
+          } else {
+            pane.text.push(`fake ${agent?.agent ?? 'pi'}: ${text}`);
+            transition(pane, 'idle');
+          }
+        }, PROMPT_SETTLE_MS));
+      }
+      const revision = agent !== undefined ? agent.revision : live.nextRevision;
       return {
         type: 'agent_prompted',
         agent: {
           terminal_id: `term-${pane.pane_id}`,
-          agent_status: 'working',
+          agent_status: pane.agent_status ?? 'unknown',
           workspace_id: pane.workspace_id,
           tab_id: pane.tab_id,
           pane_id: pane.pane_id,
@@ -1072,6 +1088,14 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     },
     holdAgentWait() {
       return gate(agentWaitGates);
+    },
+    losePrompt(paneId) {
+      lostPrompts.add(paneId);
+      return () => { lostPrompts.delete(paneId); };
+    },
+    scriptDrawingReads(paneId, reads, source = 'recent') {
+      const key = `${paneId} ${source}`;
+      drawingReads.set(key, (drawingReads.get(key) ?? 0) + reads);
     },
     failNextAck(code = 'invalid_subscription', message = 'the next subscribe is rejected') {
       nextAckFailure = { code, message };
