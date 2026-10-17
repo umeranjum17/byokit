@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.14.5 (2026-10-17)
+
+- FIX: adding a Go plan key that names no workspace (a bound service key the console refuses to list) now clears the standing workspace header before its probe, instead of carrying the previous workspace on its calls. A failed add's cleanup now drops the workspace header with the key, instead of leaving it behind for the next key.
+- FEAT: `kit.installPlugin(pluginId)` installs the external provider plugin a route needs (`readiness: 'needs_plugin'`, such as Z.AI's GLM Coding Plan routes) into the kit's own engine, at exactly the engine's version and with the pinned npm integrity (`engine/plugins.json`). The plugin joins `plugins.allow` across restarts and `routes()` then reports its routes ready, so `addKey` reaches the engine's key test. A version or integrity mismatch rejects with `PluginInstallError` (`code: 'version' | 'integrity'`) and installs nothing; discovery never installs. The GLM Coding Plan sign-ins are subscription; the plain Z.AI key rows stay API key (billed per use), explicit opt-in.
+- FIX: the install policy no longer blocks every `@openclaw/` npm plugin at its dependency-tree check; plugin installs are allowed only at a pinned spec and integrity.
+- FIX: `removeAccount` and a cancelled/failed `addAccount` no longer resolve while the removed agent is still on the roster. The engine answers `agents.delete` before its roster hot-reload applies (the same lag as after `agents.create`), so an immediate `agents.list` could still show the gone agent and a cancelled ChatGPT add flaked as "the cancelled agent is deleted". Both delete paths now wait until the roster drops the agent (`untilUnlisted`, the `untilListed` mirror: 25 ms poll, ~5 s bound, plain error naming the agent on timeout). The fake gateway's `rosterApplyMs` now lags the delete roster the same way for engine parity.
+- FIX: a Go plan key pasted over the link signs in with its workspace. The wizard sign-in listed no workspaces, so a key acting for several was refused on the activation probe and every run (403 Workspace selection is required). The sign-in now lists the key's workspaces the way `addKey` does (one used unasked; several asked through the same hidden paste; refused or unreadable listing fails before anything changes) and writes the pick as the provider header before activation.
+
 ## 0.14.4 (2026-10-17)
 
 - Dependency update: pins @byokit/relay 0.8.0.
