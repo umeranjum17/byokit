@@ -46,6 +46,7 @@
   "key.label.other": "Key",
   "key.entry": "Paste your key. It stays on this device.",
   "key.checking": "Checking your key…",
+  "key.workspace": "This key works for more than one workspace. Pick the one to use.",
   "key.ok": "Your key is ready. It is used only when you choose this option.",
   "key.invalid": "This key could not be saved. Check it and try again.",
   "key.notIncluded": "This option is not available here.",
