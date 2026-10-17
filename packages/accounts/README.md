@@ -248,8 +248,11 @@ ignored or relabelled. For explicit native/client-owned authentication, `keys()`
 stream/complete/simple/deferred operations and stock options/hooks. Supply an explicit app-owned auth
 context (required on Metro), register your own provider and own that authentication/billing; do not
 attribute native/client-owned requests to a saved account. The selected-key helper is not a restriction
-on the native Pi API or a mobile-readiness downgrade. Errors expose only bounded words
-and a `KeyRouteError.code`; they never echo vendor bodies or key-store failures.
+on the native Pi API or a mobile-readiness downgrade. A `KeyRouteError`'s `message` is always the kit's own
+bounded words for its `code`. A failed ask also says why, for logs and an optional "details" line under those words:
+`status` is the HTTP status the provider answered (absent when no answer came back), and `detail` is the provider's
+own message, or the network error such as `fetch failed: connect ECONNREFUSED …`, on one line of at most 300
+characters with the account's key replaced by `[redacted]`. Key-store failures never reach either.
 
 Plan keys keep subscription billing and are eligible for Auto; API/free/local/unknown billing is never an
 Auto or Default **fallback**. A deliberately saved API default remains an explicit selection. `saveKey` retains
