@@ -313,6 +313,70 @@ test('contract(lab): the worktree-parent close guard', async (t) => {
   t.skip('needs a live agent placement via startAgent; no signed-in agent CLI in the lab home');
 });
 
+test('contract(lab): pane.focus_direction moves focus and holds with no_neighbor at an edge', async () => {
+  const k = ownKit();
+  await k.start();
+  try {
+    const made = (await k.call('workspace.create', { cwd: cwdA, focus: false })) as {
+      workspace?: { workspace_id?: string }; root_pane?: { pane_id?: string };
+    };
+    const left = made.root_pane?.pane_id;
+    assert.equal(typeof left, 'string');
+    const splitPane = (await k.call('pane.split', { target_pane_id: left!, direction: 'right' })).pane.pane_id;
+    // Real `layout.apply` lays out fresh panes: the neighbour ids come from the applied tree.
+    const applied = await k.call('layout.apply', { workspace_id: made.workspace?.workspace_id,
+      root: { type: 'split', direction: 'right', ratio: 0.5,
+        first: { type: 'pane', pane_id: left }, second: { type: 'pane', pane_id: splitPane } } });
+    const ends = applied.layout.root as { first?: { pane_id?: string }; second?: { pane_id?: string } };
+    const first = ends.first?.pane_id;
+    const right = ends.second?.pane_id;
+    assert.equal(typeof first, 'string');
+    assert.equal(typeof right, 'string');
+    await k.focus({ pane: first! });
+    // Same assertions as the shared contract case, against the real server.
+    const moved = await k.call('pane.focus_direction', { pane_id: first, direction: 'right' });
+    assert.equal(moved.focus.changed, true);
+    assert.equal(moved.focus.source_pane_id, first);
+    assert.equal(moved.focus.focused_pane_id, right);
+    assert.equal((await k.call('pane.get', { pane_id: right! })).pane.focused, true);
+    const held = await k.call('pane.focus_direction', { pane_id: right, direction: 'right' });
+    assert.equal(held.focus.changed, false);
+    assert.equal(held.focus.reason, 'no_neighbor');
+    assert.equal((await k.call('pane.get', { pane_id: right! })).pane.focused, true);
+  } finally {
+    await k.stop().catch(() => {});
+  }
+});
+
+test('contract(lab): layout.export returns every live pane as a leaf', async () => {
+  const k = ownKit();
+  await k.start();
+  try {
+    const made = (await k.call('workspace.create', { cwd: cwdB, focus: false })) as {
+      workspace?: { workspace_id?: string }; root_pane?: { pane_id?: string; tab_id?: string };
+    };
+    const first = made.root_pane?.pane_id;
+    const tabId = made.root_pane?.tab_id;
+    assert.equal(typeof first, 'string');
+    assert.equal(typeof tabId, 'string');
+    const second = (await k.call('pane.split', { target_pane_id: first!, direction: 'right' })).pane.pane_id;
+    const leaves = (root: unknown): string[] => {
+      const node = root as { type?: string; pane_id?: string; first?: unknown; second?: unknown };
+      if (node.type === 'pane') return typeof node.pane_id === 'string' ? [node.pane_id] : [];
+      return [...leaves(node.first), ...leaves(node.second)];
+    };
+    const exported = await k.call('layout.export', { tab_id: tabId });
+    assert.equal(exported.layout.tab_id, tabId);
+    assert.equal(typeof exported.layout.focused_pane_id, 'string');
+    assert.deepEqual(leaves(exported.layout.root).sort(), [first!, second].sort());
+    const viaPane = await k.call('layout.export', { pane_id: second });
+    assert.equal(viaPane.layout.tab_id, tabId);
+    await assert.rejects(k.call('layout.export', { tab_id: 'w99:t9' }), /not_found/);
+  } finally {
+    await k.stop().catch(() => {});
+  }
+});
+
 test('contract(lab): the cli answers --version on the real binary', async () => {
   const k = ownKit();
   await k.start();
