@@ -621,7 +621,7 @@ writing only if bytes change (0600):
   `github-copilot`/`github-copilot-enterprise`, `openrouter` for `openrouter-oauth`, `minimax` for
   `minimax-global-oauth`/`minimax-cn-oauth`); Crewhouse passes `offered(['chatgpt', 'grok', 'copilot', 'openrouter'])`
   and `plugins.allow: ['crewhouse', 'memory-core', 'openai']`. The kit never writes an empty list, nor one wider than
-  app ids ∪ kit id ∪ those routes' plugins. A provider plugin also
+  app ids ∪ kit id ∪ those routes' plugins ∪ the external plugins `installPlugin` installed (B7, 5.7). A provider plugin also
   carries that provider's key-entry choices; the Gateway's `openclaw.setup.auth.start` refuses those in 2026.8.1 (they are
   set up through `openclaw.setup.activate`, 5.7), and
   the memory-search invariant above keeps the plugin from billing embeddings.
@@ -1237,15 +1237,17 @@ session key); on `*.resolved`, remove it. `decide` calls `exec.approval.resolve`
 sources share `approvals()`/`onApproval()`.
 
 **Install policy** (`policy/policy.mjs`) = Crewhouse `policy.mjs` with `trusted-skills.json` read from
-`BYOKIT_TRUSTED_SKILLS`, own roots from `BYOKIT_OWN_ROOTS` (JSON array), everything else unchanged (fail closed,
+`BYOKIT_TRUSTED_SKILLS`, own roots from `BYOKIT_OWN_ROOTS` (JSON array), the external plugin pins from
+`BYOKIT_PLUGIN_PINS` (JSON array of `{ spec, integrity }`), everything else unchanged (fail closed,
 any request kind containing `depend` blocked even under an own root, dependency installers blocked, exact id +
 version + SKILL.md sha256 for listed skills where the version is `request.origin.version` when present and the
 SKILL.md frontmatter version otherwise). A plugin install claiming
 the `@openclaw/` scope is allowed only with engine proof of registry origin: `source.kind === 'npm'` and the
-operator-requested `request.requestedSpecifier` starts with `@openclaw/`. The candidate's own `plugin.packageName`
+operator-requested `request.requestedSpecifier` exactly a pinned spec whose preflight registry resolution carries
+the pinned integrity (5.6 owns the pin rule). The candidate's own `plugin.packageName`
 is never sufficient: on the pinned engine it is the package manifest's self-declared `name`, and npm installs
 always carry `source.authority 'third-party'`, so authority is not the check. Any other claimant of the scope
-(local, archive, git or file source, missing source, non-scope specifier) blocks.
+(local, archive, git or file source, missing source, non-scope or non-pinned specifier, a resolution off its pin) blocks.
 
 ### 5.10 Pass-through generation (`scripts/gen-methods.ts`, O2)
 
@@ -1314,7 +1316,8 @@ lists added/removed methods. Consumers upgrade the kit, never the engine directl
 differs from `ENGINE_VERSION` is `needs-update`; `prepare()` then builds and adopts the set for the current pin
 (5.16), never touching `openclaw/state`, an existing set or `engineDir/node_modules`.
 A pin bump also re-derives `engine/patches.json` from the new stock bytes (anchors may move and hashed file names
-change; a stale set fails `before` and blocks release), re-checks that the Gateway-covered kinds of 5.16 still hold
+change; a stale set fails `before` and blocks release), re-derives `engine/plugins.json` at the new pin (the B7 rule,
+5.7), re-checks that the Gateway-covered kinds of 5.16 still hold
 (the review stays out of `sessions.usage`, recovery and flush stay in it), and re-runs the O15–O17 engine tests.
 
 ### 5.13 Internal module seams (stub signatures for O1)
