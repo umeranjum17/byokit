@@ -10,7 +10,7 @@ import { missingBinary } from './cli.ts';
 const STDERR_TAIL_BYTES = 4 * 1024;
 
 export function openTerminal(bin: string, env: Record<string, string>, paneId: string,
-  o: { mode: 'control' | 'observe'; cols: number; rows: number }): TerminalSession {
+  o: { mode: 'control' | 'observe'; cols: number; rows: number; killGraceMs?: number }): TerminalSession {
   if (typeof bin !== 'string' || bin.length === 0) throw new Error('herdr: bin must be a non-empty string');
   if (typeof paneId !== 'string' || paneId.length === 0 || paneId.includes('\0')) {
     throw new Error('herdr: paneId must be a non-empty string without NUL');
@@ -94,7 +94,12 @@ export function openTerminal(bin: string, env: Record<string, string>, paneId: s
       if (!paused) child.stdout.resume();   // a frame handler may have paused again
     },
     close(): void {
-      child.kill();
+      child.kill();   // SIGTERM first: a well-behaved Herdr exits here
+      const graceMs = o.killGraceMs ?? 3000;
+      const grace = setTimeout(() => {   // a child that traps SIGTERM forever still ends
+        if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      }, graceMs);
+      child.once('close', () => clearTimeout(grace));
       if (paused) child.stdout.removeAllListeners('data').resume();   // drain unread output so `exited` settles
     },
     exited,
