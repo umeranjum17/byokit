@@ -2647,6 +2647,39 @@ test('a damaged index quarantines only that member, and a repaired index restore
   }
 });
 
+// A cancelled addAccount resolves `done` only once the roster drops the new agent: the engine answers
+// agents.delete before its roster hot-reload applies (the same lag as after agents.create), so an immediate
+// roster read would still list the cancelled agent. The fake lags the delete roster with rosterApplyMs.
+test('a cancelled addAccount is off the roster once done resolves, even when the delete roster lags', async () => {
+  const stateDir = scratchDir('o14-cancel-roster-lag');
+  const fake = fakeGateway(undefined, { rosterApplyMs: 150 });
+  // Hold the sign-in in flight so the cancel always lands before the fake would complete it.
+  let gate: Promise<void> | undefined;
+  const gated: typeof fake.factory = (ctx) => {
+    const transport = fake.factory(ctx);
+    return { ...transport, request: async (method, params, o) => {
+      if (method === 'wizard.next') await gate;
+      return transport.request(method, params, o);
+    } };
+  };
+  const kit = new OpenClawKit({ stateDir, transport: gated, spawnEngine: false, callbackPort: 0 });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const roster = async () => (await kit.call('agents.list', {}) as { agents: { id: string }[] }).agents.map((a) => a.id);
+    gate = new Promise(() => {});
+    const added = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    const agent = `m1--${added.id.slice('openai.'.length)}`;
+    assert.ok((await roster()).includes(agent), 'the account agent is on the roster');
+    added.cancel();
+    assert.equal((await added.done).view.why, 'declined');
+    gate = undefined;
+    assert.ok(!(await roster()).includes(agent), 'the cancelled agent is gone from the roster once done resolves');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
 // Fail closed across the quarantine: a removed account's data never returns while another member's index is
 // damaged, the good member's sweep still runs, and a re-add rewrites the damaged index.
 test('removed-account data never returns with a damaged index, and a re-add rewrites it', async () => {

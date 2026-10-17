@@ -404,8 +404,12 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     // deleteFiles: false keeps the workspace, as the kit always asks; the agent's own store and model go.
     'agents.delete': (p) => {
       const id = String(p.agentId);
-      if (!agents.delete(id)) throw new Error(`agent "${id}" not found`);
-      profiles.delete(id); orders.delete(id); models.delete(id);
+      if (!agents.has(id)) throw new Error(`agent "${id}" not found`);
+      const drop = () => { agents.delete(id); profiles.delete(id); orders.delete(id); models.delete(id); };
+      // With rosterApplyMs the fake mirrors the pinned engine: delete answers before the roster hot-reload
+      // drops the agent from agents.list (the create side lags the same way).
+      if (o?.rosterApplyMs) setTimeout(drop, o.rosterApplyMs);
+      else drop();
       return { ok: true, agentId: id, removedBindings: 0 };
     },
     // model: null clears the agent's primary (config.patch cannot delete a key); a string sets it.
