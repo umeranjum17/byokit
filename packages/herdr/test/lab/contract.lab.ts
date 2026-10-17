@@ -322,21 +322,27 @@ test('contract(lab): pane.focus_direction moves focus and holds with no_neighbor
     };
     const left = made.root_pane?.pane_id;
     assert.equal(typeof left, 'string');
-    const right = (await k.call('pane.split', { target_pane_id: left!, direction: 'right' })).pane.pane_id;
-    await k.call('layout.apply', { workspace_id: made.workspace?.workspace_id,
+    const splitPane = (await k.call('pane.split', { target_pane_id: left!, direction: 'right' })).pane.pane_id;
+    // Real `layout.apply` lays out fresh panes: the neighbour ids come from the applied tree.
+    const applied = await k.call('layout.apply', { workspace_id: made.workspace?.workspace_id,
       root: { type: 'split', direction: 'right', ratio: 0.5,
-        first: { type: 'pane', pane_id: left }, second: { type: 'pane', pane_id: right } } });
-    await k.focus({ pane: left! });
+        first: { type: 'pane', pane_id: left }, second: { type: 'pane', pane_id: splitPane } } });
+    const ends = applied.layout.root as { first?: { pane_id?: string }; second?: { pane_id?: string } };
+    const first = ends.first?.pane_id;
+    const right = ends.second?.pane_id;
+    assert.equal(typeof first, 'string');
+    assert.equal(typeof right, 'string');
+    await k.focus({ pane: first! });
     // Same assertions as the shared contract case, against the real server.
-    const moved = await k.call('pane.focus_direction', { pane_id: left, direction: 'right' });
+    const moved = await k.call('pane.focus_direction', { pane_id: first, direction: 'right' });
     assert.equal(moved.focus.changed, true);
-    assert.equal(moved.focus.source_pane_id, left);
+    assert.equal(moved.focus.source_pane_id, first);
     assert.equal(moved.focus.focused_pane_id, right);
-    assert.equal((await k.call('pane.get', { pane_id: right })).pane.focused, true);
+    assert.equal((await k.call('pane.get', { pane_id: right! })).pane.focused, true);
     const held = await k.call('pane.focus_direction', { pane_id: right, direction: 'right' });
     assert.equal(held.focus.changed, false);
     assert.equal(held.focus.reason, 'no_neighbor');
-    assert.equal((await k.call('pane.get', { pane_id: right })).pane.focused, true);
+    assert.equal((await k.call('pane.get', { pane_id: right! })).pane.focused, true);
   } finally {
     await k.stop().catch(() => {});
   }

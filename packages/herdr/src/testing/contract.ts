@@ -642,32 +642,39 @@ export function herdrContract(
       const left = made.root_pane!.pane_id;
       const right = (await kit.call('pane.split', { target_pane_id: left, direction: 'right', focus: false })).pane.pane_id;
       // Side by side, so `right` is the neighbour past the left edge and vice versa.
-      await kit.layout({ workspaceId, focus: false,
+      // Like the rename/focus/layout case above, the applied tree's ids are read back: the
+      // fake moves the named panes in place while real Herdr lays out fresh panes.
+      const applied = await kit.layout({ workspaceId, focus: false,
         root: { type: 'split', direction: 'right', ratio: 0.5,
           first: { type: 'pane', pane_id: left }, second: { type: 'pane', pane_id: right } } });
-      await kit.focus({ pane: left });
+      const ends = applied.layout.root as { first?: { pane_id?: string }; second?: { pane_id?: string } };
+      const first = ends.first?.pane_id;
+      const second = ends.second?.pane_id;
+      assert.equal(typeof first, 'string');
+      assert.equal(typeof second, 'string');
+      await kit.focus({ pane: first! });
 
-      const moved = await kit.call('pane.focus_direction', { pane_id: left, direction: 'right' });
+      const moved = await kit.call('pane.focus_direction', { pane_id: first, direction: 'right' });
       assert.equal(moved.type, 'pane_focus_direction');
       assert.equal(moved.focus.changed, true);
-      assert.equal(moved.focus.source_pane_id, left);
-      assert.equal(moved.focus.focused_pane_id, right);
-      assert.equal((await kit.call('pane.get', { pane_id: right })).pane.focused, true);
-      assert.equal((await kit.call('pane.get', { pane_id: left })).pane.focused, false);
+      assert.equal(moved.focus.source_pane_id, first);
+      assert.equal(moved.focus.focused_pane_id, second);
+      assert.equal((await kit.call('pane.get', { pane_id: second! })).pane.focused, true);
+      assert.equal((await kit.call('pane.get', { pane_id: first! })).pane.focused, false);
 
       // Past the outer edge there is no neighbour: focus holds with `no_neighbor`, like real Herdr.
-      const held = await kit.call('pane.focus_direction', { pane_id: right, direction: 'right' });
+      const held = await kit.call('pane.focus_direction', { pane_id: second, direction: 'right' });
       assert.equal(held.focus.changed, false);
-      assert.equal(held.focus.source_pane_id, right);
-      assert.equal(held.focus.focused_pane_id, right);
+      assert.equal(held.focus.source_pane_id, second);
+      assert.equal(held.focus.focused_pane_id, second);
       assert.equal(held.focus.reason, 'no_neighbor');
-      assert.equal((await kit.call('pane.get', { pane_id: right })).pane.focused, true);
+      assert.equal((await kit.call('pane.get', { pane_id: second! })).pane.focused, true);
 
       // Back across the split, and nothing above a full-height pane either.
-      const back = await kit.call('pane.focus_direction', { pane_id: right, direction: 'left' });
+      const back = await kit.call('pane.focus_direction', { pane_id: second, direction: 'left' });
       assert.equal(back.focus.changed, true);
-      assert.equal(back.focus.focused_pane_id, left);
-      const top = await kit.call('pane.focus_direction', { pane_id: left, direction: 'up' });
+      assert.equal(back.focus.focused_pane_id, first);
+      const top = await kit.call('pane.focus_direction', { pane_id: first, direction: 'up' });
       assert.equal(top.focus.changed, false);
       assert.equal(top.focus.reason, 'no_neighbor');
 
