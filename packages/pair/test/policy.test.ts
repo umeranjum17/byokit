@@ -10,7 +10,10 @@ import { LinkError, b64url, keyPair, keyPairFrom, pendingGrant, unb64url, type G
 import { spawnSync } from 'node:child_process';
 import { fileGrantStore, hostKeyFile } from '../src/node.ts';
 import { parseOffer } from '../src/pairing.ts';
-import { connect, pairWithOffer, sleep, startHost, until } from './helpers.ts';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { WebSocket, WebSocketServer } from 'ws';
+import { closers, connect, pairWithOffer, sleep, startHost, until } from './helpers.ts';
 
 const paired = async (h: Awaited<ReturnType<typeof startHost>>, o: Partial<GrantTerms> = {}) =>
   pairWithOffer(h.host.offer({ role: 'control', urls: [h.url], ...o }).text, { name: 'Phone' });
@@ -248,6 +251,39 @@ test('C2: events and mismatched pongs cannot keep a half-open socket alive', asy
     await until(() => d.seen.includes('offline'), 2000);
     assert.ok(d.events.length > 2);
   } finally { clearInterval(events); (h.host as any).sealed = sealed; }
+});
+
+test('C2: a busy host that answers each ping late stays online; once it goes silent the link drops after two silent rounds', async () => {
+  const every = 400; // a 1.5-round delay leaves half a round (200 ms) for loopback and a loaded test run
+  const h = await startHost();
+  // Between device and host: the device's frames pass at once, the host's arrive 1.5 rounds late, or never once silent.
+  let silent = false, pings = 0;
+  const server = createServer();
+  const wss = new WebSocketServer({ server });
+  wss.on('connection', (dev) => {
+    const host = new WebSocket(h.url);
+    const queued: [Buffer, boolean][] = [];
+    host.on('open', () => { for (const [d, b] of queued.splice(0)) host.send(d, { binary: b }); });
+    dev.on('message', (d: Buffer, b) => { pings++; host.readyState === host.OPEN ? host.send(d, { binary: b }) : queued.push([d, b]); });
+    host.on('message', (d: Buffer, b) => setTimeout(() => { if (!silent && dev.readyState === dev.OPEN) dev.send(d, { binary: b }); }, 1.5 * every));
+    dev.on('close', () => host.close());
+    host.on('close', () => dev.close());
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  closers.push(() => { for (const c of wss.clients) c.terminate(); wss.close(); server.close(); });
+  const url = `ws://127.0.0.1:${(server.address() as AddressInfo).port}/link`;
+
+  const d = connect(await pairWithOffer(h.host.offer({ role: 'control', urls: [url] }).text, { name: 'Phone' }), { pingMs: every });
+  await until(() => d.link.status === 'online');
+  const start = pings;
+  await until(() => pings >= start + 10 || d.seen.includes('offline'), 20 * every); // ten rounds, every pong a round late
+  assert.equal(d.link.status, 'online');
+  assert.ok(!d.seen.includes('offline'), 'late pongs are still the host answering');
+
+  silent = true;
+  const quiet = Date.now();
+  await until(() => d.seen.includes('offline'), 10 * every);
+  assert.ok(Date.now() - quiet <= 3 * every + 200, `dropped ${Date.now() - quiet} ms after the host went silent`);
 });
 
 test('C6: answers kept in a store survive a host restart; a request past its moment is not run', async () => {
