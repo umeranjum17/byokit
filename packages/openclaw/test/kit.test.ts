@@ -231,6 +231,28 @@ test('a first start that never answers fails as a handshake once its attempts ru
   finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
+test('a second start after an exhausted first start gets its own attempts', async () => {
+  const stateDir = scratchDir('o4-second-start');
+  const fake = fakeGateway();
+  let attempts = 0;
+  let silentFor = 5;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200,
+    transport: (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, start: () => { attempts++; return silentFor-- > 0 ? new Promise<never>(() => {}) : transport.start(); } };
+    } });
+  try {
+    await assert.rejects(kit.start(), /handshake timed out/);
+    assert.deepEqual(kit.state, { phase: 'failed', why: 'handshake' });
+    assert.equal(attempts, 5);
+    silentFor = 1;
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    assert.equal(attempts, 7);
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 test('stop during a first-start retry starts no further attempt', async () => {
   const stateDir = scratchDir('o4-first-start-stop');
   const fake = fakeGateway();

@@ -781,6 +781,7 @@ export class OpenClawKit {
   start(): Promise<void> {
     if (this.current.phase === 'ready') return Promise.resolve();
     if (this.starting) return this.starting;
+    if (this.current.phase === 'failed') this.failures = 0;
     this.stopping = false;
     const task = this.connect();
     this.starting = task;

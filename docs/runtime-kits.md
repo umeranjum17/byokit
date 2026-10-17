@@ -561,7 +561,7 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
    with state `repairing`, relaunch. Other exit → `failed/exited`. A handshake timeout, or the transport's start
    rejecting before hello (a close before hello), → state `restarting` with `retryAt` on step 3's backoff, then
    step 2 runs again with the engine stopped and spawned afresh; the fifth consecutive failed start → `failed/handshake`.
-   `stop()` cancels a pending retry, and `start()` resolves only when the kit reaches `ready` or fails. Protocol ≠ 4 →
+   `stop()` cancels a pending retry, and `start()` resolves only when the kit reaches `ready`, fails or is stopped; a fresh `start()` from `failed` gets a new budget of attempts. Protocol ≠ 4 →
    `needs-update/version`. Then start the bridge socket; state `ready`.
 3. **Crash**: on child exit while not stopping: drop the transport, state `restarting` with
    `retryAt = now + min(30 s, 1 s × 2^failures)`, then `start()` again; failures reset on a successful handshake.
