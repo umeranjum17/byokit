@@ -307,7 +307,7 @@ export class DeviceLink {
         try {
           let active: Open;
           const l = await dial(url, keyPairFrom(unb64url(secret)), { key: unb64url(this.grant.host) }, { t: 'auth', session: this.session, ack: this.ack, fresh: this.fresh }, this.o, {
-            message: (m) => { if (this.conn === active) { if (m.t === 'pong' && m.n === this.pingId) this.heard = Date.now(); this.message(m); } },
+            message: (m) => { if (this.conn === active) { if (this.answers(m)) this.heard = Date.now(); this.message(m); } },
             close: () => { if (this.conn === active) this.lost(); },
           });
           active = l;
@@ -360,14 +360,21 @@ export class DeviceLink {
     const tick = () => {
       if (this.conn !== l) return;
       const now = Date.now();
-      // Count the silence from now; a socket that is really dead still misses the pings that follow.
-      if (now - due > every / 2) this.heard = now;
+      // Count the silence from now; a socket that is really dead still misses the pings that follow. Before the first
+      // ping nothing was asked, so a host that answers it late is not silent either.
+      if (now - due > every / 2 || !this.pingId) this.heard = now;
       else if (now - this.heard > 2 * every) { l.close(); return this.lost(); }
       try { l.send({ t: 'ping', n: ++this.pingId }); } catch {}
       due = now + every;
       later(every, tick);
     };
     later(every, tick);
+  }
+
+  /** Whether `m` answers something this device sent: any pong so far (a busy host answers late), a reply to a waiting
+   *  request, or a frame on one of its streams. Only those prove the host hears this device; its events alone do not. */
+  private answers(m: any) {
+    return (m.t === 'pong' && m.n <= this.pingId) || (m.t === 'res' && this.pending.has(m.id)) || !!this.streams?.has(m.s);
   }
 
   private sendPending(l: Open, id: number, p: Pending) {
