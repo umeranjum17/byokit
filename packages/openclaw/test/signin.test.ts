@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, rmSync, symlinkSync,
 import { join } from 'node:path';
 import { setImmediate as turn, setTimeout as delay } from 'node:timers/promises';
 import { providers, signIn, type SignInCtx } from '../src/signin.ts';
+import { ENGINE_VERSION } from '../src/constants.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { Engine } from '../src/engine.ts';
 import { openclawLink } from '../src/link.ts';
@@ -352,6 +353,23 @@ test('the kit drives the same flow through its own transport and members (5.3)',
     await kit.signOut('m1', 'openai');
     assert.equal(await kit.signedIn('m1', 'openai'), false);
     assert.equal(fake.calls.filter((call) => call.method === 'agents.create').length, 1, 'the member is created once');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('routes() describes the engine the kit pins: the generated table names ENGINE_VERSION, never an older pin', async () => {
+  const stateDir = scratchDir('o6-routes-pin');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false });
+  try {
+    await kit.start();
+    const described = new Set(kit.routes().map((route) => [route.source, route.revision]).flat());
+    assert.ok(described.size > 0, 'routes() returned nothing');
+    for (const said of described) {
+      assert.ok(said.includes(ENGINE_VERSION), `routes() says "${said}", the kit pins ${ENGINE_VERSION}`);
+    }
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });

@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Route } from '../src/types.ts';
 
-export const PIN = '2026.8.1';
-export const REVISION = 'ea806575e6450e4d1efdfc72c19f04be982a1b9b';
+export const PIN = '2026.8.35';
+export const REVISION = '713ba5785d72d6ed1cec971e21307f16cc4234a6';
 export type Choice = {
   provider: string; method: string; choiceId: string; choiceLabel: string;
   choiceHint?: string; groupLabel?: string; appGuidedAuth?: string; appGuidedSecret?: boolean;
@@ -138,10 +138,11 @@ export function readSnapshot(packageRoot: string, sourceRoot: string): PinSnapsh
   const version = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8')).version;
   if (version !== PIN) throw new Error(`Expected engine ${PIN}, got ${version}`);
   function manifests(root: string): Manifest[] {
-    return readdirSync(root).sort().flatMap(dir => {
-      try { return [JSON.parse(readFileSync(join(root, dir, 'openclaw.plugin.json'), 'utf8')) as Manifest]; }
-      catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
-    });
+    return readdirSync(root, { withFileTypes: true }).filter(entry => entry.isDirectory()).map(entry => entry.name)
+      .sort().flatMap(dir => {
+        try { return [JSON.parse(readFileSync(join(root, dir, 'openclaw.plugin.json'), 'utf8')) as Manifest]; }
+        catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
+      });
   }
   const source = manifests(join(sourceRoot, 'extensions'));
   const tarball = manifests(join(packageRoot, 'dist/extensions'));
