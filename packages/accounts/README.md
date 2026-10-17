@@ -128,16 +128,20 @@ browser, watches where it goes, and hands the kit the address it is sent back to
 the state; the app sees only the page and the address to watch for:
 
 ```ts
-import { WebView } from 'react-native-webview';
-import { Accounts, SignInReturnError } from '@byokit/accounts';
+import { Accounts, memoryStore, portable, SignInReturnError } from '@byokit/accounts';
 
-const shown = await accounts.login(1, 'chatgpt', { via: 'redirect' }); // { state: 'waiting', via: 'browser', url, returnTo, expiresAt }
+const accounts = new Accounts({ store: () => memoryStore() }, portable);
+const shown = (await accounts.login(1, 'chatgpt', { via: 'redirect' }))!; // { state: 'waiting', via: 'browser', url, returnTo, expiresAt }
 
-<WebView source={{ uri: shown.url }} onShouldStartLoadWithRequest={({ url }) => {
-  if (!url.startsWith(shown.returnTo)) return true;
-  accounts.complete(1, 'chatgpt', url).then(close, (e) => show(e instanceof SignInReturnError ? e.message : 'Try again.'));
+// Open shown.url in the app's in-app browser, with this as its navigation check
+// (react-native-webview: <WebView source={{ uri: shown.url }} onShouldStartLoadWithRequest={watch} />).
+function watch({ url }: { url: string }): boolean {
+  if (!url.startsWith(shown.returnTo!)) return true;
+  accounts.complete(1, 'chatgpt', url).then(
+    (ended) => console.log(ended?.state),
+    (e) => console.log(e instanceof SignInReturnError ? e.message : 'Try again.'));
   return false; // nothing on the phone answers that address
-}} />;
+}
 ```
 
 `complete` resolves with how the sign-in ended (`done`, or `failed` with its plain sentence, as when the person says no

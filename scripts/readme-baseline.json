@@ -13,13 +13,13 @@
   },
   {
     "readme": "packages/accounts/README.md",
-    "block": 6,
+    "block": 7,
     "snapshot": "bc79bc2bfdd0f965b81e392989fdaa0508a83eac09fc33b8e5249b6d52a2a72b",
     "reason": "Per-person storage fragment omits Accounts imports and host-supplied SecureStore context."
   },
   {
     "readme": "packages/accounts/README.md",
-    "block": 7,
+    "block": 8,
     "snapshot": "fd8569a19e998fa84284c4f6bf0164c7aaeb8bf143dcccff33a8018a63359244",
     "reason": "Asking fragment relies on earlier accounts setup, isFunctionCall and host-supplied show."
   },
