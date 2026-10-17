@@ -14,6 +14,8 @@ updates:
     # Internal packages are versioned and cascaded together by release.ts.
     ignore:
       - dependency-name: '@byokit/*'
+      # The engine pin moves these packages together; lone bumps cannot pass.
+      - dependency-name: '@openclaw/*'
       # An Expo SDK moves expo, its expo-* modules, react-native and the native template together
       # (`npx expo install expo@^N --fix`); a lone major bump of any of them cannot build.
       - dependency-name: 'expo'
