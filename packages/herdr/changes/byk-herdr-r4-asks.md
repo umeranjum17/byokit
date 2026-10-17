@@ -1,3 +1,0 @@
-- FEAT: `kit.onChange` is called with `(snapshot, changed)`: `changed` names the panes whose agent status moved in that revision, and is empty for a title-only change, so a host emits just those agent states without debouncing every tree revision.
-- FEAT: a detected agent with no Herdr session yet (Codex, for example) is re-read on its watch ack and on each status push until its session lands, so the session reaches the tree and `onChange` with no host re-read.
-- FEAT: concurrent `refresh()` calls join the one in-flight refresh and resolve with its result; a call after it settles starts a new one, and a failed refresh rejects every joined caller.
