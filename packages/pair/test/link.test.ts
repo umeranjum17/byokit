@@ -18,10 +18,14 @@ import { Handshake } from '../src/channel.ts';
 import { closers, connect, pairWithCode, pairWithOffer, sleep, startHost, until } from './helpers.ts';
 
 test('security review: throwing or timed-out confirmation stores no grant', async () => {
-  for (const confirm of [() => { throw new Error('approval failed'); }, () => new Promise<boolean>(() => {})]) {
+  const cases: [string, (_p: PairRequest, o: { signal: AbortSignal }) => boolean | Promise<boolean>, string][] = [
+    ['throws', () => { throw new Error('approval failed'); }, 'declined'],
+    ['never answers', () => new Promise<boolean>(() => {}), 'expired'],
+  ];
+  for (const [, confirm, code] of cases) {
     const h = await startHost({ confirm, pairMs: 300 });
     await assert.rejects(pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' }),
-      (e: LinkError) => e.code === 'declined' && e.sealed);
+      (e: LinkError) => e.code === code && e.sealed);
     assert.deepEqual(h.saved(), []);
   }
 });

@@ -1,8 +1,9 @@
 // What a person scans, opens or types, and the words they read.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { b64url, keyPair } from '../src/index.ts';
+import { b64url, keyPair, type LinkError } from '../src/index.ts';
 import { decodeCompactOffer, encodeCompactOffer, newCode, normalizeCode, offerText, parseOffer, type PairOffer } from '../src/pairing.ts';
+import { pairWithOffer, sleep, startHost } from './helpers.ts';
 
 const offer = (o: Partial<PairOffer> = {}): PairOffer => ({
   v: 1, host: b64url(keyPair().publicKey), name: 'Kitchen computer', urls: ['ws://192.168.1.20:7300/link', 'wss://relay.example/link/v1/abc'],
@@ -69,4 +70,29 @@ test('compact offers stay QR-small and round-trip every field', () => {
     { urls: ['ws://u:p@a/link'] }, { code: 'short' }, { code: 'K1-23456789ABCD-0123456789ABCDEF0123456789ABCDEF' }, { expires: NaN }, { role: 'admin' }]) {
     assert.throws(() => encodeCompactOffer({ ...lan, ...bad } as typeof lan), /isn't a pairing code|compact code/, JSON.stringify(bad));
   }
+});
+
+test('a code that runs out while the computer asks refuses expired, aborts the ask, and a late yes grants nothing', async () => {
+  const asks: (AbortSignal | undefined)[] = [];
+  let answer!: (yes: boolean) => void;
+  const h = await startHost({
+    pairMs: 200,
+    confirm: (_req, o) => { asks.push(o?.signal); return new Promise<boolean>((r) => { answer = r; }); },
+  });
+  await assert.rejects(pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' }),
+    (e: LinkError) => e.code === 'expired' && e.sealed);
+  assert.equal(asks[0]?.aborted, true, 'the computer prompt is told the code ran out');
+  answer(true);
+  await sleep(50);
+  assert.deepEqual(h.host.devices(), []);
+  assert.deepEqual(h.saved(), []);
+});
+
+test('a yes that resolves after the code ran out (250 ms against 200 ms) grants nothing', async () => {
+  const h = await startHost({ pairMs: 200, confirm: () => sleep(250).then(() => true) });
+  await assert.rejects(pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' }),
+    (e: LinkError) => e.code === 'expired' && e.sealed);
+  await sleep(150);
+  assert.deepEqual(h.host.devices(), []);
+  assert.deepEqual(h.saved(), []);
 });

@@ -47,8 +47,9 @@ export type HostOptions = {
   name: string;
   /** Answers a device's request. Runs on the host, with the host's credentials; the device only gets the answer. */
   handle: (req: LinkRequest, device: Grant) => unknown;
-  /** Asks the person at the host whether this device may join; nothing is stored until it says yes. */
-  confirm: (p: PairRequest) => boolean | Promise<boolean>;
+  /** Asks the person at the host whether this device may join; nothing is stored until it says yes. `signal` aborts
+   *  when the pairing code runs out, so the app can close its prompt; a yes that comes later grants nothing. */
+  confirm: (p: PairRequest, o: { signal: AbortSignal }) => boolean | Promise<boolean>;
   /** Takes a stream a device opened with `link.stream(op, args)` (a terminal pane, a tunnelled connection, a call):
    *  set `onData` and `onEnd`, `write`, `end`. The stream opens before this handler runs; a thrown
    *  `PublicLinkError` ends it with a message for the device, while other errors go to `onError` and end it with
@@ -460,13 +461,17 @@ export class Host {
       clearTimeout(timer);
       const req: PairRequest = { name: cleanName(name, 'Device'), role: p.role, words: hs!.words, how,
         ...(p.kind === undefined ? {} : { kind: p.kind }), ...(p.lifetime ? { lifetime: p.lifetime } : {}), ...(p.meta === undefined ? {} : { meta: p.meta }) };
+      const ask = new AbortController();
+      let runOut: any;
       const yes = await Promise.race([
-        Promise.resolve().then(() => this.opts.confirm(req)).catch(() => false),
-        new Promise<false>((r) => later(this.pairMs, () => r(false))),
+        Promise.resolve().then(() => this.opts.confirm(req, { signal: ask.signal })).catch(() => false),
+        new Promise<'expired'>((r) => { runOut = later(this.pairMs, () => { ask.abort(); r('expired'); }); }),
       ]);
+      clearTimeout(runOut);
       // A device that said it kept a pending grant resumes from it after being killed while the person decided, so
       // its yes outlives the socket; any other gone device could never use the grant, so it gets none.
       if (gone && kept !== 1) return;
+      if (yes === 'expired') { if (!gone) refuse('expired'); return; } // a yes that comes later is ignored: no grant
       if (!yes) { if (!gone) refuse('declined'); return; }
       try {
         const added = await this.grant(k, req.name, p, p.expires);

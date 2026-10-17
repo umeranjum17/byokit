@@ -498,7 +498,9 @@ late approval and expiry never create a grant. Malicious routing can still deny 
 a code by forwarding a live attempt. Anyone who photographs the full code can race to pair with
 the real host, so **both screens still show the same two words and host approval defaults to No**.
 Only an explicit affirmative response after matching words should return `true` from `confirm`.
-The kit has no approval UI; exceptions and confirmation timeouts decline.
+The kit has no approval UI; exceptions decline. A confirmation still pending when the code runs out is refused as
+`expired` (the device says the code ran out), and `confirm`'s `signal` aborts then so the prompt can close; a yes
+that arrives later grants nothing.
 
 For relay discovery, display the separate six-character `RelayClient.code()` lookup alongside
 the full `host.shortCode()` pairing code. The device calls `findHost(relay, lookup)` from
