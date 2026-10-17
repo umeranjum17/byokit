@@ -1063,12 +1063,14 @@ test('a Go plan key add names its workspace: listed when the app names none; rem
     assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY', orgId: 'org_B' }), { status: 'ok' });
     assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_B' });
     // A listing that could not be read (offline, a server error, a body that is no list) is never taken for
-    // "no workspace": the add fails as retryable and changes nothing.
+    // "no workspace": the add fails as retryable, carrying the accounts' typed code and words, and changes nothing.
+    const unreadWords = 'Couldn’t reach OpenCode to check this key’s workspaces. Check the internet connection, then try again.';
     for (const unread of [async () => { throw new TypeError('fetch failed'); }, async () => new Response('down', { status: 502 }),
       async () => Response.json({ orgs: [] })]) {
       orgs.answer(unread);
       before = patches();
-      assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY' }), { status: 'retry', reason: 'network' });
+      assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY' }),
+        { status: 'retry', reason: 'network', code: 'workspaces_unread', message: unreadWords });
       assert.equal(patches(), before);
       assert.ok(await keyReady('m1'));
       assert.deepEqual(await headers(), { 'x-opencode-org-id': 'org_B' });
