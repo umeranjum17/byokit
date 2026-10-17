@@ -385,6 +385,70 @@ test('stop cancels a reconnect retry scheduled before the stop', async (t) => {
   finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
+test('a manual start cancels a pending reconnect retry', async (t) => {
+  t.mock.method(Engine.prototype, 'start', async function (this: { root: string }) {
+    mkdirSync(this.root, { recursive: true });
+    if (!existsSync(join(this.root, 'openclaw.json'))) writeFileSync(join(this.root, 'openclaw.json'), '{}');
+    return { port: 0, token: 'test', identityPath: '' };
+  });
+  t.mock.method(Engine.prototype, 'stop', async () => {});
+  const stateDir = scratchDir('o4-reconnect-manual-start');
+  const fake = fakeGateway();
+  let connects = 0;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: true, callbackPort: 0,
+    transport: (ctx) => { connects++; return fake.factory(ctx); } });
+  try {
+    await kit.start();
+    fake.drop('test');
+    assert.equal(kit.state.phase, 'restarting');
+    await delay(300);
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    assert.equal(connects, 2);
+    fake.drop('test');
+    await delay(800);
+    assert.equal(connects, 2);
+    assert.equal(kit.state.phase, 'restarting');
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a handshake deadline inside an engine repair waits for the repair, then retries without stopping it', async (t) => {
+  const events: string[] = [];
+  let engineStarts = 0;
+  t.mock.method(Engine.prototype, 'start', async function (this: { root: string; o: { onState(s: { phase: string }): void } }) {
+    mkdirSync(this.root, { recursive: true });
+    if (!existsSync(join(this.root, 'openclaw.json'))) writeFileSync(join(this.root, 'openclaw.json'), '{}');
+    events.push('start');
+    if (++engineStarts === 1) {
+      const o = this.o;
+      void (async () => {
+        await delay(50);
+        events.push('repair'); o.onState({ phase: 'repairing' });
+        await delay(300);
+        events.push('repair-end'); o.onState({ phase: 'locked' });
+      })();
+    }
+    return { port: 0, token: 'test', identityPath: '' };
+  });
+  t.mock.method(Engine.prototype, 'stop', async () => { events.push('stop'); });
+  const stateDir = scratchDir('o4-repair-deadline');
+  const fake = fakeGateway();
+  let attempts = 0;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: true, callbackPort: 0, handshakeMs: 200,
+    transport: (ctx) => {
+      const transport = fake.factory(ctx);
+      return ++attempts === 1 ? { ...transport, start: () => new Promise<never>(() => {}) } : transport;
+    } });
+  try {
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    assert.equal(attempts, 2);
+    assert.deepEqual(events, ['start', 'repair', 'repair-end', 'stop', 'start']);
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 test('config patch keeps memory search disabled', async () => withKit(async (kit, fake) => {
   await kit.patchConfig({ memory: { search: { provider: 'openai', fallback: 'openai' } } });
   const patch = fake.calls.find(({ method }) => method === 'config.patch')?.params as { raw: string; baseHash: string };

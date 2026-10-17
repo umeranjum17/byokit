@@ -785,6 +785,7 @@ export class OpenClawKit {
     if (this.current.phase === 'ready') return Promise.resolve();
     if (this.starting) return this.starting;
     this.stopping = false;
+    this.retry?.abort();
     const task = this.attempts(this.reachedReady ? 1 : START_ATTEMPTS);
     this.starting = task;
     void task.finally(() => { if (this.starting === task) this.starting = undefined; }).catch(() => {});
@@ -854,7 +855,7 @@ export class OpenClawKit {
       const needsUpdate = this.current.phase === 'needs-update';
       const patchFailure = this.current.why === 'engine-patch';
       if (transport && this.transport === transport) await this.disconnect();
-      const starting = this.current.phase === 'starting';
+      if (error === timeout && this.current.phase === 'repairing') await this.repairEnded();
       const engineFailure = this.current.phase === 'failed' ? this.current : undefined;
       const refused = await this.engine.stop().then(() => undefined, refusedOnly);
       await this.closeBrowsers();
@@ -874,12 +875,19 @@ export class OpenClawKit {
       if (patchFailure) { this.setState({ phase: 'failed', why: 'engine-patch' }); throw error; }
       // A missed hello on a loaded host is the engine still coming up: attempts() decides whether to retry.
       if (engineFailure && engineFailure.why !== 'exited' && !this.stopping) { this.setState(engineFailure); throw error; }
-      const miss = error === exited && engineFailure?.why === 'exited' ? exited : error === timeout && starting ? timeout : undefined;
+      const miss = error === exited && engineFailure?.why === 'exited' ? exited : error === timeout ? timeout : undefined;
       if (miss && !this.stopping) return miss;
       if (needsUpdate) this.setState({ phase: 'needs-update', why: 'version' });
       if (!needsUpdate && !this.stopping) this.setState({ phase: 'failed', why: 'handshake' });
       throw error;
     } finally { this.engineExit = undefined; }
+  }
+
+  private repairEnded(): Promise<void> {
+    return new Promise((resolve) => {
+      const check = () => { if (this.current.phase !== 'repairing') { this.phaseListeners.delete(check); resolve(); } };
+      this.phaseListeners.add(check);
+    });
   }
 
   private async disconnect(): Promise<void> {
@@ -932,6 +940,7 @@ export class OpenClawKit {
     for (const fn of this.signInDisconnects) fn();
     void this.disconnect();
     if (this.o.spawnEngine === false) { this.setState({ phase: 'failed', why: 'handshake' }); return; }
+    this.retry?.abort();
     const retry = this.retry = new AbortController();
     void this.backoff(this.failures++, retry.signal).then(() => { if (!this.stopping && this.current.phase === 'restarting') void this.start().catch(() => {}); }, () => {});
   }
