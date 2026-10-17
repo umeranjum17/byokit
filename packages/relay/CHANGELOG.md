@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.8.1 (2026-10-17)
+
+- Dependency update: pins @byokit/pair 0.10.3.
+- FIX: (from @byokit/pair 0.10.3) A pairing code that runs out while the computer's person has not answered now tells the device "That pairing code has run out" instead of "Your computer said no to this device". `confirm` gets a second argument, `{ signal }`, that aborts when the code runs out so the computer's prompt can close; a yes that comes later grants nothing.
+
 ## 0.8.0 (2026-10-17)
 
 - Dependency update: pins @byokit/pair 0.10.2.

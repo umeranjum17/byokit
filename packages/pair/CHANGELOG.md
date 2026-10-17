@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.10.3 (2026-10-17)
+
+- FIX: A pairing code that runs out while the computer's person has not answered now tells the device "That pairing code has run out" instead of "Your computer said no to this device". `confirm` gets a second argument, `{ signal }`, that aborts when the code runs out so the computer's prompt can close; a yes that comes later grants nothing.
+
 ## 0.10.2 (2026-10-17)
 
 - FIX: a busy host that answers a ping late no longer has its live link dropped. `DeviceLink` now counts any pong up to the latest ping, a reply to one of its own waiting requests, or a frame on one of its own streams as hearing from the host, and counts silence from its first ping rather than from the connect, so a host that answers even that first ping late stays online. A host that goes silent is still dropped after two silent ping rounds (`2 × pingMs`, checked once a round). Host events and broadcasts alone still do not keep a link up: they show only that the host can talk, not that it hears the device, so only an answer to something the device sent proves the round trip.
