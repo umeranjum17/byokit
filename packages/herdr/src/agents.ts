@@ -40,6 +40,8 @@ const codeOf = (error: unknown): string | undefined => {
   if (typeof code === 'string') return code;
   return /herdr: ([a-z0-9_]+):/i.exec(error instanceof Error ? error.message : String(error))?.[1];
 };
+const workspaceIdOf = (made: Raw | undefined): string | undefined =>
+  (isObj(made?.workspace) ? strOf(made.workspace.workspace_id) : undefined);
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 function agentOf(snapshot: HerdrSnapshot, paneId: string): AgentRecord {
@@ -157,7 +159,7 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
     let made: Raw | undefined;
     let paneId: string | undefined;
     let createdPane = false;                 // a pane this start made: roll it back on failure
-    let createdWorkspace: string | undefined;   // a workspace this start made: roll it back instead
+    let createdWorkspace: string | undefined;   // a workspace this placement made: roll it back instead
     let workspaceCreated = false;            // reported as `created`: a workspace was made
     if (o.worktree !== undefined) {
       made = await call('worktree.create', { cwd: o.cwd, focus: false, ...o.env,
@@ -197,9 +199,7 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
         paneId = rootPaneOf(made);
         createdPane = true;
         workspaceCreated = true;
-        if (isObj(made?.workspace) && typeof made.workspace.workspace_id === 'string') {
-          createdWorkspace = made.workspace.workspace_id;
-        }
+        createdWorkspace = workspaceIdOf(made);
       }
     } else if ('workspace' in o.place) {
       made = await call('workspace.create', { cwd: o.cwd,
@@ -207,6 +207,7 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       paneId = rootPaneOf(made);
       createdPane = true;
       workspaceCreated = true;
+      createdWorkspace = workspaceIdOf(made);
     } else if ('tab' in o.place) {
       made = await call('tab.create', { workspace_id: o.place.workspaceId, cwd: o.cwd,
         ...(o.place.label === undefined ? {} : { label: o.place.label }), focus: false, ...o.env }) as Raw;
@@ -221,18 +222,50 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       paneId = o.place.pane;
     }
     if (paneId === undefined) throw new Error('herdr: the placement answered no pane id');
-    return { ...(await placedRefOf(paneId, made)), createdPane, createdWorkspace, workspaceCreated };
+    const placement = { ...(await placedRefOf(paneId, made)), createdPane, createdWorkspace, workspaceCreated };
+    // A workspace this placement created carries the placement label on its root tab too (muxr
+    // labels the agent's tab with the task title on every start, and its shell tab `shell`; the
+    // create path otherwise drops `place.label`). A rename failure rolls the created workspace back.
+    if (workspaceCreated && 'workspace' in o.place && o.place.label !== undefined) {
+      try {
+        await call('tab.rename', { tab_id: placement.tabId, label: o.place.label });
+      } catch (error) {
+        await rollback(placement);
+        throw error;
+      }
+    }
+    return placement;
+  }
+
+  // Undo what a placement made: its workspace, else its pane. A caller-owned pane is never closed.
+  async function rollback(o: { paneId: string; createdPane: boolean; createdWorkspace: string | undefined }): Promise<void> {
+    if (o.createdWorkspace !== undefined) {
+      try { await call('workspace.close', { workspace_id: o.createdWorkspace }); return; }
+      catch { /* fall through to the pane when the workspace close misses */ }
+    }
+    if (o.createdPane) {
+      try { await call('pane.close', { pane_id: o.paneId }); } catch { /* rollback is best-effort */ }
+    }
   }
 
   // Placement without an agent (6.4): the same ladder `startAgent` resolves, minus the launch —
-  // it creates the tab/split/workspace and starts nothing, so nothing is rolled back or watched.
-  // An env on a caller-owned `pane` target has no create call to ride and is refused, never dropped.
+  // it creates the tab/split/workspace and starts nothing. An overlay is proven in the fresh pane
+  // as `startAgent` proves it, and a mismatch rolls the placement back. An env on a caller-owned
+  // `pane` target has no create call to ride and is refused, never dropped.
   async function place(o: PlaceRequest): Promise<PlaceRef> {
     if ('pane' in o.place && o.env !== undefined && Object.keys(o.env).length > 0) {
       throw fail('env_mismatch', 'An existing pane cannot receive a new environment.');
     }
-    const env = o.env === undefined ? {} : { env: o.env };
+    const overlay = isOverlayEnvironment(o.env) ? o.env : undefined;
+    const env = o.env === undefined || overlay ? {} : { env: o.env };
     const placement = await resolvePlacement({ place: o.place, cwd: o.cwd, env });
+    if (overlay) {
+      try { await prepareOverlayEnv(call, placement.paneId, overlay, DEFAULT_TIMEOUT_MS); }
+      catch (error) {
+        await rollback(placement);
+        throw error;
+      }
+    }
     return { paneId: placement.paneId, tabId: placement.tabId, workspaceId: placement.workspaceId };
   }
 
@@ -249,32 +282,12 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
       XDG_CONFIG_HOME: join(home, '.config'), XDG_DATA_HOME: join(home, '.local', 'share'),
       XDG_STATE_HOME: join(home, '.local', 'state'), XDG_CACHE_HOME: join(home, '.cache'), ...o.env } };
     const placement = await resolvePlacement({ worktree: o.worktree, place: o.place, cwd: o.cwd, env });
-    const { paneId, createdPane, createdWorkspace, workspaceCreated } = placement;
-    async function rollback(): Promise<void> {
-      if (createdWorkspace !== undefined) {
-        try { await call('workspace.close', { workspace_id: createdWorkspace }); return; }
-        catch { /* fall through to the pane when the workspace close misses */ }
-      }
-      if (createdPane) {
-        try { await call('pane.close', { pane_id: paneId }); } catch { /* rollback is best-effort */ }
-      }
-    }
-    // A workspace this start created carries the placement label on its root tab too (muxr labels
-    // the agent's tab with the task title on every start; the create path otherwise drops
-    // `place.label`). A rename failure rolls the created workspace back like any start failure.
-    if (workspaceCreated && 'workspace' in o.place && o.place.label !== undefined) {
-      try {
-        await call('tab.rename', { tab_id: placement.tabId, label: o.place.label });
-      } catch (error) {
-        await rollback();
-        throw error;
-      }
-    }
+    const { paneId, workspaceCreated } = placement;
     hooks?.placed?.({ paneId: placement.paneId, tabId: placement.tabId, workspaceId: placement.workspaceId });
     if (launch) {
       try { await prepareLaunchEnv(call, paneId, launch, timeout); }
       catch (error) {
-        await rollback();
+        await rollback(placement);
         throw error;
       }
     }
@@ -284,7 +297,7 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
     if (overlay) {
       try { await prepareOverlayEnv(call, paneId, overlay, timeout); }
       catch (error) {
-        await rollback();
+        await rollback(placement);
         throw error;
       }
     }
@@ -308,7 +321,7 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
           await sleep(START_RETRY_DELAY_MS);
           continue;
         }
-        await rollback();
+        await rollback(placement);
         if (launch) throw fail('start_failed', words('agent.notReady'));
         throw error;
       }

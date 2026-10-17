@@ -383,6 +383,18 @@ export function herdrContract(
     });
   });
 
+  test('contract: place labels the root tab of a workspace it creates and refuses env on a pane', async () => {
+    await bench(async ({ kit }) => {
+      await kit.start();
+      const ref = await kit.place({ cwd: '/tmp/h6', place: { workspace: 'byokit-place', label: 'shell' } });
+      const owner = await until(() => ownerOf(kit.snapshot(), ref.paneId), (o) => o?.tab.label === 'shell');
+      assert.equal(owner?.workspace.label, 'byokit-place', 'the workspace keeps its own label');
+      assert.equal(owner?.tab.id, ref.tabId);
+      await assert.rejects(kit.place({ place: { pane: ref.paneId }, env: { overlay: { A: 'b' } } }),
+        (e: { code?: string }) => e.code === 'env_mismatch', 'an overlay on an existing pane is refused');
+    });
+  });
+
   test('contract: a failed start into a reused workspace keeps the workspace', async () => {
     await bench(async ({ kit, fake }) => {
       if (!fake) return;

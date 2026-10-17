@@ -2410,7 +2410,8 @@ export type PlaceRef = { paneId: string; tabId: string; workspaceId: string };  
 export type PlaceTarget = { workspace: 'new'; label?: string } | { workspace: string; label?: string }   // any other workspace string is a label (6.4)
   | { tab: 'new'; workspaceId: string; label?: string }
   | { split: string; direction: 'right' | 'down' } | { pane: string };
-export type PlaceRequest = { cwd?: string; place: PlaceTarget; env?: Record<string, string> };   // agentless placement (6.4)
+export type PlaceRequest = { cwd?: string; place: PlaceTarget;   // agentless placement (6.4)
+  env?: Record<string, string> | { overlay: Record<string, string>; unset?: string[] } };
 export type StartAgent = {
   kind: string; cwd: string; name?: string;             // name: /^[a-z][a-z0-9_-]{0,31}$/
   place: PlaceTarget;
@@ -2607,12 +2608,16 @@ no new link/device operation; apps forward the result through their authorized j
   label placement created one (a reused workspace and a caller-owned `pane` placement are never closed). Returns
   `{ paneId, name, created }`. Exact param spellings come from the generated types; where muxr and the schema
   disagree, the schema wins and H5 records it in `report.json`.
-- `place` (agentless placement): the same ladder minus the launch — no `agent.start`, nothing rolled back or
-  watched. `place { tab: 'new', workspaceId }` opens a shell or application tab, `place { split, direction }`
+- `place` (agentless placement): the same ladder minus the launch — no `agent.start`, nothing watched.
+  `place { tab: 'new', workspaceId }` opens a shell or application tab, `place { split, direction }`
   splits a shell pane, `place { workspace: 'new' | label }` creates or reuses a workspace by label (the same
-  `workspace-ambiguous` refusal), and `place { pane }` names an existing pane (its ref comes from `pane.get`; an
-  `env` there is refused, never dropped). `cwd` and `env` are optional and ride the create/split call verbatim.
-  Resolves `{ paneId, tabId, workspaceId }`.
+  `workspace-ambiguous` refusal, and a created workspace's root tab takes `place.label` through the same
+  `tab.rename`), and `place { pane }` names an existing pane (its ref comes from `pane.get`; any `env` there is
+  refused with `env_mismatch`, never dropped). `cwd` and a plain `env` record are optional and ride the
+  create/split call verbatim; an `env: { overlay, unset? }` instead lands on the fresh pane's inherited
+  environment and is checked there exactly as `startAgent`'s overlay (`env_mismatch` on a miss). A failed
+  rename or overlay check rolls back what the placement made, as a failed start does. Resolves
+  `{ paneId, tabId, workspaceId }`.
 - Muse private readiness (additive Node helpers in `src/muse.ts`): `museReadiness(env?)` probes only
   the explicitly supplied effective PATH, returning unknown/missing/launcher-only/installed and always
   `signedIn: 'unknown'`. `installMuse({ home, path, installDir?, signal?, timeoutMs? })` is explicit

@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { scratchDir } from '../../test-support.ts';
 import { HerdrKit } from '../src/kit.ts';
+import { socketTransport } from '../src/socket.ts';
 import { startFakeHerdr, type FakeHerdr } from '../src/testing/index.ts';
 import type { HerdrSnapshot } from '../src/types.ts';
 
@@ -81,6 +82,45 @@ test('place on a caller-owned pane answers its ids from pane.get', async () => {
     await assert.rejects(kit.place({ env: { A: 'b' }, place: { pane: 'w1:p1' } }),
       (e: { code?: string }) => e.code === 'env_mismatch');
   }, 'herdr-place-pane');
+});
+
+test('place labels a created root tab and proves an overlay env in the pane', async () => {
+  await withKit(async (kit, fake) => {
+    // A fresh fake pane's shell starts with PATH and HOME, so HOME is the name to remove.
+    const ref = await kit.place({ cwd: '/tmp/place', place: { workspace: 'Umer repo', label: 'shell' },
+      env: { overlay: { BYOKIT_ACCOUNT: 'umer' }, unset: ['HOME'] } });
+    assert.equal(fake.world.workspaces.find((w) => w.workspace_id === ref.workspaceId)?.label, 'Umer repo');
+    assert.equal(fake.world.tabs.find((t) => t.tab_id === ref.tabId)?.label, 'shell', 'the root tab takes the label');
+    const env = fake.world.panes.find((p) => p.pane_id === ref.paneId)?.env ?? {};
+    assert.equal(env.BYOKIT_ACCOUNT, 'umer', 'the overlay value lands in the pane');
+    assert.ok('PATH' in env && !('HOME' in env), 'the unset name is gone, the rest survives');
+    assert.equal(fake.world.agents.some((a) => a.pane_id === ref.paneId), false, 'no agent on the placed pane');
+    // A failed overlay check closes the workspace this place made.
+    const workspaces = fake.world.workspaces.length;
+    await assert.rejects(kit.place({ place: { workspace: 'new', label: 'bad' }, env: { overlay: { 'bad;name': 'x' } } }),
+      (e: { code?: string }) => e.code === 'env_mismatch');
+    assert.equal(fake.world.workspaces.length, workspaces, 'no workspace survives a failed overlay');
+    // An overlay on a caller-owned pane has nothing to land on: refused.
+    await assert.rejects(kit.place({ place: { pane: 'w1:p1' }, env: { overlay: { A: 'b' } } }),
+      (e: { code?: string }) => e.code === 'env_mismatch');
+  }, 'herdr-place-overlay');
+});
+
+test('place closes the workspace it made when the root tab rename fails', async () => {
+  const fake = await startFakeHerdr({ dir: scratchDir('herdr-place-rename-fault') });
+  const socket = socketTransport(fake.socketPath);
+  const transport = { ...socket, call: (method: string, params: Record<string, unknown>, timeoutMs?: number) =>
+    method === 'tab.rename' ? Promise.reject(Object.assign(new Error('herdr: rename_failed: no'), { code: 'rename_failed' }))
+      : socket.call(method, params, timeoutMs) };
+  const kit = new HerdrKit({ mode: 'adopt', bin: '/not/used', socketPath: fake.socketPath, transport });
+  try {
+    await kit.start();
+    const workspaces = fake.world.workspaces.map((w) => w.workspace_id);
+    await assert.rejects(kit.place({ place: { workspace: 'Umer repo', label: 'shell' } }),
+      (e: { code?: string }) => e.code === 'rename_failed');
+    assert.deepEqual(fake.world.workspaces.map((w) => w.workspace_id), workspaces, 'no new workspace is left');
+    assert.equal(fake.world.workspaces.some((w) => w.label === 'Umer repo'), false);
+  } finally { await kit.stop(); await fake.stop(); }
 });
 
 async function until(count: () => number, want: number, ms: number, what: string): Promise<void> {

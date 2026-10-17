@@ -103,8 +103,11 @@ export type PlaceTarget = { workspace: 'new'; label?: string } | { workspace: st
   | { split: string; direction: 'right' | 'down' } | { pane: string };
 // Placement without an agent (6.4): the same ladder `startAgent` resolves, minus the launch —
 // a shell tab, an application tab (both `tab: 'new'`, the app's own cwd/env/label shape it), a
-// shell split, a new or labelled workspace. Every path creates its pane and starts nothing.
-export type PlaceRequest = { cwd?: string; place: PlaceTarget; env?: Record<string, string> };
+// shell split, a new or labelled workspace. Every path creates its pane and starts nothing. A
+// created workspace's root tab takes `place.label`; an `{ overlay, unset? }` env is set and
+// checked in the fresh pane like `startAgent`'s, and a failed rename or check closes what was made.
+export type PlaceRequest = { cwd?: string; place: PlaceTarget;
+  env?: Record<string, string> | { overlay: Record<string, string>; unset?: string[] } };
 // The typed edits (6.2, 7.1): `rename` and `focus` name exactly one pane, tab or workspace; `layout`
 // applies a `layout.apply` tree to a tab or workspace. Host (`HerdrKit`) and device take the same shapes.
 export type HerdrTarget = { pane?: string; tab?: string; workspace?: string };
