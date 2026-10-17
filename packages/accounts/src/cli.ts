@@ -387,7 +387,7 @@ export function cliAccounts(options: CliOptions) {
   async function opencodeArgs(r: Row): Promise<string[]> {
     try {
       const { stdout } = await promisify(execFile)(binary('opencode'), ['--version'], { env: spawnEnv(r), timeout: 15_000, maxBuffer: 64 * 1024 });
-      const major = /(?:^|\s)v?(\d+)\.\d+\.\d+$/.exec(stdout.split('\n')[0].trim())?.[1];
+      const major = /(?:^|\s)v?(\d+)\.\d+/.exec(stdout.split('\n')[0].trim())?.[1];
       return major !== undefined && Number(major) >= 2 ? ['--standalone'] : [];
     } catch {
       return [];

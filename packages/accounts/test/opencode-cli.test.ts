@@ -298,17 +298,31 @@ test('opencode launch delivers the key through folder files; logout/remove delet
   await kit.remove(bare.id);
 });
 
-test('opencode version is read from the first line only: a banner naming another version keeps the real one', async () => {
+test('opencode version is the first version token on the first line: a trailing 2.x mention keeps 1.x', async () => {
   const root = scratchDir('opencode-cli-banner');
   const { store } = memoryKeys();
   const env = { HOME: join(root, 'home'), PATH: '/unused' };
-  const bin = fakeBin(join(root, 'bins'), 'opencode-banner', 'update to 2.0.1 is available; running 1.19.3');
+  const bin = fakeBin(join(root, 'bins'), 'opencode-banner', '1.19.3 → 2.0.1 available');
   const kit = cliAccounts({ stateDir: join(root, 'plans'), bins: { opencode: bin }, env, keyStore: store });
   const { account } = await kit.add('opencode');
   await kit.saveKey(account.id, CANARY, { workspace: 'org_BANNER' });
   const launched = await kit.launch(account.id);
   if (!launched.ok) throw new Error('opencode launch was not ready');
   assert.deepEqual(launched.args, [], '1.x refuses --standalone even when the banner names 2.x');
+  await kit.remove(account.id);
+});
+
+test('opencode prerelease 2.x still gets --standalone', async () => {
+  const root = scratchDir('opencode-cli-prerelease');
+  const { store } = memoryKeys();
+  const env = { HOME: join(root, 'home'), PATH: '/unused' };
+  const bin = fakeBin(join(root, 'bins'), 'opencode-beta', 'opencode v2.0.0-beta.1');
+  const kit = cliAccounts({ stateDir: join(root, 'plans'), bins: { opencode: bin }, env, keyStore: store });
+  const { account } = await kit.add('opencode');
+  await kit.saveKey(account.id, CANARY, { workspace: 'org_BETA' });
+  const launched = await kit.launch(account.id);
+  if (!launched.ok) throw new Error('opencode launch was not ready');
+  assert.deepEqual(launched.args, ['--standalone']);
   await kit.remove(account.id);
 });
 
