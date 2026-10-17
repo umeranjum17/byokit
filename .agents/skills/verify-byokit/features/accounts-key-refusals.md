@@ -48,7 +48,7 @@ const { id } = await kit.add('Umer', 'openrouter:key', { key });
 const model = (port) => ({ id: 'fixture-model', name: 'Fixture', provider: 'openrouter', api: 'openai-completions', baseUrl: `http://127.0.0.1:${port}/api/v1`,
   reasoning: false, input: ['text'], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 128 });
 const got = []; const errors = [];
-for (const label of ['402 credits body', '401', '429', '402 empty body', 'dropped after 402', '500', '500 echoes key', '500 5 MB html', 'closed port']) {
+for (const label of ['402 credits body', '401', '429', '402 empty body', 'dropped after 402', '500', '500 echo check', '500 5 MB html', 'closed port']) {
   try { await kit.respond('Umer', { account: id, model: model(label === 'closed port' ? closedPort : server.address().port), context: { messages: [{ role: 'user', content: 'Hello', timestamp: 0 }] } }); got.push('answered'); console.log(`${label}: answered (unexpected)`); }
   catch (e) { got.push(e.code); errors.push(e); console.log(`${label}: ${e.name} ${e.code} — ${e.message} | status ${e.status} | detail (${e.detail?.length ?? 0} chars) ${JSON.stringify(e.detail?.slice(0, 80))}`); }
 }
@@ -72,7 +72,7 @@ Run the SKILL.md Evidence block. The `dropped after 402` leg follows a served `4
 
 - **Happy path shows.** One `fake:` line per ask (no repeats: never retried), then `402 credits body: KeyRouteError out_of_credit — This account is out of credit. Add credit with the provider, then try again.`, `401: … key_refused — …`, `429: … rate_limited — …`, `402 empty body: … out_of_credit — …`, and `PASS`.
 - **Missing and error cases show.** `dropped after 402: KeyRouteError request — This account could not answer. Try again.` and `500: KeyRouteError request — …`.
-- **Detail shows.** `500 echoes key: … request — This account could not answer. Try again. | status 500 | detail (42 chars) "model not enabled for umer-test [redacted]"`, `500 5 MB html: … | status 500 | detail (300 chars) "<html>xxx…"`, `closed port: … | status undefined | detail (…) "fetch failed: connect ECONNREFUSED 127.0.0.1:…"`, and the key never in any error.
+- **Detail shows.** `500 echo check: … request — This account could not answer. Try again. | status 500 | detail (42 chars) "model not enabled for umer-test [redacted]"`, `500 5 MB html: … | status 500 | detail (300 chars) "<html>xxx…"`, `closed port: … | status undefined | detail (…) "fetch failed: connect ECONNREFUSED 127.0.0.1:…"`, and the key never in any error.
 
 Regression: against a build without the mapping every leg reads `request` and the drive exits 1; against a build without `detail` the `echoed`, `huge` and `offline` checks fail.
 
