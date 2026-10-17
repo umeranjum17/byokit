@@ -302,6 +302,38 @@ test('a provider refusal reads as its own typed error: out of credit, refused ke
   } finally { server.close(); }
 });
 
+test('a failed ask says why: the status and the provider’s own words, scrubbed and capped, under the same calm message', async () => {
+  const key = 'sk-umer-test-SECRET';
+  const answers: Array<[number, string, string]> = [[500, 'application/json', JSON.stringify({ error: { message: `model not enabled for umer-test ${key}` } })],
+    [400, 'text/plain', `bad request; Authorization: Bearer ${key}`], [500, 'text/html', `<html>${'x'.repeat(5_000_000)}</html>`]];
+  const server = createServer((_req, res) => { const [status, type, body] = answers.shift()!; res.writeHead(status, { 'content-type': type }).end(body); });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const closed = createServer().listen(0, '127.0.0.1');
+  await once(closed, 'listening');
+  const closedPort = (closed.address() as AddressInfo).port;
+  closed.close();
+  try {
+    const h = harness();
+    const { id } = await h.a.add('member', 'openrouter:key', { key });
+    const ask = (port: number) => ({ account: id, model: { ...model('openrouter', 'openai-completions'), baseUrl: `http://127.0.0.1:${port}/api/v1` }, context });
+    const port = (server.address() as AddressInfo).port;
+    const failure = (e: unknown) => e as KeyRouteError;
+    const plan = failure(await h.a.respond('member', ask(port)).catch((e) => e));
+    assert.deepEqual([plan.code, plan.message, plan.status, plan.detail], ['request', 'This account could not answer. Try again.', 500, 'model not enabled for umer-test [redacted]']);
+    const echoed = failure(await h.a.respond('member', ask(port)).catch((e) => e));
+    assert.deepEqual([echoed.status, echoed.detail], [400, 'bad request; Authorization: Bearer [redacted]']);
+    const huge = failure(await h.a.respond('member', ask(port)).catch((e) => e));
+    assert.equal(huge.status, 500);
+    assert.ok(huge.detail!.startsWith('<html>xxx') && huge.detail!.length <= 300, `${huge.detail?.length}`);
+    const offline = failure(await h.a.respond('member', ask(closedPort)).catch((e) => e));
+    assert.equal(offline.code, 'request');
+    assert.equal(offline.status, undefined);
+    assert.match(offline.detail!, /ECONNREFUSED|connect/);
+    for (const e of [plan, echoed, huge, offline]) assert.ok(!JSON.stringify({ ...e, message: e.message }).includes(key));
+  } finally { server.close(); }
+});
+
 test('no plaintext fallback or key-store error leakage; failed metadata commit restores the previous secret', async () => {
   const bad = new Accounts({ keyStore: () => ({ get: async () => { throw new Error(canary); }, set: async () => { throw new Error(canary); }, delete: async () => { throw new Error(canary); } }) });
   for (const action of [() => bad.saveKey('member', 'groq:key', canary, { billedPerUse: true }), () => bad.status('member', 'groq:key'), () => bad.logout('member', 'groq:key')]) {

@@ -11,7 +11,10 @@ export type KeyAsk<T extends Api = Api> = {
 };
 export class KeyRouteError extends Error {
   readonly code: 'unsupported_platform' | 'needs_host' | 'needs_keys' | 'no_upstream_flow' | 'provider' | 'request' | 'needs_workspace' | 'workspaces_unread' | 'aborted' | 'auth_override' | 'out_of_credit' | 'key_refused' | 'rate_limited';
-  constructor(code: KeyRouteError['code']) {
+  /** For logs and an optional details line, never the shown words: the HTTP status the provider answered, and its own
+   *  message (or the network error) with the account's secrets replaced, on one line of at most 300 characters. */
+  readonly status?: number; readonly detail?: string;
+  constructor(code: KeyRouteError['code'], cause?: { status?: number; detail?: string }) {
     super({ unsupported_platform: 'This model adapter is not available on this platform.', needs_host: 'This model adapter needs an isolated app-owned host.',
       needs_keys: 'Key routes need the @byokit/accounts/keys entry: withKeys(platform).',
       no_upstream_flow: 'This sign-in method is not in the pinned upstream.', provider: 'Choose a model from this account’s provider.',
@@ -21,6 +24,8 @@ export class KeyRouteError extends Error {
       auth_override: 'A prebuilt client owns its own sign-in. Use the native adapter explicitly.',
       out_of_credit: say('ask.outOfCredit'), key_refused: say('ask.keyRefused'), rate_limited: say('ask.rateLimited') }[code]);
     this.name = 'KeyRouteError'; this.code = code;
+    if (cause?.status) this.status = cause.status;
+    if (cause?.detail) this.detail = cause.detail;
   }
 }
 
@@ -52,6 +57,18 @@ function publicValue<T>(value: T, secrets: readonly string[]): T {
   return JSON.parse(JSON.stringify(value, (_key, entry) => typeof entry === 'string' ? secrets.reduce((text, secret) => text.split(secret).join('[redacted]'), entry) : entry)) as T;
 }
 
+/** Pi's error text without its status prefix, the body's own message when it is JSON. Scrub before capping, so a cut
+ *  never leaves part of a secret. */
+function detailOf(said: unknown, secrets: readonly string[]): string | undefined {
+  if (typeof said !== 'string') return;
+  let text = publicValue(said, secrets).replace(/^\d{3}:?\s*/, '');
+  let body: { message?: unknown; error?: { message?: unknown } } | undefined;
+  try { body = JSON.parse(text); } catch { body = undefined; }
+  const message = body?.error?.message ?? body?.message;
+  if (typeof message === 'string') text = message;
+  return text.replace(/\s+/g, ' ').trim().slice(0, 300) || undefined;
+}
+
 /** A provider's own refusal, by the HTTP status it answered; anything else is the bounded generic. */
 const refusal = (status: number): KeyRouteError['code'] =>
   status === 402 ? 'out_of_credit' : status === 401 || status === 403 ? 'key_refused' : status === 429 ? 'rate_limited' : 'request';
@@ -63,15 +80,25 @@ export async function keyRespond<T extends Api>(r: Route, access: string | Model
   const auth: ModelAuth = typeof access === 'string' ? { apiKey: access } : access;
   const secrets = [auth.apiKey, ...Object.values(auth.headers ?? {}).map((value) => value?.replace(/^Bearer\s+/i, ''))].filter((s): s is string => !!s);
   if (ask.model.api === 'google-vertex' && typeof access === 'string' && /^<[^>]+>$/.test(access.trim())) throw new KeyRouteError('request');
-  // The status only, read where this request went out: Pi's error event keeps it inside its message. Adapters that
-  // take no fetch (Google, Bedrock) never set it and stay 'request'.
+  // The status, read where this request went out: Pi's error event keeps it inside its message, and a refused
+  // connection reaches that event only as "Connection error.", so the network cause is read here too. Adapters that
+  // take no fetch (Google, Bedrock) never set either and stay 'request'.
   let status = 0;
+  let network: string | undefined;
   const send = options?.fetch ?? fetcher;
   const watched: typeof fetch = async (input, init) => {
-    const res = await (send ?? fetch)(input, init);
-    status = res.status;
-    return res;
+    try {
+      const res = await (send ?? fetch)(input, init);
+      status = res.status;
+      return res;
+    } catch (e) {
+      const cause = (e as { cause?: { message?: unknown } })?.cause?.message;
+      network = `${e instanceof Error ? e.message : String(e)}${typeof cause === 'string' ? `: ${cause}` : ''}`;
+      throw e;
+    }
   };
+  const failed = (code: KeyRouteError['code'], said?: unknown) =>
+    new KeyRouteError(code, { status, detail: detailOf(network ?? said, secrets) });
   try {
   let api = await runtime.api(ask.model.api);
   if (r.provider === 'cloudflare') api = (await runtime.cloudflare()).cloudflareStreams(api);
@@ -110,21 +137,21 @@ export async function keyRespond<T extends Api>(r: Route, access: string | Model
     } } as unknown as ModelsApiStreamOptions<T>);
     for await (const raw of stream) {
       const event = publicValue(raw, secrets);
-      // Pi error events carry raw diagnostics; the public error is intentionally bounded. The gateway's own
+      // The shown words stay bounded; the provider's own words ride along as `detail`. The gateway's own
       // workspace refusal names its cause, so it maps to its own typed words instead of the generic retry.
       if (event.type === 'error') {
         const reason = (event as { error?: { errorMessage?: unknown } }).error?.errorMessage;
-        throw new KeyRouteError(typeof reason === 'string' && /workspace selection is required/i.test(reason) ? 'needs_workspace'
-          : event.reason === 'aborted' ? 'aborted' : refusal(status));
+        throw failed(typeof reason === 'string' && /workspace selection is required/i.test(reason) ? 'needs_workspace'
+          : event.reason === 'aborted' ? 'aborted' : refusal(status), reason);
       }
       ask.onEvent?.(event);
       if (event.type === 'text_delta') ask.onText?.(event.delta);
     }
     const result = publicValue(await stream.result(), secrets);
-    if (result.stopReason === 'error' || result.stopReason === 'aborted') throw new KeyRouteError(result.stopReason === 'aborted' ? 'aborted' : 'request');
+    if (result.stopReason === 'error' || result.stopReason === 'aborted') throw failed(result.stopReason === 'aborted' ? 'aborted' : 'request', result.errorMessage);
     return result;
   } catch (error) {
     if (error instanceof KeyRouteError) throw error;
-    throw new KeyRouteError(options?.signal?.aborted ? 'aborted' : refusal(status));
+    throw failed(options?.signal?.aborted ? 'aborted' : refusal(status), error instanceof Error ? error.message : String(error));
   }
 }
