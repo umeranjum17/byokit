@@ -23,6 +23,7 @@ import { authStatus, createAuthStatus } from './auth-status.ts';
 import { outputSchema } from './output.ts';
 import { createKeys, type AddKeyHandle } from './keys.ts';
 import { routes as routeTable, type RouteView } from './routes.ts';
+import { installedPlugins, pinnedSpec, recordPlugin, PluginInstallError } from './plugins.ts';
 import { providerOf } from './pick.ts';
 import { signIn as startSignIn, signOut as engineSignOut, type SignInCtx } from './signin.ts';
 import { reconcileConfig, browserToolPolicySafe, browserProfileAcknowledged, browserSessionMayRun, memoryLimited as configMemoryLimited, configKeyPath, readConfigKey, writeConfigKey } from './config.ts';
@@ -510,6 +511,7 @@ export class OpenClawKit {
   private members?: ReturnType<typeof createMembers>;
   private readonly locks = createLocks();
   private readonly routeMap = new Map<string, { session: string }>();
+  private installs: Promise<void> = Promise.resolve();
   private accountsCtl?: ReturnType<typeof createAccounts>;
   // One bridge and one approval surface per kit: listeners and run registrations survive reconnects (B3).
   // Only the socket itself is per-connection. Approvals always reaches the live transport through this.request().
@@ -702,6 +704,7 @@ export class OpenClawKit {
       dropLane: (member, provider) => this.dropKeyLane(member, provider),
       backfillLane: (member, model) => this.backfillKeyLane(member, model),
       restarting: () => this.engineRestarting(),
+      routes: () => this.routes(),
       request: (method, params, options) => this.request()(method, params, options),
       ensure: (member) => this.ensureMember(member),
       authConfig: () => this.authSnapshot(),
@@ -960,7 +963,58 @@ export class OpenClawKit {
   }
 
   routes(): RouteView[] {
-    return routeTable();
+    return routeTable({ plugins: installedPlugins(this.engine.root) });
+  }
+
+  /** B7 (5.7): install one external provider plugin a `needs_plugin` route names into this kit's own engine, at its
+   * pin; resolves once the restarted gateway lists it enabled at that version. Discovery never installs. Serialized:
+   * concurrent installs would race the allow-list update and double-spawn the installer into one engine tree. */
+  installPlugin(pluginId: string): Promise<void> {
+    const run = this.installs.then(() => this.runInstall(pluginId));
+    this.installs = run.catch(() => {});
+    return run;
+  }
+
+  private async runInstall(pluginId: string): Promise<void> {
+    const pin = pinnedSpec(pluginId);
+    const version = pin.spec.slice(pin.spec.lastIndexOf('@') + 1);
+    const loaded = async (): Promise<boolean> => {
+      const { plugins } = await this.request()('plugins.list', {}) as { plugins: { id: string; enabled: boolean; version?: string }[] };
+      return plugins.some((p) => p.id === pluginId && p.enabled && p.version === version);
+    };
+    if (!(await loaded())) {
+      // The installer enables a plugin only when the (restrictive once non-empty) allow list already names it.
+      const allow = (this.getConfigKey('plugins.allow') ?? []) as string[];
+      const added = !allow.includes(pluginId);
+      if (added) this.setConfigKey('plugins.allow', [...allow, pluginId]);
+      let code: number | null;
+      let output: string;
+      try {
+        ({ code, output } = await this.engine.installPlugin(pin.spec));
+      } catch (error) {
+        if (added) this.setConfigKey('plugins.allow', allow);
+        throw error;
+      }
+      if (code !== 0) {
+        if (added) this.setConfigKey('plugins.allow', allow);
+        if (output.includes('pinned plugin integrity mismatch'))
+          throw new PluginInstallError('integrity', `${pin.spec} does not match its pinned integrity; nothing was installed.`);
+        if (output.includes('not a pinned plugin version'))
+          throw new PluginInstallError('version', `The registry does not serve ${pin.spec} as pinned; nothing was installed.`);
+        const reason = output.trim().split('\n').filter((line) => line.trim()).slice(-3).join(' ');
+        throw new PluginInstallError('install', `${pin.spec} did not install: ${reason || `the installer exited ${code}`}`);
+      }
+    }
+    // The running gateway hot-reloads the installer's config write without loading the plugin (verified live on
+    // 2026.8.35); a safe restart (after in-flight requests) loads it, and the kit reconnects. Reads fail while it is down.
+    if (!(await loaded())) await this.request()('gateway.restart.request', { reason: `byokit installed plugin ${pluginId}` });
+    const deadline = Date.now() + RESTART_MS;
+    while (!(await loaded().catch(() => false))) {
+      if (Date.now() >= deadline) throw new PluginInstallError('install', `${pin.spec} installed, but the engine did not load it.`);
+      await delay(500);
+    }
+    // Readiness (routes(), the keys gates) tracks this record, so it names the plugin only once the engine lists it loaded.
+    recordPlugin(this.engine.root, pluginId);
   }
 
   async providerStatus(member: Member): Promise<string[] | undefined> {
@@ -1107,7 +1161,7 @@ export class OpenClawKit {
   }
 
   private async backfillKeyLane(member: Member, model: string | undefined): Promise<void> {
-    const found = model === undefined ? [] : routeTable().filter((r) => r.keyEntry && r.readiness === 'ready' && r.provider === providerOf(model));
+    const found = model === undefined ? [] : this.routes().filter((r) => r.keyEntry && r.readiness === 'ready' && r.provider === providerOf(model));
     await this.accountsCtl?.backfill(member, found).catch((error: unknown) =>
       this.o.log?.(`key lane ${member}: not indexed yet: ${error instanceof Error ? error.message : String(error)}`));
   }
@@ -1246,7 +1300,8 @@ export class OpenClawKit {
     const safe = reconcileConfig(response.config, { root: this.engine.root, stateDir: this.o.stateDir,
       port: Number(readFileSync(join(this.engine.root, 'port'), 'utf8')), pluginId: this.o.plugin?.id ?? 'byokit',
       pluginDir: join(this.engine.root, 'plugin'), policyPath: fileURLToPath(new URL('../policy/policy.mjs', import.meta.url)), app: patch,
-      offered: this.o.offered, installPolicy: this.o.installPolicy, ...(this.o.browser ? { browser: this.browserConfig() } : {}) });
+      offered: this.o.offered, installPolicy: this.o.installPolicy, plugins: installedPlugins(this.engine.root),
+      ...(this.o.browser ? { browser: this.browserConfig() } : {}) });
     if (this.o.browser && !browserToolPolicySafe(safe, this.toolNames())) throw new Error('browser tool policy refused');
     if (this.o.browser) { this.browserSafe = false; for (const broker of this.brokers.values()) await broker.fence(true); }
     await this.request()('config.patch', { raw: JSON.stringify(safe), baseHash: response.hash, ...(o?.agentId ? { agentId: o.agentId } : {}) });

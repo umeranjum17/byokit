@@ -149,10 +149,14 @@ test('a bundled skill without a frontmatter version matches origin.version', asy
   );
 });
 
-test('only the @openclaw/ plugin scope is allowed', async () => {
-  assert.equal(run(pluginRequest('@openclaw/weather')).decision, 'allow');
-  assert.equal(run(pluginRequest('someone-weather')).decision, 'block');
-  assert.equal(run(pluginRequest('@openclaw/weather'), {}).decision, 'allow');
+// The pins the kit configures (5.7, B7): only an exact pinned spec installs.
+const pinned = { BYOKIT_PLUGIN_PINS: JSON.stringify(['@openclaw/weather', '@openclaw/weather@1.2.3'].map(spec => ({ spec, integrity: 'sha512-x' }))) };
+
+test('only a pinned @openclaw/ plugin spec is allowed', async () => {
+  assert.equal(run(pluginRequest('@openclaw/weather'), pinned).decision, 'allow');
+  assert.equal(run(pluginRequest('someone-weather'), pinned).decision, 'block');
+  assert.equal(run(pluginRequest('@openclaw/weather')).decision, 'block');
+  assert.equal(run(pluginRequest('@openclaw/weather@9.9.9'), pinned).decision, 'block');
 });
 
 test('a self-declared @openclaw/ name without registry source proof blocks (N4)', async () => {
@@ -163,7 +167,7 @@ test('a self-declared @openclaw/ name without registry source proof blocks (N4)'
     run(pluginRequest('@openclaw/weather', {
       source,
       request: { kind, mode: 'install', ...(requestedSpecifier === undefined ? {} : { requestedSpecifier }) },
-    })).decision;
+    }), pinned).decision;
   assert.equal(
     spoof({ kind: 'local-path', authority: 'user', mutable: true, network: false }, '/tmp/evil', 'plugin-dir'),
     'block',
@@ -178,10 +182,10 @@ test('a self-declared @openclaw/ name without registry source proof blocks (N4)'
   );
   const bare = pluginRequest('@openclaw/weather') as Record<string, unknown>;
   delete bare.source;
-  assert.equal(run(bare).decision, 'block');
+  assert.equal(run(bare, pinned).decision, 'block');
   // npm source but a non-scope specifier: the specifier governs, not the manifest name.
   assert.equal(spoof(npmSource, 'someone-else'), 'block');
-  // A versioned registry specifier still allows.
+  // A pinned versioned registry specifier still allows.
   assert.equal(spoof(npmSource, '@openclaw/weather@1.2.3'), 'allow');
 });
 

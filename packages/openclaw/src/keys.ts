@@ -3,7 +3,7 @@ import { openCodeWorkspaces, type OpenCodeGoWorkspace } from '@byokit/accounts/o
 import { activate, type ActivationCtx } from './activation.ts';
 import { keyAgentId, MEMBER_ID, KEY_PREFIX, untilListed } from './members.ts';
 import { providerOf } from './pick.ts';
-import { routes, type RouteView } from './routes.ts';
+import type { RouteView } from './routes.ts';
 import { modelsOf } from './accounts.ts';
 import { LIVE_CATALOGS } from './constants.ts';
 import type { Member, ModelInfo } from './types.ts';
@@ -22,6 +22,7 @@ export type AddKeyHandle = Promise<AddKeyResult> & { cancel(): void };
 
 export function createKeys(ctx: ActivationCtx & {
   root: string;
+  routes(): RouteView[]; // readiness with the external plugins the kit installed (B7)
   ensure(member: Member): Promise<{ agentId: string }>;
   restarting?(): boolean;
   prepareOwner(agentId: string): Promise<void>;
@@ -77,7 +78,7 @@ export function createKeys(ctx: ActivationCtx & {
   };
   const models = async (member: Member, o: { authChoice: string }): Promise<ModelInfo[]> => {
     if (!check(member)) throw new Error('Choose your own member.');
-    const route = routes().find((r) => r.choice === o.authChoice && r.keyEntry && r.readiness === 'ready');
+    const route = ctx.routes().find((r) => r.choice === o.authChoice && r.keyEntry && r.readiness === 'ready');
     if (!route || !LIVE_CATALOGS.includes(route.provider)) return [];
     await ctx.ensure(member);
     const catalog = await ctx.request('byokit.catalog', { provider: route.provider }) as
@@ -95,7 +96,7 @@ export function createKeys(ctx: ActivationCtx & {
       const done = (async (): Promise<AddKeyResult> => {
         if (!check(member)) throw new Error('Choose your own member.');
         if (!o.apiKey.trim()) return failure('invalid', 'empty');
-        const route = routes().find((r) => r.choice === o.authChoice && r.keyEntry && r.readiness === 'ready');
+        const route = ctx.routes().find((r) => r.choice === o.authChoice && r.keyEntry && r.readiness === 'ready');
         if (!route || (o.model !== undefined && !LIVE_CATALOGS.includes(route.provider))) return failure('not_included', 'model');
         // A workspace names a live-catalog login's own workspace only; another route takes no header, and a
         // refusal here leaves the member's lanes untouched (it lands before any prepare or activation).
