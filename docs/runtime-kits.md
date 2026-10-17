@@ -558,9 +558,14 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
     `{ privateKey, publicKey }` shape and the Crewhouse legacy `{ deviceId, publicKeyPem, privateKeyPem }` shape, and
     never rewrites an existing file so an upgraded house keeps its keys). Connect the transport; wait up to `handshakeMs` (default 90 s) for
    hello-ok, polling the child every 200 ms. Exit code 78 once → run `doctor --fix --yes --non-interactive` (60 s)
-   with state `repairing`, relaunch. Other exit → `failed/exited`. A handshake timeout → state `restarting` with `retryAt` on step 3's backoff (a close before hello stays inside the transport's own retry, so it surfaces as this timeout; a terminal rejection such as a bad token fails at once), then
-   step 2 runs again with the engine stopped and spawned afresh; the fifth consecutive failed start → `failed/handshake`. This retry applies only to a first start: once the kit has reached `ready` since the last `stop()`, a missed hello keeps the reconnect path.
-   `stop()` cancels a pending retry, and `start()` resolves only when the kit reaches `ready`, fails or is stopped; a fresh `start()` from `failed` gets a new budget of attempts. Protocol ≠ 4 →
+   with state `repairing`, relaunch. A handshake timeout or any other engine exit before hello is a missed attempt (a
+   close before hello stays inside the transport's own retry, so it surfaces as the timeout; a terminal rejection such
+   as a bad token fails at once): state `restarting` with `retryAt` on step 3's backoff, then step 2 runs again with the
+   engine stopped and spawned afresh; the fifth missed attempt → `failed/handshake`. One loop owned by the `start()`
+   call runs these attempts: each call has its own budget and its own wait, `stop()` cancels the wait of the call in
+   flight, step 3 stays out until a first start reaches `ready`, and `start()` resolves only when the kit reaches
+   `ready`, fails or is stopped. This retry applies only to a first start: once the kit has reached `ready` since the last `stop()`, a
+   `start()` has one attempt and reconnects stay with step 3. Protocol ≠ 4 →
    `needs-update/version`. Then start the bridge socket; state `ready`.
 3. **Crash**: on child exit while not stopping: drop the transport, state `restarting` with
    `retryAt = now + min(30 s, 1 s × 2^failures)`, then `start()` again; failures reset on a successful handshake.
