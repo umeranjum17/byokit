@@ -278,7 +278,7 @@ export class Engine {
       child.stdout.on('data', keep); child.stderr.on('data', keep);
       const timer = setTimeout(() => child.kill('SIGKILL'), 300_000);
       child.once('error', error => { clearTimeout(timer); this.started.forget(child); reject(error); });
-      child.once('exit', code => { clearTimeout(timer); this.started.forget(child); resolve({ code, output }); });
+      child.once('close', code => { clearTimeout(timer); this.started.forget(child); resolve({ code, output }); });
     });
   }
   doctorContext(): { entry: string; env: Record<string, string> } {
