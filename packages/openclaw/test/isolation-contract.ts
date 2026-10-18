@@ -6,6 +6,7 @@ import { connect } from 'node:net';
 import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../src/engine.ts';
+import { signIn } from '../src/signin.ts';
 
 const listening = (port: number) => new Promise<boolean>(resolve => {
   const socket = connect({ host: '127.0.0.1', port });
@@ -127,16 +128,24 @@ else process.exit(2);
       writeFileSync(status, 'hang');
       await engine.start();
       assert.equal(engine.doctorContext().env.CLAUDE_CONFIG_DIR, undefined, 'an unanswered sign-in probe keeps the installed login location');
+      // The gateway sees no login there, and its in-process restart keeps that env: the fallback sign-in stops before any login.
+      assert.equal(engine.claudeLoginUnread(), true);
+      const phone = await signIn({ request: async method => { assert.equal(method, 'openclaw.setup.detect'); return { candidates: [] }; },
+        ensure: async member => ({ agentId: member }), callbackPort: 0, authConfig: () => '', restarted: async () => true,
+        claudeLoginUnread: () => engine.claudeLoginUnread() }, 'umer', { authChoice: 'anthropic-cli' }, () => {}).done;
+      assert.deepEqual(phone, { state: 'failed', via: 'browser', why: 'failed', error: 'Claude Code is installed here, but its sign-in could not be checked. Run claude once on this machine to sign in, then try again.' });
       await engine.stop();
       writeFileSync(status, 'signed-out');
       process.env.CODEX_HOME = join(decoy, '.codex');
       await engine.start();
       const fallback = engine.doctorContext().env, folder = join(engine.root, 'home', '.claude');
       assert.deepEqual([fallback.HOME, fallback.CLAUDE_CONFIG_DIR, fallback.CODEX_HOME], [decoy, folder, join(decoy, '.codex')]);
+      assert.equal(engine.claudeLoginUnread(), false, 'the fallback sign-in writes the folder the gateway reads');
       const childEnv = () => { try { return JSON.parse(readFileSync(join(engine.root, 'home', 'child.json'), 'utf8')).env; } catch { return {}; } };
       for (let i = 0; i < 300 && childEnv().CLAUDE_CONFIG_DIR !== folder; i++) await delay(20);
       assert.equal(childEnv().CLAUDE_CONFIG_DIR, folder, 'the gateway got the fallback folder');
     }
+    await engine.stop(); // The stock doctor refuses to be a second writer next to a running gateway.
     assert.equal(engine.doctor(60_000).status, 0, 'doctor --fix exits 0');
     for (const name of ['.pi', '.openclaw', '.codex', '.claude', '.config/herdr']) assert.equal(readFileSync(join(decoy, name, 'canary'), 'utf8'), name);
     assert.deepEqual(tree(), before, 'start and doctor --fix write nothing into the person\'s home');

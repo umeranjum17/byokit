@@ -604,6 +604,10 @@ Each `start()` first asks the installed `claude auth status --json` (the person'
 `loggedIn: false` (or no `claude` is on the PATH), that launch sets `CLAUDE_CONFIG_DIR=<home>/.claude`, the folder the
 phone-started fallback sign-in (5.7) signs into; a signed-in installed Claude Code is used as is. Any other outcome
 (timeout, overflow, no parsed answer) is unknown and keeps the person's own login location, with no fallback.
+The fallback sign-in always writes `<home>/.claude`, and the gateway's in-process restart keeps its env, so a launch
+without that `CLAUDE_CONFIG_DIR` (`Engine.claudeLoginUnread()`) never starts it: a phone sign-in the gateway does not
+detect fails before any login with "Claude Code is installed here, but its sign-in could not be checked. Run claude
+once on this machine to sign in, then try again."
 
 With `channels.telegram` (5.18) the gateway process alone drops `OPENCLAW_SKIP_CHANNELS` and gets
 `TELEGRAM_BOT_TOKEN=<token>`; doctor and plugin installs keep channels skipped and never see the token.

@@ -1040,6 +1040,7 @@ export class OpenClawKit {
       ensure: (member) => this.ensureMember(member), callbackPort: this.o.callbackPort ?? 1455,
       nativeClaudeLogin: () => this.engine.nativeClaudeLogin(),
       resetNativeClaudeLogin: () => this.engine.resetNativeClaudeLogin(),
+      claudeLoginUnread: () => this.engine.claudeLoginUnread(),
       onDisconnect: (fn) => { this.signInDisconnects.add(fn); return () => { this.signInDisconnects.delete(fn); }; },
       stopSignal: this.engine.stopSignal,
       authConfig: () => this.authSnapshot(),

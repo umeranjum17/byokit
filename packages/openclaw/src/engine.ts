@@ -295,12 +295,14 @@ export class Engine {
     });
   }
   private get path() { return ['/usr/bin', '/bin', ...this.o.enginePath ?? []].join(':'); }
+  // The engine's own Claude folder: the fallback login writes it and, only with claudeFallback, the gateway reads it.
+  private get claudeFolder() { return join(this.root, 'home', '.claude'); }
   doctorContext(): { entry: string; env: Record<string, string> } {
     const home = join(this.root, 'home');
     return { entry: this.entry, env: {
       PATH: this.path, LANG: 'C.UTF-8', ...personal(), OPENCLAW_HOME: home,
       OPENCLAW_STATE_DIR: join(this.root, 'state'), OPENCLAW_CONFIG_PATH: join(this.root, 'openclaw.json'),
-      XDG_CACHE_HOME: join(home, '.cache'), ...this.claudeFallback ? { CLAUDE_CONFIG_DIR: join(home, '.claude') } : {},
+      XDG_CACHE_HOME: join(home, '.cache'), ...this.claudeFallback ? { CLAUDE_CONFIG_DIR: this.claudeFolder } : {},
       TMPDIR: join(this.root, 'tmp'), OPENCLAW_NO_RESPAWN: '1', OPENCLAW_SKIP_CHANNELS: '1', OPENCLAW_DISABLE_BONJOUR: '1',
       OPENCLAW_EXEC_SHELL_SNAPSHOT: '0', OPENCLAW_LOAD_SHELL_ENV: '0', OPENCLAW_GATEWAY_TOKEN: this.token,
       BYOKIT_BRIDGE_SOCK: this.bridgeSock,
@@ -333,15 +335,18 @@ export class Engine {
     const bins = bin ? { claude: bin } : {};
     // The login runs in its own HOME: CLAUDE_CONFIG_DIR points it at the engine's folder, which accounts refuses as a HOME's default login.
     for (const dir of ['home', 'login-home']) mkdirSync(join(this.root, dir), { recursive: true, mode: 0o700 });
-    const cli = cliAccounts({ stateDir: this.root, bins, env: { PATH: env.PATH, HOME: join(this.root, 'login-home'), LANG: env.LANG, TMPDIR: env.TMPDIR, XDG_CONFIG_HOME: join(home, '.config'), XDG_CACHE_HOME: join(home, '.cache'), XDG_DATA_HOME: join(home, '.local/share'), XDG_STATE_HOME: join(home, '.local/state') }, managedFolders: { claude: join(home, '.claude') } });
+    const cli = cliAccounts({ stateDir: this.root, bins, env: { PATH: env.PATH, HOME: join(this.root, 'login-home'), LANG: env.LANG, TMPDIR: env.TMPDIR, XDG_CONFIG_HOME: join(home, '.config'), XDG_CACHE_HOME: join(home, '.cache'), XDG_DATA_HOME: join(home, '.local/share'), XDG_STATE_HOME: join(home, '.local/state') }, managedFolders: { claude: this.claudeFolder } });
     this.claudeAccounts = cli; this.claudeLogin = remoteCliHost({ cli, bins });
     return this.claudeLogin;
   }
+  /** Whether a fallback sign-in would write a folder this engine's gateway does not read: it started on the person's
+   * login location (installed sign-in, or a probe with no answer), and an in-process restart keeps that env. */
+  claudeLoginUnread(): boolean { return Boolean(this.o.spawnEngine) && !this.claudeFallback; }
   resetNativeClaudeLogin(): Promise<void> {
     if (this.claudeReset) return this.claudeReset;
     const cli = this.claudeAccounts, host = this.claudeLogin;
     if (!cli || !host || host.signal.aborted) return Promise.resolve();
-    this.claudeReset = (async () => { for (const row of await cli.list()) { if (host.signal.aborted) return; if (row.provider === 'claude' && row.state === 'ready' && cli.folderOf(row.id) === join(this.root, 'home', '.claude')) await cli.remove(row.id); } })().finally(() => { this.claudeReset = undefined; });
+    this.claudeReset = (async () => { for (const row of await cli.list()) { if (host.signal.aborted) return; if (row.provider === 'claude' && row.state === 'ready' && cli.folderOf(row.id) === this.claudeFolder) await cli.remove(row.id); } })().finally(() => { this.claudeReset = undefined; });
     return this.claudeReset;
   }
   doctor(timeoutMs: number): { status: number | null } {
