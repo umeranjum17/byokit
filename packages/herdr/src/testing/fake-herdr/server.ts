@@ -91,6 +91,8 @@ export type FakeHerdr = {
   watching(): string[];
   watching(paneId: string): boolean;
   snapshotCount(): number;            // `session.snapshot` calls answered so far
+  pingCount(): number;
+  holdPing(): () => void;
   holdSnapshot(): () => void;         // hold the next snapshot answer(s) until the release runs
   failNextSnapshot(code?: string, message?: string): void;   // the next snapshot answer errors once
   holdAck(): () => void;              // hold the next subscribe ack(s) until the release runs
@@ -138,6 +140,8 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
   const timers: NodeJS.Timeout[] = [];
   let stopping = false;
   let snapshots = 0;
+  let pings = 0;
+  const pingGates: { promise: Promise<void>; release: () => void }[] = [];
   let snapshotGates: { promise: Promise<void>; release: () => void }[] = [];
   let nextSnapshotFailure: { code: string; message: string } | undefined;
   let ackGates: { promise: Promise<void>; release: () => void }[] = [];
@@ -187,7 +191,7 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
   const bin = writeBinShim({ dir, socketPath });
 
   const methods: Record<string, (params: Params) => unknown | Promise<unknown>> = {
-    ping: () => ({ protocol: HERDR_PROTOCOL, version: HERDR_VERSION }),
+    ping: async () => { pings++; await Promise.all(pingGates.map((entry) => entry.promise)); return { protocol: HERDR_PROTOCOL, version: HERDR_VERSION }; },
 
     'session.snapshot': async () => {
       snapshots += 1;
@@ -1077,6 +1081,8 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     snapshotCount() {
       return snapshots;
     },
+    pingCount() { return pings; },
+    holdPing() { return gate(pingGates); },
     holdSnapshot() {
       return gate(snapshotGates);
     },

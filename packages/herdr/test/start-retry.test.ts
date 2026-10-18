@@ -36,6 +36,25 @@ test('K5: start against a missing socket reports failed; a retry after Herdr app
   }
 });
 
+test('a connected silent Herdr reports stalled, retries, then becomes ready when it answers', async () => {
+  const fake = await startFakeHerdr({ dir: scratchDir('herdr-stalled') });
+  const releasePing = fake.holdPing();
+  const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath, livenessTimeoutMs: 50 });
+  try {
+    const starting = kit.start();
+    await until(() => kit.state.phase === 'stalled', 2000, 'silent connected server reports stalled');
+    await until(() => fake.pingCount() >= 2, 5000, 'silent server ping is retried');
+    assert.equal(kit.state.phase, 'stalled');
+    releasePing();
+    await starting;
+    assert.equal(kit.state.phase, 'ready');
+  } finally {
+    releasePing();
+    await kit.stop().catch(() => {});
+    await fake.stop();
+  }
+});
+
 test('K5: a failed start cleans up so stop then start still dials', async () => {
   const dir = scratchDir('herdr-start-retry-stop');
   const socketPath = join(dir, 'herdr.sock');

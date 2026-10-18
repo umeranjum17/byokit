@@ -1,0 +1,3 @@
+# Herdr stalled server recovery
+
+From the repo root after `npm run build`, use a temporary consumer to import the public `@byokit/herdr` and `@byokit/herdr/testing` entries. Hold the fake's ping with `fake.holdPing()`, start the kit with `livenessTimeoutMs: 50`, then verify `kit.state.phase === 'stalled'`, `stateWords(kit.state)` says the computer is busy and the app keeps trying, and `fake.pingCount()` grows while held. Release the ping and verify `kit.start()` completes with `ready`. Also start against a refused socket and verify `failed` plus the unchanged restart wording. Stop the kit and fake. Record commands and actual output with the SKILL.md Evidence block in `.verify-artifacts/herdr-stalled-server/`.
