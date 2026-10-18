@@ -455,7 +455,7 @@ test('a host lists apps from the known apps and a remote MCP directory, then con
   const remote = mcpDirectory(directoryUrl);
   const known = await catalog([knownApps]);
   const reviewed = await catalog([reviewedApps]);
-  assert.equal(reviewed.length, 10); assert.ok(reviewed.every(app => app.auth === 'discovery' && app.description && app.mcpUrl?.startsWith('https://') && app.icon?.startsWith('https://')));
+  assert.equal(reviewed.length, 12); assert.ok(reviewed.every(app => app.auth === 'discovery' && app.description && app.mcpUrl?.startsWith('https://') && app.icon?.startsWith('https://')));
   assert.deepEqual(known.map(a => a.id), Object.keys(providers));
   assert.deepEqual(Object.fromEntries(known.map(a => [a.id, a.auth])), { google: 'oauth', drive: 'oauth', gmail: 'oauth', calendar: 'oauth', notion: 'discovery', canva: 'discovery', github: 'device' });
   const { auth: _auth, ...drive } = known.find(a => a.id === 'drive')!;

@@ -245,7 +245,7 @@ registers itself where offered, `device` shows a typed code. `icon` is an HTTPS
 image address from the listing; render it as untrusted content.
 
 - `knownApps` lists the kit's presets (`providers`) and reads nothing.
-- `reviewedApps` is the kit's reviewed MCP Registry-shaped vendor directory. It includes only servers whose unauthenticated MCP initialize and OAuth metadata were live-probed for DCR; unknown registry entries never appear in it. Its list is intentionally smaller than the open registry.
+- `reviewedApps` is the kit's reviewed MCP Registry-shaped directory of 12 vendors whose unauthenticated MCP initialize and OAuth metadata were live-probed for DCR; unknown registry entries never appear in it.
 - `mcpDirectory(url, { fetch?, timeoutMs? })` reads a remote MCP directory that
   answers in the MCP registry's `GET /v0/servers` shape, following
   `metadata.nextCursor` (at most 100 pages), only when listed. It keeps servers

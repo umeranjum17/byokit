@@ -49,6 +49,8 @@ const reviewedRegistry = [
   ['com.miro.mcp', 'Miro', 'Find and work with Miro boards.', 'https://mcp.miro.com/', 'https://miro.com/favicon.ico'],
   ['com.dropbox.mcp', 'Dropbox', 'Find and manage files in Dropbox.', 'https://mcp.dropbox.com/mcp', 'https://www.dropbox.com/favicon.ico'],
   ['com.todoist.mcp', 'Todoist', 'Find and manage tasks in Todoist.', 'https://ai.todoist.net/mcp', 'https://todoist.com/favicon.ico'],
+  ['com.intercom.mcp', 'Intercom', 'Find and manage customer conversations in Intercom.', 'https://mcp.intercom.com/mcp', 'https://www.intercom.com/favicon.ico'],
+  ['com.attio.mcp', 'Attio', 'Find and manage customer relationship records in Attio.', 'https://mcp.attio.com/mcp', 'https://attio.com/favicon.ico'],
 ].map(([name, title, description, url, icon]) => ({ name, title, description, remotes: [{ type: 'streamable-http', url }], icons: [{ src: icon }] }));
 
 /** The reviewed, live-probed MCP vendors, published in MCP Registry server.json shape. */

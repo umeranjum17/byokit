@@ -12,6 +12,10 @@ const apps = [
   { id: 'com.dropbox.mcp', name: 'Dropbox', description: 'Find and manage files in Dropbox.', url: 'https://mcp.dropbox.com/mcp', icon: 'https://www.dropbox.com/favicon.ico' },
   { id: 'com.calendly.mcp', name: 'Calendly', description: 'Manage scheduling links and events in Calendly.', url: 'https://mcp.calendly.com/mcp', icon: 'https://calendly.com/favicon.ico' },
   { id: 'com.todoist.mcp', name: 'Todoist', description: 'Find and manage tasks in Todoist.', url: 'https://ai.todoist.net/mcp', icon: 'https://todoist.com/favicon.ico' },
+  { id: 'com.intercom.mcp', name: 'Intercom', description: 'Find and manage customer conversations in Intercom.', url: 'https://mcp.intercom.com/mcp', icon: 'https://www.intercom.com/favicon.ico' },
+  { id: 'com.attio.mcp', name: 'Attio', description: 'Find and manage customer relationship records in Attio.', url: 'https://mcp.attio.com/mcp', icon: 'https://attio.com/favicon.ico' },
+  { id: 'com.granola.mcp', name: 'Granola', description: 'Find and work with meeting notes in Granola.', url: 'https://mcp.granola.ai/mcp', icon: 'https://granola.ai/favicon.ico' },
+  { id: 'com.webflow.mcp', name: 'Webflow', description: 'Work with sites and content in Webflow.', url: 'https://mcp.webflow.com/mcp', icon: 'https://webflow.com/favicon.ico' },
 ];
 const get = async (url, init) => {
   const response = await fetch(url, { ...init, signal: AbortSignal.timeout(20000), headers: { accept: 'application/json', ...init?.headers } });
@@ -21,17 +25,17 @@ const get = async (url, init) => {
 const results = await Promise.all(apps.map(async app => {
   try {
     const { response } = await get(app.url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'byokit-directory-probe', version: '1' } } }) });
-    if (response.status !== 401) return { ...app, status: response.status, auth: 'rejected', included: false };
+    if (response.status !== 401) return { ...app, status: response.status, auth: 'rejected', qualifies: false };
     const advertised = response.headers.get('www-authenticate')?.match(/resource_metadata\s*=\s*"([^"]+)"/i)?.[1];
     const resourceUrl = advertised ?? `${new URL(app.url).origin}/.well-known/oauth-protected-resource${new URL(app.url).pathname}`;
     const { body: resource } = await get(resourceUrl);
-    if (!resource?.authorization_servers?.length) return { ...app, status: response.status, auth: 'no-resource-metadata', included: false };
+    if (!resource?.authorization_servers?.length) return { ...app, status: response.status, auth: 'no-resource-metadata', qualifies: false };
     const issuer = resource.authorization_servers[0], base = new URL(issuer);
     const metadataUrl = `${base.origin}/.well-known/oauth-authorization-server${base.pathname === '/' ? '' : base.pathname.replace(/\/$/, '')}`;
     const { body: metadata } = await get(metadataUrl);
     const auth = metadata?.registration_endpoint ? 'discovery' : 'registered-client-required';
-    return { ...app, status: response.status, resourceMetadata: resourceUrl, issuer, authorizationMetadata: metadataUrl, dcr: !!metadata?.registration_endpoint, auth, included: response.status === 401 && !!metadata?.registration_endpoint };
-  } catch (error) { return { ...app, auth: 'probe-error', included: false, error: String(error) }; }
+    return { ...app, status: response.status, resourceMetadata: resourceUrl, issuer, authorizationMetadata: metadataUrl, dcr: !!metadata?.registration_endpoint, auth, qualifies: response.status === 401 && !!metadata?.registration_endpoint };
+  } catch (error) { return { ...app, auth: 'probe-error', qualifies: false, error: String(error) }; }
 }));
 console.log(JSON.stringify(results, null, 2));
 if (results.some(result => result.auth === 'probe-error')) process.exitCode = 1;
