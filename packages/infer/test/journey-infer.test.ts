@@ -167,7 +167,7 @@ test('an app completes a call with bounded, greedy, schema-constrained decoding,
   assert.equal(done.text, '{"ok":true}');
   assert.equal(done.stop, 'eos');
   assert.equal(done.model, `tiny@${REV}`);
-  const probabilities = [{ token: 'hello', probability: 0.75 }];
+  const probabilities = [{ content: 'hello', probs: [{ tok_str: 'hello', prob: 0.75 }] }];
   const scored = make({ reply: () => ({ content: 'hello', completion_probabilities: probabilities }) });
   await scored.local.install();
   const withProbabilities = await scored.local.complete({ prompt: 'rate this', n_probs: 3 });

@@ -1,4 +1,4 @@
-import { InferError, type Completion, type CompleteRequest, type InferDevice, type InferLimits, type InferModel, type InferModelStore, type InferState } from './types.ts';
+import { InferError, type Completion, type CompletionProbability, type CompleteRequest, type InferDevice, type InferLimits, type InferModel, type InferModelStore, type InferState } from './types.ts';
 
 /** Structural subset of llama.rn 0.12.9 (`initLlama`, `LlamaContext`); no runtime or type import of React Native. */
 export type LlamaRnContextParams = {
@@ -13,7 +13,7 @@ export type LlamaRnCompletionParams = {
 export type LlamaRnCompletionResult = {
   text: string; content: string; tokens_predicted: number; tokens_evaluated: number;
   truncated: boolean; stopped_eos: boolean; stopped_word: string; stopped_limit: number; context_full: boolean; interrupted: boolean;
-  completion_probabilities?: { token: string; probability: number }[];
+  completion_probabilities?: CompletionProbability[];
 };
 export type LlamaRnContext = {
   gpu: boolean;

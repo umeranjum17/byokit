@@ -60,6 +60,8 @@ export type InferModelStore = {
   freeBytes?(): Promise<number>;
 };
 
+export type CompletionProbability = { content: string; probs: { tok_str: string; prob: number }[] };
+
 export type CompleteRequest = {
   system?: string;
   prompt: string;
@@ -79,5 +81,5 @@ export type Completion = {
   /** `<id>@<revision>`. */
   model: string;
   /** Top-N token probabilities for each generated token, when requested. */
-  completion_probabilities?: { token: string; probability: number }[];
+  completion_probabilities?: CompletionProbability[];
 };
