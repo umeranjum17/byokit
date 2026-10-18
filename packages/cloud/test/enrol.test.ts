@@ -7,7 +7,7 @@ import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import { DeviceLink, Host, b64url, keyPair, type DeviceGrant, type Grant, type LinkStatus } from '../../pair/src/index.ts';
 import { machine } from '../src/machine.ts';
 import { setup, type SetupStep } from '../src/setup.ts';
-import { PHONE_KEY_FILE, RECEIPT_FILE, bindPhoneKey, deliverPhoneKey, pairEnrol, phoneReceipt } from '../src/enrol.ts';
+import { OWNER_KEY_FILE, PHONE_KEY_FILE, RECEIPT_FILE, bindPhoneKey, deliverPhoneKey, pairEnrol, phoneReceipt, replacePhoneKey } from '../src/enrol.ts';
 import { DELIVER_SHELL } from '../src/unit.ts';
 import { checkRecipe } from '../src/recipe.ts';
 import { MachineError } from '../src/errors.ts';
@@ -66,7 +66,7 @@ test('the one phone key enrols once through delivery and the binding survives a 
     assert.equal(host.devices().length, 1);
 
     const other = keyPair();
-    await assert.rejects(bindPhoneKey(host, other.publicKey), (e: unknown) => e instanceof MachineError && e.code === 'exists');
+    await assert.rejects(bindPhoneKey(host, other.publicKey), (e: unknown) => e instanceof MachineError && e.code === 'owner-enrolled');
     assert.deepEqual(host.devices().map((g) => g.id), [first.id]);
 
     await assert.rejects(bindPhoneKey(host, new Uint8Array([1, 2, 3])), (e: unknown) => e instanceof MachineError && e.code === 'bad-recipe');
@@ -79,7 +79,7 @@ test('the one phone key enrols once through delivery and the binding survives a 
     assert.deepEqual(rebooted.devices().map((g) => g.key), [b64url(phone.publicKey)]);
     const same = await bindPhoneKey(rebooted, phone.publicKey.slice());
     assert.equal(same.bound, false);
-    await assert.rejects(bindPhoneKey(rebooted, keyPair().publicKey), (e: unknown) => e instanceof MachineError && e.code === 'exists');
+    await assert.rejects(bindPhoneKey(rebooted, keyPair().publicKey), (e: unknown) => e instanceof MachineError && e.code === 'owner-enrolled');
   } finally { rebooted.close(); }
   assert.equal(m.ref, ref);
 });
@@ -201,4 +201,79 @@ test('the recipe guard still refuses key-like names', () => {
   }
   assert.throws(() => checkRecipe({ ...recipe(), run: { argv: ['node', 'server.mjs', '--phone-key=x'], env: { PORT: '1' } } }, 'web'),
     (e: unknown) => e instanceof MachineError && e.code === 'bad-recipe');
+});
+
+test('a new phone sees the typed owner cause, and only a confirmed replaceOwner moves the computer to it, restart-safe', async () => {
+  const provider = fakeProvider();
+  const listed: MachineRef = { provider: 'sandbox-api', account: 'acct-test', id: 'sb-1', name: 'computer', keepCopies: true };
+  const inbox = (file: string) => provider.fake.machine.files.get(`/home/user/app/.byokit/inbox/${file}`)?.bytes;
+  // The machine's host process: a real Host over a durable grant store that handles each delivered
+  // inbox file, phone.bin with bindPhoneKey and owner.bin with replacePhoneKey, then writes its receipt.
+  const backing = grantsBacking();
+  let host = await openHost(backing);
+  const handled: string[] = [];
+  const withHost: Provider = { ...provider, list: async () => [listed], exec: async (ref, argv, o) => {
+    const r = await provider.exec(ref, argv, o);
+    const file = argv[5];
+    if (file === PHONE_KEY_FILE || file === OWNER_KEY_FILE) {
+      const landed = inbox(file)!.slice();
+      try {
+        await (file === OWNER_KEY_FILE ? replacePhoneKey(host, landed) : bindPhoneKey(host, landed));
+        provider.fake.machine.writeFile(`/home/user/app/.byokit/outbox/${RECEIPT_FILE}`, new TextEncoder().encode(phoneReceipt(host, landed)), 0o600);
+        handled.push(`${file}:bound`);
+      } catch (e) { handled.push(`${file}:${(e as MachineError).code}`); }
+    }
+    return r;
+  } };
+  const connect = async (key: Uint8Array, replaceOwner?: boolean): Promise<SetupStep[]> => {
+    const store = memoryStore();
+    const m = machine({ provider: withHost, store });
+    const steps: SetupStep[] = [];
+    for await (const s of setup({
+      provider: withHost, store, recipe: recipe('web'), pick: (all) => all[0], confirmId: 'sb-1',
+      pair: pairEnrol(m, recipe('web'), key), ...(replaceOwner === undefined ? {} : { replaceOwner }),
+    })) steps.push(s);
+    return steps;
+  };
+  const names = (steps: SetupStep[]) => steps.map((s) => s.step);
+  const phones = () => host.devices().filter((g) => g.kind === 'phone').map((g) => g.key);
+
+  // Phone A sets the computer up and gets its receipt.
+  const a = keyPair();
+  assert.deepEqual(names(await connect(a.publicKey)), ['checking-access', 'listing', 'inspecting', 'installing', 'pairing', 'ready']);
+  assert.deepEqual(phones(), [b64url(a.publicKey)]);
+
+  // The app is reinstalled on phone B (an empty store): a typed, plain cause, nothing changed on the machine.
+  const b = keyPair();
+  const before = [...provider.fake.machine.files.keys()].sort();
+  for (const replaceOwner of [undefined, false]) {
+    const refused = await connect(b.publicKey, replaceOwner);
+    assert.deepEqual(refused.at(-1), { step: 'failed', at: 'inspecting', cause: 'error.ownerEnrolled', retryable: false });
+    assert.deepEqual(names(refused), ['checking-access', 'listing', 'failed']);
+  }
+  assert.deepEqual([...provider.fake.machine.files.keys()].sort(), before);
+  assert.deepEqual(handled, ['phone.bin:bound']);
+  const runsBefore = provider.fake.machine.runs.length;
+
+  // The person confirms: the same setup with replaceOwner reinstalls in place, delivers B as owner.bin,
+  // and the host replaces A with B; the pairing receipt is B's.
+  const moved = await connect(b.publicKey, true);
+  assert.deepEqual(names(moved), ['checking-access', 'listing', 'inspecting', 'installing', 'pairing', 'ready']);
+  assert.ok(provider.fake.machine.runs.length > runsBefore);
+  assert.deepEqual(handled, ['phone.bin:bound', 'owner.bin:bound']);
+  assert.deepEqual(phones(), [b64url(b.publicKey)]);
+  const pairing = moved[4];
+  assert.ok(pairing.step === 'pairing' && pairing.receipt?.device.id === host.devices()[0].id);
+  assert.deepEqual(await replacePhoneKey(host, b.publicKey.slice()), { id: host.devices()[0].id, bound: false });
+  await assert.rejects(bindPhoneKey(host, a.publicKey.slice()), (e: unknown) => e instanceof MachineError && e.code === 'owner-enrolled');
+  host.close();
+  assert.deepEqual(backing.saved().map((g) => g.key), [b64url(b.publicKey)]);
+
+  // After a restart the durable grants still hold B only, and A's stale phone.bin is still refused.
+  host = await openHost(backing);
+  try {
+    assert.deepEqual(phones(), [b64url(b.publicKey)]);
+    assert.equal((await bindPhoneKey(host, b.publicKey.slice())).bound, false);
+    await assert.rejects(bindPhoneKey(host, inbox(PHONE_KEY_FILE)!.slice()), (e: unknown) => e instanceof MachineError && e.code === 'owner-enrolled');
+  } finally { host.close(); }
 });

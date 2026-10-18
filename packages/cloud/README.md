@@ -281,6 +281,25 @@ export async function bindOwner(host: Host, delivered: Uint8Array, workDir: stri
 }
 ```
 
+A reinstalled app or a new phone has an empty store, so `setup()` on the person's own computer ends
+`failed` with cause `error.ownerEnrolled` (not retryable) and changes nothing. Show that sentence and
+ask the person; only after they confirm, run the same `setup()` with `replaceOwner: true`. It
+reinstalls in place and the `pairEnrol` gate delivers the key as `owner.bin` (`OWNER_KEY_FILE`). On
+the machine, call `replacePhoneKey` for that file only, never for anything a paired device or the
+network sent: it revokes the old phone's grant, then binds the new key; write its receipt as above. Remove an inbox file only
+after its call resolves, so a crash part-way is finished on the next start.
+
+```ts
+import { OWNER_KEY_FILE, PHONE_KEY_FILE, bindPhoneKey, replacePhoneKey } from '@byokit/cloud';
+import { Host } from '@byokit/pair';
+
+export async function handleInbox(host: Host, file: string, delivered: Uint8Array) {
+  if (file === OWNER_KEY_FILE) return replacePhoneKey(host, delivered, 'Phone'); // the owner confirmed on the setup device
+  if (file === PHONE_KEY_FILE) return bindPhoneKey(host, delivered, 'Phone');   // first phone wins
+  return null;
+}
+```
+
 ## Link without pasting a key
 
 `claim({ baseUrl, email })` links the provider account through the provider's own

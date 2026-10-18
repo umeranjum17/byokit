@@ -9,14 +9,17 @@ import type { ExecResult, HostRecipe, Machine, MachineRef, Provider } from './ty
 /** The one inbox file holding the owner's phone public key (5.8 delivery). */
 export const PHONE_KEY_FILE = 'phone.bin';
 
+/** The inbox file holding a new owner phone's public key that replaces the old one (5.12). */
+export const OWNER_KEY_FILE = 'owner.bin';
+
 /** The host's answer in `<workDir>/.byokit/outbox/`, written after `bindPhoneKey`. */
 export const RECEIPT_FILE = 'receipt.json';
 
 /** What the phone pairs with: the host's public key, its grant on that host, and the secure address. */
 export type PairReceipt = { host: string; device: { id: string; name: string; role: 'control' }; urls: string[] };
 
-/** What setup() hands its `pair` gate: the secured address and a read of the host's outbox. */
-export type PairContext = { urls: string[]; read(file: string): Promise<string | null> };
+/** What setup() hands its `pair` gate: the secured address, a read of the host's outbox, and the person's re-enrol consent. */
+export type PairContext = { urls: string[]; read(file: string): Promise<string | null>; replaceOwner?: boolean };
 
 /** A phone public key is 32 raw bytes, nothing else. */
 const PHONE_KEY_BYTES = 32;
@@ -49,15 +52,21 @@ export type EnrolHost = {
   enrol(g: { key: Uint8Array; name: string; role: 'control'; kind: string }): Promise<{ id: string }>;
 };
 
-/** On the setup device: deliver the authenticated phone's public key to the machine's inbox. */
-export async function deliverPhoneKey(m: Machine, r: HostRecipe, key: Uint8Array): Promise<void> {
+/** The Host surface owner replacement adds: the real Host's revoke. */
+export type OwnerHost = EnrolHost & { revoke(id: string): Promise<void> };
+
+/**
+ * On the setup device: deliver the authenticated phone's public key to the machine's inbox,
+ * as `OWNER_KEY_FILE` when the person confirmed replacing the old owner phone.
+ */
+export async function deliverPhoneKey(m: Machine, r: HostRecipe, key: Uint8Array, o: { replaceOwner?: boolean } = {}): Promise<void> {
   checkKey(key);
-  await m.deliver(r, PHONE_KEY_FILE, key);
+  await m.deliver(r, o.replaceOwner === true ? OWNER_KEY_FILE : PHONE_KEY_FILE, key);
 }
 
 /**
  * On the machine, inside the host process: bind a delivered phone key with Host.enrol.
- * Resolves `{ id, bound: false }` when that key is already bound, rejects `exists` when
+ * Resolves `{ id, bound: false }` when that key is already bound, rejects `owner-enrolled` when
  * another phone key holds the binding, and enrols otherwise. The durable grant store is
  * the binding record, so the decision survives restarts.
  */
@@ -67,9 +76,23 @@ export async function bindPhoneKey(host: EnrolHost, key: Uint8Array, name = 'Pho
   const phones = host.devices().filter((g) => g.kind === 'phone');
   const same = phones.find((g) => g.key === want);
   if (same !== undefined) return { id: same.id, bound: false };
-  if (phones.length > 0) throw new MachineError('exists', 'this computer already has an owner phone enrolled');
+  if (phones.length > 0) throw new MachineError('owner-enrolled', 'this computer already has an owner phone enrolled');
   const added = await host.enrol({ key, name, role: 'control', kind: 'phone' });
   return { id: added.id, bound: true };
+}
+
+/**
+ * On the machine, inside the host process, for an `OWNER_KEY_FILE` delivery only: revoke every
+ * other phone grant, then bind this key. Revoking first ends the old phone's access at once and
+ * leaves room under a one-phone cap; a crash between the two leaves no phone, and handling the
+ * same file again (remove it only once this resolves) finishes the swap. Never call it for
+ * anything a phone or link peer sent: the inbox write is the provider account's authority.
+ */
+export async function replacePhoneKey(host: OwnerHost, key: Uint8Array, name = 'Phone'): Promise<{ id: string; bound: boolean }> {
+  checkKey(key);
+  const want = b64urlOf(key);
+  for (const g of host.devices()) if (g.kind === 'phone' && g.key !== want) await host.revoke(g.id);
+  return bindPhoneKey(host, key, name);
 }
 
 /** The Host surface the receipt needs: its public key and its grants. The real Host fits. */
@@ -79,7 +102,7 @@ export type ReceiptHost = {
 };
 
 /**
- * On the machine, after `bindPhoneKey`: the receipt text the host writes to
+ * On the machine, after `bindPhoneKey` or `replacePhoneKey`: the receipt text the host writes to
  * `<workDir>/.byokit/outbox/receipt.json` (mode 0600, written to a temporary name and renamed).
  * Public values only: the host key, the phone's key and its grant.
  */
@@ -127,16 +150,16 @@ const parseReceipt = (text: string | null): { key: string; host: string; device:
  */
 export function pairEnrol(m: Machine, r: HostRecipe, key: Uint8Array): (ref: MachineRef, ctx: PairContext) => Promise<PairReceipt> {
   return async (_ref, ctx) => {
-    await deliverPhoneKey(m, r, key);
+    await deliverPhoneKey(m, r, key, { replaceOwner: ctx.replaceOwner });
     const want = b64urlOf(key);
     const until = Date.now() + RECEIPT_WAIT_MS;
     for (;;) {
       const got = parseReceipt(await ctx.read(RECEIPT_FILE));
       if (got?.key === want) return { host: got.host, device: got.device, urls: ctx.urls };
       if (Date.now() >= until) {
-        // A receipt for another phone means the host refused this one (bindPhoneKey `exists`).
+        // A receipt for another phone means the host refused this one (bindPhoneKey `owner-enrolled`).
         throw got !== null
-          ? new MachineError('exists', 'this computer already has an owner phone enrolled')
+          ? new MachineError('owner-enrolled', 'this computer already has an owner phone enrolled')
           : new MachineError('timeout', 'the cloud computer did not confirm this phone');
       }
       await new Promise<void>((resolve) => setTimeout(resolve, 1000));

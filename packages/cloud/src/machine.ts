@@ -348,9 +348,10 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
   };
 
   // 8.3 step 6: `<workDir>/.byokit/installed.json` with the ref's id at 0600 (G4).
+  const installedPath = (recipe: HostRecipe): string => `${recipe.workDir}/.byokit/installed.json`;
   const writeInstalled = async (r: MachineRef, recipe: HostRecipe): Promise<void> => {
     const bytes = new TextEncoder().encode(JSON.stringify({ id: r.id }));
-    const done = await asRunUser(r, recipe.user, ['sh', '-c', WRITE_SHELL, 'sh', `${recipe.workDir}/.byokit/installed.json`, '600'], {
+    const done = await asRunUser(r, recipe.user, ['sh', '-c', WRITE_SHELL, 'sh', installedPath(recipe), '600'], {
       timeoutMs: EXEC_TIMEOUT_MS, input: bytes,
     });
     if (done.code !== 0) {
@@ -448,7 +449,7 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       });
     },
 
-    adopt(selected, { confirmId, recipe, onLine }): Promise<MachineRef> {
+    adopt(selected, { confirmId, recipe, onLine, replaceOwner }): Promise<MachineRef> {
       return exclusive('an adoption', async () => {
         await load();
         await checkAccount(current());
@@ -472,20 +473,28 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
           if (probe.code === 0) throw new MachineError('exists', 'existing files or a service prevent adoption');
           if (probe.code !== 1 || probe.timedOut) throw new MachineError('provider', 'could not check existing installation');
         };
-        for (const path of [recipe.workDir, systemUnitPath(ref.name), userUnitPath(machineHome, ref.name), markerPath(ref.name, recipe)]) {
-          await absent(path);
-          await absent(path, '-L');
-        }
-        for (const args of [['systemctl'], ['systemctl', '--user']]) {
-          const unit = await o.provider.exec(ref, [...args, 'show', `byokit-${ref.name}.service`, '-p', 'LoadState'], { timeoutMs: EXEC_TIMEOUT_MS });
-          if (unit.code !== 0 || unit.timedOut) throw new MachineError('provider', 'could not check existing service');
-          if (!unit.stdout.split('\n').includes('LoadState=not-found')) throw new MachineError('exists', 'an existing service prevents adoption');
-        }
         for (let path = recipe.workDir; path !== ''; path = path.slice(0, path.lastIndexOf('/'))) await absent(path, '-L');
-        if (recipe.user !== undefined) {
-          const user = await o.provider.exec(ref, ['id', '-u', recipe.user], { timeoutMs: EXEC_TIMEOUT_MS });
-          if (user.code === 0) throw new MachineError('exists', 'the requested run user already exists');
-          if (user.code !== 1 || user.timedOut) throw new MachineError('provider', 'could not check the requested run user');
+        // 5.12: the kit's own install of this recipe has an owner phone; only an explicit replaceOwner takes it over.
+        // Asked as the run user: a G7 workDir is inside that user's 0700 home.
+        const mine = await asRunUser(ref, recipe.user, ['test', '-e', installedPath(recipe)], { timeoutMs: EXEC_TIMEOUT_MS });
+        if ((mine.code !== 0 && mine.code !== 1) || mine.timedOut) throw new MachineError('provider', 'could not check existing installation');
+        const owned = mine.code === 0;
+        if (owned && replaceOwner !== true) throw new MachineError('owner-enrolled', 'this app is already installed there for another phone');
+        if (!owned) {
+          for (const path of [recipe.workDir, systemUnitPath(ref.name), userUnitPath(machineHome, ref.name), markerPath(ref.name, recipe)]) {
+            await absent(path);
+            await absent(path, '-L');
+          }
+          for (const args of [['systemctl'], ['systemctl', '--user']]) {
+            const unit = await o.provider.exec(ref, [...args, 'show', `byokit-${ref.name}.service`, '-p', 'LoadState'], { timeoutMs: EXEC_TIMEOUT_MS });
+            if (unit.code !== 0 || unit.timedOut) throw new MachineError('provider', 'could not check existing service');
+            if (!unit.stdout.split('\n').includes('LoadState=not-found')) throw new MachineError('exists', 'an existing service prevents adoption');
+          }
+          if (recipe.user !== undefined) {
+            const user = await o.provider.exec(ref, ['id', '-u', recipe.user], { timeoutMs: EXEC_TIMEOUT_MS });
+            if (user.code === 0) throw new MachineError('exists', 'the requested run user already exists');
+            if (user.code !== 1 || user.timedOut) throw new MachineError('provider', 'could not check the requested run user');
+          }
         }
         await save(ref);
         try {

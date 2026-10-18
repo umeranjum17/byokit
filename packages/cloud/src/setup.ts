@@ -32,7 +32,9 @@ export async function* setup(o: {
   onLine?: (line: string) => void;
   address?: { hostname: string; port: number; onStep?: (s: TailnetStep) => void };  // the secure address; absent skips securing
   pair?: (ref: MachineRef, ctx: PairContext) => Promise<PairReceipt | void>;  // the app's Pair-ready gate; absent skips pairing
+  replaceOwner?: boolean;                          // 5.12: only after the person confirms an `error.ownerEnrolled` failure
 }): AsyncGenerator<SetupStep> {
+  const replaceOwner = o.replaceOwner === true;
   const m = machine({ provider: o.provider, store: o.store });
   const fail = (at: SetupStepName, e: unknown): SetupStep =>
     e instanceof MachineError
@@ -72,7 +74,7 @@ export async function* setup(o: {
   // adopt() tags install failures so resumed state is irrelevant.
   let ref: MachineRef;
   try {
-    ref = await m.adopt(selected, { confirmId: o.confirmId, recipe: o.recipe, onLine: o.onLine });
+    ref = await m.adopt(selected, { confirmId: o.confirmId, recipe: o.recipe, onLine: o.onLine, replaceOwner });
     yield { step: 'inspecting', ref };
     yield { step: 'installing', ref };
   } catch (e) {
@@ -116,7 +118,7 @@ export async function* setup(o: {
   if (o.pair !== undefined) {
     let receipt: PairReceipt | void;
     try {
-      receipt = await o.pair(ref, { urls, read: (file) => readOutbox(o.provider, ref, o.recipe, file) });
+      receipt = await o.pair(ref, { urls, read: (file) => readOutbox(o.provider, ref, o.recipe, file), replaceOwner });
     } catch (e) {
       yield fail('pairing', e);
       return;

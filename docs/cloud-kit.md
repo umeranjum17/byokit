@@ -233,6 +233,7 @@ export type MachineErrorCode =
   | 'unreachable'         // network or ssh transport failure
   | 'provider'            // any other provider failure; message holds the provider's own text
   | 'timeout'
+  | 'owner-enrolled'      // 5.12: adopt() found this app's own install (another phone owns it), or bindPhoneKey() another phone's key
 export class MachineError extends Error {
   readonly code: MachineErrorCode
   readonly extra: Readonly<Record<string, string>>
@@ -372,10 +373,11 @@ export function setup(o: {
   onLine?: (line: string) => void;                 // install lines, in order
   address?: { hostname: string; port: number; onStep?: (s: TailnetStep) => void };  // the secure address; absent skips securing
   pair?: (ref: MachineRef, ctx: PairContext) => Promise<PairReceipt | void>;  // the app's Pair-ready gate; absent skips pairing
+  replaceOwner?: boolean;                          // 5.12: only after the person confirms `error.ownerEnrolled`
 }): AsyncGenerator<SetupStep>
 ```
 
-`Machine.adopt` gains an optional `onLine` in its options, passed to its install; nothing else in 4.1 changes.
+`Machine.adopt` gains an optional `onLine` in its options, passed to its install, and an optional `replaceOwner` (5.12); nothing else in 4.1 changes.
 `src/words.ts` gains `errorKey(e: MachineError): WordKey`, the key `errorWords` shows (12).
 
 ### 4.6 Approved tailnet additions (2026-10-13)
@@ -441,9 +443,12 @@ also has `create`. The app shows `adopt.confirm` and calls it only after install
 The kit checks the stored and selected account, confirms the id in a fresh provider list,
 uses its live `keepCopies`, and requires status `on`. A missing id rejects `no-machine`;
 a mismatched confirmation rejects `confirm`. The recipe supplies the app's unit name.
-Before saving or installing, probe Linux/home and refuse `exists` for an existing workDir,
-workDir symlink ancestor, either unit path, root marker or requested run user. No existing
-installation is taken over. Probe failures propagate. Save the selected ref, then reuse
+Before saving or installing, probe Linux/home and refuse `exists` for a workDir symlink
+ancestor, then `owner-enrolled` when `<workDir>/.byokit/installed.json` exists (asked as the run
+user: the kit's own install of this recipe, so another phone owns it; 5.12), then `exists` for an
+existing workDir, either unit path, root marker or requested run user. No other existing
+installation is taken over; `replaceOwner: true` takes over only the kit's own install, skipping
+the `exists` probes after the symlink check and reinstalling in place. Probe failures propagate. Save the selected ref, then reuse
 `install(recipe)`. A failed install keeps that ref so the app retries with `install`, never create.
 An occupied store refuses `exists`; adoption shares the existing exclusive-operation lock.
 
@@ -597,7 +602,9 @@ are out of scope (phone-key enrol is 5.12).
   `address`). `ctx.read(file)` reads `<workDir>/.byokit/outbox/<file>` as the run user (8.2), `null` while absent.
 - A rejection yields one `failed` step and ends the stream: `at` is the phase whose call failed, `cause` is
   `errorKey` of the error (a non-`MachineError` reads `error.app`), and `retryable` is true only for
-  `unreachable`, `timeout`, `provider`, `balance` and `busy`. A failure from adopt's install call reads
+  `unreachable`, `timeout`, `provider`, `balance` and `busy`; `owner-enrolled` reads `error.ownerEnrolled` at
+  `inspecting`, not retryable: a repeat changes nothing until the person confirms and the app passes
+  `replaceOwner: true` (5.12). A failure from adopt's install call reads
   `installing`, as does a resumed install failure. Adoption guard refusals (including `busy`) read
   `inspecting`; a previously saved ref is not evidence that this attempt reached installation.
 - A retry calls `setup()` again with the same arguments: when the store already holds the picked machine
@@ -609,11 +616,15 @@ are out of scope (phone-key enrol is 5.12).
 `src/enrol.ts` (portable, in `.`) binds exactly the one authenticated phone, with no new pairing crypto and no secret-bearing recipe field: the setup device hands the phone's 32-byte public key to the machine through provider delivery, and the machine's host process binds it with `Host.enrol`.
 `PHONE_KEY_FILE` (`'phone.bin'`) is the one inbox file; `deliverPhoneKey(machine, recipe, key)` checks 32 bytes and calls `machine.deliver(recipe, PHONE_KEY_FILE, key)`.
 The key travels only as delivery bytes: never in `run.env`, `run.argv`, files outside the inbox, logs or error text, so the 8.1 `KEY`/`TOKEN`/`SECRET`/`PASSWORD` refusal stays unchanged.
-`bindPhoneKey(host, key, name?)` runs on the machine inside the host process against a structural host (`devices()` and `enrol()` only, so the real `Host` fits with no kit-to-kit import): it checks 32 bytes, resolves `{ id, bound: false }` when a `kind: 'phone'` grant already holds that key, rejects `exists` when one holds another key, and otherwise calls `host.enrol({ key, name, role: 'control', kind: 'phone' })` and resolves `{ id, bound: true }`.
+`bindPhoneKey(host, key, name?)` runs on the machine inside the host process against a structural host (`devices()` and `enrol()` only, so the real `Host` fits with no kit-to-kit import): it checks 32 bytes, resolves `{ id, bound: false }` when a `kind: 'phone'` grant already holds that key, rejects `owner-enrolled` when one holds another key, and otherwise calls `host.enrol({ key, name, role: 'control', kind: 'phone' })` and resolves `{ id, bound: true }`.
 First writer wins and restart-safe: the durable grant store is the binding record, so after a restart the same key rebinds idempotently and any other key is still refused.
-`phoneReceipt(host, key)` (K-RECEIPT) runs on the machine after `bindPhoneKey`, against `{ keys, devices() }` (the real `Host` fits): it returns the receipt text `{ v: 1, key, host, device: { id, name, role: 'control' } }` (base64url public keys only; it rejects `bad-recipe` for a key no phone grant holds). The host process writes it to `<workDir>/.byokit/outbox/receipt.json` (`RECEIPT_FILE`) at mode 0600, through a temporary name and a rename.
-`pairEnrol(machine, recipe, key)` is the `setup()` `pair` gate: it delivers the key, then reads `RECEIPT_FILE` through `ctx.read` once a second for up to 60 s until a receipt for that same key appears, and resolves `PairReceipt = { host, device, urls: ctx.urls }`, which the `pairing` step carries (shown with `setup.pairing`). At the deadline a receipt for another key rejects `exists` (the host refused this phone); none rejects `timeout`. A malformed or half-written file reads as absent.
+`phoneReceipt(host, key)` (K-RECEIPT) runs on the machine after `bindPhoneKey` or `replacePhoneKey`, against `{ keys, devices() }` (the real `Host` fits): it returns the receipt text `{ v: 1, key, host, device: { id, name, role: 'control' } }` (base64url public keys only; it rejects `bad-recipe` for a key no phone grant holds). The host process writes it to `<workDir>/.byokit/outbox/receipt.json` (`RECEIPT_FILE`) at mode 0600, through a temporary name and a rename.
+`pairEnrol(machine, recipe, key)` is the `setup()` `pair` gate: it delivers the key, then reads `RECEIPT_FILE` through `ctx.read` once a second for up to 60 s until a receipt for that same key appears, and resolves `PairReceipt = { host, device, urls: ctx.urls }`, which the `pairing` step carries (shown with `setup.pairing`). At the deadline a receipt for another key rejects `owner-enrolled` (the host refused this phone); none rejects `timeout`. A malformed or half-written file reads as absent.
 The phone links with the receipt and its own secret alone: `new DeviceLink({ v: 1, secretKey, hostName, ...receipt }, …)` from `@byokit/pair`. Every receipt value is public; none enters `run.env`, `run.argv`, logs or error text.
+
+Owner re-enrol (K-EXISTS). A reinstalled app or a new phone has an empty store, so `setup()` on its own computer fails `owner-enrolled` (`error.ownerEnrolled`, at `inspecting`, not retryable) and changes nothing. The app shows that sentence and asks the person to confirm; only then it calls the same `setup()` with `replaceOwner: true`. adopt takes over the kit's own install (5.2a) and reinstalls in place, and the gate's `PairContext` carries `replaceOwner: true`, so `pairEnrol` (or `deliverPhoneKey(machine, recipe, key, { replaceOwner: true })`) delivers the key as `OWNER_KEY_FILE` (`'owner.bin'`) instead of `phone.bin`. setup() never replaces an owner by itself. On the machine the host calls `replacePhoneKey(host, key, name?)` for `owner.bin` only, against `OwnerHost` (`EnrolHost` plus the real Host's `revoke(id)`): one call that revokes every other `kind: 'phone'` grant, then binds the key as `bindPhoneKey` does (a key already bound resolves `bound: false`); the host then writes the new phone's receipt as above. Revoking first ends the old phone's access at once and leaves room under a one-phone cap; a crash between the two leaves no phone, and handling the same file again finishes the swap, so the host removes an inbox file only after its call resolves. Other device kinds stay. The durable grant store holds the result across restarts, where the old key is still refused.
+
+Threat. Replacing the owner phone hands the computer to a new key, so the authority must be the provider account, never a phone or the network. Only a holder of the provider account key can write the inbox (provider delivery runs `exec` as the run user through the provider API), and the person consents on that setup device before `replaceOwner` is passed. The host never calls `replacePhoneKey` for anything a paired device, link peer or HTTP request sent, never writes its own inbox from such a request, and a `phone.bin` delivery can never replace an owner. Anyone who holds the account key can already run code on the machine, so this adds no new power to that holder; a stolen phone loses its grant the moment the owner re-enrols from a new phone.
 
 ## 6. Boat adapter (`src/boat.ts`)
 
@@ -1197,6 +1208,7 @@ key })` ends a claimed key (RFC 7009 at the metadata's `revocation_endpoint`, th
 | `error.notLinux` | This cloud computer can't run {app}. It needs a standard Linux setup. |
 | `error.wrongAccount` | This cloud computer belongs to a different {label} account than the one {app} is using. |
 | `error.app` | {app} hit a problem with your cloud computer. Try again, or ask for help. |
+| `error.ownerEnrolled` | {app} is already on this cloud computer, set up with another phone. You can move it to this phone instead. The other phone then loses access. |
 | `key.expiring` | Your {label} key expires on {date}. Make a new one to keep your cloud computer working. |
 | `copies.on` | {label} keeps copies of your cloud computer's disk, including your sign-ins, so it can wake where it left off. Your {label} account details may be handled in the United States. |
 | `snapshot.restore` | Resetting brings your cloud computer back to how it was on {date}. Everything changed on it since then is lost. |
@@ -1228,6 +1240,7 @@ key })` ends a claimed key (RFC 7009 at the metadata's `revocation_endpoint`, th
   | `needs-root` | `host.needsRoot` with `extra.command`, else `host.needsAdmin` |
   | `no-snapshot` | `error.noSnapshot` |
   | `wrong-account` | `error.wrongAccount` |
+  | `owner-enrolled` | `error.ownerEnrolled` |
   | `no-machine`, `exists`, `unsupported`, `confirm`, `bad-recipe`, `busy` | `error.app` (these are the app's own mistakes) |
 - Jargon: every sentence, with `{…}` slots replaced by `X`, must not match the herdr expression
   (`packages/herdr/test/words.test.ts`). `host.linger` refers to "the line below": the app shows

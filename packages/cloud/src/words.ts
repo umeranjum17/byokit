@@ -61,6 +61,7 @@ const ERROR_KEY: Record<MachineErrorCode, WordKey> = {
   'bad-recipe': 'error.app',
   'no-snapshot': 'error.noSnapshot',
   busy: 'error.app',
+  'owner-enrolled': 'error.ownerEnrolled',
 };
 
 /** The words.json key for a kit failure (section 12 table); setup()'s failed cause. */

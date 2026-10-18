@@ -49,6 +49,7 @@
   "error.notLinux": "This cloud computer can't run {app}. It needs a standard Linux setup.",
   "error.wrongAccount": "This cloud computer belongs to a different {label} account than the one {app} is using.",
   "error.app": "{app} hit a problem with your cloud computer. Try again, or ask for help.",
+  "error.ownerEnrolled": "{app} is already on this cloud computer, set up with another phone. You can move it to this phone instead. The other phone then loses access.",
   "key.expiring": "Your {label} key expires on {date}. Make a new one to keep your cloud computer working.",
   "copies.on": "{label} keeps copies of your cloud computer's disk, including your sign-ins, so it can wake where it left off. Your {label} account details may be handled in the United States.",
   "snapshot.restore": "Resetting brings your cloud computer back to how it was on {date}. Everything changed on it since then is lost.",
