@@ -4,15 +4,20 @@ import { randomBytes } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { join } from 'node:path';
 import { fakeOpenCodeConsole, scratchDir } from '../../test-support.ts';
-import { mock, test } from 'node:test';
+import { after, mock, test } from 'node:test';
 import { AuthStoreUnreadableError } from '../src/auth-store.ts';
 import { OpenClawKit } from '../src/kit.ts';
+import { Engine } from '../src/engine.ts';
 import { PluginInstallError } from '../src/plugins.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
 import type { RunRef } from '../src/types.ts';
 import { hostKeySeal, osKeyringSeal, type KeyringBackend } from '../../secrets/src/index.ts';
 import { stateWords } from '../src/words.ts';
 
+// spawnEngine: false leaves no child to hold the event loop, and the kit's handshake deadline is unref'd, so a test
+// waiting on a silent transport would idle the loop and Node 22 cancels the rest of the file; hold it for the file.
+const loop = setInterval(() => {}, 1_000);
+after(() => clearInterval(loop));
 // Go key adds list the key's workspaces; the console answers in this process (401 unless a test says otherwise).
 const orgs = fakeOpenCodeConsole();
 
@@ -194,6 +199,279 @@ test('close and bad protocol fail closed', async () => {
   const fake = fakeGateway();
   const kit = new OpenClawKit({ stateDir, spawnEngine: false, transport: (ctx) => ({ ...fake.factory(ctx), start: async () => ({ protocol: 3, server: { version: 'old' }, methods: [], events: [] }) }) });
   try { await assert.rejects(kit.start(), /gateway protocol/); assert.equal(kit.state.phase, 'needs-update'); }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a first start that misses its handshake retries inside the kit', async () => {
+  const stateDir = scratchDir('o4-first-start');
+  const fake = fakeGateway();
+  const states: Array<{ phase: string; retryAt?: number }> = [];
+  let attempts = 0;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200, onState: (s) => states.push(s),
+    transport: (ctx) => {
+      const transport = fake.factory(ctx);
+      return ++attempts === 1 ? { ...transport, start: () => new Promise<never>(() => {}) } : transport;
+    } });
+  try {
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    assert.equal(attempts, 2);
+    assert.equal(typeof states.find((s) => s.phase === 'restarting')?.retryAt, 'number');
+    assert.equal(states.some((s) => s.phase === 'failed'), false);
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a first start that never answers fails as a handshake once its attempts run out', async () => {
+  const stateDir = scratchDir('o4-first-start-cap');
+  const fake = fakeGateway();
+  let attempts = 0;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200,
+    transport: (ctx) => ({ ...fake.factory(ctx), start: () => { attempts++; return new Promise<never>(() => {}); } }) });
+  try {
+    await assert.rejects(kit.start(), /handshake timed out/);
+    assert.deepEqual(kit.state, { phase: 'failed', why: 'handshake' });
+    assert.equal(attempts, 5);
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a second start after an exhausted first start gets a full budget of attempts', async () => {
+  const stateDir = scratchDir('o4-second-start');
+  const fake = fakeGateway();
+  let attempts = 0;
+  let silentFor = 5;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200,
+    transport: (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, start: () => { attempts++; return silentFor-- > 0 ? new Promise<never>(() => {}) : transport.start(); } };
+    } });
+  try {
+    await assert.rejects(kit.start(), /handshake timed out/);
+    assert.deepEqual(kit.state, { phase: 'failed', why: 'handshake' });
+    assert.equal(attempts, 5);
+    silentFor = 4;
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    assert.equal(attempts, 10);
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a start after a stop during a first-start retry gets a fresh attempt budget', async () => {
+  const stateDir = scratchDir('o4-stop-then-start');
+  const fake = fakeGateway();
+  let attempts = 0;
+  let silentFor = 1;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200,
+    transport: (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, start: () => { attempts++; return silentFor-- > 0 ? new Promise<never>(() => {}) : transport.start(); } };
+    } });
+  try {
+    const started = kit.start();
+    for (let i = 0; i < 200 && kit.state.phase !== 'restarting'; i++) await delay(20);
+    await kit.stop();
+    await assert.rejects(started);
+    silentFor = 4;
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    assert.equal(attempts, 6);
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a start that follows an unawaited stop during a first-start retry reaches ready', async () => {
+  const stateDir = scratchDir('o4-unawaited-stop-then-start');
+  const fake = fakeGateway();
+  let attempts = 0;
+  let silentFor = 1;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200,
+    transport: (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, start: () => { attempts++; return silentFor-- > 0 ? new Promise<never>(() => {}) : transport.start(); } };
+    } });
+  try {
+    const staleRejected = assert.rejects(kit.start());
+    for (let i = 0; i < 200 && kit.state.phase !== 'restarting'; i++) await delay(20);
+    void kit.stop();
+    await kit.start();
+    await staleRejected;
+    assert.equal(kit.state.phase, 'ready');
+    assert.equal(attempts, 2);
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a terminal connect pause fails the first start at once without a retry', async () => {
+  const stateDir = scratchDir('o4-first-start-paused');
+  const fake = fakeGateway();
+  let attempts = 0;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200,
+    transport: (ctx) => ({ ...fake.factory(ctx), start: () => { attempts++; return Promise.reject(new Error('gateway connect paused: 4008 bad token')); } }) });
+  try {
+    await assert.rejects(kit.start(), /connect paused/);
+    assert.equal(attempts, 1);
+    assert.deepEqual(kit.state, { phase: 'failed', why: 'handshake' });
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a manual start after a dropped ready kit that misses its hello fails without a retry', async () => {
+  const stateDir = scratchDir('o4-reconnect-miss');
+  const fake = fakeGateway();
+  const states: Array<{ phase: string }> = [];
+  let attempts = 0;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200, onState: (s) => states.push(s),
+    transport: (ctx) => {
+      const transport = fake.factory(ctx);
+      return ++attempts === 2 ? { ...transport, start: () => new Promise<never>(() => {}) } : transport;
+    } });
+  try {
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    fake.drop('test');
+    assert.deepEqual(kit.state, { phase: 'failed', why: 'handshake' });
+    states.length = 0;
+    await assert.rejects(kit.start(), /handshake timed out/);
+    assert.equal(attempts, 2);
+    assert.equal(states.some((s) => s.phase === 'restarting'), false);
+    assert.deepEqual(kit.state, { phase: 'failed', why: 'handshake' });
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('stop during the second retry wait of a first start starts no further attempt', async () => {
+  const stateDir = scratchDir('o4-first-start-stop-second');
+  const fake = fakeGateway();
+  const waits: number[] = [];
+  let attempts = 0;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200,
+    onState: (s) => { if (s.phase === 'restarting') waits.push(s.retryAt!); },
+    transport: (ctx) => ({ ...fake.factory(ctx), start: () => { attempts++; return new Promise<never>(() => {}); } }) });
+  try {
+    const started = kit.start();
+    for (let i = 0; i < 300 && waits.length < 2; i++) await delay(20);
+    assert.equal(waits.length, 2);
+    assert.equal(kit.state.phase, 'restarting');
+    await kit.stop();
+    await assert.rejects(started);
+    await delay(2500);
+    assert.equal(attempts, 2);
+    assert.equal(waits.length, 2);
+    assert.notEqual(kit.state.phase, 'ready');
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('stop during a first-start retry starts no further attempt', async () => {
+  const stateDir = scratchDir('o4-first-start-stop');
+  const fake = fakeGateway();
+  let attempts = 0;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200,
+    transport: (ctx) => ({ ...fake.factory(ctx), start: () => { attempts++; return new Promise<never>(() => {}); } }) });
+  try {
+    const started = kit.start();
+    for (let i = 0; i < 200 && kit.state.phase !== 'restarting'; i++) await delay(20);
+    assert.equal(kit.state.phase, 'restarting');
+    await kit.stop();
+    await assert.rejects(started);
+    await delay(1500);
+    assert.equal(attempts, 1);
+    assert.notEqual(kit.state.phase, 'ready');
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('stop cancels a reconnect retry scheduled before the stop', async (t) => {
+  t.mock.method(Engine.prototype, 'start', async function (this: { root: string }) {
+    mkdirSync(this.root, { recursive: true });
+    if (!existsSync(join(this.root, 'openclaw.json'))) writeFileSync(join(this.root, 'openclaw.json'), '{}');
+    return { port: 0, token: 'test', identityPath: '' };
+  });
+  t.mock.method(Engine.prototype, 'stop', async () => {});
+  const stateDir = scratchDir('o4-reconnect-stop');
+  const fake = fakeGateway();
+  let connects = 0;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: true, callbackPort: 0,
+    transport: (ctx) => { connects++; return fake.factory(ctx); } });
+  try {
+    await kit.start();
+    fake.drop('test');
+    assert.equal(kit.state.phase, 'restarting');
+    await delay(300);
+    await kit.stop();
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    fake.drop('test');
+    await delay(800);
+    assert.equal(connects, 2);
+    assert.equal(kit.state.phase, 'restarting');
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a manual start cancels a pending reconnect retry', async (t) => {
+  t.mock.method(Engine.prototype, 'start', async function (this: { root: string }) {
+    mkdirSync(this.root, { recursive: true });
+    if (!existsSync(join(this.root, 'openclaw.json'))) writeFileSync(join(this.root, 'openclaw.json'), '{}');
+    return { port: 0, token: 'test', identityPath: '' };
+  });
+  t.mock.method(Engine.prototype, 'stop', async () => {});
+  const stateDir = scratchDir('o4-reconnect-manual-start');
+  const fake = fakeGateway();
+  let connects = 0;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: true, callbackPort: 0,
+    transport: (ctx) => { connects++; return fake.factory(ctx); } });
+  try {
+    await kit.start();
+    fake.drop('test');
+    assert.equal(kit.state.phase, 'restarting');
+    await delay(300);
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    assert.equal(connects, 2);
+    fake.drop('test');
+    await delay(800);
+    assert.equal(connects, 2);
+    assert.equal(kit.state.phase, 'restarting');
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
+test('a handshake deadline inside an engine repair waits for the repair, then retries without stopping it', async (t) => {
+  const events: string[] = [];
+  let engineStarts = 0;
+  t.mock.method(Engine.prototype, 'start', async function (this: { root: string; o: { onState(s: { phase: string }): void } }) {
+    mkdirSync(this.root, { recursive: true });
+    if (!existsSync(join(this.root, 'openclaw.json'))) writeFileSync(join(this.root, 'openclaw.json'), '{}');
+    events.push('start');
+    if (++engineStarts === 1) {
+      const o = this.o;
+      void (async () => {
+        await delay(50);
+        events.push('repair'); o.onState({ phase: 'repairing' });
+        await delay(300);
+        events.push('repair-end'); o.onState({ phase: 'locked' });
+      })();
+    }
+    return { port: 0, token: 'test', identityPath: '' };
+  });
+  t.mock.method(Engine.prototype, 'stop', async () => { events.push('stop'); });
+  const stateDir = scratchDir('o4-repair-deadline');
+  const fake = fakeGateway();
+  let attempts = 0;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: true, callbackPort: 0, handshakeMs: 200,
+    transport: (ctx) => {
+      const transport = fake.factory(ctx);
+      return ++attempts === 1 ? { ...transport, start: () => new Promise<never>(() => {}) } : transport;
+    } });
+  try {
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    assert.equal(attempts, 2);
+    assert.deepEqual(events, ['start', 'repair', 'repair-end', 'stop', 'start']);
+  }
   finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 

@@ -440,7 +440,7 @@ export class Engine {
       if (!child.pid && env.BYOKIT_ENGINE_BOOT) { try { appendUsageBoot(usageDir, { bootId, failedAt: Date.now(), spawned: false }); } catch { /* unclosed boot remains incomplete */ } }
       if (this.child !== child || this.stopping) return;
       this.child = undefined;
-      void this.authStore.stop().then(() => undefined, refusedOnly).then((refused) => { this.exitedState(refused); this.o.onExit(null); }, () => this.state('failed', 'exited'));
+      void this.authStore.stop().then(() => undefined, refusedOnly).then((refused) => { this.exitedState(refused); this.o.onExit(null); }, () => { this.state('failed', 'exited'); this.o.onExit(null); });
     });
     if (!child.pid) { this.state('failed', 'exited'); throw new Error('engine spawn failed'); }
     if (process.platform === 'linux') {
@@ -465,7 +465,7 @@ export class Engine {
         }
         this.exitedState(refused);
         this.o.onExit(code);
-      })().catch(() => this.state('failed', 'exited'));
+      })().catch(() => { this.state('failed', 'exited'); this.o.onExit(code); });
     });
     return { port: this.port, token: this.token, identityPath };
   }

@@ -395,6 +395,67 @@ else { console.log('If the browser did not open, visit: https://claude.example.t
   } finally { if (existsSync(folder)) fs.chmodSync(folder, 0o700); writeFileSync(f('status-release'), ''); await engine.stop().catch(() => {}); removeScratch(dir); }
 });
 
+// A fake gateway that counts its spawns in `spawns`; `exitFirst` makes the first spawn exit (code 1) before any hello.
+async function seedCountingGateway(engineDir: string, spawns: string, exitFirst: boolean): Promise<void> {
+  seedInstall(engineDir);
+  writeFileSync(join(engineDir, 'node_modules/openclaw/openclaw.mjs'), `import { appendFileSync, readFileSync } from 'node:fs';
+appendFileSync(${JSON.stringify(spawns)}, '1');
+if (${exitFirst} && readFileSync(${JSON.stringify(spawns)}, 'utf8').length === 1) setTimeout(() => process.exit(1), 100);
+process.on('SIGTERM', () => process.exit(0));
+setInterval(() => {}, 1000);
+`);
+  await seedSet(engineDir);
+}
+
+test('a first start whose engine exits before hello retries once, on one backoff', { timeout: 60_000 }, async () => {
+  const dir = scratchDir('first-start-exit'), engineDir = join(dir, 'engine'), spawns = join(dir, 'spawns');
+  await seedCountingGateway(engineDir, spawns, true);
+  const fake = fakeGateway();
+  const states: KitState[] = [];
+  let attempts = 0;
+  const kit = new OpenClawKit({ stateDir: dir, engineDir, handshakeMs: 10_000, onState: (s) => states.push(s),
+    transport: (ctx) => {
+      const transport = fake.factory(ctx);
+      return ++attempts === 1 ? { ...transport, start: () => new Promise<never>(() => {}) } : transport;
+    } });
+  try {
+    const began = Date.now();
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    assert.ok(Date.now() - began < 10_000, 'the engine exit, not the handshake deadline, ended the first attempt');
+    await delay(2500);
+    assert.equal(kit.state.phase, 'ready', 'no second backoff restarts the ready kit');
+    assert.equal(attempts, 2);
+    assert.equal(readFileSync(spawns, 'utf8').length, 2);
+    assert.equal(states.filter((s) => s.phase === 'restarting').length, 1, 'one backoff, not two');
+  } finally { await kit.stop(); removeScratch(dir); }
+});
+
+test('a reconnect after ready that misses its hello still fails, with no first-start retry', { timeout: 60_000 }, async () => {
+  const dir = scratchDir('reconnect-miss'), engineDir = join(dir, 'engine'), spawns = join(dir, 'spawns');
+  await seedCountingGateway(engineDir, spawns, false);
+  const fake = fakeGateway();
+  const states: KitState[] = [];
+  let attempts = 0;
+  const kit = new OpenClawKit({ stateDir: dir, engineDir, handshakeMs: 300, onState: (s) => states.push(s),
+    transport: (ctx) => {
+      const transport = fake.factory(ctx);
+      return ++attempts === 2 ? { ...transport, start: () => new Promise<never>(() => {}) } : transport;
+    } });
+  try {
+    await kit.start();
+    assert.equal(kit.state.phase, 'ready');
+    states.length = 0;
+    fake.drop('test');
+    for (let i = 0; i < 250 && !states.some((s) => s.phase === 'failed'); i++) await delay(20);
+    await delay(2500);
+    assert.deepEqual(states.filter((s) => s.phase === 'failed').map((s) => s.why), ['handshake'], 'the reconnect fails once, as a handshake');
+    assert.equal(states.filter((s) => s.phase === 'restarting').length, 1, 'the reconnect backoff ran once');
+    assert.equal(states.at(-1)?.phase, 'failed');
+    assert.equal(attempts, 2);
+  } finally { await kit.stop(); removeScratch(dir); }
+});
+
 // pidAlive portability: macOS has no /proc, so a dead-but-unreaped guard must read stale
 // via ps there exactly as it does via /proc on Linux — while a live pid is never stolen.
 test('pidAlive is portable: macOS zombies read stale, live pids are never stolen', async (t) => {

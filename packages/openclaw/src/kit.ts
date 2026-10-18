@@ -96,6 +96,7 @@ export type KitOptions = {
   installPolicy?: { trustedSkills: string; ownRoots: string[] }; // trusted-skills JSON path, own content roots
   callbackPort?: number; // default 1455
   approvalTimeoutMs?: number; // default 180_000
+  handshakeMs?: number; // default 90_000: hello-ok deadline per start attempt (5.4 step 2)
   transport?: (ctx: { port: number; token: string; identityPath: string; bridgeSock: string }) => GatewayTransport; // tests
   spawnEngine?: boolean; // default true; false skips install, doctor and spawn (layout, token, port, config, plugin
   // and bridge still happen)
@@ -112,6 +113,8 @@ export type RetainedLogin = { path: string } | { record: Record<string, unknown>
 /** The engine's learning-mode config key (5.6 "Engine learning state"). */
 const LEARNING_KEY = 'skills.workshop.autonomous.mode';
 const RESTART_MS = 60_000;
+/** Consecutive failed starts before `failed/handshake` (5.4 step 2): the first start plus four retries. */
+const START_ATTEMPTS = 5;
 
 const operatorMethods = new Set<string>([
   'agent',
@@ -534,8 +537,13 @@ export class OpenClawKit {
   private signInDisconnects = new Set<() => void>();
   private readonly phaseListeners = new Set<() => void>();
   private starting?: Promise<void>;
+  private stopped: Promise<void> = Promise.resolve();
   private stopping = false;
   private failures = 0;
+  private reachedReady = false;
+  private startRun?: AbortController;
+  private retry?: AbortController;
+  private engineExit?: () => void;
   private swept = false;
   private catalogs: Promise<void> = Promise.resolve();
   browser?: BrowserHost;
@@ -774,18 +782,43 @@ export class OpenClawKit {
     if (this.engine.patchSet !== undefined) this.setState(this.current);
   }
 
-  start(): Promise<void> {
-    if (this.current.phase === 'ready') return Promise.resolve();
+  async start(): Promise<void> {
+    if (this.current.phase === 'ready') return;
+    if (this.stopping) {
+      await this.starting?.catch(() => undefined);
+      await this.stopped;
+    }
     if (this.starting) return this.starting;
     this.stopping = false;
-    const task = this.connect();
+    this.retry?.abort();
+    const task = this.attempts(this.reachedReady ? 1 : START_ATTEMPTS);
     this.starting = task;
     void task.finally(() => { if (this.starting === task) this.starting = undefined; }).catch(() => {});
     return task;
   }
 
-  private async connect(): Promise<void> {
+  // One start() call's attempts (5.4 step 2): a missed hello waits the reconnect backoff and starts the engine afresh
+  // until `budget` attempts have missed. The call owns its wait (stop() aborts it) and, on a first start, every close.
+  private async attempts(budget: number): Promise<void> {
+    const run = this.startRun = new AbortController();
+    try {
+      for (let missed = 0; ;) {
+        const miss = await this.connect();
+        if (!miss) {
+          if (this.stopping) throw new Error('kit stopped before ready');
+          return;
+        }
+        if (++missed === budget) { this.setState({ phase: 'failed', why: 'handshake' }); throw miss; }
+        await this.backoff(missed - 1, run.signal);
+      }
+    } finally { if (this.startRun === run) this.startRun = undefined; }
+  }
+
+  // Resolves the error of a missed hello (a deadline miss, or an engine exit before hello) for attempts() to retry.
+  private async connect(): Promise<Error | undefined> {
     let transport: GatewayTransport | undefined;
+    const timeout = new Error('gateway handshake timed out');
+    const exited = new Error('engine exited before the gateway handshake');
     try {
       await this.prepareBrowsers();
       const ctx = await this.engine.start();
@@ -794,7 +827,9 @@ export class OpenClawKit {
       transport = (this.o.transport ?? gatewayTransport)({ ...ctx, bridgeSock: this.engine.bridgeSock });
       this.transport = transport;
       this.off = [transport.onEvent((e) => { for (const fn of this.listeners) fn(e); }), transport.onClose((why) => this.closed(why))];
-      const hello = await Promise.race([transport.start(), delay(90_000, undefined, { ref: false }).then(() => { throw new Error('gateway handshake timed out'); })]);
+      const deadline = delay(this.o.handshakeMs ?? 90_000, undefined, { ref: false }).then(() => { throw timeout; });
+      const exit = new Promise<never>((_, reject) => { this.engineExit = () => reject(exited); });
+      const hello = await Promise.race([transport.start(), deadline, exit]);
       if (this.stopping || this.transport !== transport) return;
       if (hello.protocol !== PROTOCOL_VERSION) {
         this.setState({ phase: 'needs-update', why: 'version' });
@@ -810,9 +845,10 @@ export class OpenClawKit {
         signIn: (agentId, o, on, fresh) => startSignIn({ ...this.signInCtx(), ensure: async () => ({ agentId }), fresh }, agentId, o, on),
         routes: this.routeMap, log: this.o.log, reseal: () => this.engine.authStore.reseal() });
       // The fail-closed tool bridge feeds the kit's single Approval surface (5.9, O5).
-      await this.bridge.start();
+      await Promise.race([this.bridge.start(), exit]);
       this.off.push(transport.onEvent((e) => this.approvalsCtl.handleEvent(e)));
       this.failures = 0;
+      this.reachedReady = true;
       this.setState({ phase: 'ready' });
       this.syncCatalogs();
       // A failed key add whose abandon clear never reached the engine leaves an unsealed key with no ready marker;
@@ -827,6 +863,8 @@ export class OpenClawKit {
       const needsUpdate = this.current.phase === 'needs-update';
       const patchFailure = this.current.why === 'engine-patch';
       if (transport && this.transport === transport) await this.disconnect();
+      if (error === timeout && this.current.phase === 'repairing') await this.repairEnded();
+      const engineFailure = this.current.phase === 'failed' ? this.current : undefined;
       const refused = await this.engine.stop().then(() => undefined, refusedOnly);
       await this.closeBrowsers();
       const sealRefusal = refused ?? (error instanceof AuthStoreSealSizeError ? error : undefined);
@@ -843,10 +881,21 @@ export class OpenClawKit {
         throw error;
       }
       if (patchFailure) { this.setState({ phase: 'failed', why: 'engine-patch' }); throw error; }
+      // A missed hello on a loaded host is the engine still coming up: attempts() decides whether to retry.
+      if (engineFailure?.why === 'auth-store-seal-size' && !this.stopping) { this.setState(engineFailure); throw error; }
+      const miss = error === exited && engineFailure?.why === 'exited' ? exited : error === timeout ? timeout : undefined;
+      if (miss && !this.stopping) return miss;
       if (needsUpdate) this.setState({ phase: 'needs-update', why: 'version' });
       if (!needsUpdate && !this.stopping) this.setState({ phase: 'failed', why: 'handshake' });
       throw error;
-    }
+    } finally { this.engineExit = undefined; }
+  }
+
+  private repairEnded(): Promise<void> {
+    return new Promise((resolve) => {
+      const check = () => { if (this.current.phase !== 'repairing') { this.phaseListeners.delete(check); resolve(); } };
+      this.phaseListeners.add(check);
+    });
   }
 
   private async disconnect(): Promise<void> {
@@ -891,19 +940,36 @@ export class OpenClawKit {
     });
   }
 
-  private closed(_why: string): void {
-    const engineFailed = _why === 'engine exited' && this.current.phase === 'failed' && this.current.why === 'exited';
+  private closed(why: string): void {
+    // A first start's loop owns an engine exit until it reaches ready; other closes are the transport client's to retry.
+    if (this.startRun && !this.reachedReady) { if (why === 'engine exited') this.engineExit?.(); return; }
+    const engineFailed = why === 'engine exited' && this.current.phase === 'failed' && this.current.why === 'exited';
     if (this.stopping || (this.current.phase !== 'ready' && !engineFailed)) return;
     for (const fn of this.signInDisconnects) fn();
     void this.disconnect();
     if (this.o.spawnEngine === false) { this.setState({ phase: 'failed', why: 'handshake' }); return; }
-    const retryAt = Date.now() + Math.min(30_000, 1000 * 2 ** this.failures++);
+    this.retry?.abort();
+    const retry = this.retry = new AbortController();
+    void this.backoff(this.failures++, retry.signal).then(() => { if (!this.stopping && this.current.phase === 'restarting') void this.start().catch(() => {}); }, () => {});
+  }
+
+  // The reconnect backoff (step 3): state restarting, resolving at retryAt = now + min(30 s, 1 s × 2^failures).
+  private backoff(failures: number, signal?: AbortSignal): Promise<void> {
+    const retryAt = Date.now() + Math.min(30_000, 1000 * 2 ** failures);
     this.setState({ phase: 'restarting', retryAt });
-    void delay(retryAt - Date.now()).then(() => { if (!this.stopping && this.current.phase === 'restarting') void this.start().catch(() => {}); });
+    return delay(retryAt - Date.now(), undefined, { signal });
   }
 
   async stop(): Promise<void> {
     this.stopping = true;
+    this.reachedReady = false;
+    this.startRun?.abort();
+    this.retry?.abort();
+    this.stopped = this.teardown();
+    await this.stopped;
+  }
+
+  private async teardown(): Promise<void> {
     await this.disconnect();
     await this.engine.stop();
     await this.closeBrowsers();
