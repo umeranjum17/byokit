@@ -32,6 +32,7 @@ async function withPlugin(
   copyFileSync(new URL('../plugin/usage.js', import.meta.url), join(dir, 'usage.js'));
   copyFileSync(new URL('../plugin/accounts.js', import.meta.url), join(dir, 'accounts.js'));
   copyFileSync(new URL('../plugin/catalog.js', import.meta.url), join(dir, 'catalog.js'));
+  copyFileSync(new URL('../plugin/codex.js', import.meta.url), join(dir, 'codex.js'));
   writePlugin(dir, { id: 'byokit', tools, paramPrefix: '__byokit', gateBuiltins: o.gateBuiltins, browser: o.browser });
   const bridge = new Bridge({
     path: join(dir, 'bridge.sock'),
@@ -59,7 +60,7 @@ async function withPlugin(
     const plugin = (await import(pathToFileURL(join(dir, 'index.js')).href)).default;
     let hook: Hook | undefined;
     const methods: string[] = [];
-    plugin.register({ registerGatewayMethod: (name: string) => methods.push(name), registerTool: () => {}, registerAgentToolResultMiddleware: (fn: typeof seen.middleware, options: unknown) => {
+    plugin.register({ registerCliBackend: (backend: { id: string }) => assert.equal(backend.id, 'openai-codex'), registerGatewayMethod: (name: string) => methods.push(name), registerTool: () => {}, registerAgentToolResultMiddleware: (fn: typeof seen.middleware, options: unknown) => {
       assert.deepEqual(options, { runtimes: ['openclaw', 'codex'] });
       seen.middleware = (event, ctx = { sessionKey: 'agent:m1:x', runId: 'source-fixture' }) => (fn as any)(event, ctx);
     }, on: (name: string, fn: any) => {

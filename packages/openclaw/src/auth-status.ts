@@ -32,7 +32,7 @@ async function nativeStatus(request: GatewayTransport['request'], agentId: strin
  * Witness only app-owned file metadata (absence included); changed/unreadable state and auth/lifecycle mutations recheck.
  * Remote revocation still comes from the real run's signed-out error (a local status read cannot prove it either).
  */
-export function createAuthStatus(root: string, request: GatewayTransport['request']) {
+export function createAuthStatus(root: string, request: GatewayTransport['request'], codex?: () => Promise<boolean>) {
   const snapshots = new Map<string, { status: AuthStatus; until: number; witness: string }>();
   let generation = 0;
   const invalidate = () => { generation++; snapshots.clear(); };
@@ -60,6 +60,10 @@ export function createAuthStatus(root: string, request: GatewayTransport['reques
     snapshots.delete(key);
     snapshots.delete(`${agentId}:false`);
     const profiles = await authStatus(request, agentId, refresh);
+    if (codex) {
+      profiles.providers = (profiles.providers ?? []).filter(row => (typeof row === 'string' ? row : row.provider) !== 'openai-codex');
+      if (await codex()) profiles.providers.push({ provider: 'openai-codex', status: 'ok' });
+    }
     const status = native ? await nativeStatus(request, agentId, profiles) : profiles;
     if (before !== undefined && epoch === generation && witness(agentId) === before) {
       for (const [route, answer] of (native ? [[false, profiles], [true, status]] : [[false, profiles]]) as [boolean, AuthStatus][]) {

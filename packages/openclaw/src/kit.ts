@@ -722,7 +722,7 @@ export class OpenClawKit {
       ...(o.browser ? { browserConfig: () => this.browserConfig() } : {}),
       gateBuiltins: o.gateBuiltins !== false, spawnEngine: o.spawnEngine !== false,
       onState: (s) => this.setState(s), onExit: () => this.closed('engine exited') });
-    this.admission = createAuthStatus(this.engine.root, (method, params, options) => this.request()(method, params, options));
+    this.admission = createAuthStatus(this.engine.root, (method, params, options) => this.request()(method, params, options), () => this.engine.installedCodexSignedIn());
     this.keys = createKeys({ root: this.engine.root,
       prepareOwner: (agentId) => this.prepareKeyOwner(agentId),
       indexLane: (member, route) => this.indexKeyLane(member, route),

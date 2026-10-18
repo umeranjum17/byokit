@@ -3,7 +3,7 @@
 // `/v1/embeddings` call is ever made. Runs only in the engine job (npm run test:engine), never in npm test.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { OpenClawKit } from '../../src/kit.ts';
 import { Engine } from '../../src/engine.ts';
@@ -29,6 +29,66 @@ before(async () => {
 
 after(async () => {
   await stub?.close();
+});
+
+test('installed Codex answers Luna without the engine reading its login', { timeout: 300_000 }, async () => {
+  const stateDir = scratchDir('codex-engine');
+  const home = join(stateDir, 'person'), bin = join(stateDir, 'bin'), calls = join(home, 'calls.jsonl');
+  mkdirSync(join(home, '.codex'), { recursive: true }); mkdirSync(bin);
+  const login = join(home, '.codex/auth.json');
+  writeFileSync(login, 'CANARY-CODEX-LOGIN-MUST-NOT-BE-READ');
+  utimesSync(login, new Date(0), new Date(0));
+  const before = statSync(login, { bigint: true });
+  writeFileSync(join(bin, 'codex'), `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+fs.appendFileSync(process.env.HOME + '/calls.jsonl', JSON.stringify({ args, home: process.env.HOME, codexHome: process.env.CODEX_HOME }) + '\\n');
+if (args[0] === '--version') { console.log('codex-cli 0.0.0-stand-in'); process.exit(0); }
+if (args[0] === 'login') {
+  const signedOut = fs.existsSync(process.env.HOME + '/signed-out');
+  console.error(signedOut ? 'Not logged in' : 'Logged in using ChatGPT'); process.exit(signedOut ? 1 : 0);
+}
+process.stdin.resume(); process.stdin.on('end', () => {
+  console.log(JSON.stringify({ type: 'thread.started', thread_id: 'test-thread' }));
+  console.log(JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: 'Hello Umer' } }));
+  console.log(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 12, output_tokens: 3 } }));
+});
+`, { mode: 0o700 });
+  const previous = process.env.HOME; process.env.HOME = home;
+  const kit = new OpenClawKit({ stateDir, engineDir, enginePath: [bin], tools: [REPORT],
+    host: { gate: async () => ({ allow: false, reason: 'chat only' }), call: async () => assert.fail('no tool permitted') } });
+  try {
+    await kit.start();
+    const end = await kit.run({ member: 'umer', sessionKey: 'agent:umer:codex:luna',
+      model: 'openai-codex/gpt-6-luna', message: 'Say hello to Umer' });
+    assert.ok(end.ok, JSON.stringify(end));
+    assert.equal(end.text, 'Hello Umer');
+    assert.ok(await kit.signedIn('umer', 'openai-codex'));
+    const env = kit.doctorContext().env;
+    assert.equal(env.CODEX_HOME, join(stateDir, 'openclaw/home/.codex'));
+    assert.equal(env.OPENCLAW_STATE_DIR, join(stateDir, 'openclaw/state'));
+    writeFileSync(join(home, 'signed-out'), 'signed out');
+    assert.equal(await kit.signedIn('umer', 'openai-codex'), false);
+    const unsigned = await kit.run({ member: 'umer', sessionKey: 'agent:umer:codex:unsigned',
+      model: 'openai-codex/gpt-6-luna', message: 'hello' });
+    assert.ok(!unsigned.ok && 'kind' in unsigned && unsigned.kind === 'signed-out', JSON.stringify(unsigned));
+    const seen = readFileSync(calls, 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    const exec = seen.filter(c => c.args[0] === 'exec');
+    assert.ok(exec.length > 0 && exec.every(c => c.args.includes('gpt-6-luna')));
+    assert.ok(exec.every(c => c.args.some((arg: string) => arg.startsWith('mcp_servers='))), 'engine bundles its gated MCP tools');
+    assert.ok(exec.every(c => c.args.includes('forced_login_method="chatgpt"') && c.args.includes('features.shell_tool=false')));
+    assert.ok(seen.every(c => c.home === home));
+    assert.ok(exec.every(c => c.codexHome === undefined), 'model calls use the installed login, never the engine override');
+    // Upstream's discovery-only --version/login probes inherit the safe gateway override; they cannot import the person's login.
+    assert.ok(seen.filter(c => c.codexHome !== undefined).every(c => c.codexHome === env.CODEX_HOME && ['--version', 'login'].includes(c.args[0])));
+  } finally {
+    await kit.stop();
+    if (previous === undefined) delete process.env.HOME; else process.env.HOME = previous;
+    const after = statSync(login, { bigint: true });
+    assert.equal(after.atimeNs, before.atimeNs, 'engine must not read the installed login');
+    assert.equal(after.mtimeNs, before.mtimeNs, 'engine must not change the installed login');
+    rmSync(stateDir, { recursive: true, force: true });
+  }
 });
 
 test('real tool calls cross the fail-closed gate; keyword memory stays free', { timeout: 600_000 }, async () => {

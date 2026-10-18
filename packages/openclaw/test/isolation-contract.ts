@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { removeScratch, scratchDir } from '../../test-support.ts';
+import { removeScratch, scratchDir, sharedEngineDir } from '../../test-support.ts';
 import { connect } from 'node:net';
 import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -59,7 +59,8 @@ else process.exit(2);
   process.env.OPENAI_API_KEY = 'should-not-be-inherited';
   const states: string[] = [];
   // Node rejects npm's ci arguments if an offline fixture ever needs repair; never invoke real npm.
-  const engine = new Engine({ stateDir: join(dir, 'own'), ...(install ? { engineDir: await install(dir), npmPath: process.execPath } : {}), enginePath: [bin], pluginId: 'byokit', tools: [], spawnEngine: true,
+  const engineDir = install ? await install(dir) : sharedEngineDir();
+  const engine = new Engine({ stateDir: join(dir, 'own'), ...(engineDir ? { engineDir } : {}), ...(install ? { npmPath: process.execPath } : {}), enginePath: [bin], pluginId: 'byokit', tools: [], spawnEngine: true,
     onState: s => states.push(`${s.phase}/${s.why ?? ''}`), onExit() {} });
   try {
     const ctx = await engine.start();
@@ -75,11 +76,11 @@ else process.exit(2);
     assert.equal(env.OPENAI_API_KEY, undefined);
     assert.equal(env.OPENCLAW_SKIP_CHANNELS, '1');
     assert.ok(!JSON.stringify(env).includes('.pi'));
-    // The engine's agent CLIs use the person's installed logins: their own HOME, and no engine-root Claude or Codex home.
+    // Codex credentials are opaque to the engine; only the Codex CLI drops this isolated override.
     assert.equal(env.HOME, decoy);
     assert.equal(env.OPENCLAW_HOME, join(engine.root, 'home'));
     assert.equal(env.CLAUDE_CONFIG_DIR, undefined);
-    assert.equal(env.CODEX_HOME, undefined);
+    assert.equal(env.CODEX_HOME, join(engine.root, 'home', '.codex'));
     assert.deepEqual([env.npm_config_cache, env.npm_config_userconfig], [join(engine.root, 'npm-cache'), join(engine.root, 'npmrc')], 'engine npm runs keep their cache, logs and config in the engine root');
     assert.ok(Object.entries(env).every(([name, value]) => name === 'HOME' || !value.includes(decoy)));
     assert.equal(env.NODE_OPTIONS, undefined);
@@ -122,9 +123,10 @@ else process.exit(2);
     }
     const received = readFileSync(calls, 'utf8').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>);
     assert.ok(received.length > 0);
-    for (const call of received) assert.deepEqual({ ...call, argv: undefined }, { argv: undefined, HOME: decoy }, `claude ${JSON.stringify(call.argv)} saw the person's HOME alone`);
+    for (const call of received) assert.deepEqual({ ...call, argv: undefined }, { argv: undefined, HOME: decoy,
+      ...(call.CODEX_HOME === undefined ? {} : { CODEX_HOME: env.CODEX_HOME }) }, `claude ${JSON.stringify(call.argv)} saw the expected login environment`);
     if (install) {
-      // No installed sign-in: the engine falls back to its own Claude folder; the person's own CODEX_HOME still passes through.
+      // No installed sign-in: Claude falls back to its own folder; the engine still cannot import the person's Codex login.
       await engine.stop();
       writeFileSync(status, 'hang');
       await engine.start();
@@ -140,7 +142,7 @@ else process.exit(2);
       process.env.CODEX_HOME = join(decoy, '.codex');
       await engine.start();
       const fallback = engine.doctorContext().env, folder = join(engine.root, 'home', '.claude');
-      assert.deepEqual([fallback.HOME, fallback.CLAUDE_CONFIG_DIR, fallback.CODEX_HOME], [decoy, folder, join(decoy, '.codex')]);
+      assert.deepEqual([fallback.HOME, fallback.CLAUDE_CONFIG_DIR, fallback.CODEX_HOME], [decoy, folder, join(engine.root, 'home', '.codex')]);
       assert.equal(engine.claudeLoginUnread(), false, 'the fallback sign-in writes the folder the gateway reads');
       const childEnv = () => { try { return JSON.parse(readFileSync(join(engine.root, 'home', 'child.json'), 'utf8')).env; } catch { return {}; } };
       for (let i = 0; i < 300 && childEnv().CLAUDE_CONFIG_DIR !== folder; i++) await delay(20);

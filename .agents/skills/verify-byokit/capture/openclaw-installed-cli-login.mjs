@@ -2,7 +2,7 @@
 // `claude` and `codex` on the engine PATH are offline stand-ins that record the HOME, CLAUDE_CONFIG_DIR and CODEX_HOME
 // each call receives. Their "login" is a marker file, never a credential. No provider, account or spend.
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { OpenClawKit, ENGINE_VERSION } from '@byokit/openclaw';
@@ -14,6 +14,12 @@ if (!person || !person.startsWith(`${root}/`)) throw new Error('Run with HOME se
 mkdirSync(person, { recursive: true });
 const stateDir = mkdtempSync(join(root, 'state-')), bin = join(stateDir, 'bin'), calls = join(stateDir, 'calls.jsonl');
 const login = join(person, '.claude', 'stand-in-login'), folder = join(stateDir, 'openclaw', 'home', '.claude');
+const codexHome = join(stateDir, 'openclaw/home/.codex'), codexLogin = join(person, '.codex/auth.json');
+const codexMarker = join(person, 'codex-signed-in');
+mkdirSync(join(person, '.codex'), { recursive: true });
+writeFileSync(codexLogin, 'SYNTHETIC-CODEX-CANARY-MUST-NOT-BE-READ');
+utimesSync(codexLogin, new Date(0), new Date(0));
+const canaryBefore = statSync(codexLogin, { bigint: true });
 mkdirSync(bin); mkdirSync(join(person, '.claude'), { recursive: true });
 // Keep the extensionless CLIs' require() valid when the scratch root inherits this repo's ESM package.
 writeFileSync(join(bin, 'package.json'), JSON.stringify({ type: 'commonjs' }));
@@ -35,7 +41,14 @@ else {
 `, { mode: 0o700 });
 writeFileSync(join(bin, 'codex'), `#!${process.execPath}
 ${record('codex')}
-if(argv.join(' ')==='--version') console.log('codex-cli 0.0.0-stand-in'); else if(argv[0]==='login') { console.log('Not logged in'); process.exit(1); } else process.exit(2);
+if(argv.join(' ')==='--version') console.log('codex-cli 0.0.0-stand-in');
+else if(argv[0]==='login') { const ready=fs.existsSync(${JSON.stringify(codexMarker)}); console.error(ready?'Logged in using ChatGPT':'Not logged in'); process.exit(ready?0:1); }
+else if(argv[0]==='exec') {
+ process.stdin.resume(); process.stdin.on('end',()=>{
+  console.log(JSON.stringify({type:'item.completed',item:{type:'agent_message',text:'Hello Umer from Luna'}}));
+  console.log(JSON.stringify({type:'turn.completed',usage:{input_tokens:12,output_tokens:5}}));
+ });
+} else process.exit(2);
 `, { mode: 0o700 });
 
 const gatewayEnv = () => {
@@ -44,8 +57,8 @@ const gatewayEnv = () => {
   return { HOME: env.HOME, CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR, CODEX_HOME: env.CODEX_HOME, OPENCLAW_HOME: env.OPENCLAW_HOME };
 };
 const seen = () => existsSync(calls) ? readFileSync(calls, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line)) : [];
-const kitFor = () => new OpenClawKit({ stateDir, engineDir: join(root, 'engine'), enginePath: [bin],
-  config: { agents: { defaults: { modelPolicy: { allow: ['claude-cli/*'] } } } } });
+const kitFor = () => new OpenClawKit({ stateDir, engineDir: process.env.BYOKIT_TEST_ENGINE_DIR ?? join(root, 'engine'), enginePath: [bin],
+  config: { agents: { defaults: { modelPolicy: { allow: ['claude-cli/*', 'openai-codex/*'] } } } } });
 const show = (value) => console.log(JSON.stringify(value));
 show({ proof: 'real pinned Gateway, offline claude/codex stand-ins', version: ENGINE_VERSION, personHome: person, engineRoot: join(stateDir, 'openclaw') });
 
@@ -61,13 +74,34 @@ try {
   show({ leg: 'installed login signed in', gatewayEnv: installed, signedInClaudeCli: signedIn, run: end.ok ? { ok: true, text: end.text } : end });
   show({ leg: 'installed login signed in', cliCalls: seen() });
   if (expectFix) {
-    assert.deepEqual([installed.HOME, installed.CLAUDE_CONFIG_DIR, installed.CODEX_HOME], [person, undefined, undefined]);
-    for (const call of seen()) assert.deepEqual([call.HOME, call.CLAUDE_CONFIG_DIR, call.CODEX_HOME], [person, undefined, undefined], JSON.stringify(call));
+    assert.deepEqual([installed.HOME, installed.CLAUDE_CONFIG_DIR, installed.CODEX_HOME], [person, undefined, codexHome]);
+    for (const call of seen()) {
+      assert.equal(call.HOME, person);
+      assert.equal(call.CLAUDE_CONFIG_DIR, undefined);
+      if (call.who === 'codex') assert.ok(call.CODEX_HOME === undefined || call.CODEX_HOME === codexHome);
+    }
     assert.ok(signedIn && end.ok && end.text === 'Hello Umer', JSON.stringify(end));
   }
+  // Leg 2: the engine calls a Codex process, without reading the throwaway person's canary login.
+  writeFileSync(codexMarker, 'signed in');
+  const luna = await kit.run({ member: 'umer', sessionKey: 'agent:umer:installed-luna',
+    message: 'Say hello to Umer', model: 'openai-codex/gpt-6-luna' });
+  assert.ok(luna.ok && luna.text === 'Hello Umer from Luna', JSON.stringify(luna));
+  const codexCalls = seen().filter(call => call.who === 'codex');
+  assert.ok(codexCalls.some(call => call.argv.startsWith('exec ')));
+  assert.ok(codexCalls.every(call => call.HOME === person));
+  assert.ok(codexCalls.filter(call => call.argv.startsWith('exec ')).every(call => call.CODEX_HOME === undefined));
+  assert.ok(codexCalls.filter(call => call.CODEX_HOME !== undefined).every(call =>
+    call.CODEX_HOME === codexHome && (call.argv === '--version' || call.argv === 'login status')));
+  rmSync(codexMarker);
+  assert.equal(await kit.signedIn('umer', 'openai-codex'), false);
+  const unsigned = await kit.run({ member: 'umer', sessionKey: 'agent:umer:unsigned-luna',
+    message: 'hello', model: 'openai-codex/gpt-6-luna' });
+  assert.ok(!unsigned.ok && unsigned.kind === 'signed-out', JSON.stringify(unsigned));
+  show({ leg: 'installed Codex stand-in', run: luna, unsigned, cliCalls: codexCalls });
   await kit.stop(); kit = undefined;
 
-  // Leg 2: no installed sign-in. The engine falls back to its own folder and the phone sign-in is still offered.
+  // Leg 3: no installed sign-in. The engine falls back to its own folder and the phone sign-in is still offered.
   rmSync(login);
   writeFileSync(calls, '');
   kit = kitFor();
@@ -81,8 +115,12 @@ try {
   show({ leg: 'no installed login', gatewayEnv: fallback, fallbackOffered: shown ? { url: shown.url, prompt: shown.prompt } : null, afterCancel: { state: settled.state, why: settled.why } });
   show({ leg: 'no installed login', cliCalls: seen() });
   if (expectFix) {
-    assert.deepEqual([fallback.HOME, fallback.CLAUDE_CONFIG_DIR, fallback.CODEX_HOME], [person, folder, undefined]);
+    assert.deepEqual([fallback.HOME, fallback.CLAUDE_CONFIG_DIR, fallback.CODEX_HOME], [person, folder, codexHome]);
     assert.equal(shown?.url, 'https://claude.example.test/authorize');
   }
-  show({ result: expectFix ? 'PASS' : 'printed (no --expect-fix)' });
+  const canaryAfter = statSync(codexLogin, { bigint: true });
+  assert.equal(canaryAfter.atimeNs, canaryBefore.atimeNs, 'synthetic login was not read');
+  assert.equal(canaryAfter.mtimeNs, canaryBefore.mtimeNs, 'synthetic login was not changed');
+  show({ canaryLoginUnreadAndUnchanged: true, liveSubscription: 'not performed by this offline recipe',
+    result: expectFix ? 'PASS' : 'printed (no --expect-fix)' });
 } finally { await kit?.stop(); rmSync(stateDir, { recursive: true, force: true }); }
