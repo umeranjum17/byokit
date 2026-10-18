@@ -248,19 +248,32 @@ test('a sessionless agent gets its session on the next status push, with no re-b
   }
 });
 
-test('concurrent refresh() callers join one in-flight refresh and reject together when it fails', async () => {
+test('a refresh() after the in-flight read began answers with a follow-up read that carries its change', async () => {
   const fake = await startFakeHerdr({ dir: scratchDir('herdr-refresh-join') });
   const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath });
   try {
     await kit.start();
     assert.equal(fake.snapshotCount(), 1, 'start bootstrapped once');
-    await Promise.all([kit.refresh(), kit.refresh(), kit.refresh()]);
-    assert.equal(fake.snapshotCount(), 2, 'three concurrent callers cost one bootstrap');
-    await kit.refresh();
-    assert.equal(fake.snapshotCount(), 3, 'a call after the refresh settles starts a new one');
+    // Park the first refresh after its tree read, so it stays in flight with a tree that predates the change.
+    const release = fake.holdAck();
+    const first = kit.refresh();
+    await until(() => fake.snapshotCount() === 2, 2000);
+    // A change Herdr reports with no event of its own (as a replaced conversation is): only a read shows it.
+    fake.world.tabs[0].label = 'renamed';
+    const second = kit.refresh();
+    // A caller before the follow-up reads joins it: the two late callers share one read.
+    const third = kit.refresh();
+    release();
+    await first;
+    await second;
+    assert.equal(kit.snapshot().workspaces[0].tabs[0].label, 'renamed',
+      'the refresh asked for after the change answers with a tree that carries it');
+    await third;
+    assert.equal(fake.snapshotCount(), 3, 'the two late callers cost one follow-up read');
     fake.failNextSnapshot('snapshot_failed', 'the snapshot read failed');
     const settled = await Promise.allSettled([kit.refresh(), kit.refresh()]);
-    assert.deepEqual(settled.map((r) => r.status), ['rejected', 'rejected'], 'a failure rejects every joined caller');
+    assert.deepEqual(settled.map((r) => r.status), ['rejected', 'fulfilled'],
+      'the failed read rejects its own caller; the later caller is answered by the follow-up');
   } finally {
     await kit.stop().catch(() => {});
     await fake.stop().catch(() => {});

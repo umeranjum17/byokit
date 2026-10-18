@@ -181,7 +181,6 @@ export class HerdrKit {
   private buffered: HerdrEvent[] = [];                     // events held to replay after the next bootstrap
   private waiters: Waiter[] = [];                          // awaiting the in-flight bootstrap
   private nextWaiters: Waiter[] = [];                      // awaiting the queued follow-up bootstrap
-  private refreshing?: Promise<void>;                      // the in-flight refresh() that concurrent callers join
   private published = new Map<string, string | undefined>(); // pane id -> agent status in the last published tree
   private statusEpoch = new Map<string, number>();   // lifecycle epochs per pane: a status push racing
                                                     // a snapshot read wins over the read (see bootstrap)
@@ -504,7 +503,6 @@ export class HerdrKit {
     this.queued = false;
     this.waiters = [];
     this.nextWaiters = [];
-    this.refreshing = undefined;
     const stop = this.transport.subscribe(kinds.map((type) => ({ type })), (e) => {
       // Raw tap (K3): fire on arrival, before buffering/refresh/update, so listeners see every
       // wire payload (pane.moved.previous_pane_id, workspace.*) exactly once. Buffered replays
@@ -597,28 +595,22 @@ export class HerdrKit {
   /**
    * Re-read the tree and open watches for the agents in it, resolving once the fresh tree (and its
    * per-pane status watches) has landed. Call it after the app's own mutations to await a snapshot
-   * that already carries them. A call while a refresh is in flight joins it and resolves with that
-   * one result; a call after it settles starts a new refresh. A failed refresh rejects every joined
-   * caller with the failure. Rejects `herdr: not connected` when the kit is not started.
+   * that already carries them. Every call resolves with a tree read that started after it: a call while
+   * no bootstrap runs starts one, and a call while one is running (its read already sent) waits for
+   * the one queued follow-up, which every such caller shares. A failed bootstrap rejects the callers
+   * it answers with the failure. Rejects `herdr: not connected` when the kit is not started.
    */
   refresh(): Promise<void> {
     if (this.transport === undefined) return Promise.reject(notConnected());
-    if (this.refreshing !== undefined) return this.refreshing;
-    const refreshing = new Promise<void>((resolve, reject) => {
-      const waiter: Waiter = {
-        resolve: () => { this.refreshing = undefined; resolve(); },
-        reject: (reason) => { this.refreshing = undefined; reject(reason); },
-      };
+    return new Promise<void>((resolve, reject) => {
       if (this.booting) {
         this.queued = true;
-        this.nextWaiters.push(waiter);
+        this.nextWaiters.push({ resolve, reject });
       } else {
-        this.waiters.push(waiter);
+        this.waiters.push({ resolve, reject });
         void this.runBootstrap(this.generation, true).catch(() => {});
       }
     });
-    this.refreshing = refreshing;
-    return refreshing;
   }
   openSignInTab(o: OpenSignInTab): Promise<AgentRef> { return this.accountPanes.openSignInTab(o); }
   move(o: Move): Promise<MoveResult> { return this.accountPanes.move(o); }
