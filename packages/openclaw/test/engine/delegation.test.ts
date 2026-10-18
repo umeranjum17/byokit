@@ -17,7 +17,8 @@ const script = (tool: string, input: object) => `[tool ${tool} ${JSON.stringify(
 
 test('native send/spawn receipts admit only exact child runs; approvals, events, persistence and cancellation', { timeout: 300_000 }, async () => {
   const stub = await startModelStub();
-  const stateDir = scratchDir('native-delegation');
+  // Keep the bridge's Unix path short even under a task-owned disk-backed TMPDIR.
+  const stateDir = scratchDir('d');
   const events: DelegatedEvent[] = [], gated: { run: RunRef; tool: string }[] = [], calls: RunRef[] = [];
   let cancelled = false;
   const options = { stateDir, engineDir: sharedEngineDir(), tools: ['report', 'blocked_report'].map(name => ({ name,

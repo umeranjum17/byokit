@@ -13,6 +13,17 @@ drive=(env BYOKIT_TEST_ENGINE_DIR="$engine_dir" sh scripts/test.sh "$entry")
 
 Capture this command with the parent Evidence block or the task's authorized external evidence directory.
 The runner isolates HOME/TMPDIR, blocks non-loopback runtime traffic, and checks the real Pi files byte-for-byte.
+On hosts forbidding `/tmp`, use a task-owned disk-backed `scratch` directory instead (create its `home` and XDG
+subdirectories first), with the same journey and egress guard:
+
+```bash
+drive=(env HOME="$scratch/home" XDG_CACHE_HOME="$scratch/xdg-cache" XDG_CONFIG_HOME="$scratch/xdg-config"
+  XDG_DATA_HOME="$scratch/xdg-data" TMPDIR="$scratch" BYOKIT_TEST_ENGINE_DIR="$engine_dir"
+  NODE_OPTIONS="--require $PWD/scripts/test-egress-guard.cjs" node --test "$entry")
+```
+
+This alternative does not repeat the runner's real-Pi hash witness; retain that witness from the source/isolation
+suite separately. The journey's short fixture name keeps the Unix socket inside the platform path limit.
 The proof asserts native `sessions_send` to a standing helper and `sessions_spawn` to an isolated child, exact
 actor/member/parent/run identity, parent settlement while a child remains admitted, denial then approval of separate
 child actions, the intersection of parent/target app tools, unknown-child refusal before the host gate, retained exact
