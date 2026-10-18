@@ -185,7 +185,7 @@ export class Engine {
     for (const d of [this.root, ...(!this.o.authSeal ? [join(this.root, 'home'), join(this.root, 'state')] : []), join(this.root, 'tmp'), join(this.root, 'usage'), join(this.root, 'install-home'), join(this.root, 'npm-cache'), join(this.o.stateDir, 'logs')]) mkdirSync(d, { recursive: true, mode: 0o700 });
     putOnce(join(this.root, 'npmrc'), ''); // engine npm runs read this empty config, never the person's ~/.npmrc
     this.sweepAccountOrphans();
-    if (this.o.spawnEngine) this.claudeFallback = await this.installedClaudeSignedOut();
+    if (this.o.spawnEngine) this.claudeFallback = (await this.installedClaudeSignedOut()) ?? false;
     try { await this.authStore.prepare(); this.credentialsLocked = false; }
     catch (error) { if (this.locked(error)) return; throw error; }
     if (this.o.spawnEngine) {
@@ -313,7 +313,7 @@ export class Engine {
   }
   /** The engine's own shutdown signal; aborted by stop() and replaced by the next start(). */
   get stopSignal(): AbortSignal { return this.stopOwner.signal; }
-  private installedClaudeSignedOut(): Promise<boolean> {
+  private installedClaudeSignedOut(): Promise<boolean | undefined> {
     const env = { PATH: this.path, LANG: 'C.UTF-8', TMPDIR: join(this.root, 'tmp'), ...personal() };
     const bin = onPath(env.PATH, 'claude');
     if (!bin) return Promise.resolve(true);
@@ -326,8 +326,16 @@ export class Engine {
         return resolve(true);
       }
       this.o.log?.(`claude: sign-in status unknown, using the person's own login location (${String(error?.message ?? 'unparseable output').slice(0, 200)})`);
-      resolve(false);
+      resolve(undefined);
     }));
+  }
+  /** Re-select the installed login on setup detection; only a confirmed login switches away from fallback. */
+  async refreshInstalledClaudeLogin(): Promise<boolean> {
+    if (!this.o.spawnEngine || !this.claudeFallback) return false;
+    const signedOut = await this.installedClaudeSignedOut();
+    if (signedOut !== false) return false;
+    this.claudeFallback = false;
+    return true;
   }
   /** The fallback Claude sign-in for a machine whose installed Claude Code is signed out: it signs into the engine's folder. */
   nativeClaudeLogin(): ReturnType<typeof remoteCliHost> {

@@ -145,6 +145,10 @@ else process.exit(2);
       const childEnv = () => { try { return JSON.parse(readFileSync(join(engine.root, 'home', 'child.json'), 'utf8')).env; } catch { return {}; } };
       for (let i = 0; i < 300 && childEnv().CLAUDE_CONFIG_DIR !== folder; i++) await delay(20);
       assert.equal(childEnv().CLAUDE_CONFIG_DIR, folder, 'the gateway got the fallback folder');
+      writeFileSync(status, 'signed-in');
+      assert.equal(await engine.refreshInstalledClaudeLogin(), true, 'a fresh installed-login probe finds the newly signed-in Claude');
+      assert.equal(engine.doctorContext().env.CLAUDE_CONFIG_DIR, undefined, 'the next gateway environment uses the installed login');
+      assert.equal(await engine.refreshInstalledClaudeLogin(), false, 'the installed-login choice is not repeatedly switched');
     }
     await engine.stop(); // The stock doctor refuses to be a second writer next to a running gateway.
     assert.equal(engine.doctor(60_000).status, 0, 'doctor --fix exits 0');
