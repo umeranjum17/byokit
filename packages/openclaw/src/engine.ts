@@ -38,7 +38,7 @@ const putOnce = (path: string, data: string) => { if (!existsSync(path)) writeFi
 const putChanged = (path: string, data: string) => {
   if (!existsSync(path) || readFileSync(path, 'utf8') !== data) writeFileSync(path, data, { mode: 0o600 });
 };
-// The person's own homes: the agent CLIs the engine drives use the person's installed, signed-in login as is.
+// The person's own homes for every engine process: the gateway, doctor and agent CLIs use the installed, signed-in logins as is.
 const personal = () => {
   const env: Record<string, string> = { HOME: homedir() };
   for (const name of ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME']) { const value = process.env[name]; if (value) env[name] = value; }
