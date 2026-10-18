@@ -40,6 +40,6 @@ export async function discover(provider: Provider, fetcher: typeof fetch, timeou
   if (!response.ok) throw new ConnectError('discovery', response.status);
   const m = await json(response, 'discovery');
   if (m.issuer !== issuer || typeof m.authorization_endpoint !== 'string' || typeof m.token_endpoint !== 'string' || (m.code_challenge_methods_supported !== undefined && (!strings(m.code_challenge_methods_supported) || !m.code_challenge_methods_supported.includes('S256')))) throw new ConnectError('discovery');
-  for (const raw of [m.authorization_endpoint, m.token_endpoint, m.registration_endpoint].filter((x): x is string => typeof x === 'string')) endpoint(raw);
-  return { endpoints: { authorize: m.authorization_endpoint, token: m.token_endpoint, register: typeof m.registration_endpoint === 'string' ? m.registration_endpoint : undefined, issuer }, scopes: scopes ?? (strings(m.scopes_supported) ? m.scopes_supported : []), resource };
+  for (const raw of [m.authorization_endpoint, m.token_endpoint, m.registration_endpoint, m.revocation_endpoint].filter((x): x is string => typeof x === 'string')) endpoint(raw);
+  return { endpoints: { authorize: m.authorization_endpoint, token: m.token_endpoint, register: typeof m.registration_endpoint === 'string' ? m.registration_endpoint : undefined, revoke: typeof m.revocation_endpoint === 'string' ? m.revocation_endpoint : undefined, issuer }, scopes: scopes ?? (strings(m.scopes_supported) ? m.scopes_supported : []), resource };
 }

@@ -6,7 +6,7 @@ import { ConnectError, providerCause } from './errors.ts';
 import { discover, type Discovered } from './discovery.ts';
 import { endpoint, redirect, request, json } from './http.ts';
 import { providers, type ProviderId } from './providers.ts';
-import type { ConnectOptions, OAuthClient, Provider, SignIn, DeviceSignIn, McpOptions, Grant, ClientVerification } from './types.ts';
+import type { ConnectOptions, OAuthClient, Provider, SignIn, DeviceSignIn, McpOptions, Grant, ClientVerification, DisconnectResult } from './types.ts';
 
 interface Tokens { access: string; refresh?: string; expires?: number; scope?: string; refreshExpiresIn?: number; refreshExpiresAt?: number }
 interface Saved extends Discovered { client: OAuthClient; tokens: Tokens }
@@ -113,17 +113,50 @@ export class Connection {
     return { outcome: 'inconclusive', message: WORDS.verification.inconclusive };
   }
   async connected(): Promise<boolean> { return !!await this.saved(); }
-  async disconnect(): Promise<void> {
+  async disconnect(): Promise<DisconnectResult> {
     ++this.slot.epoch;
-    await serial(this.slot, async () => { await this.options.store.delete(await this.storeKey()); });
+    return serial(this.slot, async () => {
+      const saved = await this.saved();
+      let revokedAtApp = false, reason: 'unsupported' | 'failed' = 'unsupported';
+      if (saved?.endpoints.revoke) {
+        revokedAtApp = true;
+        for (const [token, hint] of [[saved.tokens.refresh, 'refresh_token'], [saved.tokens.access, 'access_token']] as const) {
+          if (!token) continue;
+          try {
+            const body = new URLSearchParams({ token, token_type_hint: hint, client_id: saved.client.id });
+            const headers: Record<string, string> = { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' };
+            const method = saved.client.authMethod ?? (saved.client.secret ? 'client_secret_post' : 'none');
+            if (method === 'client_secret_post' && saved.client.secret) body.set('client_secret', saved.client.secret);
+            if (method === 'client_secret_basic' && saved.client.secret) {
+              const encode = (value: string) => new URLSearchParams({ v: value }).toString().slice(2);
+              headers.authorization = `Basic ${btoa(`${encode(saved.client.id)}:${encode(saved.client.secret)}`)}`;
+              body.delete('client_id');
+            }
+            const response = await request(this.fetcher, saved.endpoints.revoke, { method: 'POST', headers, body }, this.timeout);
+            if (!response.ok) { revokedAtApp = false; reason = 'failed'; }
+            await response.body?.cancel();
+          } catch { revokedAtApp = false; reason = 'failed'; }
+        }
+      }
+      await this.options.store.delete(await this.storeKey());
+      return revokedAtApp ? { revokedAtApp: true } : { revokedAtApp: false, reason };
+    });
   }
   /** Starts a fresh browser sign-in. No opt-in flag or server-held account is required. */
-  async signIn(): Promise<SignIn> {
+  async signIn(): Promise<SignIn> { return this.signInFor(); }
+  /** Re-authenticate with additional scopes; the saved grant remains until this flow succeeds. */
+  async stepUp(scopes: readonly string[]): Promise<SignIn> {
+    if (!Array.isArray(scopes) || scopes.length === 0 || scopes.some(scope => typeof scope !== 'string' || !scope.trim())) throw new ConnectError('configuration');
+    const saved = await this.saved();
+    if (!saved) throw new ConnectError('signin');
+    return this.signInFor([...new Set([...saved.scopes, ...scopes])]);
+  }
+  private async signInFor(requestedScopes?: readonly string[]): Promise<SignIn> {
     const uri = this.options.redirectUri;
     if (!uri) throw new ConnectError('configuration');
     const epoch = ++this.slot.epoch;
     const info = await discover(this.provider, this.fetcher, this.timeout);
-    const scopes = this.options.scopes ?? info.scopes;
+    const scopes = requestedScopes ?? this.options.scopes ?? info.scopes;
     const client = this.options.client ?? await this.register(info);
     if (!client.id || (client.authMethod !== 'none' && client.authMethod && !client.secret)) throw new ConnectError('configuration');
     const state = random(), verifier = random();
@@ -286,6 +319,14 @@ export class Connection {
       const access = await this.token();
       const headers = new Headers(init?.headers); headers.set('authorization', `Bearer ${access}`);
       const response = await request(this.fetcher, url, { ...init, headers }, this.timeout);
+      if (response.status === 403) {
+        const challenge = response.headers.get('www-authenticate') ?? '';
+        if (/error\s*=\s*"insufficient_scope"/i.test(challenge)) {
+          const scope = challenge.match(/scope\s*=\s*"([^"]+)"/i)?.[1]?.split(/\s+/).filter(Boolean);
+          await response.body?.cancel();
+          throw new ConnectError('insufficient_scope', 403, undefined, scope);
+        }
+      }
       if (response.status !== 401) return response;
       await response.body?.cancel();
       headers.set('authorization', `Bearer ${await this.token(access)}`);

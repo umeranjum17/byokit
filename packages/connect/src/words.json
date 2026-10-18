@@ -10,7 +10,8 @@
     "token": "The app did not finish connecting. Try again.",
     "signin": "Sign in to this app again.",
     "network": "Could not reach the app. Check your connection and try again.",
-    "catalog": "Could not load the list of apps. Try again later."
+    "catalog": "Could not load the list of apps. Try again later.",
+    "insufficient_scope": "This app needs another permission. Sign in again to add it."
   },
   "browser": {
     "unavailable": "This page is not available.",

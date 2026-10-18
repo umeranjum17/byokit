@@ -254,6 +254,10 @@ image address from the listing; render it as untrusted content.
 - Any object with `list(): Promise<CatalogApp[]>` is a source, such as the host's
   own managed connector directory behind its server.
 
+`disconnect()` returns `{ revokedAtApp: true }` when the app accepts revocation, otherwise `{ revokedAtApp: false, reason: 'failed' | 'unsupported' }`. When authorization metadata publishes an RFC 7009 revocation endpoint, it sends the refresh token and then the access token before deleting the local record. A failed request never prevents local removal.
+
+When an MCP request returns a 403 `WWW-Authenticate: Bearer error="insufficient_scope"`, it rejects with `ConnectError` code `insufficient_scope` and `requiredScopes` when the server supplies a scope hint. Start `connection.stepUp(error.requiredScopes ?? ['scope'])`; the returned sign-in requests the additional scopes, and the saved grant remains usable until `finish()` stores the upgraded grant.
+
 A directory that fails or answers in another shape rejects with `ConnectError`
 code `catalog` (with its `status`), an unreachable one with `network`; the whole
 `catalog()` call rejects with it, so list a source on its own to keep the rest.
