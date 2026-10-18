@@ -2,7 +2,11 @@ export type DictateEngineId = 'system' | 'whisper' | 'openai' | 'openrouter' | '
 export type DictateEngineInfo = { id: DictateEngineId; model?: string; onDevice: boolean; streaming: 'native' | 'reread' | 'utterance'; account: 'plan' | 'key' | 'none' };
 export type DictateOptions = { languages?: string[]; prompt?: string; keywords?: string[]; replacements?: Record<string, string>; punctuation?: boolean; timestamps?: 'none' | 'segment' | 'word'; onDeviceOnly?: boolean; signal?: AbortSignal;
   /** Live PCM capture limit, including silence, in seconds. Defaults to 300; finite and positive. */
-  maxSeconds?: number };
+  maxSeconds?: number;
+  /** Per-window progress of a final or file reading, for engines that read in windows (whisper.rn). */
+  onProgress?: (p: DictateProgress) => void };
+/** `speech`: the speech gate has checked audio up to `doneMs`; `decode`: Whisper has read up to `doneMs`. */
+export type DictateProgress = { phase: 'speech' | 'decode'; doneMs: number; totalMs: number };
 export type DictateSegment = { id: string; text: string; final: boolean; startMs?: number; endMs?: number; language?: string; words?: { text: string; startMs: number; endMs: number }[] };
 export type DictateUsage = { audioMs: number; basis: 'free' | 'minutes' | 'tokens' | 'subscription'; costUsd?: number; inputTokens?: number };
 export type DictateTranscript = { text: string; segments: DictateSegment[]; language?: string; durationMs?: number; usage: DictateUsage; engine: DictateEngineInfo };

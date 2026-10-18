@@ -164,27 +164,40 @@ function pcm16le(pcm: Int16Array): ArrayBuffer {
   return buffer;
 }
 
+/** The speech gate checks the recording in windows of this length, each once and only
+ * when a decode window first needs it, so a long take starts decoding after one check. */
+const GATE_SAMPLES = 30_000 * 16;
+
 /** Shared segmentation, gain, energy VAD, prompting and timestamp offsets. `hasSpeech`
- * gates the whole decode: Whisper turns room noise into made-up sentences. A supplied
- * `windowSamples` keeps only that many trailing samples, for bounded live previews. */
+ * gates each decode window: Whisper turns room noise into made-up sentences, so a window
+ * whose gate windows hold no speech is skipped. A supplied `windowSamples` keeps only
+ * that many trailing samples, for bounded live previews. */
 export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperSettings, o: DictateOptions,
   run: (pcm: Int16Array, options: WhisperRnDecodeOptions) => Promise<WhisperRnResult>, session?: VadSession,
   hasSpeech?: (pcm: Int16Array) => Promise<boolean>, windowSamples?: number): Promise<Omit<DictateTranscript, 'engine'> & { windowed?: boolean }> {
-  let pcm: Int16Array, speech = true, windowed = false;
+  let pcm: Int16Array, windowed = false;
   try {
     checkAbort(o.signal);
     if (o.timestamps === 'word') throw new DictateError('unsupported'); // RN returns segments, not word offsets.
     pcm = await whisperPcm(input, s.gain);
     if (windowSamples && pcm.length > windowSamples) { pcm = pcm.slice(pcm.length - windowSamples); windowed = true; }
     checkAbort(o.signal);
-    if (hasSpeech) speech = pcm.length > 0 && await hasSpeech(pcm);
-    checkAbort(o.signal);
   } catch (error) { await session?.release?.(); throw error; }
-  const usage = { audioMs: pcm.length / 16, basis: 'free' } as const;
-  if (!speech) {
-    await session?.release?.();
-    return { text: '', segments: [], durationMs: pcm.length / 16, usage, windowed };
-  }
+  const usage = { audioMs: pcm.length / 16, basis: 'free' } as const, totalMs = pcm.length / 16;
+  const gates: boolean[] = [];
+  const speaks = async (from: number, to: number) => {
+    if (!hasSpeech) return true;
+    for (let w = Math.floor(from / GATE_SAMPLES); w * GATE_SAMPLES < to; w++) {
+      if (gates[w] === undefined) {
+        const gateEnd = Math.min(pcm.length, (w + 1) * GATE_SAMPLES);
+        gates[w] = await hasSpeech(pcm.subarray(w * GATE_SAMPLES, gateEnd));
+        checkAbort(o.signal);
+        o.onProgress?.({ phase: 'speech', doneMs: gateEnd / 16, totalMs });
+      }
+      if (gates[w]) return true;
+    }
+    return false;
+  };
   const segments: DictateSegment[] = [];
   let text = '', language: string | undefined;
   const chunkSamples = (s.chunkMs || 30_000) * 16;
@@ -192,27 +205,29 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
     const prefix = segments.map(segment => segment.text).join(' ');
     const overlap = !s.chunkMs && end - start > chunkSamples ? 5_000 * 16 : 0;
     const stepSamples = chunkSamples - overlap;
-    let rangeText = '';
+    let rangeText = '', decoded = false;
     for (let at = start; at < end;) {
       checkAbort(o.signal);
       const chunkEnd = Math.min(end, at + chunkSamples);
+      if (!await speaks(at, chunkEnd)) {
+        if (chunkEnd >= end) break;
+        at += stepSamples;
+        continue;
+      }
       const chunk = pcm.slice(at, chunkEnd);
       // Automatic overlapping windows are fresh final readings. Feeding their
       // overlap back as a prompt makes Whisper suppress it as already-known text.
       const result = await run(chunk, whisperDecodeOptions(s, o, s.chunkMs ? text : ''));
       checkAbort(o.signal);
       if (result.isAborted) throw new DictateError('cancelled');
+      decoded = true;
+      o.onProgress?.({ phase: 'decode', doneMs: chunkEnd / 16, totalMs });
       language = result.language ?? language;
       rangeText = overlap && at > start ? mergeOverlap(rangeText, result.result) : [rangeText, result.result.trim()].filter(Boolean).join(' ');
       text = [prefix, rangeText].filter(Boolean).join(' ');
       const nativeSegments = result.segments.length ? result.segments : [{ text: result.result, t0: 0, t1: chunk.length / 160 }];
       if (overlap) {
-        // A merged range has range-level offsets, not fabricated word cuts from
-        // native segment metadata. Its text must agree with transcript.text.
-        if (chunkEnd >= end) {
-          segments.push({ id: String(segments.length), text: rangeText, final: true, language, startMs: start / 16, endMs: end / 16 });
-          break;
-        }
+        if (chunkEnd >= end) break;
         // Step from where the decoder actually stopped. Whisper can end an
         // automatic window early at a pause, and a fixed step would then skip
         // the speech between that end and the next window. A full window keeps
@@ -231,6 +246,9 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
       // No overlap here (an explicit chunkMs): the unchanged fixed step.
       at += stepSamples;
     }
+    // A merged range has range-level offsets, not fabricated word cuts from
+    // native segment metadata. Its text must agree with transcript.text.
+    if (overlap && decoded) segments.push({ id: String(segments.length), text: rangeText, final: true, language, startMs: start / 16, endMs: end / 16 });
   }
   text = segments.map(segment => segment.text).join(' ').trim();
   return { text, segments, language, durationMs: pcm.length / 16, usage, windowed };
@@ -242,12 +260,13 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
  * `vad` makes the live turn gate neural at once, while offline segmentation still
  * follows `settings.vad.enabled`: left false, transcribe keeps the whole file and
  * the factory changes nothing offline. `speech` runs whisper.rn's Silero VAD over every
- * final and file reading and skips the decode when it finds no speech; previews are not gated.
+ * final and file reading, window by window, and skips each decode window it finds silent;
+ * previews are not gated and report no progress.
  * Live previews always decode greedily over only the last `PREVIEW_WINDOW_SECONDS` of the
  * turn and merge onto the turn's decoded prefix, so they do not inherit the host's final
  * beam and every preview decode stays bounded; a preview reading never becomes final text. */
 export function whisperRnEngine(o: { model: string | number; multilingual?: boolean; initWhisper(options: { filePath: string | number }): Promise<WhisperRnContext>; settings?: WhisperSettings; vad?: () => VadSession | Promise<VadSession>;
-  speech?: { model: string | number; initWhisperVad(options: { filePath: string | number }): Promise<WhisperRnVadContext> } }): DictateEngine & { release(): Promise<void> } {
+  speech?: { model: string | number; initWhisperVad(options: { filePath: string | number; nThreads?: number }): Promise<WhisperRnVadContext> } }): DictateEngine & { release(): Promise<void> } {
   const local = (model: string | number) => typeof model === 'string' && model.trim() && !/^[a-z]+:\/\//i.test(model.replace(/^file:\/\//, ''))
     || typeof model === 'number' && Number.isSafeInteger(model) && model >= 0;
   if (!local(o.model) || o.speech && !local(o.speech.model)) throw new DictateError('bad-model');
@@ -263,7 +282,9 @@ export function whisperRnEngine(o: { model: string | number; multilingual?: bool
   };
   const speech = o.speech;
   const hasSpeech = speech && (async (pcm: Int16Array) => {
-    vadContext ??= speech.initWhisperVad({ filePath: speech.model }).catch(cause => { vadContext = undefined; throw new DictateError('bad-model', { cause }); });
+    // One thread: Silero computes one tiny graph per 32 ms, and whisper.rn's Android default
+    // of 4 busy-waiting threads made a 2-core phone check 7-8 s per second of audio (1 thread: ~10 ms).
+    vadContext ??= speech.initWhisperVad({ filePath: speech.model, nThreads: 1 }).catch(cause => { vadContext = undefined; throw new DictateError('bad-model', { cause }); });
     const vad = await vadContext;
     try { return (await vad.detectSpeechData(pcm16le(pcm))).length > 0; }
     catch (cause) { throw new DictateError('bad-model', { cause }); }
@@ -275,7 +296,7 @@ export function whisperRnEngine(o: { model: string | number; multilingual?: bool
     const session = o.vad && settings.vad.enabled ? await o.vad() : undefined;
     const result = await transcribeWhisper(input,
       preview ? { ...settings, initialPrompt: '', vocabulary: [], beamSize: -1, temperature: 0, temperatureInc: 0 } : settings,
-      preview ? { ...options, prompt: undefined, keywords: undefined } : options, async (pcm, decode) => {
+      preview ? { ...options, prompt: undefined, keywords: undefined, onProgress: undefined } : options, async (pcm, decode) => {
       const native = await acquire();
       checkAbort(options.signal);
       const job = native.transcribeData(pcm16le(pcm), decode);
