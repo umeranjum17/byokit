@@ -1,5 +1,7 @@
 import { fork } from 'node:child_process';
+import { availableParallelism } from 'node:os';
 import { isAbsolute } from 'node:path';
+import { whisperThreads } from './whisper.ts';
 import { DictateError, type DictateEngine, type DictateEngineInfo, type DictateInput, type DictateOptions, type DictateTranscript, type DictateErrorCode } from './types.ts';
 export type ProcessOptions = { env?: Record<string, string>; timeoutMs?: number };
 export type Access = (signal?: AbortSignal) => Promise<{ access: string; accountId?: string }>;
@@ -55,5 +57,5 @@ export function chatgptEngine(o: ProcessOptions & { access: Access; endpoint?: s
 export function whisperEngine(o: ProcessOptions & { binary: string; modelPath: string; threads?: number }): DictateEngine {
   if (!isAbsolute(o.binary) || !isAbsolute(o.modelPath)) throw new DictateError('bad-model');
   if (o.threads !== undefined && (!Number.isInteger(o.threads) || o.threads < 1 || o.threads > 64)) throw new DictateError('bad-model');
-  return childEngine({ id: 'whisper', model: o.modelPath.split('/').at(-1), onDevice: true, streaming: 'reread', account: 'none' }, { id: 'whisper', binary: o.binary, modelPath: o.modelPath, threads: o.threads ?? 6 }, o);
+  return childEngine({ id: 'whisper', model: o.modelPath.split('/').at(-1), onDevice: true, streaming: 'reread', account: 'none' }, { id: 'whisper', binary: o.binary, modelPath: o.modelPath, threads: o.threads ?? whisperThreads(availableParallelism()) }, o);
 }

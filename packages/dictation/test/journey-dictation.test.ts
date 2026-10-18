@@ -18,7 +18,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdtemp, writeFile, chmod, readFile, rm, readdir } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { availableParallelism, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { build } from 'esbuild';
 import fixture from '../../../fixtures/conformance/dictation-typescript.json' with { type: 'json' };
@@ -136,6 +136,23 @@ test('a person dictates and the app finalizes exactly the words shown; a local-o
 test('a phone transcribes offline with whisper.rn: bounded settings, exact PCM at the rails, real VAD gating', async () => {
   // Settings the app gets wrong are refused before native access.
   assert.equal(whisperSettings({}, true).language, 'auto');
+  // Decode threads follow the cores the platform reports, at most 8; the app's explicit count wins. With no count
+  // (React Native has no navigator.hardwareConcurrency) no maxThreads is sent, so whisper.rn picks from the native cores.
+  const cores = (value: unknown) => Object.defineProperty(globalThis, 'navigator', { value: value === undefined ? undefined : { hardwareConcurrency: value }, configurable: true });
+  const navigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator')!;
+  try {
+    cores(2); assert.equal(whisperSettings().threads, 2); assert.equal(whisperSettings({ threads: 12 }).threads, 12);
+    cores(16); assert.equal(whisperSettings().threads, 8);
+    cores(undefined); assert.equal(whisperSettings().threads, undefined);
+    for (const [settings, maxThreads] of [[{}, undefined], [{ threads: 3 }, 3]] as const) {
+      const decodes: WhisperRnDecodeOptions[] = [];
+      const phone = whisperRnEngine({ model: 1, settings, async initWhisper() { return { release: async () => {}, transcribeData(_bytes, decode) {
+        decodes.push(decode); return { stop: async () => {}, promise: Promise.resolve({ result: 'hi', segments: [{ text: 'hi', t0: 0, t1: 1 }] }) };
+      } }; } });
+      await new Dictation({ engine: phone }).transcribe(wav([new Int16Array(160).fill(1000)]));
+      assert.equal(decodes.length, 1); assert.equal('maxThreads' in decodes[0], maxThreads !== undefined); assert.equal(decodes[0].maxThreads, maxThreads);
+    }
+  } finally { Object.defineProperty(globalThis, 'navigator', navigator); }
   const invalid: object[] = [{ threads: 0 }, { threads: 65 }, { gain: NaN }, { gain: 0 }, { chunkMs: 30001 }, { chunkMs: 99 },
     { beamSize: 1 }, { beamSize: 0 }, { bestOf: 0 }, { temperature: -1 }, { temperatureInc: Infinity }, { language: 'en-US' },
     { vocabulary: [''] }, { vad: { threshold: 1.1 } }, { vad: { relativeThreshold: 1.1 } }, { vad: { silenceMs: 0 } }, { vad: { paddingMs: -1 } }];
@@ -436,13 +453,14 @@ test('provider and CLI engines use exactly the caller credential, refuse arbitra
     await assert.rejects(new Dictation({ engine: openaiEngine({ key: 'fixture', endpoint: 'https://example.com' }) }).transcribe(wav([])), (e: DictateError) => e.code === 'unsupported');
   } finally { await new Promise<void>((resolve, reject) => server.close(e => e ? reject(e) : resolve())); }
 
-  // The app-passed whisper.cpp CLI runs with no environment and removes its temporary audio; a corrupt model is removed.
+  // The app-passed whisper.cpp CLI runs with no environment, the host's cores (at most 8) as threads, and removes its
+  // temporary audio; a corrupt model is removed.
   const dir = await mkdtemp(join(tmpdir(), 'dictate-journey-'));
   const before = (await readdir(tmpdir())).filter(s => s.startsWith('dictate-'));
   try {
     const binary = join(dir, 'whisper'), modelPath = join(dir, 'model.bin');
     await writeFile(modelPath, 'fixture');
-    await writeFile(binary, `#!${process.execPath}\nconst fs = require('node:fs'); const a = process.argv; const input = a[a.indexOf('-f')+1]; const data = fs.readFileSync(input); if(data.readInt16LE(44)!==-32768 || data.readInt16LE(46)!==32767 || process.env.HOME) process.exit(1); fs.writeFileSync(a[a.indexOf('-of')+1]+'.json', JSON.stringify({result:{language:'en'}, transcription:[{text:'hello', offsets:{from:0,to:1000}}]}));\n`);
+    await writeFile(binary, `#!${process.execPath}\nconst fs = require('node:fs'); const a = process.argv; const input = a[a.indexOf('-f')+1]; const data = fs.readFileSync(input); if(data.readInt16LE(44)!==-32768 || data.readInt16LE(46)!==32767 || a[a.indexOf('-t')+1]!=='${Math.min(availableParallelism(), 8)}' || process.env.HOME) process.exit(1); fs.writeFileSync(a[a.indexOf('-of')+1]+'.json', JSON.stringify({result:{language:'en'}, transcription:[{text:'hello', offsets:{from:0,to:1000}}]}));\n`);
     await chmod(binary, 0o700);
     const dictate = new Dictation({ engine: whisperEngine({ binary, modelPath }) });
     // A host's progress callback stays in the host: the isolated child gets plain options.

@@ -32,14 +32,22 @@ export type WhisperSettings = {
   temperatureInc?: number;
   vad?: { enabled?: boolean; threshold?: number; relativeThreshold?: number; silenceMs?: number; paddingMs?: number };
 };
-export type ResolvedWhisperSettings = Required<Omit<WhisperSettings, 'vad'>> & { vad: Required<NonNullable<WhisperSettings['vad']>> };
+export type ResolvedWhisperSettings = Required<Omit<WhisperSettings, 'vad' | 'threads'>> & { threads: number | undefined; vad: Required<NonNullable<WhisperSettings['vad']>> };
+
+/** Decode threads when the host sets none: the reported cores, at most 8. Decode threads spin while they
+ * wait, so more threads than cores starve each other: 6 threads decoded 5 s of speech in 52 s on a 2-core
+ * phone and 2 threads in 4 s, and all 32 cores of a busy desktop ran slower than 16. React Native reports
+ * no count, so this returns undefined and whisper.rn picks from the native core count (at most 4). */
+export function whisperThreads(cores = globalThis.navigator?.hardwareConcurrency): number | undefined {
+  return cores ? Math.min(Math.max(Math.floor(cores), 1), 8) : undefined;
+}
 
 /** Decoder defaults match whisper.rn's greedy path; capture remains app-owned. */
 export function whisperSettings(o: WhisperSettings = {}, multilingual = false): ResolvedWhisperSettings {
   if (!Array.isArray(o.vocabulary ?? [])) throw new DictateError('bad-model');
   const s: ResolvedWhisperSettings = {
     language: o.language ?? (multilingual ? 'auto' : 'en'), initialPrompt: o.initialPrompt ?? '', vocabulary: [...(o.vocabulary ?? [])],
-    threads: o.threads ?? 6, gain: o.gain ?? 1, chunkMs: o.chunkMs ?? 0,
+    threads: o.threads ?? whisperThreads(), gain: o.gain ?? 1, chunkMs: o.chunkMs ?? 0,
     beamSize: o.beamSize ?? -1, bestOf: o.bestOf ?? 5, temperature: o.temperature ?? 0, temperatureInc: o.temperatureInc ?? 0.2,
     vad: { enabled: o.vad?.enabled ?? false, threshold: o.vad?.threshold ?? 0.0025, relativeThreshold: o.vad?.relativeThreshold ?? 0.1, silenceMs: o.vad?.silenceMs ?? 500, paddingMs: o.vad?.paddingMs ?? 200 },
   };
@@ -47,7 +55,7 @@ export function whisperSettings(o: WhisperSettings = {}, multilingual = false): 
   const range = (n: number, min: number, max: number) => Number.isFinite(n) && n >= min && n <= max;
   if (!/^(auto|[a-z]{2,3})$/.test(s.language) || typeof s.initialPrompt !== 'string'
     || !Array.isArray(o.vocabulary ?? []) || s.vocabulary.some(w => typeof w !== 'string' || !w.trim())
-    || !integer(s.threads, 1, 64) || !range(s.gain, 0.01, 16) || !(s.chunkMs === 0 || integer(s.chunkMs, 100, 30_000))
+    || !(s.threads === undefined || integer(s.threads, 1, 64)) || !range(s.gain, 0.01, 16) || !(s.chunkMs === 0 || integer(s.chunkMs, 100, 30_000))
     || !(s.beamSize === -1 || integer(s.beamSize, 2, 100)) || !integer(s.bestOf, 1, 100)
     || !range(s.temperature, 0, 1) || !range(s.temperatureInc, 0, 1)
     || typeof s.vad.enabled !== 'boolean' || !range(s.vad.threshold, 0, 1)
@@ -60,7 +68,7 @@ export function whisperSettings(o: WhisperSettings = {}, multilingual = false): 
 
 /** Structural subset of whisper.rn 0.7.2; no runtime or type import of React Native. */
 export type WhisperRnDecodeOptions = {
-  language: string; maxThreads: number; prompt: string; tokenTimestamps: boolean; maxLen: number;
+  language: string; maxThreads?: number; prompt: string; tokenTimestamps: boolean; maxLen: number;
   audioCtx: 0; beamSize?: number; bestOf: number; temperature: number; temperatureInc: number;
 };
 export type WhisperRnResult = { result: string; language?: string; isAborted?: boolean; segments: { text: string; t0: number; t1: number }[] };
@@ -151,7 +159,7 @@ export function whisperDecodeOptions(s: ResolvedWhisperSettings, o: DictateOptio
   // Per-call hints receive the same validation as construction settings.
   whisperSettings({ language, initialPrompt: o.prompt, vocabulary: o.keywords });
   return {
-    language, maxThreads: s.threads, audioCtx: 0, tokenTimestamps: false, maxLen: 0,
+    language, ...(s.threads ? { maxThreads: s.threads } : {}), audioCtx: 0, tokenTimestamps: false, maxLen: 0,
     prompt: [s.initialPrompt, ...s.vocabulary, o.prompt, ...(o.keywords ?? []), previous.slice(-200), o.punctuation === false ? 'Do not add punctuation.' : ''].filter(Boolean).join(' '),
     ...(s.beamSize > 0 ? { beamSize: s.beamSize } : {}), bestOf: s.bestOf, temperature: s.temperature, temperatureInc: s.temperatureInc,
   };
