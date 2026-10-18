@@ -77,7 +77,7 @@ test('Claude binary seam: the person\'s own sign-in, structured generation, scal
     const bin = join(root, 'fake-claude');
     await writeFile(bin, fakeSource, { mode: 0o700 });
     process.env.HOME = decoyHome;
-    delete process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = ambient;
     process.env.ANTHROPIC_API_KEY = 'never-reaches-the-binary';
     process.env.CLAUDE_CODE_OAUTH_TOKEN = 'subscription-token';
     process.env.ANTHROPIC_AUTH_TOKEN = 'api-token';
@@ -106,7 +106,7 @@ test('Claude binary seam: the person\'s own sign-in, structured generation, scal
     // The person's own HOME and PATH, and no kit-owned sign-in folder.
     assert.equal(log.env.HOME, decoyHome);
     assert.equal(log.env.PATH, process.env.PATH);
-    assert.equal('CLAUDE_CONFIG_DIR' in log.env, false);
+    assert.equal(log.env.CLAUDE_CONFIG_DIR, ambient);
     assert.notEqual(log.cwd, process.cwd());
     assert.equal(log.env.CLAUDE_CODE_OAUTH_TOKEN, 'subscription-token');
     assert.equal('ANTHROPIC_AUTH_TOKEN' in log.env, false);
