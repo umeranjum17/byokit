@@ -2,7 +2,7 @@
 // replaces the placeholder pass-through types below without changing any signature.
 
 export type HerdrState = {
-  phase: 'stopped' | 'connecting' | 'ready' | 'reconnecting' | 'needs-update' | 'missing' | 'failed';
+  phase: 'stopped' | 'connecting' | 'ready' | 'reconnecting' | 'stalled' | 'needs-update' | 'missing' | 'failed';
   why?: 'binary' | 'socket' | 'version' | 'server-exited';
 };
 
@@ -15,10 +15,10 @@ export type HerdrProtocolRange = { min?: number; max?: number };
 
 export type HerdrKitOptions =
   | { mode: 'adopt'; bin: string; socketPath: string; env?: Record<string, string>; path?: string[];
-      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; onState?: (s: HerdrState) => void;
+      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; livenessTimeoutMs?: number; onState?: (s: HerdrState) => void;
       onLog?: (message: string) => void }
   | { mode: 'own'; bin: string; stateDir: string; env?: Record<string, string>; path?: string[];
-      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; onState?: (s: HerdrState) => void;
+      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; livenessTimeoutMs?: number; onState?: (s: HerdrState) => void;
       onLog?: (message: string) => void };
 
 // A live subscription: call to unsubscribe. `ready` resolves true on the server ack and false on a

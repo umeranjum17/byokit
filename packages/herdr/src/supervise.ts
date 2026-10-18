@@ -111,7 +111,7 @@ export class Supervisor {
       if (ms) await delay(ms);
       if (this.stopping) throw new Error('herdr: stopped');
       try {
-        const ping = await transport.call('ping', {}, 1000) as { protocol?: number };
+        const ping = await transport.call('ping', {}, this.o.livenessTimeoutMs ?? 1000) as { protocol?: number };
         // K11: a server older than the declared range fails closed; a newer one connects
         // anyway with `needs-update` (the kit's bootstrap keeps that steady state), so a
         // Herdr protocol bump does not take the host down before the kit's pin moves.
@@ -124,6 +124,32 @@ export class Supervisor {
         return transport;
       } catch (error) {
         if ((error as Error).message === 'herdr: protocol mismatch') throw error;
+        if ((error as { code?: string }).code === 'timeout') {
+          this.state('stalled');
+          // A connected but silent server may be busy; keep probing on the normal backoff.
+          let retry = 0;
+          while (!this.stopping) {
+            await delay([250, 500, 1000, 2000][Math.min(retry++, 3)]);
+            try {
+              const ping = await transport.call('ping', {}, this.o.livenessTimeoutMs ?? 1000) as { protocol?: number };
+              const { min, max } = protocolBounds(this.o.protocolRange);
+              if (typeof ping.protocol !== 'number' || ping.protocol < min) {
+                this.state('needs-update', 'version'); throw new Error('herdr: protocol mismatch');
+              }
+              if (ping.protocol > max) this.state('needs-update', 'version');
+              this.failures = 0;
+              return transport;
+            } catch (retryError) {
+              if (this.stopping) throw new Error('herdr: stopped');
+              if ((retryError as Error).message === 'herdr: protocol mismatch') throw retryError;
+              if ((retryError as { code?: string }).code !== 'timeout') {
+                this.state('failed', 'socket');
+                throw retryError;
+              }
+            }
+          }
+          throw new Error('herdr: stopped');
+        }
       }
     }
     this.state('failed', 'socket');

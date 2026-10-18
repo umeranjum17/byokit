@@ -58,7 +58,11 @@ export function socketTransport(socketPath: string): HerdrTransport {
             finish(error);
           } else finish(undefined, frame.result);
         }, () => finish(new Error('herdr: socket closed')));
-        const timer = setTimeout(() => finish(new Error('herdr: request timed out')), timeoutMs);
+        const timer = setTimeout(() => {
+          const error = new Error('herdr: request timed out') as Error & { code: string };
+          error.code = socket.connecting ? 'socket' : 'timeout';
+          finish(error);
+        }, timeoutMs);
         socket.on('connect', () => socket.write(`${JSON.stringify({ id, method, params })}\n`));
       });
     },

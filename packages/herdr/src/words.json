@@ -3,6 +3,7 @@
   "herdr.connecting": "Connecting to Herdr…",
   "herdr.ready": "Connected to Herdr.",
   "herdr.reconnecting": "Herdr isn't answering. Trying again by itself.",
+  "herdr.stalled": "This computer is busy. The app keeps trying to connect.",
   "herdr.needsUpdate": "Herdr on this computer needs an update to work with this app.",
   "herdr.failed": "Herdr couldn't start on this computer. Restart the app to try again.",
   "agent.starting": "Starting…",

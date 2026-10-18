@@ -12,7 +12,7 @@ export const words = (key: WordKey, vars: Record<string, string> = {}): string =
 
 const PHASE_KEY: Record<Exclude<HerdrState['phase'], 'stopped'>, WordKey> = {
   connecting: 'herdr.connecting', ready: 'herdr.ready', reconnecting: 'herdr.reconnecting',
-  'needs-update': 'herdr.needsUpdate', missing: 'herdr.missing', failed: 'herdr.failed',
+  stalled: 'herdr.stalled', 'needs-update': 'herdr.needsUpdate', missing: 'herdr.missing', failed: 'herdr.failed',
 };
 
 /** The sentence for a kit state; a stopped kit has nothing to say yet. */
