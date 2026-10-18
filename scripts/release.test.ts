@@ -264,8 +264,8 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
     assert.equal(git("status", "--porcelain").trim(), "");
     const publish = run(process.execPath, ["scripts/release.ts", "publish", "--dry-run"]);
     assert.equal(publish.status, 0, publish.stderr);
-    assert.match(publish.stdout, /npm publish -w @byokit\/d-first --access public --tag next --dry-run/, "publishConfig.tag reaches npm as --tag");
-    assert.match(publish.stdout, /npm publish -w @byokit\/probe --access public --dry-run/, "no publishConfig.tag keeps npm's latest");
+    assert.match(publish.stdout, /npm publish -w @byokit\/d-first --access public --tag next( --provenance)? --dry-run/, "publishConfig.tag reaches npm as --tag");
+    assert.match(publish.stdout, /npm publish -w @byokit\/probe --access public( --provenance)? --dry-run/, "no publishConfig.tag keeps npm's latest");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
