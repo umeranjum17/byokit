@@ -753,9 +753,9 @@ account. Unknown or API authentication is refused before any model request; stat
 
 The kit neither runs login nor reads, copies or intermediates credentials. Environment variables
 whose names hold `KEY`, `TOKEN` or `SECRET`, and `NODE_OPTIONS`, are removed from the child's
-environment. `configDir` is optional: when the host passes an absolute path, it is set as
+environment, except `CLAUDE_CODE_OAUTH_TOKEN`, the subscription token from `claude setup-token`, which passes through. API-billed credentials such as `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` never reach the child. `configDir` is optional: when the host passes an absolute path, it is set as
 `CLAUDE_CONFIG_DIR` as given; otherwise the user's own setting, if any, applies. Each call runs in a
-temporary working directory that is removed afterwards, including cancellation and timeouts.
+temporary working directory that is removed afterwards, including cancellation and timeouts. The cache identity for this route is the binary path and `configDir` only; it does not include which Claude account is signed in, so a host that switches accounts on one machine uses a separate `GenerationCache`.
 
 [Claude Code's authentication and credential-use terms](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use)
 explicitly permit an end user to sign in to the unmodified binary using their own subscription;

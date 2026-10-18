@@ -63,6 +63,8 @@ test('Claude binary seam: the person\'s own sign-in, structured generation, scal
   const previousHome = process.env.HOME;
   const previousConfig = process.env.CLAUDE_CONFIG_DIR;
   const previousKey = process.env.ANTHROPIC_API_KEY;
+  const previousOAuth = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  const previousAuthToken = process.env.ANTHROPIC_AUTH_TOKEN;
   try {
     await mkdir(configDir);
     await mkdir(logDir);
@@ -77,6 +79,8 @@ test('Claude binary seam: the person\'s own sign-in, structured generation, scal
     process.env.HOME = decoyHome;
     delete process.env.CLAUDE_CONFIG_DIR;
     process.env.ANTHROPIC_API_KEY = 'never-reaches-the-binary';
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = 'subscription-token';
+    process.env.ANTHROPIC_AUTH_TOKEN = 'api-token';
     process.env.FAKE_CLAUDE_LOG = logDir;
     const backend = claudeCode({ bin, model: 'chosen-model', timeoutMs: 5000 });
     assert.equal(backend.billing, 'subscription');
@@ -104,7 +108,9 @@ test('Claude binary seam: the person\'s own sign-in, structured generation, scal
     assert.equal(log.env.PATH, process.env.PATH);
     assert.equal('CLAUDE_CONFIG_DIR' in log.env, false);
     assert.notEqual(log.cwd, process.cwd());
-    assert.deepEqual(Object.keys(log.env).filter((k: string) => /KEY|TOKEN|SECRET|NODE_OPTIONS/.test(k) && k !== 'CLAUDE_CODE_MAX_OUTPUT_TOKENS'), []);
+    assert.equal(log.env.CLAUDE_CODE_OAUTH_TOKEN, 'subscription-token');
+    assert.equal('ANTHROPIC_AUTH_TOKEN' in log.env, false);
+    assert.deepEqual(Object.keys(log.env).filter((k: string) => /KEY|TOKEN|SECRET|NODE_OPTIONS/.test(k) && k !== 'CLAUDE_CODE_MAX_OUTPUT_TOKENS' && k !== 'CLAUDE_CODE_OAUTH_TOKEN'), []);
     await assert.rejects(readFile(join(log.cwd, 'any')), { code: 'ENOENT' });
     // A host-passed config directory is set as given, over the ambient one.
     process.env.CLAUDE_CONFIG_DIR = ambient;
@@ -183,6 +189,10 @@ test('Claude binary seam: the person\'s own sign-in, structured generation, scal
     else process.env.CLAUDE_CONFIG_DIR = previousConfig;
     if (previousKey === undefined) delete process.env.ANTHROPIC_API_KEY;
     else process.env.ANTHROPIC_API_KEY = previousKey;
+    if (previousOAuth === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    else process.env.CLAUDE_CODE_OAUTH_TOKEN = previousOAuth;
+    if (previousAuthToken === undefined) delete process.env.ANTHROPIC_AUTH_TOKEN;
+    else process.env.ANTHROPIC_AUTH_TOKEN = previousAuthToken;
     delete process.env.FAKE_CLAUDE_LOG;
     await rm(join(homeClaude, 'byokit-test-canary'), { force: true });
     await rm(root, { recursive: true, force: true });

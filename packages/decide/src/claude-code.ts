@@ -60,9 +60,9 @@ export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
         ...(input.system ? ['--system-prompt', input.system] : [])];
       const deadline = Date.now() + o.timeoutMs;
       const execute = (args: string[], stdin?: string) => new Promise<string>((resolveOutput, reject) => {
-        // The person's own environment, so their installed Claude answers with its own sign-in; minus keys, tokens and preloads.
+        // The person's own environment, so their installed Claude answers with its own sign-in; minus API keys, API tokens and preloads, keeping the subscription OAuth token.
         const child = spawn(o.bin, args, { cwd: scratch, env: {
-          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/KEY|TOKEN|SECRET|^NODE_OPTIONS$/i.test(k))),
+          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k === 'CLAUDE_CODE_OAUTH_TOKEN' || !/KEY|TOKEN|SECRET|^NODE_OPTIONS$/i.test(k))),
           ...(o.configDir !== undefined && { CLAUDE_CONFIG_DIR: o.configDir }),
           CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens),
           DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
