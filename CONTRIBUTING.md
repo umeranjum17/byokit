@@ -84,6 +84,8 @@ unfixed vulnerability; no dependency override or product artifact fix is implied
   `@byokit/decide/claude-code` spawns only the unmodified Claude binary the host passes by absolute path,
   with the person's own HOME and environment minus the API-billed, billing-route and preload variables listed in `packages/decide/README.md` (the subscription OAuth token is kept), in a temporary working directory. The user's installed Claude sign-in answers; the kit never opens or copies credentials, inherits API keys, or falls back to API billing. A host may pass `configDir`, set as `CLAUDE_CONFIG_DIR`; the kit never creates or signs into it.
   Tests use an offline fake binary.
+  `@byokit/decide/codex` spawns only the unmodified Codex binary the host passes by absolute path, the same way:
+  the person's own HOME and environment minus the API-key, base-URL and preload variables listed in `packages/decide/README.md`, in a temporary working directory, with no `CODEX_HOME` unless a managed account from `@byokit/accounts/cli` sets its own. The user's installed ChatGPT sign-in answers; the kit never opens or copies `~/.codex`, inherits API keys, or falls back to API billing. Tests use an offline fake binary.
   `@byokit/usage` reads only the sign-in folder the app passes and spawns only the Codex binary the app passes
   by absolute path, with an environment built from nothing plus what the app passes; its tests use fakes only. `@byokit/bubble` and
   `@byokit/statusbar` and `@byokit/push` run only their own native code inside the app or its notification extension.

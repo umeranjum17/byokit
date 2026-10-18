@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, delimiter } from 'node:path';
 import { generate, generationCacheKey, MemoryGenerationCache, decide, rules, InvalidSchemaError, type GenerationBackend } from '../src/index.ts';
 import { claudeCode, ClaudeCodeError } from '../src/claude-code.ts';
+import { codex, CodexError } from '../src/codex.ts';
 
 const schema = { type: 'object', required: ['name', 'scenes'], additionalProperties: false, properties: {
   name: { type: 'string', enum: ['Umer'] }, scenes: { type: 'array', minItems: 1, items: {
@@ -240,6 +241,127 @@ test('the installed Claude from the accounts list decides with the person\'s HOM
   } finally {
     for (const [k, v] of Object.entries(previous)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
     delete process.env.FAKE_CLAUDE_LOG;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+const fakeCodexSource = `#!${process.execPath}
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+const log = process.env.FAKE_CODEX_LOG;
+const args = process.argv.slice(2);
+if (args[0] === 'app-server') {
+  let b = ''; process.stdin.on('data', (c) => { b += c; for (;;) { const i = b.indexOf('\\n'); if (i < 0) break; const r = JSON.parse(b.slice(0, i)); b = b.slice(i + 1);
+    console.log(JSON.stringify({ id: r.id, result: r.id === 1 ? {} : { account: { email: 'umer@example.test', planType: 'plus' } } })); } });
+} else if (args[0] === 'login') {
+  appendFileSync(log + '/calls.jsonl', JSON.stringify(args) + '\\n');
+  const mode = existsSync(log + '/auth-mode') ? readFileSync(log + '/auth-mode', 'utf8') : 'chatgpt';
+  if (mode === 'out') { process.stderr.write('Not logged in\\n'); process.exitCode = 1; }
+  else process.stderr.write(mode === 'api' ? 'Logged in using an API key - sk-proj-***private\\n' : 'Logged in using ChatGPT\\n');
+} else {
+  appendFileSync(log + '/calls.jsonl', JSON.stringify(args) + '\\n');
+  let prompt = ''; for await (const chunk of process.stdin) prompt += chunk;
+  const schemaFile = args[args.indexOf('--output-schema') + 1];
+  const images = args.filter((a) => a.startsWith('--image=')).map((a) => [...readFileSync(a.slice(8))]);
+  writeFileSync(log + '/invocation.json', JSON.stringify({ args, prompt, env: process.env, cwd: process.cwd(), schema: JSON.parse(readFileSync(schemaFile, 'utf8')), images }));
+  const last = prompt.split('\\n').at(-1);
+  if (last === 'hang') setInterval(() => {}, 1000);
+  else if (last === 'broken') process.stdout.write('{\\n');
+  else if (last === 'failed') console.log(JSON.stringify({ type: 'turn.failed', error: { message: 'private diagnostic' } }));
+  else {
+    let data = last === 'partial' ? { name: 'Umer' } : { name: 'Umer', scenes: [{ duration: 6 }] };
+    if (last.startsWith('{')) {
+      const { questions } = JSON.parse(last);
+      data = Object.fromEntries(Object.entries(questions).map(([k, q]) => {
+        const keys = q.kind === 'choice' ? Object.keys(q.options) : q.kind === 'yesno' ? ['true', 'false'] : q.levels.map((_, i) => String(i));
+        return [k, { probabilities: Object.fromEntries(keys.map((key, i) => [key, i === 0 ? 0.9 : 0.1 / (keys.length - 1)])), pick: keys[0], rationale: 'Ready for Umer.' }];
+      }));
+    }
+    for (const event of [{ type: 'thread.started', thread_id: 't' }, { type: 'turn.started' },
+      { type: 'item.completed', item: { id: 'item_0', type: 'agent_message', text: JSON.stringify(data) } },
+      { type: 'turn.completed', usage: { input_tokens: 17, cached_input_tokens: 0, output_tokens: 29 } }]) console.log(JSON.stringify(event));
+  }
+}
+`;
+
+test('the installed Codex from the accounts list decides on the person\'s ChatGPT plan with their HOME and no CODEX_HOME; a managed account keeps its folder', async () => {
+  const { cliAccounts } = await import('@byokit/accounts/cli');
+  const root = await mkdtemp(join(tmpdir(), 'byokit-decide-codex-'));
+  const logDir = join(root, 'fake-log');
+  const home = join(root, 'home');
+  const bins = join(root, 'bins');
+  const keys = ['HOME', 'PATH', 'CODEX_HOME', 'OPENAI_API_KEY', 'OPENAI_BASE_URL', 'FAKE_CODEX_LOG'] as const;
+  const previous = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+  try {
+    await mkdir(logDir);
+    await mkdir(bins);
+    await mkdir(join(home, '.codex'), { recursive: true });
+    await writeFile(join(home, '.codex', 'auth.json'), 'the fake never opens this');
+    const bin = join(bins, 'codex');
+    await writeFile(bin, fakeCodexSource, { mode: 0o700 });
+    process.env.HOME = home;
+    process.env.PATH = `${bins}${delimiter}${process.env.PATH ?? ''}`;
+    delete process.env.CODEX_HOME;
+    process.env.OPENAI_API_KEY = 'never-reaches-the-binary';
+    process.env.OPENAI_BASE_URL = 'http://127.0.0.1:9/never';
+    process.env.FAKE_CODEX_LOG = logDir;
+    const kit = cliAccounts({ stateDir: join(root, 'plans'), bins: { codex: bin }, env: { HOME: home, PATH: process.env.PATH }, installed: true });
+    const { account: managed } = await kit.add('codex');
+    const rows = await kit.list();
+    assert.deepEqual(rows.map((r) => [r.id, r.state]), [[managed.id, 'signing'], ['installed-codex', 'ready']]);
+    const launch = await kit.launch('installed-codex');
+    assert.ok(launch.ok);
+    assert.deepEqual(launch.set, {});
+    const backend = codex({ bin, account: launch, model: 'gpt-6-luna', timeoutMs: 5000 });
+    assert.equal(backend.billing, 'subscription');
+    const answers = await decide({ name: 'Umer' }, { keep: { kind: 'yesno', question: 'Keep it?' } },
+      { privacy: 'may-leave', backends: [backend] });
+    assert.equal(answers.keep.answer, true);
+    assert.equal(answers.keep.rationale, 'Ready for Umer.');
+    const log = JSON.parse(await readFile(join(logDir, 'invocation.json'), 'utf8'));
+    const arg = (flag: string) => log.args[log.args.indexOf(flag) + 1];
+    assert.equal(log.args[0], 'exec');
+    assert.equal(log.args.at(-1), '-');
+    assert.equal(arg('--model'), 'gpt-6-luna');
+    assert.equal(arg('--sandbox'), 'read-only');
+    for (const flag of ['--json', '--ephemeral', '--ignore-user-config', '--ignore-rules', '--skip-git-repo-check']) assert.ok(log.args.includes(flag), flag);
+    for (const c of ['features.shell_tool=false', 'forced_login_method="chatgpt"', 'web_search="disabled"']) assert.ok(log.args.includes(c), c);
+    assert.ok(log.args.some((a: string) => a.startsWith('developer_instructions=')));
+    assert.deepEqual(log.schema.required, ['keep']);
+    assert.deepEqual(JSON.parse(log.prompt).state, { name: 'Umer' });
+    // The person's own HOME and PATH, no CODEX_HOME, and no per-use key or base URL.
+    assert.equal(log.env.HOME, home);
+    assert.equal(log.env.PATH, process.env.PATH);
+    assert.equal('CODEX_HOME' in log.env, false);
+    assert.equal('OPENAI_API_KEY' in log.env, false);
+    assert.equal('OPENAI_BASE_URL' in log.env, false);
+    await assert.rejects(readFile(join(log.cwd, 'schema.json')), { code: 'ENOENT' });
+    const generated = await codex({ bin, account: kit.launchEnv(managed.id), timeoutMs: 5000 }).generate({ prompt: 'normal', schema,
+      images: [{ id: 'Umer-design', mime: 'image/png', bytes: new Uint8Array([137, 80, 78, 71]) }] });
+    assert.deepEqual(generated.data, data);
+    assert.deepEqual(generated.usage, { input_tokens: 17, output_tokens: 29 });
+    const managedLog = JSON.parse(await readFile(join(logDir, 'invocation.json'), 'utf8'));
+    assert.equal(managedLog.env.CODEX_HOME, kit.folderOf(managed.id));
+    assert.deepEqual(managedLog.images, [[137, 80, 78, 71]]);
+    assert.match(managedLog.prompt, /^Images, in attachment order: Umer-design\n/);
+    assert.equal(managedLog.args.includes('--model'), false);
+    const viaGenerate = await generate<typeof data>({ state: { name: 'Umer' } }, schema, { backends: [backend] });
+    assert.deepEqual([viaGenerate.data, viaGenerate.by], [data, 'codex']);
+    for (const [prompt, code] of [['broken', 'invalid_json'], ['partial', 'invalid_output'], ['failed', 'process']] as const) {
+      await assert.rejects(backend.generate({ prompt, schema }), (e: unknown) => e instanceof CodexError && e.code === code && !e.message.includes('private'));
+    }
+    await assert.rejects(codex({ bin, timeoutMs: 100 }).generate({ prompt: 'hang', schema }), (e: unknown) => e instanceof CodexError && e.code === 'timeout');
+    const execs = async () => (await readFile(join(logDir, 'calls.jsonl'), 'utf8')).split('\n').filter((l) => l.startsWith('["exec"')).length;
+    const before = await execs();
+    for (const mode of ['api', 'out']) {
+      await writeFile(join(logDir, 'auth-mode'), mode);
+      await assert.rejects(backend.generate({ prompt: 'normal', schema }), (e: unknown) => e instanceof CodexError && e.code === 'subscription_required' && !e.message.includes('sk-'));
+    }
+    assert.equal(await execs(), before, 'an API-key or missing sign-in never reaches generation');
+    await assert.rejects(codex({ bin: join(root, 'not-installed'), timeoutMs: 1000 }).generate({ prompt: 'normal', schema }), CodexError);
+    assert.throws(() => codex({ bin, account: { set: { CLAUDE_CONFIG_DIR: root }, unset: [] }, timeoutMs: 5000 }), /Codex account/);
+    assert.equal(await readFile(join(home, '.codex', 'auth.json'), 'utf8'), 'the fake never opens this');
+  } finally {
+    for (const [k, v] of Object.entries(previous)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
     await rm(root, { recursive: true, force: true });
   }
 });

@@ -8,6 +8,7 @@ A host app driving the built `@byokit/accounts/cli` with `installed: true` lists
 - `installed-probe-env`: the status command runs with the app's `env.HOME`, no `CLAUDE_CONFIG_DIR`, no per-use key (`ANTHROPIC_API_KEY`); Codex gets `CODEX_HOME=<HOME>/.codex`.
 - `installed-launch`: `launch('installed-claude')` is `ok` with an empty `set` and the per-use overrides in `unset`; a managed row's `launchEnv` still sets `CLAUDE_CONFIG_DIR` to its folder.
 - `installed-decide`: `decide(...)` with `claudeCode({ bin, account: launch })` answers, and the Claude it ran saw the person's HOME and no `CLAUDE_CONFIG_DIR`; with the managed row's `launchEnv` it saw that folder.
+- `installed-codex-decide`: the installed Codex's `launch('installed-codex')` drives `@byokit/decide/codex`; see [decide-codex-installed](./decide-codex-installed.md).
 - `installed-causes`: a signed-out CLI reads `signed_out` and `launch` refuses with `Claude is not signed in on this computer.`; a missing binary reads `signed_out`, `why: 'unknown'`, `Claude on this computer could not start.`; `folderOf`/`remove` on the installed row throw `unknown-account`; `claudeCode` with both `account` and `configDir` throws.
 - `installed-live`: on this box, the real installed `claude` and `codex` (found on PATH) under the person's real HOME show their actual state through `list()`; read-only, labels masked, no decide call.
 
