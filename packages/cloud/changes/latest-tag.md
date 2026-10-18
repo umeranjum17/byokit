@@ -1,1 +1,0 @@
-- FIX: Cloud releases now publish to npm’s `latest` tag by default.

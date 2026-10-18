@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.1 (2026-10-18)
+
+- FIX: Cloud releases now publish to npm’s `latest` tag by default.
+
 ## 0.2.0 (2026-10-18)
 
 - FIX: Cloud setup reports install failures as `installing` on first and resumed attempts while keeping adoption guard failures at `inspecting`.
