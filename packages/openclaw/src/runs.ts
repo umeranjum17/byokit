@@ -11,7 +11,7 @@ import { words } from './words.ts';
 import { classify } from './classify.ts';
 import { providerOf } from './pick.ts';
 import { catalogModelOf, clampThinking, levelsOf, type CatalogModel } from './thinking.ts';
-import type { AccountPick, GatewayTransport, Member, PlanWindow, RunEnd, RunEvent, RunSpec, RunUsage, ThinkingReport } from './types.ts';
+import type { AccountPick, GatewayTransport, Member, PlanWindow, RunEnd, RunEvent, RunFrame, RunSpec, RunUsage, ThinkingReport } from './types.ts';
 
 // The gateway gives up on a silent run after an hour; we wait ten minutes longer for the reply frame itself.
 const WAIT_MS = 3_600_000;
@@ -87,7 +87,60 @@ function account(model: string): { provider: string; model: string } {
   return { provider, model: model.slice(model.indexOf('/') + 1) }; // the engine lowercases ids
 }
 
+type Emission<E = RunEvent> = E extends RunEvent ? Omit<E, 'seq'> : never;
+type Journal = { member: Member; frames: Exclude<RunFrame, { type: 'truncated' }>[]; done: boolean; wake: Set<() => void> };
+
+/** Live-kit only: bounded history, with readers pulling by cursor rather than growing per-reader queues. */
+export class RunReplay {
+  private readonly runs = new Map<string, Journal>();
+  begin(member: Member, id: string): Journal | undefined {
+    if (this.runs.has(id)) return undefined; // engine-cache retry must not replace the original stream
+    const row: Journal = { member, frames: [], done: false, wake: new Set() };
+    this.runs.set(id, row);
+    return row;
+  }
+  push(row: Journal | undefined, frame: Exclude<RunFrame, { type: 'truncated' }>): void {
+    if (!row) return;
+    row.frames.push(frame);
+    if (row.frames.length > 32) row.frames.shift();
+    row.done = frame.type === 'end';
+    for (const wake of row.wake) wake();
+    if (row.done) {
+      const completed = [...this.runs].filter(([, r]) => r.done);
+      for (const [id] of completed.slice(0, -128)) this.runs.delete(id);
+    }
+  }
+  clear(): void {
+    for (const row of this.runs.values()) for (const wake of row.wake) wake();
+    this.runs.clear();
+  }
+  attach(member: Member, id: string, fromSeq: number, signal: AbortSignal): AsyncIterable<RunFrame> {
+    const row = this.runs.get(id);
+    if (row && row.member !== member) throw new Error('foreign run');
+    const runs = this.runs;
+    return (async function* () {
+      let cursor = fromSeq;
+      while (!signal.aborted) {
+        if (!row || runs.get(id) !== row) { yield { type: 'truncated', reason: 'not-found' } as const; return; }
+        const firstSeq = row.frames[0]?.seq ?? 1;
+        const lastSeq = row.frames.at(-1)?.seq ?? 0;
+        if (cursor < firstSeq - 1 || cursor > lastSeq) {
+          yield { type: 'truncated', reason: 'truncated', firstSeq } as const; return;
+        }
+        const next = row.frames.find(f => f.seq > cursor);
+        if (next) { cursor = next.seq; yield next; if (next.type === 'end') return; continue; }
+        if (row.done) return;
+        await new Promise<void>(resolve => {
+          const wake = () => { row.wake.delete(wake); signal.removeEventListener('abort', wake); resolve(); };
+          row.wake.add(wake); signal.addEventListener('abort', wake, { once: true });
+        });
+      }
+    })();
+  }
+}
+
 export function createRuns(ctx: {
+  replay?: RunReplay;
   request: GatewayTransport['request'];
   authStatus?: (agentId: string, refresh: boolean, native: boolean) => ReturnType<typeof authStatus>;
   invalidateAuth?: () => void;
@@ -120,7 +173,7 @@ export function createRuns(ctx: {
     if (classified.kind === 'signed-out') ctx.invalidateAuth?.();
     return { ok: false as const, ...classified, message };
   };
-  const run = async <const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void, keyAgent?: string, preparedOutput?: ReturnType<typeof outputSchema>): Promise<RunEnd<SchemaOutput<S>>> => {
+  const execute = async <const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: Emission) => void, keyAgent?: string, preparedOutput?: ReturnType<typeof outputSchema>): Promise<RunEnd<SchemaOutput<S>>> => {
     // Member boundary first: a member never speaks in another member's session, refused before any request. A key
     // of one of the member's account agents is the member's too; binding below checks the index names it.
     if (!spec.sessionKey.startsWith(`agent:${spec.member}:`) && !(ctx.accounts && !keyAgent && spec.sessionKey.startsWith(`agent:${spec.member}--`)))
@@ -230,7 +283,7 @@ export function createRuns(ctx: {
       return { asked, used: asked };
     }
   };
-  const start = async <const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on: ((e: RunEvent) => void) | undefined, t: {
+  const start = async <const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on: ((e: Emission) => void) | undefined, t: {
     agentId: string; sessionKey: string; idempotencyKey: string; system: string; picked?: { provider: string; model: string };
     output?: ReturnType<typeof outputSchema>; chosen?: Extract<AccountPick, { ok: true }>;
   }): Promise<RunEnd<SchemaOutput<S>>> => {
@@ -360,8 +413,24 @@ export function createRuns(ctx: {
       releaseDelegation?.();
     }
   };
+  const replay = ctx.replay ?? new RunReplay();
   return {
-    run,
+    run: async (spec, on, keyAgent, preparedOutput) => {
+      if (spec.idempotencyKey !== undefined && (typeof spec.idempotencyKey !== 'string' || !spec.idempotencyKey.length))
+        throw new Error('refused: idempotencyKey must be a non-empty string');
+      const id = spec.idempotencyKey ?? randomUUID();
+      const row = replay.begin(spec.member, id);
+      let seq = 0;
+      const emit = (e: Emission) => { const event = { ...e, seq: ++seq }; replay.push(row, event); on?.(event); };
+      try {
+        const end = await execute({ ...spec, idempotencyKey: id }, emit, keyAgent, preparedOutput);
+        replay.push(row, { type: 'end', seq: ++seq, end });
+        return end;
+      } catch (error) {
+        replay.push(row, { type: 'end', seq: ++seq, end: failure(error instanceof Error ? error.message : String(error)) });
+        throw error;
+      }
+    },
     steer: (k, t) => ctx.request('sessions.steer', { sessionKey: ctx.routes.get(k)?.session ?? k, message: t }) as Promise<void>,
     abort: async (k) => { await ctx.request('chat.abort', { sessionKey: ctx.routes.get(k)?.session ?? k }); },
   };

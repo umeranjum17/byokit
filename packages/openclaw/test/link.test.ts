@@ -227,7 +227,7 @@ test('oc.run streams text frames then end', async () => {
   const texts = frames.filter((f): f is { type: string; text: string } => (f as { type?: string }).type === 'text');
   assert.ok(texts.length >= 2, 'assistant stream plus the final cumulative text');
   assert.ok(texts.every((t) => t.text === 'fake: hello'));
-  assert.deepEqual(frames.at(-1), { type: 'end', end: { ok: true, text: 'fake: hello',
+  assert.deepEqual(frames.at(-1), { type: 'end', seq: frames.length, end: { ok: true, text: 'fake: hello',
     usage: { input: 5, output: 11, total: 16 } } });
 });
 
@@ -243,8 +243,8 @@ test('device state warms picked-account admission before oc.run starts', async (
     const runAt = w.fake.calls.length;
     const frames: unknown[] = [];
     for await (const f of a.oc.run('hello', { model })) frames.push(f);
-    assert.deepEqual(frames[0], { type: 'started' });
-    assert.deepEqual(frames.at(-1), { type: 'end', end: { ok: true, text: 'fake: hello', usage: { input: 5, output: 11, total: 16 } } });
+    assert.deepEqual(frames[0], { type: 'started', seq: 1 });
+    assert.deepEqual(frames.at(-1), { type: 'end', seq: frames.length, end: { ok: true, text: 'fake: hello', usage: { input: 5, output: 11, total: 16 } } });
     const calls = w.fake.calls.slice(runAt);
     const agentAt = calls.findIndex(c => c.method === 'agent');
     assert.ok(agentAt >= 0);
@@ -278,10 +278,10 @@ test('oc.run tool subset: only named kit tools run, an unknown name is refused, 
   for await (const f of a.oc.run('[tool report {"text":"hi"}] [tool lookup {"q":"x"}]', { tools: ['report'] }))
     if (f.type === 'tool') frames.push(f);
   assert.deepEqual(frames, [
-    { type: 'tool', name: 'report', phase: 'start', id: 'call-1', input: { text: 'hi' } },
-    { type: 'tool', name: 'report', phase: 'end', id: 'call-1', output: { content: [{ type: 'text', text: 'report done' }] }, error: false },
-    { type: 'tool', name: 'lookup', phase: 'start', id: 'call-2', input: { q: 'x' } },
-    { type: 'tool', name: 'lookup', phase: 'end', id: 'call-2',
+    { type: 'tool', seq: 2, name: 'report', phase: 'start', id: 'call-1', input: { text: 'hi' } },
+    { type: 'tool', seq: 3, name: 'report', phase: 'end', id: 'call-1', output: { content: [{ type: 'text', text: 'report done' }] }, error: false },
+    { type: 'tool', seq: 4, name: 'lookup', phase: 'start', id: 'call-2', input: { q: 'x' } },
+    { type: 'tool', seq: 5, name: 'lookup', phase: 'end', id: 'call-2',
       output: { content: [{ type: 'text', text: 'this tool is not available in this run' }] }, error: true },
   ]);
   // Without a subset every kit tool runs.

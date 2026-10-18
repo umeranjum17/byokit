@@ -339,7 +339,7 @@ export interface RunSpec<S extends OutputSchema | undefined = OutputSchema | und
   tools?: string[];                                            // app tools (KitOptions.tools names) this run may call
   register?: boolean;                                          // default true: the bridge recognizes this run
 }
-export type RunEvent =
+export type RunEvent = { seq: number } & (
   | { type: 'started' }                                       // Gateway accepted, not completed
   | { type: 'thinking'; tokens: number }                      // actual thinking progressTokens
   | { type: 'account'; account: AccountId; model: string; sessionKey: string;   // 5.15: first event of a run on
@@ -349,7 +349,9 @@ export type RunEvent =
   | { type: 'tool'; name: string; phase: 'start' | 'end';
       id?: string;                                             // engine toolCallId, pairs start and end
       input?: Record<string, unknown>;                         // start: the call's arguments
-      output?: unknown; error?: boolean };                     // end: the engine's tool result, and whether it failed
+      output?: unknown; error?: boolean });                    // end: the engine's tool result, and whether it failed
+export type RunFrame = RunEvent | { type: 'end'; seq: number; end: RunEnd }
+  | { type: 'truncated'; reason: 'truncated' | 'not-found'; firstSeq?: number };
 export type RunUsage = { input?: number; output?: number; cacheRead?: number; cacheWrite?: number;
   reasoning?: number; total?: number; costUsd?: number };      // the engine's run total
 export type PlanWindow = { provider: string; plan?: string;
@@ -1137,6 +1139,25 @@ the engine. External retained sources are touched only when explicitly passed to
   Cancellation failure handling follows the [OpenClaw usage contract](../packages/openclaw/README.md#quickstart);
   healthy cancellation retains the aborted run result defined above.
 - Streams: `onEvent` delivers every Gateway event (typed); the link adapter filters by member (7.1).
+
+#### Live run attachment (oc.attach)
+
+The live kit journals the first dispatch of each caller-stable `idempotencyKey` (the engine's `runId`,
+not a new identifier). Every `RunEvent` carries `seq`, starting at 1 and increasing by one; the terminal
+`{ type: 'end', seq, end: RunEnd }` is the next sequence. `oc.run` accepts `idempotencyKey?` too.
+Retries of `run` keep the existing engine-cache semantics above; they do not replace the first dispatch's journal.
+
+`attach(runId, { fromSeq })` is read-only: no agent request, redispatch or abort on device disconnect.
+It emits exactly journaled frames with `seq > fromSeq`, in order, then follows live through the end.
+The cursor is a non-negative safe integer. The journal keeps the latest 32 frames per run (end included),
+all active runs and the most recent 128 completed runs. Replay and live share the same cursor; a slow reader
+that falls behind is truncated rather than silently skipping. A cursor older than `firstSeq - 1` (or ahead
+of the current sequence) receives only `{ type: 'truncated', reason: 'truncated', firstSeq }`.
+A missing/evicted run receives only `{ type: 'truncated', reason: 'not-found' }`.
+The grant's member must equal the journal's owning member before any frame is sent; otherwise `link.notAllowed`.
+Attachment is a control-grant operation, like `oc.run`. Cancellation closes only the reader.
+Engine restart/history reconstruction is out of scope: stop/engine exit clears journals and wakes readers
+with the typed not-found frame. Phone/link disconnect alone never clears them or stops the kit.
 
 ### 5.8.1 Structured output
 
@@ -3048,7 +3069,8 @@ every op is refused with `link.notAllowed` when `memberOf(grant)` is undefined):
 | `oc.signin.cancel` | `{ provider }` | `null` |
 | `oc.signout` | `{ provider }` | `null` |
 | `oc.sessions` *view* | — | `sessions.list` filtered to the member's keys (member agent and account agents, D9) |
-| `oc.run` (stream) | `{ sessionKey?, message, model?, account?, needs?, auth?, system?, images?, thinking?, tools?, schema? }` (`account` an id of the member's, `'default'` or `'auto'`; `auth` only `'apiKey'`) | frames `RunEvent` then `{ type: 'end', end: RunEnd }`; key defaults to `agent:<member>:link:<uuid>`; options are type-checked (`thinking` one of `off|low|medium|high`, `images` `{ data, mimeType }[]`, `needs` a `'provider/model'` string array refused like a malformed `model`); a `tools` name outside `kit.toolNames()` → `link.notAllowed` |
+| `oc.attach` (stream) | `{ runId, fromSeq }` | Sequenced `RunEvent` then `{ type: 'end', seq, end }`, replay `seq > fromSeq` then live; 32-frame buffer, typed terminal `truncated`/`not-found` frame, grant member checked before replay (5.8 Live run attachment) |
+| `oc.run` (stream) | `{ sessionKey?, idempotencyKey?, message, model?, account?, needs?, auth?, system?, images?, thinking?, tools?, schema? }` (`account` an id of the member's, `'default'` or `'auto'`; `auth` only `'apiKey'`) | frames `RunEvent` then `{ type: 'end', seq, end: RunEnd }`; key defaults to `agent:<member>:link:<uuid>`; options are type-checked (`thinking` one of `off|low|medium|high`, `images` `{ data, mimeType }[]`, `needs` a `'provider/model'` string array refused like a malformed `model`); a `tools` name outside `kit.toolNames()` → `link.notAllowed` |
 | `oc.steer` | `{ sessionKey, text, auth? }` | `null` (key must be the member's, D9) |
 | `oc.abort` | `{ sessionKey, auth? }` | `null` (key must be the member's, D9) |
 | `oc.artifacts` *view* | `{ sessionKey, runId? }` | `ArtifactsResult` (5.8.2; key must be the member's, D9) |
@@ -3103,7 +3125,7 @@ re-exports them with the frame types below.
 ```ts
 import type { Account, AccountId, AccountPick, AccountRef, Defaults, ModelInfo, Room, RunSelection } from '@byokit/accounts';
 import type { AccountView, Approval, ArtifactPiece, ArtifactsResult, Decision, GatewayEventName, GatewayEventPayload,
-  GatewayMethod, GatewayParams, GatewayResult, KitState, OutputSchema, Route, RunEnd, RunEvent, SchemaOutput, SignInView } from '@byokit/openclaw';
+  GatewayMethod, GatewayParams, GatewayResult, KitState, OutputSchema, Route, RunEnd, RunEvent, RunFrame, SchemaOutput, SignInView } from '@byokit/openclaw';
 import type { DeviceLink } from '@byokit/pair';
 import type { AgentRef, AgentStatus, BlockedAgent, HerdrEventName, HerdrEventOf, HerdrMethod, HerdrParams, HerdrResult,
   HerdrSnapshot, HerdrState, HerdrSubscription, PromptReceipt, StartAgent } from '@byokit/herdr';
@@ -3113,7 +3135,7 @@ export type OpenClawLinkEvent =                             // oc.events frames
   | { [E in GatewayEventName]: { event: E; payload: GatewayEventPayload<E> } }[GatewayEventName]
   | { event: 'approval'; change: 'added' | 'resolved'; approval: Approval };
 export type SessionRow = { sessionKey: string; [k: string]: unknown };
-export type DeviceRunOptions<S extends OutputSchema | undefined = OutputSchema | undefined> = { schema?: S; sessionKey?: string; model?: string; account?: AccountRef | 'default' | 'auto'; needs?: string[]; auth?: 'apiKey'; system?: string;
+export type DeviceRunOptions<S extends OutputSchema | undefined = OutputSchema | undefined> = { schema?: S; sessionKey?: string; idempotencyKey?: string; model?: string; account?: AccountRef | 'default' | 'auto'; needs?: string[]; auth?: 'apiKey'; system?: string;
   images?: { data: string; mimeType: string }[]; thinking?: 'off' | 'low' | 'medium' | 'high'; tools?: string[] };
 export type DeviceState = { state: KitState; words: string; version: string; engine: string; signedIn?: string[] };
 export declare function openclawDevice(link: DeviceLink): {
@@ -3131,8 +3153,9 @@ export declare function openclawDevice(link: DeviceLink): {
   models(id: AccountId): Promise<ModelInfo[]>; room(id: AccountId, demand?: string[]): Promise<Room>;
   defaults(): Promise<Defaults>; setDefaults(d: Defaults): Promise<void>; pick(sel: RunSelection, o?: { sessionKey?: string }): Promise<AccountPick>;
   move(sessionKey: string, to: AccountId): Promise<MoveResult>;
-  run<const S extends OutputSchema | undefined = undefined>(message: string, o?: DeviceRunOptions<S>): AsyncIterable<RunEvent | { type: 'end'; end: RunEnd<SchemaOutput<S>> }>;
+  run<const S extends OutputSchema | undefined = undefined>(message: string, o?: DeviceRunOptions<S>): AsyncIterable<RunEvent | { type: 'end'; seq: number; end: RunEnd<SchemaOutput<S>> }>;
   steer(k: string, t: string, o?: { auth?: 'apiKey' }): Promise<void>; abort(k: string, o?: { auth?: 'apiKey' }): Promise<void>;
+  attach(runId: string, o: { fromSeq: number }): AsyncIterable<RunFrame>; // oc.attach: replay then live; typed truncation (5.8)
   artifacts(sessionKey: string, o?: { runId?: string }): Promise<ArtifactsResult>;          // oc.artifacts (5.8.2)
   artifact(sessionKey: string, id: string, o?: { offset?: number; sha256?: string }): AsyncIterable<ArtifactPiece>;   // oc.artifact; throws ArtifactHashError
   approvals(): Promise<Approval[]>; decide(id: string, d: Decision): Promise<void>;

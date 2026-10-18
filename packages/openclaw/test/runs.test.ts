@@ -305,7 +305,7 @@ test('complete final answers supersede capped snapshots with coherent callbacks 
     assert.equal(end.text, text);
     assert.deepEqual(end.data, JSON.parse(text));
     assert.deepEqual(end.usage, { output: 8_684 });
-    assert.deepEqual(events.at(-1), { type: 'text', text });
+    assert.deepEqual(events.at(-1), { type: 'text', text, seq: events.length });
     assert.equal(s.calls.filter((c) => c === 'agent').length, 1);
   }
   // Preserve payload order and empty strings, with no trimming or media-to-text coercion.
@@ -327,7 +327,7 @@ test('complete final answers supersede capped snapshots with coherent callbacks 
     const end = await s.runs.run(spec, (e) => events.push(e));
     assert.ok(end.ok);
     assert.equal(end.text, c.expected);
-    assert.deepEqual(events.at(-1), { type: 'text', text: c.expected });
+    assert.deepEqual(events.at(-1), { type: 'text', text: c.expected, seq: events.length });
   }
   // A late final frame is consumed before the final callback; a rejected frame falls back to the stream.
   for (const reject of [false, true]) {
@@ -336,7 +336,7 @@ test('complete final answers supersede capped snapshots with coherent callbacks 
     const events: RunEvent[] = [];
     const end = await s.runs.run(spec, (e) => events.push(e));
     assert.ok(end.ok && end.text === text);
-    assert.deepEqual(events.at(-1), { type: 'text', text });
+    assert.deepEqual(events.at(-1), { type: 'text', text, seq: events.length });
   }
   // A missing final frame must not strand a successful wait receipt beyond the existing grace.
   const keepAlive = setTimeout(() => {}, 6_000);
@@ -346,7 +346,7 @@ test('complete final answers supersede capped snapshots with coherent callbacks 
     const events: RunEvent[] = [];
     const end = await s.runs.run(spec, (e) => events.push(e));
     assert.ok(end.ok && end.text === text);
-    assert.deepEqual(events.at(-1), { type: 'text', text });
+    assert.deepEqual(events.at(-1), { type: 'text', text, seq: events.length });
   } finally {
     clearTimeout(keepAlive);
   }
@@ -356,7 +356,7 @@ test('complete final answers supersede capped snapshots with coherent callbacks 
     const s = scripted({ final: frame([{ text }]), wait });
     const end = await s.runs.run(spec, (e) => events.push(e));
     assert.equal(end.ok, false);
-    assert.deepEqual(events, [{ type: 'started' }]);
+    assert.deepEqual(events, [{ type: 'started', seq: 1 }]);
     if (wait.stopReason) assert.deepEqual(end, { ok: false, aborted: true });
     else assert.ok(!end.ok && 'message' in end && end.message === 'bad request');
   }

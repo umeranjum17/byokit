@@ -21,12 +21,13 @@ import type {
   OutputSchema,
   SchemaOutput,
   RunEvent,
+  RunFrame,
   SignInView,
   AccountRef,
 } from './types.ts';
 
 export type { GatewayEventName, GatewayEventPayload, GatewayMethod, GatewayParams, GatewayResult } from './types.ts';
-export type { Approval, Decision, KitState, PlanWindow, Route, RunEnd, RunEvent, RunUsage, SignInView, OutputSchema, SchemaOutput } from './types.ts';
+export type { Approval, Decision, KitState, PlanWindow, Route, RunEnd, RunEvent, RunFrame, RunUsage, SignInView, OutputSchema, SchemaOutput } from './types.ts';
 
 /** One `oc.events` frame: a member's Gateway event, typed by name, or an approval add/resolve (7.2). */
 export type OpenClawLinkEvent =
@@ -38,11 +39,12 @@ export type OpenClawLinkEvent =
 export type SessionRow = { sessionKey: string; [k: string]: unknown };
 
 /** The frame `oc.run`'s stream ends with: the run's `RunEnd`, beside its events. */
-export type DeviceEndFrame<T = unknown> = { type: 'end'; end: RunEnd<T> };
+export type DeviceEndFrame<T = unknown> = { type: 'end'; seq: number; end: RunEnd<T> };
 
 /** `oc.run`'s options beside the message: the member's own session, account, and the kit's run options. */
 export type DeviceRunOptions<S extends OutputSchema | undefined = OutputSchema | undefined> = {
   schema?: S;
+  idempotencyKey?: string;
   sessionKey?: string;
   account?: AccountRef | 'default' | 'auto';
   needs?: string[];
@@ -363,6 +365,7 @@ export type OpenClawDevice = {
   sessions(): Promise<SessionRow[]>;
   run<const S extends OutputSchema | undefined = undefined>(message: string, o?: DeviceRunOptions<S>):
     AsyncIterable<DeviceRunEvent | DeviceEndFrame<SchemaOutput<S>>>;
+  attach(runId: string, o: { fromSeq: number }): AsyncIterable<RunFrame>;
   steer(k: string, t: string, o?: { auth?: 'apiKey' }): Promise<void>;
   abort(k: string, o?: { auth?: 'apiKey' }): Promise<void>;
   approvals(): Promise<Approval[]>;
@@ -398,9 +401,10 @@ export function openclawDevice(link: DeviceLink): OpenClawDevice {
       await link.request('oc.signout', { provider: p });
     },
     sessions: () => link.request('oc.sessions') as Promise<SessionRow[]>,
+    attach: (runId, o) => liveStream(() => link.stream('oc.attach', { runId, fromSeq: o.fromSeq })) as AsyncIterable<RunFrame>,
     run: <const S extends OutputSchema | undefined = undefined>(message: string, o?: DeviceRunOptions<S>) => {
       const inner = liveStream(() =>
-        link.stream('oc.run', { message, ...(o?.sessionKey ? { sessionKey: checkKey(o.sessionKey) } : {}),
+        link.stream('oc.run', { message, ...(o?.idempotencyKey !== undefined ? { idempotencyKey: o.idempotencyKey } : {}), ...(o?.sessionKey ? { sessionKey: checkKey(o.sessionKey) } : {}),
           ...(o?.account !== undefined ? { account: o.account } : {}),
           ...(o?.needs !== undefined ? { needs: o.needs } : {}),
           ...(o?.model !== undefined ? { model: o.model } : {}), ...(o?.system !== undefined ? { system: o.system } : {}),

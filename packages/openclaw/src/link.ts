@@ -54,8 +54,9 @@ function memberSessions(result: unknown, owns: (sessionKey: string) => boolean):
 
 /** `oc.run`'s run options, type-checked; the kit's own checks (account, tool names) still apply. */
 function runOptions(args: Record<string, unknown>): Omit<RunSpec, 'member' | 'sessionKey' | 'register' | 'meta'> {
-  const { message, model, account, needs, auth, system, images, thinking, tools, schema } = args;
+  const { message, idempotencyKey, model, account, needs, auth, system, images, thinking, tools, schema } = args;
   const ok = typeof message === 'string'
+    && (idempotencyKey === undefined || typeof idempotencyKey === 'string' && idempotencyKey.length > 0)
     && (model === undefined || typeof model === 'string')
     && (account === undefined || typeof account === 'string')
     && (needs === undefined || (Array.isArray(needs) && needs.every((n) => typeof n === 'string')))
@@ -69,6 +70,7 @@ function runOptions(args: Record<string, unknown>): Omit<RunSpec, 'member' | 'se
   if (schema !== undefined) outputSchema(schema);
   return {
     message: message as string,
+    ...(idempotencyKey === undefined ? {} : { idempotencyKey: idempotencyKey as string }),
     ...(schema === undefined ? {} : { schema: schema as RunSpec['schema'] }),
     ...(model === undefined ? {} : { model: model as string }),
     ...(account === undefined ? {} : { account: account as RunSpec['account'] }),
@@ -502,6 +504,22 @@ export function openclawLink(
       } catch { close(); s.end(words('link.notAllowed')); }
       return;
     }
+    if (req.op === 'oc.attach') {
+      if (grant.role === 'view') throw refused();
+      const args = isRecord(req.args) ? req.args : {};
+      if (typeof args.runId !== 'string' || !args.runId.length || !Number.isSafeInteger(args.fromSeq) || (args.fromSeq as number) < 0)
+        throw refused();
+      const controller = new AbortController();
+      let frames;
+      try { frames = kit.attach(member, args.runId, args.fromSeq as number, controller.signal); }
+      catch { throw refused(); }
+      s.onEnd = () => controller.abort();
+      try {
+        for await (const frame of frames) await s.write(`${JSON.stringify(frame)}\n`);
+        s.end();
+      } finally { controller.abort(); }
+      return;
+    }
     if (req.op === 'oc.run') {
       if (grant.role === 'view') throw refused();
       const args = isRecord(req.args) ? req.args : {};
@@ -517,8 +535,9 @@ export function openclawLink(
         tail = tail.then(() => s.write(`${JSON.stringify(frame)}\n`)).catch(() => {});
       };
       try {
-        const end = await kit.run({ member, sessionKey, ...options }, (e) => send(e));
-        send({ type: 'end', end });
+        let seq = 0;
+        const end = await kit.run({ member, sessionKey, ...options }, (e) => { seq = e.seq; send(e); });
+        send({ type: 'end', seq: seq + 1, end });
         await tail;
         s.end();
       } catch (error) {

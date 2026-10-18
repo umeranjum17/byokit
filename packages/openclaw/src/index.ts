@@ -39,6 +39,7 @@ export type {
   Route,
   RunEnd,
   RunEvent,
+  RunFrame,
   RunRef,
   DelegatedRun,
   DelegatedEvent,
