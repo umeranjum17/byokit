@@ -518,7 +518,8 @@ itself — no manual file surgery:
   `cleanup`/`restoring` transitions are completed from the authenticated snapshot; empty live trees are treated as
 debris.
 - An engine exit code 78 means the engine asked for repair: the kit's own repair path runs
-  `doctor --fix --yes` with `doctorContext()`'s exact env.
+  `doctor --fix --yes` with `doctorContext()`'s exact env. Call `doctorContext()` after `prepare()` or `start()`: its
+  `CLAUDE_CONFIG_DIR` reflects the Claude login the engine chose there, and before that it reflects only the installed login.
 
 What a killed home leaves behind: live plaintext `state/` and `home/` (never resealed), `auth-store.lock/` with a
 dead owner pid, `gateway.pid` and `gateway.identity` (a still-live orphan Gateway is the dangerous case),
@@ -724,7 +725,8 @@ compromised engine/plugin, memory dump, or stolen host key can read credentials.
 against replacement with an older authentic snapshot. Gateway/device keys, inline config secrets, logs, engine
 install/cache files and app workspaces are outside this adapter's sealing scope; protect them separately.
 `doctorContext()` is an advanced escape hatch: launching an external doctor bypasses this lifecycle; use the
-kit's migration method for sealed stores.
+kit's migration method for sealed stores. Call it after `prepare()` or `start()`, because its Claude login folder
+is the one chosen there; before that it reflects only the installed login.
 
 See [SECURITY.md](SECURITY.md) for the credential and approval threat model, private-directory requirements,
 retained-login cleanup and sealed approval limits.

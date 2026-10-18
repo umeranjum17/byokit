@@ -1464,5 +1464,6 @@ export class OpenClawKit {
       throw new Error(`${op}: KitOptions.config also passes skills; that option wins at every boot (5.6)`);
   }
 
+  /** The env for an external doctor. Its Claude login folder is the one chosen at `prepare()`/`start()`; before that it is the installed-login view only. */
   doctorContext(): { entry: string; env: Record<string, string> } { return this.engine.doctorContext(); }
 }
