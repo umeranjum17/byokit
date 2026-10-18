@@ -381,7 +381,7 @@ test('run on an account: account event first, Auto by room, resting skip, ready 
     const auto = await run({ sessionKey: 'agent:m1:chat:1', account: 'auto' });
     const event = auto.events[0];
     assert.ok(event?.type === 'account', JSON.stringify(auto.events));
-    assert.deepEqual({ ...event, considered: undefined }, { type: 'account', account: second.id, model: 'openai/default',
+    assert.deepEqual({ ...event, considered: undefined }, { type: 'account', seq: 1, account: second.id, model: 'openai/default',
       sessionKey: `agent:${agent}:chat:1`, how: 'auto', why: 'most_room', considered: undefined });
     assert.deepEqual(event.considered.map((r) => [r.id, r.left, r.tier, r.reason]),
       [['openai', 20, 'room', 'most_room'], [second.id, 90, 'room', 'most_room']]);

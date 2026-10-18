@@ -1,0 +1,1 @@
+- Reattach a paired device to a live-kit run by its existing idempotency key: sequenced replay then live events, a bounded journal with typed truncation, and grant-member isolation. Device disconnect does not interrupt the run; engine-restart reconstruction is not included.

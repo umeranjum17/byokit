@@ -21,7 +21,7 @@ import { createAccounts, memberOfAccount } from './accounts.ts';
 import { createLocks } from './locks.ts';
 import { keyAgentId, KEY_PREFIX, MEMBER_ID } from './members.ts';
 import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLogin } from './migrate.ts';
-import { createRuns, signedInProviders } from './runs.ts';
+import { createRuns, RunReplay, signedInProviders } from './runs.ts';
 import { authStatus, createAuthStatus } from './auth-status.ts';
 import { outputSchema } from './output.ts';
 import { createKeys, type AddKeyHandle } from './keys.ts';
@@ -525,6 +525,10 @@ export class OpenClawKit {
   private members?: ReturnType<typeof createMembers>;
   private readonly locks = createLocks();
   private readonly routeMap = new Map<string, { session: string }>();
+  private readonly runReplay = new RunReplay();
+  attach(member: Member, runId: string, fromSeq: number, signal: AbortSignal) {
+    return this.runReplay.attach(member, runId, fromSeq, signal);
+  }
   private installs: Promise<void> = Promise.resolve();
   private accountsCtl?: ReturnType<typeof createAccounts>;
   // One bridge and one approval surface per kit: listeners and run registrations survive reconnects (B3).
@@ -948,6 +952,7 @@ export class OpenClawKit {
   }
 
   private closed(why: string): void {
+    if (why === 'engine exited') this.runReplay.clear();
     // A first start's loop owns an engine exit until it reaches ready; other closes are the transport client's to retry.
     if (this.startRun && !this.reachedReady) { if (why === 'engine exited') this.engineExit?.(); return; }
     const engineFailed = why === 'engine exited' && this.current.phase === 'failed' && this.current.why === 'exited';
@@ -968,6 +973,7 @@ export class OpenClawKit {
   }
 
   async stop(): Promise<void> {
+    this.runReplay.clear();
     this.stopping = true;
     this.reachedReady = false;
     this.startRun?.abort();
@@ -1304,10 +1310,11 @@ export class OpenClawKit {
     return confirmLogin({ ...this.signInCtx(), seal: this.o.authSeal, log: this.o.log }, member, source);
   }
 
-  // runs (5.8): the facade owns no run state; every call delegates to the O8 module
+  // runs (5.8): the facade retains the live journal; every dispatch delegates to the O8 module
   // with this kit's live transport, member table and bridge (spec item O9).
   private runs(): ReturnType<typeof createRuns> {
     return createRuns({
+      replay: this.runReplay,
       request: (method, params, o) => this.request()(method, params, o),
       authStatus: this.admission.read,
       invalidateAuth: this.admission.invalidate,

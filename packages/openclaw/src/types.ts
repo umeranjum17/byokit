@@ -72,7 +72,7 @@ export interface RunSpec<S extends OutputSchema | undefined = OutputSchema | und
   register?: boolean; // default true: the bridge recognizes this run
 }
 
-export type RunEvent =
+export type RunEvent = { seq: number } & (
   | { type: 'started' } // the Gateway accepted the run, not answer completion
   | { type: 'thinking'; tokens: number } // actual engine progressTokens, not text or estimated usage
   | { type: 'account'; account: AccountId; model: string; sessionKey: string; // 5.15: first event of a run on an
@@ -86,7 +86,10 @@ export type RunEvent =
     input?: Record<string, unknown>; // start: the call's arguments as the engine reports them (strings redacted)
     output?: unknown; // end: the engine's tool result (text content capped by the engine)
     error?: boolean; // end: the engine counts the call failed (a gate deny included)
-  };
+  });
+
+export type RunFrame = RunEvent | { type: 'end'; seq: number; end: RunEnd }
+  | { type: 'truncated'; reason: 'truncated' | 'not-found'; firstSeq?: number };
 
 /** Token usage of one run as the engine totals it (every model call of the run, compaction included). */
 export type RunUsage = {
