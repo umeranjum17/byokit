@@ -21,7 +21,15 @@ export interface RunRef {
   sessionKey: string;
   member: Member;
   meta?: unknown;
+  runId?: string;
+  agentId?: string;
+  parent?: { sessionKey: string; runId: string };
+  root?: { sessionKey: string; runId: string };
 }
+
+export type DelegatedRun = RunRef & Required<Pick<RunRef, 'runId' | 'agentId' | 'parent' | 'root'>>;
+export type DelegatedEvent = { type: 'admitted' | 'event' | 'ended'; run: DelegatedRun;
+  reason?: 'terminal' | 'cancelled'; event?: { stream: string; data?: Record<string, unknown> } };
 
 export type GateResult =
   | { allow: true }
@@ -59,6 +67,8 @@ export interface RunSpec<S extends OutputSchema | undefined = OutputSchema | und
   // ToolHost.gate. Engine builtins are unaffected. A name the kit does not register is refused before any request.
   // Absent: every app tool.
   tools?: string[];
+  /** Exact target engine agent IDs and their app-tool subsets; does not share credentials. */
+  delegates?: Record<string, string[]>;
   register?: boolean; // default true: the bridge recognizes this run
 }
 
@@ -212,8 +222,9 @@ export type TelegramChannel = {
 
 /** Kit-owned invalidation only: no origin, URL, input value or lease secret. */
 export type BrowserPing = { member: Member; kind: 'state' | 'signin' };
-export type KitEventName = GatewayEventName | 'byokit.browser';
-export type KitEventPayload<E extends KitEventName> = E extends 'byokit.browser' ? BrowserPing
+export type KitEventName = GatewayEventName | 'byokit.browser' | 'byokit.delegated';
+export type KitEventPayload<E extends KitEventName> = E extends 'byokit.delegated' ? DelegatedEvent
+  : E extends 'byokit.browser' ? BrowserPing
   : GatewayEventPayload<Extract<E, GatewayEventName>>;
 
 // Pass-through typing (4.6): re-exports of the generated method/event tables (O2 fills the tables, these names are

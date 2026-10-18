@@ -1242,6 +1242,37 @@ export declare class ArtifactHashError extends Error { readonly offset: number }
   throw. The whole hash is the app's check once it has reassembled from 0 (`head.sha256`). Hashing uses
   `@noble/hashes` `sha256` (exact pin, as `@byokit/seal`), keeping `./device` portable.
 
+#### Native delegated tool admission (opt-in)
+
+`RunSpec.delegates?: Record<string, string[]>` maps exact target engine agent IDs to allowed app-tool names.
+It does **not** share credentials or change agent ownership: each target uses its own existing engine account,
+workspace and history. Per-helper/person account binding is not included. Targets and tool names are validated
+before dispatch. Parent app-tool restrictions also constrain every descendant. Builtins still cross `ToolHost.gate`.
+
+For opted-in runs the bridge records an allowed native `sessions_spawn` or `sessions_send` call using the trusted
+hook's exact parent run ID, session key and tool-call ID. Send requires an explicit full target session key and
+`timeoutSeconds: 0`; label lookup, synchronous waits and ACP spawns are refused on this tracked path. Spawn requires
+an explicit allowed `agentId`. The native after-tool receipt, not model arguments or a key prefix, supplies the
+exact child run ID/session key. Until that receipt arrives child gates wait briefly, then fail closed. Unknown
+children never acquire authority. Approval denial creates no admitted action; every child action is gated again.
+
+`RunRef` adds optional `runId`, `agentId`, `parent` and `root` (the latter two exact `{sessionKey, runId}` pairs).
+`kit.delegatedRuns()` lists admitted exact children; `onEvent('byokit.delegated', fn)` emits typed admission,
+engine stream and terminal envelopes with that identity. Tool-stream arguments/results are not forwarded by this
+surface. Native events are observations, never a completion/delivery guarantee.
+
+Pending dispatch receipts and admitted children are persisted under the app-owned engine root, without messages,
+credentials or approval answers. Parent settlement does not revoke children. Reconnect/start reconciles exact
+recorded run IDs with `agent.wait`; terminal records are revoked, while timeout is unknown, not completion.
+No new run IDs are guessed on restart: an engine resume with a different ID needs fresh admission. A dispatch
+whose receipt never arrived stays fail-closed. `abort(rootSessionKey)` revokes the recorded subtree before native
+abort requests, closes its parked gates/active calls, and preserves original errors. Call `abort` with a child key
+to revoke its subtree. Revocation is durable even if the engine is unavailable. No prefix grants or allowOnce bypass.
+
+Legacy adoption retains exact old session keys for finite in-flight jobs and their original approval owners.
+New helper work uses new agent/session mappings. Never bulk-copy agent SQLite, rename a live approval's owner,
+or replay a previously sent action. This slice does not migrate history or copy credentials.
+
 ### 5.9 Tools, approvals and the bridge
 
 **Plugin** (`plugin/index.js`, written to `<root>/plugin/` at prepare with a generated `openclaw.plugin.json`

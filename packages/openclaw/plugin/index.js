@@ -15,6 +15,7 @@ const Kind = Symbol.for('TypeBox.Kind');
 const table = JSON.parse(readFileSync(new URL('./tools.json', import.meta.url), 'utf8'));
 const RUN_PARAM = table.runParam;
 const PERMIT_PARAM = table.permitParam;
+const RUN_ID_PARAM = `${RUN_PARAM}_id`;
 const TOOLS = new Map(table.tools.map((t) => [t.name, t]));
 // Absent (a table from before the flag) reads as true: fail closed.
 const GATE_BUILTINS = table.gateBuiltins !== false;
@@ -131,8 +132,8 @@ function bridgeRequest(message, { timeoutMs, signal } = {}) {
   });
 }
 
-async function gate(key, tool, input, signal) {
-  const reply = await bridgeRequest({ kind: 'gate', key, tool, input }, { timeoutMs: 195_000, signal });
+async function gate(key, tool, input, signal, runId) {
+  const reply = await bridgeRequest({ kind: 'gate', key, tool, input, runId }, { timeoutMs: 195_000, signal });
   return reply && typeof reply === 'object' ? reply : { allow: false, reason: "can't check this action right now" };
 }
 
@@ -151,6 +152,21 @@ export default {
   },
   register(api) {
     registerCodex(api);
+    api.on('after_tool_call', async (event, ctx) => {
+      if (!['sessions_send', 'sessions_spawn'].includes(event.toolName)) return;
+      const d = event.result?.details;
+      await bridgeRequest({ kind: 'delegation-receipt', key: ctx?.sessionKey, runId: ctx?.runId ?? event.runId,
+        callId: ctx?.toolCallId ?? event.toolCallId,
+        result: { details: d && { status: d.status, runId: d.runId, sessionKey: d.sessionKey, childSessionKey: d.childSessionKey } } });
+    });
+    api.registerAgentEventSubscription?.({ id: 'byokit-delegated-events', handle(event) {
+      if (!['assistant', 'tool', 'thinking', 'lifecycle'].includes(event.stream)) return;
+      const data = Object.fromEntries(['text', 'name', 'phase', 'toolCallId', 'isError', 'progressTokens', 'aborted', 'error', 'provider', 'model']
+        .filter(key => ['string', 'number', 'boolean'].includes(typeof event.data?.[key]))
+        .map(key => [key, event.data[key]]));
+      void bridgeRequest({ kind: 'delegation-event', event: { runId: event.runId, sessionKey: event.sessionKey,
+        stream: event.stream, data } }).catch(() => {});
+    } });
     if (api.registerGatewayMethod) { registerKeys(api); registerUsage(api); registerAccounts(api); registerCatalog(api); }
     if (BROWSER) {
       if (typeof api.registerAgentToolResultMiddleware !== 'function') throw new Error('browser result protection unavailable');
@@ -189,13 +205,15 @@ export default {
           const input = { ...(params ?? {}) };
           const run = input[RUN_PARAM];
           const permit = input[PERMIT_PARAM];
+          const runId = input[RUN_ID_PARAM];
           delete input[RUN_PARAM];
           delete input[PERMIT_PARAM];
+          delete input[RUN_ID_PARAM];
           // The run key is always required; the permit only rides along when the gate minted one (N1).
           if (typeof run !== 'string') {
             throw new Error('this tool needs approval before it runs');
           }
-          const call = { kind: 'call', key: run, tool: spec.name, input };
+          const call = { kind: 'call', key: run, runId, tool: spec.name, input };
           if (typeof permit === 'string') call.permit = permit;
           let reply;
           try {
@@ -247,7 +265,7 @@ export default {
       }
       let decision;
       try {
-        decision = await gate(key, event.toolName, params, ctx?.abortSignal);
+        decision = await gate(key, event.toolName, params, ctx?.abortSignal, ctx?.runId ?? event.runId);
       } catch (error) {
         return { block: true, blockReason: error instanceof Error ? error.message : "can't check this action right now" };
       }
@@ -257,6 +275,13 @@ export default {
           blockReason: typeof decision.reason === 'string' ? decision.reason : "can't check this action right now",
         };
       }
+      if (builtin && ['sessions_send', 'sessions_spawn'].includes(event.toolName)) {
+        try {
+          const prepared = await bridgeRequest({ kind: 'delegation-prepare', key, runId: ctx?.runId ?? event.runId,
+            callId: ctx?.toolCallId ?? event.toolCallId, tool: event.toolName, input: params });
+          if (prepared.allow === false) return { block: true, blockReason: prepared.reason };
+        } catch { return { block: true, blockReason: 'delegation admission unavailable' }; }
+      }
       if (builtin) return BROWSER && event.toolName === 'browser' ? { params } : undefined;
       // The bridge mints a permit for permitted tools and admits the rest ticket-side; either way the run key
       // rides along and execute sends back only what the gate gave it (N1).
@@ -264,6 +289,7 @@ export default {
         params: {
           ...params,
           [RUN_PARAM]: key,
+          ...(typeof (ctx?.runId ?? event.runId) === 'string' ? { [RUN_ID_PARAM]: ctx?.runId ?? event.runId } : {}),
           ...(typeof decision.permit === 'string' ? { [PERMIT_PARAM]: decision.permit } : {}),
         },
       };

@@ -40,6 +40,8 @@ export type {
   RunEnd,
   RunEvent,
   RunRef,
+  DelegatedRun,
+  DelegatedEvent,
   RunSpec,
   OutputSchema,
   SchemaOutput,

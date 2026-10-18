@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Bridge } from './bridge.ts';
+import type { Delegations } from './delegations.ts';
 import type { createAccounts } from './accounts.ts';
 import type { createLocks } from './locks.ts';
 import { authStatus } from './auth-status.ts';
@@ -93,6 +94,7 @@ export function createRuns(ctx: {
   onEvent: GatewayTransport['onEvent'];
   ensure(member: Member): Promise<{ agentId: string }>;
   bridge: Pick<Bridge, 'register'>;
+  delegations?: Delegations;
   tools: ReadonlySet<string>; // KitOptions.tools names, the only names a run's subset may carry
   accounts?: Pick<ReturnType<typeof createAccounts>, 'bind' | 'keyRefusal' | 'pick' | 'rest'>; // 5.15: account runs
   locks?: ReturnType<typeof createLocks>;
@@ -123,6 +125,10 @@ export function createRuns(ctx: {
     // of one of the member's account agents is the member's too; binding below checks the index names it.
     if (!spec.sessionKey.startsWith(`agent:${spec.member}:`) && !(ctx.accounts && !keyAgent && spec.sessionKey.startsWith(`agent:${spec.member}--`)))
       throw new Error(`refused: "${spec.sessionKey}" is not a session of member "${spec.member}"`);
+    if (spec.delegates) {
+      if (spec.register === false || !ctx.delegations) throw new Error('delegation requires a registered run');
+      ctx.delegations.validate(spec.delegates);
+    }
     // Same validation as the pin's NonEmptyString; preserve the caller's bytes (including whitespace).
     if (spec.idempotencyKey !== undefined && (typeof spec.idempotencyKey !== 'string' || !spec.idempotencyKey.length))
       throw new Error('refused: idempotencyKey must be a non-empty string');
@@ -229,7 +235,8 @@ export function createRuns(ctx: {
     output?: ReturnType<typeof outputSchema>; chosen?: Extract<AccountPick, { ok: true }>;
   }): Promise<RunEnd<SchemaOutput<S>>> => {
     const { agentId, sessionKey, idempotencyKey, system, picked, output, chosen } = t;
-    const release = spec.register !== false ? ctx.bridge.register({ sessionKey, member: spec.member }, spec.tools, idempotencyKey) : undefined;
+    let release: (() => void) | undefined;
+    let releaseDelegation: (() => void) | undefined;
     let last: string | undefined;
     let runId = ''; // gateway events for other runs carry a real runId and never match the empty one
     let ended = false;
@@ -261,6 +268,9 @@ export function createRuns(ctx: {
       }
     });
     try {
+      releaseDelegation = spec.delegates ? ctx.delegations!.register({ sessionKey, member: spec.member },
+        idempotencyKey, spec.tools, spec.delegates, spec.sessionKey) : undefined;
+      release = spec.register !== false ? ctx.bridge.register({ sessionKey, member: spec.member }, spec.tools, idempotencyKey) : undefined;
       if (picked && !chosen) {
         // The picked account must be the one called: check it is signed in for this member before the run, since
         // the engine would otherwise fail the run only after admitting it. An explicit provider/model is strict on
@@ -347,6 +357,7 @@ export function createRuns(ctx: {
       ended = true;
       unsubscribe();
       release?.();
+      releaseDelegation?.();
     }
   };
   return {

@@ -422,6 +422,29 @@ of 394 methods' params and 193 of their results, plus 21 of 55 event payloads; t
 the kit, they are not published by the engine, and typing them here would be a guess that does not match the
 gateway. `callDynamic` stays the same shape for a method the pin never declared.
 
+## Native delegated runs (opt-in)
+
+Pass `delegates: { scout: ['report'] }` on `kit.run` to permit native delegation to that exact engine agent with
+that app-tool subset. Ensure the target member first and configure the engine's own A2A/visibility/subagent policy;
+this option does not enable engine tools or bypass `host.gate`. The parent subset narrows descendants too.
+Tracked `sessions_send` requires an explicit full `sessionKey` and `timeoutSeconds: 0`; tracked `sessions_spawn`
+requires an explicit allowed `agentId` and native runtime (not ACP). Unknown children fail closed.
+
+`kit.delegatedRuns()` lists admitted children. `kit.onEvent('byokit.delegated', fn)` reports admission, native streams
+and terminal observations with exact `runId`, `agentId`, `member`, `sessionKey`, `parent` and `root` identity.
+The same identity reaches `ToolHost`; each delegated action has its own gate/approval. Tool arguments/results
+are omitted from this event surface. An accepted native dispatch is not finished work or proof of delivery.
+
+Admitted exact run IDs survive parent settlement and are reconciled on reconnect/start. `abort(rootSessionKey)`
+durably revokes its recorded subtree, closes parked gates/active calls, then asks the engine to abort; a child key
+revokes its subtree. An engine resume with a different run ID, or a dispatch with no retained receipt, is not
+silently granted authority. No prefix grants or `allowOnce` bypass are used.
+
+**Per-helper account binding is not included:** targets retain their own existing engine credentials, persona,
+workspace and history. This option never copies credentials or gives helpers another person's account. Legacy
+in-flight jobs may retain their exact old session keys and approval owners; all new helper work uses the new
+mapping. Never copy agent SQLite or replay old sent actions. See the [binding contract](../../docs/runtime-kits.md#native-delegated-tool-admission-opt-in).
+
 ## Owned browser (unqualified handoff)
 
 `browser: { executablePath, members }` opts into isolated member Chromium profiles. It requires a closed

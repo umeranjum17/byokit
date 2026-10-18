@@ -1,0 +1,2 @@
+- Add opt-in `RunSpec.delegates` for native `sessions_send`/`sessions_spawn` app-tool admission and typed delegated events, retained exact receipts and subtree cancellation. Targets retain their own accounts; helper/person account sharing is not included.
+- SECURITY: Delegated authority requires a trusted native parent/tool-call receipt and exact child run/session identity; target tools intersect the parent subset, builtins remain gated, unknown children fail closed, and cancellation revokes parked and active calls before awaiting engine cleanup.

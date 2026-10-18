@@ -12,6 +12,7 @@ import { PROTOCOL_VERSION, LIVE_CATALOGS } from './constants.ts';
 import { atomic } from './engine-patches.ts';
 import { Approvals } from './approvals.ts';
 import { Bridge } from './bridge.ts';
+import { Delegations } from './delegations.ts';
 import { Engine, canonicalStateDir, refusedOnly } from './engine.ts';
 import { AuthStoreSealSizeError } from './auth-store.ts';
 import { gatewayTransport } from './transport.ts';
@@ -529,6 +530,7 @@ export class OpenClawKit {
   // One bridge and one approval surface per kit: listeners and run registrations survive reconnects (B3).
   // Only the socket itself is per-connection. Approvals always reaches the live transport through this.request().
   private readonly bridge: Bridge;
+  private readonly delegations: Delegations;
   private readonly keys: ReturnType<typeof createKeys>;
   private readonly admission: ReturnType<typeof createAuthStatus>;
   private readonly approvalsCtl: Approvals;
@@ -756,7 +758,11 @@ export class OpenClawKit {
         return o.host.call(run, tool, input, signal);
       },
     } : o.host;
-    this.bridge = new Bridge({ path: this.engine.bridgeSock, host, tools: new Set([...this.toolNames(), ...(o.browser ? ['request_sign_in'] : [])]),
+    this.delegations = new Delegations({ file: join(this.engine.root, 'delegated-runs.json'), tools: new Set(this.toolNames()),
+      memberOf: agent => this.memberOf(agent), request: (method, params, options) => this.request()(method, params, options),
+      emit: payload => { for (const fn of this.listeners) fn({ event: 'byokit.delegated', payload }); },
+      revoke: (key, runId) => this.bridge.revoke(key, runId) });
+    this.bridge = new Bridge({ path: this.engine.bridgeSock, delegations: this.delegations, host, tools: new Set([...this.toolNames(), ...(o.browser ? ['request_sign_in'] : [])]),
       ...(o.browser ? { browserCapabilities: () => [...this.browserCapabilities],
         beforeAgentRun: async (key: string, runId?: string) => {
         // No action-id submission proof or redispatch claim. Open and unproven resumes are always refused.
@@ -847,6 +853,7 @@ export class OpenClawKit {
       // The fail-closed tool bridge feeds the kit's single Approval surface (5.9, O5).
       await Promise.race([this.bridge.start(), exit]);
       this.off.push(transport.onEvent((e) => this.approvalsCtl.handleEvent(e)));
+      await this.delegations.reconcile();
       this.failures = 0;
       this.reachedReady = true;
       this.setState({ phase: 'ready' });
@@ -1312,7 +1319,7 @@ export class OpenClawKit {
       },
       ensure: (member) => this.ensureMember(member),
       bridge: { register: (run, tools, runId) => this.bridge.register(run, tools && this.o.browser ? [...tools, 'request_sign_in'] : tools, runId) },
-      tools: new Set(this.toolNames()),
+      tools: new Set(this.toolNames()), delegations: this.delegations,
       ...(this.accountsCtl ? { accounts: this.accountsCtl } : {}),
       locks: this.locks,
       routes: this.routeMap,
@@ -1325,6 +1332,7 @@ export class OpenClawKit {
   }
 
   async run<const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void): Promise<RunEnd<SchemaOutput<S>>> {
+    if (spec.delegates && this.o.gateBuiltins === false) throw new Error('delegation requires builtin gating');
     if (this.o.browser) {
       if (!await this.checkBrowserTools()) return { ok: false, kind: 'other', message: 'browser tool policy refused' };
       if (!await this.browserHost?.beforeRun(spec.member, this.runKey(spec.sessionKey, spec)))
@@ -1360,8 +1368,11 @@ export class OpenClawKit {
     return this.runs().steer(this.runKey(sessionKey, o), text);
   }
 
+  delegatedRuns(): import('./types.ts').DelegatedRun[] { return this.delegations.list(); }
+
   async abort(sessionKey: string, o?: { auth?: 'apiKey' }): Promise<void> {
-    return this.runs().abort(this.runKey(sessionKey, o));
+    const key = this.runKey(sessionKey, o);
+    await Promise.all([this.delegations.abort(key), this.runs().abort(key)]);
   }
 
   // approvals (5.9)
