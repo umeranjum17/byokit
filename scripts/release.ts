@@ -412,6 +412,8 @@ interface WSPkg {
   name: string;
   version: string;
   isPrivate: boolean;
+  // publishConfig.tag: the npm dist-tag a publish moves (npm's default, latest, when absent).
+  tag?: string;
   dependencies: Record<string, string>;
   peerDependencies: Record<string, string>;
   devDependencies: Record<string, string>;
@@ -427,6 +429,7 @@ function workspacePackages(): WSPkg[] {
       name: string;
       version: string;
       private?: boolean;
+      publishConfig?: { tag?: string };
       dependencies?: Record<string, string>;
       peerDependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;
@@ -436,6 +439,7 @@ function workspacePackages(): WSPkg[] {
       name: pj.name,
       version: pj.version,
       isPrivate: pj.private === true,
+      tag: pj.publishConfig?.tag,
       dependencies: { ...(pj.dependencies ?? {}) },
       peerDependencies: { ...(pj.peerDependencies ?? {}) },
       devDependencies: { ...(pj.devDependencies ?? {}) },
@@ -700,6 +704,8 @@ function cmdPublish(rest: string[]): void {
       continue;
     }
     const pubArgs = ["publish", "-w", p.name, "--access", "public"];
+    // Passed explicitly: npm applies publishConfig.tag under -w too, yet prints the default tag.
+    if (p.tag) pubArgs.push("--tag", p.tag);
     if (process.env.GITHUB_ACTIONS === "true") pubArgs.push("--provenance");
     if (dryRun) {
       console.log(`npm ${pubArgs.join(" ")} --dry-run`);

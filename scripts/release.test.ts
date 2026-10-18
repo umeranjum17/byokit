@@ -215,7 +215,9 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
       peerDependencies: { "@byokit/probe": ">=0.1.0" } }, null, 2));
     writeFileSync(join(dir, "packages/c-dev/package.json"), JSON.stringify({ name: "@byokit/c-dev", version: "0.1.0",
       devDependencies: { "@byokit/probe": "0.1.0" } }, null, 2));
-    writeFileSync(join(dir, "packages/d-first/package.json"), JSON.stringify({ name: "@byokit/d-first", version: "0.1.0" }, null, 2));
+    writeFileSync(join(dir, "packages/d-first/package.json"), JSON.stringify({ name: "@byokit/d-first", version: "0.1.0", publishConfig: { tag: "next" } }, null, 2));
+    writeFileSync(join(dir, "bin/gh"), "#!/bin/sh\nexit 1\n");
+    chmodSync(join(dir, "bin/gh"), 0o755);
     for (const kit of ["a-consumer", "b-range", "c-dev", "d-first"]) writeFileSync(join(dir, `packages/${kit}/CHANGELOG.md`), "# Changelog\n\n## Unreleased\n\n- Existing note.\n");
     writeFileSync(join(dir, "packages/probe/package.json"), JSON.stringify({ name: "@byokit/probe", version: "0.1.0" }, null, 2));
     const cl = join(dir, "packages/probe/CHANGELOG.md");
@@ -260,6 +262,10 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
       { kind: "FIX", text: "fragment for Umer." }, { kind: "other", text: "Existing note for Umer." },
     ]);
     assert.equal(git("status", "--porcelain").trim(), "");
+    const publish = run(process.execPath, ["scripts/release.ts", "publish", "--dry-run"]);
+    assert.equal(publish.status, 0, publish.stderr);
+    assert.match(publish.stdout, /npm publish -w @byokit\/d-first --access public --tag next --dry-run/, "publishConfig.tag reaches npm as --tag");
+    assert.match(publish.stdout, /npm publish -w @byokit\/probe --access public --dry-run/, "no publishConfig.tag keeps npm's latest");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
