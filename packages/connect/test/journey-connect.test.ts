@@ -21,7 +21,7 @@ import { join } from 'node:path';
 import { build } from 'esbuild';
 import plain from '../../../fixtures/conformance/plain-words.json' with { type: 'json' };
 import {
-  connect, deviceSignIn, catalog, knownApps, reviewedApps, mcpDirectory, ConnectError, providers, MailReader, MailSender, MailError, MailHistory, HistoryError,
+  connect, deviceSignIn, catalog, knownApps, mcpDirectory, ConnectError, providers, MailReader, MailSender, MailError, MailHistory, HistoryError,
   CallToolResultSchema, ToolListChangedNotificationSchema,
   type Provider, type ConnectOptions,
 } from '@byokit/connect';
@@ -459,8 +459,6 @@ test('a host lists apps from the known apps and a remote MCP directory, then con
   // The known apps are the kit's own presets and read nothing; naming a directory reads nothing until it is listed.
   const remote = mcpDirectory(directoryUrl);
   const known = await catalog([knownApps]);
-  const reviewed = await catalog([reviewedApps]);
-  assert.equal(reviewed.length, 12); assert.ok(reviewed.every(app => app.auth === 'discovery' && app.description && app.mcpUrl?.startsWith('https://') && app.icon?.startsWith('https://')));
   assert.deepEqual(known.map(a => a.id), Object.keys(providers));
   assert.deepEqual(Object.fromEntries(known.map(a => [a.id, a.auth])), { google: 'oauth', drive: 'oauth', gmail: 'oauth', calendar: 'oauth', notion: 'discovery', canva: 'discovery', github: 'device' });
   const { auth: _auth, ...drive } = known.find(a => a.id === 'drive')!;

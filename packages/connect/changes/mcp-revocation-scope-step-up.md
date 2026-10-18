@@ -1,0 +1,2 @@
+- FIX: `disconnect()` revokes refresh and access tokens at the MCP app before local deletion and reports whether app-side revocation succeeded.
+- FEAT: MCP `insufficient_scope` challenges expose scope hints; `stepUp()` requests added scopes while keeping the current grant until replacement sign-in succeeds.

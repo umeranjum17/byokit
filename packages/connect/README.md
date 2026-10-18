@@ -225,11 +225,11 @@ legacy HTTP+SSE transports are outside this sign-in kit's initial scope.
 ## List apps to connect
 
 ```ts
-import { catalog, connect, knownApps, reviewedApps, mcpDirectory } from '@byokit/connect';
+import { catalog, connect, knownApps, mcpDirectory } from '@byokit/connect';
 import type { Keystore } from '@byokit/secrets';
 
 declare const store: Keystore;
-const apps = await catalog([knownApps, reviewedApps, mcpDirectory('https://directory.your-app.example/v0/servers?version=latest')]);
+const apps = await catalog([knownApps, mcpDirectory('https://directory.your-app.example/v0/servers?version=latest')]);
 const app = apps[0]; // { id, name, icon?, auth, ...the Provider connect() takes }
 const connection = connect(app, { store, person: 'Umer', redirectUri: 'https://your-app.example/connect/callback' });
 const flow = await connection.signIn(); // Or connectLoopback(app, ...); deviceSignIn(app, ...) when app.auth is 'device'.
@@ -245,7 +245,6 @@ registers itself where offered, `device` shows a typed code. `icon` is an HTTPS
 image address from the listing; render it as untrusted content.
 
 - `knownApps` lists the kit's presets (`providers`) and reads nothing.
-- `reviewedApps` is the kit's reviewed MCP Registry-shaped directory of 12 vendors whose unauthenticated MCP initialize and OAuth metadata were live-probed for DCR; unknown registry entries never appear in it.
 - `mcpDirectory(url, { fetch?, timeoutMs? })` reads a remote MCP directory that
   answers in the MCP registry's `GET /v0/servers` shape, following
   `metadata.nextCursor` (at most 100 pages), only when listed. It keeps servers
