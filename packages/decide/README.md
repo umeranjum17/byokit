@@ -808,6 +808,47 @@ mismatches reject with `ClaudeCodeError`; cut-off output has `name: 'IncompleteE
 `decide(..., { privacy: 'may-leave', backends: [backend] })` choice, yes/no and score questions;
 its confidence estimates are self-reported and still go through decide's ordinary floors.
 
+### Codex on the person's ChatGPT plan
+
+The Node-only `@byokit/decide/codex` subpath is the same seam for the person's own unmodified,
+signed-in Codex binary: the host passes its absolute path and, from `@byokit/accounts/cli`, the chosen
+Codex account's `launch(id)` result (or `launchEnv(id)`). The installed row (`installed: true`, id
+`installed-codex`) sets nothing, so Codex runs with the person's HOME and their own `CODEX_HOME`, if any,
+and answers on their ChatGPT plan; a managed account sets its own `CODEX_HOME`. The kit never opens,
+copies or edits `~/.codex` or any login file.
+
+Before each call it asks the binary for `codex login status` and requires `Logged in using ChatGPT`;
+an API-key or missing sign-in is refused with `code: 'subscription_required'` before any model request,
+and the status text is discarded. Environment variables whose names hold `KEY`, `TOKEN` or `SECRET`,
+`NODE_OPTIONS`, `OPENAI_BASE_URL`, `CODEX_OSS_BASE_URL` and the account's `unset` names never reach the
+child. Each call runs `codex exec --json --output-schema` in a temporary directory (removed afterwards)
+with a read-only sandbox, no saved session, the person's `config.toml`, rules, project docs and skills
+ignored, shell, apps, plugins, hooks and web search off, and ChatGPT sign-in forced. The answer is the
+turn's last agent message, validated against the schema. Codex sends the schema as OpenAI strict
+structured output, so `generate` schemas list every property in `required` with
+`additionalProperties: false`; decide's own question schema already does. Failures reject with
+`CodexError` and fixed text that never includes stderr. Pin `model`, for example `gpt-6-luna`; without
+one Codex picks its default. `maxOutputTokens` is validated but not enforced, since `codex exec` has no
+output cap. The cache identity is the binary path and the account's `CODEX_HOME` only.
+
+```ts
+import { cliAccounts } from '@byokit/accounts/cli';
+import { decide } from '@byokit/decide';
+import { codex } from '@byokit/decide/codex';
+
+declare const bin: string; // absolute path of the person's installed codex
+const accounts = cliAccounts({ stateDir: '/app/state/plans', bins: { codex: bin },
+  env: { HOME: '/home/you', PATH: '/usr/bin:/bin' }, installed: true });
+const launch = await accounts.launch('installed-codex');
+if (!launch.ok) console.log(launch.message);
+else {
+  const backend = codex({ bin, account: launch, model: 'gpt-6-luna', timeoutMs: 120_000 });
+  const answers = await decide({ name: 'Umer' }, { keep: { kind: 'yesno', question: 'Keep it?' } },
+    { privacy: 'may-leave', backends: [backend] });
+  console.log(answers.keep.answer);
+}
+```
+
 ## Jev from a paired phone
 
 `pairedJev()` sends questions through an existing `@byokit/pair` DeviceLink to the user's
