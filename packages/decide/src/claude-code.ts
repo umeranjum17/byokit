@@ -61,7 +61,7 @@ export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
         ...(input.system ? ['--system-prompt', input.system] : [])];
       const deadline = Date.now() + o.timeoutMs;
       const execute = (args: string[], stdin?: string) => new Promise<string>((resolveOutput, reject) => {
-        // The person's own environment, so their installed Claude answers with its own sign-in; minus API keys, API tokens and preloads, keeping the subscription OAuth token.
+        // The person's own environment so their installed Claude answers with its own sign-in; minus API-billed, billing-route and preload variables, keeping the subscription OAuth token.
         const child = spawn(o.bin, args, { cwd: scratch, env: {
           ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k === 'CLAUDE_CODE_OAUTH_TOKEN' || (!/KEY|TOKEN|SECRET|^NODE_OPTIONS$/i.test(k) && !billingRoutes.has(k)))),
           ...(o.configDir !== undefined && { CLAUDE_CONFIG_DIR: o.configDir }),
