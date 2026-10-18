@@ -6,7 +6,6 @@
 
 - FIX: `disconnect()` revokes refresh and access tokens at the MCP app before local deletion and reports whether app-side revocation succeeded.
 - FEAT: MCP `insufficient_scope` challenges expose scope hints; `stepUp()` requests added scopes while keeping the current grant until replacement sign-in succeeds.
-FIX: `catalog()` now includes the reviewed, live-probed MCP vendors; `disconnect()` revokes at the app before local deletion and reports failures; `stepUp()` requests added scopes while retaining the old grant until sign-in completes.
 
 ## 0.7.0 (2026-10-18)
 
