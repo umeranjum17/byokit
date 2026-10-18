@@ -132,8 +132,9 @@ else process.exit(2);
       for (let i = 0; i < 300 && childEnv().CLAUDE_CONFIG_DIR !== folder; i++) await delay(20);
       assert.equal(childEnv().CLAUDE_CONFIG_DIR, folder, 'the gateway got the fallback folder');
     }
+    assert.equal(engine.doctor(60_000).status, 0, 'doctor --fix exits 0');
     for (const name of ['.pi', '.openclaw', '.codex', '.claude', '.config/herdr']) assert.equal(readFileSync(join(decoy, name, 'canary'), 'utf8'), name);
-    assert.deepEqual(tree(), before, 'the engine writes nothing into the person\'s home');
+    assert.deepEqual(tree(), before, 'start and doctor --fix write nothing into the person\'s home');
   } finally {
     await engine.stop();
     for (const [name, value] of Object.entries(saved)) if (value === undefined) delete process.env[name]; else process.env[name] = value;
