@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.11.1 (2026-10-18)
+
+- Dependency update: pins @byokit/pair 0.10.4.
+- FIX: (from @byokit/pair 0.10.4) A code that ran out while the person was saying yes now tells the computer too. When the yes landed after the offer's own expiry but inside the answer time, the device was refused `expired` while `confirm`'s `signal` never aborted, so the computer said nothing; it now aborts once, the same way a run-out during the question does, and still no grant is written.
+
 ## 0.11.0 (2026-10-18)
 
 - Dependency update: pins @byokit/accounts 0.27.1.
