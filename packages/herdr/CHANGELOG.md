@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.16.1 (2026-10-18)
+
+FIX: A ready Herdr that goes silent is now reported stalled, then ready when it answers again.
+
 ## 0.16.0 (2026-10-18)
 
 - Add a `stalled` state for a connected but silent Herdr server. The app says the computer is busy and keeps trying.
