@@ -55,6 +55,8 @@ and code, key, then `revokeClaim()`, after which Boat refused the key). The pack
 on the npm `next` tag: create, install and hosting with a claimed key are still unproven until
 M6's recorded run, so the app keeps `setup.makeKey` until that run passes, and `latest` moves
 to this package only then.
+Our later live Boat runs make no new claim: they use the fleet's saved Boat key, never print,
+log, commit or revoke it, and delete only the machines they made.
 
 The library reads no environment variable. Every spawned process gets an env built from nothing.
 
