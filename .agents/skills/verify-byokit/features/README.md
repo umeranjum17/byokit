@@ -229,5 +229,6 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [pwa-review-evidence](./pwa-review-evidence.md) — before/after frames and motion per theme/form factor, including Grok device code, one dropped poll, approval, reload and sign-out; the separate built browser-API host-only negative is covered by the PWA journey test.
 - [decide-refusal-codes](./decide-refusal-codes.md) — refused key and account legs, the answerer's `KeyRouteError` leg, the unrefused 500 and the echoed-key extreme.
 - [decide-slim-install](./decide-slim-install.md) — slim entry, unchanged main entry, self-naming missing peer, and the offline alone-tarball install.
+- [decide-claude-flags](./decide-claude-flags.md) — `claudeCode` runs the person's own signed-in `claude` with their HOME and PATH (stand-in records them; `configDir` passed through as given), the real CLI accepts the flag list, and a missing binary is a `ClaudeCodeError`.
 - [release-publish-superseded](./release-publish-superseded.md) — a superseded workflow_run sha exits 0 with `superseded by <sha>`, while every other HEAD mismatch still fails.
 - [outbox-request-id](./outbox-request-id.md) — retry-safe `requestId` enqueue: one send for duplicate ids before flush, after reopen, and after already sent.

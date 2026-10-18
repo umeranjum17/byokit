@@ -21,14 +21,14 @@ import { readFileSync, writeFileSync } from 'node:fs';
 let stdin = ''; for await (const chunk of process.stdin) stdin += chunk;
 if (process.argv.includes('auth')) {
   let method = 'claude.ai';
-  try { method = readFileSync(process.env.CLAUDE_CONFIG_DIR + '/auth-mode', 'utf8'); } catch {}
+  try { method = readFileSync(process.env.FAKE_CLAUDE_LOG + '/auth-mode', 'utf8'); } catch {}
   process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: method, apiProvider: 'firstParty' }));
   process.exit(0);
 }
 const request = JSON.parse(stdin);
 const prompt = request.message.content.filter((part) => part.type === 'text').at(-1).text;
 const args = process.argv.slice(2);
-writeFileSync(process.env.CLAUDE_CONFIG_DIR + '/invocation.json', JSON.stringify({ args, request, env: process.env, cwd: process.cwd() }));
+writeFileSync(process.env.FAKE_CLAUDE_LOG + '/invocation.json', JSON.stringify({ args, request, env: process.env, cwd: process.cwd() }));
 if (prompt === 'hang') { setInterval(() => {}, 1000); }
 else if (prompt === 'stderr') { process.stderr.write('private diagnostic'); process.exitCode = 1; }
 else if (prompt === 'broken') { process.stdout.write('{'); }
@@ -53,16 +53,19 @@ else {
 }
 `;
 
-test('Claude binary seam: isolated subscription, structured generation, scalar decisions and fixed failures', async () => {
+test('Claude binary seam: the person\'s own sign-in, structured generation, scalar decisions and fixed failures', async () => {
   const root = await mkdtemp(join(tmpdir(), 'byokit-decide-generate-'));
-  const configDir = join(root, 'app-sign-in');
+  const configDir = join(root, 'host-config');
+  const logDir = join(root, 'fake-log');
   const ambient = join(root, 'ambient-config');
   const decoyHome = join(root, 'ambient-home');
   const homeClaude = join(decoyHome, '.claude');
   const previousHome = process.env.HOME;
   const previousConfig = process.env.CLAUDE_CONFIG_DIR;
+  const previousKey = process.env.ANTHROPIC_API_KEY;
   try {
     await mkdir(configDir);
+    await mkdir(logDir);
     await mkdir(ambient);
     await mkdir(homeClaude, { recursive: true });
     await writeFile(join(homeClaude, 'byokit-test-canary'), 'unchanged');
@@ -72,13 +75,15 @@ test('Claude binary seam: isolated subscription, structured generation, scalar d
     const bin = join(root, 'fake-claude');
     await writeFile(bin, fakeSource, { mode: 0o700 });
     process.env.HOME = decoyHome;
-    process.env.CLAUDE_CONFIG_DIR = ambient;
-    const backend = claudeCode({ bin, configDir, model: 'chosen-model', timeoutMs: 5000 });
+    delete process.env.CLAUDE_CONFIG_DIR;
+    process.env.ANTHROPIC_API_KEY = 'never-reaches-the-binary';
+    process.env.FAKE_CLAUDE_LOG = logDir;
+    const backend = claudeCode({ bin, model: 'chosen-model', timeoutMs: 5000 });
     assert.equal(backend.billing, 'subscription');
     const result = await backend.generate({ system: 'Make a storyboard.', prompt: 'normal', schema });
     assert.deepEqual(result.data, data);
     assert.deepEqual(result.usage, { input_tokens: 17, output_tokens: 29 });
-    const log = JSON.parse(await readFile(join(configDir, 'invocation.json'), 'utf8'));
+    const log = JSON.parse(await readFile(join(logDir, 'invocation.json'), 'utf8'));
     const arg = (flag: string) => log.args[log.args.indexOf(flag) + 1];
     assert.equal(log.args[0], '-p');
     assert.equal(arg('--output-format'), 'stream-json');
@@ -93,12 +98,20 @@ test('Claude binary seam: isolated subscription, structured generation, scalar d
     assert.equal(JSON.parse(arg('--settings')).forceLoginMethod, 'claudeai');
     assert.deepEqual(JSON.parse(arg('--json-schema')), schema);
     assert.equal(arg('--model'), 'chosen-model');
-    assert.equal(log.env.CLAUDE_CONFIG_DIR, configDir);
     assert.equal(log.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS, '16384');
-    assert.equal(log.env.HOME, log.cwd);
+    // The person's own HOME and PATH, and no kit-owned sign-in folder.
+    assert.equal(log.env.HOME, decoyHome);
+    assert.equal(log.env.PATH, process.env.PATH);
+    assert.equal('CLAUDE_CONFIG_DIR' in log.env, false);
     assert.notEqual(log.cwd, process.cwd());
     assert.deepEqual(Object.keys(log.env).filter((k: string) => /KEY|TOKEN|SECRET|NODE_OPTIONS/.test(k) && k !== 'CLAUDE_CODE_MAX_OUTPUT_TOKENS'), []);
     await assert.rejects(readFile(join(log.cwd, 'any')), { code: 'ENOENT' });
+    // A host-passed config directory is set as given, over the ambient one.
+    process.env.CLAUDE_CONFIG_DIR = ambient;
+    await claudeCode({ bin, configDir, timeoutMs: 5000 }).generate({ prompt: 'normal', schema });
+    const configLog = JSON.parse(await readFile(join(logDir, 'invocation.json'), 'utf8'));
+    assert.equal(configLog.env.CLAUDE_CONFIG_DIR, configDir);
+    assert.equal(configLog.env.HOME, decoyHome);
     assert.deepEqual(await readdir(homeClaude), before);
     assert.equal(await readFile(join(homeClaude, 'byokit-test-canary'), 'utf8'), 'unchanged');
     assert.deepEqual(await readdir(ambient), ['canary']);
@@ -106,11 +119,11 @@ test('Claude binary seam: isolated subscription, structured generation, scalar d
     assert.equal(await readFile(join(configDir, '.credentials.json'), 'utf8'), 'the fake never opens this');
     const image = { id: 'Umer-design', mime: 'image/png', bytes: new Uint8Array([137, 80, 78, 71]) };
     await backend.generate({ prompt: 'normal', schema, images: [image] });
-    const imageLog = JSON.parse(await readFile(join(configDir, 'invocation.json'), 'utf8'));
+    const imageLog = JSON.parse(await readFile(join(logDir, 'invocation.json'), 'utf8'));
     assert.deepEqual(imageLog.request.message.content[1], { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw==' } });
     assert.equal(imageLog.request.message.content[0].text, 'Image: Umer-design');
     await backend.generate({ prompt: 'normal', schema, images: [{ id: 'Umer-jpeg', mime: 'image/jpg', dataUrl: 'data:image/jpg;base64,/9j/2Q==' }] });
-    const jpegLog = JSON.parse(await readFile(join(configDir, 'invocation.json'), 'utf8'));
+    const jpegLog = JSON.parse(await readFile(join(logDir, 'invocation.json'), 'utf8'));
     assert.equal(jpegLog.request.message.content[1].source.media_type, 'image/jpeg');
     await assert.rejects(backend.generate({ prompt: 'normal', schema, images: [{ ...image, mime: 'image/webp' }] }), { name: 'InvalidImageError' });
     const answers = await decide({ name: 'Umer' }, {
@@ -131,7 +144,7 @@ test('Claude binary seam: isolated subscription, structured generation, scalar d
     assert.deepEqual(scoped.ordered.scores, { b: 10, a: 9 });
     assert.equal(scoped.ordered.personReason, 'The first candidate adds useful context for Umer.');
     assert.equal(scoped.local.answer, true);
-    const rankLog = JSON.parse(await readFile(join(configDir, 'invocation.json'), 'utf8'));
+    const rankLog = JSON.parse(await readFile(join(logDir, 'invocation.json'), 'utf8'));
     assert.equal(JSON.stringify(rankLog.request).includes(privateNote), false);
     const rankSchema = JSON.parse(rankLog.args[rankLog.args.indexOf('--json-schema') + 1]);
     assert.deepEqual(rankSchema.properties.ordered.required, ['ranking', 'confidence', 'personReason']);
@@ -150,25 +163,27 @@ test('Claude binary seam: isolated subscription, structured generation, scalar d
     for (const [prompt, code] of [['broken', 'invalid_json'], ['partial', 'invalid_output'], ['incomplete', 'incomplete'], ['stderr', 'process']] as const) {
       await assert.rejects(backend.generate({ prompt, schema }), (error: unknown) => error instanceof ClaudeCodeError && error.code === code && !error.message.includes('private diagnostic'));
     }
-    await writeFile(join(configDir, 'auth-mode'), 'api_key');
-    const beforeRefusal = await readFile(join(configDir, 'invocation.json'), 'utf8');
+    await writeFile(join(logDir, 'auth-mode'), 'api_key');
+    const beforeRefusal = await readFile(join(logDir, 'invocation.json'), 'utf8');
     await assert.rejects(backend.generate({ prompt: 'normal', schema }), (e: unknown) => e instanceof ClaudeCodeError && e.code === 'subscription_required');
-    assert.equal(await readFile(join(configDir, 'invocation.json'), 'utf8'), beforeRefusal, 'wrong billing route never reaches generation');
-    await rm(join(configDir, 'auth-mode'));
-    const short = claudeCode({ bin, configDir, timeoutMs: 100 });
+    assert.equal(await readFile(join(logDir, 'invocation.json'), 'utf8'), beforeRefusal, 'wrong billing route never reaches generation');
+    await rm(join(logDir, 'auth-mode'));
+    const short = claudeCode({ bin, timeoutMs: 100 });
     await assert.rejects(short.generate({ prompt: 'hang', schema }), (e: unknown) => e instanceof ClaudeCodeError && e.code === 'timeout');
     const controller = new AbortController();
     const pending = backend.generate({ prompt: 'hang', schema, signal: controller.signal });
     setTimeout(() => controller.abort(), 100);
     await assert.rejects(pending, (e: unknown) => e instanceof ClaudeCodeError && e.code === 'aborted');
-    const missing = claudeCode({ bin: join(root, 'not-installed'), configDir, timeoutMs: 100 });
+    const missing = claudeCode({ bin: join(root, 'not-installed'), timeoutMs: 100 });
     await assert.rejects(missing.generate({ prompt: 'normal', schema }), ClaudeCodeError);
-    assert.throws(() => claudeCode({ bin, configDir: homeClaude, timeoutMs: 100 }), /separate/);
   } finally {
     if (previousHome === undefined) delete process.env.HOME;
     else process.env.HOME = previousHome;
     if (previousConfig === undefined) delete process.env.CLAUDE_CONFIG_DIR;
     else process.env.CLAUDE_CONFIG_DIR = previousConfig;
+    if (previousKey === undefined) delete process.env.ANTHROPIC_API_KEY;
+    else process.env.ANTHROPIC_API_KEY = previousKey;
+    delete process.env.FAKE_CLAUDE_LOG;
     await rm(join(homeClaude, 'byokit-test-canary'), { force: true });
     await rm(root, { recursive: true, force: true });
   }
@@ -191,8 +206,9 @@ test('real Claude CLI accepts the exact flag list the adapter builds', { skip: !
     const bin = join(root, 'fake-claude');
     await mkdir(captureDir);
     await writeFile(bin, fakeSource, { mode: 0o700 });
-    const capture = claudeCode({ bin, configDir: captureDir, timeoutMs: 5000 });
-    await capture.generate({ prompt: 'normal', schema });
+    process.env.FAKE_CLAUDE_LOG = captureDir;
+    const capture = claudeCode({ bin, timeoutMs: 5000 });
+    await capture.generate({ prompt: 'normal', schema }).finally(() => { delete process.env.FAKE_CLAUDE_LOG; });
     const logged = JSON.parse(await readFile(join(captureDir, 'invocation.json'), 'utf8'));
     const args = logged.args as string[];
     const stdin = `${JSON.stringify(logged.request)}\n`;
