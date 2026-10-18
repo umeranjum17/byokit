@@ -67,7 +67,7 @@ else process.exit(2);
     const { port, token, identityPath } = ctx;
     assert.notEqual(port, 18789);
     assert.equal(token.length, 64);
-    for (const file of [identityPath, join(engine.root, 'token')])
+    for (const file of [identityPath, join(engine.root, 'token'), join(engine.root, 'npmrc')])
       assert.equal(statSync(file).mode & 0o777, 0o600);
     for (const folder of [engine.root, join(engine.root, 'home'), join(engine.root, 'state')])
       assert.equal(statSync(folder).mode & 0o777, 0o700);
@@ -80,6 +80,7 @@ else process.exit(2);
     assert.equal(env.OPENCLAW_HOME, join(engine.root, 'home'));
     assert.equal(env.CLAUDE_CONFIG_DIR, undefined);
     assert.equal(env.CODEX_HOME, undefined);
+    assert.deepEqual([env.npm_config_cache, env.npm_config_userconfig], [join(engine.root, 'npm-cache'), join(engine.root, 'npmrc')], 'engine npm runs keep their cache, logs and config in the engine root');
     assert.ok(Object.entries(env).every(([name, value]) => name === 'HOME' || !value.includes(decoy)));
     assert.equal(env.NODE_OPTIONS, undefined);
     assert.equal(env.OPENCLAW_LOAD_SHELL_ENV, '0');

@@ -183,6 +183,7 @@ export class Engine {
     if (!this.o.authSeal && existsSync(join(this.root, 'auth-store.sealed'))) throw new Error('authSeal required for sealed credential store');
     await this.recoverOrphan();
     for (const d of [this.root, ...(!this.o.authSeal ? [join(this.root, 'home'), join(this.root, 'state')] : []), join(this.root, 'tmp'), join(this.root, 'usage'), join(this.root, 'install-home'), join(this.root, 'npm-cache'), join(this.o.stateDir, 'logs')]) mkdirSync(d, { recursive: true, mode: 0o700 });
+    putOnce(join(this.root, 'npmrc'), ''); // engine npm runs read this empty config, never the person's ~/.npmrc
     this.sweepAccountOrphans();
     if (this.o.spawnEngine) this.claudeFallback = await this.installedClaudeSignedOut();
     try { await this.authStore.prepare(); this.credentialsLocked = false; }
@@ -303,7 +304,8 @@ export class Engine {
       PATH: this.path, LANG: 'C.UTF-8', ...personal(), OPENCLAW_HOME: home,
       OPENCLAW_STATE_DIR: join(this.root, 'state'), OPENCLAW_CONFIG_PATH: join(this.root, 'openclaw.json'),
       XDG_CACHE_HOME: join(home, '.cache'), ...this.claudeFallback ? { CLAUDE_CONFIG_DIR: this.claudeFolder } : {},
-      TMPDIR: join(this.root, 'tmp'), OPENCLAW_NO_RESPAWN: '1', OPENCLAW_SKIP_CHANNELS: '1', OPENCLAW_DISABLE_BONJOUR: '1',
+      TMPDIR: join(this.root, 'tmp'), npm_config_cache: join(this.root, 'npm-cache'), npm_config_userconfig: join(this.root, 'npmrc'),
+      OPENCLAW_NO_RESPAWN: '1', OPENCLAW_SKIP_CHANNELS: '1', OPENCLAW_DISABLE_BONJOUR: '1',
       OPENCLAW_EXEC_SHELL_SNAPSHOT: '0', OPENCLAW_LOAD_SHELL_ENV: '0', OPENCLAW_GATEWAY_TOKEN: this.token,
       BYOKIT_BRIDGE_SOCK: this.bridgeSock,
       BYOKIT_APP_OWNED_SESSION_PREFIXES: JSON.stringify(this.appOwnedSessionPrefixes),
