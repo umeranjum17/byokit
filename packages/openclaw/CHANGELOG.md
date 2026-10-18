@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.16.2 (2026-10-18)
+
+- Dependency update: pins @byokit/accounts 0.27.1.
+- FIX: (from @byokit/accounts 0.27.1) classifyFailure returns needs_workspace for an OpenCode Go key that acts for several workspaces, so the app can ask the person to pick one instead of showing a run error.
+
+- FIX: A first start that misses its gateway handshake recovers by itself. A handshake timeout, or an engine exit before hello, now moves the state to `restarting` with `retryAt` on the same backoff as a reconnect after `ready` (1 s, 2 s, 4 s, capped at 30 s), then starts the engine again; the fifth missed attempt moves to `failed` with why `handshake`, as before. Each `start()` call has its own five attempts and resolves once the kit is ready and rejects once it has given up or is stopped, `stop()` cancels its pending retry, and the new `KitOptions.handshakeMs` (default 90 000) sets the hello deadline per attempt.
+
 ## 0.16.1 (2026-10-17)
 
 - Dependency update: pins @byokit/accounts 0.27.0.
