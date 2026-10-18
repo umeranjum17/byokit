@@ -499,7 +499,11 @@ function cmdPrepare(rest: string[]): void {
       const onNpm = npmVersions(p.name);
       if (onNpm?.includes(kind)) throw new Error(`${p.name}@${kind} is already on npm`);
       if (compareSemver(kind, p.version) < 0) throw new Error(`${kind} is lower than current ${p.version}`);
-      if (kind === p.version && onNpm !== null) throw new Error(`${p.name}@${kind} equals current and is on npm`);
+      // A first release at the current version is allowed while that version is not on npm (a
+      // placeholder such as 0.0.0 may be) and has no CHANGELOG section yet.
+      if (kind === p.version && parseChangelog(readChangelog(pkg) ?? "").versions.some((s) => s.version === kind)) {
+        throw new Error(`${p.name}@${kind} equals current and is already prepared`);
+      }
       requested.set(pkg, kind);
     }
   }
