@@ -256,10 +256,10 @@ await kit.refresh();
 // kit.snapshot() now carries the new tab and its pane.
 ```
 
-A `refresh()` call made while another refresh is in flight joins it: every joined caller resolves with that
-one result, so a burst of concurrent calls costs one re-read, and a call after it settles starts a new one.
-A failed refresh rejects every joined caller with its own error. A refresh asked for while an event-driven
-bootstrap is running waits for one follow-up bootstrap, and at most one is queued. Calling `refresh()` on a kit that is not started
+Every `refresh()` resolves with a tree read that started after the call. A call made while a bootstrap is
+running (a refresh or an event-driven one, its read already sent) waits for one follow-up bootstrap; at most
+one is queued and every caller that arrives before it reads shares it, so a burst of calls costs the
+in-flight read plus one. A failed bootstrap rejects the callers it answers with its own error. Calling `refresh()` on a kit that is not started
 rejects `herdr: not connected`. A pane/tab/workspace created, closed, moved or renamed while a
 bootstrap is in flight queues the same follow-up, so the change is not dropped until the next event.
 
