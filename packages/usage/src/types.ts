@@ -26,6 +26,11 @@ export type Code = 'not-connected' | 'expired' | 'auth' | 'no-plan' | 'rate-limi
 export type Reading = { provider: Provider; windows: Window[]; at?: number; limited?: boolean; poll?: Poll; code?: Code };
 export type Room = { at?: number; ageMs?: number; freshness: Freshness; poll?: Poll; scope?: Scope; limited?: boolean } & ({ left: number; span: 'session' | 'week' | 'month' | 'tightest'; resetsAt?: number } | { left: 'unknown' });
 export type ReadOptions = { nowMs?: number; signal?: AbortSignal };
+/** Only safe protocol metadata, never provider messages, stderr, or account fields. */
+export type CodexProbeFailure =
+  | { code: 'timeout' | 'start' | 'write' | 'reply' }
+  | { code: 'exit'; exitCode: number | null; signal: string | null }
+  | { code: 'rpc'; rpcCode?: number };
 export type SourceAnswer = { raw?: unknown; code?: Code; retryAfterMs?: number; limited?: boolean; at?: number };
 /** The app owns credential reads/refresh and sends its own requests through this seam. */
 export type ClaudeReader = (options: { nowMs: number; signal: AbortSignal }) => Promise<SourceAnswer>;

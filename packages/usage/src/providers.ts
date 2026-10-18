@@ -1,6 +1,6 @@
 import { retryAfterMs } from './backoff.ts';
 import { spawn } from 'node:child_process';
-import type { Code, Source, SourceAnswer, PacingHook } from './types.ts';
+import type { Code, Source, SourceAnswer, PacingHook, CodexProbeFailure } from './types.ts';
 import { readJson, readJsonSnapshot } from './store.ts';
 import { claudeWindows, record, type CodexRateLimitResult } from './windows.ts';
 import { grokWindows } from './quota.ts';
@@ -104,11 +104,11 @@ export function codexUsage(source: Extract<Source, { bin: string }>): Promise<An
   return codexRequest(source, 'account/rateLimits/read', 20_000);
 }
 /** The single bounded app-server transport used for identity and usage. */
-export function codexRequest(source: Extract<Source, { bin: string }>, method: 'account/read' | 'account/rateLimits/read', timeoutMs = 15_000): Promise<Answer> {
+export function codexRequest(source: Extract<Source, { bin: string }>, method: 'account/read' | 'account/rateLimits/read', timeoutMs = 15_000): Promise<Answer & { probeFailure?: CodexProbeFailure }> {
   return new Promise((resolve) => {
     const child = spawn(source.bin, ['app-server'], { env: { ...source.env, CODEX_HOME: source.home }, stdio: ['pipe', 'pipe', 'ignore'] });
     let buffer = ''; let bytes = 0; let settled = false; let escalation: NodeJS.Timeout | undefined;
-    const finish = (answer: Answer) => {
+    const finish = (answer: Answer & { probeFailure?: CodexProbeFailure }) => {
       if (settled) return;
       settled = true; clearTimeout(timer);
       if (child.exitCode === null && child.signalCode === null) {
@@ -117,23 +117,29 @@ export function codexRequest(source: Extract<Source, { bin: string }>, method: '
       }
       resolve(answer);
     };
-    const timer = setTimeout(() => finish({ code: 'unavailable' }), timeoutMs);
-    child.once('error', () => finish({ code: 'unavailable' }));
-    child.once('close', () => { clearTimeout(escalation); finish({ code: 'unavailable' }); });
-    child.stdin.on('error', () => finish({ code: 'unavailable' }));
+    const timer = setTimeout(() => finish({ code: 'unavailable', probeFailure: { code: 'timeout' } }), timeoutMs);
+    child.once('error', () => finish({ code: 'unavailable', probeFailure: { code: 'start' } }));
+    child.once('close', (exitCode, signal) => { clearTimeout(escalation); finish({ code: 'unavailable', probeFailure: { code: 'exit', exitCode, signal } }); });
+    child.stdin.on('error', () => finish({ code: 'unavailable', probeFailure: { code: 'write' } }));
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (chunk: string) => {
       if (settled) return;
       bytes += Buffer.byteLength(chunk); buffer += chunk;
-      if (bytes > 64 * 1024) { finish({ code: 'incomplete' }); return; }
+      if (bytes > 64 * 1024) { finish({ code: 'incomplete', probeFailure: { code: 'reply' } }); return; }
       for (;;) {
         const newline = buffer.indexOf('\n'); if (newline < 0) break;
         const line = buffer.slice(0, newline); buffer = buffer.slice(newline + 1);
         try {
           const message: unknown = JSON.parse(line);
           if (!record(message)) continue;
+          if (message.id !== 1 && message.id !== 2) continue;
+          if ('error' in message) {
+            const rpcCode = record(message.error) && Number.isSafeInteger(message.error.code) ? message.error.code as number : undefined;
+            finish({ code: 'unavailable', probeFailure: { code: 'rpc', ...(rpcCode === undefined ? {} : { rpcCode }) } }); return;
+          }
+          if (!record(message.result)) { finish({ code: 'incomplete', probeFailure: { code: 'reply' } }); return; }
           if (message.id === 1) child.stdin.write(`${JSON.stringify({ id: 2, method, params: {} })}\n`);
-          if (message.id === 2) finish(record(message.result) ? { raw: message.result as CodexRateLimitResult } : { code: 'incomplete' });
+          if (message.id === 2) finish({ raw: message.result as CodexRateLimitResult });
         } catch { /* Non-JSON output is bounded and ignored. */ }
       }
     });

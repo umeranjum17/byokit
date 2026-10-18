@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.12.1 (2026-10-18)
+
+- Dependency update: pins @byokit/accounts 0.28.1.
+- FIX: (from @byokit/accounts 0.28.1) Installed Codex readiness retries a transient account check once and distinguishes timeouts, startup, pipe, exit, protocol and unreadable-reply failures from a confirmed signed-out account, with safe typed probe metadata and no provider messages or stderr.
+
 ## 0.12.0 (2026-10-18)
 
 - Dependency update: pins @byokit/accounts 0.28.0.

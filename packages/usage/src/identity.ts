@@ -1,8 +1,8 @@
 import { codexRequest } from './providers.ts';
 import { record } from './windows.ts';
-import type { Source } from './types.ts';
+import type { Source, CodexProbeFailure } from './types.ts';
 
-export type Identity = { signedIn: boolean; email?: string; plan?: string };
+export type Identity = { signedIn: boolean; email?: string; plan?: string; probeFailure?: CodexProbeFailure };
 /** Explicit identity fields only: never walk arbitrary token-bearing objects. */
 export function publicIdentity(raw: unknown, signedIn: boolean): Identity {
   if (!signedIn || !record(raw)) return { signedIn: false };
@@ -13,6 +13,9 @@ export function publicIdentity(raw: unknown, signedIn: boolean): Identity {
 }
 export async function codexIdentity(source: Extract<Source, { bin: string }>): Promise<Identity> {
   const answer = await codexRequest(source, 'account/read');
+  if (answer.probeFailure) return { signedIn: false, probeFailure: answer.probeFailure };
   const account = record(answer.raw) ? answer.raw.account : undefined;
-  return publicIdentity(account, record(account));
+  if (account === null) return { signedIn: false };
+  if (!record(account)) return { signedIn: false, probeFailure: { code: 'reply' } };
+  return publicIdentity(account, true);
 }

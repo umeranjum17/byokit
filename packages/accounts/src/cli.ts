@@ -20,7 +20,9 @@ export type CliAccount = AccountLike & { provider: CliProvider; billing: 'subscr
   /** The CLI installed on this computer, signed in (or not) under the app's `env.HOME`: no folder of its own. */
   installed?: true;
   /** Why an installed row is not signed in, in plain words. */
-  cause?: string };
+  cause?: string;
+  /** A failed Codex readiness probe, not a confirmed signed-out reply. Safe metadata only. */
+  probeFailure?: Identity['probeFailure'] };
 export type CliOptions = {
   stateDir: string;
   bins: Partial<Record<CliProvider, string>>;
@@ -429,9 +431,17 @@ export function cliAccounts(options: CliOptions) {
     operations.set(id, task);
     return task.finally(() => { if (operations.get(id) === task) operations.delete(id); });
   }
-  type Probe = Identity & { why?: 'api_key' | 'unknown'; cause?: 'cli.installedSlow' | 'cli.installedStart' | 'cli.installedUnreadable' };
+  type Probe = Identity & { why?: 'api_key' | 'unknown'; cause?: 'cli.installedSlow' | 'cli.installedStart' | 'cli.installedUnreadable' | 'cli.installedExit' | 'cli.installedRpc' | 'cli.installedWrite' };
   async function readIdentity(r: Row): Promise<Probe> {
-    if (r.provider === 'codex') return identity({ provider: 'codex', bin: binary('codex'), home: codexHome(r), env: spawnEnv(r) });
+    if (r.provider === 'codex') {
+      const source = codexSource(r);
+      let info = await identity(source);
+      // Installed readiness only: one fresh app-server attempt for a transport/server failure, never a missing account.
+      if (r.installed && info.probeFailure && info.probeFailure.code !== 'reply') info = await identity(source);
+      const cause = info.probeFailure && ({ timeout: 'cli.installedSlow', start: 'cli.installedStart', exit: 'cli.installedExit',
+        write: 'cli.installedWrite', rpc: 'cli.installedRpc', reply: 'cli.installedUnreadable' } as const)[info.probeFailure.code];
+      return { ...info, ...(cause ? { cause } : {}) };
+    }
     return new Promise((accept) => {
       // `cause` names a probe that gave no answer; only installed rows show it.
       const failed = (cause: NonNullable<Probe['cause']>): Probe => ({ signedIn: false, ...(r.provider === 'pi' ? { why: 'unknown' as const } : {}), cause });
@@ -493,9 +503,9 @@ export function cliAccounts(options: CliOptions) {
     const account = { id: r.id, provider: r.provider, name: suggestName(undefined, r.provider), billing: 'subscription' as const, installed: true as const };
     const info = await readIdentity(r);
     if (info.signedIn) return { ...account, name: suggestName(info.email, r.provider), state: 'ready', ...(info.email ? { email: info.email } : {}), ...(info.plan ? { plan: info.plan } : {}) };
-    // Codex answers through its app server, which tells a missing login and no answer apart only as "no account".
-    const cause = info.cause ?? (r.provider === 'codex' ? 'cli.installedNoAccount' : 'cli.installedSignedOut');
-    return { ...account, state: 'signed_out', ...(info.cause || r.provider === 'codex' ? { why: 'unknown' as const } : {}), cause: say(cause, { name: account.name }) };
+    const cause = info.cause ?? 'cli.installedSignedOut';
+    return { ...account, state: 'signed_out', ...(info.cause ? { why: 'unknown' as const } : {}),
+      ...(info.probeFailure ? { probeFailure: info.probeFailure } : {}), cause: say(cause, { name: account.name }) };
   }
   async function status(id: string): Promise<CliAccount> {
     const installed = installedRow(id);

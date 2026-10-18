@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.18.1 (2026-10-18)
+
+- Dependency update: pins @byokit/accounts 0.28.1.
+- FIX: (from @byokit/accounts 0.28.1) Installed Codex readiness retries a transient account check once and distinguishes timeouts, startup, pipe, exit, protocol and unreadable-reply failures from a confirmed signed-out account, with safe typed probe metadata and no provider messages or stderr.
+
 ## 0.18.0 (2026-10-18)
 
 - Reattach a paired device to a live-kit run by its existing idempotency key: sequenced replay then live events, a bounded journal with typed truncation, and grant-member isolation. Device disconnect does not interrupt the run; engine-restart reconstruction is not included.

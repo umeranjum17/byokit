@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.28.1 (2026-10-18)
+
+- Dependency update: pins @byokit/usage 0.9.1.
+
+- FIX: Installed Codex readiness retries a transient account check once and distinguishes timeouts, startup, pipe, exit, protocol and unreadable-reply failures from a confirmed signed-out account, with safe typed probe metadata and no provider messages or stderr.
+
 ## 0.28.0 (2026-10-18)
 
 - FEAT: The accounts list can show the Claude, Codex and Cursor already installed and signed in on this computer. Pass `installed: true` to `cliAccounts` and `list`/`pick` add one `installed-<provider>` row per CLI in `bins`, read with the CLI's own status command under the app's `env.HOME`; it launches with no folder variable, so the CLI runs on its own sign-in. A CLI that is signed out, could not start, did not answer or answered unreadably reads `signed_out` with a plain `cause` (and `why: 'unknown'` when it gave no clear answer). Managed rows are unchanged, and the kit never opens the installed CLI's login files.
