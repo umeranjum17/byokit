@@ -1,0 +1,1 @@
+- First public release, on the npm `next` tag. `claim()` passed a recorded live sign-in against Boat (link, code, key, revoke); create, install and hosting with a claimed key are still unproven until M6, so apps keep `setup.makeKey` for now and `latest` waits for M6.
