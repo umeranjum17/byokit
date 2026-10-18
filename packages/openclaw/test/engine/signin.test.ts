@@ -4,12 +4,13 @@ import { test, before, after, mock } from 'node:test';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../../src/engine.ts';
+import { OpenClawKit } from '../../src/kit.ts';
 import { gatewayTransport } from '../../src/transport.ts';
 import { providers, signIn, type SignInCtx } from '../../src/signin.ts';
 import { words } from '../../src/words.ts';
@@ -317,6 +318,57 @@ console.log(JSON.stringify({ loggedIn: process.env.TEST_CLAUDE_LOGIN === 'yes', 
     ANTHROPIC_API_KEY: 'fake-key', ANTHROPIC_OAUTH_TOKEN: 'fake-token', TEST_CLAUDE_LOGIN: 'yes' };
   assert.deepEqual(probeClaudeCliAuthStatus({ command, env }), { status: 'available' });
   assert.deepEqual(probeClaudeCliAuthStatus({ command, env: { ...env, TEST_CLAUDE_LOGIN: 'no' } }), { status: 'missing' });
+});
+
+test('setup.detect rechecks a newly signed-in installed Claude and restarts the gateway itself', { timeout: 300_000 }, async () => {
+  const dir = scratchDir('o6-claude-redetect'), home = join(dir, 'home'), bin = join(dir, 'bin');
+  mkdirSync(home, { recursive: true }); mkdirSync(bin);
+  const status = join(dir, 'claude-status'), calls = join(dir, 'claude-calls');
+  writeFileSync(status, 'signed-out');
+  writeFileSync(join(bin, 'claude'), `#!${process.execPath}
+const fs = require('node:fs'), state = fs.readFileSync(${JSON.stringify(status)}, 'utf8');
+fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ argv: process.argv.slice(2), HOME: process.env.HOME,
+  CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR }) + '\\n');
+const a = process.argv.slice(2).join(' ');
+if (a === 'auth status --json') console.log(JSON.stringify({ loggedIn: state === 'signed-in' }));
+else if (a === 'auth status --text') { if (state === 'signed-in') console.log('Login method: Claude Max Account'); else process.exit(1); }
+else if (process.argv[2] === '--version') console.log('2.1.0 (Claude Code)');
+else process.exit(2);
+`, { mode: 0o700 });
+  const saved = Object.fromEntries(['HOME', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME']
+    .map(name => [name, process.env[name]]));
+  process.env.HOME = home;
+  for (const name of Object.keys(saved).slice(1)) delete process.env[name];
+  const stateDir = join(dir, 'state'), kit = new OpenClawKit({ stateDir, engineDir, enginePath: [bin], callbackPort: 0 });
+  const detection = async () => await kit.call('openclaw.setup.detect', { agentId: 'm1' }, { timeoutMs: 30_000 }) as {
+    candidates?: { kind?: string; credentials?: boolean }[];
+  };
+  try {
+    await kit.start();
+    const oldPid = Number(readFileSync(join(stateDir, 'openclaw', 'gateway.pid'), 'utf8'));
+    const fallback = await detection();
+    assert.ok(fallback.candidates?.some(row => row.kind === 'claude-cli' && row.credentials === false),
+      `signed-out installed Claude remains a sign-in candidate: ${JSON.stringify(fallback.candidates)}`);
+    // The gateway's own detection runs `auth status --text`; the kit's probe runs `--json`.
+    const lastCliCall = () => readFileSync(calls, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+      .filter(call => call.argv.join(' ') === 'auth status --text').at(-1);
+    assert.equal(lastCliCall().CLAUDE_CONFIG_DIR, join(stateDir, 'openclaw', 'home', '.claude'),
+      'initial gateway setup detection reads the fallback login');
+
+    writeFileSync(status, 'signed-in');
+    const signedIn = await detection();
+    assert.ok(signedIn.candidates?.some(row => row.kind === 'claude-cli' && row.credentials === true),
+      `the next setup.detect reports the installed login: ${JSON.stringify(signedIn.candidates)}`);
+    assert.equal(kit.state.phase, 'ready');
+    const newPid = Number(readFileSync(join(stateDir, 'openclaw', 'gateway.pid'), 'utf8'));
+    assert.notEqual(newPid, oldPid, 'setup.detect caused the gateway restart without a kit/app restart');
+    assert.equal(lastCliCall().HOME, home);
+    assert.equal(lastCliCall().CLAUDE_CONFIG_DIR, undefined, 'restarted gateway setup detection reads the installed Claude login');
+  } finally {
+    await kit.stop();
+    for (const [name, value] of Object.entries(saved)) if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('real gateway: a Claude Code login the engine detects is a signed-in claude-cli', { timeout: 300_000 }, async () => {

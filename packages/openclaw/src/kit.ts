@@ -912,19 +912,6 @@ export class OpenClawKit {
     return this.current.phase === 'restarting' || this.current.phase === 'starting';
   }
 
-  private waitForRestart(): Promise<boolean> {
-    return new Promise((resolve) => {
-      let began = this.engineRestarting();
-      const end = (ok: boolean) => { clearTimeout(timer); this.phaseListeners.delete(check); resolve(ok); };
-      const check = () => {
-        if (this.engineRestarting()) began = true;
-        else if (began) end(this.current.phase === 'ready');
-      };
-      const timer = setTimeout(() => end(false), RESTART_MS);
-      this.phaseListeners.add(check);
-    });
-  }
-
   private authSnapshot(): string {
     return JSON.stringify(this.getConfigKey('auth')) ?? '';
   }
@@ -1000,10 +987,9 @@ export class OpenClawKit {
     const transport = this.transport;
     if (!transport || this.current.phase !== 'ready') return () => Promise.reject(new Error('gateway not ready'));
     return async (method, params, options) => {
+      // The gateway's own restart is in-process (OPENCLAW_NO_RESPAWN) and keeps CLAUDE_CONFIG_DIR: a new engine process drops it.
       if (method === 'openclaw.setup.detect' && await this.engine.refreshInstalledClaudeLogin()) {
-        const restarted = this.waitForRestart();
-        await transport.request('gateway.restart.request', { reason: 'byokit detected installed Claude login' }).catch(() => {});
-        if (!await restarted) throw new Error('The engine did not restart after detecting the installed Claude login.');
+        await this.stop(); await this.start();
         return this.request()(method, params, options);
       }
       const changesAuth = /^(models\.authLogout|openclaw\.setup\.(auth\.start|activate)|wizard\.(next|cancel)|config\.(apply|patch|set)|agents\.(create|update|delete)|secrets\.(reload|store\.(set|delete))|byokit\.keys)$/.test(method);
