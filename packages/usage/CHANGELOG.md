@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.9.1 (2026-10-18)
+
+- FIX: Codex identity reports safe typed probe failures instead of treating every transport or protocol failure as a missing account; only an explicit null account confirms sign-out.
+
 ## 0.9.0 (2026-10-16)
 
 - FEAT: `{ provider: 'cursor', folder }` reads the dashboard's current-period window (`GetCurrentPeriodUsage` on `api2.cursor.sh`) with the token read in process from `<folder>/cursor/auth.json`, parsed to one monthly window (`totalPercentUsed`, resetting at `billingCycleEnd`); the folder must resolve inside the reader's `stateDir` as `<stateDir>/cursor/<hex>`, and a missing or refused reading is `unknown`, never zero.

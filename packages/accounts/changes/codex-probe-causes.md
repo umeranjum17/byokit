@@ -1,1 +1,0 @@
-- FIX: Installed Codex readiness retries a transient account check once and distinguishes timeouts, startup, pipe, exit, protocol and unreadable-reply failures from a confirmed signed-out account, with safe typed probe metadata and no provider messages or stderr.
