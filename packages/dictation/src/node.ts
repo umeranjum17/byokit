@@ -34,7 +34,7 @@ function childEngine(info: DictateEngineInfo, config: AdapterConfig, processOpti
         else if (message.result) done(undefined, message.result);
         else done(new DictateError('network'));
       });
-      const { signal: _signal, ...options } = o;
+      const { signal: _signal, onProgress: _progress, ...options } = o;
       child.send({ config: { ...config, ...(credential ? { key: credential.access, accountId: credential.accountId } : {}) }, bytes, options, mime: input instanceof Blob ? input.type : 'audio/wav' });
     });
   } };

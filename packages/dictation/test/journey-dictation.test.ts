@@ -22,7 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { build } from 'esbuild';
 import fixture from '../../../fixtures/conformance/dictation-typescript.json' with { type: 'json' };
-import { Dictation, DictateError, settleWords, applyWordReplacements, routes, systemEngine, whisperRnEngine, whisperSettings, installModel, PREVIEW_WINDOW_SECONDS, type WhisperRnContext, type WhisperRnDecodeOptions } from '@byokit/dictation';
+import { Dictation, DictateError, type DictateProgress, settleWords, applyWordReplacements, routes, systemEngine, whisperRnEngine, whisperSettings, installModel, PREVIEW_WINDOW_SECONDS, type WhisperRnContext, type WhisperRnDecodeOptions } from '@byokit/dictation';
 import { chatgptEngine, openaiEngine, openrouterEngine, whisperEngine } from '@byokit/dictation/node';
 import { fakeEngine, fakeMic } from '@byokit/dictation/testing';
 import { createVad, VAD_STATE, VAD_WINDOW, type VadSession } from '@byokit/audio';
@@ -184,18 +184,51 @@ test('a phone transcribes offline with whisper.rn: bounded settings, exact PCM a
   const found: { t0: number; t1: number }[][] = [];
   const silero = whisperRnEngine({ model: 1, initWhisper: async () => ({ release: async () => {}, transcribeData() {
     sileroDecodes++; return { stop: async () => {}, promise: Promise.resolve({ result: 'made-up sentence', segments: [] }) };
-  } }), speech: { model: '/app/ggml-silero-v6.2.0.bin', async initWhisperVad({ filePath }) {
-    assert.equal(filePath, '/app/ggml-silero-v6.2.0.bin'); vadCreated++;
+  } }), speech: { model: '/app/ggml-silero-v6.2.0.bin', async initWhisperVad({ filePath, nThreads }) {
+    // One VAD thread: whisper.rn's Android default of 4 made a 2-core phone check 7-8 s per audio second.
+    assert.equal(filePath, '/app/ggml-silero-v6.2.0.bin'); assert.equal(nThreads, 1); vadCreated++;
     return { async detectSpeechData() { return found.shift() ?? []; }, async release() { vadReleases++; } };
   } } });
-  const sileroMic = fakeMic(), sileroHandle = new Dictation({ engine: silero, audio: sileroMic.audio }).listen(); await tick();
+  const listenProgress: DictateProgress[] = [];
+  const sileroMic = fakeMic(), sileroHandle = new Dictation({ engine: silero, audio: sileroMic.audio }).listen({ onProgress: p => listenProgress.push(p) }); await tick();
   sileroMic.push({ data: new Int16Array(16000).fill(150), at: 0 }); await until(() => sileroDecodes === 1); // previews are not gated
+  assert.deepEqual(listenProgress, []); // and report no progress
   const quiet = await sileroHandle.finish();
   assert.equal(quiet.text, ''); assert.equal(sileroDecodes, 1);
+  assert.deepEqual(listenProgress, [{ phase: 'speech', doneMs: 1000, totalMs: 1000 }]);
   found.push([{ t0: 0, t1: 50 }]);
   assert.equal((await silero.transcribe(wav([new Int16Array(16000).fill(150)]), {})).text, 'made-up sentence');
   assert.equal(sileroDecodes, 2); assert.equal(vadCreated, 1);
   await silero.release(); assert.equal(vadReleases, 1);
+
+  // A long take is gated in 30 s windows, each checked once when a decode window first needs it: a silent
+  // window is never decoded, the first decode waits for one check (not the whole take), and abort lands between checks.
+  const checked: number[] = [], decoded: number[] = [];
+  let checksAtFirstDecode = -1, abortAfter = 0;
+  const controller = new AbortController();
+  const windows = whisperRnEngine({ model: 1, initWhisper: async () => ({ release: async () => {}, transcribeData(bytes) {
+    if (checksAtFirstDecode < 0) checksAtFirstDecode = checked.length;
+    decoded.push(bytes.byteLength / 32);
+    return { stop: async () => {}, promise: Promise.resolve({ result: 'late words', segments: [{ text: 'late words', t0: 0, t1: bytes.byteLength / 320 }] }) };
+  } }), speech: { model: 2, initWhisperVad: async () => ({ release: async () => {}, async detectSpeechData(bytes) {
+    checked.push(bytes.byteLength / 32);
+    if (checked.length === abortAfter) controller.abort();
+    return new Int16Array(bytes).some(x => x !== 0) ? [{ t0: 0, t1: 1 }] : [];
+  } }) } });
+  const late = new Int16Array(75 * 16000); late.fill(150, 60 * 16000);
+  const progress: DictateProgress[] = [];
+  const lateTake = await new Dictation({ engine: windows }).transcribe(wav([late]), { onProgress: p => progress.push(p) });
+  assert.equal(lateTake.text, 'late words');
+  assert.deepEqual(checked, [30_000, 30_000, 15_000]); // three gate windows, one check each
+  assert.deepEqual(decoded, [25_000]); // only the last automatic window [50 s, 75 s) holds speech
+  assert.deepEqual(progress, [{ phase: 'speech', doneMs: 30_000, totalMs: 75_000 }, { phase: 'speech', doneMs: 60_000, totalMs: 75_000 },
+    { phase: 'speech', doneMs: 75_000, totalMs: 75_000 }, { phase: 'decode', doneMs: 75_000, totalMs: 75_000 }]);
+  checked.length = decoded.length = 0; checksAtFirstDecode = -1;
+  await windows.transcribe(wav([new Int16Array(65 * 16000).fill(150)]), {});
+  assert.equal(checksAtFirstDecode, 1); assert.deepEqual(checked, [30_000, 30_000]); assert.equal(decoded.length, 3);
+  checked.length = decoded.length = 0; abortAfter = 1;
+  await assert.rejects(windows.transcribe(wav([new Int16Array(120 * 16000)]), { signal: controller.signal }), (e: DictateError) => e.code === 'cancelled');
+  assert.deepEqual(checked, [30_000]); assert.deepEqual(decoded, []);
   const broken = whisperRnEngine({ model: 1, initWhisper: async () => stubContext(), speech: { model: 2, initWhisperVad: async () => { throw new Error('no model'); } } });
   await assert.rejects(broken.transcribe(wav([new Int16Array(16000)]), {}), (e: DictateError) => e.code === 'bad-model');
 });
@@ -412,7 +445,8 @@ test('provider and CLI engines use exactly the caller credential, refuse arbitra
     await writeFile(binary, `#!${process.execPath}\nconst fs = require('node:fs'); const a = process.argv; const input = a[a.indexOf('-f')+1]; const data = fs.readFileSync(input); if(data.readInt16LE(44)!==-32768 || data.readInt16LE(46)!==32767 || process.env.HOME) process.exit(1); fs.writeFileSync(a[a.indexOf('-of')+1]+'.json', JSON.stringify({result:{language:'en'}, transcription:[{text:'hello', offsets:{from:0,to:1000}}]}));\n`);
     await chmod(binary, 0o700);
     const dictate = new Dictation({ engine: whisperEngine({ binary, modelPath }) });
-    const transcript = await dictate.transcribe(wav([new Int16Array([-32768, 32767])]));
+    // A host's progress callback stays in the host: the isolated child gets plain options.
+    const transcript = await dictate.transcribe(wav([new Int16Array([-32768, 32767])]), { onProgress: () => {} });
     assert.equal(transcript.text, 'hello'); assert.equal(transcript.segments[0].endMs, 1000); assert.equal(transcript.usage.basis, 'free');
     assert.deepEqual((await readdir(tmpdir())).filter(s => s.startsWith('dictate-')), before);
     let removed = false;
