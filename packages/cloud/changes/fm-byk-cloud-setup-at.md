@@ -1,1 +1,0 @@
-- FIX: Cloud setup reports install failures as `installing` on first and resumed attempts while keeping adoption guard failures at `inspecting`.
