@@ -47,6 +47,8 @@ publisher's revision and SHA-256. Physical qualification on a real phone is stil
   the runtime has no reason (stock React Native). No global polyfill is needed. `release()` stops and frees the context.
 - **Bounds.** 2,048-token context, 256 output tokens, 12,000 input characters, four threads, CPU only by default;
   `limits` narrows them. Input that does not fit rejects `too-large`.
+- **Token probabilities.** `local.complete({ prompt, n_probs: 3 })` asks llama.rn for top-N probabilities per generated token;
+  when provided, `Completion.completion_probabilities` returns them.
 - **Truthful states.** `unsupported` (no binding, wrong ABI, too little memory), `not-installed`, `installing`,
   `installed`, `loading`, `ready`, `busy`, `failed`. A download that does not match the pinned size and SHA-256 is
   removed and rejects `integrity`.
