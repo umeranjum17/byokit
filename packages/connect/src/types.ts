@@ -24,7 +24,13 @@ export interface Provider {
   /** Provider-specific authorization parameters; PKCE/state cannot be overridden. */
   extra?: Readonly<Record<string, string>>;
 }
+export interface ConnectEndpoints {
+  google?: { authorize?: string; token?: string; api?: string };
+  github?: { deviceCode?: string; token?: string; api?: string };
+}
 export interface ConnectOptions {
+  /** Test-only full endpoint URLs; defaults to the real provider endpoints. */
+  endpoints?: ConnectEndpoints;
   /** A store scoped by the host to this person on this device. */
   store: Keystore;
   /** Distinguishes connections belonging to different people sharing a store. */
