@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.11.0 (2026-10-18)
+
+- Dependency update: pins @byokit/accounts 0.27.1.
+
+- FIX: `claudeCode({ bin, timeoutMs })` now uses the person's own Claude subscription sign-in: it runs their installed, signed-in `claude` with their HOME, PATH and environment (minus API keys, API tokens, `NODE_OPTIONS` and the billing-route selectors `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`, `CLAUDE_CODE_USE_ANTHROPIC_AWS`, `CLAUDE_CODE_USE_MANTLE`, `ANTHROPIC_PROFILE`, `ANTHROPIC_FEDERATION_RULE_ID`, `ANTHROPIC_BASE_URL`; the subscription OAuth token `CLAUDE_CODE_OAUTH_TOKEN` is kept) instead of a throwaway home and a separate sign-in folder. `configDir` is optional and, when passed, is set as `CLAUDE_CONFIG_DIR` as given; `.claude` paths are no longer refused. Sign-in errors now say to run `claude` once.
+
 ## 0.10.0 (2026-10-17)
 
 - Dependency update: pins @byokit/accounts 0.27.0.
