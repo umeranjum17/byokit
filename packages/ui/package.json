@@ -62,7 +62,7 @@
     }
   },
   "devDependencies": {
-    "@byokit/accounts": "0.26.0",
+    "@byokit/accounts": "0.27.0",
     "@types/react": "^19.3.0",
     "@types/react-test-renderer": "^19.3.0",
     "react": "^19.3.0",
