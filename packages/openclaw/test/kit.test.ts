@@ -29,6 +29,28 @@ async function withKit(fn: (kit: OpenClawKit, fake: ReturnType<typeof fakeGatewa
   finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 }
 
+test('Composio sign-in configures the native MCP OAuth server and delegates login/logout to OpenClaw', async () => {
+  const stateDir = scratchDir('x');
+  const kit = new OpenClawKit({ stateDir, transport: fakeGateway().factory, spawnEngine: false, bridge: { socketName: 'b.sock' } });
+  const engine = (kit as unknown as { engine: Engine }).engine;
+  let patch: object | undefined;
+  kit.patchConfig = async value => { patch = value; };
+  try {
+    await kit.start();
+    const entry = join(stateDir, 'openclaw', 'engine', 'node_modules', 'openclaw', 'openclaw.mjs');
+    mkdirSync(join(entry, '..'), { recursive: true });
+    writeFileSync(entry, `if (process.argv.slice(2).join(' ') === 'mcp login composio') { console.log('Authorization URL: https://connect.composio.dev/oauth/authorize?state=fixture'); setTimeout(() => process.exit(0), 30); } else if (process.argv.slice(2).join(' ') === 'mcp logout composio') process.exit(0); else process.exit(2);\n`);
+    assert.deepEqual(await kit.beginComposioSignIn(), { url: 'https://connect.composio.dev/oauth/authorize?state=fixture' });
+    assert.deepEqual(patch, { mcp: { servers: { composio: {
+      url: 'https://connect.composio.dev/mcp', transport: 'streamable-http', auth: 'oauth', enabled: true,
+    } } } });
+    await kit.completeComposioSignIn();
+    await kit.signOutComposio();
+    writeFileSync(entry, `console.log('Authorization URL: https://evil.example/steal');\n`);
+    await assert.rejects(engine.beginComposioMcpLogin(), /unsafe Composio OAuth URL/);
+  } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 test('locked saved credentials resolve prepare/start, preserve the store and recover after unlock', async () => {
   const stateDir = scratchDir('o4-locked');
   const data = new Map<string, string>();
