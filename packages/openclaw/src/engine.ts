@@ -1,7 +1,8 @@
-import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { randomBytes, generateKeyPairSync, randomUUID } from 'node:crypto';
 import { accessSync, constants, closeSync, existsSync, mkdirSync, openSync, readFileSync, writeFileSync, copyFileSync, rmSync, realpathSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
+import { homedir } from 'node:os';
 import { basename, join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -37,6 +38,13 @@ const putOnce = (path: string, data: string) => { if (!existsSync(path)) writeFi
 const putChanged = (path: string, data: string) => {
   if (!existsSync(path) || readFileSync(path, 'utf8') !== data) writeFileSync(path, data, { mode: 0o600 });
 };
+// The person's own homes: the agent CLIs the engine drives use the person's installed, signed-in login as is.
+const personal = () => {
+  const env: Record<string, string> = { HOME: homedir() };
+  for (const name of ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME']) { const value = process.env[name]; if (value) env[name] = value; }
+  return env;
+};
+const onPath = (path: string, name: string) => path.split(':').map(dir => join(dir, name)).find(file => { try { accessSync(file, constants.X_OK); return true; } catch { return false; } });
 
 type LockedPackage = { version: string; optional?: boolean; os?: string[]; cpu?: string[]; libc?: string[] };
 const supports = (list: string[] | undefined, value: string) => !list ||
@@ -100,6 +108,8 @@ export class Engine {
   private stopOwner = new AbortController();
   private claudeLogin?: ReturnType<typeof remoteCliHost>; private claudeAccounts?: ReturnType<typeof cliAccounts>; private claudeReset?: Promise<void>;
   private credentialsLocked = false;
+  // True when the last start found no installed Claude Code login: the engine then uses its own fallback folder.
+  private claudeFallback = false;
   private repaired = false;
   private prepared?: Promise<void>;
   patchSet?: string | null;
@@ -271,7 +281,7 @@ export class Engine {
     const npm = this.o.npmPath && this.o.npmPath.includes('/') ? [dirname(this.o.npmPath)] : (process.env.PATH ?? '').split(':');
     return new Promise((resolve, reject) => {
       const child = spawn(process.execPath, [entry, 'plugins', 'install', spec, '--force', '--accept-capabilities'], {
-        cwd: env.HOME, env: { ...env, PATH: [...npm, env.PATH].join(':'), npm_config_cache: join(this.root, 'npm-cache') },
+        cwd: env.OPENCLAW_HOME, env: { ...env, PATH: [...npm, env.PATH].join(':'), npm_config_cache: join(this.root, 'npm-cache') },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       let output = '';
@@ -283,13 +293,13 @@ export class Engine {
       child.once('close', code => { clearTimeout(timer); this.started.forget(child); resolve({ code, output }); });
     });
   }
+  private get path() { return ['/usr/bin', '/bin', ...this.o.enginePath ?? []].join(':'); }
   doctorContext(): { entry: string; env: Record<string, string> } {
     const home = join(this.root, 'home');
     return { entry: this.entry, env: {
-      PATH: ['/usr/bin', '/bin', ...this.o.enginePath ?? []].join(':'), LANG: 'C.UTF-8', HOME: home, OPENCLAW_HOME: home,
+      PATH: this.path, LANG: 'C.UTF-8', ...personal(), OPENCLAW_HOME: home,
       OPENCLAW_STATE_DIR: join(this.root, 'state'), OPENCLAW_CONFIG_PATH: join(this.root, 'openclaw.json'),
-      XDG_CONFIG_HOME: join(home, '.config'), XDG_CACHE_HOME: join(home, '.cache'), XDG_DATA_HOME: join(home, '.local/share'),
-      XDG_STATE_HOME: join(home, '.local/state'), CODEX_HOME: join(home, '.codex'), CLAUDE_CONFIG_DIR: join(home, '.claude'),
+      XDG_CACHE_HOME: join(home, '.cache'), ...this.claudeFallback ? { CLAUDE_CONFIG_DIR: join(home, '.claude') } : {},
       TMPDIR: join(this.root, 'tmp'), OPENCLAW_NO_RESPAWN: '1', OPENCLAW_SKIP_CHANNELS: '1', OPENCLAW_DISABLE_BONJOUR: '1',
       OPENCLAW_EXEC_SHELL_SNAPSHOT: '0', OPENCLAW_LOAD_SHELL_ENV: '0', OPENCLAW_GATEWAY_TOKEN: this.token,
       BYOKIT_BRIDGE_SOCK: this.bridgeSock,
@@ -298,14 +308,27 @@ export class Engine {
   }
   /** The engine's own shutdown signal; aborted by stop() and replaced by the next start(). */
   get stopSignal(): AbortSignal { return this.stopOwner.signal; }
+  // Whether the person's installed Claude Code is signed in, as `claude auth status --json` itself reports it.
+  private installedClaude(): Promise<boolean> {
+    const env = { PATH: this.path, LANG: 'C.UTF-8', TMPDIR: join(this.root, 'tmp'), ...personal() };
+    const bin = onPath(env.PATH, 'claude');
+    if (!bin) return Promise.resolve(false);
+    return new Promise(resolve => execFile(bin, ['auth', 'status', '--json'], { env, timeout: 15_000, maxBuffer: 256 * 1024 }, (error, stdout) => {
+      let signedIn = false;
+      try { signedIn = !error && JSON.parse(stdout).loggedIn === true; } catch { /* not JSON: not signed in */ }
+      if (!signedIn) this.o.log?.(`claude: no installed sign-in, the engine uses its own sign-in folder (${String(error?.message ?? 'signed out').slice(0, 200)})`);
+      resolve(signedIn);
+    }));
+  }
+  /** The fallback Claude sign-in for a machine whose installed Claude Code is signed out: it signs into the engine's folder. */
   nativeClaudeLogin(): ReturnType<typeof remoteCliHost> {
     if (this.claudeLogin) return this.claudeLogin;
-    const { env } = this.doctorContext();
-    const bin = env.PATH.split(':').map(path => join(path, 'claude')).find(path => { try { accessSync(path, constants.X_OK); return true; } catch { return false; } });
+    const { env } = this.doctorContext(), home = join(this.root, 'home');
+    const bin = onPath(env.PATH, 'claude');
     const bins = bin ? { claude: bin } : {};
     // The login runs in its own HOME: CLAUDE_CONFIG_DIR points it at the engine's folder, which accounts refuses as a HOME's default login.
     for (const dir of ['home', 'login-home']) mkdirSync(join(this.root, dir), { recursive: true, mode: 0o700 });
-    const cli = cliAccounts({ stateDir: this.root, bins, env: { PATH: env.PATH, HOME: join(this.root, 'login-home'), LANG: env.LANG, TMPDIR: env.TMPDIR, XDG_CONFIG_HOME: env.XDG_CONFIG_HOME, XDG_CACHE_HOME: env.XDG_CACHE_HOME, XDG_DATA_HOME: env.XDG_DATA_HOME, XDG_STATE_HOME: env.XDG_STATE_HOME, }, managedFolders: { claude: env.CLAUDE_CONFIG_DIR } });
+    const cli = cliAccounts({ stateDir: this.root, bins, env: { PATH: env.PATH, HOME: join(this.root, 'login-home'), LANG: env.LANG, TMPDIR: env.TMPDIR, XDG_CONFIG_HOME: join(home, '.config'), XDG_CACHE_HOME: join(home, '.cache'), XDG_DATA_HOME: join(home, '.local/share'), XDG_STATE_HOME: join(home, '.local/state') }, managedFolders: { claude: join(home, '.claude') } });
     this.claudeAccounts = cli; this.claudeLogin = remoteCliHost({ cli, bins });
     return this.claudeLogin;
   }
@@ -319,7 +342,7 @@ export class Engine {
   doctor(timeoutMs: number): { status: number | null } {
     const { entry, env } = this.doctorContext();
     if (this.o.spawnEngine) verifyEngineSet(this.setDir!, this.wantedSet!, installMatches);
-    const result = spawnSync(process.execPath, [entry, 'doctor', '--fix', '--yes', '--non-interactive'], { cwd: env.HOME, env, timeout: timeoutMs, stdio: 'pipe' });
+    const result = spawnSync(process.execPath, [entry, 'doctor', '--fix', '--yes', '--non-interactive'], { cwd: env.OPENCLAW_HOME, env, timeout: timeoutMs, stdio: 'pipe' });
     if (this.o.spawnEngine) verifyEngineSet(this.setDir!, this.wantedSet!, installMatches);
     return { status: result.status };
   }
@@ -336,7 +359,7 @@ export class Engine {
         && identity.pid === pid && identity.startTime === processStartTime(pid)
         && realpathSync(`${proc}/exe`) === realpathSync(process.execPath)
         && realpathSync(`${proc}/cwd`) === realpathSync(home)
-        && env.includes(`HOME=${home}`)
+        && env.includes(`OPENCLAW_HOME=${home}`)
         && env.includes(`OPENCLAW_STATE_DIR=${join(this.root, 'state')}`)
         && env.includes(`OPENCLAW_CONFIG_PATH=${join(this.root, 'openclaw.json')}`)
         && existsSync(owner) && !pidAlive(Number(readFileSync(owner, 'utf8')));
@@ -398,6 +421,7 @@ export class Engine {
         throw error;
       }
       this.sweepAccountOrphans();
+      if (this.o.spawnEngine) this.claudeFallback = !await this.installedClaude();
       try { return this.launch(); }
       catch (error) {
         // A launch failure after spawn still has a writer; the caller's stop must await its exit.
@@ -429,7 +453,7 @@ export class Engine {
         env.BYOKIT_ENGINE_USAGE_LEDGER = usageDir; env.BYOKIT_ENGINE_BOOT = bootId;
       }
       // Detached keeps the engine out of the host's session; stop() still signals its pid alone, never its group.
-      try { this.child = spawn(process.execPath, [entry, 'gateway', '--port', String(this.port)], { cwd: env.HOME, env, detached: true, stdio: ['ignore', fd, fd] }); }
+      try { this.child = spawn(process.execPath, [entry, 'gateway', '--port', String(this.port)], { cwd: env.OPENCLAW_HOME, env, detached: true, stdio: ['ignore', fd, fd] }); }
       catch (error) { if (env.BYOKIT_ENGINE_BOOT) appendUsageBoot(usageDir, { bootId, failedAt: Date.now(), spawned: false }); throw error; }
     } finally { closeSync(fd); }
     const child = this.child;

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { rmSync, statSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { Engine } from '../src/engine.ts';
@@ -108,7 +109,8 @@ test('prepare writes only changed config and isolates its environment', async ()
     assert.equal(JSON.parse(readFileSync(path, 'utf8')).memory.search.provider, 'none');
     const env = engine.doctorContext().env;
     assert.equal(env.OPENCLAW_SKIP_CHANNELS, '1');
-    assert.equal(env.HOME, join(engine.root, 'home'));
+    assert.equal(env.HOME, homedir(), 'the agent CLIs see the person\'s own HOME and installed logins');
+    assert.equal(env.OPENCLAW_HOME, join(engine.root, 'home'));
     assert.equal(env.OPENAI_API_KEY, undefined);
     assert.equal(env.BYOKIT_BRIDGE_SOCK, engine.bridgeSock);
     await engine.stop();
