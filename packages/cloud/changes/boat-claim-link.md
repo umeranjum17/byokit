@@ -1,1 +1,0 @@
-- FEATURE: Link a provider account without pasting a key: `claim({ baseUrl, email })` drives Boat's documented agent sign-in (discover, service_auth register, email claim ceremony, token polling with interval/slow_down/expired handling) as `open-page`, `type-code`, `waiting`, `done` (`key`, `expires`, `scopes`) or one `failed` step, with `claim.refused`/`claim.expired` words.
