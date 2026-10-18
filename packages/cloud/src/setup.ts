@@ -1,6 +1,6 @@
 // setup(): one existing-computer connect as a step stream (docs/cloud-kit.md 4.5, 5.11).
 // Each step is emitted after its real result, never from timers or log prose.
-import { MachineError } from './errors.ts';
+import { isAdoptionInstallFailure, MachineError } from './errors.ts';
 import { machine } from './machine.ts';
 import { errorKey } from './words.ts';
 import type { HostRecipe, MachineRef, MachineStore, Provider } from './types.ts';
@@ -65,15 +65,18 @@ export async function* setup(o: {
     yield fail('listing', e);
     return;
   }
-  // adopt() guards, saves, then installs: a saved picked ref means the guards passed.
-  const prior = saved(selected);
+  // adopt() tags install failures so resumed state is irrelevant.
   let ref: MachineRef;
   try {
     ref = await m.adopt(selected, { confirmId: o.confirmId, recipe: o.recipe, onLine: o.onLine });
     yield { step: 'inspecting', ref };
     yield { step: 'installing', ref };
   } catch (e) {
-    const code = (e as { code?: string }).code;
+    if (isAdoptionInstallFailure(e)) {
+      yield fail('installing', e);
+      return;
+    }
+    const code = e instanceof MachineError ? e.code : undefined;
     const resumed = saved(selected);
     if (code === 'exists' && resumed !== null) {
       ref = resumed;
@@ -85,11 +88,8 @@ export async function* setup(o: {
         return;
       }
       yield { step: 'installing', ref };
-    } else if (code === 'busy' || prior !== null || resumed === null) {
-      yield fail('inspecting', e);
-      return;
     } else {
-      yield fail('installing', e);
+      yield fail('inspecting', e);
       return;
     }
   }

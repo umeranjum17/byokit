@@ -118,8 +118,10 @@ sh scripts/test.sh packages/cloud/test/journey-cloud.test.ts
 The two existing-computer journeys use fake Boat fetch/loopback only: list all pages, omit
 view-only computers, reject malformed replies, verify account/live id/consent before writes,
 refuse files/units/symlink parents, fail installation then retry `install` on the saved ref,
-and assert no create or resume after selection. A second app adopts successfully on a fresh
-directory and unit. Capture command/output outside the checkout in `test-own.txt`.
+and assert no create or resume after selection. The setup screen journey asserts `installing` for
+first and saved-computer install failures (including an app callback throwing a non-Error),
+`inspecting` for fresh-consent and saved-account guard refusals, then a successful install retry.
+A second app adopts successfully on a fresh directory and unit. Capture command/output outside the checkout in `test-own.txt`.
 No paid Boat run or real key is authorized or proved.
 
 ### Tailnet journey

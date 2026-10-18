@@ -18,6 +18,17 @@ export type MachineErrorCode =
   | 'no-snapshot'         // K3: restore or delete of an id that is not one of this machine's ready copies
   | 'busy'                // K3: a save, reset or remove of this machine is already running; the second one changes nothing
 
+// Keep typed errors (including frozen provider errors) intact for direct adopt() callers.
+const adoptionInstallFailures = new WeakSet<object>();
+export const markAdoptionInstallFailure = (cause: unknown): object => {
+  const error = cause !== null && (typeof cause === 'object' || typeof cause === 'function')
+    ? cause : new Error('installation failed', { cause });
+  adoptionInstallFailures.add(error);
+  return error;
+};
+export const isAdoptionInstallFailure = (error: unknown): boolean =>
+  error !== null && (typeof error === 'object' || typeof error === 'function') && adoptionInstallFailures.has(error);
+
 export class MachineError extends Error {
   readonly code: MachineErrorCode
   readonly extra: Readonly<Record<string, string>>

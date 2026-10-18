@@ -587,8 +587,9 @@ install lines), the `pair` gate, then ready. No step is emitted before its resul
 no log-text inference. Claim/publish, the public route and console setup are out of scope (phone-key enrol is 5.12).
 - A rejection yields one `failed` step and ends the stream: `at` is the phase whose call failed, `cause` is
   `errorKey` of the error (a non-`MachineError` reads `error.app`), and `retryable` is true only for
-  `unreachable`, `timeout`, `provider`, `balance` and `busy`. An adopt failure after the ref was saved reads
-  `installing`; before that it reads `inspecting`; `busy` always reads `inspecting`.
+  `unreachable`, `timeout`, `provider`, `balance` and `busy`. A failure from adopt's install call reads
+  `installing`, as does a resumed install failure. Adoption guard refusals (including `busy`) read
+  `inspecting`; a previously saved ref is not evidence that this attempt reached installation.
 - A retry calls `setup()` again with the same arguments: when the store already holds the picked machine
   (`exists`), the stream resumes at install on that ref. Install stays idempotent, so a re-run on an installed
   machine reinstalls rather than reporting work it did not do.
