@@ -2,7 +2,7 @@
 // creates and always deletes: phone A sets it up, a reinstalled app (empty store, phone B) gets the typed
 // `error.ownerEnrolled` cause, then the confirmed `replaceOwner: true` setup moves the owner to B, and a
 // restart of the unit keeps B only. The machine's host is a real `Host` with a file grant store that
-// handles its inbox with `bindPhoneKey`/`replacePhoneKey`. Keys show only as 12-hex fingerprints; the
+// handles its inbox with `bindPhoneKey`/`replacePhoneKey` and writes the pairing receipt. Keys show only as 12-hex fingerprints; the
 // Boat key is read once from the file, never printed.
 // Usage (worktree root): node .agents/skills/verify-byokit/capture/cloud-owner-reenrol.mjs <boat-key-file> [cloud.tgz]
 import { readFileSync } from 'node:fs';
@@ -18,10 +18,10 @@ const out = (label, value) => console.log(`${label}: ${JSON.stringify(value)}`);
 const fp = (bytes) => createHash('sha256').update(bytes).digest('hex').slice(0, 12);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-const HOST = `import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+const HOST = `import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { Host, keyPair } from '@byokit/pair';
-import { OWNER_KEY_FILE, PHONE_KEY_FILE, bindPhoneKey, replacePhoneKey } from '@byokit/cloud';
+import { OWNER_KEY_FILE, PHONE_KEY_FILE, RECEIPT_FILE, bindPhoneKey, phoneReceipt, replacePhoneKey } from '@byokit/cloud';
 const here = new URL('.', import.meta.url).pathname;
 const file = here + 'grants.json';
 const host = await Host.open({ keys: keyPair(), name: 'Cloud computer', confirm: () => false, handle: async () => ({ ok: true }),
@@ -40,7 +40,13 @@ const tick = async () => {
     for (const name of [OWNER_KEY_FILE, PHONE_KEY_FILE]) {
       let bytes;
       try { bytes = new Uint8Array(readFileSync(here + '.byokit/inbox/' + name)); } catch { continue; }
-      try { handled.push(name + ':' + ((name === OWNER_KEY_FILE ? await replacePhoneKey(host, bytes) : await bindPhoneKey(host, bytes)).bound ? 'bound' : 'already')); }
+      try {
+        const r = name === OWNER_KEY_FILE ? await replacePhoneKey(host, bytes) : await bindPhoneKey(host, bytes);
+        mkdirSync(here + '.byokit/outbox', { recursive: true, mode: 0o700 });
+        writeFileSync(here + '.byokit/outbox/.receipt.tmp', phoneReceipt(host, bytes), { mode: 0o600 });
+        renameSync(here + '.byokit/outbox/.receipt.tmp', here + '.byokit/outbox/' + RECEIPT_FILE);
+        handled.push(name + ':' + (r.bound ? 'bound' : 'already'));
+      }
       catch (e) { handled.push(name + ':' + (e.code ?? 'error')); }
       rmSync(here + '.byokit/inbox/' + name, { force: true });
     }
@@ -89,7 +95,7 @@ try {
     const steps = [];
     for await (const s of setup({ provider, store, recipe, pick: (all) => all.find((r) => r.id === ref.id), confirmId: ref.id,
       pair: pairEnrol(m, recipe, phone.publicKey), ...(replaceOwner ? { replaceOwner } : {}) })) {
-      steps.push(s.step === 'failed' ? `failed:${s.at}:${s.cause}:retryable=${s.retryable}` : s.step);
+      steps.push(s.step === 'failed' ? `failed:${s.at}:${s.cause}:retryable=${s.retryable}` : s.step === 'pairing' && s.receipt ? 'pairing:receipt' : s.step);
       if (s.step === 'failed') out('failed-words', words(s.cause, vars));
     }
     return { steps, m };

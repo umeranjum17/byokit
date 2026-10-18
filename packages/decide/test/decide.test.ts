@@ -20,6 +20,13 @@ import { evaluate, evaluateDecisions, format, parse, replay, summary } from '@by
 const options = (task: string, followup: string, chat: string) => ({ task, followup, chat });
 const intent = (): Question => ({ kind: 'choice', options: options('Something new to do', 'About an earlier job', 'Just talking'), personReason: true });
 
+test('answerFields survive the caller model path', async () => {
+  const model = answerer({ name: 'field-model', leaves: true, ask: async () => JSON.stringify({ check: { probabilities: { true: 0.8, false: 0.2 }, pick: 'true', rationale: 'Captured', missingWidth: 42 } }) });
+  const result = await decide({}, { check: { kind: 'yesno', question: 'Captured?', answerFields: ['missingWidth'] } }, { privacy: 'may-leave', backends: [model] });
+  assert.equal(result.check.answer, true);
+  assert.equal((result.check as Answer & Record<string, unknown>).missingWidth, 42);
+});
+
 test('an app answers a private draft locally, routes the rest with the person\'s own model, and leaks neither state nor a secret', async () => {
   const privateDraft = 'Umer-private-draft-must-not-leave';
   const prompts: string[] = [];

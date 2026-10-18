@@ -25,6 +25,10 @@
       "types": "./dist/claude-code.d.ts",
       "default": "./dist/claude-code.js"
     },
+    "./codex": {
+      "types": "./dist/codex.d.ts",
+      "default": "./dist/codex.js"
+    },
     "./slim": {
       "types": "./dist/slim.d.ts",
       "default": "./dist/slim.js"

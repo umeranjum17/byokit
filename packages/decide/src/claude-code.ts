@@ -1,5 +1,4 @@
 // Node-only seam: the host names the person's own unmodified, already signed-in Claude binary; it runs with their HOME.
-import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -9,6 +8,7 @@ import { parseUsage } from './http.ts';
 import { outputSchema, type OutputSchema } from './schema.ts';
 import { generationImages } from './generation-images.ts';
 import { validateImageReferences } from './images.ts';
+import { runCli } from './cli-run.ts';
 
 /** A Claude account's environment from `@byokit/accounts/cli` (`launch(id)` when ready, or `launchEnv(id)`): a managed
  * account sets its own `CLAUDE_CONFIG_DIR`; the installed one sets nothing, so the person's own sign-in answers. */
@@ -70,46 +70,18 @@ export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
         '--no-session-persistence', ...(o.model ? ['--model', o.model] : []),
         ...(input.system ? ['--system-prompt', input.system] : [])];
       const deadline = Date.now() + o.timeoutMs;
-      const execute = (args: string[], stdin?: string) => new Promise<string>((resolveOutput, reject) => {
-        // The person's own environment so their installed Claude answers with its own sign-in; minus API-billed, billing-route and preload variables, keeping the subscription OAuth token.
-        const child = spawn(o.bin, args, { cwd: scratch, env: {
-          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !unset.has(k) && (k === 'CLAUDE_CODE_OAUTH_TOKEN' || (!/KEY|TOKEN|SECRET|^NODE_OPTIONS$/i.test(k) && !billingRoutes.has(k))))),
-          ...(o.configDir !== undefined && { CLAUDE_CONFIG_DIR: o.configDir }),
-          CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens),
-          DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
-        }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
-        let text = '';
-        let size = 0;
-        let failure: ClaudeCodeError | undefined;
-        let killTimer: ReturnType<typeof setTimeout> | undefined;
-        const stop = (code: FailureCode) => {
-          failure ??= new ClaudeCodeError(code);
-          child.kill();
-          killTimer ??= setTimeout(() => child.kill('SIGKILL'), 250);
-        };
-        const abort = () => stop('aborted');
-        const timer = setTimeout(() => stop('timeout'), Math.max(0, deadline - Date.now()));
-        input.signal?.addEventListener('abort', abort, { once: true });
-        if (input.signal?.aborted) abort();
-        child.stdout.setEncoding('utf8');
-        child.stdout.on('data', (chunk: string) => {
-          size += Buffer.byteLength(chunk);
-          if (size > 8 * 1024 * 1024) stop('invalid_output');
-          else text += chunk;
-        });
-        // Drain stderr, but never include its potentially sensitive content in an error.
-        child.stderr.resume();
-        child.on('error', () => { failure ??= new ClaudeCodeError('process'); });
-        child.stdin.on('error', () => { failure ??= new ClaudeCodeError('process'); });
-        child.on('close', (code) => {
-          clearTimeout(timer);
-          clearTimeout(killTimer);
-          input.signal?.removeEventListener('abort', abort);
-          if (failure || code !== 0) reject(failure ?? new ClaudeCodeError('process'));
-          else resolveOutput(text);
-        });
-        child.stdin.end(stdin);
-      });
+      // The person's own environment so their installed Claude answers with its own sign-in; minus API-billed, billing-route and preload variables, keeping the subscription OAuth token.
+      const env = {
+        ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !unset.has(k) && (k === 'CLAUDE_CODE_OAUTH_TOKEN' || (!/KEY|TOKEN|SECRET|^NODE_OPTIONS$/i.test(k) && !billingRoutes.has(k))))),
+        ...(o.configDir !== undefined && { CLAUDE_CONFIG_DIR: o.configDir }),
+        CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens),
+        DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
+      };
+      const execute = async (args: string[], stdin?: string) => {
+        const result = await runCli(o.bin, args, { cwd: scratch, env, deadline, signal: input.signal, stdin }, (code) => new ClaudeCodeError(code));
+        if (result.code !== 0) throw new ClaudeCodeError('process');
+        return result.stdout;
+      };
       // Ask the binary for non-secret auth metadata; never inspect its credential files.
       let auth: unknown;
       try { auth = JSON.parse(await execute(['--safe-mode', '--setting-sources', '', 'auth', 'status'])); }
@@ -154,7 +126,7 @@ export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
       validateImageReferences(questions, images);
       const properties: Record<string, OutputSchema> = Object.fromEntries(Object.entries(questions).map(([name, q]) => {
         const explanation = q.personReason ? { personReason: { type: 'string' as const } } : {};
-        const reasonKeys = q.personReason ? ['personReason'] : [];
+        const reasonKeys = [...(q.personReason ? ['personReason'] : []), ...(q.answerFields ?? [])];
         if (q.kind === 'rank') {
           const keys = Object.keys(q.candidates);
           return [name, { type: 'object', additionalProperties: false, required: ['ranking', 'confidence', ...reasonKeys], properties: {
@@ -163,6 +135,7 @@ export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
             scores: { type: 'object', additionalProperties: false,
               properties: Object.fromEntries(keys.map((k) => [k, { type: 'number' }])) },
             ...explanation,
+            ...Object.fromEntries((q.answerFields ?? []).map((key) => [key, {}])),
           } }];
         }
         const keys = q.kind === 'choice' ? Object.keys(q.options) : q.kind === 'yesno' ? ['true', 'false'] : q.levels.map((_, i) => String(i));
@@ -171,6 +144,7 @@ export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
             properties: Object.fromEntries(keys.map((k) => [k, { type: 'number', minimum: 0, maximum: 1 }])) },
           pick: { type: 'string', enum: keys },
           ...explanation,
+          ...Object.fromEntries((q.answerFields ?? []).map((key) => [key, {}])),
         } }];
       }));
       const schema: OutputSchema = { type: 'object', additionalProperties: false, required: Object.keys(questions), properties };

@@ -356,13 +356,14 @@ over the 5.2a paths, for the app to show with `words()` (5.11).
 
 ```ts
 // src/setup.ts, exported from '.'
-export type SetupStepName = 'checking-access' | 'listing' | 'inspecting' | 'installing' | 'pairing';
+export type SetupStepName = 'checking-access' | 'listing' | 'inspecting' | 'installing' | 'securing' | 'pairing';
 export type SetupStep =
   | { step: 'checking-access'; account: string }   // provider.account() returned
   | { step: 'listing'; machines: MachineRef[] }    // provider.list() returned
   | { step: 'inspecting'; ref: MachineRef }        // the picked machine passed the 5.2a guards and is saved
   | { step: 'installing'; ref: MachineRef }        // install(recipe) resolved
-  | { step: 'pairing' }                            // the app's pair gate resolved
+  | { step: 'securing'; name: string }             // the tailnet name is joined and the app port is served (9.1)
+  | { step: 'pairing'; receipt?: PairReceipt }     // the app's pair gate resolved; pairEnrol's carries the receipt (5.12)
   | { step: 'ready'; ref: MachineRef }
   | { step: 'failed'; at: SetupStepName; cause: WordKey; retryable: boolean };
 export function setup(o: {
@@ -370,7 +371,8 @@ export function setup(o: {
   pick: (listed: MachineRef[]) => MachineRef;      // the app's choice from the listing event
   confirmId: string;                               // must equal the picked id (5.2a)
   onLine?: (line: string) => void;                 // install lines, in order
-  pair?: (ref: MachineRef, o: { replaceOwner: boolean }) => Promise<void>;  // the app's Pair-ready gate; absent skips pairing
+  address?: { hostname: string; port: number; onStep?: (s: TailnetStep) => void };  // the secure address; absent skips securing
+  pair?: (ref: MachineRef, ctx: PairContext) => Promise<PairReceipt | void>;  // the app's Pair-ready gate; absent skips pairing
   replaceOwner?: boolean;                          // 5.12: only after the person confirms `error.ownerEnrolled`
 }): AsyncGenerator<SetupStep>
 ```
@@ -588,8 +590,16 @@ land with that provider's adapter, behind the same members (follow-up).
 `setup()` drives one existing-computer connect (5.2a) as an async iterable: checking-access
 (`provider.account()`), listing (`provider.list()`; absent reads as a non-retryable listing failure), the
 app's `pick`, inspecting plus installing (`Machine.adopt` with the consented recipe; `onLine` carries the
-install lines), the `pair` gate, then ready. No step is emitted before its result: no timer percentages and
-no log-text inference. Claim/publish, the public route and console setup are out of scope (phone-key enrol is 5.12).
+install lines), securing (K-PUBLIC, when the app passes `address`), the `pair` gate, then ready. No step is emitted
+before its result: no timer percentages and no log-text inference. Claim/publish, the public route and console setup
+are out of scope (phone-key enrol is 5.12).
+- Securing makes or confirms the secure address after install: `address.port` must be an integer from 1 to 65535
+  (else `bad-recipe`); when `tailnet()` already reports `joined` with a name, that name is used, otherwise
+  `joinTailnet({ hostname }, onStep)` joins (9.1; `onStep` carries the sign-in link). Then the kit runs 9.1's serve
+  for that port as root, `tailscale serve --bg --tcp=<port> tcp://127.0.0.1:<port>` (idempotent), and reads it back
+  with `tailscale serve status --json`: `TCP["<port>"].TCPForward` must equal `127.0.0.1:<port>`, else `provider`.
+  The step yields `{ step: 'securing', name }`, and the gate's `ctx.urls` is `['ws://<name>:<port>']` (`[]` without
+  `address`). `ctx.read(file)` reads `<workDir>/.byokit/outbox/<file>` as the run user (8.2), `null` while absent.
 - A rejection yields one `failed` step and ends the stream: `at` is the phase whose call failed, `cause` is
   `errorKey` of the error (a non-`MachineError` reads `error.app`), and `retryable` is true only for
   `unreachable`, `timeout`, `provider`, `balance` and `busy`; `owner-enrolled` reads `error.ownerEnrolled` at
@@ -607,9 +617,11 @@ no log-text inference. Claim/publish, the public route and console setup are out
 The key travels only as delivery bytes: never in `run.env`, `run.argv`, files outside the inbox, logs or error text, so the 8.1 `KEY`/`TOKEN`/`SECRET`/`PASSWORD` refusal stays unchanged.
 `bindPhoneKey(host, key, name?)` runs on the machine inside the host process against a structural host (`devices()` and `enrol()` only, so the real `Host` fits with no kit-to-kit import): it checks 32 bytes, resolves `{ id, bound: false }` when a `kind: 'phone'` grant already holds that key, rejects `owner-enrolled` when one holds another key, and otherwise calls `host.enrol({ key, name, role: 'control', kind: 'phone' })` and resolves `{ id, bound: true }`.
 First writer wins and restart-safe: the durable grant store is the binding record, so after a restart the same key rebinds idempotently and any other key is still refused.
-`pairEnrol(machine, recipe, key)` is the `setup()` `pair` gate: it delivers and resolves, so the stream emits the existing `pairing` step (shown with `setup.pairing`; no new words) before `ready`.
+`phoneReceipt(host, key)` (K-RECEIPT) runs on the machine after `bindPhoneKey` or `replacePhoneKey`, against `{ keys, devices() }` (the real `Host` fits): it returns the receipt text `{ v: 1, key, host, device: { id, name, role: 'control' } }` (base64url public keys only; it rejects `bad-recipe` for a key no phone grant holds). The host process writes it to `<workDir>/.byokit/outbox/receipt.json` (`RECEIPT_FILE`) at mode 0600, through a temporary name and a rename.
+`pairEnrol(machine, recipe, key)` is the `setup()` `pair` gate: it delivers the key, then reads `RECEIPT_FILE` through `ctx.read` once a second for up to 60 s until a receipt for that same key appears, and resolves `PairReceipt = { host, device, urls: ctx.urls }`, which the `pairing` step carries (shown with `setup.pairing`). At the deadline a receipt for another key rejects `owner-enrolled` (the host refused this phone); none rejects `timeout`. A malformed or half-written file reads as absent.
+The phone links with the receipt and its own secret alone: `new DeviceLink({ v: 1, secretKey, hostName, ...receipt }, …)` from `@byokit/pair`. Every receipt value is public; none enters `run.env`, `run.argv`, logs or error text.
 
-Owner re-enrol (K-EXISTS). A reinstalled app or a new phone has an empty store, so `setup()` on its own computer fails `owner-enrolled` (`error.ownerEnrolled`, at `inspecting`, not retryable) and changes nothing. The app shows that sentence and asks the person to confirm; only then it calls the same `setup()` with `replaceOwner: true`. adopt takes over the kit's own install (5.2a) and reinstalls in place, and the gate gets `{ replaceOwner: true }`, so `pairEnrol` (or `deliverPhoneKey(machine, recipe, key, { replaceOwner: true })`) delivers the key as `OWNER_KEY_FILE` (`'owner.bin'`) instead of `phone.bin`. setup() never replaces an owner by itself. On the machine the host calls `replacePhoneKey(host, key, name?)` for `owner.bin` only, against `OwnerHost` (`EnrolHost` plus the real Host's `revoke(id)`): one call that revokes every other `kind: 'phone'` grant, then binds the key as `bindPhoneKey` does (a key already bound resolves `bound: false`). Revoking first ends the old phone's access at once and leaves room under a one-phone cap; a crash between the two leaves no phone, and handling the same file again finishes the swap, so the host removes an inbox file only after its call resolves. Other device kinds stay. The durable grant store holds the result across restarts, where the old key is still refused.
+Owner re-enrol (K-EXISTS). A reinstalled app or a new phone has an empty store, so `setup()` on its own computer fails `owner-enrolled` (`error.ownerEnrolled`, at `inspecting`, not retryable) and changes nothing. The app shows that sentence and asks the person to confirm; only then it calls the same `setup()` with `replaceOwner: true`. adopt takes over the kit's own install (5.2a) and reinstalls in place, and the gate's `PairContext` carries `replaceOwner: true`, so `pairEnrol` (or `deliverPhoneKey(machine, recipe, key, { replaceOwner: true })`) delivers the key as `OWNER_KEY_FILE` (`'owner.bin'`) instead of `phone.bin`. setup() never replaces an owner by itself. On the machine the host calls `replacePhoneKey(host, key, name?)` for `owner.bin` only, against `OwnerHost` (`EnrolHost` plus the real Host's `revoke(id)`): one call that revokes every other `kind: 'phone'` grant, then binds the key as `bindPhoneKey` does (a key already bound resolves `bound: false`); the host then writes the new phone's receipt as above. Revoking first ends the old phone's access at once and leaves room under a one-phone cap; a crash between the two leaves no phone, and handling the same file again finishes the swap, so the host removes an inbox file only after its call resolves. Other device kinds stay. The durable grant store holds the result across restarts, where the old key is still refused.
 
 Threat. Replacing the owner phone hands the computer to a new key, so the authority must be the provider account, never a phone or the network. Only a holder of the provider account key can write the inbox (provider delivery runs `exec` as the run user through the provider API), and the person consents on that setup device before `replaceOwner` is passed. The host never calls `replacePhoneKey` for anything a paired device, link peer or HTTP request sent, never writes its own inbox from such a request, and a `phone.bin` delivery can never replace an owner. Anyone who holds the account key can already run code on the machine, so this adds no new power to that holder; a stolen phone loses its grant the moment the owner re-enrols from a new phone.
 
@@ -1001,6 +1013,8 @@ ports it previously exposed as though it had this fresh-machine guarantee; the p
 - Without `/dev/net/tun`, start `tailscaled --tun=userspace-networking`. This does **not** bind app ports automatically:
   the app recipe binds its host on loopback and runs private `tailscale serve --bg --tcp=<port> tcp://127.0.0.1:<port>`
   as root. With a TUN, the app may instead bind the tailnet IP. Never use Funnel or a provider public URL.
+  Amended 2026-10-18 (K-PUBLIC): `setup()` with `address` joins after install and runs that same serve for
+  `address.port` itself (5.11), so a recipe used with it binds loopback and does not serve its own port.
   Host port selection remains the app recipe's responsibility; the kit has no default app port.
 - Run `tailscale up` with the requested hostname, no DNS or route acceptance, and a short command timeout; surface
   its validated HTTPS Tailscale login URL once as `open-page`. Poll status so the person can sign in on the phone:
@@ -1172,6 +1186,7 @@ key })` ends a claimed key (RFC 7009 at the metadata's `revocation_endpoint`, th
 | `setup.listing` | Looking for your existing cloud computers. |
 | `setup.inspecting` | Checking this cloud computer can run {app}. |
 | `setup.installing` | Putting {app} on your cloud computer. |
+| `setup.securing` | Giving your cloud computer a private address on your own network. |
 | `setup.pairing` | Connecting this device to {app}. |
 | `setup.ready` | {app} is running on your cloud computer. |
 | `host.not-installed` | {app} isn't on your cloud computer yet. |

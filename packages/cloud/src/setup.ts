@@ -2,18 +2,21 @@
 // Each step is emitted after its real result, never from timers or log prose.
 import { MachineError } from './errors.ts';
 import { machine } from './machine.ts';
+import { readOutbox, type PairContext, type PairReceipt } from './enrol.ts';
+import { checkPort, servePort } from './tailnet.ts';
 import { errorKey } from './words.ts';
-import type { HostRecipe, MachineRef, MachineStore, Provider } from './types.ts';
+import type { HostRecipe, MachineRef, MachineStore, Provider, TailnetStep } from './types.ts';
 import type { WordKey } from './words.ts';
 
-export type SetupStepName = 'checking-access' | 'listing' | 'inspecting' | 'installing' | 'pairing';
+export type SetupStepName = 'checking-access' | 'listing' | 'inspecting' | 'installing' | 'securing' | 'pairing';
 
 export type SetupStep =
   | { step: 'checking-access'; account: string }
   | { step: 'listing'; machines: MachineRef[] }
   | { step: 'inspecting'; ref: MachineRef }
   | { step: 'installing'; ref: MachineRef }
-  | { step: 'pairing' }
+  | { step: 'securing'; name: string }
+  | { step: 'pairing'; receipt?: PairReceipt }
   | { step: 'ready'; ref: MachineRef }
   | { step: 'failed'; at: SetupStepName; cause: WordKey; retryable: boolean };
 
@@ -27,7 +30,8 @@ export async function* setup(o: {
   pick: (listed: MachineRef[]) => MachineRef;
   confirmId: string;
   onLine?: (line: string) => void;
-  pair?: (ref: MachineRef, o: { replaceOwner: boolean }) => Promise<void>;  // the app's Pair-ready gate; absent skips pairing
+  address?: { hostname: string; port: number; onStep?: (s: TailnetStep) => void };  // the secure address; absent skips securing
+  pair?: (ref: MachineRef, ctx: PairContext) => Promise<PairReceipt | void>;  // the app's Pair-ready gate; absent skips pairing
   replaceOwner?: boolean;                          // 5.12: only after the person confirms an `error.ownerEnrolled` failure
 }): AsyncGenerator<SetupStep> {
   const replaceOwner = o.replaceOwner === true;
@@ -95,14 +99,31 @@ export async function* setup(o: {
       return;
     }
   }
-  if (o.pair !== undefined) {
+  let urls: string[] = [];
+  if (o.address !== undefined) {
+    const { hostname, port, onStep } = o.address;
+    let name: string;
     try {
-      await o.pair(ref, { replaceOwner });
+      checkPort(port);
+      const t = await m.tailnet();
+      name = t.state === 'joined' && t.name !== null ? t.name : (await m.joinTailnet({ hostname }, onStep)).name;
+      await servePort(o.provider, ref, port);
+    } catch (e) {
+      yield fail('securing', e);
+      return;
+    }
+    urls = [`ws://${name}:${port}`];
+    yield { step: 'securing', name };
+  }
+  if (o.pair !== undefined) {
+    let receipt: PairReceipt | void;
+    try {
+      receipt = await o.pair(ref, { urls, read: (file) => readOutbox(o.provider, ref, o.recipe, file), replaceOwner });
     } catch (e) {
       yield fail('pairing', e);
       return;
     }
-    yield { step: 'pairing' };
+    yield receipt ? { step: 'pairing', receipt } : { step: 'pairing' };
   }
   yield { step: 'ready', ref };
 }
