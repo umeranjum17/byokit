@@ -4,7 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { join } from 'node:path';
 import { fakeOpenCodeConsole, scratchDir } from '../../test-support.ts';
-import { mock, test } from 'node:test';
+import { after, mock, test } from 'node:test';
 import { AuthStoreUnreadableError } from '../src/auth-store.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { Engine } from '../src/engine.ts';
@@ -14,6 +14,10 @@ import type { RunRef } from '../src/types.ts';
 import { hostKeySeal, osKeyringSeal, type KeyringBackend } from '../../secrets/src/index.ts';
 import { stateWords } from '../src/words.ts';
 
+// spawnEngine: false leaves no child to hold the event loop, and the kit's handshake deadline is unref'd, so a test
+// waiting on a silent transport would idle the loop and Node 22 cancels the rest of the file; hold it for the file.
+const loop = setInterval(() => {}, 1_000);
+after(() => clearInterval(loop));
 // Go key adds list the key's workspaces; the console answers in this process (401 unless a test says otherwise).
 const orgs = fakeOpenCodeConsole();
 
