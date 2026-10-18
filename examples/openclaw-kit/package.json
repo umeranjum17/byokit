@@ -14,10 +14,10 @@
     "test": "node --test e2e.test.ts"
   },
   "dependencies": {
-    "@byokit/pair": "0.10.3",
-    "@byokit/openclaw": "0.16.2",
+    "@byokit/pair": "0.10.4",
+    "@byokit/openclaw": "0.16.3",
     "@byokit/discover": "0.8.4",
-    "@byokit/relay": "0.8.1",
+    "@byokit/relay": "0.8.2",
     "@byokit/seal": "0.3.1",
     "@byokit/ui": "0.9.0"
   },
