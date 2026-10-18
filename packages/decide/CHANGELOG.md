@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.12.0 (2026-10-18)
+
+- Dependency update: pins @byokit/accounts 0.28.0.
+
+- MINOR: A caller can request extra answer fields and receive each value the model returns.
+- FEAT: The Claude judge can run on the Claude already signed in on this computer when the app picked it from the accounts list: `claudeCode({ bin, account })` takes that account's `launch(id)` (or `launchEnv(id)`) result from `@byokit/accounts/cli`. The installed account runs with the person's HOME and no `CLAUDE_CONFIG_DIR`; a managed account keeps its own folder.
+- FEAT: Decide can run on the Codex already signed in on this computer, so an app can ask a ChatGPT-plan model such as `gpt-6-luna`. The new Node-only `@byokit/decide/codex` entry takes the installed account's `launch('installed-codex')` (or a managed account's `launchEnv(id)`) result from `@byokit/accounts/cli`: `codex({ bin, account, model, timeoutMs })` runs the person's own `codex exec` with their HOME and no `CODEX_HOME` (a managed account keeps its folder), checks `codex login status` for a ChatGPT sign-in first, and never opens `~/.codex`. It works for `decide` and `generate`; failures are `CodexError` with plain text.
+
 ## 0.11.1 (2026-10-18)
 
 - Dependency update: pins @byokit/pair 0.10.4.

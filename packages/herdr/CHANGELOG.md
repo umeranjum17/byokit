@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.16.0 (2026-10-18)
+
+- Add a `stalled` state for a connected but silent Herdr server. The app says the computer is busy and keeps trying.
+
 ## 0.15.1 (2026-10-18)
 
 - Dependency update: pins @byokit/relay 0.8.2.
