@@ -594,7 +594,8 @@ the agent CLIs it drives use the person's installed, signed-in login as is (capt
 
 ```
 PATH=/usr/bin:/bin[:enginePath…]  LANG=C.UTF-8  HOME=<the person's HOME>  OPENCLAW_HOME=<root>/home
-[XDG_CONFIG_HOME, XDG_DATA_HOME, XDG_STATE_HOME, CLAUDE_CONFIG_DIR, CODEX_HOME: the person's own, only when set]
+[XDG_CONFIG_HOME, XDG_DATA_HOME, XDG_STATE_HOME, CLAUDE_CONFIG_DIR: the person's own, only when set]
+CODEX_HOME=<root>/home/.codex (gateway and doctor only; the Codex CLI removes it)
 OPENCLAW_STATE_DIR=<root>/state  OPENCLAW_CONFIG_PATH=<root>/openclaw.json  XDG_CACHE_HOME=<home>/.cache  TMPDIR=<root>/tmp
 npm_config_cache=<root>/npm-cache  npm_config_userconfig=<root>/npmrc (empty, 0600)
 OPENCLAW_NO_RESPAWN=1  OPENCLAW_SKIP_CHANNELS=1  OPENCLAW_DISABLE_BONJOUR=1  OPENCLAW_EXEC_SHELL_SNAPSHOT=0
@@ -609,6 +610,14 @@ The fallback sign-in always writes `<home>/.claude`, and the gateway's in-proces
 without that `CLAUDE_CONFIG_DIR` (`Engine.claudeLoginUnread()`) never starts it: a phone sign-in the gateway does not
 detect fails before any login with "Claude Code is installed here, but its sign-in could not be checked. Run claude
 once on this machine to sign in, then try again."
+
+The installed ChatGPT route is `openai-codex/<model>` (including `gpt-6-luna`). The bridge registers the pin's
+supported `registerCliBackend` adapter, not an engine patch. Admission asks `codex login status`, never a credential
+file; only a ChatGPT login is ready. The backend runs `codex exec` with normal HOME and no CODEX_HOME override,
+ChatGPT-only auth, no user-config/rules or native tools, and the engine's bundled MCP bridge for gated tools. The
+gateway and doctor retain the isolated CODEX_HOME above because the pin otherwise eagerly imports the person's
+OAuth file and can refresh it itself. No login file is copied or linked; the engine's config, workspace and sessions
+remain under `<root>`. This installed-machine route does not select a managed kit account's login.
 
 With `channels.telegram` (5.18) the gateway process alone drops `OPENCLAW_SKIP_CHANNELS` and gets
 `TELEGRAM_BOT_TOKEN=<token>`; doctor and plugin installs keep channels skipped and never see the token.

@@ -46,6 +46,7 @@ export function writePlugin(
     id: o.id,
     name: 'BYOKit bridge',
     activation: { onStartup: true },
+    cliBackends: ['openai-codex'],
     contracts: { tools: o.tools.map((t) => t.name), ...(o.browser ? { agentToolResultMiddleware: ['openclaw', 'codex'] } : {}) },
     configSchema: { type: 'object', additionalProperties: false },
   };

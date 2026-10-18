@@ -259,7 +259,7 @@ export class Engine {
     const pluginDir = join(this.root, 'plugin');
     mkdirSync(pluginDir, { recursive: true, mode: 0o700 });
     // The shipped plugin follows the kit on every prepare too: a state dir from an older kit must not keep its gate.
-    for (const f of ['package.json', 'index.js', 'keys.js', 'usage.js', 'accounts.js', 'catalog.js']) {
+    for (const f of ['package.json', 'index.js', 'keys.js', 'usage.js', 'accounts.js', 'catalog.js', 'codex.js']) {
       const source = join(kitDir, 'plugin', f);
       putChanged(join(pluginDir, f), readFileSync(source, 'utf8'));
     }
@@ -303,6 +303,8 @@ export class Engine {
     return { entry: this.entry, env: {
       PATH: this.path, LANG: 'C.UTF-8', ...personal(), OPENCLAW_HOME: home,
       OPENCLAW_STATE_DIR: join(this.root, 'state'), OPENCLAW_CONFIG_PATH: join(this.root, 'openclaw.json'),
+      // Upstream eagerly imports/refreshes Codex OAuth. Only the CLI may see the person's login.
+      CODEX_HOME: join(home, '.codex'),
       XDG_CACHE_HOME: join(home, '.cache'), ...this.claudeFallback ? { CLAUDE_CONFIG_DIR: this.claudeFolder } : {},
       TMPDIR: join(this.root, 'tmp'), npm_config_cache: join(this.root, 'npm-cache'), npm_config_userconfig: join(this.root, 'npmrc'),
       OPENCLAW_NO_RESPAWN: '1', OPENCLAW_SKIP_CHANNELS: '1', OPENCLAW_DISABLE_BONJOUR: '1',
@@ -313,6 +315,16 @@ export class Engine {
   }
   /** The engine's own shutdown signal; aborted by stop() and replaced by the next start(). */
   get stopSignal(): AbortSignal { return this.stopOwner.signal; }
+  async installedCodexSignedIn(): Promise<boolean> {
+    if (!this.o.spawnEngine) return false;
+    const env = { PATH: this.path, LANG: 'C.UTF-8', ...personal() };
+    delete (env as Record<string, string>).CODEX_HOME;
+    const bin = onPath(env.PATH, 'codex');
+    if (!bin) return false;
+    return new Promise(resolve => execFile(bin, ['login', 'status'], { env, timeout: 15_000, maxBuffer: 256 * 1024 }, (error, stdout, stderr) => {
+      resolve(!error && /^Logged in using ChatGPT\b/m.test(stdout + stderr));
+    }));
+  }
   private installedClaudeSignedOut(): Promise<boolean | undefined> {
     const env = { PATH: this.path, LANG: 'C.UTF-8', TMPDIR: join(this.root, 'tmp'), ...personal() };
     const bin = onPath(env.PATH, 'claude');
