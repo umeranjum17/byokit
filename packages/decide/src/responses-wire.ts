@@ -35,7 +35,7 @@ export function responsesInput(state: unknown, questions: Record<string, Questio
 export function responsesSchema(questions: Record<string, Question>) {
   const properties = Object.fromEntries(Object.entries(questions).map(([name, q]) => {
     const explanation = q.personReason ? { personReason: { type: 'string' } } : {};
-    const reasonKeys = q.personReason ? ['personReason'] : [];
+    const reasonKeys = [...(q.personReason ? ['personReason'] : []), ...(q.answerFields ?? [])];
     if (q.kind === 'rank') {
       const keys = Object.keys(q.candidates);
       return [name, { type: 'object', additionalProperties: false, required: ['ranking', 'confidence', 'scores', ...reasonKeys],
@@ -45,6 +45,7 @@ export function responsesSchema(questions: Record<string, Question>) {
           scores: { anyOf: [{ type: 'null' }, { type: 'object', additionalProperties: false, required: keys,
             properties: Object.fromEntries(keys.map((k) => [k, { type: 'number' }])) }] },
           ...explanation,
+          ...Object.fromEntries((q.answerFields ?? []).map((key) => [key, {}])),
         } }];
     }
     const keys = q.kind === 'choice' ? Object.keys(q.options) : q.kind === 'yesno' ? ['true', 'false'] : q.levels.map((_, i) => String(i));
@@ -55,6 +56,7 @@ export function responsesSchema(questions: Record<string, Question>) {
         pick: { type: 'string', enum: keys },
         rationale: { type: 'string' },
         ...explanation,
+        ...Object.fromEntries((q.answerFields ?? []).map((key) => [key, {}])),
       },
     }];
   }));
@@ -80,7 +82,7 @@ export function responsesAnswers(questions: Record<string, Question>, json: unkn
 export function parsedAnswers(questions: Record<string, Question>, parsed: unknown, usage: Usage | undefined, raw: unknown): Record<string, Raw> {
   return Object.fromEntries(Object.entries(questions).map(([k, q]) => {
     const a = isJsonRecord(parsed) && Object.hasOwn(parsed, k) ? parsed[k] : undefined;
-    const carried = { confidenceSource: 'self-reported' as const, ...(usage && { usage }), raw,
+    const carried = { ...(isJsonRecord(a) && q.answerFields ? Object.fromEntries(q.answerFields.filter((key) => Object.hasOwn(a, key)).map((key) => [key, a[key]])) : {}), confidenceSource: 'self-reported' as const, ...(usage && { usage }), raw,
       ...(typeof a?.rationale === 'string' && { rationale: a.rationale }) };
     if (q.kind === 'rank') return [k, { probabilities: {},
       ...(isJsonRecord(a) && { ranking: a.ranking, confidence: a.confidence,

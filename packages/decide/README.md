@@ -180,7 +180,8 @@ For custom `Backend.ask`, a rank `Raw` has `{ probabilities: {}, ranking, confid
 `evaluate` compares rank arrays in exact order. Other question kinds keep their existing eval semantics.
 
 `personReason: true` opts a question into a short explanation. It is absent by default, so existing calls request
-no extra explanation tokens. `Answer.reason` remains a diagnostic for logs. `Answer.personReason` is trimmed,
+no extra explanation tokens. `answerFields: ['missingWidth']` requests additional answer keys; returned values are copied
+onto `Answer` only when the model supplies them. `Answer.reason` remains a diagnostic for logs. `Answer.personReason` is trimmed,
 limited to 160 characters, and rejected if blank, multiline, contains control characters or HTML/backtick markup.
 Malformed explanations do not discard a valid answer. Abstentions and choice runner-up changes omit them.
 Render explanations as plain text; generated wording still needs the host's content policy. Backends never turn

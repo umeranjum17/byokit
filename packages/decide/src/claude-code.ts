@@ -144,7 +144,7 @@ export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
       validateImageReferences(questions, images);
       const properties: Record<string, OutputSchema> = Object.fromEntries(Object.entries(questions).map(([name, q]) => {
         const explanation = q.personReason ? { personReason: { type: 'string' as const } } : {};
-        const reasonKeys = q.personReason ? ['personReason'] : [];
+        const reasonKeys = [...(q.personReason ? ['personReason'] : []), ...(q.answerFields ?? [])];
         if (q.kind === 'rank') {
           const keys = Object.keys(q.candidates);
           return [name, { type: 'object', additionalProperties: false, required: ['ranking', 'confidence', ...reasonKeys], properties: {
@@ -153,6 +153,7 @@ export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
             scores: { type: 'object', additionalProperties: false,
               properties: Object.fromEntries(keys.map((k) => [k, { type: 'number' }])) },
             ...explanation,
+            ...Object.fromEntries((q.answerFields ?? []).map((key) => [key, {}])),
           } }];
         }
         const keys = q.kind === 'choice' ? Object.keys(q.options) : q.kind === 'yesno' ? ['true', 'false'] : q.levels.map((_, i) => String(i));
@@ -161,6 +162,7 @@ export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
             properties: Object.fromEntries(keys.map((k) => [k, { type: 'number', minimum: 0, maximum: 1 }])) },
           pick: { type: 'string', enum: keys },
           ...explanation,
+          ...Object.fromEntries((q.answerFields ?? []).map((key) => [key, {}])),
         } }];
       }));
       const schema: OutputSchema = { type: 'object', additionalProperties: false, required: Object.keys(questions), properties };
