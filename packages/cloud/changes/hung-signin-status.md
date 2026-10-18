@@ -1,1 +1,0 @@
-- Retry a timed-out private-network status check within the existing sign-in window; a slow check no longer ends phone sign-in early. A window that stays hung ends with the join deadline wording, while standalone status checks retain their timeout error.

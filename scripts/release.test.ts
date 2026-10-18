@@ -193,7 +193,7 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
     return r.stdout;
   };
   try {
-    for (const path of ["scripts", "bin", "examples/expo", "packages/probe/changes", "packages/a-consumer", "packages/b-range", "packages/c-dev"]) mkdirSync(join(dir, path), { recursive: true });
+    for (const path of ["scripts", "bin", "examples/expo", "packages/probe/changes", "packages/a-consumer", "packages/b-range", "packages/c-dev", "packages/d-first"]) mkdirSync(join(dir, path), { recursive: true });
     copyFileSync(join(root, "scripts/release.ts"), join(dir, "scripts/release.ts"));
     // Prefer the npm shipped beside the running node: a version-manager shim on
     // PATH (e.g. mise) can spin forever under this test's isolated HOME.
@@ -203,7 +203,8 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
       : spawnSync("/bin/sh", ["-c", "command -v npm"], { encoding: "utf8" }).stdout.trim();
     assert.ok(realNpm.startsWith("/"));
     // Only registry version discovery is canned; lockfile resolution uses the actual npm, offline.
-    writeFileSync(join(dir, "bin/npm"), `#!/bin/sh\nif [ "$1" = view ]; then echo '["0.1.0"]'; else exec '${realNpm}' "$@"; fi\n`);
+    // A placeholder-only package (0.0.0 reserves its name) answers its own list.
+    writeFileSync(join(dir, "bin/npm"), `#!/bin/sh\nif [ "$1" = view ] && [ "$2" = @byokit/d-first ]; then echo '["0.0.0"]'; elif [ "$1" = view ]; then echo '["0.1.0"]'; else exec '${realNpm}' "$@"; fi\n`);
     chmodSync(join(dir, "bin/npm"), 0o755);
     writeFileSync(join(dir, "package.json"), JSON.stringify({ private: true, type: "module", workspaces: ["packages/*"] }));
     writeFileSync(join(dir, "examples/expo/package.json"), '{"private":true}');
@@ -214,7 +215,10 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
       peerDependencies: { "@byokit/probe": ">=0.1.0" } }, null, 2));
     writeFileSync(join(dir, "packages/c-dev/package.json"), JSON.stringify({ name: "@byokit/c-dev", version: "0.1.0",
       devDependencies: { "@byokit/probe": "0.1.0" } }, null, 2));
-    for (const kit of ["a-consumer", "b-range", "c-dev"]) writeFileSync(join(dir, `packages/${kit}/CHANGELOG.md`), "# Changelog\n\n## Unreleased\n\n- Existing note.\n");
+    writeFileSync(join(dir, "packages/d-first/package.json"), JSON.stringify({ name: "@byokit/d-first", version: "0.1.0", publishConfig: { tag: "next" } }, null, 2));
+    writeFileSync(join(dir, "bin/gh"), "#!/bin/sh\nexit 1\n");
+    chmodSync(join(dir, "bin/gh"), 0o755);
+    for (const kit of ["a-consumer", "b-range", "c-dev", "d-first"]) writeFileSync(join(dir, `packages/${kit}/CHANGELOG.md`), "# Changelog\n\n## Unreleased\n\n- Existing note.\n");
     writeFileSync(join(dir, "packages/probe/package.json"), JSON.stringify({ name: "@byokit/probe", version: "0.1.0" }, null, 2));
     const cl = join(dir, "packages/probe/CHANGELOG.md");
     writeFileSync(cl, "# Changelog\n\n## Unreleased\n\n- Existing note for Umer.\n");
@@ -232,6 +236,9 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
     const explicit = run(process.execPath, ["scripts/release.ts", "prepare", "probe=patch", "a-consumer=minor", "--dry-run"]);
     assert.equal(explicit.status, 0, explicit.stderr);
     assert.match(explicit.stdout, /@byokit\/a-consumer 0.1.0 -> 0.2.0/);
+    const first = run(process.execPath, ["scripts/release.ts", "prepare", "d-first=0.1.0", "--dry-run"]);
+    assert.equal(first.status, 0, first.stderr);
+    assert.match(first.stdout, /@byokit\/d-first 0.1.0 -> 0.1.0/, "first release at the current version past a 0.0.0 placeholder");
     // Configure the writer's commit identity locally in this throwaway repository.
     git("config", "user.name", "Umer"); git("config", "user.email", "umer@example.invalid"); git("config", "commit.gpgsign", "false");
     const prepared = run(process.execPath, ["scripts/release.ts", "prepare", "probe=patch"]);
@@ -255,6 +262,10 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
       { kind: "FIX", text: "fragment for Umer." }, { kind: "other", text: "Existing note for Umer." },
     ]);
     assert.equal(git("status", "--porcelain").trim(), "");
+    const publish = run(process.execPath, ["scripts/release.ts", "publish", "--dry-run"]);
+    assert.equal(publish.status, 0, publish.stderr);
+    assert.match(publish.stdout, /npm publish -w @byokit\/d-first --access public --tag next( --provenance)? --dry-run/, "publishConfig.tag reaches npm as --tag");
+    assert.match(publish.stdout, /npm publish -w @byokit\/probe --access public( --provenance)? --dry-run/, "no publishConfig.tag keeps npm's latest");
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

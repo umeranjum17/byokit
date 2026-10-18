@@ -8,7 +8,7 @@ The native example's Cloud computer card pastes the Boat provider key into the p
 - `cloud-setup-unknown`: a rejected key says the provider did not accept it and stores nothing.
 - `cloud-setup-unreachable`: a dead connection says the provider cannot be reached and stores nothing.
 - `cloud-setup-cancelled`: cancelling mid-check saves nothing.
-- Not built: the claim flow (refused/expired steps). `claim()` is still M8's stub, so no claim path is proven here.
+- Not built: the claim flow on this card (refused/expired steps), so no claim path is proven here; `claim()` itself is proved by `features/cloud-claim.md`.
 - No live credential ever enters this journey: the pasted value is a fixture key the fake provider rejects, and a connected state is proved by the loopback journey test, never by a real key on a device.
 
 ## How to get to it (user POV)

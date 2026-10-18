@@ -6,6 +6,10 @@ their own bill. The person-facing words say "your cloud computer". The Boat adap
 `boat()`; the app passes the provider's address, a label to show, and dated price rows
 ([spec](../../docs/cloud-kit.md)).
 
+```sh
+npm install @byokit/cloud@next
+```
+
 ```ts
 import { machine, status, type Provider, type MachineStore, type HostRecipe } from '@byokit/cloud';
 
@@ -46,11 +50,13 @@ for §5.1–5.5 and §5.7 plus install and supervise (§8: `install`, `update`, 
 (M4), the keyless Boat tailnet join (§9.1), the SSH VM adapter (M2), the Hetzner first slice,
 and account link (`claim()`, §11.5). Idle sleep and wake-on-open land in M7 (manual `sleep()` and
 `wake()` are already here).
-The package is ready to publish (files, exports, README); it stays private until the
-recorded live claim proof passes, then one PR removes `private`. The fake sign-in routes
-follow the documented contract ([auth.md](https://boat.dev/auth.md)), yet no live register
-or claim call has run, and whether a claimed key's scopes allow create,
-install and hosting is unverified (M6). Until that proof passes, the app keeps `setup.makeKey`.
+`claim()` passed a recorded live sign-in against Boat on 2026-10-18 (discover, register, link
+and code, key, then `revokeClaim()`, after which Boat refused the key). The package publishes
+on the npm `next` tag: create, install and hosting with a claimed key are still unproven until
+M6's recorded run, so the app keeps `setup.makeKey` until that run passes, and `latest` moves
+to this package only then.
+Our later live Boat runs make no new claim: they use the fleet's saved Boat key, never print,
+log, commit or revoke it, and delete only the machines they made.
 
 The library reads no environment variable. Every spawned process gets an env built from nothing.
 
