@@ -36,7 +36,10 @@
     "access": "public"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.32.1",
-    "@byokit/secrets": "0.5.2"
+    "@byokit/secrets": "0.5.2",
+    "@modelcontextprotocol/sdk": "1.32.1"
+  },
+  "devDependencies": {
+    "emulate": "0.12.2"
   }
 }

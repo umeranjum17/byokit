@@ -1,4 +1,5 @@
 export { connect, deviceSignIn, Connection } from './connect.ts';
+export type { ConnectEndpoints } from './types.ts';
 export { providers } from './providers.ts';
 export type { ProviderId } from './providers.ts';
 export { catalog, knownApps, mcpDirectory } from './catalog.ts';

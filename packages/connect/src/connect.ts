@@ -39,14 +39,25 @@ function validTime(value: unknown): boolean { return value === undefined || (typ
 /** One person's connection on one device; the host owns the store and browser. */
 export class Connection {
   readonly provider: Readonly<Provider>;
+  /** Provider API base for app-owned calls; the kit does not make GitHub REST calls. */
+  readonly apiBase?: string;
   private options: ConnectOptions;
   private key: string;
   private storageKey?: Promise<string>;
   private slot: Slot;
   constructor(target: ProviderId | Provider | string, options: ConnectOptions) {
-    const provider: Provider = typeof target === 'string'
+    const original: Provider = typeof target === 'string'
       ? (Object.hasOwn(providers, target) ? providers[target as ProviderId] : { id: endpoint(target).href, name: 'App', mcpUrl: endpoint(target).href })
       : target;
+    const ep = options.endpoints;
+    if (ep?.google?.api) endpoint(ep.google.api);
+    if (ep?.github?.api) endpoint(ep.github.api);
+    this.apiBase = original.id === 'github' ? ep?.github?.api : ['google', 'drive', 'gmail', 'calendar'].includes(original.id) ? ep?.google?.api : undefined;
+    const provider: Provider = original.id === 'github' ? { ...original, device: original.device && { ...original.device, code: ep?.github?.deviceCode ?? original.device.code, token: ep?.github?.token ?? original.device.token } }
+      : ['google', 'drive', 'gmail', 'calendar'].includes(original.id) ? { ...original,
+        oauth: original.oauth && { ...original.oauth, authorize: ep?.google?.authorize ?? original.oauth.authorize, token: ep?.google?.token ?? original.oauth.token },
+        ...(original.id === 'drive' && ep?.google?.api ? { mcpUrl: new URL('/mcp/v1', endpoint(ep.google.api)).href } : {}) }
+      : original;
     this.provider = Object.freeze({ ...provider,
       oauth: provider.oauth && Object.freeze({ ...provider.oauth }),
       device: provider.device && Object.freeze({ ...provider.device }),

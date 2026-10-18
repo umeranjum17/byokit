@@ -21,6 +21,8 @@ The maintained source for verifying the user-facing behavior of the built byokit
 
 ## Available on this host
 
+- [Connect endpoint overrides](./connect-endpoints.md) — built `@byokit/connect` against emulate 0.12.2 for Google OAuth and Gmail, a real local GitHub device-flow server, and an app-owned GitHub API call using the connection's resolved `apiBase`.
+
 - [Infer token probabilities](./infer-token-probabilities.md) — built `@byokit/infer` complete() journey requests `n_probs` and observes returned `completion_probabilities`; native phone behavior remains unverified.
 
 - [Accounts sign-in and ask](./accounts-signin.md) — the README quickstart against the built `@byokit/accounts` with `mockOpenAI()`.

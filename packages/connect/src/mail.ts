@@ -1,4 +1,5 @@
 // Typed Gmail read/search and approval-gated send on a Connection.
+import type { ConnectEndpoints } from './types.ts';
 /** Why a read, search or send failed. `message` is for logs; never show it to a person. */
 export type MailErrorCode = 'invalid' | 'network' | 'signed-out' | 'rate-limited' | 'denied';
 export class MailError extends Error {
@@ -20,6 +21,7 @@ export interface MailSenderOptions {
   userId?: string;
   fetch?: typeof fetch;
   now?: () => number;
+  endpoints?: ConnectEndpoints;
 }
 export interface MailReaderOptions extends MailSenderOptions { maxBodyChars?: number }
 /** One message. `to` is one or more bare addresses (`name@host`); the sender is the signed-in mailbox. */
@@ -72,18 +74,19 @@ class Gmail {
   private userId: string;
   private fetcher: typeof fetch;
   private now: () => number;
+  private api: string;
   constructor(kind: string, credential: MailCredential, options: MailSenderOptions) {
     if (!credential || typeof credential.token !== 'function') throw new TypeError(`${kind} needs a credential with token()`);
     const { userId = 'me', fetch, now = Date.now } = options ?? {};
     if (typeof userId !== 'string' || !userId.trim()) throw new TypeError(`${kind} needs a non-empty userId`);
-    this.credential = credential; this.userId = userId; this.fetcher = fetch ?? globalThis.fetch; this.now = now;
+    this.credential = credential; this.userId = userId; this.fetcher = fetch ?? globalThis.fetch; this.now = now; this.api = (options.endpoints?.google?.api ?? API).replace(/\/$/, '');
   }
   /** GET with `params`, or POST `body` as JSON. A 401 retries once with a fresh token. */
   protected async call(path: string, params: Record<string, string | readonly string[]>, signal?: AbortSignal, body?: unknown): Promise<unknown> {
     signal?.throwIfAborted();
     const refused = (cause: unknown): MailError => new MailError('signed-out', 'mail credential refused', { cause });
     const send = async (access: string): Promise<Response> => {
-      const url = new URL(`${API}/users/${encodeURIComponent(this.userId)}${path}`);
+      const url = new URL(`${this.api}/users/${encodeURIComponent(this.userId)}${path}`);
       for (const [key, value] of Object.entries(params)) for (const v of Array.isArray(value) ? value : [value]) url.searchParams.append(key, v);
       try {
         return await this.fetcher(url, body === undefined ? { headers: { authorization: `Bearer ${access}` }, signal }

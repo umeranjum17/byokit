@@ -1,0 +1,1 @@
+- FEATURE: The connect kit takes a test-only endpoint setting for Google and GitHub.

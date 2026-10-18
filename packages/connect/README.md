@@ -14,6 +14,10 @@ Web Crypto, `btoa`, and URL APIs; native hosts must provide those globals before
 importing it. The optional `/node` export owns only the loopback callback listener.
 The main entry has no runtime dependency on Node or keystore backends.
 
+## Test-only endpoint overrides
+
+For local integration tests only, `ConnectOptions.endpoints` accepts full provider URLs; omitted values use production endpoints. For example, emulate 0.12.2 serves Google authorize at `http://localhost:4000/o/oauth2/v2/auth`, token at `http://localhost:4000/oauth2/token`, and Gmail API base at `http://localhost:4000/gmail/v1`. Pass the same `endpoints` object to `MailReader` or `MailSender` to route Gmail calls to its Google API. `Connection.apiBase` exposes the configured provider API base for app-owned calls; the kit itself makes no GitHub REST API calls. GitHub device-code and token URLs can be overridden for a local device-flow server because emulate 0.12.2 does not implement those routes.
+
 ## Sign in with an app-supplied redirect
 
 ```ts
