@@ -1,6 +1,6 @@
 {
   "name": "@byokit/cloud",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "The person's own always-on cloud computer for an app's host process: typed setup, install, cost and words.",
   "license": "Apache-2.0",
   "type": "module",
@@ -64,7 +64,6 @@
     "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"
   },
   "publishConfig": {
-    "access": "public",
-    "tag": "next"
+    "access": "public"
   }
 }
