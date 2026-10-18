@@ -400,7 +400,8 @@ test('a host lists apps from the known apps and a remote MCP directory, then con
     if (url.pathname === '/.well-known/oauth-authorization-server') return send({ issuer: origin, authorization_endpoint: `${origin}/authorize`, token_endpoint: `${origin}/token`, registration_endpoint: `${origin}/register`, revocation_endpoint: `${origin}/revoke`, code_challenge_methods_supported: ['S256'] });
     if (url.pathname === '/register') return send({ client_id: 'listed-client', token_endpoint_auth_method: 'none' }, 201);
     if (url.pathname === '/authorize') {
-      assert.deepEqual([url.searchParams.get('client_id'), url.searchParams.get('resource')], ['listed-client', `${origin}/mcp`]);
+      assert.ok(['listed-client', 'confidential'].includes(url.searchParams.get('client_id')!));
+      assert.equal(url.searchParams.get('resource'), `${origin}/mcp`);
       assert.ok(['notes', 'notes notes.write'].includes(url.searchParams.get('scope')!));
       challenge = url.searchParams.get('code_challenge')!; grantedScope = url.searchParams.get('scope')!;
       const back = new URL(url.searchParams.get('redirect_uri')!); back.searchParams.set('state', url.searchParams.get('state')!); back.searchParams.set('code', 'listed-code');
@@ -411,7 +412,11 @@ test('a host lists apps from the known apps and a remote MCP directory, then con
       assert.equal(createHash('sha256').update(form.get('code_verifier')!).digest('base64url'), challenge);
       return send({ access_token: 'listed-access', refresh_token: 'listed-refresh', token_type: 'Bearer', expires_in: 3600, scope: grantedScope });
     }
-    if (url.pathname === '/revoke') { revoked.push(new URLSearchParams(body).get('token')!); res.writeHead(rejectRevocation ? 503 : 200); res.end(); return; }
+    if (url.pathname === '/revoke') {
+      const form = new URLSearchParams(body);
+      if (form.get('client_id') === 'confidential') assert.equal(form.get('client_secret'), 'client-secret');
+      revoked.push(form.get('token')!); res.writeHead(rejectRevocation ? 503 : 200); res.end(); return;
+    }
     if (url.pathname !== '/mcp') return send({}, 404);
     if (req.headers.authorization !== 'Bearer listed-access') return send({}, 401, { 'www-authenticate': `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"` });
     if (req.method !== 'POST') return send({}, 405);
@@ -495,7 +500,7 @@ test('a host lists apps from the known apps and a remote MCP directory, then con
     assert.deepEqual(revoked, ['listed-refresh', 'listed-access']);
     assert.equal(await upgrade.connected(), false);
     rejectRevocation = true;
-    const localOnly = connect(notes, { store, person: 'Umer-2', redirectUri: 'https://device.test/callback' });
+    const localOnly = connect(notes, { store, person: 'Umer-2', redirectUri: 'https://device.test/callback', client: { id: 'confidential', secret: 'client-secret', authMethod: 'client_secret_post' } });
     const secondFlow = await localOnly.signIn();
     const secondAuthorization = await fetch(secondFlow.url, { redirect: 'manual' });
     await secondFlow.finish(secondAuthorization.headers.get('location')!);

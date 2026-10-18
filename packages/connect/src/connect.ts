@@ -123,8 +123,16 @@ export class Connection {
         for (const [token, hint] of [[saved.tokens.refresh, 'refresh_token'], [saved.tokens.access, 'access_token']] as const) {
           if (!token) continue;
           try {
-            const response = await request(this.fetcher, saved.endpoints.revoke, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
-              body: new URLSearchParams({ token, token_type_hint: hint, client_id: saved.client.id }) }, this.timeout);
+            const body = new URLSearchParams({ token, token_type_hint: hint, client_id: saved.client.id });
+            const headers: Record<string, string> = { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' };
+            const method = saved.client.authMethod ?? (saved.client.secret ? 'client_secret_post' : 'none');
+            if (method === 'client_secret_post' && saved.client.secret) body.set('client_secret', saved.client.secret);
+            if (method === 'client_secret_basic' && saved.client.secret) {
+              const encode = (value: string) => new URLSearchParams({ v: value }).toString().slice(2);
+              headers.authorization = `Basic ${btoa(`${encode(saved.client.id)}:${encode(saved.client.secret)}`)}`;
+              body.delete('client_id');
+            }
+            const response = await request(this.fetcher, saved.endpoints.revoke, { method: 'POST', headers, body }, this.timeout);
             if (!response.ok) { revokedAtApp = false; reason = 'failed'; }
             await response.body?.cancel();
           } catch { revokedAtApp = false; reason = 'failed'; }
