@@ -1,6 +1,6 @@
 // machine() (docs/cloud-kit.md section 5). M1 builds the 5.1 checks of every method
 // and 5.2-5.5 and 5.7; M3 builds install, update, host, logs and deliver (section 8).
-import { MachineError } from './errors.ts';
+import { MachineError, markAdoptionInstallFailure } from './errors.ts';
 import { joinTailnet, tailnet } from './tailnet.ts';
 import { balanceCost, dateOf, enteredCost, monthStartIso, usageCost } from './cost.ts';
 import { archOf, nodeInstallArgv, nodePath } from './node.ts';
@@ -497,7 +497,11 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
           }
         }
         await save(ref);
-        await self.install(recipe, onLine);
+        try {
+          await self.install(recipe, onLine);
+        } catch (cause) {
+          throw markAdoptionInstallFailure(cause);
+        }
         return ref;
       });
     },

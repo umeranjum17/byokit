@@ -94,7 +94,9 @@ test('an app picks an existing Boat computer, consents to installation, and retr
     server.machine.script('npm', { code: 1, stdout: '', stderr: 'install refused', timedOut: false });
     const adopting = rejects(m.adopt(selected, opts), 'provider');
     await rejects(m.create({ name: 'extra', size: 'small', keepCopies: true }), 'busy');
-    await adopting;
+    const installError = await adopting;
+    assert.ok(installError instanceof MachineError);
+    assert.deepEqual(installError.extra, { step: '0', tail: 'install refused' });
     assert.deepEqual(m.ref, { ...selected, name: 'web' });
     server.machine.script('npm', { code: 0, stdout: '', stderr: '', timedOut: false });
     await m.install(recipe());
@@ -1194,12 +1196,33 @@ test('a connect screen follows setup steps in order and retries a failed install
     const failed = await collectSteps(setup(retrying));
     assert.deepEqual(failed.map((s) => s.step), ['checking-access', 'listing', 'failed']);
     assert.deepEqual(failed.at(-1), { step: 'failed', at: 'installing', cause: 'state.failed', retryable: true });
+    server.machine.script('npm', { code: 1, stdout: '', stderr: 'install refused again', timedOut: false });
+    const resumedFailure = await collectSteps(setup(retrying));
+    assert.deepEqual(resumedFailure.at(-1), { step: 'failed', at: 'installing', cause: 'state.failed', retryable: true });
     server.machine.script('npm', { code: 0, stdout: '', stderr: '', timedOut: false });
     const resumed = await collectSteps(setup(retrying));
     assert.deepEqual(resumed.map((s) => s.step), ['checking-access', 'listing', 'inspecting', 'installing', 'ready']);
     const reready = resumed.at(-1);
     assert.ok(reready?.step === 'ready' && reready.ref.id === existing2.id && reready.ref.name === 'retry');
     assert.equal(server.requests.filter((r) => r.method === 'POST' && r.path === '/sandboxes').length, 2);
+
+    // Guard failures stay inspecting on both fresh and saved computers.
+    const refused = await collectSteps(setup({
+      provider, store: memoryStore(), recipe: recipe('guarded'), pick: pickId(existing2.id), confirmId: 'wrong-id',
+    }));
+    assert.deepEqual(refused.at(-1), { step: 'failed', at: 'inspecting', cause: 'error.app', retryable: false });
+    const foreign = await collectSteps(setup({
+      ...retrying, store: memoryStore({ providerKey: '', ref: { ...reready.ref, account: 'another' } }),
+    }));
+    assert.deepEqual(foreign.at(-1), { step: 'failed', at: 'inspecting', cause: 'error.wrongAccount', retryable: false });
+
+    // Even a non-Error thrown by an app's install-line callback belongs to installing.
+    server.machine.script('npm', { code: 0, stdout: 'installed\n', stderr: '', timedOut: false });
+    const callbackFailure = await collectSteps(setup({
+      provider, store: memoryStore(), recipe: { ...recipe('callback'), workDir: '/home/user/callback' },
+      pick, confirmId: existing.id, onLine: () => { throw null; },
+    }));
+    assert.deepEqual(callbackFailure.at(-1), { step: 'failed', at: 'installing', cause: 'error.app', retryable: false });
   } finally { await server.close(); }
 });
 
