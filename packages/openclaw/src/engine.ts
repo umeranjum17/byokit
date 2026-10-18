@@ -184,7 +184,7 @@ export class Engine {
     await this.recoverOrphan();
     for (const d of [this.root, ...(!this.o.authSeal ? [join(this.root, 'home'), join(this.root, 'state')] : []), join(this.root, 'tmp'), join(this.root, 'usage'), join(this.root, 'install-home'), join(this.root, 'npm-cache'), join(this.o.stateDir, 'logs')]) mkdirSync(d, { recursive: true, mode: 0o700 });
     this.sweepAccountOrphans();
-    if (this.o.spawnEngine) this.claudeFallback = !await this.installedClaude();
+    if (this.o.spawnEngine) this.claudeFallback = await this.installedClaudeSignedOut();
     try { await this.authStore.prepare(); this.credentialsLocked = false; }
     catch (error) { if (this.locked(error)) return; throw error; }
     if (this.o.spawnEngine) {
@@ -309,16 +309,20 @@ export class Engine {
   }
   /** The engine's own shutdown signal; aborted by stop() and replaced by the next start(). */
   get stopSignal(): AbortSignal { return this.stopOwner.signal; }
-  // Whether the person's installed Claude Code is signed in, as `claude auth status --json` itself reports it.
-  private installedClaude(): Promise<boolean> {
+  private installedClaudeSignedOut(): Promise<boolean> {
     const env = { PATH: this.path, LANG: 'C.UTF-8', TMPDIR: join(this.root, 'tmp'), ...personal() };
     const bin = onPath(env.PATH, 'claude');
-    if (!bin) return Promise.resolve(false);
+    if (!bin) return Promise.resolve(true);
     return new Promise(resolve => execFile(bin, ['auth', 'status', '--json'], { env, timeout: 15_000, maxBuffer: 256 * 1024 }, (error, stdout) => {
-      let signedIn = false;
-      try { signedIn = !error && JSON.parse(stdout).loggedIn === true; } catch { /* not JSON: not signed in */ }
-      if (!signedIn) this.o.log?.(`claude: no installed sign-in, the engine uses its own sign-in folder (${String(error?.message ?? 'signed out').slice(0, 200)})`);
-      resolve(signedIn);
+      let loggedIn: unknown;
+      try { loggedIn = JSON.parse(stdout).loggedIn; } catch { /* no parsed answer */ }
+      if (loggedIn === true) return resolve(false);
+      if (loggedIn === false) {
+        this.o.log?.('claude: no installed sign-in, the engine uses its own sign-in folder');
+        return resolve(true);
+      }
+      this.o.log?.(`claude: sign-in status unknown, using the person's own login location (${String(error?.message ?? 'unparseable output').slice(0, 200)})`);
+      resolve(false);
     }));
   }
   /** The fallback Claude sign-in for a machine whose installed Claude Code is signed out: it signs into the engine's folder. */

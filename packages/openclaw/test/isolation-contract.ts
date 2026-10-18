@@ -43,8 +43,9 @@ export async function isolationContract(install?: (dir: string) => string | Prom
   writeFileSync(join(bin, 'claude'), `#!${process.execPath}
 const fs = require('node:fs'), { HOME, CLAUDE_CONFIG_DIR, CODEX_HOME } = process.env, argv = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ argv, HOME, CLAUDE_CONFIG_DIR, CODEX_HOME }) + '\\n');
-const loggedIn = fs.readFileSync(${JSON.stringify(status)}, 'utf8') === 'signed-in';
+const state = fs.readFileSync(${JSON.stringify(status)}, 'utf8'), loggedIn = state === 'signed-in';
 if (argv[0] === '--version') console.log('2.1.0 (Claude Code)');
+else if (argv.join(' ').startsWith('auth status') && state === 'hang') setTimeout(() => process.exit(0), 60_000);
 else if (argv.join(' ').startsWith('auth status')) { console.log(JSON.stringify({ loggedIn })); process.exit(loggedIn ? 0 : 1); }
 else process.exit(2);
 `, { mode: 0o700 });
@@ -122,6 +123,10 @@ else process.exit(2);
     for (const call of received) assert.deepEqual({ ...call, argv: undefined }, { argv: undefined, HOME: decoy }, `claude ${JSON.stringify(call.argv)} saw the person's HOME alone`);
     if (install) {
       // No installed sign-in: the engine falls back to its own Claude folder; the person's own CODEX_HOME still passes through.
+      await engine.stop();
+      writeFileSync(status, 'hang');
+      await engine.start();
+      assert.equal(engine.doctorContext().env.CLAUDE_CONFIG_DIR, undefined, 'an unanswered sign-in probe keeps the installed login location');
       await engine.stop();
       writeFileSync(status, 'signed-out');
       process.env.CODEX_HOME = join(decoy, '.codex');

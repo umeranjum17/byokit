@@ -10,7 +10,7 @@ import { stockBytes, useSyntheticStock } from './stock-fixture.ts';
 // Run the real Engine supervisor's isolation contract in npm test without installing or calling a provider.
 // The engine job runs these same assertions against the actual pinned engine.
 test('engine isolation: offline child receives only the app-owned environment and listens on loopback',
-  { timeout: 30_000 }, (t) => isolationContract(async (dir) => {
+  { timeout: 60_000 }, (t) => isolationContract(async (dir) => {
     useSyntheticStock(t);
     const engineDir = join(dir, 'fake-engine');
     const entryDir = join(engineDir, 'node_modules', 'openclaw');

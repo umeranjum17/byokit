@@ -600,9 +600,10 @@ OPENCLAW_NO_RESPAWN=1  OPENCLAW_SKIP_CHANNELS=1  OPENCLAW_DISABLE_BONJOUR=1  OPE
 OPENCLAW_LOAD_SHELL_ENV=0  OPENCLAW_GATEWAY_TOKEN=<token>  BYOKIT_BRIDGE_SOCK=<root>/bridge.sock
 ```
 
-Each `start()` first asks the installed `claude auth status --json` (the person's env above, 15 s): when it is not
-signed in (or no `claude` is on the PATH), that launch sets `CLAUDE_CONFIG_DIR=<home>/.claude`, the folder the
-phone-started fallback sign-in (5.7) signs into; a signed-in installed Claude Code is used as is.
+Each `start()` first asks the installed `claude auth status --json` (the person's env above, 15 s): when it reports
+`loggedIn: false` (or no `claude` is on the PATH), that launch sets `CLAUDE_CONFIG_DIR=<home>/.claude`, the folder the
+phone-started fallback sign-in (5.7) signs into; a signed-in installed Claude Code is used as is. Any other outcome
+(timeout, overflow, no parsed answer) is unknown and keeps the person's own login location, with no fallback.
 
 With `channels.telegram` (5.18) the gateway process alone drops `OPENCLAW_SKIP_CHANNELS` and gets
 `TELEGRAM_BOT_TOKEN=<token>`; doctor and plugin installs keep channels skipped and never see the token.
