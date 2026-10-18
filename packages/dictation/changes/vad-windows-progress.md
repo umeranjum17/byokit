@@ -1,3 +1,0 @@
-- FIX: the speech gate checks a take in bounded windows and reports progress, so a long recording starts decoding after its first window and never hangs on one whole-take check.
-- FIX: `whisperRnEngine` starts whisper.rn's Silero VAD with one thread (`nThreads: 1`). whisper.rn's Android default of 4 threads made a 2-core phone check about 8 s per second of audio, so 120 s of near-silence took about 15 minutes; one thread checks it in about 1 s.
-- `DictateOptions.onProgress` reports `{ phase: 'speech' | 'decode', doneMs, totalMs }` after each speech-gate window and each decode window of a whisper.rn final or file reading, so a host can show "Checking for speech 30/120 s". Previews report nothing, and the Node engines keep the callback in the host process.

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.15.1 (2026-10-18)
+
+- Dependency update: pins @byokit/relay 0.8.2.
+- Dependency update: pins @byokit/pair 0.10.4.
+
+- FIX: `refresh()` could answer with a tree read before the caller's own change: a call made while another refresh was already reading joined it. Each call now resolves with a tree read that started after it; a call made while a read is in flight waits for the one queued follow-up, which every such caller shares.
+
 ## 0.15.0 (2026-10-17)
 
 - FEAT: `kit.onChange` is called with `(snapshot, changed)`: `changed` names the panes whose agent status moved in that revision, and is empty for a title-only change, so a host emits just those agent states without debouncing every tree revision.

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.5.2 (2026-10-18)
+
+- FIX: on-device dictation no longer runs more decode threads than the device has cores. The old fixed default of 6 threads made a 2-core phone decode 5 s of speech in 52 s instead of 4 s. The default `threads` is now the cores the platform reports, at most 8 (`whisperEngine` uses `os.availableParallelism()`); on React Native, which reports no count, the kit sends no thread count and whisper.rn picks from the phone's cores (at most 4). An explicit `threads` still wins.
+- FIX: the speech gate checks a take in bounded windows and reports progress, so a long recording starts decoding after its first window and never hangs on one whole-take check.
+- FIX: `whisperRnEngine` starts whisper.rn's Silero VAD with one thread (`nThreads: 1`). whisper.rn's Android default of 4 threads made a 2-core phone check about 8 s per second of audio, so 120 s of near-silence took about 15 minutes; one thread checks it in about 1 s.
+- `DictateOptions.onProgress` reports `{ phase: 'speech' | 'decode', doneMs, totalMs }` after each speech-gate window and each decode window of a whisper.rn final or file reading, so a host can show "Checking for speech 30/120 s". Previews report nothing, and the Node engines keep the callback in the host process.
+
 ## 0.5.1 (2026-10-16)
 
 - FIX: The dictation worker calls `process.disconnect()` optionally, so Node's type definitions may declare it optional without breaking the worker's build. No behaviour change: the callback only runs when the worker's IPC channel is connected.

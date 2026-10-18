@@ -1,1 +1,0 @@
-- FIX: `refresh()` could answer with a tree read before the caller's own change: a call made while another refresh was already reading joined it. Each call now resolves with a tree read that started after it; a call made while a read is in flight waits for the one queued follow-up, which every such caller shares.
