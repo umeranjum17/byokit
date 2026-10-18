@@ -1131,7 +1131,7 @@ test('an app tells the person what the cloud computer costs and speaks in plain 
 
   const codes: readonly MachineErrorCode[] = [
     'no-machine', 'exists', 'wrong-account', 'unsupported', 'confirm', 'bad-recipe', 'not-linux', 'linger',
-    'host-key', 'unauthorized', 'balance', 'unreachable', 'provider', 'needs-root', 'timeout', 'no-snapshot',
+    'host-key', 'unauthorized', 'balance', 'unreachable', 'provider', 'needs-root', 'timeout', 'no-snapshot', 'owner-enrolled',
   ];
   for (const code of codes) {
     const w = errorWords(new MachineError(code, 'detail'), vars);

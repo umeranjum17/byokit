@@ -17,6 +17,7 @@ export type MachineErrorCode =
   | 'timeout'
   | 'no-snapshot'         // K3: restore or delete of an id that is not one of this machine's ready copies
   | 'busy'                // K3: a save, reset or remove of this machine is already running; the second one changes nothing
+  | 'owner-enrolled'      // adopt(): this app is already installed there, so another phone owns it; replaceOwner takes it over (5.12)
 
 export class MachineError extends Error {
   readonly code: MachineErrorCode

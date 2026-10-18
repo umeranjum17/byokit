@@ -27,8 +27,10 @@ export async function* setup(o: {
   pick: (listed: MachineRef[]) => MachineRef;
   confirmId: string;
   onLine?: (line: string) => void;
-  pair?: (ref: MachineRef) => Promise<void>;       // the app's Pair-ready gate; absent skips pairing
+  pair?: (ref: MachineRef, o: { replaceOwner: boolean }) => Promise<void>;  // the app's Pair-ready gate; absent skips pairing
+  replaceOwner?: boolean;                          // 5.12: only after the person confirms an `error.ownerEnrolled` failure
 }): AsyncGenerator<SetupStep> {
+  const replaceOwner = o.replaceOwner === true;
   const m = machine({ provider: o.provider, store: o.store });
   const fail = (at: SetupStepName, e: unknown): SetupStep =>
     e instanceof MachineError
@@ -69,7 +71,7 @@ export async function* setup(o: {
   const prior = saved(selected);
   let ref: MachineRef;
   try {
-    ref = await m.adopt(selected, { confirmId: o.confirmId, recipe: o.recipe, onLine: o.onLine });
+    ref = await m.adopt(selected, { confirmId: o.confirmId, recipe: o.recipe, onLine: o.onLine, replaceOwner });
     yield { step: 'inspecting', ref };
     yield { step: 'installing', ref };
   } catch (e) {
@@ -95,7 +97,7 @@ export async function* setup(o: {
   }
   if (o.pair !== undefined) {
     try {
-      await o.pair(ref);
+      await o.pair(ref, { replaceOwner });
     } catch (e) {
       yield fail('pairing', e);
       return;
