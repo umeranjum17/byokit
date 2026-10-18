@@ -209,7 +209,10 @@ export class HerdrKit {
   // is stays silent, so a host that re-reads on `ready` triggers no endless loop.
   private setState(s: HerdrState) {
     if (s.phase === this.current.phase && s.why === this.current.why) return;
-    this.current = s; this.o.onState?.(s);
+    this.current = s;
+    if (s.phase === 'stalled' && this.tree.connected) { this.tree.connected = false; this.publish(); }
+    else if (s.phase === 'ready' && !this.tree.connected) { this.tree.connected = true; this.publish(); }
+    this.o.onState?.(s);
   }
   // Every tree change ends here: the revision rides the tree itself, so snapshot() always shows
   // the count and a wholesale tree swap carries it over. `changed` names the panes whose agent
