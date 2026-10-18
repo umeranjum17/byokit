@@ -718,7 +718,6 @@ declare const hostConfig: { model: string };
 declare const images: readonly ImageInput[]; // PNG/JPEG bytes or matching data URLs supplied by the host
 const backend = claudeCode({
   bin: '/absolute/path/to/claude',
-  configDir: '/absolute/path/to/app-sign-in',
   model: hostConfig.model,
   timeoutMs: 120_000,
 });
@@ -744,24 +743,19 @@ else console.log(result.data);
 
 The `@byokit/decide/claude-code` subpath is Node-only. The main entry, including `generate`, stays
 portable on browsers and React Native. The host supplies the absolute path of the user's own
-**unmodified** Claude binary (v2.1.286 or later) and an existing, separate absolute sign-in directory.
+**unmodified** Claude binary (v2.1.286 or later), already signed in. The binary runs as the user's
+own install does: with their HOME, PATH and environment, so their existing Claude subscription sign-in
+answers. The kit keeps no sign-in of its own and never asks for one. If Claude is not signed in yet,
+the user runs `claude` once and signs in through its own flow.
 The adapter's `billing` is always `'subscription'`; it has no API-key input or fallback. Before
 generation, it asks the binary for `auth status` and requires a signed-in first-party `claude.ai`
 account. Unknown or API authentication is refused before any model request; status metadata is discarded.
 
-Sign in **yourself**, through the binary's own flow, using the same isolated directory:
-
-```sh
-mkdir -p /absolute/path/to/app-sign-in
-CLAUDE_CONFIG_DIR=/absolute/path/to/app-sign-in /absolute/path/to/claude auth login
-```
-
-Choose your subscription account. Do not copy credentials from an existing installation, sign in
-with a Console API key, or point `configDir` at your ordinary `.claude` folder. The kit neither runs
-login nor reads, copies or intermediates credentials. Its separate config directory belongs to the
-binary and is retained between calls. Its temporary home and working directory are removed after
-each call, including cancellation and timeouts. The child's environment is built from a fixed
-minimal set: no ambient keys, OAuth tokens, proxy settings or Node preload scripts.
+The kit neither runs login nor reads, copies or intermediates credentials. Environment variables
+whose names hold `KEY`, `TOKEN` or `SECRET`, `NODE_OPTIONS`, and the billing-route selectors `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`, `CLAUDE_CODE_USE_ANTHROPIC_AWS`, `CLAUDE_CODE_USE_MANTLE`, `ANTHROPIC_PROFILE`, `ANTHROPIC_FEDERATION_RULE_ID` and `ANTHROPIC_BASE_URL` are removed from the child's
+environment, except `CLAUDE_CODE_OAUTH_TOKEN`, the subscription token from `claude setup-token`, which passes through. API-billed credentials such as `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` and the billing-route selectors above never reach the child. `configDir` is optional: when the host passes an absolute path, it is set as
+`CLAUDE_CONFIG_DIR` as given; otherwise the user's own setting, if any, applies. Each call runs in a
+temporary working directory that is removed afterwards, including cancellation and timeouts. The cache identity for this route is the binary path and `configDir` only; it does not include which Claude account is signed in, so a host that switches accounts on one machine uses a separate `GenerationCache`.
 
 [Claude Code's authentication and credential-use terms](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use)
 explicitly permit an end user to sign in to the unmodified binary using their own subscription;
@@ -776,8 +770,7 @@ import { claudeCode } from '@byokit/decide/claude-code';
 import type { ImageInput } from '@byokit/decide';
 
 declare const images: readonly ImageInput[];
-const backend = claudeCode({ bin: '/absolute/path/to/claude',
-  configDir: '/absolute/path/to/app-sign-in', timeoutMs: 120_000 });
+const backend = claudeCode({ bin: '/absolute/path/to/claude', timeoutMs: 120_000 });
 const controller = new AbortController();
 const schema = { type: 'object', required: ['title'],
   properties: { title: { type: 'string' } }, additionalProperties: false } as const;

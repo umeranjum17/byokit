@@ -1,7 +1,7 @@
-// Node-only seam: the host names an unmodified binary and a separately signed-in config directory.
+// Node-only seam: the host names the person's own unmodified, already signed-in Claude binary; it runs with their HOME.
 import { spawn } from 'node:child_process';
-import { mkdtemp, rm, realpath } from 'node:fs/promises';
-import { isAbsolute, join, resolve } from 'node:path';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { isAbsolute, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { Backend, Raw } from './index.ts';
 import type { Generated, GenerationBackend, GenerationRequest } from './generate.ts';
@@ -10,15 +10,15 @@ import { outputSchema, type OutputSchema } from './schema.ts';
 import { generationImages } from './generation-images.ts';
 import { validateImageReferences } from './images.ts';
 
-export type ClaudeCodeOptions = { bin: string; configDir: string; model?: string; timeoutMs: number };
+export type ClaudeCodeOptions = { bin: string; configDir?: string; model?: string; timeoutMs: number };
 export type ClaudeCodeBackend = Backend & GenerationBackend & { readonly billing: 'subscription' };
 type FailureCode = 'invalid_json' | 'invalid_output' | 'incomplete' | 'process' | 'subscription_required' | 'timeout' | 'aborted';
 const messages: Record<FailureCode, string> = {
   invalid_json: 'The model returned invalid JSON.',
   invalid_output: 'The answer did not match the output schema.',
   incomplete: 'The answer was cut off before it was complete.',
-  process: 'The model could not answer. Check its separate subscription sign-in.',
-  subscription_required: 'Sign in separately with your own subscription.',
+  process: 'The model could not answer. Check that Claude is signed in on this computer: run `claude` once.',
+  subscription_required: 'Sign in to Claude with your subscription on this computer: run `claude` once.',
   timeout: 'The answer took too long.',
   aborted: 'The answer was cancelled.',
 };
@@ -28,12 +28,12 @@ export class ClaudeCodeError extends Error {
 }
 
 const record = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
-const reserved = (path: string) => /(?:^|[/\\])\.(?:claude|pi|codex)(?:[/\\]|$)/.test(path);
+const billingRoutes = new Set(['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_USE_ANTHROPIC_AWS', 'CLAUDE_CODE_USE_MANTLE', 'ANTHROPIC_PROFILE', 'ANTHROPIC_FEDERATION_RULE_ID', 'ANTHROPIC_BASE_URL']);
 
-/** No credential access, login implementation, ambient environment, or API-key fallback. */
+/** No credential access, login implementation, own sign-in folder, or API-key fallback. */
 export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
-  if (!isAbsolute(options.bin) || !isAbsolute(options.configDir) || reserved(resolve(options.configDir))) {
-    throw new Error('Supply an absolute binary path and a separate absolute sign-in directory.');
+  if (!isAbsolute(options.bin) || (options.configDir !== undefined && !isAbsolute(options.configDir))) {
+    throw new Error('Supply an absolute binary path, and an absolute config directory if you pass one.');
   }
   if (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0 || options.timeoutMs > 2_147_483_647 ||
       (options.model !== undefined && (typeof options.model !== 'string' || !options.model.trim()))) {
@@ -51,10 +51,6 @@ export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
     if (input.signal?.aborted) throw new ClaudeCodeError('aborted');
     const maxOutputTokens = input.maxOutputTokens ?? 16_384;
     if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 16_384) throw new Error('The output budget is invalid.');
-    // Resolve only the directory itself; the kit never opens a credential or settings file.
-    let configDir: string;
-    try { configDir = await realpath(o.configDir); } catch { throw new ClaudeCodeError('process'); }
-    if (reserved(configDir) || configDir === resolve('/')) throw new Error('Use a separate sign-in directory.');
     let scratch: string;
     try { scratch = await mkdtemp(join(tmpdir(), 'byokit-claude-code-')); } catch { throw new ClaudeCodeError('process'); }
     try {
@@ -65,10 +61,10 @@ export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
         ...(input.system ? ['--system-prompt', input.system] : [])];
       const deadline = Date.now() + o.timeoutMs;
       const execute = (args: string[], stdin?: string) => new Promise<string>((resolveOutput, reject) => {
+        // The person's own environment so their installed Claude answers with its own sign-in; minus API-billed, billing-route and preload variables, keeping the subscription OAuth token.
         const child = spawn(o.bin, args, { cwd: scratch, env: {
-          HOME: scratch, USERPROFILE: scratch, TMPDIR: scratch, TMP: scratch, TEMP: scratch,
-          XDG_CONFIG_HOME: scratch, XDG_CACHE_HOME: scratch, XDG_DATA_HOME: scratch,
-          PATH: '/usr/bin:/bin', CLAUDE_CONFIG_DIR: configDir,
+          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k === 'CLAUDE_CODE_OAUTH_TOKEN' || (!/KEY|TOKEN|SECRET|^NODE_OPTIONS$/i.test(k) && !billingRoutes.has(k)))),
+          ...(o.configDir !== undefined && { CLAUDE_CONFIG_DIR: o.configDir }),
           CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens),
           DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
         }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
