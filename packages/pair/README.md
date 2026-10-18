@@ -500,7 +500,8 @@ the real host, so **both screens still show the same two words and host approval
 Only an explicit affirmative response after matching words should return `true` from `confirm`.
 The kit has no approval UI; exceptions decline. A confirmation still pending when the code runs out is refused as
 `expired` (the device says the code ran out), and `confirm`'s `signal` aborts then so the prompt can close; a yes
-that arrives later grants nothing.
+that arrives later grants nothing. A yes that lands after the code ran out but before that answer time is up is refused
+the same way: the device hears `expired` and the `signal` aborts, so the computer can say so too.
 
 For relay discovery, display the separate six-character `RelayClient.code()` lookup alongside
 the full `host.shortCode()` pairing code. The device calls `findHost(relay, lookup)` from
