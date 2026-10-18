@@ -1,7 +1,7 @@
 // An account's error in the kinds an app acts on, and when it said to come back. v1 reads errors only: no usage endpoint.
-export type Kind = 'rate_limit' | 'overloaded' | 'signed_out' | 'not_included' | 'network';
+export type Kind = 'rate_limit' | 'overloaded' | 'signed_out' | 'not_included' | 'network' | 'needs_workspace';
 /** How long an account rests when its error didn't say. */
-export const REST_MS: Record<Kind, number> = { rate_limit: 60 * 60_000, overloaded: 5 * 60_000, signed_out: 0, not_included: 0, network: 0 };
+export const REST_MS: Record<Kind, number> = { rate_limit: 60 * 60_000, overloaded: 5 * 60_000, signed_out: 0, not_included: 0, network: 0, needs_workspace: 0 };
 
 /** `until` is 0 when the error didn't say. Anything unrecognised is null: the app fails that one request. */
 export type Failure = { kind: Kind; until: number };
@@ -10,6 +10,8 @@ export function classifyFailure(error: string, nowMs: number = Date.now()): Fail
   // Kept in step with @byokit/openclaw's classify: both read the retry delay from either wording.
   const m = /(?:try again in|next reset in)\s*~?(\d+)\s*(min|h)/i.exec(error);
   const until = m ? nowMs + Number(m[1]) * (m[2].toLowerCase() === 'h' ? 3_600_000 : 60_000) : 0;
+  // The KeyRouteError words and the gateway's own refusal: the app asks the person to pick a workspace, nothing rests.
+  if (/works with more than one workspace|workspace selection is required/i.test(error)) return { kind: 'needs_workspace', until };
   if (/your plan doesn't include/i.test(error)) return { kind: 'not_included', until };
   if (/usage limit|rate.?limit|quota|too many requests|\b429\b/i.test(error)) return { kind: 'rate_limit', until };
   if (/overloaded|high demand|\b50[234]\b|unavailable/i.test(error)) return { kind: 'overloaded', until };

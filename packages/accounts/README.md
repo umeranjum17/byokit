@@ -167,7 +167,7 @@ and [`examples/pwa`](../../examples/pwa) (browser sign-in).
 | `offered`, `provider`, `PROVIDERS` | The catalogue: each provider's billing, models and source |
 | `billingWords`, `say`, `WORDS`, `signInError`, `failure`, `clock`, `callbackPage` | The plain sentences every app shows the same way (`words.json`), a time in words, and the page a browser sees after a sign-in |
 | `respond`, `ResponseError`, `IncompleteError`, `sseReader`, `limitResponse`, `isFunctionCall` | Ask ChatGPT's answers endpoint with a sign-in, with tools, pictures, thinking effort and an answer shape; the error with the words to show and the kind acted on |
-| `classifyFailure`, `classify`, `REST_MS` | An error's kind (limit, overload, plan without this use, lapsed sign-in, network) and default rest times |
+| `classifyFailure`, `classify`, `REST_MS` | An error's kind (limit, overload, plan without this use, lapsed sign-in, network, or `needs_workspace`: an OpenCode Go key that acts for several workspaces, which the app answers with the workspace pick, then adds again with the chosen workspace) and default rest times |
 | `planOf`, `claims` | The ChatGPT plan and email behind a sign-in, from its own token |
 | `planLabel`, `claudeProfile` | A plan as a person says it ("ChatGPT Plus", "Claude Max"); the Claude plan and email from Claude's profile |
 | `deviceStart`, `devicePoll`, `credentialOf`, `portableEngine`, `PORTABLE` | ChatGPT's own device-code flow, the sign-in built from a token answer, and the engine under `portable` |
@@ -599,8 +599,11 @@ credentials. Do not point this migration at another tool's sign-in directory.
 `classifyFailure(error, nowMs?)` returns a typed `Failure` (`{ kind, until }`) or `null`
 for an unrecognized error. `until` is epoch milliseconds when the error says "try again
 in N min/hours", and zero otherwise. For resting kinds, use
-`failure.until || nowMs + REST_MS[failure.kind]`; signed-out, not-included and network
-failures have no fallback rest. `classify` remains an alias. Pass a clock for deterministic
+`failure.until || nowMs + REST_MS[failure.kind]`; signed-out, not-included, network and
+`needs_workspace` failures have no fallback rest. `needs_workspace` is an OpenCode Go key that
+acts for several workspaces (`KeyRouteError` `needs_workspace`, or the gateway's "Workspace
+selection is required"): the app shows the workspace pick and adds the key again with the
+chosen workspace; the account does not rest. `classify` remains an alias. Pass a clock for deterministic
 classification; the default uses `Date.now()`. It stores and logs no error text.
 
 For a capability running where the sign-in lives, `await accounts.access(member, signal)` returns fresh `{ access, accountId }` from the app’s own ChatGPT store. Keep these credentials in that process; proxy signaling or relay media for another device. This uses the same refresh and signed-out behavior as `respond`.

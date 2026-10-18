@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { Accounts, SignInReturnError, WORDS, billingWords, classify, fileStore, isolate, launchEnv, memoryStore, offered, portable, PROVIDERS, say } from '@byokit/accounts';
+import { Accounts, KeyRouteError, SignInReturnError, WORDS, billingWords, classify, fileStore, isolate, launchEnv, memoryStore, offered, portable, PROVIDERS, say } from '@byokit/accounts';
 import { mockOpenAI } from '@byokit/accounts/testing';
 import { scratchDir } from '../../test-support.ts';
 
@@ -183,6 +183,10 @@ test("a declined sign-in is one plain sentence and keeps nothing; the words show
     assert.equal(classify('429 Too Many Requests, try again in 2h')?.kind, 'rate_limit');
     assert.equal(classify('401 Unauthorized')?.kind, 'signed_out');
     assert.equal(classify('context window exceeded by your prompt'), null);
+    // An OpenCode Go key with several workspaces: the typed pick in every wording, and it rests nothing.
+    assert.equal(classify(new KeyRouteError('needs_workspace').message)?.kind, 'needs_workspace');
+    assert.equal(classify('Workspace selection is required')?.kind, 'needs_workspace');
+    assert.equal(classify('403 Workspace selection is required')?.kind, 'needs_workspace');
   } finally {
     accounts.stop();
     await openai.close();
