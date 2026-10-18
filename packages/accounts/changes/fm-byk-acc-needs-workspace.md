@@ -1,0 +1,1 @@
+- FIX: classifyFailure returns needs_workspace for an OpenCode Go key that acts for several workspaces, so the app can ask the person to pick one instead of showing a run error.
