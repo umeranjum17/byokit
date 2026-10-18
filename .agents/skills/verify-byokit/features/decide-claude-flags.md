@@ -5,12 +5,13 @@ The `claudeCode` backend shells out to the person's own installed, signed-in `cl
 ## Sub-features
 
 - `claude-own-sign-in`: `claudeCode({ bin, timeoutMs })` with no `configDir` runs a stand-in `claude` with the consumer's own HOME and PATH and no `CLAUDE_CONFIG_DIR`, and the stand-in's stream-json answer validates; with `configDir`, the stand-in receives `CLAUDE_CONFIG_DIR` exactly as given.
+- `claude-installed-account`: `claudeCode({ bin, account })` with the installed Claude's `launch('installed-claude')` result from `cliAccounts({ ..., installed: true })` runs with the person's HOME and no `CLAUDE_CONFIG_DIR`; a managed account's `launchEnv` sets its folder; `account` with `configDir` throws. Driven by [accounts-cli-installed](./accounts-cli-installed.md).
 - `claude-flags-accepted`: with a `claude` binary on PATH and an empty scratch sign-in dir, `generate` surfaces the typed not-signed-in failure (`ClaudeCodeError`; the CLI's `auth status` exits 1 when logged out) instead of a flag-combination refusal, leak or hang. The generation args use `--output-format stream-json --verbose` with `--input-format stream-json`, and the adapter answers from the final `result` event (covered against the real CLI by the `generate.test.ts` replay test).
 - `claude-absent-is-process-error`: with no binary at the given path, `generate` rejects with `ClaudeCodeError` (never a raw spawn error or hang).
 
 ## How to get to it (user POV)
 
-- The app judges a typed question through `claudeCode({ bin, timeoutMs })` using the person's own installed, signed-in Claude (an optional `configDir` is passed through as `CLAUDE_CONFIG_DIR`).
+- The app judges a typed question through `claudeCode({ bin, timeoutMs })` using the person's own installed, signed-in Claude (an optional `configDir` is passed through as `CLAUDE_CONFIG_DIR`, or an `account` from the accounts list sets it for a managed account and leaves it unset for the installed one).
 
 ## Driving it with node scratch consumers
 
