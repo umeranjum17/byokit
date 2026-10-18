@@ -88,6 +88,26 @@ test('a code that runs out while the computer asks refuses expired, aborts the a
   assert.deepEqual(h.saved(), []);
 });
 
+test('a yes after the offer ran out but inside the answer time refuses expired and tells the computer once', async () => {
+  let clock = Date.now(), aborts = 0, ask: AbortSignal | undefined;
+  const h = await startHost({
+    now: () => clock, pairMs: 60_000,
+    confirm: (_req, o) => {
+      ask = o.signal;
+      o.signal.addEventListener('abort', () => aborts++);
+      clock += 60_001; // the person says yes a moment after the offer's own expiry, long before claim + pairMs
+      return true;
+    },
+  });
+  await assert.rejects(pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' }),
+    (e: LinkError) => e.code === 'expired' && e.sealed);
+  await sleep(50);
+  assert.equal(ask?.aborted, true, 'the computer prompt is told the code ran out');
+  assert.equal(aborts, 1);
+  assert.deepEqual(h.host.devices(), []);
+  assert.deepEqual(h.saved(), []);
+});
+
 test('a yes that resolves after the code ran out (250 ms against 200 ms) grants nothing', async () => {
   const h = await startHost({ pairMs: 200, confirm: () => sleep(250).then(() => true) });
   await assert.rejects(pairWithOffer(h.host.offer({ role: 'control', urls: [h.url] }).text, { name: 'Phone' }),

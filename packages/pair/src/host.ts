@@ -48,7 +48,8 @@ export type HostOptions = {
   /** Answers a device's request. Runs on the host, with the host's credentials; the device only gets the answer. */
   handle: (req: LinkRequest, device: Grant) => unknown;
   /** Asks the person at the host whether this device may join; nothing is stored until it says yes. `signal` aborts
-   *  when the pairing code runs out, so the app can close its prompt; a yes that comes later grants nothing. */
+   *  when the pairing code runs out, so the app can close its prompt, and also when a yes lands after it ran out;
+   *  a yes that comes later grants nothing. */
   confirm: (p: PairRequest, o: { signal: AbortSignal }) => boolean | Promise<boolean>;
   /** Takes a stream a device opened with `link.stream(op, args)` (a terminal pane, a tunnelled connection, a call):
    *  set `onData` and `onEnd`, `write`, `end`. The stream opens before this handler runs; a thrown
@@ -478,7 +479,10 @@ export class Host {
         if (gone) return;
         if (added) await attach(added, true);
         else refuse('full');
-      } catch (e) { if (!gone) refuse(e instanceof PairExpired ? 'expired' : 'failed'); }
+      } catch (e) {
+        if (e instanceof PairExpired) ask.abort(); // the offer ran out during the yes: tell the computer too
+        if (!gone) refuse(e instanceof PairExpired ? 'expired' : 'failed');
+      }
     };
 
     const attach = async (g: Grant, paired = false, auth?: any) => {
