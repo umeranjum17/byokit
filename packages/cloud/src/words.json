@@ -26,6 +26,7 @@
   "setup.listing": "Looking for your existing cloud computers.",
   "setup.inspecting": "Checking this cloud computer can run {app}.",
   "setup.installing": "Putting {app} on your cloud computer.",
+  "setup.securing": "Giving your cloud computer a private address on your own network.",
   "setup.pairing": "Connecting this device to {app}.",
   "setup.ready": "{app} is running on your cloud computer.",
   "claim.refused": "{label} didn't accept that address. Check it and try again.",

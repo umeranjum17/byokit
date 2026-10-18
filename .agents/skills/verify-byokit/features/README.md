@@ -194,7 +194,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [cloud-snapshots](./cloud-snapshots.md) — save, prune, auto-save, reset and disk space on the cloud computer.
 - [cloud-claim](./cloud-claim.md) — account link by sign-in, spare-assertion revoke and `revokeClaim()` on the loopback bench, and the live boat.dev claim-and-revoke run.
 - [cloud-boat-v1](./cloud-boat-v1.md) — public boat-v1 wire names plus existing-computer list/adopt, consent/collision refusals and install retry without another rental.
-- [cloud-phone-enrol](./cloud-phone-enrol.md) — exact-phone enrol through provider delivery bound with Host.enrol: first phone wins, restart-safe, pairing step, guard unchanged.
+- [cloud-phone-enrol](./cloud-phone-enrol.md) — exact-phone enrol through provider delivery bound with Host.enrol: first phone wins, restart-safe, guard unchanged; the `securing` step (tailnet name + private serve) and the `pairing` receipt a phone links with alone (`capture/cloud-pair-receipt.mjs` bench and live Boat).
 - [cloud-hetzner](./cloud-hetzner.md) — API-loaded Hetzner create/status/delete and pinned SSH HostRecipe through the built Node entry; offline native bench and token-gated live proof.
 - [service-linux](./service-linux.md) — per-user systemd unit install/status/uninstall: runner-only journey plus built-entry refusals.
 - [service-testing](./service-testing.md) — the `./testing` fake exec (`FakeSystemd`) and the shared contract suite: the journey in memory, the real manager in `service-linux`.

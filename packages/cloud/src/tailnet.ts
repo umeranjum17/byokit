@@ -129,3 +129,25 @@ export async function joinTailnet(provider: Provider, ref: MachineRef, o: { host
     await new Promise<void>((resolve) => setTimeout(resolve, 1000));
   }
 }
+
+/** A TCP port the app's host listens on, on loopback. */
+export const checkPort = (port: number): void => {
+  if (!Number.isInteger(port) || port < 1 || port > 65535) throw new MachineError('bad-recipe', 'port: use a whole number from 1 to 65535.');
+};
+
+// 9.1's private route: the tailnet forwards `port` to the host on loopback. Never Funnel, never a provider URL.
+export async function servePort(provider: Provider, ref: MachineRef, port: number): Promise<void> {
+  checkPort(port);
+  const target = `127.0.0.1:${port}`;
+  const served = await provider.exec(ref, ['tailscale', 'serve', '--bg', `--tcp=${port}`, `tcp://${target}`], { root: true, timeoutMs: 30_000 });
+  if (served.timedOut) throw new MachineError('timeout', 'Opening the private route took too long.');
+  if (served.code !== 0) throw new MachineError('provider', `Opening the private route failed: ${served.stderr.slice(-200)}`);
+  const r = await provider.exec(ref, ['tailscale', 'serve', 'status', '--json'], { root: true, timeoutMs: 30_000 });
+  if (r.timedOut) throw new MachineError('timeout', 'Checking the private route took too long.');
+  let status;
+  try { status = JSON.parse(r.stdout) as { TCP?: Record<string, { TCPForward?: string }> }; }
+  catch { status = null; }
+  if (r.code !== 0 || status?.TCP?.[String(port)]?.TCPForward !== target) {
+    throw new MachineError('provider', `Your private network is not serving port ${port}: ${r.stderr.slice(-200)}`);
+  }
+}

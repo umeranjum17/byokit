@@ -201,10 +201,12 @@ the recipe's admin steps; adoption is not a sandbox for an untrusted installer.
 
 ## Setup step stream
 
-`setup({ provider, store, recipe, pick, confirmId, onLine, pair })` drives one existing-computer
+`setup({ provider, store, recipe, pick, confirmId, onLine, address, pair })` drives one existing-computer
 connect as steps for the connect screen: `checking-access`, `listing`, `inspecting` (the picked machine
-passed the adoption guards and is saved), `installing` (`onLine` carries its lines), `pairing` (the app's
-Pair-ready gate; skipped without `pair`), then `ready`. Each step is emitted after its real result, shown
+passed the adoption guards and is saved), `installing` (`onLine` carries its lines), `securing` (the
+secure address: with `address: { hostname, port, onStep? }` the kit confirms or joins the person's
+tailnet, `onStep` carrying the sign-in link, then privately serves the app's loopback `port` on it;
+skipped without `address`), `pairing` (the app's Pair-ready gate; skipped without `pair`), then `ready`. Each step is emitted after its real result, shown
 with `words('setup.<step>', { app, label })`. A rejection ends the stream with one `failed` step (`at` the
 phase, `cause` a words key via `errorKey`, `retryable` whether a repeat may pass): re-run `setup()` with
 the same arguments and it resumes at install on the saved machine instead of renting another.
@@ -234,16 +236,30 @@ the one authenticated phone's 32-byte public key to the machine through provider
 The first phone wins and the binding survives restarts: the same key rebinds idempotently while any
 other key is refused. Shown with the existing `setup.pairing` words.
 
+After binding, the host writes `phoneReceipt(host, key)` to `<workDir>/.byokit/outbox/receipt.json`.
+`pairEnrol` waits up to a minute for that receipt for the same key and the `pairing` step carries it:
+the host's public key, the phone's device on it, and the secured address. The phone opens a real
+`@byokit/pair` link with that receipt and its own secret key alone. Every value in it is public.
+
 ```ts
 import { machine, pairEnrol, setup, type HostRecipe, type MachineRef, type MachineStore, type Provider } from '@byokit/cloud';
+import { DeviceLink, b64url, type KeyPair } from '@byokit/pair';
 
 export async function connectPhone(
   provider: Provider, store: MachineStore, recipe: HostRecipe,
-  pick: (listed: MachineRef[]) => MachineRef, confirmId: string, phoneKey: Uint8Array,
+  pick: (listed: MachineRef[]) => MachineRef, confirmId: string, phone: KeyPair, openPage: (url: string) => void,
 ) {
   const m = machine({ provider, store });
-  for await (const s of setup({ provider, store, recipe, pick, confirmId, pair: pairEnrol(m, recipe, phoneKey) })) {
-    if (s.step === 'ready') return s.ref;
+  let link: DeviceLink | undefined;
+  for await (const s of setup({
+    provider, store, recipe, pick, confirmId, pair: pairEnrol(m, recipe, phone.publicKey),
+    address: { hostname: 'tracker', port: 7300, onStep: (t) => { if (t.step === 'open-page') openPage(t.url); } },
+  })) {
+    if (s.step === 'pairing' && s.receipt) {
+      link = new DeviceLink({ v: 1, secretKey: b64url(phone.secretKey), hostName: 'Your cloud computer', ...s.receipt },
+        { store: { save() {}, clear() {} } });
+    }
+    if (s.step === 'ready') return link;
     if (s.step === 'failed') throw new Error(s.at);
   }
   throw new Error('connect ended without ready');
@@ -251,11 +267,17 @@ export async function connectPhone(
 ```
 
 ```ts
-import { bindPhoneKey } from '@byokit/cloud';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { bindPhoneKey, phoneReceipt } from '@byokit/cloud';
 import { Host } from '@byokit/pair';
 
-export async function bindOwner(host: Host, delivered: Uint8Array) {
-  return bindPhoneKey(host, delivered, 'Phone'); // { id, bound }: false when this phone was already bound
+export async function bindOwner(host: Host, delivered: Uint8Array, workDir: string) {
+  const bound = await bindPhoneKey(host, delivered, 'Phone'); // { id, bound }: false when this phone was already bound
+  const outbox = `${workDir}/.byokit/outbox`;
+  await mkdir(outbox, { recursive: true, mode: 0o700 });
+  await writeFile(`${outbox}/.receipt.tmp`, phoneReceipt(host, delivered), { mode: 0o600 });
+  await rename(`${outbox}/.receipt.tmp`, `${outbox}/receipt.json`);
+  return bound;
 }
 ```
 
