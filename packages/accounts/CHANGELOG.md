@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.28.0 (2026-10-18)
+
+- FEAT: The accounts list can show the Claude, Codex and Cursor already installed and signed in on this computer. Pass `installed: true` to `cliAccounts` and `list`/`pick` add one `installed-<provider>` row per CLI in `bins`, read with the CLI's own status command under the app's `env.HOME`; it launches with no folder variable, so the CLI runs on its own sign-in. A CLI that is signed out, could not start, did not answer or answered unreadably reads `signed_out` with a plain `cause` (and `why: 'unknown'` when it gave no clear answer). Managed rows are unchanged, and the kit never opens the installed CLI's login files.
+
 ## 0.27.1 (2026-10-18)
 
 - FIX: classifyFailure returns needs_workspace for an OpenCode Go key that acts for several workspaces, so the app can ask the person to pick one instead of showing a run error.
