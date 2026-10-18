@@ -65,6 +65,7 @@ test('Claude binary seam: the person\'s own sign-in, structured generation, scal
   const previousKey = process.env.ANTHROPIC_API_KEY;
   const previousOAuth = process.env.CLAUDE_CODE_OAUTH_TOKEN;
   const previousAuthToken = process.env.ANTHROPIC_AUTH_TOKEN;
+  const previousBedrock = process.env.CLAUDE_CODE_USE_BEDROCK;
   try {
     await mkdir(configDir);
     await mkdir(logDir);
@@ -81,6 +82,7 @@ test('Claude binary seam: the person\'s own sign-in, structured generation, scal
     process.env.ANTHROPIC_API_KEY = 'never-reaches-the-binary';
     process.env.CLAUDE_CODE_OAUTH_TOKEN = 'subscription-token';
     process.env.ANTHROPIC_AUTH_TOKEN = 'api-token';
+    process.env.CLAUDE_CODE_USE_BEDROCK = '1';
     process.env.FAKE_CLAUDE_LOG = logDir;
     const backend = claudeCode({ bin, model: 'chosen-model', timeoutMs: 5000 });
     assert.equal(backend.billing, 'subscription');
@@ -110,6 +112,7 @@ test('Claude binary seam: the person\'s own sign-in, structured generation, scal
     assert.notEqual(log.cwd, process.cwd());
     assert.equal(log.env.CLAUDE_CODE_OAUTH_TOKEN, 'subscription-token');
     assert.equal('ANTHROPIC_AUTH_TOKEN' in log.env, false);
+    assert.equal('CLAUDE_CODE_USE_BEDROCK' in log.env, false);
     assert.deepEqual(Object.keys(log.env).filter((k: string) => /KEY|TOKEN|SECRET|NODE_OPTIONS/.test(k) && k !== 'CLAUDE_CODE_MAX_OUTPUT_TOKENS' && k !== 'CLAUDE_CODE_OAUTH_TOKEN'), []);
     await assert.rejects(readFile(join(log.cwd, 'any')), { code: 'ENOENT' });
     // A host-passed config directory is set as given, over the ambient one.
@@ -193,6 +196,8 @@ test('Claude binary seam: the person\'s own sign-in, structured generation, scal
     else process.env.CLAUDE_CODE_OAUTH_TOKEN = previousOAuth;
     if (previousAuthToken === undefined) delete process.env.ANTHROPIC_AUTH_TOKEN;
     else process.env.ANTHROPIC_AUTH_TOKEN = previousAuthToken;
+    if (previousBedrock === undefined) delete process.env.CLAUDE_CODE_USE_BEDROCK;
+    else process.env.CLAUDE_CODE_USE_BEDROCK = previousBedrock;
     delete process.env.FAKE_CLAUDE_LOG;
     await rm(join(homeClaude, 'byokit-test-canary'), { force: true });
     await rm(root, { recursive: true, force: true });

@@ -28,6 +28,7 @@ export class ClaudeCodeError extends Error {
 }
 
 const record = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
+const billingRoutes = new Set(['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX', 'CLAUDE_CODE_USE_FOUNDRY', 'CLAUDE_CODE_USE_ANTHROPIC_AWS', 'CLAUDE_CODE_USE_MANTLE', 'ANTHROPIC_PROFILE', 'ANTHROPIC_FEDERATION_RULE_ID', 'ANTHROPIC_BASE_URL']);
 
 /** No credential access, login implementation, own sign-in folder, or API-key fallback. */
 export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
@@ -62,7 +63,7 @@ export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
       const execute = (args: string[], stdin?: string) => new Promise<string>((resolveOutput, reject) => {
         // The person's own environment, so their installed Claude answers with its own sign-in; minus API keys, API tokens and preloads, keeping the subscription OAuth token.
         const child = spawn(o.bin, args, { cwd: scratch, env: {
-          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k === 'CLAUDE_CODE_OAUTH_TOKEN' || !/KEY|TOKEN|SECRET|^NODE_OPTIONS$/i.test(k))),
+          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k === 'CLAUDE_CODE_OAUTH_TOKEN' || (!/KEY|TOKEN|SECRET|^NODE_OPTIONS$/i.test(k) && !billingRoutes.has(k)))),
           ...(o.configDir !== undefined && { CLAUDE_CONFIG_DIR: o.configDir }),
           CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens),
           DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
