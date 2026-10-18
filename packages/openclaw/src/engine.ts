@@ -184,6 +184,7 @@ export class Engine {
     await this.recoverOrphan();
     for (const d of [this.root, ...(!this.o.authSeal ? [join(this.root, 'home'), join(this.root, 'state')] : []), join(this.root, 'tmp'), join(this.root, 'usage'), join(this.root, 'install-home'), join(this.root, 'npm-cache'), join(this.o.stateDir, 'logs')]) mkdirSync(d, { recursive: true, mode: 0o700 });
     this.sweepAccountOrphans();
+    if (this.o.spawnEngine) this.claudeFallback = !await this.installedClaude();
     try { await this.authStore.prepare(); this.credentialsLocked = false; }
     catch (error) { if (this.locked(error)) return; throw error; }
     if (this.o.spawnEngine) {
@@ -421,7 +422,6 @@ export class Engine {
         throw error;
       }
       this.sweepAccountOrphans();
-      if (this.o.spawnEngine) this.claudeFallback = !await this.installedClaude();
       try { return this.launch(); }
       catch (error) {
         // A launch failure after spawn still has a writer; the caller's stop must await its exit.

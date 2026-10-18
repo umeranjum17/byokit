@@ -87,7 +87,7 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
       const fd = openSync(join(stateDir, 'stock-engine.log'), 'a', 0o600);
       try {
         child = trackChild(spawn(process.execPath, [entry!, 'gateway', '--port', String(ctx.port)], {
-          cwd: kit.doctorContext().env.HOME, env: kit.doctorContext().env, stdio: ['ignore', fd, fd],
+          cwd: kit.doctorContext().env.OPENCLAW_HOME, env: kit.doctorContext().env, stdio: ['ignore', fd, fd],
         }));
       } finally { closeSync(fd); }
       child.on('error', () => {});
