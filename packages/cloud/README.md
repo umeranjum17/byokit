@@ -263,6 +263,9 @@ polled, then `done` with the key, its expiry and scopes. Save the key as
 and the app runs `claim()` again. A `failed` step ends the run; show `claim.refused` for
 `refused`, `claim.expired` for `expired`, `state.unknown` for `unreachable` and
 `state.failed` for `provider`, or fall back to `setup.makeKey`.
+Before `done`, `claim()` revokes the spare sign-in assertion sent beside the key.
+`revokeClaim({ baseUrl, key })` ends a claimed key (RFC 7009) and rejects with a
+`MachineError` naming the cause.
 
 ```ts
 import { claim, words } from '@byokit/cloud';

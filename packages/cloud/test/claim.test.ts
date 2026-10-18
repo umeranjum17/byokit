@@ -2,10 +2,11 @@
 // claim() drives Boat's documented agent sign-in (https://boat.dev/auth.md steps 1-5)
 // against the loopback fake's sign-in routes; no live provider, no real waits. A wrong
 // email is refused, an expired code ends expired with plain words, an abort ends the
-// iterator with no step, and the key appears in `done` only.
+// iterator with no step, and the key appears in `done` only. The spare sign-in assertion is
+// revoked before `done`, revokeClaim() ends the key, and a failed revoke names its cause.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { claim, words } from '@byokit/cloud';
+import { claim, revokeClaim, words } from '@byokit/cloud';
 import type { ClaimStep } from '@byokit/cloud';
 import { startFakeSandboxServer } from '@byokit/cloud/testing';
 
@@ -54,6 +55,7 @@ test('an assertion-only poll is exchanged once for the key', async () => {
     assert.deepEqual(steps.map((s) => s.step), ['open-page', 'type-code', 'waiting', 'done']);
     assert.equal(steps[3].step === 'done' ? steps[3].key : '', 'boat-claimed-key');
     assert.equal(polls(server.requests), 2);
+    assert.deepEqual([...server.revoked], ['assert-test-rotated']);
   } finally { await server.close(); }
 });
 
@@ -100,5 +102,53 @@ test('an abort during a slowed poll ends the iterator with no step', async () =>
     controller.abort();
     assert.equal((await fourth).done, true);
     assert.equal(polls(server.requests), 1);
+  } finally { await server.close(); }
+});
+
+test('claim revokes its spare assertion, and revokeClaim ends the key so /me answers 401', async () => {
+  const server = await startFakeSandboxServer({ key: 'boat-claimed-key' });
+  try {
+    const done = (await collect(claim({ baseUrl: server.url, email }))).at(-1);
+    assert.ok(done?.step === 'done');
+    assert.deepEqual([...server.revoked], ['assert-test-claimed']);
+    const me = async (): Promise<number> =>
+      (await fetch(`${server.url}/me`, { headers: { Authorization: `Bearer ${done.key}` } })).status;
+    assert.equal(await me(), 200);
+    await revokeClaim({ baseUrl: server.url, key: done.key });
+    assert.equal(await me(), 401);
+  } finally { await server.close(); }
+});
+
+test('a revoke that fails names its cause', async () => {
+  const server = await startFakeSandboxServer({ key: 'boat-claimed-key' });
+  const origin = new URL(server.url).origin;
+  try {
+    const revoke = (): Promise<void> => revokeClaim({ baseUrl: server.url, key: 'boat-claimed-key' });
+    await revoke();
+    await assert.rejects(revoke(), { name: 'MachineError', code: 'unauthorized', message: 'the provider refused the revoke with 401: invalid_client' });
+    server.failNext([{ status: 200, body: { issuer: origin } }]);
+    await assert.rejects(revoke(), { code: 'unsupported', message: 'the provider metadata has no revocation_endpoint' });
+    server.failNext([
+      { status: 200, body: { revocation_endpoint: `${origin}/api/boat/oauth2/revoke` } },
+      { status: 400, body: { error: 'unsupported_token_type' } },
+    ]);
+    await assert.rejects(revoke(), { code: 'provider', message: 'the provider answered the revoke with 400: unsupported_token_type' });
+    server.failNext([{ status: 503 }]);
+    await assert.rejects(revoke(), { code: 'provider', message: 'the provider metadata answered 503' });
+  } finally { await server.close(); }
+  await assert.rejects(revokeClaim({ baseUrl: 'http://127.0.0.1:1/api/v1', key: 'k' }), { code: 'unreachable' });
+});
+
+test('a spare assertion that cannot be revoked fails the claim and hands out no key', async () => {
+  const server = await startFakeSandboxServer();
+  const origin = new URL(server.url).origin;
+  try {
+    server.failNext([{ status: 200, body: {
+      token_endpoint: `${origin}/api/boat/oauth2/token`, agent_auth: { identity_endpoint: `${origin}/api/boat/agent/identity` },
+    } }]);
+    const steps = await collect(claim({ baseUrl: server.url, email }));
+    assert.deepEqual(steps.map((s) => s.step), ['open-page', 'type-code', 'waiting', 'failed']);
+    assert.deepEqual(steps[3], { step: 'failed', why: 'provider' });
+    assert.ok(!JSON.stringify(steps).includes('boat-claimed-key'));
   } finally { await server.close(); }
 });
