@@ -5,8 +5,8 @@
 export { machine } from './machine.ts';
 export { setup } from './setup.ts';
 export type { SetupStep, SetupStepName } from './setup.ts';
-export { PHONE_KEY_FILE, bindPhoneKey, deliverPhoneKey, pairEnrol } from './enrol.ts';
-export type { EnrolHost } from './enrol.ts';
+export { PHONE_KEY_FILE, RECEIPT_FILE, bindPhoneKey, deliverPhoneKey, pairEnrol, phoneReceipt } from './enrol.ts';
+export type { EnrolHost, PairContext, PairReceipt, ReceiptHost } from './enrol.ts';
 export { status } from './status.ts';
 export type { Status } from './status.ts';
 export { boat } from './boat.ts';

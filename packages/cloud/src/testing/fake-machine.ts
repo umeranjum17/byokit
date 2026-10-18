@@ -4,6 +4,7 @@
 // parseCommand(s), so all three benches run the same machine.
 import type { ExecResult } from '../types.ts';
 import { DELIVER_SHELL, PROBE_SHELL, WORKDIR_SHELL, WRITE_SHELL } from '../unit.ts';
+import { OUTBOX_SHELL } from '../enrol.ts';
 
 export type RunOptions = { root?: boolean; input?: Uint8Array; asUser?: string };
 export type RunResult = ExecResult;
@@ -252,6 +253,12 @@ export class FakeMachine {
       this.dirs.set(inbox, dir ?? { owner: writer, mode: 0o755 });
       this.writeFile(`${inbox}/${args[5]}`, o.input ?? new Uint8Array(), 0o600, writer);
       return { code: 0, stdout: '', stderr: '', timedOut: false };
+    }
+    // The phone-receipt read (5.12): the outbox file, or nothing while absent; only its owner reads it.
+    if (cmd === 'sh' && rest[0] === '-c' && rest[1] === OUTBOX_SHELL && rest[2] === 'sh' && args.length === 5) {
+      const file = this.files.get(this.resolve(args[4]));
+      if (file !== undefined && file.owner !== writer) return { code: 1, stdout: '', stderr: 'cat: permission denied', timedOut: false };
+      return { code: 0, stdout: file === undefined ? '' : new TextDecoder().decode(file.bytes), stderr: '', timedOut: false };
     }
     // The 8.2 in-workDir wrapper: answer the inner argv, consulting `script`
     // registrations by the inner command first.
