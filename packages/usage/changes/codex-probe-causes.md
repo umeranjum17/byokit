@@ -1,0 +1,1 @@
+- FIX: Codex identity reports safe typed probe failures instead of treating every transport or protocol failure as a missing account; only an explicit null account confirms sign-out.

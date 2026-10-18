@@ -20,7 +20,20 @@ if (process.env.STATUS_MODE === 'hang') process.on('SIGTERM',()=>{});
 fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({argv:process.argv.slice(2),env:process.env,pid:process.pid})+'\\n');
 const account = {email:'alice.work@example.test',planType:'plus',subscriptionType:'pro',access_token:'private-fake-token'};
 if (process.argv[2] === 'app-server') {
- let b=''; process.stdin.on('data',c=>{b+=c;for(;;){const i=b.indexOf('\\n');if(i<0)break;const r=JSON.parse(b.slice(0,i));b=b.slice(i+1);console.log(JSON.stringify({id:r.id,result:r.id===1?{}:{account}}));}});
+ const mode = process.env.STATUS_MODE;
+ const attempt = fs.readFileSync(${JSON.stringify(log)}, 'utf8').trim().split('\\n').length;
+ if (mode === 'exit' || mode === 'exit-once' && attempt === 1) { console.error('private-fake-token alice.work@example.test private-account-id'); process.exit(23); }
+ if (mode === 'signal') process.kill(process.pid, 'SIGTERM');
+ if (mode === 'write') { fs.closeSync(0); console.log(JSON.stringify({id:1,result:{}})); setInterval(()=>{},1000); return; }
+ let b=''; process.stdin.on('data',c=>{b+=c;for(;;){const i=b.indexOf('\\n');if(i<0)break;const r=JSON.parse(b.slice(0,i));b=b.slice(i+1);
+  if (mode === 'timeout' || mode === 'timeout-once' && attempt === 1) continue;
+  if (mode === 'rpc-init' || mode === 'rpc' && r.id === 2) { console.log(JSON.stringify({id:r.id,error:{code:-32603,message:'private-fake-token',data:{email:'alice.work@example.test'}}})); continue; }
+  if (r.id === 1) { console.log(JSON.stringify({id:1,result:{}})); continue; }
+  if (mode === 'flood') { console.log('x'.repeat(65537)); continue; }
+  const result = mode === 'out' ? {account:null,requiresOpenaiAuth:true} : mode === 'reply' ? {} : mode === 'malformed' ? null : mode === 'array' ? {account:[]} : mode === 'recorded'
+   ? {account:{type:'chatgpt',email:'umer@example.test',planType:'prolite'},requiresOpenaiAuth:true,workspaceRouting:{chatgptAccountId:'private-account-id',backendOrigin:'https://chatgpt.com',accountRoutingOverride:'NO_CONSTRAINT'}} : {account};
+  console.log(JSON.stringify({id:r.id,result}));
+ }});
 } else if (process.argv[2] === 'auth' && process.argv[3] === 'check') {
  const provider = process.argv[process.argv.indexOf('--provider')+1];
  const mode = process.env.STATUS_MODE;
@@ -520,4 +533,46 @@ test('installed CLIs signed in under the app HOME: listed, picked and launched w
   assert.deepEqual([unreadable.state, unreadable.why, unreadable.cause], ['signed_out', 'unknown', 'Claude on this computer answered in a way the app could not read.']);
   const absent = await installed(join(root, 'not-installed')).status('installed-claude');
   assert.deepEqual([absent.state, absent.why, absent.cause], ['signed_out', 'unknown', 'Claude on this computer could not start.']);
+});
+
+test('installed Codex launch distinguishes signed out from failed probes and retries only transient failures once', async () => {
+  const root = scratchDir('codex-probes');
+  for (const [mode, failure, calls, message] of [
+    ['recorded', undefined, 1, undefined],
+    ['out', undefined, 1, 'Codex is not signed in on this computer.'],
+    ['reply', { code: 'reply' }, 1, 'Codex on this computer answered in a way the app could not read.'],
+    ['malformed', { code: 'reply' }, 1, 'Codex on this computer answered in a way the app could not read.'],
+    ['array', { code: 'reply' }, 1, 'Codex on this computer answered in a way the app could not read.'],
+    ['flood', { code: 'reply' }, 1, 'Codex on this computer answered in a way the app could not read.'],
+    ['exit', { code: 'exit', exitCode: 23, signal: null }, 2, 'Codex on this computer stopped before answering the account check.'],
+    ['signal', { code: 'exit', exitCode: null, signal: 'SIGTERM' }, 2, 'Codex on this computer stopped before answering the account check.'],
+    ['rpc-init', { code: 'rpc', rpcCode: -32603 }, 2, 'Codex on this computer refused the account check.'],
+    ['rpc', { code: 'rpc', rpcCode: -32603 }, 2, 'Codex on this computer refused the account check.'],
+    ['write', { code: 'write' }, 2, 'Codex on this computer could not receive the account check.'],
+    ['exit-once', undefined, 2, undefined],
+    ['timeout', { code: 'timeout' }, 2, 'Codex on this computer did not answer in time.'],
+    ['timeout-once', undefined, 2, undefined],
+  ] as const) {
+    const codex = fake(join(root, mode), 'codex');
+    const accounts = cliAccounts({ stateDir: join(root, `state-${mode}`), bins: { codex: codex.bin },
+      env: { HOME: join(root, 'home'), PATH: '/unused', STATUS_MODE: mode }, installed: true });
+    const launch = await accounts.launch('installed-codex');
+    assert.equal(launch.ok, message === undefined, mode);
+    assert.equal(launch.account.state, message === undefined ? 'ready' : 'signed_out', mode);
+    assert.deepEqual(launch.account.probeFailure, failure, mode);
+    assert.equal(launch.account.why, failure ? 'unknown' : undefined, mode);
+    assert.equal(codex.calls().length, calls, `${mode}: bounded retry, never retry a signed-out or unreadable reply`);
+    assert.doesNotMatch(JSON.stringify(launch), /private-fake-token|private-account-id|access_token/, mode);
+    if (!launch.ok) { assert.equal(launch.message, message, mode); assert.equal(launch.account.cause, message, mode); }
+    if (mode === 'recorded') {
+      assert.equal(launch.account.email, 'umer@example.test'); assert.equal(launch.account.plan, 'prolite');
+      assert.deepEqual(launch.ok && launch.set, {});
+    }
+  }
+  const accounts = cliAccounts({ stateDir: join(root, 'missing-state'), bins: { codex: join(root, 'absent') },
+    env: { HOME: join(root, 'home'), PATH: '/unused' }, installed: true });
+  const launch = await accounts.launch('installed-codex');
+  assert.equal(launch.ok, false);
+  assert.deepEqual(launch.account.probeFailure, { code: 'start' });
+  assert.equal(launch.account.cause, 'Codex on this computer could not start.');
 });

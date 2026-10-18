@@ -144,7 +144,7 @@ test('a host reads every plan through the app-owned sign-in, keeps people apart 
   assert.deepEqual(idInvocation.requests.map((r) => (r as { method: string }).method), ['initialize', 'account/read']);
   idFake.script({ raw: { account: null, access_token: 'secret-token' } });
   assert.deepEqual(await identity(idSource), { signedIn: false });
-  idFake.script({ flood: true }); assert.deepEqual(await identity(idSource), { signedIn: false });
+  idFake.script({ flood: true }); assert.deepEqual(await identity(idSource), { signedIn: false, probeFailure: { code: 'reply' } });
   await assert.rejects(identity({ ...idSource, bin: 'codex' }), UsageError);
 
   // A symlinked credential cannot read beyond the named folder; identities stay distinct.

@@ -79,7 +79,9 @@
   "cli.vibeKey": "Paste the key in the app to connect this account.",
   "cli.missingPlanKey": "Add the {name} plan key first.",
   "cli.installedSignedOut": "{name} is not signed in on this computer.",
-  "cli.installedNoAccount": "{name} on this computer did not report a signed-in account.",
+  "cli.installedExit": "{name} on this computer stopped before answering the account check.",
+  "cli.installedRpc": "{name} on this computer refused the account check.",
+  "cli.installedWrite": "{name} on this computer could not receive the account check.",
   "cli.installedSlow": "{name} on this computer did not answer in time.",
   "cli.installedStart": "{name} on this computer could not start.",
   "cli.installedUnreadable": "{name} on this computer answered in a way the app could not read."
