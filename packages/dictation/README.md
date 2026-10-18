@@ -78,7 +78,7 @@ For live dictation, retain the engine between taps and pass your `AudioMic` to `
 | `model` (engine option) | Required from host | Local file path or Metro numeric asset; no remote URL |
 | `language` | `en` | English model; `multilingual: true` defaults to `auto`. Explicit two/three-letter Whisper language codes override either |
 | `initialPrompt`, `vocabulary` | Empty | Initial context and list of words/names per fresh reading; explicit non-overlapping `chunkMs` also appends the preceding chunk's last 200 characters |
-| `threads` | `6` | Integer 1–64; benchmark for your device |
+| `threads` | Device cores, at most 8 | Integer 1–64. The default is the cores the platform reports (`navigator.hardwareConcurrency`), at most 8; React Native reports none, so whisper.rn picks from the native core count (at most 4). More threads than cores is many times slower |
 | `gain` | `1` | PCM amplitude multiplier 0.01–16, clipped to Int16 range |
 | `chunkMs` | `0` | Automatic 30-second windows with 5-second overlap for recordings over 30 seconds; integers 100–30000 opt into non-overlapping windows |
 | `vad.enabled` | `false` | Optional file VAD removes file silence (energy, or neural when a `vad` factory is passed); disabling preserves all file audio |

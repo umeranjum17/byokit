@@ -40,4 +40,4 @@ The harness and logs are in the PR's private evidence page. To re-measure, rebui
 
 - Import from `@byokit/dictation`; never from `packages/dictation/src`. No model, device or network is needed for the windowing proof.
 - The gate grid is fixed at 30 s regardless of an explicit `settings.chunkMs`. Short explicit chunks share their 30 s window's decision, because Silero drops speech shorter than 250 ms and so cannot judge a 100 ms chunk on its own.
-- Decode threads are separate: `settings.threads` (default 6) is sent as `maxThreads` and overrides whisper.rn's core-aware default.
+- Decode threads are separate: see [dictation-decode-threads](./dictation-decode-threads.md).
