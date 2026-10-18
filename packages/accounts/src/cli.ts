@@ -16,7 +16,11 @@ export type CliProvider = 'claude' | 'codex' | 'pi' | 'opencode' | 'kimi' | 'vib
 /** Published Pi subscription OAuth provider id, validated against the route catalogue. */
 export type PiProvider = string;
 /** Shared selection surface; the CLI entry remains Node-only. */
-export type CliAccount = AccountLike & { provider: CliProvider; billing: 'subscription'; email?: string; plan?: string; piProvider?: PiProvider; adoptedFrom?: string; why?: 'api_key' | 'unknown'; addedAt?: number };
+export type CliAccount = AccountLike & { provider: CliProvider; billing: 'subscription'; email?: string; plan?: string; piProvider?: PiProvider; adoptedFrom?: string; why?: 'api_key' | 'unknown'; addedAt?: number;
+  /** The CLI installed on this computer, signed in (or not) under the app's `env.HOME`: no folder of its own. */
+  installed?: true;
+  /** Why an installed row is not signed in, in plain words. */
+  cause?: string };
 export type CliOptions = {
   stateDir: string;
   bins: Partial<Record<CliProvider, string>>;
@@ -38,6 +42,9 @@ export type CliOptions = {
   claudeHeaders?: { 'anthropic-beta': string; 'User-Agent': string };
   /** Reaches the OpenCode console when an OpenCode key saved without a workspace is launched (default: global fetch). */
   fetch?: typeof fetch;
+  /** Also list each installed Claude, Codex and Cursor `bins` entry as it runs under `env.HOME` (id `installed-<provider>`),
+   * read with the CLI's own status command. It launches with no folder variable; it cannot be renamed, rested or removed. */
+  installed?: boolean;
 };
 export type CliLaunchResult =
   | { ok: true; account: CliAccount; set: Record<string, string>; unset: string[] }
@@ -63,10 +70,12 @@ export class CliAccountError extends Error {
     this.code = code;
   }
 }
-type Row = { id: string; provider: CliProvider; name: string; folder: string; found: boolean; piProvider?: PiProvider; adoptedFrom?: string; addedAt?: number };
+type Row = { id: string; provider: CliProvider; name: string; folder: string; found: boolean; piProvider?: PiProvider; adoptedFrom?: string; addedAt?: number; installed?: true };
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === 'string' && !v.includes('\0');
 const providers: CliProvider[] = ['claude', 'codex', 'pi', 'opencode', 'kimi', 'vibe', 'cursor'];
+/** The CLIs with one non-secret status command for their own login (Pi's is per provider; Kimi, OpenCode and Vibe have none). */
+const installable: CliProvider[] = ['claude', 'codex', 'cursor'];
 const piRoutes = routes.filter(r => r.upstream.surface === 'accounts' && r.billing === 'subscription' && r.upstream.flow === 'present' && (r.via === 'browser' || r.via === 'code'));
 const validPiProvider = (p: unknown): p is PiProvider => text(p) && piRoutes.some(r => r.upstream.id === p);
 /** The Pi provider ids a BYOKit-owned quota route reads the folder login for; every other Pi row stays unknown. */
@@ -208,6 +217,7 @@ export function cliAccounts(options: CliOptions) {
   if (options.historyFrom && (!record(options.historyFrom) || Object.entries(options.historyFrom).some(([p, path]) => !providers.includes(p as CliProvider) || !text(path) || !isAbsolute(path)))) throw new CliAccountError('bad-option');
   if (options.keyStore !== undefined && (!record(options.keyStore) || typeof (options.keyStore as Keystore).get !== 'function' || typeof (options.keyStore as Keystore).set !== 'function' || typeof (options.keyStore as Keystore).delete !== 'function')) throw new CliAccountError('bad-option');
   if (options.usage !== undefined && (!record(options.usage) || typeof (options.usage as Usage).read !== 'function' || typeof (options.usage as Usage).connected !== 'function')) throw new CliAccountError('bad-option');
+  if (options.installed !== undefined && typeof options.installed !== 'boolean') throw new CliAccountError('bad-option');
   if (options.claudeHeaders !== undefined && (!record(options.claudeHeaders) || ['anthropic-beta', 'User-Agent'].some((key) => !text((options.claudeHeaders as Record<string, unknown>)[key]) || (options.claudeHeaders as Record<string, string>)[key].length > 1024))) throw new CliAccountError('bad-option');
   const stateDir = resolve(options.stateDir); const env = { ...options.env }; const bins = { ...options.bins }; const history = { ...options.historyFrom };
   const ownsDefaultLogin = (path: string) => ['.claude', '.codex', '.pi', '.kimi-code', '.vibe', '.config/cursor'].some((p) => { const own = join(resolve(env.HOME), p); return path === own || path.startsWith(own + '/'); });
@@ -221,9 +231,14 @@ export function cliAccounts(options: CliOptions) {
   const unknownRoom = (): Room => ({ left: 'unknown', freshness: 'unknown' });
   let reader: Usage | undefined;
   const roomReader = () => reader ??= options.usage ?? usage({ stateDir });
-  const codexSource = (r: Row) => ({ provider: 'codex' as const, bin: binary('codex'), home: r.folder, env: spawnEnv(r) });
+  // An installed Codex keeps its login where it would itself: the person's CODEX_HOME, else ~/.codex. Codex reads it, never the kit.
+  const codexHome = (r: Row) => !r.installed ? r.folder : env.CODEX_HOME && isAbsolute(env.CODEX_HOME) ? env.CODEX_HOME : join(env.HOME, '.codex');
+  const codexSource = (r: Row) => ({ provider: 'codex' as const, bin: binary('codex'), home: codexHome(r), env: spawnEnv(r) });
+  const installedRows = (): Row[] => options.installed ? installable.filter((p) => bins[p]).map((p) => ({ id: `installed-${p}`, provider: p, name: '', folder: '', found: false, installed: true })) : [];
+  const installedRow = (id: string) => installedRows().find((r) => r.id === id);
   /** The one usage source for a ready row; a provider whose reader is a later lane stays unknown. */
   function roomSource(r: Row): Source | undefined {
+    if (r.installed) return undefined;
     if (r.provider === 'codex') return codexSource(r);
     if (r.provider === 'cursor') return { provider: 'cursor', folder: r.folder };
     if (r.provider === 'pi') return piRoomSource(r);
@@ -366,6 +381,8 @@ export function cliAccounts(options: CliOptions) {
   // git's own global files, so name the pool HOME's real one (`~/.gitconfig` wins where both exist) or none
   // at all: `git commit` keeps its identity, and an ambient folder cannot outlive the managed one. Paths only.
   function launch(r: Row): { set: Record<string, string>; unset: string[] } {
+    // The installed CLI runs as the person runs it: no folder variable, only the per-use billing overrides removed.
+    if (r.installed) return { set: {}, unset: [...shed[r.provider]] };
     // OpenCode keeps its sign-in store and database in the XDG roots (1.x auth.json, 2.x opencode.db): each account gets its own.
     if (r.provider === 'opencode') return { set: { [folderVar(r.provider)]: r.folder, XDG_DATA_HOME: join(r.folder, 'data'),
       XDG_STATE_HOME: join(r.folder, 'state'), XDG_CACHE_HOME: join(r.folder, 'cache') }, unset: [...shed.opencode] };
@@ -412,16 +429,18 @@ export function cliAccounts(options: CliOptions) {
     operations.set(id, task);
     return task.finally(() => { if (operations.get(id) === task) operations.delete(id); });
   }
-  async function readIdentity(r: Row): Promise<Identity & { why?: 'api_key' | 'unknown' }> {
-    if (r.provider === 'codex') return identity({ provider: 'codex', bin: binary('codex'), home: r.folder, env: spawnEnv(r) });
+  type Probe = Identity & { why?: 'api_key' | 'unknown'; cause?: 'cli.installedSlow' | 'cli.installedStart' | 'cli.installedUnreadable' };
+  async function readIdentity(r: Row): Promise<Probe> {
+    if (r.provider === 'codex') return identity({ provider: 'codex', bin: binary('codex'), home: codexHome(r), env: spawnEnv(r) });
     return new Promise((accept) => {
-      const failed = { signedIn: false, ...(r.provider === 'pi' ? { why: 'unknown' as const } : {}) };
+      // `cause` names a probe that gave no answer; only installed rows show it.
+      const failed = (cause: NonNullable<Probe['cause']>): Probe => ({ signedIn: false, ...(r.provider === 'pi' ? { why: 'unknown' as const } : {}), cause });
       const argv = r.provider === 'pi' ? ['auth', 'check', '--provider', r.piProvider!, '--json', '--no-refresh']
         : r.provider === 'cursor' ? ['status', '--format', 'json']
         : ['auth', 'status'];
       const child = spawn(binary(r.provider), argv, { env: spawnEnv(r), stdio: ['ignore', 'pipe', 'ignore'] });
       let stdout = ''; let bytes = 0; let settled = false; let escalation: NodeJS.Timeout | undefined;
-      const finish = (answer: Identity & { why?: 'api_key' | 'unknown' }) => {
+      const finish = (answer: Probe) => {
         if (settled) return;
         settled = true; clearTimeout(timer);
         if (child.exitCode === null && child.signalCode === null) {
@@ -430,34 +449,34 @@ export function cliAccounts(options: CliOptions) {
         }
         accept(answer);
       };
-      const timer = setTimeout(() => finish(failed), 15_000);
-      child.once('error', () => finish(failed));
+      const timer = setTimeout(() => finish(failed('cli.installedSlow')), 15_000);
+      child.once('error', () => finish(failed('cli.installedStart')));
       child.stdout.setEncoding('utf8');
       child.stdout.on('data', (chunk: string) => {
         if (settled) return;
         bytes += Buffer.byteLength(chunk);
-        if (bytes > (r.provider === 'pi' ? 64 : 256) * 1024) { finish(failed); return; }
+        if (bytes > (r.provider === 'pi' ? 64 : 256) * 1024) { finish(failed('cli.installedUnreadable')); return; }
         stdout += chunk;
       });
       child.once('close', () => {
         clearTimeout(escalation);
         if (settled) return;
-        if (bytes > 64 * 1024) { finish(failed); return; }
-        let raw: unknown; try { raw = JSON.parse(stdout); } catch { finish(failed); return; }
+        if (bytes > 64 * 1024) { finish(failed('cli.installedUnreadable')); return; }
+        let raw: unknown; try { raw = JSON.parse(stdout); } catch { finish(failed('cli.installedUnreadable')); return; }
         if (r.provider === 'pi') {
-          if (!record(raw) || raw.provider !== r.piProvider) { finish(failed); return; }
+          if (!record(raw) || raw.provider !== r.piProvider) { finish(failed('cli.installedUnreadable')); return; }
           if (child.exitCode === 0 && raw.status === 'ready' && raw.authType === 'oauth') finish({ signedIn: true });
           else if (child.exitCode === 0 && raw.status === 'ready' && raw.authType === 'api_key') finish({ signedIn: false, why: 'api_key' });
           else if (child.exitCode === 1 && raw.status === 'not_ready') finish({ signedIn: false });
-          else finish(failed);
+          else finish(failed('cli.installedUnreadable'));
           return;
         }
         if (r.provider === 'cursor') {
           // `cursor-agent status` exits 0 even when signed out, so the JSON decides, never the exit code.
-          finish(record(raw) && raw.isAuthenticated === true ? { signedIn: true } : { signedIn: false });
+          finish(record(raw) && raw.isAuthenticated === true ? { signedIn: true } : record(raw) && raw.isAuthenticated === false ? { signedIn: false } : failed('cli.installedUnreadable'));
           return;
         }
-        if (!record(raw) || raw.loggedIn !== true) { finish({ signedIn: false }); return; }
+        if (!record(raw) || raw.loggedIn !== true) { finish(record(raw) && raw.loggedIn === false ? { signedIn: false } : failed('cli.installedUnreadable')); return; }
         const email = typeof raw.email === 'string' && raw.email.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw.email) ? raw.email : undefined;
         const plan = [raw.subscriptionType, raw.plan, raw.planName, raw.tier].find((v) => typeof v === 'string' && /^[a-zA-Z][a-zA-Z0-9 _+-]{0,63}$/.test(v));
         finish({ signedIn: true, ...(email ? { email } : {}), ...(typeof plan === 'string' ? { plan } : {}) });
@@ -469,7 +488,18 @@ export function cliAccounts(options: CliOptions) {
     if (first) return (first[0].toUpperCase() + first.slice(1).toLowerCase()).slice(0, 64);
     return provider === 'claude' ? 'Claude' : provider === 'pi' ? 'Pi' : provider === 'opencode' ? 'OpenCode' : provider === 'kimi' ? 'Kimi' : provider === 'vibe' ? 'Vibe' : provider === 'cursor' ? 'Cursor' : 'Codex';
   }
+  /** An installed row reads only its CLI's own answer: signed in, signed out, or no answer with the real cause. */
+  async function installedStatus(r: Row): Promise<CliAccount> {
+    const account = { id: r.id, provider: r.provider, name: suggestName(undefined, r.provider), billing: 'subscription' as const, installed: true as const };
+    const info = await readIdentity(r);
+    if (info.signedIn) return { ...account, name: suggestName(info.email, r.provider), state: 'ready', ...(info.email ? { email: info.email } : {}), ...(info.plan ? { plan: info.plan } : {}) };
+    // Codex answers through its app server, which tells a missing login and no answer apart only as "no account".
+    const cause = info.cause ?? (r.provider === 'codex' ? 'cli.installedNoAccount' : 'cli.installedSignedOut');
+    return { ...account, state: 'signed_out', ...(info.cause || r.provider === 'codex' ? { why: 'unknown' as const } : {}), cause: say(cause, { name: account.name }) };
+  }
   async function status(id: string): Promise<CliAccount> {
+    const installed = installedRow(id);
+    if (installed) return installedStatus(installed);
     return serial(id, async () => {
       const r = row(id);
       const account = { id: r.id, provider: r.provider, name: r.name.trim() || (r.provider === 'pi' ? piRoutes.find(v => v.upstream.id === r.piProvider)!.name : suggestName(undefined, r.provider)), billing: 'subscription' as const,
@@ -597,7 +627,7 @@ export function cliAccounts(options: CliOptions) {
     } catch { discard(r, false); throw new CliAccountError('prepare-failed'); }
   }
   return {
-    list: async (): Promise<CliAccount[]> => Promise.all(load().filter((r) => !r.found && !r.id.startsWith('found-')).map((r) => status(r.id))),
+    list: async (): Promise<CliAccount[]> => Promise.all([...load().filter((r) => !r.found && !r.id.startsWith('found-')), ...installedRows()].map((r) => status(r.id))),
     add,
     adopt: (foundId: string, metadata?: { piProvider?: PiProvider }): Promise<Added> => serial(foundId, async () => {
       const rows = load();
@@ -634,7 +664,7 @@ export function cliAccounts(options: CliOptions) {
     async launch(id: string): Promise<CliLaunchResult> {
       const account = await status(id);
       if (account.state === 'ready') {
-        const r = row(id);
+        const r = installedRow(id) ?? row(id);
         const base = launch(r);
         if (r.provider !== 'opencode') return { ok: true, account, ...base };
         // The folder files are the delivery copy: the key reaches OpenCode through `{file:}`
@@ -659,9 +689,9 @@ export function cliAccounts(options: CliOptions) {
         return { ok: false, code: 'resting', account, message: say('status.resting', { name: account.name, until: clock(account.until) }) };
       }
       const code = account.state === 'not_included' ? 'not_included' : 'signed_out';
-      return { ok: false, code, account, message: say(code === 'not_included' ? 'cli.notIncluded' : 'cli.signedOut', { name: account.name }) };
+      return { ok: false, code, account, message: account.cause ?? say(code === 'not_included' ? 'cli.notIncluded' : 'cli.signedOut', { name: account.name }) };
     },
-    launchEnv: (id: string) => launch(row(id)),
+    launchEnv: (id: string) => launch(installedRow(id) ?? row(id)),
     /** The account a tool's stored `use` names, or undefined. */
     preferOf: (provider: CliProvider): string | undefined => {
       if (!providers.includes(provider)) throw new CliAccountError('bad-option');
@@ -703,7 +733,7 @@ export function cliAccounts(options: CliOptions) {
       // The person's own `use` for this tool, unless the caller named an account explicitly.
       const prefer = options.prefer ?? loadPrefer()[provider];
       const rows: CliPickRow[] = [];
-      for (const r of load().filter((v) => !v.found && !v.id.startsWith('found-') && v.provider === provider)) {
+      for (const r of [...load().filter((v) => !v.found && !v.id.startsWith('found-')), ...installedRows()].filter((v) => v.provider === provider)) {
         const account = await status(r.id);
         // Read room only for an account this run could use; a signed-out or resting row carries no reading.
         const source = account.state === 'ready' ? roomSource(r) : undefined;

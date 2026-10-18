@@ -474,3 +474,50 @@ test('persisted rest: status resting, launch refused, expiry, mode 0600, corrupt
   assert.deepEqual(JSON.parse(readFileSync(restsPath, 'utf8')), { version: 1, rests: [] });
   assert.equal(statSync(restsPath).mode & 0o777, 0o600);
 });
+
+test('installed CLIs signed in under the app HOME: listed, picked and launched with no folder; managed rows keep theirs', async () => {
+  const root = scratchDir('cli-installed'); const stateDir = join(root, 'plans');
+  const claude = fake(join(root, 'bins'), 'claude'); const codex = fake(join(root, 'bins'), 'codex');
+  const home = join(root, 'home'); mkdirSync(join(home, '.claude'), { recursive: true });
+  writeFileSync(join(home, '.claude', '.credentials.json'), 'never read');
+  const env = { HOME: home, PATH: '/unused', ANTHROPIC_API_KEY: 'never-passed' };
+  assert.deepEqual(await cliAccounts({ stateDir, bins: { claude: claude.bin }, env }).list(), [], 'only an app that asks lists installed CLIs');
+  assert.throws(() => cliAccounts({ stateDir, bins: {}, env, installed: 'yes' as never }), { code: 'bad-option' });
+  const kit = cliAccounts({ stateDir, bins: { claude: claude.bin, codex: codex.bin }, env, installed: true });
+  const { account: managed } = await kit.add('claude');
+  const rows = await kit.list();
+  assert.deepEqual(rows.map((r) => [r.id, r.state, r.installed, r.email, r.name]), [
+    [managed.id, 'signing', undefined, undefined, 'Claude'],
+    ['installed-claude', 'ready', true, 'alice.work@example.test', 'Alice'],
+    ['installed-codex', 'ready', true, 'alice.work@example.test', 'Alice'],
+  ]);
+  assert.doesNotMatch(JSON.stringify(rows), /private-fake-token|access_token/);
+  // The CLI's own status command, as the person runs it: their HOME, no folder variable, no per-use key.
+  const status = claude.calls().at(-1);
+  assert.deepEqual(status.argv, ['auth', 'status']);
+  assert.equal(status.env.HOME, home);
+  assert.equal('CLAUDE_CONFIG_DIR' in status.env, false);
+  assert.equal('ANTHROPIC_API_KEY' in status.env, false);
+  assert.equal(codex.calls().at(-1).env.CODEX_HOME, join(home, '.codex'));
+  const launch = await kit.launch('installed-claude');
+  assert.equal(launch.ok, true);
+  if (launch.ok) { assert.deepEqual(launch.set, {}); assert.ok(launch.unset.includes('ANTHROPIC_API_KEY')); }
+  assert.deepEqual(kit.launchEnv('installed-codex').set, {});
+  assert.deepEqual(Object.keys(kit.launchEnv(managed.id).set), ['CLAUDE_CONFIG_DIR'], 'a managed account keeps its own folder');
+  const pick = await kit.pick('claude');
+  assert.equal(pick.ok && pick.account.id, 'installed-claude');
+  for (const refused of [() => kit.folderOf('installed-claude'), () => kit.remove('installed-claude'), () => kit.rename('installed-claude', 'Work'),
+    () => kit.rest('installed-claude', { until: Date.now() + 60_000, why: 'limit' }), () => kit.signInAgain('installed-claude')]) {
+    await assert.rejects(async () => refused(), { code: 'unknown-account' });
+  }
+  assert.equal(readFileSync(join(home, '.claude', '.credentials.json'), 'utf8'), 'never read');
+  // Signed out, or no answer: never ready, with the real cause.
+  const installed = (bin: string, extra: Record<string, string> = {}) => cliAccounts({ stateDir, bins: { claude: bin }, env: { ...env, ...extra }, installed: true });
+  const out = await installed(claude.bin, { STATUS_MODE: 'out' }).launch('installed-claude');
+  assert.equal(out.ok, false);
+  if (!out.ok) { assert.equal(out.code, 'signed_out'); assert.equal(out.message, 'Claude is not signed in on this computer.'); assert.equal(out.account.why, undefined); }
+  const unreadable = await installed(claude.bin, { STATUS_MODE: 'flood' }).status('installed-claude');
+  assert.deepEqual([unreadable.state, unreadable.why, unreadable.cause], ['signed_out', 'unknown', 'Claude on this computer answered in a way the app could not read.']);
+  const absent = await installed(join(root, 'not-installed')).status('installed-claude');
+  assert.deepEqual([absent.state, absent.why, absent.cause], ['signed_out', 'unknown', 'Claude on this computer could not start.']);
+});

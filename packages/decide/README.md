@@ -755,13 +755,34 @@ The kit neither runs login nor reads, copies or intermediates credentials. Envir
 whose names hold `KEY`, `TOKEN` or `SECRET`, `NODE_OPTIONS`, and the billing-route selectors `CLAUDE_CODE_USE_BEDROCK`, `CLAUDE_CODE_USE_VERTEX`, `CLAUDE_CODE_USE_FOUNDRY`, `CLAUDE_CODE_USE_ANTHROPIC_AWS`, `CLAUDE_CODE_USE_MANTLE`, `ANTHROPIC_PROFILE`, `ANTHROPIC_FEDERATION_RULE_ID` and `ANTHROPIC_BASE_URL` are removed from the child's
 environment, except `CLAUDE_CODE_OAUTH_TOKEN`, the subscription token from `claude setup-token`, which passes through. API-billed credentials such as `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` and the billing-route selectors above never reach the child. `configDir` is optional: when the host passes an absolute path, it is set as
 `CLAUDE_CONFIG_DIR` as given; otherwise the user's own setting, if any, applies. Each call runs in a
-temporary working directory that is removed afterwards, including cancellation and timeouts. The cache identity for this route is the binary path and `configDir` only; it does not include which Claude account is signed in, so a host that switches accounts on one machine uses a separate `GenerationCache`.
+temporary working directory that is removed afterwards, including cancellation and timeouts. Instead of `configDir`, a host
+that lists accounts with `@byokit/accounts/cli` passes the chosen Claude account as `account`: its `launch(id)` result when
+`ok` (or `launchEnv(id)`). The installed row (`cliAccounts({ ..., installed: true })`, id `installed-claude`) sets nothing,
+so the person's own sign-in answers with their HOME and no `CLAUDE_CONFIG_DIR`; a managed account sets its own folder. The
+account's `unset` names are also removed from the child's environment. Passing both `account` and `configDir`, or an
+account that sets anything but `CLAUDE_CONFIG_DIR`, throws. The cache identity for this route is the binary path and the resulting config directory only; it does not include which Claude account is signed in, so a host that switches accounts on one machine uses a separate `GenerationCache`.
 
 [Claude Code's authentication and credential-use terms](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use)
 explicitly permit an end user to sign in to the unmodified binary using their own subscription;
 sign-in must use Anthropic's own flow, and developers may not collect or intermediate those credentials.
 Each user supplies their own installation and account. This adapter adds a route to decide and does
 not change accounts' existing sign-in behavior.
+
+On the Claude the person already signed in to:
+
+```ts
+import { cliAccounts } from '@byokit/accounts/cli';
+import { claudeCode } from '@byokit/decide/claude-code';
+
+declare const bin: string; // absolute path of the person's installed claude
+const accounts = cliAccounts({ stateDir: '/app/state/plans', bins: { claude: bin },
+  env: { HOME: '/home/you', PATH: '/usr/bin:/bin' }, installed: true });
+const launch = await accounts.launch('installed-claude');
+if (!launch.ok) console.log(launch.message); // for example "Claude is not signed in on this computer."
+else {
+  const backend = claudeCode({ bin, account: launch, timeoutMs: 120_000 });
+}
+```
 
 Direct API:
 
