@@ -1,4 +1,4 @@
-import { InferError, type Completion, type CompleteRequest, type InferDevice, type InferLimits, type InferModel, type InferModelStore, type InferState } from './types.ts';
+import { InferError, type Completion, type CompletionProbability, type CompleteRequest, type InferDevice, type InferLimits, type InferModel, type InferModelStore, type InferState } from './types.ts';
 
 /** Structural subset of llama.rn 0.12.9 (`initLlama`, `LlamaContext`); no runtime or type import of React Native. */
 export type LlamaRnContextParams = {
@@ -8,10 +8,12 @@ export type LlamaRnMessage = { role: 'system' | 'user'; content: string };
 export type LlamaRnCompletionParams = {
   messages: LlamaRnMessage[]; jinja: true; enable_thinking: false; n_predict: number; temperature: 0; seed: number;
   response_format?: { type: 'json_schema'; json_schema: { strict: true; schema: object } };
+  n_probs?: number;
 };
 export type LlamaRnCompletionResult = {
   text: string; content: string; tokens_predicted: number; tokens_evaluated: number;
   truncated: boolean; stopped_eos: boolean; stopped_word: string; stopped_limit: number; context_full: boolean; interrupted: boolean;
+  completion_probabilities?: CompletionProbability[];
 };
 export type LlamaRnContext = {
   gpu: boolean;
@@ -172,6 +174,7 @@ export class LocalModel {
     if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > this.limits.maxOutputTokens) {
       throw new RangeError(`maxOutputTokens must be 1..${this.limits.maxOutputTokens}.`);
     }
+    if (req.n_probs !== undefined && (!Number.isSafeInteger(req.n_probs) || req.n_probs < 0)) throw new RangeError('n_probs must be a non-negative integer.');
     return this.#exclusive(async () => {
       const { signal } = req;
       throwIfAborted(signal);
@@ -195,7 +198,8 @@ export class LocalModel {
         if (this.#releasing) throw new InferError('failed', 'The model was released.');
         this.#set({ phase: 'busy' });
         const r = await ctx.completion({ messages, jinja: true, enable_thinking: false, n_predict: maxOutputTokens, temperature: 0, seed: 0,
-          ...(req.jsonSchema && { response_format: { type: 'json_schema' as const, json_schema: { strict: true as const, schema: req.jsonSchema } } }) }, onToken);
+          ...(req.jsonSchema && { response_format: { type: 'json_schema' as const, json_schema: { strict: true as const, schema: req.jsonSchema } } }),
+          ...(req.n_probs !== undefined && { n_probs: req.n_probs }) }, onToken);
         throwIfAborted(signal);
         if (this.#releasing) throw new InferError('failed', 'The model was released while generating.');
         this.#set({ phase: 'ready' });
@@ -203,6 +207,7 @@ export class LocalModel {
           text: r.content || r.text,
           stop: r.stopped_limit > 0 || r.context_full || r.truncated || r.interrupted ? 'limit' : r.stopped_word ? 'word' : 'eos',
           inputTokens: r.tokens_evaluated, outputTokens: r.tokens_predicted, ms: Date.now() - started, model: modelName(this.model),
+          ...(r.completion_probabilities !== undefined && { completion_probabilities: r.completion_probabilities }),
         };
       } catch (cause) {
         if (signal?.aborted) { this.#set({ phase: 'ready' }); throw abortReason(signal); }

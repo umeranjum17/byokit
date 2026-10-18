@@ -167,6 +167,13 @@ test('an app completes a call with bounded, greedy, schema-constrained decoding,
   assert.equal(done.text, '{"ok":true}');
   assert.equal(done.stop, 'eos');
   assert.equal(done.model, `tiny@${REV}`);
+  const probabilities = [{ content: 'hello', probs: [{ tok_str: 'hello', prob: 0.75 }] }];
+  const scored = make({ reply: () => ({ content: 'hello', completion_probabilities: probabilities }) });
+  await scored.local.install();
+  const withProbabilities = await scored.local.complete({ prompt: 'rate this', n_probs: 3 });
+  assert.deepEqual(scored.llama.contexts[0].completions[0].n_probs, 3);
+  assert.deepEqual(withProbabilities.completion_probabilities, probabilities);
+  for (const n_probs of [-1, 1.5, NaN]) assert.throws(() => local.complete({ prompt: 'x', n_probs }), RangeError);
   await local.complete({ prompt: 'again' });
   assert.equal(llama.contexts.length, 1, 'one native context for the model');
   assert.deepEqual(llama.contexts[0].params, { model: '/models/tiny.gguf', n_ctx: 2048, n_threads: 4, n_gpu_layers: 0, use_mlock: false, use_mmap: true });

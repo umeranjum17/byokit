@@ -60,10 +60,14 @@ export type InferModelStore = {
   freeBytes?(): Promise<number>;
 };
 
+export type CompletionProbability = { content: string; probs: { tok_str: string; prob: number }[] };
+
 export type CompleteRequest = {
   system?: string;
   prompt: string;
   maxOutputTokens?: number;
+  /** Return top-N token probabilities for each generated token. */
+  n_probs?: number;
   /** Constrain the output to this JSON Schema through the engine's grammar. */
   jsonSchema?: object;
   signal?: AbortSignal;
@@ -76,4 +80,6 @@ export type Completion = {
   inputTokens: number; outputTokens: number; ms: number;
   /** `<id>@<revision>`. */
   model: string;
+  /** Top-N token probabilities for each generated token, when requested. */
+  completion_probabilities?: CompletionProbability[];
 };
