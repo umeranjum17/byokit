@@ -204,6 +204,46 @@ test('Claude binary seam: the person\'s own sign-in, structured generation, scal
   }
 });
 
+test('the installed Claude from the accounts list decides with the person\'s HOME and no CLAUDE_CONFIG_DIR; a managed account keeps its folder', async () => {
+  const { cliAccounts } = await import('@byokit/accounts/cli');
+  const root = await mkdtemp(join(tmpdir(), 'byokit-decide-installed-'));
+  const logDir = join(root, 'fake-log');
+  const home = join(root, 'home');
+  const previous = { HOME: process.env.HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR };
+  try {
+    await mkdir(logDir);
+    await mkdir(join(home, '.claude'), { recursive: true });
+    await writeFile(join(home, '.claude', '.credentials.json'), 'the fake never opens this');
+    const bin = join(root, 'fake-claude');
+    await writeFile(bin, fakeSource, { mode: 0o700 });
+    process.env.HOME = home;
+    delete process.env.CLAUDE_CONFIG_DIR;
+    process.env.FAKE_CLAUDE_LOG = logDir;
+    const kit = cliAccounts({ stateDir: join(root, 'plans'), bins: { claude: bin }, env: { HOME: home, PATH: process.env.PATH ?? '', FAKE_CLAUDE_LOG: logDir }, installed: true });
+    const { account: managed } = await kit.add('claude');
+    const rows = await kit.list();
+    assert.deepEqual(rows.map((r) => [r.id, r.state]), [[managed.id, 'signing'], ['installed-claude', 'ready']]);
+    const launch = await kit.launch('installed-claude');
+    assert.ok(launch.ok);
+    const answers = await decide({ name: 'Umer' }, { keep: { kind: 'yesno', question: 'Keep it?' } },
+      { privacy: 'may-leave', backends: [claudeCode({ bin, account: launch, timeoutMs: 5000 })] });
+    assert.equal(answers.keep.answer, true);
+    const log = JSON.parse(await readFile(join(logDir, 'invocation.json'), 'utf8'));
+    assert.equal(log.env.HOME, home);
+    assert.equal('CLAUDE_CONFIG_DIR' in log.env, false);
+    await claudeCode({ bin, account: kit.launchEnv(managed.id), timeoutMs: 5000 }).generate({ prompt: 'normal', schema });
+    const managedLog = JSON.parse(await readFile(join(logDir, 'invocation.json'), 'utf8'));
+    assert.equal(managedLog.env.CLAUDE_CONFIG_DIR, kit.folderOf(managed.id));
+    assert.throws(() => claudeCode({ bin, account: launch, configDir: root, timeoutMs: 5000 }), /either a Claude account/);
+    assert.throws(() => claudeCode({ bin, account: { set: { CODEX_HOME: root }, unset: [] }, timeoutMs: 5000 }), /either a Claude account/);
+    assert.equal(await readFile(join(home, '.claude', '.credentials.json'), 'utf8'), 'the fake never opens this');
+  } finally {
+    for (const [k, v] of Object.entries(previous)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    delete process.env.FAKE_CLAUDE_LOG;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 const realClaudeBin = (() => {
   for (const dir of (process.env.PATH ?? '').split(delimiter)) {
     if (!dir) continue;

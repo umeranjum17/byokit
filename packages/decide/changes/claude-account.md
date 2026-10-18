@@ -1,0 +1,1 @@
+- FEAT: The Claude judge can run on the Claude already signed in on this computer when the app picked it from the accounts list: `claudeCode({ bin, account })` takes that account's `launch(id)` (or `launchEnv(id)`) result from `@byokit/accounts/cli`. The installed account runs with the person's HOME and no `CLAUDE_CONFIG_DIR`; a managed account keeps its own folder.

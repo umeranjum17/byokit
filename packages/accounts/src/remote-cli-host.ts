@@ -236,7 +236,7 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     let unlock: (() => void) | undefined;
     let freshId: string | undefined;
     try {
-      const reuse = rows.find((r) => r.provider === provider && (r.state === 'signed_out' || r.state === 'signing'));
+      const reuse = rows.find((r) => r.provider === provider && !r.installed && (r.state === 'signed_out' || r.state === 'signing'));
       if (reuse) {
         unlock = claimSignIn(cli.folderOf(reuse.id));
         if (!unlock) return fail(provider, 'busy');

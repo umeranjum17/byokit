@@ -10,7 +10,10 @@ import { outputSchema, type OutputSchema } from './schema.ts';
 import { generationImages } from './generation-images.ts';
 import { validateImageReferences } from './images.ts';
 
-export type ClaudeCodeOptions = { bin: string; configDir?: string; model?: string; timeoutMs: number };
+/** A Claude account's environment from `@byokit/accounts/cli` (`launch(id)` when ready, or `launchEnv(id)`): a managed
+ * account sets its own `CLAUDE_CONFIG_DIR`; the installed one sets nothing, so the person's own sign-in answers. */
+export type ClaudeCodeAccount = { set: Record<string, string>; unset: readonly string[] };
+export type ClaudeCodeOptions = { bin: string; configDir?: string; account?: ClaudeCodeAccount; model?: string; timeoutMs: number };
 export type ClaudeCodeBackend = Backend & GenerationBackend & { readonly billing: 'subscription' };
 type FailureCode = 'invalid_json' | 'invalid_output' | 'incomplete' | 'process' | 'subscription_required' | 'timeout' | 'aborted';
 const messages: Record<FailureCode, string> = {
@@ -32,14 +35,21 @@ const billingRoutes = new Set(['CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTE
 
 /** No credential access, login implementation, own sign-in folder, or API-key fallback. */
 export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
-  if (!isAbsolute(options.bin) || (options.configDir !== undefined && !isAbsolute(options.configDir))) {
+  const { account } = options;
+  if (account !== undefined && (options.configDir !== undefined || !record(account) || !record(account.set) || !Array.isArray(account.unset)
+      || Object.keys(account.set).some((k) => k !== 'CLAUDE_CONFIG_DIR') || account.unset.some((k) => typeof k !== 'string'))) {
+    throw new Error('Pass either a Claude account from @byokit/accounts or a config directory.');
+  }
+  const configDir = account ? account.set.CLAUDE_CONFIG_DIR : options.configDir;
+  if (!isAbsolute(options.bin) || (configDir !== undefined && !isAbsolute(configDir))) {
     throw new Error('Supply an absolute binary path, and an absolute config directory if you pass one.');
   }
   if (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0 || options.timeoutMs > 2_147_483_647 ||
       (options.model !== undefined && (typeof options.model !== 'string' || !options.model.trim()))) {
     throw new Error('The model or timeout is invalid.');
   }
-  const o = { ...options };
+  const o = { ...options, configDir };
+  const unset = new Set(account?.unset);
   const run = async (input: GenerationRequest): Promise<Generated> => {
     const validator = outputSchema(input.schema);
     const images = generationImages(input.images);
@@ -63,7 +73,7 @@ export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
       const execute = (args: string[], stdin?: string) => new Promise<string>((resolveOutput, reject) => {
         // The person's own environment so their installed Claude answers with its own sign-in; minus API-billed, billing-route and preload variables, keeping the subscription OAuth token.
         const child = spawn(o.bin, args, { cwd: scratch, env: {
-          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k === 'CLAUDE_CODE_OAUTH_TOKEN' || (!/KEY|TOKEN|SECRET|^NODE_OPTIONS$/i.test(k) && !billingRoutes.has(k)))),
+          ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !unset.has(k) && (k === 'CLAUDE_CODE_OAUTH_TOKEN' || (!/KEY|TOKEN|SECRET|^NODE_OPTIONS$/i.test(k) && !billingRoutes.has(k))))),
           ...(o.configDir !== undefined && { CLAUDE_CONFIG_DIR: o.configDir }),
           CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens),
           DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',

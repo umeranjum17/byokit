@@ -77,5 +77,10 @@
   "cli.piLogin": "In the window that opens, type {command} and finish signing in.",
   "cli.opencodeKey": "Paste the plan key in the app to connect this account.",
   "cli.vibeKey": "Paste the key in the app to connect this account.",
-  "cli.missingPlanKey": "Add the {name} plan key first."
+  "cli.missingPlanKey": "Add the {name} plan key first.",
+  "cli.installedSignedOut": "{name} is not signed in on this computer.",
+  "cli.installedNoAccount": "{name} on this computer did not report a signed-in account.",
+  "cli.installedSlow": "{name} on this computer did not answer in time.",
+  "cli.installedStart": "{name} on this computer could not start.",
+  "cli.installedUnreadable": "{name} on this computer answered in a way the app could not read."
 }
