@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.17.0 (2026-10-18)
+
+- Add opt-in `RunSpec.delegates` for native `sessions_send`/`sessions_spawn` app-tool admission and typed delegated events, retained exact receipts and subtree cancellation. Targets retain their own accounts; helper/person account sharing is not included.
+- SECURITY: Delegated authority requires a trusted native parent/tool-call receipt and exact child run/session identity; target tools intersect the parent subset, builtins remain gated, unknown children fail closed, and cancellation revokes parked and active calls before awaiting engine cleanup.
+
 ## 0.16.6 (2026-10-18)
 
 - SECURITY: Run `openai-codex/<model>` through the installed Codex CLI on the ChatGPT subscription using the pinned engine's supported CLI backend; keep engine state isolated and prevent the engine from importing or refreshing the installed Codex login.

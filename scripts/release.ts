@@ -539,11 +539,31 @@ function cmdPrepare(rest: string[]): void {
   const plan = planCascade(cascadePkgs, requested, published);
   const order = topoOrder(pkgs).filter((d) => plan.versions.has(d));
   const today = utcToday();
+  // Installable examples pin the packages their packed journeys exercise, not a previously published release.
+  const examplePins = new Map<string, string>();
+  for (const entry of readdirSync(join(root, "examples"), { withFileTypes: true })) {
+    const path = join(root, "examples", entry.name, "package.json");
+    if (!entry.isDirectory() || !existsSync(path)) continue;
+    const example = JSON.parse(readFileSync(path, "utf8"));
+    let changed = false;
+    for (const section of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+      for (const [dir, version] of plan.versions) {
+        const name = byDir.get(dir)!.name;
+        const from = example[section]?.[name];
+        if (typeof from === "string" && /^\d+\.\d+\.\d+$/.test(from) && from !== version) {
+          example[section][name] = version;
+          changed = true;
+        }
+      }
+    }
+    if (changed) examplePins.set(path, JSON.stringify(example, null, 2) + "\n");
+  }
   if (dryRun) {
     console.log("planned versions:");
     for (const d of order) console.log(`  @byokit/${d} ${byDir.get(d)?.version} -> ${plan.versions.get(d)}`);
     console.log("pin edits:");
     for (const pin of plan.pins) console.log(`  ${pin.pkg}: @byokit/${pin.dep} ${pin.from} -> ${pin.to}`);
+    for (const path of examplePins.keys()) console.log(`repin ${path.slice(root.length + 1)}`);
     console.log("changelog diffs:");
     for (const d of order) {
       const preview = prepareChangelog(withFragments(d), plan.versions.get(d) as string, today, plan.bullets.get(d) ?? []);
@@ -577,6 +597,7 @@ function cmdPrepare(rest: string[]): void {
     const pjText = readFileSync(pjPath, "utf8");
     writeFileSync(pjPath, pjText.replace(`"@byokit/${pin.dep}": "${pin.from}"`, `"@byokit/${pin.dep}": "${pin.to}"`));
   }
+  for (const [path, text] of examplePins) writeFileSync(path, text);
   sh("npm", ["install", "--package-lock-only", "--no-audit", "--no-fund"]);
   sh("npm", ["install", "--package-lock-only", "--no-audit", "--no-fund"], { cwd: join(root, "examples/expo") });
   sh("git", ["add", "-A"]);

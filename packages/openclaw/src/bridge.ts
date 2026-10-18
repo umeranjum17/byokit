@@ -4,6 +4,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server, type Socket } from 'node:net';
 import { rm } from 'node:fs/promises';
 import { words } from './words.ts';
+import type { Delegations } from './delegations.ts';
 import type { Approval, ChannelMessage, Decision, Member, RunRef, ToolHost, ToolSpec } from './types.ts';
 
 /** Newline-framed JSON, one request per connection; anything larger is not a gate request. */
@@ -68,8 +69,8 @@ export function writePlugin(
   }
 }
 
-type Permit = { permit: string; key: string; tool: string; input: string };
-type Ticket = { key: string; tool: string; input: string };
+type Permit = { permit: string; key: string; tool: string; input: string; runId?: string };
+type Ticket = Omit<Permit, 'permit'>;
 type Parked = {
   socket: Socket;
   timer: NodeJS.Timeout;
@@ -94,6 +95,8 @@ export class Bridge {
   private server?: Server;
   private closing: Promise<void> = Promise.resolve();
   private readonly sockets = new Set<Socket>();
+  private readonly owners = new Map<Socket, { key: string; runId?: string }>();
+  private readonly delegations?: Delegations;
   private readonly runs = new Map<string, RunRef>();
   // Every live registration per session key, each with its run's subset of the app's tools (RunSpec.tools; none: all
   // of them). Runs sharing a key share the narrowest: a tool must be in every live subset.
@@ -106,6 +109,7 @@ export class Bridge {
 
   constructor(o: {
     path: string;
+    delegations?: Delegations;
     host?: ToolHost;
     tools: ReadonlySet<string>; // the app's registered tool names; any other name is an engine builtin
     permitted: (tool: string) => boolean;
@@ -118,6 +122,7 @@ export class Bridge {
     onChannelMessage?: (m: ChannelMessage) => void; // a turned-on channel's inbound messages (5.18)
   }) {
     this.path = o.path;
+    this.delegations = o.delegations;
     this.host = o.host;
     this.tools = o.tools;
     this.permitted = o.permitted;
@@ -139,7 +144,7 @@ export class Bridge {
     rmSync(this.path, { force: true });
     const server = createServer(socket => {
       this.sockets.add(socket);
-      socket.once('close', () => this.sockets.delete(socket));
+      socket.once('close', () => { this.sockets.delete(socket); this.owners.delete(socket); });
       this.serve(socket);
     });
     this.server = server;
@@ -169,6 +174,16 @@ export class Bridge {
     this.server = undefined;
     if (server) this.closing = new Promise<void>(resolve => server.close(() => resolve()))
       .then(() => rm(this.path, { force: true }).catch(() => {}));
+  }
+
+  revoke(key: string, runId: string): void {
+    for (const entry of this.live.get(key) ?? []) if (entry.runId === runId) entry.runId = undefined;
+    for (const [id, p] of this.parked) if (p.run.sessionKey === key && p.run.runId === runId) {
+      clearTimeout(p.timer); this.parked.delete(id); this.onAskGone(id); p.socket.destroy();
+    }
+    for (const [socket, owner] of this.owners) if (owner.key === key && owner.runId === runId) socket.destroy();
+    for (const [id, p] of this.permits) if (p.key === key && p.runId === runId) this.permits.delete(id);
+    for (let i = this.tickets.length - 1; i >= 0; i--) if (this.tickets[i].key === key && this.tickets[i].runId === runId) this.tickets.splice(i, 1);
   }
 
   isRegisteredRun(key: string, runId?: string): boolean {
@@ -233,17 +248,17 @@ export class Bridge {
       return;
     }
     if (this.permitted(tool)) {
-      this.reply(socket, { allow: true, permit: this.mint(key, tool, input) });
+      this.reply(socket, { allow: true, permit: this.mint(key, tool, input, this.owners.get(socket)?.runId) });
       return;
     }
-    this.tickets.push({ key, tool, input: JSON.stringify(input) });
+    this.tickets.push({ key, tool, input: JSON.stringify(input), runId: this.owners.get(socket)?.runId });
     while (this.tickets.length > 1024) this.tickets.shift();
     this.reply(socket, { allow: true });
   }
 
-  private mint(key: string, tool: string, input: Record<string, unknown>): string {
+  private mint(key: string, tool: string, input: Record<string, unknown>, runId?: string): string {
     const permit = randomBytes(16).toString('hex');
-    this.permits.set(permit, { permit, key, tool, input: JSON.stringify(input) });
+    this.permits.set(permit, { permit, key, tool, input: JSON.stringify(input), runId });
     // Single-use entries are consumed on the next call; evict the oldest if the plugin never calls back.
     while (this.permits.size > 1024) this.permits.delete(this.permits.keys().next().value!);
     return permit;
@@ -302,20 +317,38 @@ export class Bridge {
       try { this.onChannelMessage({ chat: { channel, id: chat }, from, text }); } catch { /* the app's handler, not the engine's */ }
       return;
     }
-    if (message.kind === 'gate') return void this.gate(socket, message);
-    if (message.kind === 'call') return void this.call(socket, message);
+    if (message.kind.startsWith('delegation-') && this.delegations) {
+      try {
+        if (message.kind === 'delegation-prepare') {
+          if (typeof message.key !== 'string' || typeof message.runId !== 'string'
+            || (!this.isRegisteredRun(message.key, message.runId) && !this.delegations.has(message.key, message.runId)))
+            return this.deny(socket, 'unknown delegation parent');
+          this.reply(socket, { tracked: this.delegations.prepare(message) });
+        }
+        else if (message.kind === 'delegation-receipt') { this.delegations.receipt(message); this.reply(socket, { ok: true }); }
+        else if (message.kind === 'delegation-event' && isRecord(message.event)) { this.delegations.event(message.event); this.reply(socket, { ok: true }); }
+        else this.deny(socket, 'invalid delegation message');
+      } catch (error) { this.deny(socket, error instanceof Error ? error.message : 'delegation unavailable'); }
+      return;
+    }
+    if (message.kind === 'gate') return void this.gate(socket, message).catch(() => this.deny(socket, 'run unavailable'));
+    if (message.kind === 'call') return void this.call(socket, message).catch(() => this.reply(socket, { ok: false, reason: 'run unavailable' }));
     return this.deny(socket, 'not a gate request');
   }
 
-  private gate(socket: Socket, message: Record<string, unknown>): void {
+  private async gate(socket: Socket, message: Record<string, unknown>): Promise<void> {
     const key = message.key;
     const tool = message.tool;
     const input = message.input;
     if (typeof key !== 'string' || typeof tool !== 'string' || !isRecord(input)) {
       return this.deny(socket, 'not a gate request');
     }
-    const run = this.runs.get(key);
-    if (run) return void this.gateRun(socket, run, tool, input);
+    const runId = typeof message.runId === 'string' ? message.runId : undefined;
+    this.owners.set(socket, { key, runId });
+    const delegated = await this.delegations?.resolve(key, runId);
+    if (this.stopped || socket.destroyed) return;
+    const run = delegated?.ref ?? (!runId || this.isRegisteredRun(key, runId) ? this.runs.get(key) : undefined);
+    if (run) return void this.gateRun(socket, run, tool, input, delegated?.tools);
     const armed = this.armed;
     if (
       armed && Date.now() < armed.until && key.startsWith(armed.keyPrefix) && tool === armed.tool &&
@@ -330,10 +363,10 @@ export class Bridge {
     return this.deny(socket, 'unknown run');
   }
 
-  private async gateRun(socket: Socket, run: RunRef, tool: string, input: Record<string, unknown>): Promise<void> {
+  private async gateRun(socket: Socket, run: RunRef, tool: string, input: Record<string, unknown>, subset?: readonly string[]): Promise<void> {
     if (!this.host) return this.deny(socket, "can't check this action right now");
     // An app tool outside the run's own subset never reaches the host; builtins stay with the gate.
-    if (this.tools.has(tool) && (this.live.get(run.sessionKey) ?? []).some((e) => e.tools && !e.tools.has(tool)))
+    if (this.tools.has(tool) && ((subset && !subset.includes(tool)) || (this.live.get(run.sessionKey) ?? []).some((e) => e.tools && !e.tools.has(tool))))
       return this.deny(socket, 'this tool is not available in this run');
     let result;
     try {
@@ -341,7 +374,7 @@ export class Bridge {
     } catch {
       return this.deny(socket, "can't check this action right now");
     }
-    if (this.stopped) return;
+    if (this.stopped || socket.destroyed) return;
     if ('ask' in result) {
       const now = Date.now();
       const approval: Approval = {
@@ -396,11 +429,13 @@ export class Bridge {
     }
     // Only the app's own tools run through host.call; a builtin never calls back.
     if (!this.tools.has(tool)) return this.reply(socket, { ok: false, reason: 'this call was not allowed' });
+    const runId = typeof message.runId === 'string' ? message.runId : undefined;
+    this.owners.set(socket, { key, runId });
     const wanted = JSON.stringify(input);
     const permit = message.permit;
     if (typeof permit === 'string') {
       const p = this.permits.get(permit);
-      if (!p || p.key !== key || p.tool !== tool || p.input !== wanted) {
+      if (!p || p.key !== key || p.runId !== runId || p.tool !== tool || p.input !== wanted) {
         return this.reply(socket, { ok: false, reason: 'this call was not allowed' });
       }
       this.permits.delete(permit);
@@ -408,12 +443,14 @@ export class Bridge {
       // Permitted tools travel by permit only. A ticket is itself proof of a gate allow for this exact
       // key + tool + input, so no run registration is needed (N10: allowOnce admits unregistered keys).
       if (this.permitted(tool)) return this.reply(socket, { ok: false, reason: 'this call was not allowed' });
-      const ticket = this.tickets.findIndex((t) => t.key === key && t.tool === tool && t.input === wanted);
+      const ticket = this.tickets.findIndex((t) => t.key === key && t.runId === runId && t.tool === tool && t.input === wanted);
       if (ticket < 0) return this.reply(socket, { ok: false, reason: 'this call was not allowed' });
       this.tickets.splice(ticket, 1);
     }
     if (!this.host) return this.reply(socket, { ok: false, reason: "can't run this action right now" });
-    const run = this.runs.get(key) ?? { sessionKey: key, member: this.memberOf(key) ?? '' };
+    const delegated = await this.delegations?.resolve(key, runId);
+    if (this.stopped || socket.destroyed) return;
+    const run = delegated?.ref ?? this.runs.get(key) ?? { sessionKey: key, member: this.memberOf(key) ?? '' };
     // The plugin destroys its socket when the run aborts (run abort, hook timeout); without this the host's
     // sandboxed command keeps running after the tool is gone.
     const controller = new AbortController();

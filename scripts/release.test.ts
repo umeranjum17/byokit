@@ -193,7 +193,7 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
     return r.stdout;
   };
   try {
-    for (const path of ["scripts", "bin", "examples/expo", "packages/probe/changes", "packages/a-consumer", "packages/b-range", "packages/c-dev", "packages/d-first"]) mkdirSync(join(dir, path), { recursive: true });
+    for (const path of ["scripts", "bin", "examples/expo", "examples/consumer", "packages/probe/changes", "packages/a-consumer", "packages/b-range", "packages/c-dev", "packages/d-first"]) mkdirSync(join(dir, path), { recursive: true });
     copyFileSync(join(root, "scripts/release.ts"), join(dir, "scripts/release.ts"));
     // Prefer the npm shipped beside the running node: a version-manager shim on
     // PATH (e.g. mise) can spin forever under this test's isolated HOME.
@@ -208,6 +208,10 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
     chmodSync(join(dir, "bin/npm"), 0o755);
     writeFileSync(join(dir, "package.json"), JSON.stringify({ private: true, type: "module", workspaces: ["packages/*"] }));
     writeFileSync(join(dir, "examples/expo/package.json"), '{"private":true}');
+    const examplePath = join(dir, "examples/consumer/package.json");
+    const example = { private: true, dependencies: { "@byokit/probe": "0.1.0", "@byokit/b-range": ">=0.1.0", "@byokit/c-dev": "file:../../packages/c-dev" },
+      devDependencies: { "@byokit/probe": "0.1.0" }, peerDependencies: { "@byokit/a-consumer": "0.1.0" }, optionalDependencies: { "@byokit/probe": "0.1.0" } };
+    writeFileSync(examplePath, JSON.stringify(example, null, 2) + "\n");
     const peerMeta = { "@byokit/probe": { optional: true }, "external-example": { optional: true } };
     writeFileSync(join(dir, "packages/a-consumer/package.json"), JSON.stringify({ name: "@byokit/a-consumer", version: "0.1.0",
       peerDependencies: { "@byokit/probe": "0.1.0", "external-example": ">=1" }, peerDependenciesMeta: peerMeta }, null, 2));
@@ -233,6 +237,8 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
     assert.match(dry.stdout, /FIX: fragment for Umer/);
     assert.match(dry.stdout, /delete packages\/probe\/changes\/umer.md/);
     assert.ok(existsSync(fragment), "dry-run preserves fragments");
+    assert.match(dry.stdout, /repin examples\/consumer\/package.json/);
+    assert.deepEqual(JSON.parse(readFileSync(examplePath, "utf8")), example, "dry-run preserves example pins");
     const explicit = run(process.execPath, ["scripts/release.ts", "prepare", "probe=patch", "a-consumer=minor", "--dry-run"]);
     assert.equal(explicit.status, 0, explicit.stderr);
     assert.match(explicit.stdout, /@byokit\/a-consumer 0.1.0 -> 0.2.0/);
@@ -244,6 +250,11 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
     const prepared = run(process.execPath, ["scripts/release.ts", "prepare", "probe=patch"]);
     assert.equal(prepared.status, 0, prepared.stderr);
     assert.equal(existsSync(fragment), false);
+    const repinned = JSON.parse(readFileSync(examplePath, "utf8"));
+    assert.deepEqual(repinned.dependencies, { "@byokit/probe": "0.1.1", "@byokit/b-range": ">=0.1.0", "@byokit/c-dev": "file:../../packages/c-dev" });
+    assert.equal(repinned.devDependencies["@byokit/probe"], "0.1.1");
+    assert.equal(repinned.peerDependencies["@byokit/a-consumer"], "0.1.1", "example follows the release cascade too");
+    assert.equal(repinned.optionalDependencies["@byokit/probe"], "0.1.1");
     const peer = JSON.parse(readFileSync(join(dir, "packages/a-consumer/package.json"), "utf8"));
     assert.equal(peer.version, "0.1.1", "published exact peer-dependent receives a patch");
     assert.deepEqual(peer.peerDependencies, { "@byokit/probe": "0.1.1", "external-example": ">=1" });
