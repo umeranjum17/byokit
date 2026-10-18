@@ -12,7 +12,7 @@ export type { Status } from './status.ts';
 export { boat } from './boat.ts';
 /** @deprecated Use boat(). */
 export { boat as sandboxApi } from './boat.ts';
-export { claim } from './claim.ts';
+export { claim, revokeClaim } from './claim.ts';
 export type { ClaimStep } from './claim.ts';
 export { wakeResolve } from './wake.ts';
 export { MachineError } from './errors.ts';

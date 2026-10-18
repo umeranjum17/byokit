@@ -83,6 +83,8 @@ export type SandboxServer = {
   nextCreateState(raw: string): void;
   /** Queue `POST /api/boat/oauth2/token` claim-grant answers (`success` once the queue runs out). */
   scriptClaimPoll(script: readonly ClaimPollStep[]): void;
+  /** Tokens `POST /api/boat/oauth2/revoke` ended (RFC 7009): a revoked key answers 401, a revoked assertion `invalid_grant`. */
+  revoked: Set<string>;
   close(): Promise<void>;
 };
 
@@ -132,6 +134,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
   const claimCodes = new Map<string, string>();
   const claimScript: ClaimPollStep[] = [];
   const CLAIM_KEY = 'boat-claimed-key';
+  const revoked = new Set<string>();
 
   const send = (res: http.ServerResponse, status: number, body: unknown): void => {
     const text = JSON.stringify(body);
@@ -213,7 +216,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
       }
       // Sign-in routes live under /api/boat, outside the versioned API root, and need no
       // key: the claim is how the app gets one (11.5, https://boat.dev/auth.md steps 1-5).
-      if (path === '/api/boat/.well-known/oauth-authorization-server' || path.startsWith('/api/boat/agent/') || path === '/api/boat/oauth2/token') {
+      if (path === '/api/boat/.well-known/oauth-authorization-server' || path.startsWith('/api/boat/agent/') || path.startsWith('/api/boat/oauth2/')) {
         const base = `http://127.0.0.1:${port}`;
         const signRoute = `${req.method} ${path}`;
         const signBody = (body ?? {}) as Record<string, unknown>;
@@ -267,6 +270,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
             }
           }
           if (form.get('grant_type') === 'urn:ietf:params:oauth:grant-type:jwt-bearer' && form.get('assertion') !== null) {
+            if (revoked.has(form.get('assertion') ?? '')) return send(res, 400, { error: 'invalid_grant' });
             return send(res, 200, {
               access_token: CLAIM_KEY, token_type: 'Bearer', expires_in: 3600,
               scope: 'box.me box.limits box.write box.billing', identity_assertion: 'assert-test-rotated',
@@ -274,9 +278,19 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
           }
           return send(res, 400, { error: 'unsupported_grant_type' });
         }
+        // RFC 7009: the client authenticates with a live key; any token, known or not, answers 200.
+        if (signRoute === 'POST /api/boat/oauth2/revoke') {
+          const bearer = (req.headers.authorization ?? '').replace(/^Bearer /, '');
+          if ((bearer !== key && bearer !== CLAIM_KEY) || revoked.has(bearer)) return send(res, 401, { error: 'invalid_client' });
+          const token = new URLSearchParams(text).get('token');
+          if (token === null || token.length === 0) return send(res, 400, { error: 'invalid_request' });
+          revoked.add(token);
+          res.writeHead(200, { 'Content-Length': 0 });
+          return res.end();
+        }
         return send(res, 404, { error: 'not found' });
       }
-      if (req.headers.authorization !== `Bearer ${key}`) {
+      if (req.headers.authorization !== `Bearer ${key}` || revoked.has(key)) {
         send(res, 401, { error: 'unauthorized' });
         return;
       }
@@ -521,6 +535,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
     nextCreateState: (raw) => {
       nextCreateRaw = raw;
     },
+    revoked,
     scriptClaimPoll: (script) => {
       claimScript.push(...script);
     },

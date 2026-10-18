@@ -4,7 +4,10 @@
 // claim link and then the code the person types on the provider's own page (the code
 // never comes back), poll the token endpoint, and finish with the Boat key. The key
 // reaches the caller only, in `done`: never a log, error text, argv or file.
+// `revokeClaim()` ends a claimed key with RFC 7009 at the metadata's revocation_endpoint.
 // Billing checkout and the trial (auth.md step 7) are not claim and stay out.
+import { MachineError } from './errors.ts';
+
 export type ClaimStep =
   | { step: 'open-page'; url: string }
   | { step: 'type-code'; url: string; code: string }
@@ -12,6 +15,7 @@ export type ClaimStep =
   | { step: 'done'; key: string; expires: string | null; scopes: readonly string[] }
   | { step: 'failed'; why: 'refused' | 'expired' | 'unreachable' | 'provider' };
 
+const METADATA = '/api/boat/.well-known/oauth-authorization-server';
 const CLAIM_GRANT = 'urn:workos:agent-auth:grant-type:claim';
 const ASSERT_GRANT = 'urn:ietf:params:oauth:grant-type:jwt-bearer';
 
@@ -24,6 +28,75 @@ class ClaimUnreachable extends Error {}
 
 const form = (entries: readonly (readonly [string, string])[]): string =>
   entries.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
+
+const field = (json: unknown, name: string): unknown =>
+  typeof json === 'object' && json !== null ? (json as Record<string, unknown>)[name] : undefined;
+
+const errCode = (json: unknown): string | null => {
+  const e = field(json, 'error');
+  return typeof e === 'string' ? e : null;
+};
+
+// RFC 7009 at the metadata's revocation_endpoint. The service_auth registration issues no
+// client id or secret, so the claimed key is the client authentication. Each failure is a
+// MachineError naming its cause; the provider's own error code is kept, the token never.
+const revokeAt = async (
+  fetchFn: typeof fetch, endpoint: unknown, key: string, token: string, hint: string | null, signal?: AbortSignal,
+): Promise<void> => {
+  if (typeof endpoint !== 'string' || endpoint.length === 0) {
+    throw new MachineError('unsupported', 'the provider metadata has no revocation_endpoint');
+  }
+  let res: Response;
+  try {
+    res = await fetchFn(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', Authorization: `Bearer ${key}` },
+      body: form(hint === null ? [['token', token]] : [['token', token], ['token_type_hint', hint]]),
+      ...(signal === undefined ? {} : { signal }),
+    });
+  } catch (e) {
+    if (signal?.aborted) throw e;
+    throw new MachineError('unreachable', 'the provider could not be reached');
+  }
+  if (res.ok) return;
+  let code = '';
+  try {
+    const e = errCode(JSON.parse(await res.text()));
+    if (e !== null && e !== token && e !== key) code = `: ${e.slice(0, 64)}`;
+  } catch {
+    code = '';
+  }
+  if (res.status === 401 || res.status === 403) {
+    throw new MachineError('unauthorized', `the provider refused the revoke with ${res.status}${code}`);
+  }
+  throw new MachineError('provider', `the provider answered the revoke with ${res.status}${code}`);
+};
+
+/** End a key `claim()` returned (RFC 7009); once it resolves the provider refuses the key. */
+export async function revokeClaim(o: {
+  baseUrl: string; key: string; fetch?: typeof fetch; signal?: AbortSignal;
+}): Promise<void> {
+  const fetchFn = o.fetch ?? globalThis.fetch;
+  let origin: string;
+  try {
+    origin = new URL(o.baseUrl).origin;
+  } catch {
+    throw new MachineError('provider', 'the provider address is not a URL');
+  }
+  let meta: Response;
+  try {
+    meta = await fetchFn(`${origin}${METADATA}`, {
+      headers: { Accept: 'application/json' },
+      ...(o.signal === undefined ? {} : { signal: o.signal }),
+    });
+  } catch (e) {
+    if (o.signal?.aborted) throw e;
+    throw new MachineError('unreachable', 'the provider could not be reached');
+  }
+  const json: unknown = await meta.json().catch(() => null);
+  if (!meta.ok) throw new MachineError('provider', `the provider metadata answered ${meta.status}`);
+  await revokeAt(fetchFn, field(json, 'revocation_endpoint'), o.key, o.key, 'access_token', o.signal);
+}
 
 const tokenResult = (json: unknown): { key: string; expires: string | null; scopes: readonly string[] } | null => {
   const key = typeof json === 'object' && json !== null ? (json as Record<string, unknown>)['access_token'] : undefined;
@@ -80,14 +153,6 @@ export function claim(o: {
     return { status: res.status, json };
   };
 
-  const field = (json: unknown, name: string): unknown =>
-    typeof json === 'object' && json !== null ? (json as Record<string, unknown>)[name] : undefined;
-
-  const errCode = (json: unknown): string | null => {
-    const e = field(json, 'error');
-    return typeof e === 'string' ? e : null;
-  };
-
   return (async function* (): AsyncGenerator<ClaimStep> {
     if (signal?.aborted) return;
     try {
@@ -98,11 +163,25 @@ export function claim(o: {
         throw new Error('the provider address is not a URL');
       }
       // 1. Discover the sign-in endpoints from the provider's own metadata.
-      const meta = await call(`${origin}/api/boat/.well-known/oauth-authorization-server`, {
+      const meta = await call(`${origin}${METADATA}`, {
         headers: { Accept: 'application/json' },
       });
       const identityEndpoint = field(field(meta.json, 'agent_auth'), 'identity_endpoint');
       const tokenEndpoint = field(meta.json, 'token_endpoint');
+      const revocationEndpoint = field(meta.json, 'revocation_endpoint');
+      // The key arrives beside a fresh identity_assertion the app never sees: revoke it before
+      // `done`, ignoring the abort, so no spare sign-in outlives the claim. If that fails, the
+      // key is revoked too and the claim fails, rather than hand out a key with one left live.
+      const dropSpare = async (json: unknown, key: string): Promise<void> => {
+        const spare = field(json, 'identity_assertion');
+        if (typeof spare !== 'string' || spare.length === 0) return;
+        try {
+          await revokeAt(fetchFn, revocationEndpoint, key, spare, null);
+        } catch (e) {
+          await revokeAt(fetchFn, revocationEndpoint, key, key, 'access_token').catch(() => undefined);
+          throw e;
+        }
+      };
       if (meta.status < 200 || meta.status >= 300 || typeof identityEndpoint !== 'string' || typeof tokenEndpoint !== 'string') {
         throw new Error(`the provider metadata answered ${meta.status}`);
       }
@@ -144,6 +223,7 @@ export function claim(o: {
         if (polled.status >= 200 && polled.status < 300) {
           const done = tokenResult(polled.json);
           if (done !== null) {
+            await dropSpare(polled.json, done.key);
             yield { step: 'done', ...done };
             return;
           }
@@ -164,6 +244,7 @@ export function claim(o: {
             });
             const rotated = exchanged.status >= 200 && exchanged.status < 300 ? tokenResult(exchanged.json) : null;
             if (rotated !== null) {
+              await dropSpare(exchanged.json, rotated.key);
               yield { step: 'done', ...rotated };
               return;
             }
@@ -189,7 +270,7 @@ export function claim(o: {
       if (e instanceof ClaimAbort) return;
       if (e instanceof ClaimRefused) yield { step: 'failed', why: 'refused' };
       else if (e instanceof ClaimExpired) yield { step: 'failed', why: 'expired' };
-      else if (e instanceof ClaimUnreachable) yield { step: 'failed', why: 'unreachable' };
+      else if (e instanceof ClaimUnreachable || (e instanceof MachineError && e.code === 'unreachable')) yield { step: 'failed', why: 'unreachable' };
       else yield { step: 'failed', why: 'provider' };
     }
   })();

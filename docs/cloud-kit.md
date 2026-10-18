@@ -47,7 +47,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D-3 | A capability kit, not a third aggregator. It sits beside `@byokit/openclaw` and `@byokit/herdr`: the app still picks one runtime kit, and that kit runs inside the app's host process on the machine exactly as it does at home. `@byokit/cloud` only decides where that process runs. It imports no other kit and no kit imports it. `@byokit/accounts` is untouched. |
 | D-4 | Adapters behind one `Provider` type (4). **Boat**: create, sleep, wake, snapshot, fork, remove, exec, write and an HTTPS URL per port, over `fetch` with no vendor SDK. **SSH VM**: any rented Linux machine the person already created; exec, write, install and supervise only, through the `ssh` binary the app passes by absolute path. **Hetzner** (first slice, below): Node only; create, status and confirmed delete over the Hetzner Cloud API with the app's own token; no sleep, wake or copies yet. Optional `Provider` methods an adapter cannot do are absent, and the UI hides that action. |
 | D-5 | Types in section 4 are frozen at M1. A change is a spec change first: stop and ask. The approved tailnet amendment (4.6, 9; 2026-10-13) adds `joinTailnet` and `tailnet`; Boat keyed joins remain unsupported until a credential-safe stdin transport exists. |
-| D-6 | Entries. `.` is portable (Node, Electron, React Native): everything 3.1's `index.ts` re-exports (types, `machine()`, `boat()` (and deprecated `sandboxApi()`), `claim()` (M8), `MachineError`, `estimate()`, the words helpers and M7's `wakeResolve()`); no `node:*` import. `./ssh` is Node only (`sshVm()`, `sshHostKey()`). `./hetzner` is Node only (`hetzner()`, first slice below). `./idle` (M7: `idle()`, `stopSelf()`) runs on the machine inside the host process and is portable. `./testing` is Node only: the fake providers and the contract suite. No other entries. The Boat adapter does not run from a web page (15.1), so browsers and PWAs set up from the phone app or a desktop app. |
+| D-6 | Entries. `.` is portable (Node, Electron, React Native): everything 3.1's `index.ts` re-exports (types, `machine()`, `boat()` (and deprecated `sandboxApi()`), `claim()` and `revokeClaim()` (M8), `MachineError`, `estimate()`, the words helpers and M7's `wakeResolve()`); no `node:*` import. `./ssh` is Node only (`sshVm()`, `sshHostKey()`). `./hetzner` is Node only (`hetzner()`, first slice below). `./idle` (M7: `idle()`, `stopSelf()`) runs on the machine inside the host process and is portable. `./testing` is Node only: the fake providers and the contract suite. No other entries. The Boat adapter does not run from a web page (15.1), so browsers and PWAs set up from the phone app or a desktop app. |
 | D-7 | One person, one provider account, one machine per app install. The kit refuses a `MachineRef` whose `account` differs from `provider.account()`. An app operator provisioning on its own account for users is pooling and is not supported. |
 | D-8 | Model credentials are signed in on the machine, inside the aggregator (11). They are never copied from the person's computer and never pass through the provider's own credential features. Sandboxes are created with nothing of the person's passed in (`noEnv: true`). |
 | D-9 | Reach: the person's own tailnet, with no hosted relay or public app port. The bootstrap advertises the tailnet name, never a provider public URL. Pairing encryption and pinned host keys stay unchanged. Neither the kit nor a host bootstrap automatically calls `url()` or the provider's `/host`; `url()` is an explicit public-exposure escape hatch (9). |
@@ -101,7 +101,7 @@ packages/cloud/
     sandbox-api.ts    # deprecated compatibility re-export of boat()
     ssh.ts            # './ssh': sshVm(), sshHostKey() (7)
     hetzner.ts        # './hetzner': hetzner(), first slice (6, Hetzner first slice)
-    claim.ts          # claim() (G1, M8)
+    claim.ts          # claim(), revokeClaim() (G1, M8)
     wake.ts           # wakeResolve() (M7)
     idle.ts           # './idle' (M7)
     words.json  words.ts
@@ -307,6 +307,7 @@ export type ClaimStep =
   | { step: 'done'; key: string; expires: string | null; scopes: readonly string[] }
   | { step: 'failed'; why: 'refused' | 'expired' | 'unreachable' | 'provider' }
 export function claim(o: { baseUrl: string; email: string; fetch?: typeof fetch; signal?: AbortSignal }): AsyncIterable<ClaimStep>
+export function revokeClaim(o: { baseUrl: string; key: string; fetch?: typeof fetch; signal?: AbortSignal }): Promise<void>  // RFC 7009; rejects MachineError
 ```
 
 `MachineErrorCode` (4.2) also gains `'needs-root'` (G5b, G7: root steps on an SSH VM without passwordless sudo;
@@ -1125,7 +1126,10 @@ expiring key. `claim({ baseUrl, email })` (M8) drives that flow and yields 4.3's
 as `MachineRecord.providerKey`. It is the person's own sign-in on the provider's own page, so nothing BYOKit runs sees
 their password. There is no refresh: when the claimed key nears expiry, `keyWords` warns and the app runs `claim()`
 again. Whether the claimed key's scopes allow create, install and hosting is unverified until M6; if they do not, the
-app keeps `setup.makeKey` and M8 ships only what M6 proved.
+app keeps `setup.makeKey` and M8 ships only what M6 proved. Before `done`, `claim()` revokes the spare
+`identity_assertion` sent beside the key, and ends `failed` (revoking the key too) if it cannot. `revokeClaim({ baseUrl,
+key })` ends a claimed key (RFC 7009 at the metadata's `revocation_endpoint`, the key as client auth) and rejects with a
+`MachineError` naming the cause.
 
 ## 12. Words (`src/words.json`)
 
