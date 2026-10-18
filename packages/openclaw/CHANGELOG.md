@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.16.4 (2026-10-18)
+
+FIX: Re-check the installed Claude login at every setup detection and switch out of fallback when it becomes signed in.
+
 ## 0.16.3 (2026-10-18)
 
 - Dependency update: pins @byokit/relay 0.8.2.
