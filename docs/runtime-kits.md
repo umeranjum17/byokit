@@ -54,9 +54,9 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D8 | Host-side kit APIs are full-power. Over a link, the pass-through (`oc.call`, `hd.call`) is **denied by default**; an app opts in with a `passThrough(method, grant)` predicate. Typed link ops are always member/scope-checked. |
 | D9 | Members. OpenClaw: a member is an app-chosen id matching `/^[a-z](?!.*--)[a-z0-9-]{0,23}$/` (no `--`, at most 24 characters, so every account agent id `<member>--<6 hex>` stays within 32), never `main`, `openclaw`, `crestodian` or starting `byokit-`; an agent that already exists under the older `/^[a-z][a-z0-9-]{0,31}$/` rule and is no member's account agent keeps working with its member agent only (D17), and no new member is created under the old rule. The id is used verbatim as the OpenClaw `agentId` of the member agent; every session key must start `agent:<member>:`, `agent:<member>--<6 hex>:` for an account agent in the member's index (5.15), or (key lane) exactly `agent:byokit-key-<member>:`; each sign-in is granted once and shared across that member's agents as scoped views (D11, D17). Herdr: no member concept upstream; a link grant carries `meta.scope = { workspaces: 'all' \| string[] }`. |
 | D10 | Approvals. OpenClaw: (a) the kit's fail-closed tool bridge (Crewhouse's plugin hook → unix socket → app `gate()`), extended with a parked `ask` result; (b) OpenClaw's native `exec.approval.*`, `plugin.approval.*`, `question.*` surfaced through the same `Approval` shape. Herdr: an agent in `blocked` state is an approval; the answer is keys sent to that exact pane occupant (revision-checked). |
-| D11 | Sign-in: sign in once. OpenClaw: the kit drives OpenClaw's own `openclaw.setup.auth.start` + `wizard.next` loop and holds the ChatGPT callback port during a browser sign-in; each credential is granted once and shared, and every account agent sees only its scoped view of the grant (`viewStore` in `@byokit/accounts`, `packages/accounts/src/stores.ts`: one credential mapped to scoped slots); an optional host-injected seal sees bytes only to protect the isolated store at rest. With the person's consent, the kit may adopt the machine's existing Claude/Codex login instead of a fresh sign-in, then detect and activate it through the engine. Explicit API-key entry passes a secret only to typed `setup.activate`, never to kit storage, logs or return values (5.15). Herdr: each agent CLI's own login, done by the person inside an account-specific pane (terminal stream); `openSignInTab` opens that CLI in a new tab with the host's explicit account environment. Without the person's consent the kit never runs a login command, copies credentials between homes, or reads a CLI's credential files. |
+| D11 | Sign-in: sign in once. OpenClaw: the kit drives OpenClaw's own `openclaw.setup.auth.start` + `wizard.next` loop and holds the ChatGPT callback port during a browser sign-in; each credential is granted once and shared, and every account agent sees only its scoped view of the grant (`viewStore` in `@byokit/accounts`, `packages/accounts/src/stores.ts`: one credential mapped to scoped slots); an optional host-injected seal sees bytes only to protect the isolated store at rest. The engine's agent CLIs use the machine's installed, signed-in Claude/Codex login as is (5.5), which the kit detects and activates through the engine; a phone-started Claude sign-in is only the fallback for a machine with none. Explicit API-key entry passes a secret only to typed `setup.activate`, never to kit storage, logs or return values (5.15). Herdr: each agent CLI's own login, done by the person inside an account-specific pane (terminal stream); `openSignInTab` opens that CLI in a new tab with the host's explicit account environment. Without the person's consent the kit never runs a login command, copies credentials between homes, or reads a CLI's credential files. |
 | D12 | Route policy is data: all subscription routes, including native Claude Code (`anthropic-cli`: reports provider `claude-cli`, the id a Claude Code login is signed in as; manifest provider and plugin `anthropic`), and plan keys, are offered by default with plain sign-in (a plan key is pasted once into typed `setup.activate`, 5.7); a choice the pinned Gateway cannot set up (a key-entry choice without its manifest's `appGuidedSecret`, any other without `appGuidedAuth`/`appGuidedDiscovery`: for example `setup-token`, `fal-api-key`, `vllm` and `custom-api-key` at 2026.8.1; the generated table in `packages/openclaw/src/routes.json` lists all 22) is listed with `flow: 'absent'` (readiness `no_upstream_flow`), never ready or offered; the engine job holds every ready and every absent choice to the real Gateway. API-billed routes are app opt-in only. Proxy routes, compatibility aliases, local runtimes and `copilot-proxy` are listed in discovery and used only when named (D18); the 2026.8.1 table shipped today still marks them off until WP B6 regenerates it. Native login is completed in Claude Code, or adopted from the machine's existing Claude/Codex login with the person's consent (D11); the kit asks engine `setup.detect` and `setup.activate`. No consent screen or terms gate is added. |
-| D13 | Library code reads no environment variables except `PATH`, and only to locate `npm` for the engine install when `npmPath` is not given. Every spawned process gets an explicit env; `process.env` is never inherited. The Herdr binary path is always an explicit option. |
+| D13 | Library code reads no environment variables except `PATH`, and only to locate `npm` for the engine install when `npmPath` is not given. One exception: the OpenClaw kit reads the person's `HOME` and login-location variables (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`, when set) only to hand them to every engine process (gateway, doctor and the agent CLIs), so the installed, signed-in logins are used as is (4.2, 5.5). HOME is not an access boundary: those processes run with the person's own account rights, and engine-owned state stays under the engine root through `OPENCLAW_HOME`, `OPENCLAW_STATE_DIR`, `OPENCLAW_CONFIG_PATH` and `TMPDIR`; engine npm runs use the engine's own npm cache and config (`npm_config_cache`, `npm_config_userconfig`), not the person's. Every spawned process gets an explicit env; `process.env` is never inherited. The Herdr binary path is always an explicit option. |
 | D14 | `npm test` stays network-free. Tests needing the real engine (network `npm ci` of the pin, loopback only afterwards) run under `npm run test:engine` in a separate CI job `openclaw-engine`. Real-Herdr contract runs happen only in an isolated lab under a `--herdr-lab` brief, never in CI and never against a person's Herdr. |
 | D15 | Retained-login migration source for OpenClaw is a Pi `auth.json`-shaped record (`{ [provider]: credential }`): a file path (Crewhouse's legacy engine) or an in-memory record (an app moving from `@byokit/accounts`' `fileStore`/`secureStore`). Retire only after the Gateway itself reports the member signed in to every provider in the source. |
 | D16 | Crewhouse adopts first with behavior parity; muxr adopts later in a separate muxr change after the Herdr kit is published and muxr's byokit cutover allows it. Neither adoption is part of the byokit PRs. |
@@ -232,8 +232,13 @@ app (niche workflow + UI)
   `join(stateDir, 'herdr')`; in `adopt` mode it writes nothing. OpenClaw kit first resolves `stateDir` to one absolute
   path through no symlink (macOS `/tmp` and `/var` are symlinks): its native Claude login refuses any other.
 - Folders 0700, secret files 0600, atomic writes (temp + rename), as `@byokit/pair/node` does.
-- Never read or write `~/.pi`, `~/.openclaw`, `~/.clawdbot`, `~/.codex`, `~/.claude`, `~/.config/herdr` or any
-  person-level path; `adopt` mode talks only to the socket path the app passes.
+- The kit never reads or writes `~/.pi`, `~/.openclaw`, `~/.clawdbot`, `~/.codex`, `~/.claude`, `~/.config/herdr` or any
+  person-level path itself; `adopt` mode talks only to the socket path the app passes. The OpenClaw engine's gateway,
+  doctor and agent CLIs (Claude Code, Codex and the rest) run with the person's own `HOME` and login variables, so the
+  installed, signed-in login is used as is (5.5). HOME is not an access boundary: those processes run with the person's
+  own account rights and can open any path that account can. The isolation contract checks that starting the engine and
+  running `doctor --fix` leave a decoy HOME unchanged. The kit keeps no login of its own for them, except the
+  phone-started Claude fallback for a machine with none.
 - Spawned processes: explicit env only (D13).
 
 ### 4.3 States and plain words
@@ -543,7 +548,7 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
    (32 random bytes hex, 0600, created once). Port file `openclaw/port` (free loopback port chosen once; refuse 18789
    → `failed/port`). Write the bridge plugin (5.9) and reconcile config (5.6).
 2. **start()**: before preparing or restoring credentials, inspect `openclaw/gateway.pid`. A live orphan may
-   receive SIGTERM only after verifying the same user, executable, isolated cwd/HOME/state/config
+   receive SIGTERM only after verifying the same user, executable, isolated cwd/OPENCLAW_HOME/state/config
    paths, a dead host lock owner and the launch identity in `openclaw/gateway.identity` (pid and Linux
    `/proc/<pid>/stat` field 22 start time). Record that identity before publishing `gateway.pid`, and recheck
    it immediately before signalling; the engine rewrites its process title, so command-line arguments are
@@ -553,7 +558,7 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
    `failed/engine-already-running`, without modifying guards or state. On platforms without process identity
    verification, live pids are ambiguous. Dead pid guards are removed only under the acquired store lock.
    Then spawn `process.execPath <entry> gateway --port <port>` detached,
-    cwd = isolated HOME, env = 5.5, stdout/stderr appended to `logs/openclaw.log` (0600); write the pidfile. Device
+    cwd = `<root>/home` (`OPENCLAW_HOME`), env = 5.5, stdout/stderr appended to `logs/openclaw.log` (0600); write the pidfile. Device
     identity `openclaw/device.json` (ed25519, created once when missing, 0600; the transport reads both the kit's
     `{ privateKey, publicKey }` shape and the Crewhouse legacy `{ deviceId, publicKeyPem, privateKeyPem }` shape, and
     never rewrites an existing file so an upgraded house keeps its keys). Connect the transport; wait up to `handshakeMs` (default 90 s) for
@@ -583,16 +588,27 @@ Extracted from Crewhouse `gateway.ts` with these exact behaviors:
 
 ### 5.5 Isolated engine env
 
-Exactly Crewhouse's `isolatedEnv`, with `CREWHOUSE_SOCK` renamed and PATH extensible:
+Crewhouse's `isolatedEnv`, with `CREWHOUSE_SOCK` renamed and PATH extensible, except for the agent logins: the
+engine's own files stay in `<root>` through its own variables, while `HOME` is the person's, so the gateway, doctor and
+the agent CLIs it drives use the person's installed, signed-in login as is (captain rule, 18 Oct: kits never keep their own login). HOME is not an access boundary (4.2):
 
 ```
-PATH=/usr/bin:/bin[:enginePath…]  LANG=C.UTF-8  HOME=<root>/home  OPENCLAW_HOME=<root>/home
-OPENCLAW_STATE_DIR=<root>/state  OPENCLAW_CONFIG_PATH=<root>/openclaw.json
-XDG_CONFIG_HOME=<home>/.config  XDG_CACHE_HOME=<home>/.cache  XDG_DATA_HOME=<home>/.local/share
-XDG_STATE_HOME=<home>/.local/state  CODEX_HOME=<home>/.codex  CLAUDE_CONFIG_DIR=<home>/.claude  TMPDIR=<root>/tmp
+PATH=/usr/bin:/bin[:enginePath…]  LANG=C.UTF-8  HOME=<the person's HOME>  OPENCLAW_HOME=<root>/home
+[XDG_CONFIG_HOME, XDG_DATA_HOME, XDG_STATE_HOME, CLAUDE_CONFIG_DIR, CODEX_HOME: the person's own, only when set]
+OPENCLAW_STATE_DIR=<root>/state  OPENCLAW_CONFIG_PATH=<root>/openclaw.json  XDG_CACHE_HOME=<home>/.cache  TMPDIR=<root>/tmp
+npm_config_cache=<root>/npm-cache  npm_config_userconfig=<root>/npmrc (empty, 0600)
 OPENCLAW_NO_RESPAWN=1  OPENCLAW_SKIP_CHANNELS=1  OPENCLAW_DISABLE_BONJOUR=1  OPENCLAW_EXEC_SHELL_SNAPSHOT=0
 OPENCLAW_LOAD_SHELL_ENV=0  OPENCLAW_GATEWAY_TOKEN=<token>  BYOKIT_BRIDGE_SOCK=<root>/bridge.sock
 ```
+
+Each `start()` first asks the installed `claude auth status --json` (the person's env above, 15 s): when it reports
+`loggedIn: false` (or no `claude` is on the PATH), that launch sets `CLAUDE_CONFIG_DIR=<home>/.claude`, the folder the
+phone-started fallback sign-in (5.7) signs into; a signed-in installed Claude Code is used as is. Any other outcome
+(timeout, overflow, no parsed answer) is unknown and keeps the person's own login location, with no fallback.
+The fallback sign-in always writes `<home>/.claude`, and the gateway's in-process restart keeps its env, so a launch
+without that `CLAUDE_CONFIG_DIR` (`Engine.claudeLoginUnread()`) never starts it: a phone sign-in the gateway does not
+detect fails before any login with "Claude Code is installed here, but its sign-in could not be checked. Run claude
+once on this machine to sign in, then try again."
 
 With `channels.telegram` (5.18) the gateway process alone drops `OPENCLAW_SKIP_CHANNELS` and gets
 `TELEGRAM_BOT_TOKEN=<token>`; doctor and plugin installs keep channels skipped and never see the token.
@@ -776,7 +792,7 @@ history. This is no task scheduler or global recovery disable. Installation/prov
 Subscription choices are offered by default, including native `anthropic-cli`; `setup-token` is listed, never offered, because the pinned Gateway refuses it (no app-guided sign-in). API-billed choices, including `openrouter-oauth`, stay off until the app or person opts in.
 Only proxy routes (`litellm-api-key`, `clawrouter-api-key`, `custom-api-key`), compatibility aliases,
 local runtimes, `copilot-proxy` stay off. Billing labels distinguish subscription from
-API key (billed per use); native `anthropic-cli` uses Claude Code in the isolated HOME. `routes()` returns the full table and
+API key (billed per use); native `anthropic-cli` uses the person's installed Claude Code login (5.5). `routes()` returns the full table and
 `routeFor(provider, via)` picks the first offered route, else the provider's offered plan key (a `keyEntry` route is
 the pasted key whichever `via` was asked). Each `plugin` names the bundled manifest owning
 the choice; `via` is `code` for `appGuidedAuth: 'device-code'`, otherwise `browser`. Some offered routes
@@ -810,7 +826,7 @@ regenerated with the engine pin: one entry per external `install.npmSpec` in `ro
 <spec>@<ENGINE_VERSION> dist.integrity`.
 
 **signIn(member, { authChoice, via, signal? }, on)** — provider-owned wizard drive:
-Native `anthropic-cli` runs unmodified `claude auth login --claudeai` with the engine's `CLAUDE_CONFIG_DIR` in its own login HOME (`<root>/login-home`: Accounts refuses a folder that is its HOME's default login), through Accounts' remote CLI driver and a `cliAccounts.managedFolders` option limited to app-owned folders; cancel removes only roster bookkeeping, never the folder or grant.
+Native `anthropic-cli` uses the person's installed Claude Code login with no step when it is signed in. Only when the engine does not detect one is the fallback offered: unmodified `claude auth login --claudeai` with the engine's fallback `CLAUDE_CONFIG_DIR` (`<root>/home/.claude`, 5.5) in its own login HOME (`<root>/login-home`: Accounts refuses a folder that is its HOME's default login), through Accounts' remote CLI driver and a `cliAccounts.managedFolders` option limited to app-owned folders; cancel removes only roster bookkeeping, never the folder or grant.
 The `anthropic-cli` and key-entry drives have one commit point, the `setup.activate` call:
 1. Prepare: detection (`setup.detect`, passed the phone signal), the native login or the key paste. A phone cancel or a host shutdown here ends `why: 'declined'` for either drive: a key paste activates nothing, and one nobody answers still ends at the paste timeout.
 2. Commit: immediately before `setup.activate`, a cancel — or a host shutdown — that has already landed still ends declined with no activation call; otherwise the drive is committed and calls `setup.activate` once.
@@ -3206,7 +3222,9 @@ examples/herdr-kit/     package.json  host.ts  web/index.html  web/app.ts  READM
   `./device` for `browser` and `react-native` conditions with esbuild and fail on any `node:*` or Node-only import
   (same approach as `packages/accounts/test/portable.test.ts`).
 - Isolation: a kit test runs the fake runtime with a decoy HOME containing `.pi`, `.openclaw`, `.codex`, `.claude`,
-  `.config/herdr` canaries (`packages/accounts/src/testing`) and asserts they are untouched and never opened.
+  `.config/herdr` canaries (`packages/accounts/src/testing`) and asserts they are untouched and never opened. The
+  OpenClaw engine's contract (`packages/openclaw/test/isolation-contract.ts`) instead makes the decoy the person's HOME:
+  its agent CLIs receive that HOME and no engine-root Claude or Codex home, and nothing is written into it.
 - `npm run test:engine` (new root script) = `sh scripts/test.sh 'packages/openclaw/test/engine/*.test.ts'`. CI job
   `openclaw-engine` (Node 24, 20 min, `actions/cache` on `~/.npm`) runs it after build.
 - Herdr: no CI job touches a real Herdr. The H9 lab run uses `herdrContract` against v0.9.1 in `own` mode inside a

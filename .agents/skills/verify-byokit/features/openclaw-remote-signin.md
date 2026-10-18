@@ -2,7 +2,7 @@
 
 ## Sub-features
 
-- `anthropic-cli` runs Claude Code's own login with the engine's `CLAUDE_CONFIG_DIR` (in its own login HOME); only engine readiness plus live activation completes it. `openai-device-code` (`via: 'code'`) uses the engine wizard with no phone-local callback.
+- `anthropic-cli` uses the installed Claude Code login when it is signed in ([openclaw-installed-cli-login](./openclaw-installed-cli-login.md)); with none, the fallback runs Claude Code's own login with the engine's `CLAUDE_CONFIG_DIR` (in its own login HOME); only engine readiness plus live activation completes it. `openai-device-code` (`via: 'code'`) uses the engine wizard with no phone-local callback.
 - Wrong code, expiry, cancel or a missing CLI never activates. The commit point is `setup.activate`: a cancel before it declines, after it the engine's answer stands. Runtime-owned CLI folders survive cancelled rows.
 - The native Claude login works whatever path spelling the app's `stateDir` has: reached through a symlinked folder (macOS `/tmp` and `os.tmpdir()` are) or relative, the kit resolves it first. Before that fix such a sign-in failed at once with `The app supplied invalid account options.`
 - A plan-key choice such as `opencode-go` is not a wizard sign-in: the view waits for the pasted plan key and commits at `setup.activate` only once one is pasted. Stopping the engine before the paste declines the drive at once (the engine's `stopSignal` reaches the drive through the kit's sign-in context), activating nothing; a paste nobody answers still ends at the 15-minute paste wait.

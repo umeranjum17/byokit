@@ -1,11 +1,12 @@
 import { strict as assert } from 'node:assert';
-import { existsSync, mkdirSync, writeFileSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { removeScratch, scratchDir } from '../../test-support.ts';
 import { connect } from 'node:net';
 import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../src/engine.ts';
+import { signIn } from '../src/signin.ts';
 
 const listening = (port: number) => new Promise<boolean>(resolve => {
   const socket = connect({ host: '127.0.0.1', port });
@@ -34,13 +35,31 @@ export async function isolationContract(install?: (dir: string) => string | Prom
     mkdirSync(path, { recursive: true });
     writeFileSync(join(path, 'canary'), name);
   }
-  const original = process.env.HOME;
+  // A task-owned `claude` on the engine PATH stands in for the person's installed, signed-in Claude Code: it records
+  // the env each call receives and answers `auth status` from its own status file, never a credential.
+  const bin = join(dir, 'bin'), calls = join(dir, 'claude-calls'), status = join(dir, 'claude-status');
+  mkdirSync(bin);
+  writeFileSync(join(bin, 'package.json'), JSON.stringify({ type: 'commonjs' }));
+  writeFileSync(status, 'signed-in');
+  writeFileSync(join(bin, 'claude'), `#!${process.execPath}
+const fs = require('node:fs'), { HOME, CLAUDE_CONFIG_DIR, CODEX_HOME } = process.env, argv = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(calls)}, JSON.stringify({ argv, HOME, CLAUDE_CONFIG_DIR, CODEX_HOME }) + '\\n');
+const state = fs.readFileSync(${JSON.stringify(status)}, 'utf8'), loggedIn = state === 'signed-in';
+if (argv[0] === '--version') console.log('2.1.0 (Claude Code)');
+else if (argv.join(' ').startsWith('auth status') && state === 'hang') setTimeout(() => process.exit(0), 60_000);
+else if (argv.join(' ').startsWith('auth status')) { console.log(JSON.stringify({ loggedIn })); process.exit(loggedIn ? 0 : 1); }
+else process.exit(2);
+`, { mode: 0o700 });
+  const tree = () => readdirSync(decoy, { recursive: true }).map(String).sort();
+  const before = tree();
+  const saved = Object.fromEntries(['HOME', 'OPENAI_API_KEY', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME']
+    .map(name => [name, process.env[name]]));
+  for (const name of Object.keys(saved)) delete process.env[name];
   process.env.HOME = decoy;
-  const originalKey = process.env.OPENAI_API_KEY;
   process.env.OPENAI_API_KEY = 'should-not-be-inherited';
   const states: string[] = [];
   // Node rejects npm's ci arguments if an offline fixture ever needs repair; never invoke real npm.
-  const engine = new Engine({ stateDir: join(dir, 'own'), ...(install ? { engineDir: await install(dir), npmPath: process.execPath } : {}), pluginId: 'byokit', tools: [], spawnEngine: true,
+  const engine = new Engine({ stateDir: join(dir, 'own'), ...(install ? { engineDir: await install(dir), npmPath: process.execPath } : {}), enginePath: [bin], pluginId: 'byokit', tools: [], spawnEngine: true,
     onState: s => states.push(`${s.phase}/${s.why ?? ''}`), onExit() {} });
   try {
     const ctx = await engine.start();
@@ -48,7 +67,7 @@ export async function isolationContract(install?: (dir: string) => string | Prom
     const { port, token, identityPath } = ctx;
     assert.notEqual(port, 18789);
     assert.equal(token.length, 64);
-    for (const file of [identityPath, join(engine.root, 'token')])
+    for (const file of [identityPath, join(engine.root, 'token'), join(engine.root, 'npmrc')])
       assert.equal(statSync(file).mode & 0o777, 0o600);
     for (const folder of [engine.root, join(engine.root, 'home'), join(engine.root, 'state')])
       assert.equal(statSync(folder).mode & 0o777, 0o700);
@@ -56,7 +75,13 @@ export async function isolationContract(install?: (dir: string) => string | Prom
     assert.equal(env.OPENAI_API_KEY, undefined);
     assert.equal(env.OPENCLAW_SKIP_CHANNELS, '1');
     assert.ok(!JSON.stringify(env).includes('.pi'));
-    assert.ok(!JSON.stringify(env).includes(decoy));
+    // The engine's agent CLIs use the person's installed logins: their own HOME, and no engine-root Claude or Codex home.
+    assert.equal(env.HOME, decoy);
+    assert.equal(env.OPENCLAW_HOME, join(engine.root, 'home'));
+    assert.equal(env.CLAUDE_CONFIG_DIR, undefined);
+    assert.equal(env.CODEX_HOME, undefined);
+    assert.deepEqual([env.npm_config_cache, env.npm_config_userconfig], [join(engine.root, 'npm-cache'), join(engine.root, 'npmrc')], 'engine npm runs keep their cache, logs and config in the engine root');
+    assert.ok(Object.entries(env).every(([name, value]) => name === 'HOME' || !value.includes(decoy)));
     assert.equal(env.NODE_OPTIONS, undefined);
     assert.equal(env.OPENCLAW_LOAD_SHELL_ENV, '0');
     assert.equal(env.OPENCLAW_EXEC_SHELL_SNAPSHOT, '0');
@@ -93,13 +118,41 @@ export async function isolationContract(install?: (dir: string) => string | Prom
       if (process.platform === 'darwin') delete child.env.__CF_USER_TEXT_ENCODING;
       assert.deepEqual({ ...child.env, OPENCLAW_GATEWAY_TOKEN: '<redacted>' }, { ...expected, OPENCLAW_GATEWAY_TOKEN: '<redacted>' },
         'the child actually received only the isolated environment and accounting identity');
-      assert.equal(child.cwd, env.HOME);
+      assert.equal(child.cwd, env.OPENCLAW_HOME);
     }
+    const received = readFileSync(calls, 'utf8').trim().split('\n').map(line => JSON.parse(line) as Record<string, unknown>);
+    assert.ok(received.length > 0);
+    for (const call of received) assert.deepEqual({ ...call, argv: undefined }, { argv: undefined, HOME: decoy }, `claude ${JSON.stringify(call.argv)} saw the person's HOME alone`);
+    if (install) {
+      // No installed sign-in: the engine falls back to its own Claude folder; the person's own CODEX_HOME still passes through.
+      await engine.stop();
+      writeFileSync(status, 'hang');
+      await engine.start();
+      assert.equal(engine.doctorContext().env.CLAUDE_CONFIG_DIR, undefined, 'an unanswered sign-in probe keeps the installed login location');
+      // The gateway sees no login there, and its in-process restart keeps that env: the fallback sign-in stops before any login.
+      assert.equal(engine.claudeLoginUnread(), true);
+      const phone = await signIn({ request: async method => { assert.equal(method, 'openclaw.setup.detect'); return { candidates: [] }; },
+        ensure: async member => ({ agentId: member }), callbackPort: 0, authConfig: () => '', restarted: async () => true,
+        claudeLoginUnread: () => engine.claudeLoginUnread() }, 'umer', { authChoice: 'anthropic-cli' }, () => {}).done;
+      assert.deepEqual(phone, { state: 'failed', via: 'browser', why: 'failed', error: 'Claude Code is installed here, but its sign-in could not be checked. Run claude once on this machine to sign in, then try again.' });
+      await engine.stop();
+      writeFileSync(status, 'signed-out');
+      process.env.CODEX_HOME = join(decoy, '.codex');
+      await engine.start();
+      const fallback = engine.doctorContext().env, folder = join(engine.root, 'home', '.claude');
+      assert.deepEqual([fallback.HOME, fallback.CLAUDE_CONFIG_DIR, fallback.CODEX_HOME], [decoy, folder, join(decoy, '.codex')]);
+      assert.equal(engine.claudeLoginUnread(), false, 'the fallback sign-in writes the folder the gateway reads');
+      const childEnv = () => { try { return JSON.parse(readFileSync(join(engine.root, 'home', 'child.json'), 'utf8')).env; } catch { return {}; } };
+      for (let i = 0; i < 300 && childEnv().CLAUDE_CONFIG_DIR !== folder; i++) await delay(20);
+      assert.equal(childEnv().CLAUDE_CONFIG_DIR, folder, 'the gateway got the fallback folder');
+    }
+    await engine.stop(); // The stock doctor refuses to be a second writer next to a running gateway.
+    assert.equal(engine.doctor(60_000).status, 0, 'doctor --fix exits 0');
     for (const name of ['.pi', '.openclaw', '.codex', '.claude', '.config/herdr']) assert.equal(readFileSync(join(decoy, name, 'canary'), 'utf8'), name);
+    assert.deepEqual(tree(), before, 'start and doctor --fix write nothing into the person\'s home');
   } finally {
     await engine.stop();
-    if (original === undefined) delete process.env.HOME; else process.env.HOME = original;
-    if (originalKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = originalKey;
+    for (const [name, value] of Object.entries(saved)) if (value === undefined) delete process.env[name]; else process.env[name] = value;
     removeScratch(dir);
   }
 }

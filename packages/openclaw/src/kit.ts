@@ -1040,6 +1040,7 @@ export class OpenClawKit {
       ensure: (member) => this.ensureMember(member), callbackPort: this.o.callbackPort ?? 1455,
       nativeClaudeLogin: () => this.engine.nativeClaudeLogin(),
       resetNativeClaudeLogin: () => this.engine.resetNativeClaudeLogin(),
+      claudeLoginUnread: () => this.engine.claudeLoginUnread(),
       onDisconnect: (fn) => { this.signInDisconnects.add(fn); return () => { this.signInDisconnects.delete(fn); }; },
       stopSignal: this.engine.stopSignal,
       authConfig: () => this.authSnapshot(),
@@ -1464,5 +1465,6 @@ export class OpenClawKit {
       throw new Error(`${op}: KitOptions.config also passes skills; that option wins at every boot (5.6)`);
   }
 
+  /** The env for an external doctor. Its Claude login folder is the one chosen at `prepare()`/`start()`; before that it is the installed-login view only. */
   doctorContext(): { entry: string; env: Record<string, string> } { return this.engine.doctorContext(); }
 }

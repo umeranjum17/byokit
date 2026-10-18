@@ -114,14 +114,14 @@ try {
   mkdirSync(base);
   for (const file of ['package.json', 'package-lock.json']) copyFileSync(join(artifact, file), join(base, file));
   const installed = await command('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund', '--prefix', base], {
-    env: { PATH: process.env.PATH, HOME: env.HOME, npm_config_cache: join(cwd, 's/openclaw/npm-cache') }, encoding: 'utf8', timeout: 300_000,
+    env: { PATH: process.env.PATH, HOME: env.OPENCLAW_HOME, npm_config_cache: join(cwd, 's/openclaw/npm-cache') }, encoding: 'utf8', timeout: 300_000,
   });
   assert.equal(installed.status, 0, installed.stderr);
   await attached(kit, 'after-old-way-base-install');
   await old.prepare();
   const oldEnv = old.doctorContext().env;
   const fd = openSync(join(cwd, 'old-gateway.log'), 'a', 0o600);
-  try { oldChild = spawn(process.execPath, [join(base, 'node_modules/openclaw/openclaw.mjs'), 'gateway', '--port', readFileSync(join(cwd, 'o/openclaw/port'), 'utf8')], { cwd: oldEnv.HOME, env: oldEnv, stdio: ['ignore', fd, fd] }); }
+  try { oldChild = spawn(process.execPath, [join(base, 'node_modules/openclaw/openclaw.mjs'), 'gateway', '--port', readFileSync(join(cwd, 'o/openclaw/port'), 'utf8')], { cwd: oldEnv.OPENCLAW_HOME, env: oldEnv, stdio: ['ignore', fd, fd] }); }
   finally { closeSync(fd); }
   await old.start(); await health(old);
   // 2026.8.3x leaves a `.openclaw-lifecycle-pending` marker after `npm ci --ignore-scripts`; the stock Gateway consumes
@@ -170,7 +170,7 @@ try {
   // Real doctor --fix; state may be repaired, but its final engine tree must not change.
   const doctorContext = a.doctorContext();
   await a.stop(); // Only this exact owned Gateway: stock doctor refuses a second SQLite schema writer.
-  const doctor = await command(process.execPath, [doctorContext.entry, 'doctor', '--fix', '--yes', '--non-interactive'], { cwd: doctorContext.env.HOME, env: doctorContext.env });
+  const doctor = await command(process.execPath, [doctorContext.entry, 'doctor', '--fix', '--yes', '--non-interactive'], { cwd: doctorContext.env.OPENCLAW_HOME, env: doctorContext.env });
   assert.equal(doctor.status, 0, doctor.stderr); assert.equal(snapshot(dirA), aBefore);
   select(setA); await a.start(); await health(a);
   pidA = readFileSync(join(cwd, 'a/openclaw/gateway.pid'), 'utf8');

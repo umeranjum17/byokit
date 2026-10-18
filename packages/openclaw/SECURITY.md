@@ -87,9 +87,16 @@ already copied credentials or erase snapshots/backups.
 
 ## Engine isolation and installation
 
-`src/engine.ts` builds the gateway/doctor environment explicitly: HOME, XDG,
-provider-tool homes, tmp, config and state paths point into the app's tree. It does
-not forward shell API keys, `NODE_OPTIONS` or shell environment snapshots. The native
+`src/engine.ts` builds the gateway/doctor environment explicitly: the engine's own
+home (`OPENCLAW_HOME`), cache, tmp, config and state paths point into the app's tree,
+while `HOME` (and the person's own `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME`,
+`CLAUDE_CONFIG_DIR` and `CODEX_HOME` when set) is the person's for every engine process
+(gateway, doctor and the agent CLIs), so the installed, signed-in logins are used as is. HOME is not an
+access boundary: the engine runs with the person's own account rights and can open any path that account
+can, including other CLIs' credentials and `~/.ssh`. Engine npm runs use the engine's own npm cache and config
+(`npm_config_cache`, `npm_config_userconfig`), not the person's `~/.npm` or `~/.npmrc`. It does not forward shell API keys, `NODE_OPTIONS` or shell environment
+snapshots. Only when the installed `claude auth status --json` is not signed in does the
+gateway get `CLAUDE_CONFIG_DIR` at the engine's fallback folder. The native fallback
 Claude sign-in child (`claude auth login`, started through `@byokit/accounts/cli`) gets
 the same treatment: its env is only `PATH`, its own login HOME
 (`openclaw/login-home`), `LANG`, `TMPDIR` and the `XDG_*` variables — never the gateway

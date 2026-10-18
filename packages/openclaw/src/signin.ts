@@ -17,6 +17,8 @@ export type SignInCtx = {
   ensure(member: Member): Promise<{ agentId: string }>;
   callbackPort: number;
   nativeClaudeLogin?(): ReturnType<typeof remoteCliHost>; resetNativeClaudeLogin?(): Promise<void>;
+  // True when the fallback login's folder is not the one the gateway reads (Engine.claudeLoginUnread).
+  claudeLoginUnread?(): boolean;
   onDisconnect?(fn: () => void): () => void;
   authConfig(): string;
   restarted(authBefore: string | undefined, signal?: AbortSignal): Promise<boolean>;
@@ -261,6 +263,7 @@ export function signIn(
         }; return value.candidates?.some(candidate => candidate.kind === 'claude-cli' && candidate.credentials === true); };
         native = ctx.nativeClaudeLogin?.();
         if (!await detected()) {
+          if (ctx.claudeLoginUnread?.()) return { state: 'failed', via, why: 'failed', error: 'Claude Code is installed here, but its sign-in could not be checked. Run claude once on this machine to sign in, then try again.' };
           if (!native) return { state: 'failed', via, why: 'failed', error: 'Claude Code sign-in is not available on this engine.' };
           let started = await native.start('claude', { signal }); let ready = false;
           if (!started.ok && started.error === 'already') { ready = Boolean(await detected());
