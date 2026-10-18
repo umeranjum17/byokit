@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.0 (2026-10-18)
+
+- ADD: Callers can ask for token probabilities to rate answers.
+
 ## 0.2.1 (2026-10-17)
 
 - README intro now says in plain words what the kit does; model specifics stay in the body.
