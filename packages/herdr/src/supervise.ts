@@ -45,6 +45,8 @@ export class Supervisor {
   private child?: ChildProcess;
   private stopping = false;
   private retry?: NodeJS.Timeout;
+  private liveness?: NodeJS.Timeout;
+  private pinging = false;
   private failures = 0;
   private readonly root?: string;
   private readonly socketPath: string;
@@ -70,8 +72,10 @@ export class Supervisor {
       XDG_CACHE_HOME: join(home, '.cache'), ...socket, ...base,
     };
   }
-  private state(phase: HerdrState['phase'], why?: HerdrState['why']) { this.onState({ phase, ...(why ? { why } : {}) }); }
+  private state(phase: HerdrState['phase'], why?: HerdrState['why']) { this.statePhase = phase; this.onState({ phase, ...(why ? { why } : {}) }); }
   async start(): Promise<HerdrTransport> {
+    clearTimeout(this.liveness);
+    this.liveness = undefined;
     this.stopping = false;
     this.state('connecting');
     if (this.o.mode === 'own') {
@@ -121,6 +125,7 @@ export class Supervisor {
         }
         if (ping.protocol > max) this.state('needs-update', 'version');
         this.failures = 0;
+        this.watchLiveness(transport);
         return transport;
       } catch (error) {
         if ((error as Error).message === 'herdr: protocol mismatch') throw error;
@@ -138,6 +143,7 @@ export class Supervisor {
               }
               if (ping.protocol > max) this.state('needs-update', 'version');
               this.failures = 0;
+              this.watchLiveness(transport);
               return transport;
             } catch (retryError) {
               if (this.stopping) throw new Error('herdr: stopped');
@@ -155,8 +161,34 @@ export class Supervisor {
     this.state('failed', 'socket');
     throw new Error('herdr: socket unavailable');
   }
+  private watchLiveness(transport: HerdrTransport): void {
+    clearTimeout(this.liveness);
+    const timeout = this.o.livenessTimeoutMs ?? 1000;
+    const interval = Math.max(1000, timeout);
+    const ping = async () => {
+      if (this.stopping || this.transport !== transport || this.pinging) return;
+      this.pinging = true;
+      try {
+        await transport.call('ping', {}, timeout);
+        if (!this.stopping && this.transport === transport && this.statePhase === 'stalled') this.state('ready');
+      } catch (error) {
+        if (this.stopping || this.transport !== transport) return;
+        if ((error as { code?: string }).code === 'timeout') {
+          if (this.statePhase !== 'stalled') this.state('stalled');
+        } else this.state('failed', 'socket');
+      } finally {
+        this.pinging = false;
+        if (!this.stopping && this.transport === transport) this.liveness = setTimeout(() => { void ping(); }, interval);
+      }
+    };
+    this.liveness = setTimeout(() => { void ping(); }, interval);
+  }
+  private statePhase?: HerdrState['phase'];
   async stop(): Promise<void> {
     this.stopping = true;
+    clearTimeout(this.liveness);
+    this.liveness = undefined;
+    this.pinging = false;
     clearTimeout(this.retry);
     if (this.o.mode === 'own' && this.child?.pid) {
       try { await this.transport?.call('server.stop', {}, 1000); } catch { /* process may have exited */ }

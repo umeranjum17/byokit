@@ -173,7 +173,7 @@ kit does not have yet, and [Two ways in](#two-ways-in) plus
 | `startFakeHerdr`, `writeBinShim`, `herdrContract` (`@byokit/herdr/testing`) | The kit's stand-in Herdr, a bin shim that runs it, and the contract suite the kit passes |
 | `ensureHerdr`, `fetchHerdr`, `HERDR_ASSETS` (`@byokit/herdr/binary`) | Opt-in pinned fetch: the v0.9.1 asset for the current platform into an app-owned dir, sha256-verified, executable, returned as the absolute `own`-mode `bin`; refused (nothing left) on a hash mismatch or unsupported platform |
 
-Kit states include `connecting`, `ready`, `reconnecting`, `stalled`, `needs-update`, `missing`, and `failed`. A stalled computer is busy; the app keeps trying.
+Kit states include `connecting`, `ready`, `reconnecting`, `stalled`, `needs-update`, `missing`, and `failed`. A stalled computer is busy; the app keeps trying. Once connected, the kit pings Herdr periodically (default timeout: 1 second); set `livenessTimeoutMs` in `HerdrKitOptions` to change the ping timeout and interval. A missed ping changes the state to `stalled`; the next successful ping restores `ready`.
 
 The fake's test controls script what a real Herdr does on the wire. `fake.losePrompt(paneId)` makes the pane's next
 `agent.prompt` start no turn: a caller that passes `wait` gets `agent_prompt_stalled` after its wait window, and the pane stays idle; the returned function disarms it, since a prompt the kit refuses before the wire never reaches the fake. `fake.scriptDrawingReads(paneId, reads, source?)`
