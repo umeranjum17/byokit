@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.16.6 (2026-10-18)
+
+- SECURITY: Run `openai-codex/<model>` through the installed Codex CLI on the ChatGPT subscription using the pinned engine's supported CLI backend; keep engine state isolated and prevent the engine from importing or refreshing the installed Codex login.
+
 ## 0.16.5 (2026-10-18)
 
 - Dependency update: pins @byokit/accounts 0.28.0.

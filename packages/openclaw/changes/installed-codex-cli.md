@@ -1,1 +1,0 @@
-- SECURITY: Run `openai-codex/<model>` through the installed Codex CLI on the ChatGPT subscription using the pinned engine's supported CLI backend; keep engine state isolated and prevent the engine from importing or refreshing the installed Codex login.
