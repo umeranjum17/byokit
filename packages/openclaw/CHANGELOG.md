@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.18.0 (2026-10-18)
+
+- Reattach a paired device to a live-kit run by its existing idempotency key: sequenced replay then live events, a bounded journal with typed truncation, and grant-member isolation. Device disconnect does not interrupt the run; engine-restart reconstruction is not included.
+
 ## 0.17.0 (2026-10-18)
 
 - Add opt-in `RunSpec.delegates` for native `sessions_send`/`sessions_spawn` app-tool admission and typed delegated events, retained exact receipts and subtree cancellation. Targets retain their own accounts; helper/person account sharing is not included.
