@@ -10,6 +10,7 @@ export type CatalogAuth = 'oauth' | 'discovery' | 'device';
 export interface CatalogApp extends Provider {
   /** An HTTPS (or loopback) image address from the listing; render it as untrusted content. */
   icon?: string;
+  description?: string;
   auth: CatalogAuth;
 }
 /** Any source of apps a host can list; the kit ships `knownApps` and `mcpDirectory(url)`. */
@@ -27,16 +28,31 @@ function web(raw: unknown): string | undefined {
  * address variables or required headers for the person to fill in. */
 function fromServer(server: unknown): CatalogApp | undefined {
   if (!server || typeof server !== 'object') return undefined;
-  const { name, title, remotes, icons } = server as Record<string, unknown>;
+  const { name, title, description, remotes, icons } = server as Record<string, unknown>;
   if (typeof name !== 'string' || !name) return undefined;
   const remote = Array.isArray(remotes) ? remotes.find(r => r?.type === 'streamable-http' && typeof r.url === 'string' && !r.url.includes('{') &&
     !(Array.isArray(r.headers) && r.headers.some((h: { isRequired?: unknown } | null) => h?.isRequired))) : undefined;
   const mcpUrl = web(remote?.url);
   if (!mcpUrl) return undefined;
   const icon = Array.isArray(icons) ? icons.map(i => web(i?.src)).find(Boolean) : undefined;
-  return listed({ id: name, name: typeof title === 'string' && title ? title : name, mcpUrl }, icon);
+  return { ...listed({ id: name, name: typeof title === 'string' && title ? title : name, mcpUrl }, icon), ...(typeof description === 'string' ? { description } : {}) };
 }
 
+const reviewedRegistry = [
+  ['com.notion.mcp', 'Notion', 'Find and update pages in your Notion workspace.', 'https://mcp.notion.com/mcp', 'https://www.notion.so/images/favicon.ico'],
+  ['com.canva.mcp', 'Canva', 'Create and manage designs in Canva.', 'https://mcp.canva.com/mcp', 'https://www.canva.com/favicon.ico'],
+  ['com.linear.mcp', 'Linear', 'Read and manage issues and projects in Linear.', 'https://mcp.linear.app/mcp', 'https://linear.app/favicon.ico'],
+  ['com.figma.mcp', 'Figma', 'Inspect and work with Figma design files.', 'https://mcp.figma.com/mcp', 'https://www.figma.com/favicon.ico'],
+  ['com.airtable.mcp', 'Airtable', 'Find and manage records in Airtable bases.', 'https://mcp.airtable.com/mcp', 'https://www.airtable.com/favicon.ico'],
+  ['com.monday.mcp', 'Monday.com', 'Read and manage work in monday.com.', 'https://mcp.monday.com/mcp', 'https://monday.com/favicon.ico'],
+  ['com.clickup.mcp', 'ClickUp', 'Find and update tasks in ClickUp.', 'https://mcp.clickup.com/mcp', 'https://clickup.com/favicon.ico'],
+  ['com.miro.mcp', 'Miro', 'Find and work with Miro boards.', 'https://mcp.miro.com/', 'https://miro.com/favicon.ico'],
+  ['com.dropbox.mcp', 'Dropbox', 'Find and manage files in Dropbox.', 'https://mcp.dropbox.com/mcp', 'https://www.dropbox.com/favicon.ico'],
+  ['com.todoist.mcp', 'Todoist', 'Find and manage tasks in Todoist.', 'https://ai.todoist.net/mcp', 'https://todoist.com/favicon.ico'],
+].map(([name, title, description, url, icon]) => ({ name, title, description, remotes: [{ type: 'streamable-http', url }], icons: [{ src: icon }] }));
+
+/** The reviewed, live-probed MCP vendors, published in MCP Registry server.json shape. */
+export const reviewedApps: CatalogProvider = { list: async () => reviewedRegistry.map(server => fromServer(server)!) };
 /** The kit's hand-known apps (`providers`); reads nothing. */
 export const knownApps: CatalogProvider = { list: async () => Object.values(providers).map(provider => listed(provider)) };
 

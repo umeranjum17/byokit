@@ -10,6 +10,7 @@ export interface OAuthEndpoints {
   authorize: string;
   token: string;
   register?: string;
+  revoke?: string;
   issuer?: string;
 }
 export interface Provider {
@@ -45,6 +46,7 @@ export interface ConnectOptions {
   timeoutMs?: number;
   flowTimeoutMs?: number;
 }
+export type DisconnectResult = { revokedAtApp: true } | { revokedAtApp: false; reason: 'unsupported' | 'failed' };
 export interface SignIn {
   readonly url: string;
   readonly redirectUri: string;

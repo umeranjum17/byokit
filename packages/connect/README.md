@@ -225,11 +225,11 @@ legacy HTTP+SSE transports are outside this sign-in kit's initial scope.
 ## List apps to connect
 
 ```ts
-import { catalog, connect, knownApps, mcpDirectory } from '@byokit/connect';
+import { catalog, connect, knownApps, reviewedApps, mcpDirectory } from '@byokit/connect';
 import type { Keystore } from '@byokit/secrets';
 
 declare const store: Keystore;
-const apps = await catalog([knownApps, mcpDirectory('https://directory.your-app.example/v0/servers?version=latest')]);
+const apps = await catalog([knownApps, reviewedApps, mcpDirectory('https://directory.your-app.example/v0/servers?version=latest')]);
 const app = apps[0]; // { id, name, icon?, auth, ...the Provider connect() takes }
 const connection = connect(app, { store, person: 'Umer', redirectUri: 'https://your-app.example/connect/callback' });
 const flow = await connection.signIn(); // Or connectLoopback(app, ...); deviceSignIn(app, ...) when app.auth is 'device'.
@@ -245,6 +245,7 @@ registers itself where offered, `device` shows a typed code. `icon` is an HTTPS
 image address from the listing; render it as untrusted content.
 
 - `knownApps` lists the kit's presets (`providers`) and reads nothing.
+- `reviewedApps` is the kit's reviewed MCP Registry-shaped vendor directory. It includes only servers whose unauthenticated MCP initialize and OAuth metadata were live-probed for DCR; unknown registry entries never appear in it. Its list is intentionally smaller than the open registry.
 - `mcpDirectory(url, { fetch?, timeoutMs? })` reads a remote MCP directory that
   answers in the MCP registry's `GET /v0/servers` shape, following
   `metadata.nextCursor` (at most 100 pages), only when listed. It keeps servers
@@ -253,6 +254,10 @@ image address from the listing; render it as untrusted content.
   must be HTTPS (or loopback); for the MCP registry add `version=latest`.
 - Any object with `list(): Promise<CatalogApp[]>` is a source, such as the host's
   own managed connector directory behind its server.
+
+`disconnect()` returns `{ revokedAtApp: true }` when the app accepts revocation, otherwise `{ revokedAtApp: false, reason: 'failed' | 'unsupported' }`. When authorization metadata publishes an RFC 7009 revocation endpoint, it sends the refresh token and then the access token before deleting the local record. A failed request never prevents local removal.
+
+When an MCP request returns a 403 `WWW-Authenticate: Bearer error="insufficient_scope"`, it rejects with `ConnectError` code `insufficient_scope` and `requiredScopes` when the server supplies a scope hint. Start `connection.stepUp(error.requiredScopes ?? ['scope'])`; the returned sign-in requests the additional scopes, and the saved grant remains usable until `finish()` stores the upgraded grant.
 
 A directory that fails or answers in another shape rejects with `ConnectError`
 code `catalog` (with its `status`), an unreachable one with `network`; the whole

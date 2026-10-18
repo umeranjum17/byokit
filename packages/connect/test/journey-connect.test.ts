@@ -21,7 +21,7 @@ import { join } from 'node:path';
 import { build } from 'esbuild';
 import plain from '../../../fixtures/conformance/plain-words.json' with { type: 'json' };
 import {
-  connect, deviceSignIn, catalog, knownApps, mcpDirectory, ConnectError, providers, MailReader, MailSender, MailError, MailHistory, HistoryError,
+  connect, deviceSignIn, catalog, knownApps, reviewedApps, mcpDirectory, ConnectError, providers, MailReader, MailSender, MailError, MailHistory, HistoryError,
   CallToolResultSchema, ToolListChangedNotificationSchema,
   type Provider, type ConnectOptions,
 } from '@byokit/connect';
@@ -390,32 +390,35 @@ test('a remote MCP server is discovered, registered and driven through the typed
 test('a host lists apps from the known apps and a remote MCP directory, then connects a listed app end to end', async t => {
   // A loopback remote MCP app: a 401 challenge, protected-resource and authorization-server metadata, dynamic
   // registration, an authorize page that redirects straight back, a token endpoint and the MCP endpoint itself.
-  const appCalls: string[] = [];
-  let challenge = '';
+  const appCalls: string[] = [], revoked: string[] = [];
+  let challenge = '', grantedScope = 'notes', scopeDenied = true, rejectRevocation = false;
   const appServer = createServer(async (req, res) => {
     let body = ''; for await (const chunk of req) body += chunk;
     const url = new URL(req.url!, origin); appCalls.push(url.pathname);
     const send = (value: unknown, status = 200, headers: Record<string, string> = {}) => { res.writeHead(status, { 'content-type': 'application/json', ...headers }); res.end(JSON.stringify(value)); };
     if (url.pathname === '/.well-known/oauth-protected-resource/mcp') return send({ resource: `${origin}/mcp`, authorization_servers: [origin], scopes_supported: ['notes'] });
-    if (url.pathname === '/.well-known/oauth-authorization-server') return send({ issuer: origin, authorization_endpoint: `${origin}/authorize`, token_endpoint: `${origin}/token`, registration_endpoint: `${origin}/register`, code_challenge_methods_supported: ['S256'] });
+    if (url.pathname === '/.well-known/oauth-authorization-server') return send({ issuer: origin, authorization_endpoint: `${origin}/authorize`, token_endpoint: `${origin}/token`, registration_endpoint: `${origin}/register`, revocation_endpoint: `${origin}/revoke`, code_challenge_methods_supported: ['S256'] });
     if (url.pathname === '/register') return send({ client_id: 'listed-client', token_endpoint_auth_method: 'none' }, 201);
     if (url.pathname === '/authorize') {
-      assert.deepEqual([url.searchParams.get('client_id'), url.searchParams.get('resource'), url.searchParams.get('scope')], ['listed-client', `${origin}/mcp`, 'notes']);
-      challenge = url.searchParams.get('code_challenge')!;
+      assert.deepEqual([url.searchParams.get('client_id'), url.searchParams.get('resource')], ['listed-client', `${origin}/mcp`]);
+      assert.ok(['notes', 'notes notes.write'].includes(url.searchParams.get('scope')!));
+      challenge = url.searchParams.get('code_challenge')!; grantedScope = url.searchParams.get('scope')!;
       const back = new URL(url.searchParams.get('redirect_uri')!); back.searchParams.set('state', url.searchParams.get('state')!); back.searchParams.set('code', 'listed-code');
       res.writeHead(302, { location: back.href }); res.end(); return;
     }
     if (url.pathname === '/token') {
       const form = new URLSearchParams(body);
       assert.equal(createHash('sha256').update(form.get('code_verifier')!).digest('base64url'), challenge);
-      return send({ access_token: 'listed-access', refresh_token: 'listed-refresh', token_type: 'Bearer', expires_in: 3600, scope: 'notes' });
+      return send({ access_token: 'listed-access', refresh_token: 'listed-refresh', token_type: 'Bearer', expires_in: 3600, scope: grantedScope });
     }
+    if (url.pathname === '/revoke') { revoked.push(new URLSearchParams(body).get('token')!); res.writeHead(rejectRevocation ? 503 : 200); res.end(); return; }
     if (url.pathname !== '/mcp') return send({}, 404);
     if (req.headers.authorization !== 'Bearer listed-access') return send({}, 401, { 'www-authenticate': `Bearer resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"` });
     if (req.method !== 'POST') return send({}, 405);
     const m = JSON.parse(body);
     if (m.id === undefined) { res.writeHead(202); res.end(); return; }
     if (m.method === 'initialize') return send({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: m.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'notes', version: '1' } } }, 200, { 'mcp-session-id': 'listed-session' });
+    if (m.method === 'tools/list' && scopeDenied) { scopeDenied = false; res.writeHead(403, { 'www-authenticate': 'Bearer error="insufficient_scope", scope="notes.write"' }); res.end(); return; }
     if (m.method === 'tools/list') return send({ jsonrpc: '2.0', id: m.id, result: { tools: [{ name: 'find-note', inputSchema: { type: 'object' } }] } });
     send({ jsonrpc: '2.0', id: m.id, error: { code: -32601, message: 'unknown' } });
   });
@@ -451,6 +454,8 @@ test('a host lists apps from the known apps and a remote MCP directory, then con
   // The known apps are the kit's own presets and read nothing; naming a directory reads nothing until it is listed.
   const remote = mcpDirectory(directoryUrl);
   const known = await catalog([knownApps]);
+  const reviewed = await catalog([reviewedApps]);
+  assert.equal(reviewed.length, 10); assert.ok(reviewed.every(app => app.auth === 'discovery' && app.description && app.mcpUrl?.startsWith('https://') && app.icon?.startsWith('https://')));
   assert.deepEqual(known.map(a => a.id), Object.keys(providers));
   assert.deepEqual(Object.fromEntries(known.map(a => [a.id, a.auth])), { google: 'oauth', drive: 'oauth', gmail: 'oauth', calendar: 'oauth', notion: 'discovery', canva: 'discovery', github: 'device' });
   const { auth: _auth, ...drive } = known.find(a => a.id === 'drive')!;
@@ -475,9 +480,29 @@ test('a host lists apps from the known apps and a remote MCP directory, then con
   await attempt.done;
   assert.equal(store.values.size, 1);
   const client = await connect(notes, { store, person: 'Umer' }).mcp();
-  try { assert.deepEqual((await client.listTools()).tools.map(tool => tool.name), ['find-note']); }
-  finally { await client.close(); }
-  assert.deepEqual([...new Set(appCalls)], ['/mcp', '/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-authorization-server', '/register', '/authorize', '/token']);
+  try {
+    await assert.rejects(client.listTools(), (error: unknown) => error instanceof ConnectError && error.code === 'insufficient_scope' && error.requiredScopes?.[0] === 'notes.write');
+    const upgrade = connect(notes, { store, person: 'Umer', redirectUri: 'https://device.test/callback' });
+    const flow = await upgrade.stepUp(['notes.write']);
+    assert.equal(await upgrade.token(), 'listed-access'); // old token survives until the upgraded grant lands
+    assert.equal(new URL(flow.url).searchParams.get('scope'), 'notes notes.write');
+    const authorization = await fetch(flow.url, { redirect: 'manual' });
+    await flow.finish(authorization.headers.get('location')!);
+    assert.deepEqual((await upgrade.grant())?.scope, 'notes notes.write');
+    assert.deepEqual((await client.listTools()).tools.map(tool => tool.name), ['find-note']);
+    const result = await upgrade.disconnect();
+    assert.deepEqual(result, { revokedAtApp: true });
+    assert.deepEqual(revoked, ['listed-refresh', 'listed-access']);
+    assert.equal(await upgrade.connected(), false);
+    rejectRevocation = true;
+    const localOnly = connect(notes, { store, person: 'Umer-2', redirectUri: 'https://device.test/callback' });
+    const secondFlow = await localOnly.signIn();
+    const secondAuthorization = await fetch(secondFlow.url, { redirect: 'manual' });
+    await secondFlow.finish(secondAuthorization.headers.get('location')!);
+    assert.deepEqual(await localOnly.disconnect(), { revokedAtApp: false, reason: 'failed' });
+    assert.equal(await localOnly.connected(), false);
+  } finally { await client.close(); }
+  assert.deepEqual([...new Set(appCalls)], ['/mcp', '/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-authorization-server', '/register', '/authorize', '/token', '/revoke']);
 
   // A directory that fails, answers garbage or cannot be reached is refused plainly, and so is the whole listing.
   directoryAnswer = res => { res.writeHead(500); res.end('down'); };

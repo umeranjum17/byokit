@@ -1,5 +1,5 @@
 import WORDS from './words.json' with { type: 'json' };
-export type ConnectErrorCode = 'configuration' | 'discovery' | 'registration' | 'callback' | 'expired' | 'declined' | 'scope' | 'token' | 'signin' | 'network' | 'catalog';
+export type ConnectErrorCode = 'configuration' | 'discovery' | 'registration' | 'callback' | 'expired' | 'declined' | 'scope' | 'token' | 'signin' | 'network' | 'catalog' | 'insufficient_scope';
 const words: Record<ConnectErrorCode, string> = WORDS.errors;
 export interface ProviderErrorCause { readonly error: string; readonly error_description?: string }
 /** Preserve OAuth diagnostics, removing credentials supplied to or returned by the provider. */
@@ -22,7 +22,9 @@ export class ConnectError extends Error {
   readonly code: ConnectErrorCode;
   readonly status?: number;
   declare readonly cause?: ProviderErrorCause;
-  constructor(code: ConnectErrorCode, status?: number, cause?: ProviderErrorCause) {
+  readonly requiredScopes?: readonly string[];
+  constructor(code: ConnectErrorCode, status?: number, cause?: ProviderErrorCause, requiredScopes?: readonly string[]) {
     super(words[code], cause ? { cause } : undefined); this.name = 'ConnectError'; this.code = code; this.status = status;
+    if (requiredScopes?.length) this.requiredScopes = Object.freeze([...requiredScopes]);
   }
 }
