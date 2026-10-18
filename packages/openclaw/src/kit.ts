@@ -537,6 +537,7 @@ export class OpenClawKit {
   private signInDisconnects = new Set<() => void>();
   private readonly phaseListeners = new Set<() => void>();
   private starting?: Promise<void>;
+  private stopped: Promise<void> = Promise.resolve();
   private stopping = false;
   private failures = 0;
   private reachedReady = false;
@@ -781,8 +782,12 @@ export class OpenClawKit {
     if (this.engine.patchSet !== undefined) this.setState(this.current);
   }
 
-  start(): Promise<void> {
-    if (this.current.phase === 'ready') return Promise.resolve();
+  async start(): Promise<void> {
+    if (this.current.phase === 'ready') return;
+    if (this.stopping) {
+      await this.starting?.catch(() => undefined);
+      await this.stopped;
+    }
     if (this.starting) return this.starting;
     this.stopping = false;
     this.retry?.abort();
@@ -877,7 +882,7 @@ export class OpenClawKit {
       }
       if (patchFailure) { this.setState({ phase: 'failed', why: 'engine-patch' }); throw error; }
       // A missed hello on a loaded host is the engine still coming up: attempts() decides whether to retry.
-      if (engineFailure && engineFailure.why !== 'exited' && !this.stopping) { this.setState(engineFailure); throw error; }
+      if (engineFailure?.why === 'auth-store-seal-size' && !this.stopping) { this.setState(engineFailure); throw error; }
       const miss = error === exited && engineFailure?.why === 'exited' ? exited : error === timeout ? timeout : undefined;
       if (miss && !this.stopping) return miss;
       if (needsUpdate) this.setState({ phase: 'needs-update', why: 'version' });
@@ -960,6 +965,11 @@ export class OpenClawKit {
     this.reachedReady = false;
     this.startRun?.abort();
     this.retry?.abort();
+    this.stopped = this.teardown();
+    await this.stopped;
+  }
+
+  private async teardown(): Promise<void> {
     await this.disconnect();
     await this.engine.stop();
     await this.closeBrowsers();

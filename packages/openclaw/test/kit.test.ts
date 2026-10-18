@@ -281,6 +281,28 @@ test('a start after a stop during a first-start retry gets a fresh attempt budge
   finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 
+test('a start that follows an unawaited stop during a first-start retry reaches ready', async () => {
+  const stateDir = scratchDir('o4-unawaited-stop-then-start');
+  const fake = fakeGateway();
+  let attempts = 0;
+  let silentFor = 1;
+  const kit = new OpenClawKit({ stateDir, spawnEngine: false, handshakeMs: 200,
+    transport: (ctx) => {
+      const transport = fake.factory(ctx);
+      return { ...transport, start: () => { attempts++; return silentFor-- > 0 ? new Promise<never>(() => {}) : transport.start(); } };
+    } });
+  try {
+    const staleRejected = assert.rejects(kit.start());
+    for (let i = 0; i < 200 && kit.state.phase !== 'restarting'; i++) await delay(20);
+    void kit.stop();
+    await kit.start();
+    await staleRejected;
+    assert.equal(kit.state.phase, 'ready');
+    assert.equal(attempts, 2);
+  }
+  finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});
+
 test('a terminal connect pause fails the first start at once without a retry', async () => {
   const stateDir = scratchDir('o4-first-start-paused');
   const fake = fakeGateway();
