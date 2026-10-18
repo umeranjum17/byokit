@@ -4,9 +4,9 @@ Verification recipe for [OpenClaw's engine lifecycle](../../../../docs/runtime-k
 
 ## Sub-features
 
-- A missed first hello moves the state to `restarting` with `retryAt`, then `ready` on the next attempt; `start()` settles at `ready` with no second app call.
+- A missed first hello moves the state to `restarting` with `retryAt`, then `ready` on the next attempt; `start()` resolves at `ready` with no second app call.
 - Five consecutive missed hellos end at `{ phase: 'failed', why: 'handshake' }` and `start()` rejects with `gateway handshake timed out`.
-- `stop()` during the backoff cancels the wait: no further attempt, and `start()` settles.
+- `stop()` during the backoff cancels the wait: no further attempt, and `start()` rejects.
 - Each `start()` call has its own five attempts, and an engine exit before hello is one missed attempt on one backoff. These run as kit tests (`packages/openclaw/test/kit.test.ts`, and `engine-unit.test.ts` with a seeded fake engine), not as legs here: the engine-exit case needs a spawned fake engine set, which the public entry cannot seed.
 
 ## How to get to it (user POV)
