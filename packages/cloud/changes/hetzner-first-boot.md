@@ -6,3 +6,5 @@
 - FEAT: `setupCommand(recipe)` returns one line to paste into the person's own computer or any provider console; it
   installs the same way and ends with the pinned `byokit-ready <name>` line (plus the host's answer, such as a pairing
   code) or `byokit-failed <name> <step>`.
+- NOTE: Real Hetzner is not proven yet: the first-boot install was proven only on local QEMU VMs with real cloud-init, against a
+  stand-in Hetzner API, never on a real Hetzner server or account.
