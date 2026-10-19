@@ -251,7 +251,7 @@ const transport: SshTransport = {
   // write: optional (e.g. SFTP); without it the kit writes through exec's stdin.
 };
 const pins = { load: () => secure.get('box-key'), save: (f: string) => secure.set('box-key', f) };
-const box = { transport, pins, host: '203.0.113.7', user: 'umer', label: 'My server' };
+const box = { transport, pins, host: '203.0.113.7', user: 'ada', label: 'My server' };
 
 const key = await sshHostKey(box);           // show key.fingerprint; compare it with the provider console
 await key.confirm();                         // only on the person's yes
