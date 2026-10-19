@@ -88,6 +88,29 @@ try {
   console.log('after abort:', JSON.stringify({ approvals: kit.approvals().length, rootedAtAbort: kit.delegatedRuns().filter(rooted('abort')).length }));
   assert.ok(!kit.delegatedRuns().some(rooted('abort')));
   await assert.rejects(kit.decide(parked.id, { allow: true }), /unknown approval/);
+  // Legacy adoption (S4): Umer's research chat from before helpers, a plain member session on Work, moves into research
+  // with no model request; one parked on its approval is refused busy, keeping its key, until it settles.
+  assert.ok((await kit.run({ member: 'umer', sessionKey: 'agent:umer:crew-research', message: 'Remember apricot.', account: work.id })).ok);
+  const job = kit.run({ member: 'umer', sessionKey: 'agent:umer:crew-job', message: '[tool crew_note {"mode":"ask"}]', account: work.id });
+  await until(() => kit.approvals().length === 1, 'legacy job never parked');
+  const jobAsk = kit.approvals()[0];
+  console.log('adopt in-flight job:', JSON.stringify(await kit.adoptHelperSession({ member: 'umer', sessionKey: 'agent:umer:crew-job' }, 'writer')),
+    'approval kept on', jobAsk.sessionKey);
+  await kit.decide(jobAsk.id, { allow: true });
+  assert.ok((await job).ok);
+  const quietAdopt = agentRequests().length;
+  for (const [tail, helper] of [['crew-research', 'research'], ['crew-job', 'writer']]) {
+    const adopted = await kit.adoptHelperSession({ member: 'umer', sessionKey: `agent:umer:${tail}` }, helper);
+    console.log(`adopt ${tail} into ${helper}:`, JSON.stringify(adopted));
+    assert.ok(adopted.ok);
+  }
+  console.log('agent requests while adopting:', agentRequests().length - quietAdopt);
+  assert.equal(agentRequests().length, quietAdopt);
+  const history = JSON.stringify(await kit.call('chat.history', { sessionKey: `agent:${research.agentId}:h-research:crew-research` }));
+  const old = await kit.call('sessions.resolve', { key: `agent:${research.agentId}:crew-research`, agentId: research.agentId, allowMissing: true });
+  console.log('adopted history holds apricot:', history.includes('apricot'), 'legacy session left:', JSON.stringify(old));
+  assert.ok(history.includes('apricot') && old.key === undefined);
+  await refused('adopting a helper key', kit.adoptHelperSession({ member: 'umer', sessionKey: 'agent:umer:h-research:main' }, 'writer'));
   assert.ok((await lead('removed', `agent:${writer.agentId}:h-writer:main`, '[tool crew_note {"mode":"ask"}]')).ok);
   await until(() => kit.approvals().length === 1, 'writer never parked again');
   const removedAsk = kit.approvals()[0].id;

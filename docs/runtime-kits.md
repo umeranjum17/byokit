@@ -475,6 +475,7 @@ export declare class OpenClawKit {
   // members
   ensureMember(member: Member): Promise<{ agentId: string; workspace: string }>;
   ensureHelper(member: Member, helper: string, o: { account: AccountId; persona: string }): Promise<Helper>;   // 5.8.3
+  adoptHelperSession(ref: RunRef, helper: string): Promise<MoveResult>;   // 5.8.3 legacy adoption (S4)
   // one chat channel (5.18)
   reply(chat: ChannelChat, text: string): Promise<void>;   // the engine's own send, as the channel's member
   // sign-in (5.7)
@@ -1293,7 +1294,8 @@ to revoke its subtree. Revocation is durable even if the engine is unavailable. 
 
 Legacy adoption retains exact old session keys for finite in-flight jobs and their original approval owners.
 New helper work uses new agent/session mappings. Never bulk-copy agent SQLite, rename a live approval's owner,
-or replay a previously sent action. This slice does not migrate history or copy credentials.
+or replay a previously sent action. Settled legacy history moves into a helper by `adoptHelperSession` (5.8.3); nothing
+copies credentials.
 
 ### 5.8.3 Helpers
 
@@ -1333,9 +1335,18 @@ namespace and persona on the agent that already holds the account.
   `subagent:` key, so it never reaches a helper session. Revocation is the native path's (`abort(rootSessionKey)`), and
   a helper whose account was removed or rebound since admission ends its children's admission (`ended`, `cancelled`)
   at their next gate or call. The child runs without the helper's persona: a native send carries no system text.
+- Legacy adoption (S4): `adoptHelperSession(ref, helper): Promise<MoveResult>` takes a member session from before
+  helpers (`agent:<member>:<tail>`, its tail not a helper's, else `session`) into an ensured helper (`unknown_helper`).
+  It is `move` (5.15) onto the helper's account with the target tail `h-<helper>:<tail>`, the same agent included: on
+  the session's row read again under both agents' locks, one `sessions.create { fork: true }` copies the whole
+  transcript (tool rows included) and the source is deleted only if it is still the session read. No model request,
+  no SQLite copy, no credential. A live run, a parked approval on that session or an admitted delegated child whose
+  parent or root it is answers `busy`, so an in-flight job finishes on its exact old key with its approval owner; the
+  app adopts again once it settles. A taken target is `start_failed` and leaves both; a refused delete is
+  `close_failed` with `live` the new key. `ok` returns `session: agent:<member>:h-<helper>:<tail>`, the key to run on.
 - Known limit: helpers share the engine agent (id, workspace files, memory) of their account; separate engine agents
-  need per-agent auth inheritance, an engine patch (5.16). Not here: lifecycle event mapping by helper (S3), adopting
-  legacy sessions into helpers (S4), listing or removing a helper.
+  need per-agent auth inheritance, an engine patch (5.16). Not here: lifecycle event mapping by helper (S3), listing or
+  removing a helper.
 
 ### 5.9 Tools, approvals and the bridge
 

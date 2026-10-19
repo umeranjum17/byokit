@@ -25,6 +25,7 @@ import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLo
 import { createRuns, RunReplay, signedInProviders } from './runs.ts';
 import { authStatus, createAuthStatus } from './auth-status.ts';
 import { outputSchema } from './output.ts';
+import { words } from './words.ts';
 import { createKeys, type AddKeyHandle } from './keys.ts';
 import { routes as routeTable, type RouteView } from './routes.ts';
 import { installedPlugins, pinnedSpec, recordPlugin, PluginInstallError } from './plugins.ts';
@@ -1062,6 +1063,25 @@ export class OpenClawKit {
   ensureHelper(member: Member, helper: string, o: { account: AccountId; persona: string }): Promise<Helper> {
     if (!this.helpersCtl) return Promise.reject(new Error('gateway not ready'));
     return this.helpersCtl.ensure(member, helper, o);
+  }
+
+  /** Adopt a legacy conversation of the member into one of its helpers (5.8.3, S4): its whole transcript forks to
+   * `agent:<member>:h-<helper>:<tail>` on the helper's account agent (as `move` does), then the old session goes.
+   * One still in flight (a live run, a parked approval or an admitted delegated child under it) is refused `busy`
+   * and keeps its exact old key until it settles; nothing is replayed and no approval changes owner. */
+  async adoptHelperSession(ref: RunRef, helper: string): Promise<MoveResult> {
+    if (!this.accountsCtl || !this.helpersCtl) throw new Error('gateway not ready');
+    const tailOf = (key: string): string => key.slice(key.indexOf(':', 'agent:'.length) + 1);
+    const tail = tailOf(String(ref.sessionKey));
+    if (!String(ref.sessionKey).startsWith(`agent:${ref.member}:`) || HELPER_TAIL.test(tail))
+      throw new HelperError('session', `refused: "${String(ref.sessionKey)}" is not a legacy session of member "${String(ref.member)}"`);
+    const { account } = this.helpersCtl.resolve(ref.member, helper);
+    const owns = (key?: string): boolean => key !== undefined && tailOf(key) === tail && this.memberOf(key) === ref.member;
+    if (this.approvals(ref.member).some((a) => owns(a.sessionKey))
+      || this.delegatedRuns().some((r) => owns(r.parent.sessionKey) || owns(r.root.sessionKey)))
+      return { ok: false, code: 'busy', message: words('move.busy') };
+    const moved = await this.accountsCtl.move(ref.member, ref.sessionKey, account, `h-${helper}:${tail}`);
+    return moved.ok ? { ok: true, session: `agent:${ref.member}:h-${helper}:${tail}` } : moved;
   }
 
   // sign-in (5.7): every body here is the module's, with this kit's transport, members and ports.

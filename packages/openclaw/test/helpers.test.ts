@@ -216,3 +216,78 @@ test('helpers: a member\'s helper grant never follows a delegated child into ano
     rmSync(stateDir, { recursive: true, force: true });
   }
 });
+
+// Legacy adoption (5.8.3, S4): Crewhouse's helper conversations from before helpers live as plain member sessions.
+// Adopting one forks its whole transcript into the helper's `h-<helper>:` key on the helper's account agent (or the
+// same agent) and deletes the old session, with no model run. One still in flight (here parked on an approval) is
+// refused busy and keeps its exact key until it settles. Every refusal is typed and changes nothing.
+test('helpers: legacy member sessions adopt into helper keys; an in-flight one keeps its old key', async () => {
+  const stateDir = scratchDir('helper-adopt');
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0,
+    tools: [{ name: 'crew_note', description: 'An app tool.', parameters: { type: 'object' } }],
+    host: { gate: async (_run, _tool, input) => input.mode === 'ask' ? { ask: { summary: 'Note this?' } } : { allow: true },
+      call: async () => 'noted' } });
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const second = await kit.addAccount('m1', { authChoice: 'openai', via: 'browser' }, () => {});
+    assert.equal((await second.done).view.state, 'done');
+    const accountAgent = `m1--${second.id.slice('openai.'.length)}`;
+    // Legacy: Umer's research and scout conversations as plain m1 sessions, research's on the second account.
+    const legacy = (tail: string, message: string, account?: string) =>
+      kit.run({ member: 'm1', sessionKey: `agent:m1:${tail}`, message, ...(account ? { account } : {}) });
+    assert.ok((await legacy('crew-research', 'Remember apricot. [tool crew_note {}]', second.id)).ok);
+    assert.ok((await legacy('crew-scout', 'Remember fig.')).ok);
+    await kit.ensureHelper('m1', 'research', { account: second.id, persona: 'You are Umer\'s research helper.' });
+    await kit.ensureHelper('m1', 'scout', { account: 'openai', persona: 'You are Umer\'s scout helper.' });
+    const history = async (key: string) => JSON.stringify(await kit.call('chat.history', { sessionKey: key }));
+    const exists = async (agentId: string, key: string) =>
+      (await kit.call('sessions.resolve', { key, agentId, allowMissing: true }) as { key?: string }).key !== undefined;
+    const runs = () => fake.calls.filter((c) => c.method === 'agent').length;
+
+    // A legacy job still in flight: refused busy, its key and approval untouched; once it settles it adopts.
+    const inflight = legacy('crew-job', '[tool crew_note {"mode":"ask"}]');
+    for (const end = Date.now() + 10_000; !kit.approvals().length;) { if (Date.now() > end) throw new Error('never parked'); await delay(5); }
+    const parked = kit.approvals()[0]!;
+    const busy = await kit.adoptHelperSession({ member: 'm1', sessionKey: 'agent:m1:crew-job' }, 'scout');
+    assert.equal(busy.ok === false && busy.code, 'busy');
+    assert.deepEqual([kit.approvals()[0]?.id, kit.approvals()[0]?.sessionKey], [parked.id, 'agent:m1:crew-job']);
+    await kit.decide(parked.id, { allow: true });
+    assert.ok((await inflight).ok);
+
+    const quiet = runs();
+    assert.deepEqual(await kit.adoptHelperSession({ member: 'm1', sessionKey: 'agent:m1:crew-research' }, 'research'),
+      { ok: true, session: 'agent:m1:h-research:crew-research' });
+    assert.deepEqual(await kit.adoptHelperSession({ member: 'm1', sessionKey: 'agent:m1:crew-scout' }, 'scout'),
+      { ok: true, session: 'agent:m1:h-scout:crew-scout' });
+    assert.deepEqual(await kit.adoptHelperSession({ member: 'm1', sessionKey: 'agent:m1:crew-job' }, 'scout'),
+      { ok: true, session: 'agent:m1:h-scout:crew-job' });
+    assert.equal(runs(), quiet, 'adoption replays nothing');
+    assert.ok((await history(`agent:${accountAgent}:h-research:crew-research`)).includes('apricot'));
+    assert.ok((await history('agent:m1:h-scout:crew-scout')).includes('fig'));
+    assert.ok(!(await exists(accountAgent, `agent:${accountAgent}:crew-research`)) && !(await exists('m1', 'agent:m1:crew-scout')),
+      'the legacy sessions are gone');
+    // The adopted conversation continues as the helper's, on its account agent, with its whole history.
+    assert.ok((await kit.run({ member: 'm1', helper: 'research', sessionKey: 'agent:m1:h-research:crew-research', message: 'Which word?' })).ok);
+    const last = fake.calls.filter((c) => c.method === 'agent').at(-1)!.params as Record<string, string>;
+    assert.deepEqual([last.agentId, last.sessionKey], [accountAgent, `agent:${accountAgent}:h-research:crew-research`]);
+
+    // Refused typed or as a move refusal, before any write: a helper key, another member's key, a helper never
+    // ensured, a session never started, a target already taken.
+    const refused = async (p: Promise<unknown>, code: string) => assert.rejects(p, (e) => e instanceof HelperError && e.code === code);
+    await refused(kit.adoptHelperSession({ member: 'm1', sessionKey: 'agent:m1:h-scout:crew-scout' }, 'research'), 'session');
+    await refused(kit.adoptHelperSession({ member: 'm1', sessionKey: 'agent:m2:crew' }, 'research'), 'session');
+    await refused(kit.adoptHelperSession({ member: 'm1', sessionKey: 'agent:m1:crew-scout' }, 'ghost'), 'unknown_helper');
+    const missing = await kit.adoptHelperSession({ member: 'm1', sessionKey: 'agent:m1:crew-none' }, 'scout');
+    assert.equal(missing.ok === false && missing.code, 'unsupported');
+    assert.ok((await legacy('crew-scout', 'A new legacy chat.')).ok);
+    const taken = await kit.adoptHelperSession({ member: 'm1', sessionKey: 'agent:m1:crew-scout' }, 'scout');
+    assert.equal(taken.ok === false && taken.code, 'start_failed');
+    assert.ok((await history('agent:m1:crew-scout')).includes('A new legacy chat'), 'a refused adoption leaves the source');
+    assert.ok(!(await history('agent:m1:h-scout:crew-scout')).includes('A new legacy chat'), 'and never overwrites the target');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});

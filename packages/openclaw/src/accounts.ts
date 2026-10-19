@@ -328,7 +328,7 @@ export function createAccounts(ctx: {
   backfill(member: Member, found: Pick<RouteView, 'choice' | 'provider' | 'label'>[]): Promise<void>;
   pick(member: Member, sel: RunSelection, skip?: readonly AccountId[], binding?: Binding): Promise<{ pick: AccountPick; agent?: string }>;
   rest(member: Member, id: AccountId, until: number): Promise<void>;
-  move(member: Member, sessionKey: string, to: AccountId): Promise<MoveResult>;
+  move(member: Member, sessionKey: string, to: AccountId, intoTail?: string): Promise<MoveResult>;
   remove(member: Member, id: AccountId): Promise<void>;
 } {
   const path = (member: Member): string => indexPath(ctx.root, member);
@@ -717,8 +717,9 @@ export function createAccounts(ctx: {
   // before any lock. Same agent: nothing moves, the next run names the account. Otherwise, under both agents' locks and
   // on the row read again there, the source's whole transcript forks into `agent:<target>:<tail>` (never `chat.history`
   // plus `chat.inject`, which drop tool rows), then the source is deleted only if it is still the session read. A
-  // refused fork leaves the source untouched; a refused delete leaves both, the new key live.
-  async function move(member: Member, sessionKey: string, to: AccountId): Promise<MoveResult> {
+  // refused fork leaves the source untouched; a refused delete leaves both, the new key live. `intoTail` (a helper's
+  // adoption, 5.8.3) forks it under another tail on the target, the same agent included.
+  async function move(member: Member, sessionKey: string, to: AccountId, intoTail?: string): Promise<MoveResult> {
     check(member);
     const failed = (code: Extract<MoveResult, { ok: false }>['code'], message: string, live?: string): MoveResult =>
       ({ ok: false, code, message, ...(live === undefined ? {} : { live }) });
@@ -727,7 +728,7 @@ export function createAccounts(ctx: {
     const { row, entry } = await entryOf(member, to);
     const tail = sessionKey.slice(sessionKey.indexOf(':', 'agent:'.length) + 1);
     const from = `agent:${source}:${tail}`;
-    const into = `agent:${entry.agent}:${tail}`;
+    const into = `agent:${entry.agent}:${intoTail ?? tail}`;
     const read = async (): Promise<{ refused: MoveResult } | { found: Record<string, unknown> }> => {
       const listed = await ctx.request('sessions.list', { agentId: source, search: from }) as { sessions?: unknown[] };
       const found = (Array.isArray(listed.sessions) ? listed.sessions : [])
@@ -739,7 +740,7 @@ export function createAccounts(ctx: {
     const first = await read();
     if ('refused' in first) return first.refused;
     if (row.state !== 'ready') return failed('start_failed', words('move.notReady', { name: row.name }));
-    if (entry.agent === source) return { ok: true, session: into };
+    if (into === from) return { ok: true, session: into };
     return ctx.locks.exclusive([source, entry.agent], async () => {
       const again = await read();
       if ('refused' in again) return again.refused;

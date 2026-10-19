@@ -9,9 +9,11 @@ Verification recipe for [helpers](../../../../docs/runtime-kits.md#583-helpers) 
 - Typed `HelperError` refusals with no agent request: `invalid` (id, persona, caller `system`), `unknown_account`, `bound`, `unknown_helper` (never ensured, or its account removed), `session` (another helper's key, a helper key without `helper`, `move` of one).
 - Delegated helper runs (S2): a `helperDelegates` run's native `sessions_send` to the exact `agent:<agent>:h-<helper>:<rest>` key (account agent and key lane) is admitted from its receipt as that helper (`RunRef.helper`, the parent's member, `parent` identity) on gate and call; an unreceipted helper key never reaches the gate; refusals `session` (not a helper key, or a helper not given), `bound` (another account), `unknown_helper` (never ensured) reach the parent's tool result; `abort(root)` drops the parked approval and runs nothing; removing the helper's account ends the admitted child at its next call.
 
+- Legacy adoption (S4): `kit.adoptHelperSession({ member, sessionKey }, helper)` forks a plain member conversation from before helpers into `agent:<member>:h-<helper>:<tail>` on the helper's account agent with no model request and deletes the old session; one parked on its approval answers `busy` and keeps its key and approval until it settles; a helper key is refused `session`. Real engine: the legacy conversation survives a kit restart, adopts, and research's next turn holds its history under its persona on the same account key.
+
 ## How to get to it (user POV)
 
-Umer keeps a "research" and a "writer" helper on the Work ChatGPT account and a "planner" on their API key. Each answers as itself with its own history; none asks Umer to sign in again.
+Umer keeps a "research" and a "writer" helper on the Work ChatGPT account and a "planner" on their API key. Each answers as itself with its own history; none asks Umer to sign in again. Research's conversations from before helpers become research's own.
 
 ## Driving it
 
@@ -23,7 +25,7 @@ entry=.agents/skills/verify-byokit/capture/openclaw-helpers.mjs
 drive=(node "$entry")
 ```
 
-Then the real pinned engine leg: persona in each model request and no other's, research's history surviving writer's run, both billed on the same account key, the plan-key helper on its lane key, the sealed stores byte-for-byte unchanged, refusals with no model request, and the delegated leg (research's real `sessions_send` children on writer and the plan-key planner gated and called as those helpers, a rogue helper-key run never gated, a typed `bound` refusal, abort revoking a parked child):
+Then the real pinned engine leg: persona in each model request and no other's, research's history surviving writer's run, both billed on the same account key, the plan-key helper on its lane key, the sealed stores byte-for-byte unchanged, refusals with no model request, and the delegated leg (research's real `sessions_send` children on writer and the plan-key planner gated and called as those helpers, a rogue helper-key run never gated, a typed `bound` refusal, abort revoking a parked child) and the legacy adoption leg:
 
 ```bash
 feature=openclaw-helpers
@@ -31,4 +33,4 @@ entry=packages/openclaw/test/engine/helpers.test.ts
 drive=(env PATH="/usr/bin:$PATH" sh scripts/test.sh "$entry")
 ```
 
-Use SKILL.md's Evidence capture block for each. Backend behavior: no screenshots. Helpers share their account's engine agent (id, workspace files, memory); separate engine agents per helper need an engine patch and are not claimed here. A delegated child runs without the helper's persona (a native send carries no system text). Not covered: lifecycle event mapping by helper, adopting legacy sessions, listing or removing a helper.
+Use SKILL.md's Evidence capture block for each. Backend behavior: no screenshots. Helpers share their account's engine agent (id, workspace files, memory); separate engine agents per helper need an engine patch and are not claimed here. A delegated child runs without the helper's persona (a native send carries no system text). Not covered: lifecycle event mapping by helper, listing or removing a helper.
