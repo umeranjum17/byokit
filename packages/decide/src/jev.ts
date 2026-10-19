@@ -20,7 +20,7 @@ export function jev(opts: {
     leaves: true,
     async ask(state, questions, signal, images = []) {
       if (images.length) throw new UnsupportedImagesError('jev');
-      const body = JSON.stringify({ model: 'jev-latest', state, questions: Object.fromEntries(Object.entries(questions).map(([k, q]) => [k, wire(q)])) });
+      const body = JSON.stringify({ model: 'jev-latest', state, questions: Object.fromEntries(Object.entries(questions).map(([k, q]) => [k, { ...wire(q), ...(q.answerFields?.length && { answerFields: q.answerFields }) }])) });
       const res = await request(`${BASE[via]}/v1/systemone`, {
         method: 'POST', signal,
         headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
@@ -50,8 +50,14 @@ function wire(q: Question) {
   return { type: 'score', instructions: q.instructions ?? 'Where does the state fall on this scale?', criteria: q.levels };
 }
 
-/** Jev's answer as a Raw; anything off-shape is undefined, which the floors treat as an abstain. */
+/** Jev's answer as a Raw; anything off-shape is undefined, which the floors treat as an abstain. Requested answer fields ride along unchanged. */
 export function raw(q: Question, a: any): Raw | undefined {
+  const r = shape(q, a);
+  if (!r || !q.answerFields) return r;
+  return { ...Object.fromEntries(q.answerFields.filter((key) => Object.hasOwn(a, key)).map((key) => [key, a[key]])), ...r };
+}
+
+function shape(q: Question, a: any): Raw | undefined {
   if (!a || typeof a !== 'object') return undefined;
   if (q.kind === 'rank') {
     if (!a.probabilities || typeof a.probabilities !== 'object' || typeof a.confidence !== 'number' ||

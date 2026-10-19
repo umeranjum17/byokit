@@ -163,6 +163,17 @@ const jevQuestions = (): Record<string, Question> => ({
   rough: { kind: 'score', levels: ['calm', 'upset'], instructions: 'How upset?' },
 });
 
+test('the Jev wire asks for a requested answer field and returns it on the answer', async () => {
+  const bodies: Array<{ questions: Record<string, unknown> }> = [];
+  const backend = jev({ key: 'k', fetch: async (_url, init) => {
+    bodies.push(JSON.parse(String(init!.body)));
+    return jevReply({ intent: { type: 'choice', choice: 'followup', confidence: 0.8, probabilities: { task: 0.1, followup: 0.85, chat: 0.05 }, title: 'Plumber call-back' } });
+  } });
+  const out = await decide({ msg: 'did the plumber call back?' }, { intent: { ...jevChoice, answerFields: ['title'] } }, { privacy: 'may-leave', backends: [backend] });
+  assert.deepEqual(bodies[0].questions.intent, { type: 'choice', instructions: 'Which option fits the state?', criteria: jevChoice.options, answerFields: ['title'] });
+  assert.deepEqual([out.intent.answer, (out.intent as Answer & { title?: unknown }).title], ['followup', 'Plumber call-back']);
+});
+
 test('a refused answer is never cached, so the next decision asks the backend again', async () => {
   const cache = new MemoryCache();
   const questions = jevQuestions();
