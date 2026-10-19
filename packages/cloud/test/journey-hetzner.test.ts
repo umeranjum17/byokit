@@ -2,9 +2,10 @@ import { after, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { scratchDir } from '../../test-support.ts';
 import { hetzner, type HetznerOptions } from '@byokit/cloud/hetzner';
-import { machine } from '@byokit/cloud';
+import { hetznerApi, installScript, machine, setupCommand } from '@byokit/cloud';
 import { machineContract, memoryStore, setupFakeSsh, startFakeHetznerServer } from '@byokit/cloud/testing';
 
 const servers: Awaited<ReturnType<typeof startFakeHetznerServer>>[] = [];
@@ -184,4 +185,44 @@ test('a lost create response reconciles a late-listed server, and one never list
     return true;
   });
   assert.equal(Date.now() - unresolvedAt, 30_000, 'a lost response keeps the same bounded reconciliation budget');
+});
+
+test('Umer\'s phone rents a Hetzner computer over HTTPS alone and it installs itself on first boot', async () => {
+  const api = await startFakeHetznerServer(); servers.push(api); const store = memoryStore();
+  const recipe = { name: 'runner', node: { version: '22.23.3', sha256: { 'linux-x64': 'a'.repeat(64), 'linux-arm64': 'b'.repeat(64) } }, install: [['npm', 'ci']], run: { argv: ['node', 'host.mjs'], env: {} }, workDir: '~/runner' };
+  const phoneKey = new Uint8Array(32).fill(7);
+  const options = { baseUrl: api.url, label: 'Hetzner', project: 'project-umer', location: 'fsn1', image: 'ubuntu-24.04', key: async () => 'test-key', store,
+    firstBoot: { recipe, phoneKey, returnFile: 'code.txt' }, server: { labels: { owner: 'umer' }, public_net: { enable_ipv6: true } }, cloudConfig: { packages: ['git'], runcmd: [['echo', 'app first']] } };
+  await assert.rejects(hetznerApi({ ...options, firstBoot: { recipe, phoneKey: new Uint8Array(3) } }), { code: 'bad-recipe' });
+  const p = await hetznerApi(options); const m = machine({ provider: p, store });
+  await assert.rejects(p.create!({ name: 'other', size: 'small', keepCopies: false, idempotencyKey: 'op-1' }), { code: 'bad-recipe' });
+  const ref = await m.create({ name: 'runner', size: 'small', keepCopies: false });
+  assert.equal(await m.state(), 'on');
+  assert.deepEqual([...api.firewalls.values()][0]['rules'], [], 'without a public key nothing inbound is open');
+  await assert.rejects(p.exec(ref, ['true'], { timeoutMs: 1000 }), { code: 'unsupported' });
+  await assert.rejects(p.write(ref, '/home/user/x', new Uint8Array(1), 0o600), { code: 'unsupported' });
+  const body = api.requests.find(r => r.method === 'POST' && r.path === '/servers')!.body;
+  assert.deepEqual(body['labels'], { owner: 'umer', 'byokit-create': (body['labels'] as Record<string, string>)['byokit-create'] });
+  assert.deepEqual(body['public_net'], { enable_ipv6: true, enable_ipv4: true }, 'pass-through fields reach Hetzner; the kit keeps IPv4');
+  const userData = String(body['user_data']); assert.ok(userData.startsWith('#cloud-config\n')); assert.doesNotMatch(userData, /test-key/);
+  const config = JSON.parse(userData.slice(14));
+  assert.equal(config.users[0].ssh_authorized_keys, undefined); assert.deepEqual(config.packages, ['git']);
+  assert.deepEqual(config.runcmd, [['echo', 'app first'], ['loginctl', 'enable-linger', 'user'], ['sh', '/var/lib/byokit/setup-runner.sh', 'user']]);
+  const script = Buffer.from(config.write_files[0].content, 'base64').toString();
+  assert.equal(script, installScript(recipe, { phoneKey, returnFile: 'code.txt' }));
+  assert.match(script, new RegExp(Buffer.from(phoneKey).toString('base64').replaceAll('+', '\\+')), 'the phone key rides in the first-boot install');
+  assert.equal(spawnSync('sh', ['-n'], { input: script }).status, 0, 'the script parses');
+  assert.deepEqual(await p.request('GET', `/servers/${ref.id}`).then(r => (r as { server: { name: string } }).server.name), 'runner');
+  await m.remove(ref.id); assert.equal(api.servers.size + api.ips.size + api.firewalls.size, 0);
+});
+
+test('the one console line installs the same recipe and ends with its pinned return', () => {
+  const recipe = { name: 'desk', node: { version: '22.23.3', sha256: { 'linux-x64': 'a'.repeat(64), 'linux-arm64': 'b'.repeat(64) } }, install: [], run: { argv: ['node', 'host.mjs'], env: {} }, workDir: '~/desk' };
+  const line = setupCommand(recipe, { returnFile: 'code.txt' });
+  assert.equal(line.ready, 'byokit-ready desk'); assert.doesNotMatch(line.command, /\n/);
+  const [, encoded] = /^echo ([A-Za-z0-9+/=]+) \| base64 -d \| sh$/.exec(line.command) ?? [];
+  assert.equal(Buffer.from(encoded!, 'base64').toString(), line.script);
+  assert.equal(spawnSync('sh', ['-n'], { input: line.script }).status, 0);
+  assert.throws(() => setupCommand({ ...recipe, workDir: 'desk' }), { code: 'bad-recipe' });
+  assert.throws(() => setupCommand(recipe, { returnFile: '../x' }), { code: 'bad-recipe' });
 });
