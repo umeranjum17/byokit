@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.22.1 (2026-10-19)
+
+- FIX: a funded OpenRouter key now signs in and runs the model the person chooses. Before, `addKey` answered `{ status: 'not_included', reason: 'model' }` for every OpenRouter key, so apps showed a plan refusal and never reached the model: the pinned engine planned the key's live test on `openrouter/auto` but staged the route as the provider normalizes it, and refused the key as unavailable before sending it. A bundled engine patch now plans the test on the staged route; a key whose account has no credits (OpenRouter's HTTP 402) now answers `{ status: 'invalid', reason: 'billing' }`, never a plan refusal. An OpenRouter key pasted under OpenRouter's browser sign-in choice (`addKey(member, { authChoice: 'openrouter-oauth', apiKey })`) also takes OpenRouter's one key route (`openrouter-api-key`); a choice of a provider with exactly one key route billed alike maps the same way, and any other choice that takes no key throws its cause (`openai takes no API key: add the key with openai-api-key.`) instead of a plan refusal.
+
 ## 0.22.0 (2026-10-19)
 
 - FEAT: a helper's delegated run is visible from start to finish on `onEvent('byokit.delegated')`: `admitted` carries `run.tools` (its app-tool subset, also on `delegatedRuns()`), and the one `ended` says why in `reason`: `terminal`, `cancelled` (a kit or engine abort, or ended admission), `error` (with the engine's `message`) or `resting`, where the model's usage limit ended a helper's run and the kit rests that helper's account `until` the stated reset, as a kit run's resting end does.
