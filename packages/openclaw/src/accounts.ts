@@ -28,7 +28,7 @@ export const modelsOf = (provider: string, answer: unknown): ModelInfo[] => {
     if (!record(candidate) || typeof candidate.provider !== 'string'
       || candidate.provider.toLowerCase() !== provider.toLowerCase()) continue;
     if (typeof candidate.id !== 'string' || !candidate.id || typeof candidate.name !== 'string') continue;
-    const id = candidate.id.includes('/') ? candidate.id : `${candidate.provider}/${candidate.id}`;
+    const id = providerOf(candidate.id) === provider.toLowerCase() ? candidate.id : `${candidate.provider}/${candidate.id}`;
     if (providerOf(id) !== provider.toLowerCase()) continue;
     const available = candidate.available === undefined
       ? candidate.unavailableReason === undefined : candidate.available === true;
@@ -751,8 +751,10 @@ export function createAccounts(ctx: {
       // hold (this move holds the target exclusively). With no answer the fork keeps the parent's own selection.
       const models = await ctx.request('models.list', { agentId: entry.agent, view: 'all' })
         .then((answer) => modelsOfAccount(row, answer), () => []);
+      const sessionProvider = typeof session.modelProvider === 'string' ? session.modelProvider.toLowerCase() : undefined;
       const current = typeof session.model !== 'string' ? undefined
-        : (typeof session.modelProvider === 'string' && !session.model.includes('/') ? `${session.modelProvider}/${session.model}` : session.model).toLowerCase();
+        : (sessionProvider === undefined || providerOf(session.model) === sessionProvider
+          ? session.model : `${sessionProvider}/${session.model}`).toLowerCase();
       const model = models.find((m) => m.id.toLowerCase() === current)?.id ?? models.find((m) => m.available)?.id;
       try {
         await ctx.request('sessions.create', { agentId: entry.agent, key: into, parentSessionKey: from, fork: true, ...(model ? { model } : {}) });

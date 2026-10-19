@@ -655,6 +655,10 @@ test('a funded OpenRouter key takes the model the person chooses from its live c
   assert.deepEqual(await kit.addKey('m1', { authChoice: 'openrouter-api-key', apiKey: key, model: chosen }), { status: 'ok' });
   assert.deepEqual((await kit.models('m1', { authChoice: 'openrouter-api-key' })).map((m) => m.id),
     ['openrouter/openrouter/auto', chosen]);
+  // The engine row's id is provider-local even when it carries the maker's slash; the lane lists it qualified.
+  fake.handle('models.list', (p) => p.agentId === 'byokit-key-m1' ? { models: [
+    { id: 'deepseek/deepseek-v4.1-flash-1017', name: 'DeepSeek V4.1 Flash', provider: 'openrouter', available: true }] } : { models: [] });
+  assert.deepEqual((await kit.models('m1', 'openrouter.key')).map((m) => m.id), [chosen], 'the lane lists the model it registered');
   assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: true, model: chosen });
   const registered = (await kit.call('config.get', {}) as { config: { models?: { providers?: Record<string,
     { models?: { id: string }[]; headers?: unknown }> } } }).config.models?.providers?.openrouter;
