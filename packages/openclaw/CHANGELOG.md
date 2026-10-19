@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.18.2 (2026-10-19)
+
+- A signed-in ChatGPT login lists the Codex CLI route's models in the account model list, marked available.
+
 ## 0.18.1 (2026-10-18)
 
 - Dependency update: pins @byokit/accounts 0.28.1.
