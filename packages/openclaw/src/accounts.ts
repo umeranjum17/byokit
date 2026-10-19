@@ -19,7 +19,7 @@ import { words } from './words.ts';
 import type { Account, AccountId, AccountPick, Defaults, GatewayTransport, Member, ModelInfo, MoveResult, Room, RoomSpan, RunSelection, SignInOptions, SignInState, SignInView } from './types.ts';
 
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-// `models.list { agentId, view: 'default' }` rows of the account's provider, mapped to `provider/model`. The pin
+// `models.list { agentId, view: 'all' }` rows of the account's provider, mapped to `provider/model`. The pin
 // reports no per-plan availability, so `why: 'plan'` only comes from a run ending `plan`, never from here.
 export const modelsOf = (provider: string, answer: unknown): ModelInfo[] => {
   const rows = record(answer) && Array.isArray(answer.models) ? answer.models : [];
@@ -46,6 +46,16 @@ export const modelsOf = (provider: string, answer: unknown): ModelInfo[] => {
     out.push(info);
   }
   return out;
+};
+
+// The account's models: its provider's rows, plus the Codex CLI route's rows when the account is ready. The pin reports
+// those as missing-auth (no auth reaches the Codex route from the ChatGPT login), so the kit, which holds the login, is the
+// signal for them.
+export const modelsOfAccount = (row: Pick<Account, 'provider' | 'state'>, answer: unknown): ModelInfo[] => {
+  const own = modelsOf(row.provider, answer);
+  if (row.provider !== 'openai' || row.state !== 'ready') return own;
+  const codex = modelsOf('openai-codex', answer).map(({ why: _why, ...m }) => ({ ...m, available: true }));
+  return [...own, ...codex];
 };
 
 type IndexEntry = { agent: string; name: string; route: string; addedAt: number; until?: number; model?: string; who?: string;
@@ -569,7 +579,7 @@ export function createAccounts(ctx: {
   }
   // The shared hold covers the read, so no kit read of the agent is in flight while it is removed.
   const readModels = (row: Account, entry: IndexEntry): Promise<ModelInfo[]> => ctx.locks.shared(entry.agent, async () =>
-    modelsOf(row.provider, await ctx.request('models.list', { agentId: entry.agent, view: 'default' })));
+    modelsOfAccount(row, await ctx.request('models.list', { agentId: entry.agent, view: 'all' })));
 
   async function room(member: Member, id: AccountId, demand?: string[]): Promise<Room> {
     check(member);
@@ -732,8 +742,8 @@ export function createAccounts(ctx: {
       if (taken.key !== undefined) return failed('start_failed', words('move.taken', { name: row.name }));
       // The session's model when the target lists it, else the target's first available; the read takes no shared
       // hold (this move holds the target exclusively). With no answer the fork keeps the parent's own selection.
-      const models = await ctx.request('models.list', { agentId: entry.agent, view: 'default' })
-        .then((answer) => modelsOf(row.provider, answer), () => []);
+      const models = await ctx.request('models.list', { agentId: entry.agent, view: 'all' })
+        .then((answer) => modelsOfAccount(row, answer), () => []);
       const current = typeof session.model !== 'string' ? undefined
         : (typeof session.modelProvider === 'string' && !session.model.includes('/') ? `${session.modelProvider}/${session.model}` : session.model).toLowerCase();
       const model = models.find((m) => m.id.toLowerCase() === current)?.id ?? models.find((m) => m.available)?.id;

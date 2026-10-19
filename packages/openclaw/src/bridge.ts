@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer, type Server, type Socket } from 'node:net';
 import { rm } from 'node:fs/promises';
+import { provider } from '@byokit/accounts';
 import { words } from './words.ts';
 import type { Delegations } from './delegations.ts';
 import type { Approval, ChannelMessage, Decision, Member, RunRef, ToolHost, ToolSpec } from './types.ts';
@@ -48,6 +49,8 @@ export function writePlugin(
     name: 'BYOKit bridge',
     activation: { onStartup: true },
     cliBackends: ['openai-codex'],
+    // The Codex CLI route lists the ChatGPT catalogue's models; the engine lists a plugin route's rows only from here.
+    modelCatalog: { providers: { 'openai-codex': { models: [provider('chatgpt').models.strong, provider('chatgpt').models.fast].map((id) => ({ id, name: id })) } }, discovery: { 'openai-codex': 'static' } },
     contracts: { tools: o.tools.map((t) => t.name), ...(o.browser ? { agentToolResultMiddleware: ['openclaw', 'codex'] } : {}) },
     configSchema: { type: 'object', additionalProperties: false },
   };
