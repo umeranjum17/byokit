@@ -1,1 +1,0 @@
-- FIX: MiniMax (Global and CN) now offers `MiniMax-M3.1-Flash-Preview` as its fast model, replacing `MiniMax-M2.7-highspeed`.

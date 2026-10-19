@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.28.2 (2026-10-19)
+
+- FIX: MiniMax (Global and CN) now offers `MiniMax-M3.1-Flash-Preview` as its fast model, replacing `MiniMax-M2.7-highspeed`.
+
 ## 0.28.1 (2026-10-18)
 
 - Dependency update: pins @byokit/usage 0.9.1.

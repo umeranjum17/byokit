@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.22.2 (2026-10-19)
+
+- Dependency update: pins @byokit/accounts 0.28.2.
+- FIX: (from @byokit/accounts 0.28.2) MiniMax (Global and CN) now offers `MiniMax-M3.1-Flash-Preview` as its fast model, replacing `MiniMax-M2.7-highspeed`.
+
 ## 0.22.1 (2026-10-19)
 
 - FIX: a funded OpenRouter key now signs in and runs the model the person chooses. Before, `addKey` answered `{ status: 'not_included', reason: 'model' }` for every OpenRouter key, so apps showed a plan refusal and never reached the model: the pinned engine planned the key's live test on `openrouter/auto` but staged the route as the provider normalizes it, and refused the key as unavailable before sending it. A bundled engine patch now plans the test on the staged route; a key whose account has no credits (OpenRouter's HTTP 402) now answers `{ status: 'invalid', reason: 'billing' }`, never a plan refusal. An OpenRouter key pasted under OpenRouter's browser sign-in choice (`addKey(member, { authChoice: 'openrouter-oauth', apiKey })`) also takes OpenRouter's one key route (`openrouter-api-key`); a choice of a provider with exactly one key route billed alike maps the same way, and any other choice that takes no key throws its cause (`openai takes no API key: add the key with openai-api-key.`) instead of a plan refusal.
