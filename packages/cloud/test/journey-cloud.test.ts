@@ -1277,7 +1277,7 @@ test('a phone with only its own SSH module deploys onto any SSH box and gives it
   // Before the person confirms the server's key, nothing runs on it and setup says why.
   const unpinned = await collectSteps(setup({ provider, store, recipe: recipe(), pick: (l) => l[0], confirmId: 'x' }));
   assert.deepEqual(unpinned.at(-1), { step: 'failed', at: 'listing', cause: 'state.host-key-changed', retryable: false });
-  assert.deepEqual(transport.commands, []);
+  assert.equal(transport.commands.length, 0);
   const first = await sshHostKey(box);
   assert.deepEqual([first.fingerprint, first.pinned], [transport.fingerprint, false]);
   await first.confirm();
@@ -1310,7 +1310,7 @@ test('a phone with only its own SSH module deploys onto any SSH box and gives it
   transport.fingerprint = `SHA256:${'B'.repeat(43)}`;
   assert.equal(await m.state(), 'host-key-changed');
   await rejects(m.host(), 'host-key');
-  assert.equal(stateWords('host-key-changed'), words('state.host-key-changed'));
+  assert.match(stateWords('host-key-changed', { app: 'Runner', label: 'My server' }), /identity changed. Check with My server/);
   assert.equal(transport.commands.length, sent);
 });
 
