@@ -87,7 +87,11 @@ export type Plan = { inTrial: boolean; trialEndsAt: string | null; canStayOn: bo
 
 // The app's own persistence for the one MachineRef + provider key; the same load/save seam as
 // recordStore(load, save) (packages/accounts/src/stores.ts:11). The kit imports no other kit.
-export type MachineRecord = { ref: MachineRef | null; providerKey: string; monthlyEntered?: number }
+// `pending` is a create the provider may have made but whose answer never came back (5.2 step 3).
+export type MachineRecord = {
+  ref: MachineRef | null; providerKey: string; monthlyEntered?: number
+  pending?: { name: string; size: string; keepCopies: boolean; idempotencyKey: string }
+}
 export type MachineStore = { load(): Promise<MachineRecord | null>; save(r: MachineRecord): Promise<void> }
 
 export interface Machine {

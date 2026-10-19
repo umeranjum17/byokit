@@ -1290,10 +1290,36 @@ test('a phone with no computer yet rents one through setup, and a retry resumes 
     assert.deepEqual(lines, ['installed']);
     assert.equal(rentals(), 1);
 
+    // Boat makes the machine but every answer is lost, past the kit's own retries: the pending
+    // create and its key are saved first, so a restarted app retrying setup gets the same machine.
+    const lostStore = memoryStore();
+    server.loseNextCreateAnswers(4);
+    const lost = await collectSteps(setup({ ...fresh, store: lostStore }));
+    assert.deepEqual(lost.map((s) => s.step), ['checking-access', 'failed']);
+    assert.deepEqual(lost.at(-1), { step: 'failed', at: 'creating', cause: 'state.unknown', retryable: true });
+    const pending = await lostStore.load();
+    // Another size could rent a second machine beside the one that may exist: refused, nothing rented.
+    const resized = await collectSteps(setup({ ...fresh, store: memoryStore(pending), create: { size: 'default', keepCopies: true } }));
+    assert.deepEqual(resized.at(-1), { step: 'failed', at: 'creating', cause: 'error.app', retryable: false });
+    const restartedStore = memoryStore(pending);
+    const restarted = await collectSteps(setup({ ...fresh, store: restartedStore }));
+    assert.deepEqual(restarted.map((s) => s.step), ['checking-access', 'creating', 'installing', 'ready']);
+    assert.equal((await provider.list!()).length, 2, 'the lost create and its retry made one machine');
+    const keys = server.requests.filter((r) => r.method === 'POST' && r.path === '/sandboxes').slice(1).map((r) => r.headers['idempotency-key']);
+    assert.ok(pending?.ref === null && pending.pending !== undefined);
+    assert.deepEqual(keys, Array(5).fill(pending.pending.idempotencyKey), 'every attempt and the retry send the saved key');
+    assert.equal((await restartedStore.load())?.pending, undefined, 'a made machine ends the pending create');
+
+    // An outright refusal made nothing, so it leaves no pending create behind.
+    const refusedStore = memoryStore();
+    server.failNext([{ status: 401 }]);
+    await rejects(machine({ provider, store: refusedStore }).create({ name: 'web', size: 'small', keepCopies: true }), 'unauthorized');
+    assert.deepEqual(await refusedStore.load(), { ref: null, providerKey: '' });
+
     // A recipe the kit refuses fails before any rental, so it never bills.
     const refused = await collectSteps(setup({ ...fresh, store: memoryStore(), recipe: { ...recipe('bad'), workDir: 'relative' } }));
     assert.deepEqual(refused.at(-1), { step: 'failed', at: 'creating', cause: 'error.app', retryable: false });
-    assert.equal(rentals(), 1);
+    assert.equal(rentals(), 7);
   } finally { await server.close(); }
 });
 

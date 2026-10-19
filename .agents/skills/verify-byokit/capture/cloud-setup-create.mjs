@@ -1,6 +1,8 @@
 // Live setup({ create }) on boat.dev (features/cloud-setup-create.md). A phone-only person with no
 // computer yet: one setup() rents a small sandbox, waits until it is on, installs a real `Host` from the
-// packed kit, and pairs the phone; the same setup() again resumes on that machine and rents nothing. The
+// packed kit, and pairs the phone; the same setup() again resumes on that machine and rents nothing. Before
+// that, Boat's answers to the first create are dropped after it made the machine, past the kit's own retries:
+// a restarted app's retry must get that same machine back through the saved idempotency key. The
 // machine's host takes the key with `takeInbox` and answers with `writeOutbox` (`@byokit/cloud/unit`).
 // The run always deletes the machine it made. Keys show only as 12-hex fingerprints; the Boat key is read
 // once from the file and never printed.
@@ -74,9 +76,22 @@ const recipe = {
   run: { argv: ['node', '/home/user/byokit-create-lab/host.mjs'], env: {} },
 };
 
-const provider = boat({ baseUrl: 'https://boat.dev/api/v1', label: 'Boat', prices: [], key: async () => key });
+// Drop the next `lose` successful create answers after Boat has answered them, keeping the made ids for cleanup.
+let lose = 4;
+const lostIds = new Set();
+const lossy = async (url, init) => {
+  const res = await fetch(url, init);
+  if (lose > 0 && res.ok && init?.method === 'POST' && new URL(url).pathname.endsWith('/sandboxes')) {
+    lose -= 1;
+    const id = (await res.json().catch(() => null))?.sandbox?.id;
+    if (typeof id === 'string') lostIds.add(id);
+    throw new TypeError('the answer was lost');
+  }
+  return res;
+};
+const provider = boat({ baseUrl: 'https://boat.dev/api/v1', label: 'Boat', prices: [], key: async () => key, fetch: lossy });
 const vars = { app: 'Umer', label: 'Boat' };
-const store = memoryStore();
+let store = memoryStore();
 const phone = keyPair();
 out('phone', fp(phone.publicKey));
 const before = new Set((await provider.list()).map((r) => r.id));
@@ -98,6 +113,11 @@ const state = async () => {
 };
 let result = 'FAIL';
 try {
+  const lost = await connect();
+  out('setup-lost', lost);
+  const pending = (await store.load())?.pending;
+  out('pending-saved', pending === undefined ? null : { name: pending.name, size: pending.size, keepCopies: pending.keepCopies });
+  store = memoryStore(await store.load()); // a restarted app: only the saved record survives
   const first = await connect();
   out('setup-1', first);
   if (ref === null) ref = (await store.load())?.ref ?? null;
@@ -108,15 +128,20 @@ try {
   const fresh = (await provider.list()).map((r) => r.id).filter((id) => !before.has(id));
   out('new-machines', fresh.length);
   out('new-machine-is-ours', fresh.length === 1 && fresh[0] === ref?.id);
+  out('lost-answers-made-this-machine', lostIds.size === 1 && lostIds.has(ref?.id));
   const want = ['checking-access', 'creating', 'installing', 'pairing:receipt', 'ready'];
-  if (JSON.stringify(first) === JSON.stringify(want) && JSON.stringify(again) === JSON.stringify(want)
-    && fresh.length === 1 && fresh[0] === ref?.id) result = 'PASS';
+  if (JSON.stringify(lost) === JSON.stringify(['checking-access', 'failed:creating:state.unknown:retryable=true'])
+    && pending !== undefined && JSON.stringify(first) === JSON.stringify(want) && JSON.stringify(again) === JSON.stringify(want)
+    && fresh.length === 1 && fresh[0] === ref?.id && lostIds.size === 1 && lostIds.has(ref.id)) result = 'PASS';
 } finally {
   ref ??= (await store.load())?.ref ?? null;
-  if (ref !== null) {
-    await provider.remove(ref, ref.id);
-    for (let i = 0; i < 30 && (await provider.status(ref)) !== 'gone'; i++) await sleep(2000);
-    out('removed', await provider.status(ref));
+  // Every id here came from this run's own create answers, so each is a machine this run made.
+  const made = [...new Set([...(ref === null ? [] : [ref.id]), ...lostIds])];
+  for (const id of made) {
+    const r = { ...(ref ?? { provider: 'sandbox-api', account: await provider.account(), name: recipe.name, keepCopies: false }), id };
+    await provider.remove(r, id);
+    for (let i = 0; i < 30 && (await provider.status(r)) !== 'gone'; i++) await sleep(2000);
+    out(`removed-${made.indexOf(id) + 1}`, await provider.status(r));
   }
 }
 out('result', result);
