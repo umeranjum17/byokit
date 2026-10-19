@@ -149,7 +149,10 @@ returns what that run would choose now, refusals included, without running. `ste
 
 For an owner who explicitly offers keys, `kit.addKey('ana', { authChoice: 'openai-api-key', apiKey })` is a thenable
 handle: `await` it for `{ status: 'ok' }` or `{ status: 'invalid' | 'not_included' | 'retry', reason }`, and call
-`cancel()` to stop a pending add (clears any partial key; settles `retry`/`busy`).
+`cancel()` to stop a pending add (clears any partial key; settles `retry`/`busy`). `authChoice` may also name another
+sign-in of a provider with exactly one key route billed alike (`openrouter-oauth` adds an `openrouter-api-key`); any
+other choice that takes no key (a subscription such as `openai`, a provider with several key routes, an unknown choice)
+throws its cause before anything is sent.
 `reason` is `auth` (provider refused the key) or `billing` (the provider's billing refused it; the kit words it and never passes
 provider text): both are `invalid`, and an unchanged key must not be retried. `empty` is a blank key, rejected locally before any
 provider call, also `invalid`. `model` is an unsupported route or unknown model (`not_included`), or a live model the engine did not

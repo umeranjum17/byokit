@@ -1968,8 +1968,10 @@ AccountId }> }>`, where `done.id` is the account the sign-in ended in. `name` de
 local part is only a suggestion the app offers (`@byokit/ui` `nameSuggestions`), so the index never holds it.
 
 **API keys.** One key lane per member: reserved agent `byokit-key-<member>` (workspace `key-workspaces/<member>`,
-`copyToAgents: false`), indexed once as `<provider>.key`. `addKey(member, { authChoice, apiKey, model? })` accepts
-only routes with `keyEntry` (else `not_included`), activates typed `openclaw.setup.activate { kind: 'api-key',
+`copyToAgents: false`), indexed once as `<provider>.key`. `addKey(member, { authChoice, apiKey, model? })` takes
+a `keyEntry` route, or another choice of a provider with exactly one `keyEntry` route billed alike (`openrouter-oauth`
+takes `openrouter-api-key`); any other choice throws its cause (no such choice, or no key route) before anything is
+sent, and a key route that is not ready is `not_included`. It activates typed `openclaw.setup.activate { kind: 'api-key',
 agentId: byokit-key-<member>, authChoice, apiKey }` (180 s) on that lane, seals it, records its saved model, and
 indexes the lane as `<provider>.key` once the key seals (replacing whatever `<*.key>` entry the member already held,
 keeping `addedAt`). A new key added with `addKey` replaces the old one on the same agent; there is no `<member>--<hex6>` agent per later
