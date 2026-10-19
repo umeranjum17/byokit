@@ -6,11 +6,11 @@ import type { TestContext } from 'node:test';
 import { editText, patchId, readPatchSet, sha256, type PatchFile } from '../src/engine-patches.ts';
 
 const manifest = fileURLToPath(new URL('../engine/patches.json', import.meta.url));
-const preparePath = 'dist/prepare.runtime-BUjESFb4.js';
+// Large bundles whose fake installs need only the shipped edit's input, not the entire upstream bundle.
+const synthetic = new Set(['dist/prepare.runtime-BUjESFb4.js', 'dist/setup-inference-Dpvv_U7x.js']);
 
-// Fake installs need only the shipped edit's input, not the entire upstream bundle.
 export function stockBytes(file: PatchFile): Buffer {
-  return file.path === preparePath
+  return synthetic.has(file.path)
     ? Buffer.from(file.edits.map(edit => edit.find).join('\n'))
     : fs.readFileSync(fileURLToPath(new URL(`./fixtures/stock/${file.path}.txt`, import.meta.url)));
 }
@@ -22,7 +22,7 @@ export function useSyntheticStock(t: TestContext): void {
   const set = readPatchSet(manifest, '2026.8.35', lock.packages['node_modules/openclaw'].integrity);
   const files = set.files.map(file => {
     const bytes = stockBytes(file);
-    if (file.path !== preparePath) {
+    if (!synthetic.has(file.path)) {
       assert.equal(sha256(bytes), file.before, `stock byte fixture drift: ${file.path}`);
       return file;
     }

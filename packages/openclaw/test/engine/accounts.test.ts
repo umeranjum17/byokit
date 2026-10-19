@@ -10,6 +10,8 @@ import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { join } from 'node:path';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { setTimeout as delay } from 'node:timers/promises';
 import { OpenClawKit } from '../../src/kit.ts';
 import { hostKeySeal } from '../../../secrets/src/index.ts';
@@ -780,4 +782,58 @@ mock.method(globalThis, 'fetch', (input, options) => {
       JSON.stringify(calls.map((c) => [c.org, c.body.model, !!c.session])));
     assert.ok(!JSON.stringify([end, texts]).includes(key), 'the key is never shown');
   } finally { orgs.answer(async () => new Response('', { status: 401 })); await kit.stop(); await goStub.close(); mock.restoreAll(); syncBuiltinESMExports(); }
+});
+
+// The pinned engine planned an OpenRouter key's live test on `openrouter/auto` while staging the route the provider
+// normalizes it to, and refused every OpenRouter key as unavailable before sending it (the kit read not_included).
+test('addKey: an OpenRouter key under Crewhouse\'s browser choice is activated, and a run on the chosen model answers on it', { timeout: 900_000 }, async () => {
+  const dir = scratchDir('openrouter-key');
+  const stateDir = join(dir, 'state');
+  const key = 'byokit-openrouter-stand-in-key-4417';
+  // An account at zero credits: OpenRouter answers its key 402, which is billing, never a plan refusal.
+  const broke = 'byokit-openrouter-no-credits-key-5528';
+  const credits = createServer((_req, res) => res.writeHead(402, { 'content-type': 'application/json' })
+    .end(JSON.stringify({ error: { code: 402, message: 'Insufficient credits. Add more using https://openrouter.ai/settings/credits' } })));
+  await new Promise<void>((resolve) => credits.listen(0, '127.0.0.1', resolve));
+  const creditsUrl = `http://127.0.0.1:${(credits.address() as AddressInfo).port}`;
+  const preload = join(dir, 'openrouter-fake.mjs');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(preload, `
+import { mock } from 'node:test';
+const fetch = globalThis.fetch;
+mock.method(globalThis, 'fetch', (input, options) => {
+  const url = new URL(input instanceof Request ? input.url : input);
+  if (url.origin === 'https://openrouter.ai') {
+    const bearer = new Headers(input instanceof Request ? input.headers : options?.headers).get('authorization');
+    const base = new URL(bearer === ${JSON.stringify(`Bearer ${broke}`)} ? ${JSON.stringify(creditsUrl)} : ${JSON.stringify(stub.url)});
+    url.protocol = base.protocol; url.host = base.host;
+    input = input instanceof Request ? new Request(url, input) : url;
+  }
+  return fetch(input, options);
+});
+`, { mode: 0o600 });
+  const spawn = childProcess.spawn;
+  mock.method(childProcess, 'spawn', (...args: Parameters<typeof spawn>) => {
+    const [file, argv, options] = args;
+    if (file === process.execPath && Array.isArray(argv) && argv[1] === 'gateway')
+      return spawn(file, ['--import', pathToFileURL(preload).href, ...argv], options);
+    return spawn(...args);
+  });
+  syncBuiltinESMExports();
+  const kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), callbackPort: 0, offered: ['openrouter'] });
+  try {
+    await kit.start();
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openrouter-oauth', apiKey: broke }), { status: 'invalid', reason: 'billing' });
+    assert.deepEqual(await kit.callDynamic('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
+    const keyed = (from: number) => stub.calls.slice(from).filter((c) => c.authorization === `Bearer ${key}`);
+    const start = stub.calls.length;
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openrouter-oauth', apiKey: key }), { status: 'ok' });
+    assert.ok(keyed(start).length, 'the live test reached OpenRouter with the key');
+    const before = stub.calls.length;
+    const end = await kit.run({ member: 'm1', auth: 'apiKey', sessionKey: 'agent:m1:openrouter', model: 'openrouter/deepseek/deepseek-v4.1-flash-1017', message: 'hello openrouter' });
+    assert.ok(end.ok, JSON.stringify(end));
+    const calls = keyed(before);
+    assert.ok(calls.length && calls.every((c) => c.body.model === 'deepseek/deepseek-v4.1-flash-1017'), JSON.stringify(calls.map((c) => c.body.model)));
+    assert.ok(!JSON.stringify(end).includes(key), 'the key is never shown');
+  } finally { await kit.stop(); credits.close(); mock.restoreAll(); syncBuiltinESMExports(); }
 });

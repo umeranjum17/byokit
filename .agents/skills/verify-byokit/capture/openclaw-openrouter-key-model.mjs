@@ -1,6 +1,7 @@
 // An OpenRouter API key (pay-as-you-go, no plan) takes the model the person chooses, through the built @byokit/openclaw.
 // Offline by default (fakeGateway answering OpenRouter's catalog). `--engine` drives the real pinned engine's OpenRouter
-// catalog hook with a dummy bearer: OpenRouter's /models list is public, so no key and no inference are involved.
+// catalog hook with a dummy bearer (OpenRouter's /models list is public) and its key probe with a stand-in key that
+// OpenRouter refuses: no real key and no inference are involved.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -29,6 +30,10 @@ if (!engine) {
   const kit = new OpenClawKit({ stateDir, callbackPort: 0, transport: fake.factory, spawnEngine: false });
   try {
     await kit.start();
+    // Crewhouse's key sign-in names OpenRouter's browser choice and no model; the add takes OpenRouter's key route.
+    const signedIn = await kit.addKey('umer', { authChoice: 'openrouter-oauth', apiKey: key });
+    say('addKey under openrouter-oauth:', JSON.stringify(signedIn));
+    assert.deepEqual(signedIn, { status: 'ok' });
     const added = await kit.addKey('umer', { authChoice: 'openrouter-api-key', apiKey: key, model: CHOSEN });
     say('addKey with', CHOSEN + ':', JSON.stringify(added));
     assert.deepEqual(added, { status: 'ok' });
@@ -52,6 +57,11 @@ if (!engine) {
     const workspace = await kit.addKey('ana', { authChoice: 'openrouter-api-key', apiKey: key, model: CHOSEN, orgId: 'org-umer' });
     say('Go workspace on OpenRouter:', JSON.stringify(workspace));
     assert.deepEqual(workspace, { status: 'not_included', reason: 'model' });
+    for (const authChoice of ['openai', 'nope']) {
+      const refused = await kit.addKey('ana', { authChoice, apiKey: key }).then((r) => JSON.stringify(r), (e) => e.message);
+      say(`a choice that takes no key (${authChoice}):`, refused);
+      assert.match(refused, /takes no API key|No sign-in is named/);
+    }
     assert.equal(JSON.stringify(fake.calls).includes(key), false);
     say('OPENROUTER-KEY-MODEL OK');
   } finally {
@@ -82,6 +92,11 @@ if (!engine) {
     const registered = (await providers(kit)).openrouter?.models?.map((m) => m.id);
     say('registering the chosen model:', JSON.stringify(registered));
     assert.deepEqual(registered, [ROW]);
+    // Crewhouse's key sign-in on the real engine: a stand-in key under `openrouter-oauth` reaches OpenRouter's key
+    // probe, which refuses it (no inference); before, the kit refused locally as not_included/model.
+    const probed = await kit.addKey('umer', { authChoice: 'openrouter-oauth', apiKey: 'byokit-invalid-stand-in-key' });
+    say('addKey under openrouter-oauth, stand-in key:', JSON.stringify(probed));
+    assert.deepEqual(probed, { status: 'invalid', reason: 'auth' });
     say('OPENROUTER-ENGINE-CATALOG OK');
   } finally {
     await kit.stop();

@@ -4,6 +4,7 @@ Verification recipe for [live provider catalogs](../../../../docs/runtime-kits.m
 
 ## Sub-features
 
+- `addKey({ authChoice: 'openrouter-oauth', apiKey })` (Crewhouse's key sign-in: the browser choice, no model) returns `{ status: 'ok' }`: a choice of a provider with one key route billed alike takes that route. A choice that takes no key (`openai`, an unknown one) throws its cause, never `not_included`. On the real engine (`--engine`) a stand-in key under `openrouter-oauth` reaches OpenRouter's key probe and ends `{ status: 'invalid', reason: 'auth' }`.
 - `addKey({ authChoice: 'openrouter-api-key', model: 'openrouter/deepseek/deepseek-v4.1-flash-1017' })` returns `{ status: 'ok' }`; the key run uses `deepseek/deepseek-v4.1-flash-1017`.
 - `models(member, { authChoice: 'openrouter-api-key' })` lists the live catalog, each id `openrouter/<id>` (the catalog ids carry the maker's slash).
 - Only the chosen model is registered in `models.providers.openrouter.models`: the pinned engine canonicalizes Google preview ids on `config.patch`, so the whole list is refused (`Ambiguous duplicate ID ...`). A chosen preview id is listed, compared, registered and saved as the canonical id the engine keeps (`google/gemini-3.1-flash-lite-preview` becomes `google/gemini-3.1-flash-lite`).
@@ -25,8 +26,10 @@ entry=.agents/skills/verify-byokit/capture/openclaw-openrouter-key-model.mjs
 drive=(node "$entry")
 ```
 
-Use SKILL.md's Evidence capture block. Offline it drives `fakeGateway()` through the key path. `drive=(node "$entry" --engine)` drives the real pinned engine (heavy job: hold the heavy-job lock; set `BYOKIT_SCRATCH` to a disk-backed dir or `BYOKIT_TEST_ENGINE_DIR` to an installed engine set): `byokit.catalog { provider: 'openrouter' }` answers ok with the chosen row, the whole list is refused, and the chosen row registers. It uses a dummy bearer because OpenRouter's `/models` is public; no key and no inference.
+Use SKILL.md's Evidence capture block. Offline it drives `fakeGateway()` through the key path. `drive=(node "$entry" --engine)` drives the real pinned engine (heavy job: hold the heavy-job lock; set `BYOKIT_SCRATCH` to a disk-backed dir or `BYOKIT_TEST_ENGINE_DIR` to an installed engine set): `byokit.catalog { provider: 'openrouter' }` answers ok with the chosen row, the whole list is refused, and the chosen row registers; then a stand-in key under `openrouter-oauth` is probed and refused. It uses a dummy bearer because OpenRouter's `/models` is public; no real key and no inference.
 
 ## Gotchas
 
 A real key run needs the key in the engine's own auth store (a file under the engine home); the `--engine` leg deliberately avoids it. A real-key inference proof is a credential-touching proof under SKILL.md's rules and needs an authorized key. The engine answers `byokit.catalog` with `failed` (not `no-key`) when no agent holds a key.
+
+Keep `BYOKIT_SCRATCH` short: the engine's bridge socket under it fails with `listen EINVAL` past the Unix socket path limit.

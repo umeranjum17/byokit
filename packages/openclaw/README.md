@@ -32,6 +32,8 @@ hashes. The Gateway Workshop review patch writes content-free, durable usage fac
 accounting environment. The separately bundled worker and all other detached kinds remain uncovered.
 The Claude CLI route also uses the bundled [Tooling-name correction](../../docs/runtime-kits.md#516-bundled-engine-patches-and-engine-started-usage-d19);
 apps do not need consumer tool aliases.
+A key setup plan patch lets an OpenRouter API key activate: stock plans the key's live test on a route other than the
+one it stages and refuses every OpenRouter key before sending it.
 The full upstream MIT notice ships in [engine/OPENCLAW-LICENSE](engine/OPENCLAW-LICENSE).
 
 Each `prepare()` verifies the **entire** selected engine tree, including unpatched files. The kit installs stock
@@ -149,7 +151,10 @@ returns what that run would choose now, refusals included, without running. `ste
 
 For an owner who explicitly offers keys, `kit.addKey('ana', { authChoice: 'openai-api-key', apiKey })` is a thenable
 handle: `await` it for `{ status: 'ok' }` or `{ status: 'invalid' | 'not_included' | 'retry', reason }`, and call
-`cancel()` to stop a pending add (clears any partial key; settles `retry`/`busy`).
+`cancel()` to stop a pending add (clears any partial key; settles `retry`/`busy`). `authChoice` may also name another
+sign-in of a provider with exactly one key route billed alike (`openrouter-oauth` adds an `openrouter-api-key`); any
+other choice that takes no key (a subscription such as `openai`, a provider with several key routes, an unknown choice)
+throws its cause before anything is sent.
 `reason` is `auth` (provider refused the key) or `billing` (the provider's billing refused it; the kit words it and never passes
 provider text): both are `invalid`, and an unchanged key must not be retried. `empty` is a blank key, rejected locally before any
 provider call, also `invalid`. `model` is an unsupported route or unknown model (`not_included`), or a live model the engine did not

@@ -100,12 +100,25 @@ export function createKeys(ctx: ActivationCtx & {
     const rows = (answer.models ?? []).map((m) => ({ ...m, id: canonical(String(m.id)) }));
     return [...new Map(rows.map((m) => [String(m.id), m])).values()];
   };
+  // The key route a choice names: its own, or the only key route of the provider whose other sign-in it names, billed
+  // alike (an OpenRouter key pasted under `openrouter-oauth` is an `openrouter-api-key`). Anything else is the app's
+  // mistake, refused with its cause before anything is sent: never a plan refusal, never a subscription turned per-use.
+  const keyRoute = (authChoice: string): RouteView => {
+    const all = ctx.routes();
+    const named = all.find((r) => r.choice === authChoice);
+    if (!named) throw new Error(`No sign-in is named ${authChoice}.`);
+    if (named.keyEntry) return named;
+    const keyed = all.filter((r) => r.provider === named.provider && r.keyEntry);
+    if (keyed.length === 1 && keyed[0]!.billing === named.billing) return keyed[0]!;
+    throw new Error(keyed.length ? `${authChoice} takes no API key: add the key with ${keyed.map((r) => r.choice).join(' or ')}.`
+      : `${authChoice} takes no API key.`);
+  };
   const listed = (provider: string, rows: Record<string, unknown>[]): ModelInfo[] =>
     modelsOf(provider, { models: rows.map((m) => ({ ...m, provider })) });
   const models = async (member: Member, o: { authChoice: string }): Promise<ModelInfo[]> => {
     if (!check(member)) throw new Error('Choose your own member.');
-    const route = ctx.routes().find((r) => r.choice === o.authChoice && r.keyEntry && r.readiness === 'ready');
-    if (!route || !LIVE_CATALOGS.includes(route.provider)) return [];
+    const route = keyRoute(o.authChoice);
+    if (route.readiness !== 'ready' || !LIVE_CATALOGS.includes(route.provider)) return [];
     try { return listed(route.provider, await catalog(member, route.provider)); }
     catch (error) {
       // The engine answers `failed` when no agent holds a key: a lane without the provider's profile lists nothing,
@@ -127,8 +140,9 @@ export function createKeys(ctx: ActivationCtx & {
       const done = (async (): Promise<AddKeyResult> => {
         if (!check(member)) throw new Error('Choose your own member.');
         if (!o.apiKey.trim()) return failure('invalid', 'empty');
-        const route = ctx.routes().find((r) => r.choice === o.authChoice && r.keyEntry && r.readiness === 'ready');
-        if (!route || (o.model !== undefined && !LIVE_CATALOGS.includes(route.provider))) return failure('not_included', 'model');
+        const route = keyRoute(o.authChoice);
+        if (route.readiness !== 'ready' || (o.model !== undefined && !LIVE_CATALOGS.includes(route.provider)))
+          return failure('not_included', 'model');
         const model = o.model === undefined ? undefined : canonicalModel(o.model);
         // A workspace names a Go login's own workspace only; another route takes no header, and a
         // refusal here leaves the member's lanes untouched (it lands before any prepare or activation).
@@ -194,7 +208,7 @@ export function createKeys(ctx: ActivationCtx & {
             // The public pin's typed API-key path, never a CLI-login import. Discard the engine's lines/errors.
             sent = true;
             if (ac.signal.aborted) return abandon(cancelled());
-            const result = await activate(ctx, { kind: 'api-key', agentId, authChoice: o.authChoice, apiKey: o.apiKey },
+            const result = await activate(ctx, { kind: 'api-key', agentId, authChoice: route.choice, apiKey: o.apiKey },
               { timeoutMs: 180_000, signal: ac.signal });
             if (ac.signal.aborted) return abandon(cancelled());
             if (!result.ok && !result.late) return abandon(probeResult(result.status));

@@ -655,6 +655,9 @@ test('a funded OpenRouter key takes the model the person chooses from its live c
     { id: 'google/gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', api: 'openai-completions' },
     { id: 'google/gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite Preview', api: 'openai-completions' }] }
     : { ok: false, reason: 'no-key' });
+  // Crewhouse's key sign-in names OpenRouter's browser choice; the add takes OpenRouter's one key route, billed alike.
+  assert.deepEqual(await kit.addKey('m1', { authChoice: 'openrouter-oauth', apiKey: key }), { status: 'ok' });
+  assert.ok((await kit.models('m1', { authChoice: 'openrouter-oauth' })).some((m) => m.id === chosen && m.available));
   assert.deepEqual(await kit.addKey('m1', { authChoice: 'openrouter-api-key', apiKey: key, model: chosen }), { status: 'ok' });
   // A maker slash, a provider-prefixed local id and a preview pair: each is named once, the engine id kept.
   assert.deepEqual((await kit.models('m1', { authChoice: 'openrouter-api-key' })).map((m) => m.id),
@@ -898,9 +901,11 @@ test('readiness warms profile admission with or without native auth despite unus
   });
 });
 
-test('key entry refuses unavailable routes and hides even an engine error that echoes the secret', async () => withKit(async (kit, fake) => {
+test('key entry refuses unavailable routes and choices that take no key, and hides even an engine error that echoes the secret', async () => withKit(async (kit, fake) => {
   const key = 'CANARY-ERROR-KEY-12345';
-  assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai', apiKey: key }), { status: 'not_included', reason: 'model' });
+  // A choice that takes no key is refused with its cause, never as a plan: a subscription is never turned per-use.
+  await assert.rejects(kit.addKey('m1', { authChoice: 'openai', apiKey: key }), /^Error: openai takes no API key: add the key with openai-api-key\.$/);
+  await assert.rejects(kit.addKey('m1', { authChoice: 'nope', apiKey: key }), /^Error: No sign-in is named nope\.$/);
   assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: ' ' }), { status: 'invalid', reason: 'empty' });
   assert.equal(fake.calls.some((c) => c.method === 'openclaw.setup.activate'), false, 'a blank key never reaches the provider');
   for (const throws of [true, false]) {
