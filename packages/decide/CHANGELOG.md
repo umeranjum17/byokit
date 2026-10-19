@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.13.0 (2026-10-19)
+
+- FIX: The Jev wire dropped `answerFields`: it never asked Jev for the requested keys and copied none back. Jev now receives each question's `answerFields`, and a requested key the model returns lands on that question's `Answer`, as it does for every other backend.
+- FEAT: New Node-only `@byokit/decide/pi` subpath runs the person's installed pi binary with a chosen `model` (for example `deepseek/deepseek-flash`), passed as `--model`, so the app needs no key of its own: `pi({ bin, model, timeoutMs })` is a decision and `generate` backend, answering in JSON mode with no tools, extensions, skills, context files or session. Failures are `PiError` with plain text; the kit never reads or copies pi's key or settings files.
+
 ## 0.12.1 (2026-10-18)
 
 - Dependency update: pins @byokit/accounts 0.28.1.
