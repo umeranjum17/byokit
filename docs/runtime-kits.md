@@ -1320,10 +1320,22 @@ namespace and persona on the agent that already holds the account.
 - `RunRef.helper` names the helper on the gated and called run. The session stays on the member's agent, so
   attribution and approvals are the member's. The bridge and `ToolHost.gate` are unchanged: a helper gains no tool,
   builtin or session-key prefix the member's run would not.
+- Delegated helper runs (S2): `RunSpec.helperDelegates?: Record<string, string[]>` names the member's helpers a run may
+  hand work to, each with its app-tool subset, on the native admission path above (`delegates` and `helperDelegates`
+  may be combined; builtin gating stays required). Each must be an ensured helper of the run's member (`unknown_helper`,
+  `invalid` for a malformed id or tool, before any request). A native `sessions_send` whose exact target key is
+  `agent:<the helper's agent>:h-<helper>:<rest>`, ordinary account or plan-key lane, is admitted from its receipt as a
+  `DelegatedRun` with `helper` set and the parent's member, so its calls cross the same gate, approvals and tool
+  intersection as any delegated child. A helper key enters only by this path, never through `delegates`. Refused
+  before dispatch with the parent's tool result reading `<code>: <message>`: a target that is not a helper key
+  (`session`, when the run has helper grants), a helper on another member's or account's agent (`bound`), a helper
+  never ensured (`unknown_helper`), a helper this run was not given (`session`). `sessions_spawn` mints its own
+  `subagent:` key, so it never reaches a helper session. Revocation is the native path's (`abort(rootSessionKey)`), and
+  a helper whose account was removed or rebound since admission ends its children's admission (`ended`, `cancelled`)
+  at their next gate or call. The child runs without the helper's persona: a native send carries no system text.
 - Known limit: helpers share the engine agent (id, workspace files, memory) of their account; separate engine agents
-  need per-agent auth inheritance, an engine patch (5.16). Not here: admitting engine-created children aimed at a
-  helper's session (S2), lifecycle event mapping by helper (S3), adopting legacy sessions into helpers (S4), listing or
-  removing a helper.
+  need per-agent auth inheritance, an engine patch (5.16). Not here: lifecycle event mapping by helper (S3), adopting
+  legacy sessions into helpers (S4), listing or removing a helper.
 
 ### 5.9 Tools, approvals and the bridge
 

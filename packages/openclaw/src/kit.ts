@@ -767,6 +767,10 @@ export class OpenClawKit {
     } : o.host;
     this.delegations = new Delegations({ file: join(this.engine.root, 'delegated-runs.json'), tools: new Set(this.toolNames()),
       memberOf: agent => this.memberOf(agent), request: (method, params, options) => this.request()(method, params, options),
+      helper: (member, helper) => {
+        if (!this.helpersCtl) throw new Error('gateway not ready');
+        return this.helpersCtl.resolve(member, helper);
+      },
       emit: payload => { for (const fn of this.listeners) fn({ event: 'byokit.delegated', payload }); },
       revoke: (key, runId) => this.bridge.revoke(key, runId) });
     this.bridge = new Bridge({ path: this.engine.bridgeSock, delegations: this.delegations, host, tools: new Set([...this.toolNames(), ...(o.browser ? ['request_sign_in'] : [])]),
@@ -1366,7 +1370,7 @@ export class OpenClawKit {
   }
 
   async run<const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: RunEvent) => void): Promise<RunEnd<SchemaOutput<S>>> {
-    if (spec.delegates && this.o.gateBuiltins === false) throw new Error('delegation requires builtin gating');
+    if ((spec.delegates || spec.helperDelegates) && this.o.gateBuiltins === false) throw new Error('delegation requires builtin gating');
     if (this.o.browser) {
       if (!await this.checkBrowserTools()) return { ok: false, kind: 'other', message: 'browser tool policy refused' };
       if (!await this.browserHost?.beforeRun(spec.member, this.runKey(spec.sessionKey, spec)))
