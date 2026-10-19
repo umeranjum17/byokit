@@ -66,7 +66,10 @@ export type CompleteRequest = {
   system?: string;
   prompt: string;
   maxOutputTokens?: number;
-  /** Return top-N token probabilities for each generated token. */
+  /**
+   * Return the model's top-N next-token probabilities at each generated position. Above 0 the call samples each token
+   * from that distribution (temperature 1, no top-k/top-p/min-p cut) instead of decoding greedily.
+   */
   n_probs?: number;
   /** Constrain the output to this JSON Schema through the engine's grammar. */
   jsonSchema?: object;

@@ -23,7 +23,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 
 - [Connect endpoint overrides](./connect-endpoints.md) — built `@byokit/connect` against emulate 0.12.2 for Google OAuth and Gmail, a real local GitHub device-flow server, and an app-owned GitHub API call using the connection's resolved `apiBase`.
 
-- [Infer token probabilities](./infer-token-probabilities.md) — built `@byokit/infer` complete() journey requests `n_probs` and observes returned `completion_probabilities`; native phone behavior remains unverified.
+- [Infer token probabilities](./infer-token-probabilities.md) — built `@byokit/infer` complete() journey requests `n_probs` and checks the read is the model's real next-token distribution (llama.rn-faithful `sampledReply`), greedy without it; native phone behavior remains unverified.
 
 - [Accounts sign-in and ask](./accounts-signin.md) — the README quickstart against the built `@byokit/accounts` with `mockOpenAI()`.
 - [ChatGPT one-button sign-in on a phone](./accounts-phone-redirect.md) — `login(…, { via: 'redirect' })` on `portable` gives ChatGPT's page and `returnTo`; the in-app browser's return address handed to `complete` signs in, and another state, a replay and an expired sign-in are refused with `SignInReturnError`; plus the real provider's page opened (never signed in).

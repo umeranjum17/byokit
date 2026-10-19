@@ -6,9 +6,9 @@ export type LlamaRnContextParams = {
 };
 export type LlamaRnMessage = { role: 'system' | 'user'; content: string };
 export type LlamaRnCompletionParams = {
-  messages: LlamaRnMessage[]; jinja: true; enable_thinking: false; n_predict: number; temperature: 0; seed: number;
+  messages: LlamaRnMessage[]; jinja: true; enable_thinking: false; n_predict: number; temperature: number; seed: number;
   response_format?: { type: 'json_schema'; json_schema: { strict: true; schema: object } };
-  n_probs?: number;
+  n_probs?: number; top_k?: number; top_p?: number; min_p?: number;
 };
 export type LlamaRnCompletionResult = {
   text: string; content: string; tokens_predicted: number; tokens_evaluated: number;
@@ -197,9 +197,12 @@ export class LocalModel {
         throwIfAborted(signal);
         if (this.#releasing) throw new InferError('failed', 'The model was released.');
         this.#set({ phase: 'busy' });
+        // llama.rn reads n_probs from the candidates after sampling, where temperature 0 has already set every logit but
+        // the top one to -inf. A probability read therefore samples at temperature 1 over the whole vocabulary.
+        const read = !!req.n_probs && { temperature: 1, top_k: 0, top_p: 1, min_p: 0 };
         const r = await ctx.completion({ messages, jinja: true, enable_thinking: false, n_predict: maxOutputTokens, temperature: 0, seed: 0,
           ...(req.jsonSchema && { response_format: { type: 'json_schema' as const, json_schema: { strict: true as const, schema: req.jsonSchema } } }),
-          ...(req.n_probs !== undefined && { n_probs: req.n_probs }) }, onToken);
+          ...(req.n_probs !== undefined && { n_probs: req.n_probs }), ...read }, onToken);
         throwIfAborted(signal);
         if (this.#releasing) throw new InferError('failed', 'The model was released while generating.');
         this.#set({ phase: 'ready' });

@@ -47,8 +47,12 @@ publisher's revision and SHA-256. Physical qualification on a real phone is stil
   the runtime has no reason (stock React Native). No global polyfill is needed. `release()` stops and frees the context.
 - **Bounds.** 2,048-token context, 256 output tokens, 12,000 input characters, four threads, CPU only by default;
   `limits` narrows them. Input that does not fit rejects `too-large`.
-- **Token probabilities.** `local.complete({ prompt, n_probs: 3 })` asks llama.rn for top-N probabilities per generated token;
-  when provided, `Completion.completion_probabilities` returns them.
+- **Token probabilities.** `local.complete({ prompt, n_probs: 3 })` returns, in `Completion.completion_probabilities`,
+  the model's top-N next-token probabilities at each generated position. A probability read is a sample, not a greedy
+  pick: each token is drawn from that distribution (temperature 1, no top-k/top-p/min-p cut, `seed: 0`), because
+  llama.rn reads the probabilities after sampling and greedy decoding leaves one token at 1 and the rest at 0. Without
+  `n_probs` decoding stays greedy. With `jsonSchema`, a position whose first draw broke the grammar is redrawn and read
+  over the tokens the grammar allows.
 - **Truthful states.** `unsupported` (no binding, wrong ABI, too little memory), `not-installed`, `installing`,
   `installed`, `loading`, `ready`, `busy`, `failed`. A download that does not match the pinned size and SHA-256 is
   removed and rejects `integrity`.
@@ -83,4 +87,4 @@ typed pass-through (`nano.binding` is the whole Prompt surface the module expose
 in the instructions and JSON validation stays authoritative. `./testing` has `fakeNano()`.
 
 `generationBackend(local)` plugs the phone's model into `@byokit/decide`'s `generate()` with `privacy: 'stays-here'`.
-`./testing` has `fakeLlama()` and `memoryModelStore()` for offline tests.
+`./testing` has `fakeLlama()`, `memoryModelStore()` and `sampledReply()` (a `fakeLlama` reply that samples like llama.rn) for offline tests.
