@@ -19,6 +19,10 @@ import { words } from './words.ts';
 import type { Account, AccountId, AccountPick, Defaults, GatewayTransport, Member, ModelInfo, MoveResult, Room, RoomSpan, RunSelection, SignInOptions, SignInState, SignInView } from './types.ts';
 
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+// A provider-local engine model id as the kit's `provider/model` reference; an id already prefixed with its own
+// provider is left alone.
+export const kitId = (provider: string, id: string): string =>
+  providerOf(id) === provider.toLowerCase() ? id : `${provider}/${id}`;
 // `models.list { agentId, view: 'all' }` rows of the account's provider, mapped to `provider/model`. The pin
 // reports no per-plan availability, so `why: 'plan'` only comes from a run ending `plan`, never from here.
 export const modelsOf = (provider: string, answer: unknown): ModelInfo[] => {
@@ -28,7 +32,7 @@ export const modelsOf = (provider: string, answer: unknown): ModelInfo[] => {
     if (!record(candidate) || typeof candidate.provider !== 'string'
       || candidate.provider.toLowerCase() !== provider.toLowerCase()) continue;
     if (typeof candidate.id !== 'string' || !candidate.id || typeof candidate.name !== 'string') continue;
-    const id = providerOf(candidate.id) === provider.toLowerCase() ? candidate.id : `${candidate.provider}/${candidate.id}`;
+    const id = kitId(candidate.provider, candidate.id);
     if (providerOf(id) !== provider.toLowerCase()) continue;
     const available = candidate.available === undefined
       ? candidate.unavailableReason === undefined : candidate.available === true;
@@ -753,8 +757,7 @@ export function createAccounts(ctx: {
         .then((answer) => modelsOfAccount(row, answer), () => []);
       const sessionProvider = typeof session.modelProvider === 'string' ? session.modelProvider.toLowerCase() : undefined;
       const current = typeof session.model !== 'string' ? undefined
-        : (sessionProvider === undefined || providerOf(session.model) === sessionProvider
-          ? session.model : `${sessionProvider}/${session.model}`).toLowerCase();
+        : (sessionProvider === undefined ? session.model : kitId(sessionProvider, session.model)).toLowerCase();
       const model = models.find((m) => m.id.toLowerCase() === current)?.id ?? models.find((m) => m.available)?.id;
       try {
         await ctx.request('sessions.create', { agentId: entry.agent, key: into, parentSessionKey: from, fork: true, ...(model ? { model } : {}) });

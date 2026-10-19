@@ -174,12 +174,16 @@ for entry, checking, success and failure states, using the kit's `key.*` words.
 To use the saved key for one run, pass `auth: 'apiKey'`. The key lives in the member's separate
 `byokit-key-<member>` agent and workspace, with `copyToAgents: false` and only that key in its local auth order.
 List the route's models with `kit.models('ana', { authChoice: 'opencode-go' })` after a key is saved; this reads the
-live catalog. Before a key exists it returns `[]` and queries no agent. Only available key-lane
+live catalog. Before a key exists it returns `[]` (a failed catalog probe with no saved key for the provider is read as
+empty; with one it is an error) and runs no engine discovery. Only available key-lane
 models can be saved; the ordinary member's sign-ins never supply the list. Pass a full catalog id, e.g.
 `model: 'opencode-go/muse-spark-1.3-contributor'`, to `addKey` to save it as the lane's default after activation.
 Model listing and selection belong to the live-catalog routes, OpenCode Go and OpenRouter. An OpenRouter key is
 pay-as-you-go with no plan, so it takes any model its own live catalog lists, named `openrouter/<id>`, e.g.
-`model: 'openrouter/deepseek/deepseek-v4.1-flash-1017'`; the add registers that one model with the engine. Other key routes list no models, and a `model` on them returns
+`model: 'openrouter/deepseek/deepseek-v4.1-flash-1017'`; an id already beginning with its own provider keeps one
+prefix (`openrouter/auto`). A Google preview id is named and saved as the canonical id the engine keeps
+(`openrouter/google/gemini-3.1-flash-lite-preview` becomes `openrouter/google/gemini-3.1-flash-lite`); the add
+registers that one model with the engine. Other key routes list no models, and a `model` on them returns
 `not_included`/`model` before activation.
 An unknown model returns `{ status: 'not_included', reason: 'model' }` and clears the replacement.
 Before success, `addKey` waits for catalog registration and prepares the new key agent's full-catalog owner once.

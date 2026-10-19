@@ -698,7 +698,11 @@ see them with no model setup in the app:
   (`deepseek/deepseek-v4.1-flash-1017`); the kit names each `openrouter/<id>`. The Go workspace header is Go-only.
 - Registered whole: `opencode-go` only (`REGISTERED_CATALOGS`). The pinned engine canonicalizes Google preview ids on
   `config.patch` (`google/x-preview` becomes `google/x`), so OpenRouter's live list collides with itself (`Ambiguous
-  duplicate ID`). An OpenRouter key add registers only its chosen model's catalog row, after preparation.
+  duplicate ID`). The kit names a preview id by the id the engine keeps (the pair lists once), and an OpenRouter key add
+  registers only its chosen model's catalog row, after preparation.
+- One naming rule: a row's engine id becomes `provider/<id>`, and a row already prefixed with its own provider is left
+  alone (`openrouter/auto` stays one prefix; `deepseek/...` gains OpenRouter's). The list, the key lane, the saved model
+  and the registration check all read that same id.
 - Source: the plugin's `byokit.catalog { provider }` runs the provider plugin's own `catalog.run` hook
   (`resolvePluginProviders`) with the key of the first agent holding one (`resolveApiKeyForProvider`). It answers
   `{ ok: true, models }`: the hook's live model rows, each with the `api` the provider's live catalog data gives it (Muse:
@@ -1108,7 +1112,9 @@ the engine. External retained sources are touched only when explicitly passed to
   `{ status: 'not_included', reason: 'model' }`. Absent, the engine's current starter model stays. For a live-catalog provider, the chosen
   full id (for OpenRouter, registered alone by the add) must also be in the engine's registered `models.providers[provider].models` list, checked after preparation and before anything is sealed; otherwise the add clears the attempt and returns `{ status: 'retry', reason: 'model' }`. The public
   `models(member, { authChoice })` exposes the route's live provider catalog once a key is saved, not a second catalog; before a key exists it
-  returns `[]` and queries no agent (no engine discovery). Other routes list no models. A chosen model must be available in that key lane's catalog, never borrowed from the ordinary member. Before returning `ok`, `addKey` awaits catalog synchronization, then prepares that key agent's
+  returns `[]` and runs no engine discovery (a `failed` catalog probe is read as empty only when the lane holds no profile
+  for that provider; with one it is an error). A chosen Google preview id is compared, registered and saved as the
+  canonical id the engine keeps. Other routes list no models. A chosen model must be available in that key lane's catalog, never borrowed from the ordinary member. Before returning `ok`, `addKey` awaits catalog synchronization, then prepares that key agent's
   full-catalog owner with `models.authStatus { agentId: 'byokit-key-<member>', refresh: true }`, once under its key lock.
   A thrown or unavailable preparation reply clears the attempted key best-effort and returns `{ status: 'retry', reason: 'engine' }`
   without diagnostics. A failed or cancelled replacement also drops the previous key, so the lane reads signed out until the user adds a key again. Ordinary runs and their admission policy are unchanged; there is no per-run cold refresh.

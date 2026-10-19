@@ -651,14 +651,22 @@ test('a funded OpenRouter key takes the model the person chooses from its live c
     && (c.params as { authChoice?: string }).authChoice === 'openrouter-api-key');
   fake.handle('byokit.catalog', (p) => p.provider === 'openrouter' && funded() ? { ok: true, models: [
     { id: 'openrouter/auto', name: 'OpenRouter Auto', api: 'openai-completions' },
-    { id: 'deepseek/deepseek-v4.1-flash-1017', name: 'DeepSeek V4.1 Flash', api: 'openai-completions' }] } : { ok: false, reason: 'no-key' });
+    { id: 'deepseek/deepseek-v4.1-flash-1017', name: 'DeepSeek V4.1 Flash', api: 'openai-completions' },
+    { id: 'google/gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', api: 'openai-completions' },
+    { id: 'google/gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite Preview', api: 'openai-completions' }] }
+    : { ok: false, reason: 'no-key' });
   assert.deepEqual(await kit.addKey('m1', { authChoice: 'openrouter-api-key', apiKey: key, model: chosen }), { status: 'ok' });
+  // A maker slash, a provider-prefixed local id and a preview pair: each is named once, the engine id kept.
   assert.deepEqual((await kit.models('m1', { authChoice: 'openrouter-api-key' })).map((m) => m.id),
-    ['openrouter/openrouter/auto', chosen]);
-  // The engine row's id is provider-local even when it carries the maker's slash; the lane lists it qualified.
+    ['openrouter/auto', chosen, 'openrouter/google/gemini-3.1-flash-lite']);
+  // The engine row's id is provider-local even when it carries the maker's or provider's slash.
   fake.handle('models.list', (p) => p.agentId === 'byokit-key-m1' ? { models: [
-    { id: 'deepseek/deepseek-v4.1-flash-1017', name: 'DeepSeek V4.1 Flash', provider: 'openrouter', available: true }] } : { models: [] });
-  assert.deepEqual((await kit.models('m1', 'openrouter.key')).map((m) => m.id), [chosen], 'the lane lists the model it registered');
+    { id: 'openrouter/auto', name: 'OpenRouter Auto', provider: 'openrouter', available: true },
+    { id: 'deepseek/deepseek-v4.1-flash-1017', name: 'DeepSeek V4.1 Flash', provider: 'openrouter', available: true },
+    { id: 'google/gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', provider: 'openrouter', available: true }] }
+    : { models: [] });
+  assert.deepEqual((await kit.models('m1', 'openrouter.key')).map((m) => m.id),
+    ['openrouter/auto', chosen, 'openrouter/google/gemini-3.1-flash-lite'], 'the lane names each registered model once');
   assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: true, model: chosen });
   const registered = (await kit.call('config.get', {}) as { config: { models?: { providers?: Record<string,
     { models?: { id: string }[]; headers?: unknown }> } } }).config.models?.providers?.openrouter;
@@ -668,11 +676,33 @@ test('a funded OpenRouter key takes the model the person chooses from its live c
   const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat', auth: 'apiKey', message: 'Hi' });
   assert.equal(end.ok, true);
   assert.equal((fake.calls.findLast((c) => c.method === 'agent')?.params as Record<string, unknown>).model, 'deepseek/deepseek-v4.1-flash-1017');
+  // A Google preview id is compared, registered and sealed as the id the engine keeps.
+  const preview = 'openrouter/google/gemini-3.1-flash-lite-preview';
+  const kept = 'openrouter/google/gemini-3.1-flash-lite';
+  assert.deepEqual(await kit.addKey('m1', { authChoice: 'openrouter-api-key', apiKey: key, model: preview }), { status: 'ok' });
+  assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: true, model: kept });
+  const previewRows = (await kit.call('config.get', {}) as { config: { models?: { providers?: Record<string,
+    { models?: { id: string }[] }> } } }).config.models?.providers?.openrouter?.models?.map((m) => m.id);
+  assert.ok(previewRows?.includes('google/gemini-3.1-flash-lite') && !previewRows?.includes('google/gemini-3.1-flash-lite-preview'),
+    JSON.stringify(previewRows));
+  const picker = (await kit.models('m1', { authChoice: 'openrouter-api-key' })).map((m) => m.id);
+  assert.ok(picker.includes(kept) && !picker.includes(preview), JSON.stringify(picker));
+  assert.equal((await kit.run({ member: 'm1', sessionKey: 'agent:m1:preview', auth: 'apiKey', message: 'Hi' })).ok, true);
+  assert.equal((fake.calls.findLast((c) => c.method === 'agent')?.params as Record<string, unknown>).model,
+    'google/gemini-3.1-flash-lite');
   assert.deepEqual(await kit.addKey('m2', { authChoice: 'openrouter-api-key', apiKey: key, model: 'openrouter/not/a-model' }),
     { status: 'not_included', reason: 'model' }, 'a model the catalog does not list is still refused');
   assert.deepEqual(await kit.addKey('m2', { authChoice: 'openrouter-api-key', apiKey: key, model: chosen, orgId: 'org-umer' }),
     { status: 'not_included', reason: 'model' }, 'a workspace is Go-only');
   assert.equal(JSON.stringify(fake.calls).includes(key), false);
+}));
+
+test('a failed catalog lists nothing before a key is saved and refuses once one is', async () => withKit(async (kit, fake) => {
+  fake.handle('byokit.catalog', () => ({ ok: false, reason: 'failed' }));
+  assert.deepEqual(await kit.models('m2', { authChoice: 'openrouter-api-key' }), [], 'no saved key: an empty list, no error');
+  assert.deepEqual(await kit.addKey('m1', { authChoice: 'openrouter-api-key', apiKey: 'CANARY-OPENROUTER-FAILED' }), { status: 'ok' });
+  await assert.rejects(kit.models('m1', { authChoice: 'openrouter-api-key' }), /Model catalog is unavailable\./,
+    'a saved key with a failed catalog is a real error');
 }));
 
 test('Go listing before a key is saved is empty and queries no agent',async () => withKit(async (kit, fake) => {

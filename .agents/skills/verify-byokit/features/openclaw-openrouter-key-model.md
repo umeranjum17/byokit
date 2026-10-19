@@ -6,7 +6,9 @@ Verification recipe for [live provider catalogs](../../../../docs/runtime-kits.m
 
 - `addKey({ authChoice: 'openrouter-api-key', model: 'openrouter/deepseek/deepseek-v4.1-flash-1017' })` returns `{ status: 'ok' }`; the key run uses `deepseek/deepseek-v4.1-flash-1017`.
 - `models(member, { authChoice: 'openrouter-api-key' })` lists the live catalog, each id `openrouter/<id>` (the catalog ids carry the maker's slash).
-- Only the chosen model is registered in `models.providers.openrouter.models`: the pinned engine canonicalizes Google preview ids on `config.patch`, so the whole list is refused (`Ambiguous duplicate ID ...`).
+- Only the chosen model is registered in `models.providers.openrouter.models`: the pinned engine canonicalizes Google preview ids on `config.patch`, so the whole list is refused (`Ambiguous duplicate ID ...`). A chosen preview id is listed, compared, registered and saved as the canonical id the engine keeps (`google/gemini-3.1-flash-lite-preview` becomes `google/gemini-3.1-flash-lite`).
+- Every id has one prefix: a row already prefixed with its own provider (`openrouter/auto`) stays `openrouter/auto`; a maker-slash row gains the provider's (`deepseek/...` becomes `openrouter/deepseek/...`).
+- With no saved key the engine answers `byokit.catalog` `failed`; `models()` returns `[]` then, and throws only when the key lane holds the provider's profile.
 - An unknown model, a `model` on a non-live route, and a Go `orgId` on OpenRouter each return `{ status: 'not_included', reason: 'model' }`; no Go workspace header is written for OpenRouter.
 
 ## How to get to it (user POV)
