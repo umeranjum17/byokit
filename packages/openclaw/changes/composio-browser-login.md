@@ -1,1 +1,0 @@
-- FEAT: connect Composio through the pinned engine's native MCP OAuth flow, with browser URL handoff and native sign-out.

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.19.0 (2026-10-19)
+
+- FEAT: connect Composio through the pinned engine's native MCP OAuth flow, with browser URL handoff and native sign-out.
+
 ## 0.18.3 (2026-10-19)
 
 - A signed-in Claude Code login is an account in the kit's account list, and its Claude CLI route's models are listed under it.
