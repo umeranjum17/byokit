@@ -1,0 +1,1 @@
+- FIX: an OpenRouter API key with funds accepts and runs the model the person chooses (pay-as-you-go, no plan check).

@@ -177,8 +177,10 @@ List the route's models with `kit.models('ana', { authChoice: 'opencode-go' })` 
 live catalog. Before a key exists it returns `[]` and queries no agent. Only available key-lane
 models can be saved; the ordinary member's sign-ins never supply the list. Pass a full catalog id, e.g.
 `model: 'opencode-go/muse-spark-1.3-contributor'`, to `addKey` to save it as the lane's default after activation.
-Model listing and selection are Go-only: other key routes list no models, and a `model` on them returns `not_included`/`model`
-before activation.
+Model listing and selection belong to the live-catalog routes, OpenCode Go and OpenRouter. An OpenRouter key is
+pay-as-you-go with no plan, so it takes any model its own live catalog lists, named `openrouter/<id>`, e.g.
+`model: 'openrouter/deepseek/deepseek-v4.1-flash-1017'`; the add registers that one model with the engine. Other key routes list no models, and a `model` on them returns
+`not_included`/`model` before activation.
 An unknown model returns `{ status: 'not_included', reason: 'model' }` and clears the replacement.
 Before success, `addKey` waits for catalog registration and prepares the new key agent's full-catalog owner once.
 For a live-catalog provider, a chosen model must also be in the engine's registered `models.providers[provider].models`

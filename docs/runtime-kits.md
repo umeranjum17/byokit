@@ -685,15 +685,20 @@ Crewhouse's product choices (tool profile and deny list, `skills.allowBundled`, 
 `codex: { enabled: false }`, `memory-core` dreaming off) move into Crewhouse's `config` option unchanged.
 `memoryLimited(member)` = the member's (else top-level) `memory.search.provider === 'none'`.
 
-#### Live provider catalogs (OpenCode Go)
+#### Live provider catalogs (OpenCode Go, OpenRouter)
 
 Embedded runs resolve a model only from the engine's static or configured catalog (`catalogMode: 'static'`). A
 provider's live models (the Go plan's `muse-spark-1.3-contributor`, served over the Responses API) show in
 `models.list { view: 'all' }`, but a run on one answers `Unknown model`. The kit registers them, so `models()` and runs
 see them with no model setup in the app:
 
-- Providers: `opencode-go` only (`LIVE_CATALOGS` in `src/kit.ts`). Registering a list fixes that provider's catalog
-  membership, so adding a provider is a spec change.
+- Providers: `opencode-go` and `openrouter` (`LIVE_CATALOGS` in `src/constants.ts`). Registering a list fixes that
+  provider's catalog membership, so adding a provider is a spec change. OpenRouter is pay-as-you-go: its API key
+  has no plan, so its own live catalog is every model the key can run. Its row ids carry the maker's slash
+  (`deepseek/deepseek-v4.1-flash-1017`); the kit names each `openrouter/<id>`. The Go workspace header is Go-only.
+- Registered whole: `opencode-go` only (`REGISTERED_CATALOGS`). The pinned engine canonicalizes Google preview ids on
+  `config.patch` (`google/x-preview` becomes `google/x`), so OpenRouter's live list collides with itself (`Ambiguous
+  duplicate ID`). An OpenRouter key add registers only its chosen model's catalog row, after preparation.
 - Source: the plugin's `byokit.catalog { provider }` runs the provider plugin's own `catalog.run` hook
   (`resolvePluginProviders`) with the key of the first agent holding one (`resolveApiKeyForProvider`). It answers
   `{ ok: true, models }`: the hook's live model rows, each with the `api` the provider's live catalog data gives it (Muse:
@@ -1098,11 +1103,11 @@ the engine. External retained sources are touched only when explicitly passed to
   the key agent is cleared best-effort, and a clear the engine refuses is swept at the kit's next connect (the `byokit.keys` line below), so runs fail closed meanwhile.
   A restart or not-ready gateway before the engine saw the key is `busy` with `retry` (nothing was sent). Only routes whose pinned
   manifests allow manual secrets for text inference expose `keyEntry`; every route carries `revision` and `checked`.
-  The optional `model` is Go-only: it applies only to a live-catalog route (`LIVE_CATALOGS`, today `opencode-go`) and is a full `provider/model` id from that route's catalog, checked after activation makes live discovery
+  The optional `model` applies only to a live-catalog route (`LIVE_CATALOGS`: `opencode-go`, and `openrouter`, whose pay-as-you-go API key has no plan check) and is a full `provider/model` id from that route's own live catalog (`openrouter/deepseek/deepseek-v4.1-flash-1017`), checked after activation makes live discovery
   available, then saved in the key lane's sealed selection. A `model` on any other route returns `{ status: 'not_included', reason: 'model' }` before activation. An unknown model clears the attempted replacement and returns
   `{ status: 'not_included', reason: 'model' }`. Absent, the engine's current starter model stays. For a live-catalog provider, the chosen
-  full id must also be in the engine's registered `models.providers[provider].models` list, checked after preparation and before anything is sealed; otherwise the add clears the attempt and returns `{ status: 'retry', reason: 'model' }`. The public
-  `models(member, { authChoice })` exposes the Go live provider catalog once a key is saved, not a second catalog; before a key exists it
+  full id (for OpenRouter, registered alone by the add) must also be in the engine's registered `models.providers[provider].models` list, checked after preparation and before anything is sealed; otherwise the add clears the attempt and returns `{ status: 'retry', reason: 'model' }`. The public
+  `models(member, { authChoice })` exposes the route's live provider catalog once a key is saved, not a second catalog; before a key exists it
   returns `[]` and queries no agent (no engine discovery). Other routes list no models. A chosen model must be available in that key lane's catalog, never borrowed from the ordinary member. Before returning `ok`, `addKey` awaits catalog synchronization, then prepares that key agent's
   full-catalog owner with `models.authStatus { agentId: 'byokit-key-<member>', refresh: true }`, once under its key lock.
   A thrown or unavailable preparation reply clears the attempted key best-effort and returns `{ status: 'retry', reason: 'engine' }`
