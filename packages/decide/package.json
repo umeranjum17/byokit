@@ -29,6 +29,10 @@
       "types": "./dist/codex.d.ts",
       "default": "./dist/codex.js"
     },
+    "./pi": {
+      "types": "./dist/pi.d.ts",
+      "default": "./dist/pi.js"
+    },
     "./slim": {
       "types": "./dist/slim.d.ts",
       "default": "./dist/slim.js"
