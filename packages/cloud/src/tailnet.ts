@@ -80,8 +80,8 @@ export async function tailnet(provider: Provider, ref: MachineRef): Promise<Tail
 }
 
 export async function joinTailnet(provider: Provider, ref: MachineRef, o: { hostname: string; authKey?: string }, onStep?: (s: TailnetStep) => void): Promise<{ name: string }> {
-  // REST exec input is file-backed. Never send a key into that transport, even an empty one.
-  if (provider.id !== 'sandbox-api') throw new MachineError('unsupported', words('tailnet.unsupported'));
+  // Keyless on every adapter (K-PUBLIC). Boat's exec input is file-backed and an app's SSH transport is the
+  // app's own code, so no join key is ever sent into either, not even an empty one.
   if (o.authKey !== undefined) throw new MachineError('unsupported', words('tailnet.signInOnPhone'));
   if (typeof o.hostname !== 'string' || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(o.hostname)) {
     throw new MachineError('bad-recipe', 'hostname: use one name of up to 63 letters, numbers or hyphens, with no hyphen at either end.');

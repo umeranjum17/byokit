@@ -10,6 +10,8 @@ export type { EnrolHost, OwnerHost, PairContext, PairReceipt, ReceiptHost } from
 export { status } from './status.ts';
 export type { Status } from './status.ts';
 export { boat } from './boat.ts';
+export { sshVm, sshHostKey } from './ssh-vm.ts';
+export type { SshPins, SshTarget, SshTransport, SshTransportHostKeyOptions, SshTransportOptions } from './ssh-vm.ts';
 /** @deprecated Use boat(). */
 export { boat as sandboxApi } from './boat.ts';
 export { claim, revokeClaim } from './claim.ts';

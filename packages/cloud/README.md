@@ -34,9 +34,9 @@ the machine is on, and `words` is the one plain sentence to show. Start and stop
 Model sign-in happens on the machine, inside the aggregator — credentials are never copied from
 the person's computer. One person, one provider account, one machine per app install.
 
-Entries: `.` is portable (Node, Electron, React Native), including the HTTPS-only Hetzner adapter
-and the one-line console install; `./ssh` is Node only (an already-rented
-Linux machine over the `ssh` binary the app passes by absolute path); `./hetzner` is Node only
+Entries: `.` is portable (Node, Electron, React Native), including the HTTPS-only Hetzner adapter,
+the one-line console install and `sshVm()` over the app's own SSH transport; `./ssh` is Node only
+(the same adapter over the `ssh` binary the app passes by absolute path); `./hetzner` is Node only
 (the Hetzner Cloud first slice below, with SSH); `./idle` runs on the machine inside the host process;
 `./testing` is Node only (the fake providers and the contract suite).
 
@@ -44,7 +44,7 @@ Linux machine over the `ssh` binary the app passes by absolute path); `./hetzner
 frozen types, words, pure parts (`renderUnit`, recipe checks, node argv, cost), `machine()`
 for §5.1–5.5 and §5.7 plus install and supervise (§8: `install`, `update`, `host`,
 `logs`, `deliver`), `status()` (§5.9), the fake provider and the contract suite, the Boat adapter
-(M4), the keyless Boat tailnet join (§9.1), the SSH VM adapter (M2), the Hetzner first slice,
+(M4), the keyless tailnet join on every adapter (§9.1), the SSH VM adapter (M2) over the `ssh` binary or the app's own transport, the Hetzner first slice,
 and account link (`claim()`, §11.5). Idle sleep and wake-on-open land in M7 (manual `sleep()` and
 `wake()` are already here).
 `claim()` passed a recorded live sign-in against Boat on 2026-10-18 (discover, register, link
@@ -209,8 +209,10 @@ for another provider's user-data box.
 `await m.joinTailnet({ hostname: 'byokit-cloud' }, showStep)` installs the pinned, SHA256-checked Tailscale release as root and starts it.
 `showStep` receives `open-page` with the sign-in link (approve it on your phone), or `approve` when the
 tailnet must approve the machine (with or without a sign-in link), then `joined` with the MagicDNS name. `await m.tailnet()` reads `joined`, `needs-login`, `needs-approval`, `starting` or `off` without joining.
-This slice supports keyless Boat joins only. Passing `authKey` is a typed `unsupported` refusal:
-Boat's emulated stdin writes a temporary file, which must never carry a join key.
+Every adapter joins keylessly: Boat, an SSH VM (over the `ssh` binary or the app's own transport) and a
+Hetzner server (over its SSH). Passing `authKey` is a typed `unsupported` refusal everywhere: Boat's
+emulated stdin writes a temporary file, and an app's SSH transport is the app's own code, so neither
+ever carries a join key.
 
 When there is no TUN device, the daemon uses userspace networking. The app binds its host to
 loopback and its root recipe configures `tailscale serve --bg --tcp=<port> tcp://127.0.0.1:<port>`;
@@ -222,6 +224,54 @@ The phone must be on the same tailnet; encrypted pairing is still required.
 `url()` or `/host`. Explicit `m.url(port)` makes that port public, including opening the provider
 firewall. Do not reuse a previously exposed sandbox as a fresh private-only machine: the public
 API has no unhost route. Private tailnet reachability and public-port refusal still need live proof.
+
+## Any SSH box from a phone
+
+A phone has no `ssh` binary, so `.` takes the app's own SSH module as a transport. The kit quotes every
+command, wraps it in `timeout` (and `sudo -n` for root), checks the host key and maps errors; the
+transport only connects, runs one command line and reads the server's key. The login key stays in the
+app's transport and never reaches the kit.
+
+```ts
+import { machine, pairEnrol, setup, sshHostKey, sshVm } from '@byokit/cloud';
+import type { HostRecipe, MachineStore, SetupStep, SshTarget, SshTransport } from '@byokit/cloud';
+// The app's own parts: its SSH module, its secure store, recipe and screen.
+declare const mySsh: {
+  run(to: SshTarget, command: string, input: Uint8Array | undefined, timeoutMs: number): Promise<{ code: number; stdout: string; stderr: string }>;
+  serverKey(host: string, port: number): Promise<{ fingerprint: string }>;
+};
+declare const secure: { get(k: string): Promise<string | null>; set(k: string, v: string): Promise<void> };
+declare const store: MachineStore, recipe: HostRecipe, phoneKey: Uint8Array, show: (s: SetupStep) => void;
+
+const transport: SshTransport = {
+  // Before logging in, refuse a server whose key is not `to.fingerprint`:
+  // throw new MachineError('host-key', …). Give up at timeoutMs + 15 s with timedOut: true.
+  exec: (to, command, { input, timeoutMs }) => mySsh.run(to, command, input, timeoutMs), // { code, stdout, stderr }
+  hostKey: ({ host, port }) => mySsh.serverKey(host, port),  // { fingerprint: 'SHA256:…' }
+  // write: optional (e.g. SFTP); without it the kit writes through exec's stdin.
+};
+const pins = { load: () => secure.get('box-key'), save: (f: string) => secure.set('box-key', f) };
+const box = { transport, pins, host: '203.0.113.7', user: 'umer', label: 'My server' };
+
+const key = await sshHostKey(box);           // show key.fingerprint; compare it with the provider console
+await key.confirm();                         // only on the person's yes
+const provider = sshVm(box);
+const m = machine({ provider, store });
+for await (const step of setup({
+  provider, store, recipe, pick: (listed) => listed[0], confirmId: key.fingerprint,
+  address: { hostname: 'my-server', port: 7300 }, pair: pairEnrol(m, recipe, phoneKey),
+})) show(step);                              // checking-access, listing, inspecting, installing, securing, pairing, ready
+```
+
+`sshVm()` lists the one box it points at, so the existing-computer checks (`adopt.confirm` consent, no
+takeover of existing files) apply. The `securing` step gives the box a private address on the person's
+own tailnet: nothing public is opened, the phone needs the Tailscale app on the same tailnet, and
+pairing stays encrypted. A changed host key is refused, never repinned. On Node, `@byokit/cloud/ssh`
+accepts the same options and defaults to the `ssh` binary. `fakeSshTransport()` from `./testing` stands
+in for the app's SSH module in its tests.
+
+Billing: the kit adds nothing. The person pays their server provider as before; a model sign-in on the
+machine is still the runtime kit's, with subscription and API-key routes labelled as such there.
 
 ## Connect an existing Boat computer
 

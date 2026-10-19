@@ -8,4 +8,6 @@ export type { MachineBench, MachineContractTestContext, TestFn } from './contrac
 export { startFakeSandboxServer } from './fake-sandbox-server.ts';
 export { startFakeHetznerServer } from './fake-hetzner-server.ts';
 export { setupFakeSsh } from './fake-ssh.ts';
+export { fakeSshTransport } from './fake-ssh-transport.ts';
+export type { FakeSshTransport } from './fake-ssh-transport.ts';
 export type { SandboxRequest, SandboxServer, SandboxServerOptions, ClaimPollStep } from './fake-sandbox-server.ts';

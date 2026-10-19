@@ -11,12 +11,12 @@
 import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  machine, boat, estimate, status, setup, words, stateWords, hostWords, errorWords, errorKey, keyWords, WORDS, MachineError,
+  machine, boat, estimate, status, setup, sshHostKey, sshVm, words, stateWords, hostWords, errorWords, errorKey, keyWords, WORDS, MachineError,
 } from '@byokit/cloud';
 import type {
   HostRecipe, Status, SetupStep, MachineErrorCode, MachineRef, MachineState, HostState, Price, KeyInfo, Snapshot, Provider, ExecResult,
 } from '@byokit/cloud';
-import { fakeProvider, memoryStore, startFakeSandboxServer } from '@byokit/cloud/testing';
+import { fakeProvider, fakeSshTransport, memoryStore, startFakeSandboxServer } from '@byokit/cloud/testing';
 
 const sha = (c: string): Record<'linux-x64' | 'linux-arm64', string> => ({ 'linux-x64': c.repeat(64), 'linux-arm64': c.repeat(64) });
 
@@ -1256,6 +1256,56 @@ test('a phone with no computer yet rents one through setup, and a retry resumes 
     assert.deepEqual(refused.at(-1), { step: 'failed', at: 'creating', cause: 'error.app', retryable: false });
     assert.equal(rentals(), 1);
   } finally { await server.close(); }
+});
+
+test('a phone with only its own SSH module deploys onto any SSH box and gives it a private address', async () => {
+  // The app's transport stands in for a React Native SSH module: the kit sends it quoted command lines only.
+  const transport = fakeSshTransport();
+  let pin: string | null = null;
+  const pins = { load: async () => pin, save: async (f: string) => { pin = f; } };
+  const box = { transport, pins, host: 'box.example', user: 'user', label: 'My server' };
+  const provider = sshVm(box);
+  const store = memoryStore();
+  const ok = (stdout: string): ExecResult => ({ code: 0, stdout, stderr: '', timedOut: false });
+
+  // Before the person confirms the server's key, nothing runs on it and setup says why.
+  const unpinned = await collectSteps(setup({ provider, store, recipe: recipe(), pick: (l) => l[0], confirmId: 'x' }));
+  assert.deepEqual(unpinned.at(-1), { step: 'failed', at: 'listing', cause: 'state.host-key-changed', retryable: false });
+  assert.deepEqual(transport.commands, []);
+  const first = await sshHostKey(box);
+  assert.deepEqual([first.fingerprint, first.pinned], [transport.fingerprint, false]);
+  await first.confirm();
+  assert.equal((await sshHostKey(box)).pinned, true);
+
+  // Tailscale on the box: already signed in, then serving the app port privately.
+  transport.machine.script('npm', ok(''));
+  transport.machine.script('tailscale', ok(JSON.stringify({
+    BackendState: 'Running', Self: { DNSName: 'box.tail-test.ts.net.' }, TCP: { 7300: { TCPForward: '127.0.0.1:7300' } },
+  })));
+  const steps = await collectSteps(setup({
+    provider, store, recipe: recipe(), pick: (listed) => listed[0], confirmId: first.fingerprint,
+    address: { hostname: 'box', port: 7300 },
+  }));
+  assert.deepEqual(steps.map((s) => s.step), ['checking-access', 'listing', 'inspecting', 'installing', 'securing', 'ready'], JSON.stringify(steps.at(-1)));
+  assert.deepEqual(steps[0], { step: 'checking-access', account: 'user@box.example:22' });
+  assert.deepEqual(steps[4], { step: 'securing', name: 'box.tail-test.ts.net' });
+  const runs = transport.machine.runs.map((r) => r.argv.join(' '));
+  assert.ok(runs.includes('tailscale serve --bg --tcp=7300 tcp://127.0.0.1:7300'), 'the app port is served on the tailnet only');
+  assert.ok(transport.commands.every((c) => c.startsWith('timeout -k 10 ') || c.startsWith('sudo -n timeout -k 10 ')));
+
+  // A join key never reaches the app's transport.
+  const m = machine({ provider, store });
+  const sent = transport.commands.length;
+  const canary = ['tskey', 'canary', 'not', 'real'].join('-');
+  await rejects(m.joinTailnet({ hostname: 'box', authKey: canary }), 'unsupported');
+  assert.equal(transport.commands.length, sent);
+
+  // A replaced server is refused, never repinned.
+  transport.fingerprint = `SHA256:${'B'.repeat(43)}`;
+  assert.equal(await m.state(), 'host-key-changed');
+  await rejects(m.host(), 'host-key');
+  assert.equal(stateWords('host-key-changed'), words('state.host-key-changed'));
+  assert.equal(transport.commands.length, sent);
 });
 
 test('setup failures name their step: access, pairing, and a provider without listing', async () => {
