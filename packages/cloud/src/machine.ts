@@ -6,7 +6,7 @@ import { balanceCost, dateOf, enteredCost, monthStartIso, usageCost } from './co
 import { archOf, nodeInstallArgv, nodePath } from './node.ts';
 import { checkRecipe, defaultRange, markerPath, satisfiesRange } from './recipe.ts';
 import {
-  DELIVER_SHELL, FILE_NAME, PROBE_SHELL, WORKDIR_SHELL, WRITE_SHELL, renderUnit, systemUnitPath,
+  DELIVER_SHELL, FILE_NAME, NEWEST_SHELL, PROBE_SHELL, WORKDIR_SHELL, WRITE_SHELL, renderUnit, systemUnitPath,
   userUnitPath, writeUnitFile, writeUserUnit,
 } from './unit.ts';
 import type {
@@ -295,9 +295,7 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
   // 8.3 step 4: Node (G5a), as the run user. The pinned binary, else a machine
   // node inside the range, else the install script. Exit 3 is a checksum
   // mismatch (`bad-recipe`); any other failure is the provider's.
-  const resolveNode = async (
-    r: MachineRef, recipe: HostRecipe, runHome: string, arch: 'linux-x64' | 'linux-arm64',
-  ): Promise<string> => {
+  const findNode = async (r: MachineRef, recipe: HostRecipe, runHome: string): Promise<string | null> => {
     const pinned = nodePath(runHome, recipe.node.version);
     const has = await asRunUser(r, recipe.user, [pinned, '--version'], { timeoutMs: EXEC_TIMEOUT_MS });
     if (has.code === 0 && has.stdout.trim() === `v${recipe.node.version}`) return pinned;
@@ -309,6 +307,15 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       const path = lines[0].trim();
       if (version !== undefined && path !== '' && satisfiesRange(version, range)) return path;
     }
+    return null;
+  };
+
+  const resolveNode = async (
+    r: MachineRef, recipe: HostRecipe, runHome: string, arch: 'linux-x64' | 'linux-arm64',
+  ): Promise<string> => {
+    const pinned = nodePath(runHome, recipe.node.version);
+    const have = await findNode(r, recipe, runHome);
+    if (have !== null) return have;
     const installed = await asRunUser(r, recipe.user, [...nodeInstallArgv(recipe, arch, runHome)], { timeoutMs: STEP_TIMEOUT_MS });
     if (installed.code === 3) {
       throw new MachineError('bad-recipe', `node.sha256: the node ${recipe.node.version} tarball failed its checksum`);
@@ -749,6 +756,38 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       if (done.code !== 0) {
         throw new MachineError('provider', `deliver ${file} failed with exit ${done.code}: ${done.stderr.slice(-200)}`);
       }
+    },
+
+    async run(r: HostRecipe, argv: readonly string[], ro?: { timeoutMs?: number; input?: Uint8Array }): Promise<ExecResult> {
+      const ref = await need();
+      checkRecipe(r, ref.name);
+      if (argv.length === 0 || argv[0] === '' || argv[0].includes('=')) {
+        throw new MachineError('bad-recipe', `argv: the first item must be a command name, got ${JSON.stringify(argv[0])}`);
+      }
+      // 8.2: the unit's view. Read-only: a machine without the recipe's node is refused, never installed into.
+      const { runHome } = await probeMachine(ref, r);
+      const node = await findNode(ref, r, runHome);
+      if (node === null) {
+        throw new MachineError('provider', `node: no node ${r.node.version} (or one in range) on the machine; install the host first`);
+      }
+      const env = Object.entries(r.run.env).map(([k, v]) => `${k}=${v}`);
+      return inWorkDir(ref, r, node.slice(0, node.lastIndexOf('/')), env.length > 0 ? ['env', ...env, ...argv] : argv, {
+        timeoutMs: ro?.timeoutMs ?? EXEC_TIMEOUT_MS, ...(ro?.input === undefined ? {} : { input: ro.input }),
+      });
+    },
+
+    async newest(r: HostRecipe, prefix: string): Promise<{ file: string; text: string } | null> {
+      const ref = await need();
+      checkRecipe(r, ref.name);
+      if (!FILE_NAME.test(prefix)) {
+        throw new MachineError('bad-recipe', `prefix: must match ^[a-z0-9][a-z0-9._-]{0,63}$, got ${JSON.stringify(prefix)}`);
+      }
+      const got = await asRunUser(ref, r.user, ['sh', '-c', NEWEST_SHELL, 'sh', `${r.workDir}/.byokit/outbox`, prefix], { timeoutMs: EXEC_TIMEOUT_MS });
+      if (got.timedOut) throw new MachineError('timeout', `reading the newest ${prefix} took too long`);
+      if (got.code !== 0) throw new MachineError('provider', `reading the newest ${prefix} failed with exit ${got.code}: ${got.stderr.slice(-200)}`);
+      if (got.stdout === '') return null;
+      const cut = got.stdout.indexOf('\n');
+      return { file: got.stdout.slice(0, cut), text: got.stdout.slice(cut + 1) };
     },
 
     async snapshots(): Promise<Snapshot[]> {

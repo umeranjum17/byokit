@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, rmSync, statSync, utimesSync, mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
@@ -10,7 +10,7 @@ import { DeviceLink, Host, b64url, keyPair, type DeviceGrant, type Grant, type L
 import { machine } from '../src/machine.ts';
 import { setup, type SetupStep } from '../src/setup.ts';
 import { OUTBOX_SHELL, OWNER_KEY_FILE, PHONE_KEY_FILE, RECEIPT_FILE, bindPhoneKey, deliverPhoneKey, pairEnrol, phoneReceipt, replacePhoneKey } from '../src/enrol.ts';
-import { DELIVER_SHELL, takeInbox, writeOutbox } from '../src/host.ts';
+import { DELIVER_SHELL, NEWEST_SHELL, WORKDIR_SHELL, takeInbox, writeOutbox } from '../src/host.ts';
 import { checkRecipe } from '../src/recipe.ts';
 import { MachineError } from '../src/errors.ts';
 import type { ExecResult, HostRecipe, Machine, MachineRef, Provider } from '../src/types.ts';
@@ -230,6 +230,28 @@ test('on its own disk the host takes the delivered key from its inbox and answer
   assert.equal(statSync(`${workDir}/.byokit/outbox`).mode & 0o777, 0o700);
   assert.equal(await takeInbox(workDir, PHONE_KEY_FILE), null, 'the handled key is gone from the inbox');
   await assert.rejects(writeOutbox(workDir, '../escape', 'x'), (e: unknown) => e instanceof MachineError && e.code === 'bad-recipe');
+});
+
+test('on its own disk the newest offer is chosen by time, and a command runs in workDir with the node dir and recipe env first', async (t) => {
+  const workDir = mkdtempSync(`${process.env.TMPDIR ?? '/tmp'}/byokit-newest-`);
+  t.after(() => rmSync(workDir, { recursive: true, force: true }));
+  const sh = (script: string, args: string[]) => execFileSync('sh', ['-c', script, 'sh', ...args]).toString();
+  const outbox = `${workDir}/.byokit/outbox`;
+  assert.equal(sh(NEWEST_SHELL, [outbox, 'offer-']), '', 'no outbox yet');
+  // The name order and the write order disagree, so only the time can pick offer-a; a directory and another prefix never win.
+  for (const [file, at] of [['offer-b.json', 100], ['offer-a.json', 300], ['offer-c.json', 200], ['other.json', 400]] as const) {
+    await writeOutbox(workDir, file, `text of ${file}\n`);
+    utimesSync(`${outbox}/${file}`, at, at);
+  }
+  mkdirSync(`${outbox}/offer-dir`);
+  utimesSync(`${outbox}/offer-dir`, 500, 500);
+  assert.equal(sh(NEWEST_SHELL, [outbox, 'offer-']), 'offer-a.json\ntext of offer-a.json\n');
+  assert.equal(sh(NEWEST_SHELL, [outbox, 'missing-']), '');
+  // The unit's view: cwd is workDir, the node dir leads PATH, and the recipe env reaches the command.
+  const seen = sh(WORKDIR_SHELL, [workDir, '/nodebin', 'env', 'PORT=7310', 'sh', '-c', 'pwd -P; echo "$PATH"; echo "$PORT"']).split('\n');
+  assert.equal(seen[0], workDir);
+  assert.ok(seen[1].startsWith('/nodebin:'));
+  assert.equal(seen[2], '7310');
 });
 
 test('the recipe guard still refuses key-like names', () => {

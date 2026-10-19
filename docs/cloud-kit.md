@@ -300,6 +300,8 @@ export interface Machine { /* 4.1 members */
   plan(): Promise<Plan | null>                           // G2: null when the provider has no plan()
   why(): Promise<AsleepWhy | null>                       // G3 (5.7)
   deliver(r: HostRecipe, file: string, bytes: Uint8Array): Promise<void>  // G9 (5.8)
+  run(r: HostRecipe, argv: readonly string[], o?: { timeoutMs?: number; input?: Uint8Array }): Promise<ExecResult>  // 5.13
+  newest(r: HostRecipe, prefix: string): Promise<{ file: string; text: string } | null>  // 5.13
 }
 
 // src/claim.ts, exported from '.' (G1, built in M8)
@@ -517,7 +519,7 @@ without asking the machine.
 ### 5.8 `deliver` (G9)
 
 `deliver(r, file, bytes)` hands the running host one small file, for example a new phone's public key during owner
-recovery. It is the only write `Machine` offers; anything else goes in the recipe.
+recovery. It is the only file write `Machine` offers (`run`, 5.13, runs the app's own commands); anything else goes in the recipe.
 - `r` passes the 8.1 checks; `r.name` must equal `ref.name`. `file` matches `^[a-z0-9][a-z0-9._-]{0,63}$`; `bytes`
   is at most 64 KB. Else reject `bad-recipe`.
 - One `exec` as the run user (8.2), with `input: bytes`:
@@ -640,6 +642,12 @@ The phone links with the receipt and its own secret alone: `new DeviceLink({ v: 
 Owner re-enrol (K-EXISTS). A reinstalled app or a new phone has an empty store, so `setup()` on its own computer fails `owner-enrolled` (`error.ownerEnrolled`, at `inspecting`, not retryable) and changes nothing. The app shows that sentence and asks the person to confirm; only then it calls the same `setup()` with `replaceOwner: true`. adopt takes over the kit's own install (5.2a) and reinstalls in place, and the gate's `PairContext` carries `replaceOwner: true`, so `pairEnrol` (or `deliverPhoneKey(machine, recipe, key, { replaceOwner: true })`) delivers the key as `OWNER_KEY_FILE` (`'owner.bin'`) instead of `phone.bin`. setup() never replaces an owner by itself. On the machine the host calls `replacePhoneKey(host, key, name?)` for `owner.bin` only, against `OwnerHost` (`EnrolHost` plus the real Host's `revoke(id)`): one call that revokes every other `kind: 'phone'` grant, then binds the key as `bindPhoneKey` does (a key already bound resolves `bound: false`); the host then writes the new phone's receipt as above. Revoking first ends the old phone's access at once and leaves room under a one-phone cap; a crash between the two leaves no phone, and handling the same file again finishes the swap, so the host removes an inbox file only after its call resolves. Other device kinds stay. The durable grant store holds the result across restarts, where the old key is still refused.
 
 Threat. Replacing the owner phone hands the computer to a new key, so the authority must be the provider account, never a phone or the network. Only a holder of the provider account key can write the inbox (provider delivery runs `exec` as the run user through the provider API), and the person consents on that setup device before `replaceOwner` is passed. The host never calls `replacePhoneKey` for anything a paired device, link peer or HTTP request sent, never writes its own inbox from such a request, and a `phone.bin` delivery can never replace an owner. Anyone who holds the account key can already run code on the machine, so this adds no new power to that holder; a stolen phone loses its grant the moment the owner re-enrols from a new phone.
+
+### 5.13 `run` and `newest` (K-RUN)
+
+An app that drives its own host's command line (for example `<app> self-host`, or one that prints a pairing offer) needs the kit's view of the machine, not a bare `exec`: the node the unit uses is not on a plain `exec`'s PATH.
+- `run(r, argv, { timeoutMs?, input? })`: `r` passes the 8.1 checks and `r.name` equals `ref.name`; `argv` is non-empty and its first item is a command name (non-empty, no `=`), else `bad-recipe`. Read-only setup: the 8.3 step 2 probe, then step 4's lookup of the pinned node or a machine node in range, never its install (none found rejects `provider`, "install the host first"). Then one `exec` as the run user in workDir with the node bin dir first on PATH (8.2), and, when `r.run.env` is not empty, `env NAME=value ... <argv>` so the command sees the same variables as the unit (a `PATH` in `r.run.env` wins, as in the unit). `timeoutMs` defaults to 30 s. It resolves the provider's `ExecResult` unchanged: a non-zero exit, `stderr` and `timedOut` are the app's to read, not errors. `input` is the provider's stdin and carries 6.4's warning: never a credential. Names and argv are not checked for secrets (the command is the app's own).
+- `newest(r, prefix)`: `prefix` matches 5.8's file rule, else `bad-recipe`. One `exec` as the run user lists `<workDir>/.byokit/outbox/` files (not directories) whose name starts with `prefix`, newest by modification time, and prints that name then its bytes. It resolves `{ file, text }`, or `null` while none exists (or no outbox yet); a failing read rejects `provider`, a timed-out one `timeout`. The host writes with `writeOutbox`, so a file is never read half-written. Polling is the app's: call it again until the offer it expects appears.
 
 ## 6. Boat adapter (`src/boat.ts`)
 

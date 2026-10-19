@@ -3,7 +3,7 @@
 // a Node version. M2's fake `ssh` and M4's fake server delegate `exec` to it through
 // parseCommand(s), so all three benches run the same machine.
 import type { ExecResult } from '../types.ts';
-import { DELIVER_SHELL, PROBE_SHELL, WORKDIR_SHELL, WRITE_SHELL } from '../unit.ts';
+import { DELIVER_SHELL, NEWEST_SHELL, PROBE_SHELL, WORKDIR_SHELL, WRITE_SHELL } from '../unit.ts';
 import { OUTBOX_SHELL } from '../enrol.ts';
 
 export type RunOptions = { root?: boolean; input?: Uint8Array; asUser?: string };
@@ -48,6 +48,8 @@ export class FakeMachine {
   }
 
   writeFile(path: string, bytes: Uint8Array, mode: number, owner?: string): void {
+    // A rewrite is the newest write: map order stands in for mtime.
+    this.files.delete(path);
     this.files.set(path, { bytes: bytes.slice(), mode, owner: owner ?? this.user });
   }
 
@@ -260,10 +262,20 @@ export class FakeMachine {
       if (file !== undefined && file.owner !== writer) return { code: 1, stdout: '', stderr: 'cat: permission denied', timedOut: false };
       return { code: 0, stdout: file === undefined ? '' : new TextDecoder().decode(file.bytes), stderr: '', timedOut: false };
     }
+    // The newest outbox file by prefix: the last write wins; only its owner reads it.
+    if (cmd === 'sh' && rest[0] === '-c' && rest[1] === NEWEST_SHELL && rest[2] === 'sh' && args.length === 6) {
+      const dir = `${this.resolve(args[4])}/`;
+      const hit = [...this.files].filter(([p]) => p.startsWith(dir + args[5]) && !p.slice(dir.length).includes('/')).at(-1);
+      if (hit === undefined) return { code: 0, stdout: '', stderr: '', timedOut: false };
+      if (hit[1].owner !== writer) return { code: 1, stdout: '', stderr: 'cat: permission denied', timedOut: false };
+      return { code: 0, stdout: `${hit[0].slice(dir.length)}\n${new TextDecoder().decode(hit[1].bytes)}`, stderr: '', timedOut: false };
+    }
     // The 8.2 in-workDir wrapper: answer the inner argv, consulting `script`
     // registrations by the inner command first.
     if (cmd === 'sh' && rest[0] === '-c' && rest[1] === WORKDIR_SHELL && rest[2] === 'sh') {
       const inner = args.slice(6);
+      // `env NAME=value ... <command>`: the command is what a script registration names.
+      if (inner[0] === 'env') inner.splice(0, 1 + inner.slice(1).findIndex((a) => !a.includes('=')));
       const innerScripted = inner.length > 0 ? this.scripts.get(inner[0]) : undefined;
       if (innerScripted !== undefined) return { ...innerScripted };
       return { code: 0, stdout: '', stderr: '', timedOut: false };
