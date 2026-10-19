@@ -478,6 +478,14 @@ was removed: never moved to another sign-in) and `session` (a key outside the he
 or `move` of one). Helpers share their account's engine agent (its id and workspace files); a helper gains no tool,
 builtin or key prefix the member's run would not. See [Helpers](../../docs/runtime-kits.md#583-helpers).
 
+A run hands work to the member's helpers with `helperDelegates: { writer: ['report'] }` (on the native delegated path
+above, builtin gating on): the engine's own `sessions_send` to the exact key `agent:<writer's agent>:h-writer:<rest>`
+(`timeoutSeconds: 0`) is admitted from its receipt as writer's run, `RunRef.helper: 'writer'` on every gate and call.
+A target that is not a helper key, a helper on another account, one never ensured, or one the run was not given is
+refused before dispatch; the parent's tool result reads `session: …`, `bound: …` or `unknown_helper: …`.
+`abort(rootSessionKey)` revokes the children, and a helper whose account is removed loses them at their next call. The
+child runs without the helper's persona (a native send carries no system text).
+
 ## Owned browser (unqualified handoff)
 
 `browser: { executablePath, members }` opts into isolated member Chromium profiles. It requires a closed

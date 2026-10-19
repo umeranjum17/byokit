@@ -2,17 +2,19 @@
 // fake gateway. Pass: helpers on an account agent, the member agent and the plan-key lane each run in their own
 // `h-<helper>:` sessions on the agent already holding that account, with their own persona as the system text; ensuring
 // one asks the engine nothing (no agent, config write or sign-in), the gated RunRef names the helper, and every refusal
-// is a typed HelperError before any run.
+// is a typed HelperError before any run. A helper's run hands work to other helpers by a native exact-key send: only the
+// receipted child is admitted, as that helper's run, until its root is aborted or the helper's account is removed.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fakeOpenCodeConsole, scratchDir } from '../../test-support.ts';
 import { OpenClawKit } from '../src/kit.ts';
 import { HelperError } from '../src/helpers.ts';
 import { keyAgentId } from '../src/members.ts';
 import { fakeGateway } from '../src/testing/fake-gateway.ts';
-import type { RunRef } from '../src/types.ts';
+import type { DelegatedEvent, RunEvent, RunRef } from '../src/types.ts';
 
 fakeOpenCodeConsole();
 
@@ -21,10 +23,13 @@ const WRITES = /^(agents\.(create|update|delete)|config\.|openclaw\.setup\.(auth
 test('helpers: personas on an account agent, the member agent and the plan key, each in its own sessions', async () => {
   const stateDir = scratchDir('helpers');
   const fake = fakeGateway();
-  const gated: RunRef[] = [];
+  const gated: RunRef[] = [], called: RunRef[] = [], delegated: DelegatedEvent[] = [];
   const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0,
     tools: [{ name: 'crew_note', description: 'An app tool.', parameters: { type: 'object' } }],
-    host: { gate: async (run) => (gated.push(run), { allow: true }), call: async () => 'noted' } });
+    host: { gate: async (run, tool, input) => tool !== 'crew_note' ? { allow: true }
+      : (gated.push(run), input.mode === 'ask' ? { ask: { summary: 'Let the helper note this?' } } : { allow: true }),
+    call: async (run) => (called.push(run), 'noted') } });
+  kit.onEvent('byokit.delegated', (e) => delegated.push(e));
   try {
     await kit.start();
     assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
@@ -94,8 +99,74 @@ test('helpers: personas on an account agent, the member agent and the plan key, 
     await refused(kit.move({ member: 'm1', sessionKey: 'agent:m1:h-research:main' }, 'openai'), 'session');
     assert.equal(fake.calls.filter((c) => c.method === 'agent').length, runs, 'no refused request reached the engine');
 
-    // Removing the account a helper uses leaves it unusable, never moved to another sign-in.
+    // Delegated runs: research hands work to writer (its account agent) and planner (the plan-key lane) by a native send
+    // to the exact key of the helper's standing session; the receipted child is admitted as that helper's run, gated and
+    // called as it. A send reaches only an existing session, as on the pin.
+    const until = async (check: () => boolean, why: string) => {
+      for (const end = Date.now() + 10_000; !check();) { if (Date.now() > end) throw new Error(why); await delay(5); }
+    };
+    // Escape the nested marker so only the target parses its own script.
+    const send = (sessionKey: string, script: string) =>
+      `[tool sessions_send ${JSON.stringify({ sessionKey, timeoutSeconds: 0, message: script }).replaceAll('[tool ', '\\u005btool ')}]`;
+    const lead = (tail: string, sessionKey: string, script = '[tool crew_note {}]', events?: RunEvent[]) =>
+      kit.run({ member: 'm1', helper: 'research', sessionKey: `agent:m1:h-research:${tail}`, tools: ['crew_note'],
+        helperDelegates: { writer: ['crew_note'], planner: ['crew_note'] }, message: send(sessionKey, script) }, (e) => events?.push(e));
+    const admitted = () => delegated.filter((e) => e.type === 'admitted').map((e) => e.run.helper);
+    const gatedFrom = gated.length;
+    for (const [tail, target] of [['lead', `agent:${accountAgent}:h-writer:main`], ['plan', `agent:${lane}:h-planner:main`]] as const) {
+      assert.ok((await lead(tail, target)).ok);
+      await until(() => called.some((r) => r.sessionKey === target), `${target} never called`);
+    }
+    const ref = (r: RunRef) => [r.member, r.helper, r.agentId, r.sessionKey, r.parent?.sessionKey];
+    const writerRef = ['m1', 'writer', accountAgent, `agent:${accountAgent}:h-writer:main`, `agent:${accountAgent}:h-research:lead`];
+    const plannerRef = ['m1', 'planner', lane, `agent:${lane}:h-planner:main`, `agent:${accountAgent}:h-research:plan`];
+    assert.deepEqual(gated.slice(gatedFrom).map(ref), [writerRef, plannerRef]);
+    assert.deepEqual(called.slice(-2).map(ref), [writerRef, plannerRef]);
+    assert.deepEqual(admitted(), ['writer', 'planner']);
+    // An engine run on a helper key the kit never receipted is still an unknown run, never reaching the host.
+    const quiet2 = gated.length;
+    await kit.call('agent', { agentId: accountAgent, sessionKey: `agent:${accountAgent}:h-writer:rogue`, message: '[tool crew_note {}]',
+      idempotencyKey: 'rogue-native-child' });
+    await delay(100);
+    assert.equal(gated.length, quiet2, 'an unregistered helper key reached the gate');
+    // Typed refusals before dispatch, carried to the parent's tool result: not a helper key, a helper on another
+    // account, a helper never ensured, a helper this run was not given; and a run naming a helper never ensured.
+    for (const [target, code] of [[`agent:${accountAgent}:main`, 'session'], [`agent:${lane}:h-writer:job`, 'bound'],
+      [`agent:${accountAgent}:h-ghost:job`, 'unknown_helper'], ['agent:m1:h-scout:main', 'session']] as const) {
+      const events: RunEvent[] = [];
+      assert.ok((await lead('refused', target, '[tool crew_note {}]', events)).ok);
+      const result = events.find((e) => e.type === 'tool' && e.phase === 'end');
+      assert.ok(result?.type === 'tool' && result.error && JSON.stringify(result.output).includes(`${code}: `), `${target}: ${JSON.stringify(result)}`);
+    }
+    await refused(kit.run({ member: 'm1', sessionKey: 'agent:m1:team', helperDelegates: { ghost: [] }, message: 'hi' }), 'unknown_helper');
+    // A send the engine answers with an error (no such session) admits nothing.
+    const missing: RunEvent[] = [];
+    assert.ok((await lead('missing', `agent:${accountAgent}:h-writer:none`, '[tool crew_note {}]', missing)).ok);
+    assert.ok(JSON.stringify(missing.find((e) => e.type === 'tool' && e.phase === 'end')).includes('No session found'));
+    assert.equal(gated.length, quiet2, 'a refused delegation reached the gate');
+    assert.deepEqual(admitted(), ['writer', 'planner'], 'a refused target was admitted');
+
+    // Aborting the root ends admission: the parked approval goes and nothing is called.
+    const callsBefore = called.length;
+    const rooted = (tail: string) => (r: RunRef) => r.root?.sessionKey === `agent:${accountAgent}:h-research:${tail}`;
+    assert.ok((await lead('abort', `agent:${accountAgent}:h-writer:main`, '[tool crew_note {"mode":"ask"}]')).ok);
+    await until(() => kit.approvals().length === 1, 'writer never parked');
+    const parked = kit.approvals()[0]!;
+    assert.deepEqual([parked.member, parked.sessionKey], ['m1', `agent:${accountAgent}:h-writer:main`]);
+    assert.ok(kit.delegatedRuns().some(rooted('abort')));
+    await kit.abort('agent:m1:h-research:abort');
+    assert.equal(kit.approvals().length, 0);
+    await assert.rejects(kit.decide(parked.id, { allow: true }), /unknown approval/);
+    assert.ok(!kit.delegatedRuns().some(rooted('abort')));
+
+    // Removing the account a helper uses leaves it unusable, never moved to another sign-in; an admitted child of it
+    // loses admission at its next call.
+    assert.ok((await lead('removed', `agent:${accountAgent}:h-writer:main`, '[tool crew_note {"mode":"ask"}]')).ok);
+    await until(() => kit.approvals().length === 1, 'writer never parked again');
     await kit.removeAccount('m1', second.id);
+    await kit.decide(kit.approvals()[0]!.id, { allow: true });
+    await until(() => delegated.some((e) => e.type === 'ended' && e.reason === 'cancelled' && rooted('removed')(e.run)), 'admission never ended');
+    assert.equal(called.length, callsBefore, 'a revoked or removed helper ran a tool');
     await refused(helperRun('writer', 'agent:m1:h-writer:main'), 'unknown_helper');
     assert.deepEqual(await run('scout'), ['m1', 'agent:m1:h-scout:main', persona('scout')]);
   } finally {

@@ -188,9 +188,9 @@ export function createRuns(ctx: {
     const helper = spec.helper === undefined ? undefined : ctx.helpers!.resolve(spec.member, spec.helper);
     if (helper ? !spec.sessionKey.startsWith(`agent:${spec.member}:h-${spec.helper}:`) : HELPER_TAIL.test(tail))
       throw new HelperError('session', `refused: "${spec.sessionKey}" is not a session of ${helper ? `helper "${spec.helper}"` : 'this run'}`);
-    if (spec.delegates) {
+    if (spec.delegates || spec.helperDelegates) {
       if (spec.register === false || !ctx.delegations) throw new Error('delegation requires a registered run');
-      ctx.delegations.validate(spec.delegates);
+      ctx.delegations.validate(spec.delegates ?? {}, spec.member, spec.helperDelegates);
     }
     // Same validation as the pin's NonEmptyString; preserve the caller's bytes (including whitespace).
     if (spec.idempotencyKey !== undefined && (typeof spec.idempotencyKey !== 'string' || !spec.idempotencyKey.length))
@@ -332,7 +332,8 @@ export function createRuns(ctx: {
     });
     try {
       const ref = { sessionKey, member: spec.member, ...(spec.helper !== undefined ? { helper: spec.helper } : {}) };
-      releaseDelegation = spec.delegates ? ctx.delegations!.register(ref, idempotencyKey, spec.tools, spec.delegates, spec.sessionKey) : undefined;
+      releaseDelegation = spec.delegates || spec.helperDelegates
+        ? ctx.delegations!.register(ref, idempotencyKey, spec.tools, spec.delegates ?? {}, spec.sessionKey, spec.helperDelegates) : undefined;
       release = spec.register !== false ? ctx.bridge.register(ref, spec.tools, idempotencyKey) : undefined;
       if (picked && !chosen) {
         // The picked account must be the one called: check it is signed in for this member before the run, since

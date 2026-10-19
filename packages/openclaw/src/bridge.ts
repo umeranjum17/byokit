@@ -6,6 +6,7 @@ import { rm } from 'node:fs/promises';
 import { provider } from '@byokit/accounts';
 import { words } from './words.ts';
 import type { Delegations } from './delegations.ts';
+import { HelperError } from './helpers.ts';
 import type { Approval, ChannelMessage, Decision, Member, RunRef, ToolHost, ToolSpec } from './types.ts';
 
 /** Newline-framed JSON, one request per connection; anything larger is not a gate request. */
@@ -331,7 +332,10 @@ export class Bridge {
         else if (message.kind === 'delegation-receipt') { this.delegations.receipt(message); this.reply(socket, { ok: true }); }
         else if (message.kind === 'delegation-event' && isRecord(message.event)) { this.delegations.event(message.event); this.reply(socket, { ok: true }); }
         else this.deny(socket, 'invalid delegation message');
-      } catch (error) { this.deny(socket, error instanceof Error ? error.message : 'delegation unavailable'); }
+      } catch (error) {
+        // A typed helper refusal (5.8.3) reaches the parent's tool result with its code.
+        this.deny(socket, error instanceof HelperError ? `${error.code}: ${error.message}` : error instanceof Error ? error.message : 'delegation unavailable');
+      }
       return;
     }
     if (message.kind === 'gate') return void this.gate(socket, message).catch(() => this.deny(socket, 'run unavailable'));
@@ -434,6 +438,9 @@ export class Bridge {
     if (!this.tools.has(tool)) return this.reply(socket, { ok: false, reason: 'this call was not allowed' });
     const runId = typeof message.runId === 'string' ? message.runId : undefined;
     this.owners.set(socket, { key, runId });
+    // Resolved before the permit is spent: a delegated run whose admission ended (its helper removed) loses its permits.
+    const delegated = await this.delegations?.resolve(key, runId);
+    if (this.stopped || socket.destroyed) return;
     const wanted = JSON.stringify(input);
     const permit = message.permit;
     if (typeof permit === 'string') {
@@ -451,8 +458,6 @@ export class Bridge {
       this.tickets.splice(ticket, 1);
     }
     if (!this.host) return this.reply(socket, { ok: false, reason: "can't run this action right now" });
-    const delegated = await this.delegations?.resolve(key, runId);
-    if (this.stopped || socket.destroyed) return;
     const run = delegated?.ref ?? this.runs.get(key) ?? { sessionKey: key, member: this.memberOf(key) ?? '' };
     // The plugin destroys its socket when the run aborts (run abort, hook timeout); without this the host's
     // sandboxed command keeps running after the tool is gone.

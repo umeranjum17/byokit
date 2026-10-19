@@ -7,6 +7,7 @@ Verification recipe for [helpers](../../../../docs/runtime-kits.md#583-helpers) 
 - Two helpers on one account agent and one on the API-key lane: `agentId` is the account's agent, `sessionPrefix` the helper's own; ensuring asks the engine for no agent, config write or sign-in.
 - A helper run goes to `agent:<account agent>:h-<helper>:…` with its persona as `extraSystemPrompt`, billed on its account (a key-lane helper names `account: '<provider>.key'`); `RunRef.helper` reaches `ToolHost.gate`.
 - Typed `HelperError` refusals with no agent request: `invalid` (id, persona, caller `system`), `unknown_account`, `bound`, `unknown_helper` (never ensured, or its account removed), `session` (another helper's key, a helper key without `helper`, `move` of one).
+- Delegated helper runs (S2): a `helperDelegates` run's native `sessions_send` to the exact `agent:<agent>:h-<helper>:<rest>` key (account agent and key lane) is admitted from its receipt as that helper (`RunRef.helper`, the parent's member, `parent` identity) on gate and call; an unreceipted helper key never reaches the gate; refusals `session` (not a helper key, or a helper not given), `bound` (another account), `unknown_helper` (never ensured) reach the parent's tool result; `abort(root)` drops the parked approval and runs nothing; removing the helper's account ends the admitted child at its next call.
 
 ## How to get to it (user POV)
 
@@ -22,7 +23,7 @@ entry=.agents/skills/verify-byokit/capture/openclaw-helpers.mjs
 drive=(node "$entry")
 ```
 
-Then the real pinned engine leg: persona in each model request and no other's, research's history surviving writer's run, both billed on the same account key, the plan-key helper on its lane key, the sealed stores byte-for-byte unchanged, and refusals with no model request:
+Then the real pinned engine leg: persona in each model request and no other's, research's history surviving writer's run, both billed on the same account key, the plan-key helper on its lane key, the sealed stores byte-for-byte unchanged, refusals with no model request, and the delegated leg (research's real `sessions_send` children on writer and the plan-key planner gated and called as those helpers, a rogue helper-key run never gated, a typed `bound` refusal, abort revoking a parked child):
 
 ```bash
 feature=openclaw-helpers
@@ -30,4 +31,4 @@ entry=packages/openclaw/test/engine/helpers.test.ts
 drive=(env PATH="/usr/bin:$PATH" sh scripts/test.sh "$entry")
 ```
 
-Use SKILL.md's Evidence capture block for each. Backend behavior: no screenshots. Helpers share their account's engine agent (id, workspace files, memory); separate engine agents per helper need an engine patch and are not claimed here. Not covered: admitting engine-created children aimed at a helper, lifecycle event mapping by helper, adopting legacy sessions, listing or removing a helper.
+Use SKILL.md's Evidence capture block for each. Backend behavior: no screenshots. Helpers share their account's engine agent (id, workspace files, memory); separate engine agents per helper need an engine patch and are not claimed here. A delegated child runs without the helper's persona (a native send carries no system text). Not covered: lifecycle event mapping by helper, adopting legacy sessions, listing or removing a helper.

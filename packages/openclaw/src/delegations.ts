@@ -1,10 +1,12 @@
 // Native receipts, never session-prefix authority. Persist identity/tool policy only, not prompts or credentials.
 import { existsSync, readFileSync } from 'node:fs';
 import { atomic } from './engine-patches.ts';
+import { HELPER_ID, HELPER_TAIL, HelperError } from './helpers.ts';
 import type { DelegatedEvent, DelegatedRun, GatewayTransport, RunRef } from './types.ts';
 
-type Grant = { ref: DelegatedRun; tools: string[]; delegates: Record<string, string[]>; sourceKey: string };
-type Pending = { parent: Grant; agent: string; key?: string; expires: number };
+// `helpers`: the member's helpers (5.8.3) a run may hand work to by an exact send to `agent:<its agent>:h-<helper>:<rest>`.
+type Grant = { ref: DelegatedRun; tools: string[]; delegates: Record<string, string[]>; helpers?: Record<string, string[]>; sourceKey: string };
+type Pending = { parent: Grant; agent: string; key?: string; helper?: string; expires: number };
 type Root = Omit<Grant, 'ref'> & { ref: RunRef & { runId: string; root: { sessionKey: string; runId: string } } };
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
 const agentOf = (key: string) => /^agent:([^:]+):.+/.exec(key)?.[1];
@@ -19,6 +21,7 @@ export class Delegations {
   private early = new Map<string, Record<string, any>[]>();
   constructor(privateOptions: {
     file: string; tools: ReadonlySet<string>; memberOf(agent: string): string | undefined;
+    helper(member: string, helper: string): { agentId: string }; // the ensured helper's agent, else a typed HelperError
     request: GatewayTransport['request']; emit(e: DelegatedEvent): void; revoke(key: string, runId: string): void;
   }) { this.o = privateOptions; }
   private readonly o;
@@ -39,17 +42,25 @@ export class Delegations {
     atomic(this.o.file, bytes);
     for (const notify of this.changed) notify();
   }
-  validate(delegates: Record<string, string[]>): void {
+  validate(delegates: Record<string, string[]>, member?: string, helpers?: Record<string, string[]>): void {
     if (!object(delegates) || Object.keys(delegates).length > 64) throw new Error('invalid delegates');
     for (const [agent, tools] of Object.entries(delegates)) {
       if (!/^[a-z][a-z0-9-]{0,63}$/.test(agent) || !this.o.memberOf(agent) || !Array.isArray(tools)
         || tools.some(t => !this.o.tools.has(t))) throw new Error(`invalid delegate: ${agent}`);
     }
+    if (helpers === undefined) return;
+    if (!object(helpers) || Object.keys(helpers).length > 64) throw new HelperError('invalid', 'invalid helper delegates');
+    for (const [helper, tools] of Object.entries(helpers)) {
+      if (!HELPER_ID.test(helper) || !Array.isArray(tools) || tools.some(t => !this.o.tools.has(t)))
+        throw new HelperError('invalid', `invalid helper delegate: ${helper}`);
+      this.o.helper(member!, helper); // never ensured, or its account gone: unknown_helper
+    }
   }
-  register(ref: RunRef, runId: string, tools: readonly string[] | undefined, delegates: Record<string, string[]>, sourceKey = ref.sessionKey): () => void {
-    this.load(); this.validate(delegates);
+  register(ref: RunRef, runId: string, tools: readonly string[] | undefined, delegates: Record<string, string[]>, sourceKey = ref.sessionKey,
+    helpers?: Record<string, string[]>): () => void {
+    this.load(); this.validate(delegates, ref.member, helpers);
     const root: Root = { ref: { ...ref, runId, root: { sessionKey: ref.sessionKey, runId } },
-      tools: [...tools ?? this.o.tools], delegates: structuredClone(delegates), sourceKey };
+      tools: [...tools ?? this.o.tools], delegates: structuredClone(delegates), ...(helpers ? { helpers: structuredClone(helpers) } : {}), sourceKey };
     this.roots.set(runId, root);
     return () => { if (this.roots.get(runId) === root) this.roots.delete(runId); };
   }
@@ -65,13 +76,24 @@ export class Delegations {
     const send = m.tool === 'sessions_send';
     if (!send && m.tool !== 'sessions_spawn') throw new Error('unsupported delegation tool');
     const agent = send ? typeof m.input.sessionKey === 'string' && agentOf(m.input.sessionKey) : m.input.agentId;
-    if (typeof agent !== 'string' || !Object.hasOwn(parent.delegates, agent)
-      || (send && (m.input.timeoutSeconds !== 0 || m.input.label !== undefined))
+    // A helper's session is entered only on the helper path, so a run naming the helper always speaks there (5.8.3).
+    const tail = send && typeof agent === 'string' ? m.input.sessionKey.slice(`agent:${agent}:`.length) : '';
+    const helper = HELPER_TAIL.test(tail) ? tail.slice(2, tail.indexOf(':')) : undefined;
+    if ((send && (m.input.timeoutSeconds !== 0 || m.input.label !== undefined))
       || (!send && m.input.runtime !== undefined && m.input.runtime !== 'subagent')) throw new Error('delegation target or mode refused');
+    if (helper !== undefined) {
+      const bound = this.o.helper(parent.ref.member, helper).agentId; // never ensured: unknown_helper
+      if (bound !== agent) throw new HelperError('bound', `refused: helper ${helper} runs on another account`);
+      if (!Object.hasOwn(parent.helpers ?? {}, helper)) throw new HelperError('session', `refused: this run may not hand work to helper ${helper}`);
+    } else if (typeof agent !== 'string' || !Object.hasOwn(parent.delegates, agent)) {
+      if (Object.keys(parent.helpers ?? {}).length)
+        throw new HelperError('session', `refused: "${String(m.input.sessionKey ?? agent)}" is not a helper session`);
+      throw new Error('delegation target or mode refused');
+    }
     for (const [id, p] of this.pending) if (p.expires < Date.now()) this.pending.delete(id);
     if (this.pending.size + this.children.size >= 1024) throw new Error('delegated run journal is full');
-    this.pending.set(actionKey(m), { parent: structuredClone(parent) as Grant, agent,
-      ...(send ? { key: m.input.sessionKey } : {}), expires: Date.now() + 60_000 });
+    this.pending.set(actionKey(m), { parent: structuredClone(parent) as Grant, agent: agent as string,
+      ...(send ? { key: m.input.sessionKey } : {}), ...(helper !== undefined ? { helper } : {}), expires: Date.now() + 60_000 });
     this.save(); return true;
   }
   receipt(m: Record<string, any>): void {
@@ -84,12 +106,15 @@ export class Delegations {
     if (p.expires < Date.now() || !object(d) || !['accepted', 'ok', 'queued'].includes(d.status)
       || typeof d.runId !== 'string' || !d.runId || typeof key !== 'string' || agentOf(key) !== p.agent
       || (p.key !== undefined && p.key !== key)) { this.save(); return; }
-    const member = this.o.memberOf(p.agent);
+    // A helper child is the parent member's, attributed to that helper (RunRef.helper), on the helper's own agent.
+    const member = p.helper !== undefined ? (this.bound(p.parent.ref.member, p.helper, p.agent) ? p.parent.ref.member : undefined)
+      : this.o.memberOf(p.agent);
     if (!member) { this.save(); return; }
-    const ref: DelegatedRun = { sessionKey: key, member, runId: d.runId, agentId: p.agent,
+    const ref: DelegatedRun = { sessionKey: key, member, ...(p.helper !== undefined ? { helper: p.helper } : {}), runId: d.runId, agentId: p.agent,
       parent: { sessionKey: p.parent.ref.sessionKey, runId: p.parent.ref.runId }, root: p.parent.ref.root };
-    const grant = { ref, delegates: p.parent.delegates, sourceKey: p.parent.sourceKey,
-      tools: p.parent.tools.filter(t => p.parent.delegates[p.agent]!.includes(t)) };
+    const allowed = p.helper !== undefined ? p.parent.helpers![p.helper]! : p.parent.delegates[p.agent]!;
+    const grant: Grant = { ref, delegates: p.parent.delegates, ...(p.parent.helpers ? { helpers: p.parent.helpers } : {}),
+      sourceKey: p.parent.sourceKey, tools: p.parent.tools.filter(t => allowed.includes(t)) };
     // A steered/already-admitted run keeps its original parent and cannot acquire a broader grant.
     if (this.children.has(ref.runId)) { this.save(); return; }
     this.children.set(ref.runId, grant); this.save();
@@ -108,7 +133,16 @@ export class Delegations {
         const timer = setTimeout(done, 5_000); this.changed.add(check); check();
       });
     }
-    return get();
+    const grant = get();
+    // A helper removed or rebound since admission ends its runs' admission (5.8.3: never moved to another sign-in).
+    if (grant?.ref.helper !== undefined && !this.bound(grant.ref.member, grant.ref.helper, grant.ref.agentId)) {
+      this.end(grant, 'cancelled');
+      return undefined;
+    }
+    return grant;
+  }
+  private bound(member: string, helper: string, agent: string): boolean {
+    try { return this.o.helper(member, helper).agentId === agent; } catch { return false; }
   }
   event(event: Record<string, any>): void {
     this.load();
@@ -124,10 +158,10 @@ export class Delegations {
     this.o.emit({ type: 'event', run: structuredClone(grant.ref), event: { stream: event.stream, data: event.data } });
     if (event.stream === 'lifecycle' && ['end', 'error'].includes(event.data?.phase)) this.end(grant);
   }
-  private end(grant: Grant): void {
+  private end(grant: Grant, reason: 'terminal' | 'cancelled' = 'terminal'): void {
     this.children.delete(grant.ref.runId); this.save();
     this.o.revoke(grant.ref.sessionKey, grant.ref.runId);
-    this.o.emit({ type: 'ended', run: structuredClone(grant.ref), reason: 'terminal' });
+    this.o.emit({ type: 'ended', run: structuredClone(grant.ref), reason });
   }
   async reconcile(): Promise<void> {
     for (const ref of this.list()) {

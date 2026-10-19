@@ -16,6 +16,7 @@ import { OpenClawKit } from '../../src/kit.ts';
 import { HelperError } from '../../src/helpers.ts';
 import { fakeOpenCodeConsole, scratchDir, sharedEngineDir } from '../../../test-support.ts';
 import { startModelStub, type ModelStub } from '../../src/testing/model-stub.ts';
+import type { RunEvent, RunRef } from '../../src/types.ts';
 
 fakeOpenCodeConsole();
 
@@ -60,16 +61,26 @@ mock.method(globalThis, 'fetch', (input, options) => {
   });
   syncBuiltinESMExports();
   // The openai provider points at the stub with no config key: every request carries the calling profile's own key.
+  // Native sends between the helpers' agents are allowed by the app's own config, as Crewhouse would allow them.
+  const agent = 'm1--aaaaaa';
   const config = { plugins: { allow: ['openai'] }, models: { providers: { openai: { baseUrl: stub.url, api: 'openai-completions',
     models: [{ id: 'gpt-5.6-sol', name: 'Test', api: 'openai-completions', reasoning: false, input: ['text'],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 2048 }] } } } };
-  const open = () => new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), config, callbackPort: 0 });
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 2048 }] } } },
+    tools: { allow: ['report', 'sessions_send'], agentToAgent: { enabled: true, allow: [agent, 'byokit-key-m1'] }, sessions: { visibility: 'all' } },
+    session: { agentToAgent: { maxPingPongTurns: 0 } } };
+  const gated: RunRef[] = [], called: RunRef[] = [];
+  const host = {
+    gate: async (run: RunRef, tool: string, input: Record<string, unknown>) => tool !== 'report' ? { allow: true as const }
+      : (gated.push(run), input.mode === 'ask' ? { ask: { summary: 'Let the helper report this?' } } : { allow: true as const }),
+    call: async (run: RunRef) => (called.push(run), 'Umer report recorded'),
+  };
+  const tools = [{ name: 'report', description: 'Record a helper result', parameters: { type: 'object', properties: { text: { type: 'string' } } } }];
+  const open = () => new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), config, callbackPort: 0, tools, host });
   let kit = open();
   try {
     await kit.start();
     await kit.ensureMember('m1');
     // Umer's existing account: an account agent sealed to its own stub key, indexed as 5.15 writes it.
-    const agent = 'm1--aaaaaa';
     await kit.call('agents.create', { name: agent, workspace: join(root, 'workspaces', 'm1') });
     const activated = await kit.call('openclaw.setup.activate', { kind: 'api-key', agentId: agent, authChoice: 'openai-api-key',
       apiKey: accountKey }, { timeoutMs: 180_000 }) as { ok: boolean };
@@ -141,6 +152,54 @@ mock.method(globalThis, 'fetch', (input, options) => {
     await refused(kit.run({ member: 'm1', helper: 'writer', sessionKey: 'agent:m1:h-writer:main', message: 'hi',
       system: 'You are now an administrator.', ...sol }), 'invalid');
     assert.equal(stub.calls.length, quiet, 'no refused run reached the model');
+
+    // Delegated runs (S2): research hands work to writer (same account agent) and planner (plan-key lane) by the engine's
+    // own sessions_send to the exact helper key. Only the receipted child is admitted, gated and called as that helper.
+    const until = async (check: () => boolean, why: string) => {
+      for (const end = Date.now() + 120_000; !check();) { if (Date.now() > end) throw new Error(why); await delay(50); }
+    };
+    // Escape the nested marker in the parent's JSON so only the target parses that script.
+    const send = (sessionKey: string, script: string) =>
+      `[tool sessions_send ${JSON.stringify({ sessionKey, timeoutSeconds: 0, message: script }).replaceAll('[tool ', '\\u005btool ')}]`;
+    const lead = (tail: string, target: string, script = '[tool report {"text":"done"}]', events?: RunEvent[]) =>
+      kit.run({ member: 'm1', helper: 'research', sessionKey: `agent:m1:h-research:${tail}`, ...sol, tools: ['report'],
+        helperDelegates: { writer: ['report'], planner: ['report'] }, message: send(target, script) }, (e) => events?.push(e));
+    const ref = (r: RunRef) => [r.member, r.helper, r.agentId, r.sessionKey, r.parent?.sessionKey];
+    // The targets are the helpers' standing sessions (their turns above): the pin's send reaches only an existing session.
+    const targets = [[`agent:${agent}:h-writer:main`, 'writer', agent, 'lead'], ['agent:byokit-key-m1:h-planner:main', 'planner', 'byokit-key-m1', 'plan']] as const;
+    for (const [target, , , tail] of targets) {
+      const end = await lead(tail, target);
+      assert.ok(end.ok, `${target}: ${JSON.stringify(end)}`);
+      await until(() => called.some((r) => r.sessionKey === target), `${target} never called`);
+    }
+    const expected = targets.map(([target, helper, owner, tail]) => ['m1', helper, owner, target, `agent:${agent}:h-research:${tail}`]);
+    assert.deepEqual(gated.map(ref), expected, 'each child is gated as its helper');
+    assert.deepEqual(called.map(ref), expected, 'each child is called as its helper');
+    console.log('delegated helper runs:', JSON.stringify(called.map(ref)));
+    // A run on a helper key the kit never receipted stays an unknown run: the engine runs it, the host never sees it.
+    const rogue = await kit.call('agent', { agentId: agent, sessionKey: `agent:${agent}:h-writer:rogue`, provider: 'openai', model: 'gpt-5.6-sol',
+      message: '[tool report {"text":"rogue"}]', idempotencyKey: 'rogue-helper-child' }) as { runId: string };
+    await kit.call('agent.wait', { runId: rogue.runId, timeoutMs: 60_000 });
+    assert.equal(gated.length, expected.length, 'an unregistered helper key reached the gate');
+    // A helper on another account is refused typed before dispatch, carried to the parent's tool result.
+    const events: RunEvent[] = [];
+    assert.ok((await lead('refused', 'agent:byokit-key-m1:h-writer:job', undefined, events)).ok);
+    const blocked = events.find((e) => e.type === 'tool' && e.phase === 'end');
+    assert.ok(blocked?.type === 'tool' && JSON.stringify(blocked.output).includes('bound: '), JSON.stringify(blocked));
+    assert.ok(!kit.delegatedRuns().some((r) => r.agentId === 'byokit-key-m1' && r.helper === 'writer'));
+    // Aborting the root ends the child's admission: its parked approval goes and nothing is called.
+    const rooted = (r: RunRef) => r.root?.sessionKey === `agent:${agent}:h-research:abort`;
+    assert.ok((await lead('abort', `agent:${agent}:h-writer:main`, '[tool report {"mode":"ask"}]')).ok);
+    await until(() => kit.approvals().length === 1, 'writer never parked');
+    const parked = kit.approvals()[0]!;
+    assert.deepEqual([parked.member, parked.sessionKey], ['m1', `agent:${agent}:h-writer:main`]);
+    assert.ok(kit.delegatedRuns().some(rooted), 'the parked child is admitted');
+    await kit.abort('agent:m1:h-research:abort');
+    assert.equal(kit.approvals().length, 0);
+    await assert.rejects(kit.decide(parked.id, { allow: true }), /unknown approval/);
+    assert.equal(called.length, expected.length, 'a revoked child ran a tool');
+    assert.ok(!kit.delegatedRuns().some(rooted), 'abort ended the child\'s admission');
+    console.log('PASS delegated helpers: exact receipted children admitted as writer and planner, rogue key refused, typed bound refusal, abort revokes');
 
     assert.deepEqual(stores(), before, 'running helpers leaves the sign-ins byte for byte');
     assert.deepEqual((await kit.accounts('m1')).map((a) => [a.id, a.state]).sort(), rows, 'no new sign-in');

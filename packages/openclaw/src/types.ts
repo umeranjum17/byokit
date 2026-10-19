@@ -76,6 +76,9 @@ export interface RunSpec<S extends OutputSchema | undefined = OutputSchema | und
   tools?: string[];
   /** Exact target engine agent IDs and their app-tool subsets; does not share credentials. */
   delegates?: Record<string, string[]>;
+  /** The member's ensured helpers (5.8.3) this run may hand work to, and their app-tool subsets: an exact native send to
+   * `agent:<the helper's agent>:h-<helper>:<rest>` is admitted as that helper's run (RunRef.helper). */
+  helperDelegates?: Record<string, string[]>;
   register?: boolean; // default true: the bridge recognizes this run
 }
 

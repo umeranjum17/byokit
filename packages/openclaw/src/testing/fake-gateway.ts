@@ -312,8 +312,28 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
   const emitRun = (run: Run, stream: string, data: Record<string, unknown>) =>
     emit('agent', { runId: run.runId, seq: run.seq++, stream, ts: Date.now(), data });
 
-  /** The `agent` handler: the run's scripted turn, its `[tool NAME {json}]` calls through the real bridge. */
-  const startRun = (params: Record<string, unknown>, bridgeSock: string): { runId: string; status: 'accepted' } => {
+  /**
+   * A native `sessions_send` as the engine and plugin play it: the parent's dispatch is tracked before it goes, then the
+   * exact target session runs as an engine-created child and the receipt names its run (delegated admission, 5.8).
+   */
+  const nativeSend = async (run: Run, parentRunId: string, input: Record<string, unknown>, callId: string, sock: string) => {
+    const ids = { key: run.sessionKey, runId: parentRunId, callId };
+    const prepared = await bridgeRequest(sock, { kind: 'delegation-prepare', ...ids, tool: 'sessions_send', input });
+    if (prepared.allow === false) return { isError: true, output: String(prepared.reason) };
+    const sessionKey = String(input.sessionKey);
+    const agentId = /^agent:([^:]+):/.exec(sessionKey)?.[1];
+    // Like the pin: a send reaches only a session that already exists (its agent's main excepted).
+    const child = agentId && (sessions.has(`${agentId}\n${sessionKey}`) || sessionKey === `agent:${agentId}:main`)
+      ? startRun({ agentId, sessionKey, message: input.message }, sock, true) : undefined;
+    const details = child ? { status: 'accepted', runId: child.runId, sessionKey }
+      : { status: 'error', error: `No session found: ${sessionKey}`, sessionKey };
+    await bridgeRequest(sock, { kind: 'delegation-receipt', ...ids, result: { details } });
+    return { isError: !child, output: JSON.stringify(details) };
+  };
+
+  /** The `agent` handler: the run's scripted turn, its `[tool NAME {json}]` calls through the real bridge. An
+   * engine-created `child` names its own run on the bridge, as the plugin does with the engine's run id. */
+  const startRun = (params: Record<string, unknown>, bridgeSock: string, child = false): { runId: string; status: 'accepted' } => {
     if (params.agentId != null && !agents.has(String(params.agentId))) throw new Error(`unknown agent: ${params.agentId}`);
     // Like the engine: the provider/model the run is called on, its own override or the member's (here openai).
     const run: Run = { runId: randomUUID(), agentId: String(params.agentId ?? 'main'), sessionKey: String(params.sessionKey ?? ''), seq: 0,
@@ -338,12 +358,15 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
           let isError = false;
           if (bridgeSock && !(builtin && table?.gateBuiltins === false)) {
             try {
-              const gate = await bridgeRequest(bridgeSock, { kind: 'gate', key: run.sessionKey, tool: call.name, input: call.input });
+              const owner = child ? { runId: run.runId } : {};
+              const gate = await bridgeRequest(bridgeSock, { kind: 'gate', key: run.sessionKey, tool: call.name, input: call.input, ...owner });
               if (!gate.allow) {
                 isError = true;
                 output = String(gate.reason ?? 'blocked');
+              } else if (builtin && call.name === 'sessions_send') {
+                ({ isError, output } = await nativeSend(run, child ? run.runId : String(params.idempotencyKey ?? ''), call.input, toolCallId, bridgeSock));
               } else if (!builtin) {
-                const done = await bridgeRequest(bridgeSock, { kind: 'call', key: run.sessionKey, permit: gate.permit, tool: call.name, input: call.input });
+                const done = await bridgeRequest(bridgeSock, { kind: 'call', key: run.sessionKey, permit: gate.permit, tool: call.name, input: call.input, ...owner });
                 isError = done.ok !== true;
                 output = String(done.ok === true ? done.text : done.reason);
               }
