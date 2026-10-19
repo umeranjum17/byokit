@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "id": "a32effe777006347",
+  "id": "dcd1cf72add44075",
   "upstream": {
     "name": "openclaw",
     "version": "2026.8.35",
@@ -63,6 +63,17 @@
         {
           "find": "let systemPrompt = !skipsTurnPreparation ? backendResolved.transformSystemPrompt?.({\n\t\t\tconfig: params.config,\n\t\t\tworkspaceDir,\n\t\t\tprovider: params.provider,\n\t\t\tmodelId,\n\t\t\tmodelDisplay,\n\t\t\tagentId: sessionAgentId,\n\t\t\tsystemPrompt: builtSystemPrompt\n\t\t}) ?? builtSystemPrompt : builtSystemPrompt;\n",
           "replace": "let systemPrompt = !skipsTurnPreparation ? backendResolved.transformSystemPrompt?.({\n\t\t\tconfig: params.config,\n\t\t\tworkspaceDir,\n\t\t\tprovider: params.provider,\n\t\t\tmodelId,\n\t\t\tmodelDisplay,\n\t\t\tagentId: sessionAgentId,\n\t\t\tsystemPrompt: builtSystemPrompt\n\t\t}) ?? builtSystemPrompt : builtSystemPrompt;\n\t\t// BYOKit: Claude wire names for the Tooling list (ch-cli-tool-prefix). The Claude wire catalog\n\t\t// exposes OpenClaw tools as mcp__openclaw__<name>, so the printed Tooling list on that route must\n\t\t// use those exact names. Every other route keeps the stock prompt byte-identical; already-prefixed\n\t\t// names are never prefixed again. Order, summaries and error semantics are unchanged.\n\t\tif (!skipsTurnPreparation && isClaudeCli && promptTools.length > 0) {\n\t\t\tconst byokitBareNames = new Set(promptTools.map((tool) => tool?.name).filter((name) => typeof name === \"string\" && name.length > 0 && !name.startsWith(\"mcp__openclaw__\")));\n\t\t\tif (byokitBareNames.size > 0) {\n\t\t\t\tconst byokitLines = systemPrompt.split(\"\\n\");\n\t\t\t\tlet byokitInTooling = false;\n\t\t\t\tlet byokitToolingArmed = false;\n\t\t\t\tfor (let byokitI = 0; byokitI < byokitLines.length; byokitI++) {\n\t\t\t\t\tconst byokitLine = byokitLines[byokitI];\n\t\t\t\t\tif (byokitLine.startsWith(\"## \")) {\n\t\t\t\t\t\tbyokitInTooling = byokitLine === \"## Tooling\";\n\t\t\t\t\t\tbyokitToolingArmed = false;\n\t\t\t\t\t} else if (byokitInTooling && !byokitToolingArmed) {\n\t\t\t\t\t\tif (byokitLine === \"Tools policy-filtered. Names case-sensitive; call exact.\") byokitToolingArmed = true;\n\t\t\t\t\t} else if (byokitInTooling && byokitToolingArmed && byokitLine.startsWith(\"- \")) {\n\t\t\t\t\t\tconst byokitMatch = /^- (\\S+?)(:.*)?$/.exec(byokitLine);\n\t\t\t\t\t\tif (byokitMatch && byokitBareNames.has(byokitMatch[1])) byokitLines[byokitI] = `- mcp__openclaw__${byokitMatch[1]}${byokitMatch[2] ?? \"\"}`;\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\tsystemPrompt = byokitLines.join(\"\\n\");\n\t\t\t}\n\t\t}\n"
+        }
+      ]
+    },
+    {
+      "path": "dist/setup-inference-Dpvv_U7x.js",
+      "before": "e38ba4aa4a31376a03609b8732fcd69026df17149849d15caa6a8a59a865d6d7",
+      "after": "71f7103b5f88db7e3b98433a54b05a5a18557d6e83385d09cddaabe053254823",
+      "edits": [
+        {
+          "find": "\t\t\treturn {\n\t\t\t\trunner: \"embedded\",\n\t\t\t\t...ref,\n\t\t\t\tmodelRef,\n\t\t\t\tagentDir: params.agentDir,\n\t\t\t\tconfig: preparedAuth.config,",
+          "replace": "\t\t\t// BYOKit: plan the route the engine stages. A provider-normalized starter (OpenRouter keeps its bare `auto` as\n\t\t\t// `openrouter/auto`) is planned as the staged route names it, so a key activation matches its staged route.\n\t\t\tconst byokitModelRef = canonicalizeSetupModelRef({\n\t\t\t\tcfg: preparedAuth.config,\n\t\t\t\traw: modelRef,\n\t\t\t\tdefaultProvider: ref.provider\n\t\t\t});\n\t\t\treturn {\n\t\t\t\trunner: \"embedded\",\n\t\t\t\t...parseRef(byokitModelRef),\n\t\t\t\tmodelRef: byokitModelRef,\n\t\t\t\tagentDir: params.agentDir,\n\t\t\t\tconfig: preparedAuth.config,"
         }
       ]
     }

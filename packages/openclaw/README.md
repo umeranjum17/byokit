@@ -32,6 +32,8 @@ hashes. The Gateway Workshop review patch writes content-free, durable usage fac
 accounting environment. The separately bundled worker and all other detached kinds remain uncovered.
 The Claude CLI route also uses the bundled [Tooling-name correction](../../docs/runtime-kits.md#516-bundled-engine-patches-and-engine-started-usage-d19);
 apps do not need consumer tool aliases.
+A key setup plan patch lets an OpenRouter API key activate: stock plans the key's live test on a route other than the
+one it stages and refuses every OpenRouter key before sending it.
 The full upstream MIT notice ships in [engine/OPENCLAW-LICENSE](engine/OPENCLAW-LICENSE).
 
 Each `prepare()` verifies the **entire** selected engine tree, including unpatched files. The kit installs stock

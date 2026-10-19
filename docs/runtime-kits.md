@@ -2125,7 +2125,7 @@ plus one reviewed edit. A fork, a republished tarball or a source build is never
   upstream excerpts; the repo `NOTICE` is not in the tarball).
 - Usage accounting and app-owned restart recovery patches do nothing unless the kit sets their own env
   variables at spawn (5.5); with those variables unset they behave as stock. The Claude Tooling patch below
-  is route-gated instead. A patch adds no RPC, config key or schema to the engine.
+  is route-gated instead, and the key setup plan patch is a fix that applies whenever it is reached. A patch adds no RPC, config key or schema to the engine.
 
 **Claude Tooling names.** On the Claude CLI route, after the backend system-prompt transform, the kit's
 bundled prepare patch prints OpenClaw tool names as `mcp__openclaw__<name>` in the policy-filtered
@@ -2134,6 +2134,14 @@ already-prefixed names, summaries, ordering and other sections stay unchanged. N
 skipped turn preparation and empty tool lists keep the stock prompt. No consumer aliases are added.
 `packages/openclaw/test/engine-unit.test.ts` exercises the shipped edit's rendered output; its minimal stock
 input is unit coverage, not qualification against the complete pinned engine or a live Claude CLI.
+
+**Key setup plan.** Stock `setup.activate` with an API key plans its live test on the provider's starter model as
+written, while the route it stages for the default agent carries the provider-normalized ref: OpenRouter's bare
+`auto` is staged as `openrouter/auto`, so the plan never matches the staged route and every OpenRouter key is refused
+as `unavailable` before it is sent (the kit's `not_included`). The bundled patch plans the starter as the stage names
+it (`canonicalizeSetupModelRef`), so the live test runs on the route that was staged; the persisted model ref is
+unchanged, and a starter that needs no normalization plans as stock. `test/engine/accounts.test.ts` activates an
+OpenRouter key on the pinned engine and runs on a chosen model.
 
 **Engine sets.** A patched engine is never made by editing files in place: stock OpenClaw rewrites its process
 title (`/proc/<pid>/cmdline` is `openclaw-gateway`, `test/engine/boot.test.ts`) and a running Gateway holds no file or

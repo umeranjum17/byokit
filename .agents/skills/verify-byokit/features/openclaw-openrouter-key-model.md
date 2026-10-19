@@ -31,3 +31,5 @@ Use SKILL.md's Evidence capture block. Offline it drives `fakeGateway()` through
 ## Gotchas
 
 A real key run needs the key in the engine's own auth store (a file under the engine home); the `--engine` leg deliberately avoids it. A real-key inference proof is a credential-touching proof under SKILL.md's rules and needs an authorized key. The engine answers `byokit.catalog` with `failed` (not `no-key`) when no agent holds a key.
+
+Keep `BYOKIT_SCRATCH` short: the engine's bridge socket under it fails with `listen EINVAL` past the Unix socket path limit.
