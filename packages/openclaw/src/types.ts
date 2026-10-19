@@ -34,9 +34,14 @@ export interface RunRef {
  * engine agent already holding that sign-in. */
 export type Helper = { member: Member; helper: string; account: AccountId; agentId: string; sessionPrefix: string };
 
-export type DelegatedRun = RunRef & Required<Pick<RunRef, 'runId' | 'agentId' | 'parent' | 'root'>>;
+/** An admitted engine-created child (5.8): `tools` is the app-tool subset it may call (the parent's, narrowed). */
+export type DelegatedRun = RunRef & Required<Pick<RunRef, 'runId' | 'agentId' | 'parent' | 'root'>> & { tools: string[] };
+/** A delegated child's lifecycle (5.8.3 S3): `admitted`, its engine `event`s, then one `ended` whose `reason` is
+ * `terminal` (finished), `error` (`message`), `resting` (its helper's account hit its limit and rests `until`) or
+ * `cancelled` (aborted by the kit or the engine, or its admission ended). */
 export type DelegatedEvent = { type: 'admitted' | 'event' | 'ended'; run: DelegatedRun;
-  reason?: 'terminal' | 'cancelled'; event?: { stream: string; data?: Record<string, unknown> } };
+  reason?: 'terminal' | 'error' | 'resting' | 'cancelled'; until?: number; message?: string;
+  event?: { stream: string; data?: Record<string, unknown> } };
 
 export type GateResult =
   | { allow: true }
@@ -150,6 +155,7 @@ export type Approval = {
   source: 'gate' | 'exec' | 'plugin' | 'question';
   member: Member;
   sessionKey?: string;
+  helper?: string; // the member's helper (5.8.3) whose run asks, from RunRef.helper or the key's `h-<helper>:` tail
   tool?: string;
   summary: string;
   input?: unknown;

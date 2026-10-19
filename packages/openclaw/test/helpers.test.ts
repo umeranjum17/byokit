@@ -3,7 +3,9 @@
 // `h-<helper>:` sessions on the agent already holding that account, with their own persona as the system text; ensuring
 // one asks the engine nothing (no agent, config write or sign-in), the gated RunRef names the helper, and every refusal
 // is a typed HelperError before any run. A helper's run hands work to other helpers by a native exact-key send: only the
-// receipted child is admitted, as that helper's run, until its root is aborted or the helper's account is removed.
+// receipted child is admitted, as that helper's run, until its root is aborted or the helper's account is removed; its
+// lifecycle reaches the app by helper (S3): admitted with its tool subset, approvals owned by the helper, and one typed end
+// (finished, cancelled, or resting, which rests the helper's account).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, rmSync, statSync } from 'node:fs';
@@ -123,6 +125,16 @@ test('helpers: personas on an account agent, the member agent and the plan key, 
     assert.deepEqual(gated.slice(gatedFrom).map(ref), [writerRef, plannerRef]);
     assert.deepEqual(called.slice(-2).map(ref), [writerRef, plannerRef]);
     assert.deepEqual(admitted(), ['writer', 'planner']);
+    // Each child's lifecycle by helper: admitted with its tool subset, its engine events, then one finished end.
+    const ends = (helper: string) => delegated.filter((e) => e.type === 'ended' && e.run.helper === helper);
+    await until(() => ends('writer').length === 1 && ends('planner').length === 1, 'children never ended');
+    for (const helper of ['writer', 'planner']) {
+      const life = delegated.filter((e) => e.run.helper === helper);
+      assert.deepEqual(life[0]!.run.tools, ['crew_note']);
+      assert.deepEqual([life[0]!.type, life.at(-1)!.type, life.at(-1)!.reason], ['admitted', 'ended', 'terminal']);
+      assert.ok(life.some((e) => e.type === 'event' && e.event?.stream === 'tool'), `${helper} streamed its tool`);
+    }
+    assert.deepEqual(kit.delegatedRuns(), [], 'a finished child keeps no admission');
     // An engine run on a helper key the kit never receipted is still an unknown run, never reaching the host.
     const quiet2 = gated.length;
     await kit.call('agent', { agentId: accountAgent, sessionKey: `agent:${accountAgent}:h-writer:rogue`, message: '[tool crew_note {}]',
@@ -152,12 +164,27 @@ test('helpers: personas on an account agent, the member agent and the plan key, 
     assert.ok((await lead('abort', `agent:${accountAgent}:h-writer:main`, '[tool crew_note {"mode":"ask"}]')).ok);
     await until(() => kit.approvals().length === 1, 'writer never parked');
     const parked = kit.approvals()[0]!;
-    assert.deepEqual([parked.member, parked.sessionKey], ['m1', `agent:${accountAgent}:h-writer:main`]);
+    assert.deepEqual([parked.member, parked.helper, parked.sessionKey], ['m1', 'writer', `agent:${accountAgent}:h-writer:main`]);
     assert.ok(kit.delegatedRuns().some(rooted('abort')));
+    // A native approval on a helper's key is that helper's too, recovered from the key's tail.
+    fake.emit('exec.approval.requested', { id: 'native-1', request: { agentId: lane, sessionKey: `agent:${lane}:h-planner:main`, command: 'ls' } });
+    assert.deepEqual(kit.approvals().filter((a) => a.id === 'native-1').map((a) => [a.member, a.helper]), [['m1', 'planner']]);
+    fake.emit('exec.approval.resolved', { id: 'native-1' });
     await kit.abort('agent:m1:h-research:abort');
     assert.equal(kit.approvals().length, 0);
     await assert.rejects(kit.decide(parked.id, { allow: true }), /unknown approval/);
     assert.ok(!kit.delegatedRuns().some(rooted('abort')));
+    assert.ok(delegated.some((e) => e.type === 'ended' && e.reason === 'cancelled' && rooted('abort')(e.run)), 'the abort reached the app');
+
+    // A child the model's usage limit ends is `resting`, and its helper's account rests until then, as a kit run's would.
+    const restFrom = delegated.length;
+    assert.ok((await lead('limit', `agent:${accountAgent}:h-writer:main`, 'hit the limit')).ok);
+    await until(() => delegated.slice(restFrom).some((e) => e.type === 'ended'), 'the limited child never ended');
+    const rested = delegated.slice(restFrom).find((e) => e.type === 'ended')!;
+    assert.deepEqual([rested.run.helper, rested.reason], ['writer', 'resting']);
+    assert.ok(rested.until! > Date.now() + 25 * 60_000 && /usage limit/.test(rested.message!), JSON.stringify(rested));
+    const account = (await kit.accounts('m1')).find((a) => a.id === second.id)!;
+    assert.deepEqual([account.state, account.until], ['resting', rested.until]);
 
     // Removing the account a helper uses leaves it unusable, never moved to another sign-in; an admitted child of it
     // loses admission at its next call.

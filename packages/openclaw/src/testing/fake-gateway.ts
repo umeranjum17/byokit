@@ -66,6 +66,7 @@ type Run = {
   usage?: Record<string, number>;
   result?: Record<string, unknown>;
   waiters: ((result: Record<string, unknown>) => void)[];
+  child?: { sock: string; relay: Promise<unknown> }; // an engine-created child: its events relayed in order to the bridge, as the plugin does
 };
 
 type WizardSession = { agentId: string; authChoice: string; answered: boolean; pulls: number };
@@ -309,8 +310,12 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     for (const waiter of run.waiters.splice(0)) waiter(result);
   };
 
-  const emitRun = (run: Run, stream: string, data: Record<string, unknown>) =>
+  const emitRun = (run: Run, stream: string, data: Record<string, unknown>) => {
     emit('agent', { runId: run.runId, seq: run.seq++, stream, ts: Date.now(), data });
+    const child = run.child;
+    if (child) child.relay = child.relay.then(() => bridgeRequest(child.sock, { kind: 'delegation-event',
+      event: { runId: run.runId, sessionKey: run.sessionKey, stream, data } })).catch(() => {});
+  };
 
   /**
    * A native `sessions_send` as the engine and plugin play it: the parent's dispatch is tracked before it goes, then the
@@ -339,6 +344,7 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     const run: Run = { runId: randomUUID(), agentId: String(params.agentId ?? 'main'), sessionKey: String(params.sessionKey ?? ''), seq: 0,
       provider: String(params.provider ?? 'openai'), model: String(params.model ?? 'gpt-5.1'), waiters: [] };
     runs.set(run.runId, run);
+    if (child) { run.child = { sock: bridgeSock, relay: Promise.resolve() }; emitRun(run, 'lifecycle', { phase: 'start' }); }
     const session = sessionOf(run.agentId, run.sessionKey);
     session.provider = run.provider;
     session.model = run.model;
@@ -382,7 +388,13 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
         append(session, { role: 'assistant', content: [{ type: 'text', text }] });
         // The engine sums the run's usage (zero buckets omitted); the fake counts characters.
         run.usage = { input: message.length, output: text.length, total: message.length + text.length };
-        setTimeout(() => finish(run, { status: 'ok', terminalReply: { text } }), ABORT_WINDOW_MS);
+        setTimeout(() => {
+          if (run.result || !child) return finish(run, { status: 'ok', terminalReply: { text } });
+          // A child's lifecycle end, as the engine streams it: `hit the limit` plays the model's usage-limit error.
+          const error = /hit the limit/i.test(message) ? 'You have hit your ChatGPT usage limit (plus plan). Try again in ~30 min.' : undefined;
+          emitRun(run, 'lifecycle', error ? { phase: 'error', error } : { phase: 'end' });
+          finish(run, error ? { status: 'error', error } : { status: 'ok', terminalReply: { text } });
+        }, ABORT_WINDOW_MS);
       })();
     }, 0);
     return { runId: run.runId, status: 'accepted' };

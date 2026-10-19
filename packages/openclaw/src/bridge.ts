@@ -389,6 +389,7 @@ export class Bridge {
         source: 'gate',
         member: run.member,
         sessionKey: run.sessionKey,
+        ...(run.helper !== undefined ? { helper: run.helper } : {}),
         tool,
         summary: result.ask.summary,
         input,

@@ -1357,9 +1357,19 @@ namespace and persona on the agent that already holds the account.
   parent or root it is answers `busy`, so an in-flight job finishes on its exact old key with its approval owner; the
   app adopts again once it settles. A taken target is `start_failed` and leaves both; a refused delete is
   `close_failed` with `live` the new key. `ok` returns `session: agent:<member>:h-<helper>:<tail>`, the key to run on.
+- Delegated lifecycle by helper (S3): `onEvent('byokit.delegated')` carries a helper child from start to finish with
+  `run.helper` (the engine key `agent:<agent>:h-<helper>:<rest>` names it by its tail) and `run.tools` (its app-tool
+  subset, also on `delegatedRuns()`): `admitted`, the engine's `event`s, then one `ended`. The plugin's agent-event
+  subscription supplies the end: lifecycle `end` is `terminal`, `end` with `aborted` is `cancelled` (as are
+  `abort(rootSessionKey)`, `abort(childKey)` and ended admission), `error` is `error` with the engine's `message`, or
+  `resting` when it classifies as the model's limit (5.8 rules) on a helper's run: the kit rests the helper's account
+  `until` the stated reset (else five minutes), as a kit run's resting end does (5.15 Runs step 7), so its next Auto
+  pick skips it. A reconnect's `agent.wait` maps `ok` to `terminal` and `error` to `error`. A gate approval on a
+  helper's run and a native approval on a helper's key carry `Approval.helper`; `member` stays the member. The app
+  projects these; it keeps no delegation supervisor of its own.
 - Known limit: helpers share the engine agent (id, workspace files, memory) of their account; separate engine agents
-  need per-agent auth inheritance, an engine patch (5.16). Not here: lifecycle event mapping by helper (S3), listing or
-  removing a helper.
+  need per-agent auth inheritance, an engine patch (5.16). Not here: listing or removing a helper, refusing a send to a
+  helper whose account is already resting.
 
 ### 5.9 Tools, approvals and the bridge
 
