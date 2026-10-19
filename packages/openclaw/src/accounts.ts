@@ -468,8 +468,15 @@ export function createAccounts(ctx: {
     }
     return { rows, dirty };
   };
-  const gather = (agentId: string): Promise<[Set<string>, LiveProfile[]]> =>
-    Promise.all([rosterOf(), profilesOf(agentId)]);
+  // A detected Claude Code login has no profile in the kit: it stays in Claude Code. The engine's detection says whether
+  // it is there, and a detected one is the member's signed-in claude-cli profile for this read.
+  const claudeDetected = (agentId: string): Promise<boolean> =>
+    (ctx.request('openclaw.setup.detect', { agentId }, { timeoutMs: 20_000 }) as Promise<{ candidates?: { kind?: string; credentials?: boolean }[] }>)
+      .then((r) => r.candidates?.some((c) => c.kind === 'claude-cli' && c.credentials === true) === true, () => false);
+  const gather = async (agentId: string): Promise<[Set<string>, LiveProfile[]]> => {
+    const [roster, profiles, claude] = await Promise.all([rosterOf(), profilesOf(agentId), claudeDetected(agentId)]);
+    return [roster, claude && !profiles.some((p) => p.provider === 'claude-cli') ? [...profiles, { provider: 'claude-cli', status: 'ok' }] : profiles];
+  };
   const buildRows = async (member: Member, agentId: string) => {
     const file = read(member);
     const [roster, profiles] = await gather(agentId);
