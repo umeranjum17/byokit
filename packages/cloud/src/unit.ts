@@ -64,6 +64,9 @@ export const FILE_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 /** The 5.8 deliver shell: stdin bytes land at `$1/$2` at mode 0600. */
 export const DELIVER_SHELL = 'umask 077 && mkdir -p "$1" && t=$(mktemp "$1/.in-XXXXXX") && cat > "$t" && mv -f "$t" "$1/$2"';
 
+/** The newest outbox file whose name starts with `$2` in directory `$1`: its name on the first line, then its bytes; nothing while none. */
+export const NEWEST_SHELL = 'cd "$1" 2>/dev/null || exit 0; f=$(ls -tp -- "$2"* 2>/dev/null | grep -v / | head -n 1); [ -n "$f" ] || exit 0; printf "%s\\n" "$f"; cat -- "$f"'
+
 /** A system unit's path for an app name. */
 export const systemUnitPath = (name: string): string => `/etc/systemd/system/byokit-${name}.service`;
 

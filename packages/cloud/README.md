@@ -323,6 +323,23 @@ On the machine, `takeInbox(workDir, file)` and `writeOutbox(workDir, file, text)
 bytes and a `done()` that removes the file (call it only after handling resolves), or `null` while
 absent; the second writes at 0600 through a temporary name and a rename.
 
+From the app, `machine.run(recipe, argv, { timeoutMs?, input? })` runs one command on the computer the
+way the host's unit sees it (as the recipe's user, in `workDir`, with the kit's Node first on `PATH` and
+`recipe.run.env` set) and resolves the full `ExecResult`; a non-zero exit is the app's to read. It
+never installs a missing Node (it rejects `provider`). `machine.newest(recipe, prefix)` resolves the
+newest `<workDir>/.byokit/outbox/<prefix>*` file as `{ file, text }`, or `null` while none exists, so
+the app can poll for an offer whose name it cannot know.
+
+```ts
+import type { HostRecipe, Machine } from '@byokit/cloud';
+
+export async function handoff(m: Machine, recipe: HostRecipe) {
+  const out = await m.run(recipe, ['my-app', 'pair', '--handoff']);
+  if (out.code !== 0) throw new Error(out.stderr);
+  return m.newest(recipe, 'offer-'); // { file: 'offer-17.json', text } | null
+}
+```
+
 ```ts
 import { PHONE_KEY_FILE, RECEIPT_FILE, bindPhoneKey, phoneReceipt } from '@byokit/cloud';
 import { takeInbox, writeOutbox } from '@byokit/cloud/unit';

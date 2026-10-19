@@ -182,6 +182,39 @@ test('an app rents its own cloud computer, installs its host, and supervises it 
   assert.equal(m.ref, null);
 });
 
+test('an app runs its own command on the kit machine with the unit\'s node, user and work directory and reads the newest offer', async () => {
+  const provider = fakeProvider();
+  const m = machine({ provider, store: memoryStore() });
+  await m.create({ name: 'web', size: 'small', keepCopies: true });
+  const fake = provider.fake.machine;
+  const r = { ...recipe('web'), user: 'svc', workDir: '/home/user/.users/svc/app' };
+  // Before install the node is missing: the app learns the real cause and nothing is installed.
+  fake.nodeVersion = null;
+  await rejects(m.run(r, ['muxr', 'self-host']), 'provider');
+  assert.ok(!fake.runs.some((x) => x.argv.some((a) => a.includes('sha256sum'))));
+  fake.nodeVersion = 'v24.15.0';
+  fake.script('muxr', { code: 3, stdout: 'out', stderr: 'err', timedOut: false });
+  // Any exit code and both streams pass through; the argv runs as the run user, in workDir, with the recipe env.
+  const done = await m.run(r, ['muxr', 'pair', '--handoff'], { timeoutMs: 5_000 });
+  assert.deepEqual(done, { code: 3, stdout: 'out', stderr: 'err', timedOut: false });
+  const sent = fake.runs.at(-1)!;
+  assert.equal(sent.asUser, 'svc');
+  assert.deepEqual(sent.argv.slice(-7), [
+    '/home/user/.users/svc/app', '/home/user/.users/svc/.local/share/byokit/node/24.15.0/bin',
+    'env', 'PORT=7310', 'muxr', 'pair', '--handoff',
+  ]);
+  await rejects(m.run(r, []), 'bad-recipe');
+  await rejects(m.run(r, ['A=1', 'x']), 'bad-recipe');
+
+  // The newest offer by prefix: the last written wins, other prefixes and absent files give null, a bad prefix is refused.
+  assert.equal(await m.newest(r, 'offer-'), null);
+  for (const [file, text] of [['offer-1.json', 'one'], ['other.json', 'x'], ['offer-2.json', 'two']] as const) {
+    fake.writeFile(`/home/user/.users/svc/app/.byokit/outbox/${file}`, new TextEncoder().encode(text), 0o600, 'svc');
+  }
+  assert.deepEqual(await m.newest(r, 'offer-'), { file: 'offer-2.json', text: 'two' });
+  await rejects(m.newest(r, '../x'), 'bad-recipe');
+});
+
 test('a phone polls one status while it creates, installs, stops, starts and deletes its cloud computer', async () => {
   // Boat's create resolves before the machine is on; the fake reads creating twice, and a command
   // sent to a machine that is not on fails, so the poll must not ask the host until it is on.
