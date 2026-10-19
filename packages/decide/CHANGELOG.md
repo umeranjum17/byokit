@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.13.1 (2026-10-19)
+
+- Dependency update: pins @byokit/accounts 0.28.2.
+- FIX: (from @byokit/accounts 0.28.2) MiniMax (Global and CN) now offers `MiniMax-M3.1-Flash-Preview` as its fast model, replacing `MiniMax-M2.7-highspeed`.
+
 ## 0.13.0 (2026-10-19)
 
 - FIX: The Jev wire dropped `answerFields`: it never asked Jev for the requested keys and copied none back. Jev now receives each question's `answerFields`, and a requested key the model returns lands on that question's `Answer`, as it does for every other backend.
