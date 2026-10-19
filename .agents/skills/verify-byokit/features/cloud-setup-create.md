@@ -1,0 +1,20 @@
+# Cloud setup for a new computer (create path)
+
+A person who has only the phone app and no computer yet runs one `setup({ create: { size, keepCopies } })`: the kit checks the recipe, rents a computer named after the recipe on the person's own provider account, waits until it is on, emits `creating` (`setup.creating` words, which say the provider bills them), installs, and pairs the phone through `pairEnrol`. The same call again resumes on the saved computer and rents nothing. On the machine the host takes the delivered key with `takeInbox` and answers with `writeOutbox` from `@byokit/cloud/unit`. Boat's public API has no region, so there is none to pick.
+
+## Sub-features
+
+- `create-bench`: `sh scripts/test.sh packages/cloud/test/journey-cloud.test.ts` (`a phone with no computer yet rents one through setup…`): the loopback Boat bench holds the new machine provisioning for a read; a failed install ends `failed:installing:state.failed:retryable`, the retry resumes on the same id with `creating, installing, ready` and one `POST /sandboxes` in total; a refused recipe fails `creating` with no rental.
+- `host-files-bench`: `sh scripts/test.sh packages/cloud/test/enrol.test.ts` (`on its own disk the host takes the delivered key…`): the kit's real delivery and outbox shells on a real directory, `takeInbox`/`writeOutbox`/`done()`, outbox 0600 in a 0700 folder, the `pairEnrol` `url(root, host)` builder, and a `bad-recipe` refusal for an outbox name outside the file rule.
+- `create-live`: `capture/cloud-setup-create.mjs` on boat.dev, below.
+
+## Live run (boat.dev)
+
+Pack the built kit outside the repo (`npm pack --pack-destination <scratch>` in `packages/cloud`), then `feature=cloud-setup-create; entry=@byokit/cloud; drive=(node .agents/skills/verify-byokit/capture/cloud-setup-create.mjs "$boat_key_file" "$tgz")`, where `$boat_key_file` is the fleet's saved Boat key file. Run SKILL.md Evidence's capture block, then `leak_check` the Boat key read into a variable. The packed kit travels inside the recipe's install steps (setup() creates the machine, so nothing can be uploaded between create and install). It creates one `small` sandbox without copies and always deletes it.
+
+Pass: `setup-1` and `setup-2` are both `["checking-access","creating","installing","pairing:receipt","ready"]`; `host-1` holds the phone's fingerprint with `phone.bin:bound`; `new-machines: 1` and `new-machine-is-ours: true` (the retry rented nothing; another lane's machine made during the run would raise the count, so rerun before reading it as a bug); `removed: "gone"`; `result: "PASS"`. `host-2` may still show one handled entry: the first run's receipt for the same key is already in the outbox, so the retry's gate passes before the host's next one-second tick. First passed 2026-10-19. Follow the Boat rule in `cloud-claim.md` (fleet key never printed or revoked, delete only your own machine, no claim).
+
+## Gotchas
+
+- The tailnet `securing` step is not in this run: it needs a person to sign the machine in. That leg is `cloud-phone-enrol.md`'s receipt capture.
+- Print only key fingerprints; the driver throws before printing any line that holds the Boat key.

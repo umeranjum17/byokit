@@ -90,6 +90,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [ChatGPT refresh refusal](./accounts-refresh-refusal.md) — a phone/browser ChatGPT sign-in kept through a passing 401 at a due or forced refresh, ended only by a revoked grant.
 - [Usage plan view](./usage-planview.md) — `@byokit/usage` selectors over fixture call records via `examples/usage-demo.ts`.
 - [Cloud M6 physical-phone lab](./cloud-m6-phone.md) — explicit native trial-only create/install/pair/one phone-local agent turn/stop; approved USB stdin key import and verified removal, real phone captures, no computer proxy. Not the full two-adapter M6 or a publishing claim.
+- [Cloud setup for a new computer](./cloud-setup-create.md) — `setup({ create })` rents, waits until on, installs and pairs in one stream, and a retry resumes without another rental (loopback bench and live boat.dev, first passed 2026-10-19); the host's `takeInbox`/`writeOutbox` on a real disk.
 - [Cloud status poll](./cloud-status-poll.md) — one `status()` read a phone polls through create (creating, no command sent), install (host running), stop (asleep), start (running again after a cold boot) and delete (`gone`, then typed `no-machine`) on the loopback Boat bench.
 - [Hetzner first-slice computer](./cloud-hetzner.md) — shared API catalogue and IPv4-inclusive prices, token-safe create/status/delete, explicit SSH key confirmation and HostRecipe bootstrap; live proof needs an approved token.
 - [Service kit on Linux](./service-linux.md) — per-user systemd install, status and uninstall of a loopback echo on a disposable GitHub runner (CI job `service-linux`); typed refusals through the built entry on this host, nothing installed.
@@ -198,6 +199,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [openclaw-install-drift-diagnostics](./openclaw-install-drift-diagnostics.md) — forced fixture-package drift through the built kit's `prepare()` retains every diagnostics field.
 - [accounts-machine-store](./accounts-machine-store.md) — one sign-in reused by a second app through `machineStore`, wrong-seal and no-store refusals.
 - [usage-planview](./usage-planview.md) — plan/quota view rendered from call records.
+- [cloud-setup-create](./cloud-setup-create.md) — a new computer through one `setup({ create })`, retry without another rental, the host's inbox and outbox helpers.
 - [cloud-status-poll](./cloud-status-poll.md) — the one status read a phone polls through the machine's whole life.
 - [cloud-snapshots](./cloud-snapshots.md) — save, prune, auto-save, reset and disk space on the cloud computer.
 - [cloud-claim](./cloud-claim.md) — account link by sign-in, spare-assertion revoke and `revokeClaim()` on the loopback bench, and the live boat.dev claim-and-revoke run.
