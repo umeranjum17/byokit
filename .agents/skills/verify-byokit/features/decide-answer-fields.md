@@ -5,6 +5,7 @@ A caller requests extra model answer keys with `answerFields`; returned values a
 ## Sub-features
 
 - The built `@byokit/decide` answerer path retains a requested `missingWidth` value through answer resolution.
+- The Jev wire sends each question's `answerFields` in its request and copies a returned requested key onto the `Answer` (`decide.test.ts`, "the Jev wire asks for a requested answer field").
 - Unrequested values and absent requested fields are not synthesized.
 
 ## How to get to it (user POV)
