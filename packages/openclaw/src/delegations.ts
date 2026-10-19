@@ -113,7 +113,8 @@ export class Delegations {
     const ref: DelegatedRun = { sessionKey: key, member, ...(p.helper !== undefined ? { helper: p.helper } : {}), runId: d.runId, agentId: p.agent,
       parent: { sessionKey: p.parent.ref.sessionKey, runId: p.parent.ref.runId }, root: p.parent.ref.root };
     const allowed = p.helper !== undefined ? p.parent.helpers![p.helper]! : p.parent.delegates[p.agent]!;
-    const grant: Grant = { ref, delegates: p.parent.delegates, ...(p.parent.helpers ? { helpers: p.parent.helpers } : {}),
+    const grant: Grant = { ref, delegates: p.parent.delegates,
+      ...(p.parent.helpers && ref.member === p.parent.ref.member ? { helpers: p.parent.helpers } : {}),
       sourceKey: p.parent.sourceKey, tools: p.parent.tools.filter(t => allowed.includes(t)) };
     // A steered/already-admitted run keeps its original parent and cannot acquire a broader grant.
     if (this.children.has(ref.runId)) { this.save(); return; }

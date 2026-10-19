@@ -174,3 +174,45 @@ test('helpers: personas on an account agent, the member agent and the plan key, 
     rmSync(stateDir, { recursive: true, force: true });
   }
 });
+
+test('helpers: a member\'s helper grant never follows a delegated child into another member\'s agent', async () => {
+  const stateDir = scratchDir('helper-grant-member');
+  const fake = fakeGateway();
+  const gated: RunRef[] = [], delegated: DelegatedEvent[] = [];
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false, callbackPort: 0,
+    tools: [{ name: 'crew_note', description: 'An app tool.', parameters: { type: 'object' } }],
+    host: { gate: async (run) => (gated.push(run), { allow: true as const }), call: async () => 'noted' } });
+  kit.onEvent('byokit.delegated', (e) => delegated.push(e));
+  try {
+    await kit.start();
+    assert.equal((await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    assert.equal((await kit.signIn('m2', { authChoice: 'openai' }, () => {}).done).state, 'done');
+    const persona = (member: string) => `You are ${member}'s writer helper.`;
+    const mine = await kit.ensureHelper('m1', 'writer', { account: 'openai', persona: persona('m1') });
+    const theirs = await kit.ensureHelper('m2', 'writer', { account: 'openai', persona: persona('m2') });
+    assert.deepEqual([mine.agentId, theirs.agentId, theirs.sessionPrefix], ['m1', 'm2', 'agent:m2:h-writer:']);
+    // m2's writer has a standing session on m2's own agent, so the send would reach it were it admitted.
+    assert.ok((await kit.run({ member: 'm2', helper: 'writer', sessionKey: 'agent:m2:h-writer:main', message: 'hi' })).ok);
+    const target = 'agent:m2:h-writer:main';
+    const send = (sessionKey: string, message: string) =>
+      `[tool sessions_send ${JSON.stringify({ sessionKey, timeoutSeconds: 0, message }).replaceAll('[tool ', '\\u005btool ')}]`;
+    assert.ok((await kit.run({ member: 'm1', sessionKey: 'agent:m1:team', tools: ['crew_note'],
+      delegates: { m2: ['crew_note'] }, helperDelegates: { writer: ['crew_note'] },
+      message: send('agent:m2:main', send(target, '[tool crew_note {}]')) })).ok);
+    type Row = { role?: string; toolName?: string; isError?: boolean; content?: { text?: string }[] };
+    const sent = async () => ((await kit.call('chat.history', { sessionKey: 'agent:m2:main', agentId: 'm2' })) as { messages?: Row[] })
+      .messages?.filter((m) => m.role === 'toolResult' && m.toolName === 'sessions_send') ?? [];
+    for (const end = Date.now() + 10_000; !(await sent()).length;) {
+      if (Date.now() > end) throw new Error('the delegated child never ran its send');
+      await delay(5);
+    }
+    const refused = (await sent())[0]!;
+    assert.equal(refused.isError, true);
+    assert.match(JSON.stringify(refused.content), /session: refused: this run may not hand work to helper writer/);
+    assert.deepEqual(delegated.filter((e) => e.type === 'admitted' && e.run.helper !== undefined), []);
+    assert.ok(!gated.some((r) => r.sessionKey === target), 'another member\'s helper ran a tool');
+  } finally {
+    await kit.stop();
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
