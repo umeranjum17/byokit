@@ -11,6 +11,7 @@ import { outputSchema, type OutputSchema, type SchemaOutput } from './output.ts'
 import { words } from './words.ts';
 import { classify } from './classify.ts';
 import { providerOf } from './pick.ts';
+import { engineId } from './accounts.ts';
 import { catalogModelOf, clampThinking, levelsOf, type CatalogModel } from './thinking.ts';
 import type { AccountPick, GatewayTransport, Member, PlanWindow, RunEnd, RunEvent, RunFrame, RunSpec, RunUsage, ThinkingReport } from './types.ts';
 
@@ -198,8 +199,16 @@ export function createRuns(ctx: {
     const idempotencyKey = spec.idempotencyKey ?? randomUUID();
     const output = preparedOutput ?? (spec.schema === undefined ? undefined : outputSchema(spec.schema));
     const system = [helper?.persona ?? spec.system, output?.prompt].filter(Boolean).join('\n\n');
-    const picked = spec.model === undefined ? undefined : account(spec.model);
-    for (const need of spec.needs ?? []) account(need);
+    let catalogs: Promise<Record<string, { models?: unknown[] }> | undefined> | undefined;
+    const accountOf = async (model: string): Promise<{ provider: string; model: string }> => {
+      const picked = account(model);
+      catalogs ??= ctx.request('config.get', {}).then(
+        (answer) => (answer as { config?: { models?: { providers?: Record<string, { models?: unknown[] }> } } }).config?.models?.providers);
+      const providers = await catalogs;
+      return { provider: picked.provider, model: engineId(picked.provider, model, providers?.[picked.provider]?.models) };
+    };
+    const picked = spec.model === undefined ? undefined : await accountOf(spec.model);
+    for (const need of spec.needs ?? []) await accountOf(need);
     for (const tool of spec.tools ?? [])
       if (!ctx.tools.has(tool)) throw new Error(`refused: "${tool}" is not one of this kit's tools`);
     // Runs step 1 (5.15): every run first finds the account its session is bound to, the API-key lane included.
@@ -266,7 +275,7 @@ export function createRuns(ctx: {
           on?.({ type: 'account', account: pick.account.id, model: pick.model, sessionKey, how: pick.how, why: pick.why, considered: pick.considered });
           if (!ready) return { ok: false, kind: 'signed-out', message: `${pick.account.name} is not signed in` };
           return await start(spec, on, { agentId: agent!, sessionKey, idempotencyKey, system,
-            picked: pick.model ? account(pick.model) : undefined, output, chosen: pick }); // '' = no override
+            picked: pick.model ? await accountOf(pick.model) : undefined, output, chosen: pick }); // '' = no override
         } finally {
           if (ctx.routes.get(spec.sessionKey) === route) ctx.routes.delete(spec.sessionKey);
         }

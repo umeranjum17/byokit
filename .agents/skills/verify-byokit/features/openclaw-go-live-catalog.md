@@ -1,12 +1,12 @@
 # OpenClaw OpenCode Go live catalog
 
-Verification recipe for [live provider catalogs](../../../../docs/runtime-kits.md#live-provider-catalogs-opencode-go) (5.6): with no model config in the app, a Go plan key makes the kit register every live Go model with its own `api`, so `models()` lists `muse-spark-1.3-contributor` and a run on it streams an answer with usage over the Responses API.
+Verification recipe for [live provider catalogs](../../../../docs/runtime-kits.md#live-provider-catalogs-opencode-go-openrouter) (5.6): with no model config in the app, a Go plan key makes the kit register every live Go model with its own `api`, so `models()` lists `muse-spark-1.3-contributor` and a run on it streams an answer with usage over the Responses API.
 
 ## Sub-features
 
 - Before a key nothing is registered; after `addAccount`/`addKey` for `opencode-go`, `models.providers['opencode-go'].models` holds the live list, Muse as `openai-responses` on `https://opencode.ai/zen/go/v1`.
 - `kit.models(member, account)` lists Muse `available`; a run on it streams text and ends `ok` with `usage`.
-- `models(member, { authChoice: 'opencode-go' })` lists the same live catalog; `addKey({ model })` saves a chosen full id; model listing and selection are Go-only, and a `model` on another route is refused before activation. A key run without `model` streams on that saved choice. An unknown choice returns `{ status: 'not_included', reason: 'model' }` and leaves no ready replacement; a chosen model the engine did not register returns `{ status: 'retry', reason: 'model' }` and seals nothing.
+- `models(member, { authChoice: 'opencode-go' })` lists the same live catalog; `addKey({ model })` saves a chosen full id; model listing and selection belong to the live-catalog routes (Go and [OpenRouter](./openclaw-openrouter-key-model.md)), and a `model` on another route is refused before activation. A key run without `model` streams on that saved choice. An unknown choice returns `{ status: 'not_included', reason: 'model' }` and leaves no ready replacement; a chosen model the engine did not register returns `{ status: 'retry', reason: 'model' }` and seals nothing.
 - `run({ auth: 'apiKey', model })` takes any model of the key's provider; another provider ends `plan`.
 - `addKey` failures use typed `status` and `reason`, never raw diagnostics: `auth`, `billing`, `empty`, `model`, `network`, `inference`, `engine`, `busy`. The existing public-kit key-entry journey (`packages/openclaw/test/kit.test.ts`) injects typed probe statuses/transport codes carrying a canary and checks each reason and no secret.
 - After `addKey`, `signedIn(member, 'opencode-go')` is true while `providers(member)` stays the member's own sign-ins; live, a second member's key run on Muse streams with usage.

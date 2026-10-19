@@ -19,6 +19,19 @@ import { words } from './words.ts';
 import type { Account, AccountId, AccountPick, Defaults, GatewayTransport, Member, ModelInfo, MoveResult, Room, RoomSpan, RunSelection, SignInOptions, SignInState, SignInView } from './types.ts';
 
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+// A provider-local engine model id as the kit's `provider/model` reference; an id already prefixed with its own
+// provider is left alone.
+export const kitId = (provider: string, id: string): string =>
+  providerOf(id) === provider.toLowerCase() ? id : `${provider}/${id}`;
+// The engine's provider-local id for a kit `provider/model` reference, resolved against that provider's rows.
+export const engineId = (provider: string, model: string, rows: readonly unknown[] | undefined): string => {
+  for (const row of rows ?? []) {
+    if (!record(row) || typeof row.id !== 'string') continue;
+    if (row.provider !== undefined && String(row.provider).toLowerCase() !== provider.toLowerCase()) continue;
+    if (kitId(provider, row.id) === model) return row.id;
+  }
+  return model.slice(model.indexOf('/') + 1);
+};
 // `models.list { agentId, view: 'all' }` rows of the account's provider, mapped to `provider/model`. The pin
 // reports no per-plan availability, so `why: 'plan'` only comes from a run ending `plan`, never from here.
 export const modelsOf = (provider: string, answer: unknown): ModelInfo[] => {
@@ -28,7 +41,7 @@ export const modelsOf = (provider: string, answer: unknown): ModelInfo[] => {
     if (!record(candidate) || typeof candidate.provider !== 'string'
       || candidate.provider.toLowerCase() !== provider.toLowerCase()) continue;
     if (typeof candidate.id !== 'string' || !candidate.id || typeof candidate.name !== 'string') continue;
-    const id = candidate.id.includes('/') ? candidate.id : `${candidate.provider}/${candidate.id}`;
+    const id = kitId(candidate.provider, candidate.id);
     if (providerOf(id) !== provider.toLowerCase()) continue;
     const available = candidate.available === undefined
       ? candidate.unavailableReason === undefined : candidate.available === true;
@@ -749,13 +762,18 @@ export function createAccounts(ctx: {
       if (taken.key !== undefined) return failed('start_failed', words('move.taken', { name: row.name }));
       // The session's model when the target lists it, else the target's first available; the read takes no shared
       // hold (this move holds the target exclusively). With no answer the fork keeps the parent's own selection.
-      const models = await ctx.request('models.list', { agentId: entry.agent, view: 'all' })
-        .then((answer) => modelsOfAccount(row, answer), () => []);
+      const answer = await ctx.request('models.list', { agentId: entry.agent, view: 'all' }).catch(() => undefined);
+      const models = answer === undefined ? [] : modelsOfAccount(row, answer);
+      const sessionProvider = typeof session.modelProvider === 'string' ? session.modelProvider.toLowerCase() : undefined;
       const current = typeof session.model !== 'string' ? undefined
-        : (typeof session.modelProvider === 'string' && !session.model.includes('/') ? `${session.modelProvider}/${session.model}` : session.model).toLowerCase();
+        : (sessionProvider === undefined ? session.model : kitId(sessionProvider, session.model)).toLowerCase();
       const model = models.find((m) => m.id.toLowerCase() === current)?.id ?? models.find((m) => m.available)?.id;
+      const rows = record(answer) && Array.isArray(answer.models) ? answer.models : [];
+      const local = model === undefined ? undefined : engineId(row.provider, model, rows);
+      const ref = model === undefined || local === undefined ? undefined
+        : providerOf(model) === row.provider ? `${row.provider}/${local}` : model;
       try {
-        await ctx.request('sessions.create', { agentId: entry.agent, key: into, parentSessionKey: from, fork: true, ...(model ? { model } : {}) });
+        await ctx.request('sessions.create', { agentId: entry.agent, key: into, parentSessionKey: from, fork: true, ...(ref ? { model: ref } : {}) });
       } catch (error) {
         return failed('start_failed', (error instanceof Error ? error.message : String(error)).slice(0, 200));
       }

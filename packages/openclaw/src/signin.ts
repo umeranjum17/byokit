@@ -5,7 +5,6 @@ import type { remoteCliHost } from '@byokit/accounts/cli';
 import { createServer, type Server } from 'node:http';
 import { activate, LATE_RESTART } from './activation.ts';
 import { authStatus } from './auth-status.ts';
-import { LIVE_CATALOGS } from './constants.ts';
 import { routes } from './routes.ts';
 import { signedInProviders } from './runs.ts';
 import { words } from './words.ts';
@@ -27,10 +26,10 @@ export type SignInCtx = {
   stopSignal?: AbortSignal;
   // A further account of a provider the member already holds (5.15): its sign-in must not reuse the browser's session.
   fresh?: boolean;
-  // A live-catalog key's workspace rides the provider's config headers (`null` clears): written before the
+  // A Go key's workspace rides the provider's config headers (`null` clears): written before the
   // activation so the engine's own probe carries it, the same slot the kit's key lane writes.
   setProviderHeaders?(provider: string, headers: Record<string, string> | null): Promise<void>;
-  // The workspaces a pasted live-catalog key can act for (the kit always names one; omitted by direct
+  // The workspaces a pasted Go key can act for (the kit always names one; omitted by direct
   // engine-test ctxs, whose keyEntry sign-ins then carry no workspace, as before).
   listWorkspaces?(key: string, signal: AbortSignal): Promise<{ id: string; name: string }[]>;
 };
@@ -294,13 +293,13 @@ export function signIn(
         returned = undefined;
         if (!apiKey) return { state: 'failed', via, why: signal.aborted ? 'declined' : 'expired' };
         secret = apiKey.trim() || undefined;
-        // A live-catalog key can act for several workspaces, and the Go gateway refuses every call until one is
+        // A Go key can act for several workspaces, and the Go gateway refuses every call until one is
         // named (403 Workspace selection is required): the engine carries the workspace only from its provider
         // config headers, so resolve it here the way the kit's key lane does, and write the header before the
         // activation so the activation probe itself carries it. One workspace is used unasked; several ask here,
         // answered through the same paste (an id or an exact name); a key the console refuses (a workspace-bound
         // service key) needs none; a listing that cannot be read fails the sign-in before anything changes.
-        if (secret && keyRoute && LIVE_CATALOGS.includes(keyRoute.provider) && ctx.setProviderHeaders && ctx.listWorkspaces) {
+        if (secret && keyRoute?.provider === 'opencode-go' && ctx.setProviderHeaders && ctx.listWorkspaces) {
           let workspaces: { id: string; name: string }[];
           try {
             workspaces = await ctx.listWorkspaces(secret, signal);

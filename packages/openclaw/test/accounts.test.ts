@@ -1627,7 +1627,8 @@ test('move: the transcript forks onto the target and the source goes; busy, star
     assert.deepEqual(await kit.move(ref, second.id), { ok: true, session: `agent:${agent}:chat:1` });
     // One fork into the target (never chat.history plus chat.inject), then the source's delete if it is still the one read.
     assert.deepEqual(sent(from, 'chat.history', 'chat.inject', 'sessions.create', 'sessions.delete').map((c) => [c.method, c.params]), [
-      ['sessions.create', { agentId: agent, key: `agent:${agent}:chat:1`, parentSessionKey: 'agent:m1:chat:1', fork: true, model: 'openai/default' }],
+      ['sessions.create', { agentId: agent, key: `agent:${agent}:chat:1`, parentSessionKey: 'agent:m1:chat:1', fork: true,
+        model: 'openai/openai/default' }],
       ['sessions.delete', { key: 'agent:m1:chat:1', agentId: 'm1', deleteTranscript: true,
         expectedSessionId: source!.sessionId, expectedSessionUpdatedAt: source!.updatedAt }],
     ]);

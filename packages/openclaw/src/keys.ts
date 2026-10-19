@@ -5,8 +5,8 @@ import { activate, type ActivationCtx } from './activation.ts';
 import { keyAgentId, MEMBER_ID, KEY_PREFIX, untilListed } from './members.ts';
 import { providerOf } from './pick.ts';
 import type { RouteView } from './routes.ts';
-import { modelsOf } from './accounts.ts';
-import { LIVE_CATALOGS } from './constants.ts';
+import { kitId, modelsOf } from './accounts.ts';
+import { LIVE_CATALOGS, REGISTERED_CATALOGS } from './constants.ts';
 import type { Member, ModelInfo } from './types.ts';
 
 // retry: the engine may have taken the key but it was not kept; the unsealed key is cleared best-effort. If that clear
@@ -32,9 +32,11 @@ export function createKeys(ctx: ActivationCtx & {
   indexLane(member: Member, route: RouteView): Promise<void>;
   dropLane(member: Member, provider?: string): Promise<void>;
   backfillLane(member: Member, model: string | undefined): Promise<void>;
-  /** The provider config headers a live-catalog key's calls and probes must carry (`null` clears them),
+  /** The provider config headers a Go key's calls and probes must carry (`null` clears them),
    *  written through the kit's own config patch. The Go workspace header is the one user. */
   setProviderHeaders(provider: string, headers: Record<string, string> | null): Promise<void>;
+  /** Adds catalog rows to the engine's `models.providers[provider].models`, serialized with catalog sync. */
+  registerModels(provider: string, rows: Record<string, unknown>[]): Promise<void>;
 }) {
   // Serialize key replacement and key runs, so an in-flight run never sees a half-installed replacement.
   const tails = new Map<string, Promise<unknown>>();
@@ -70,7 +72,7 @@ export function createKeys(ctx: ActivationCtx & {
   const registered = async (provider: string, model: string): Promise<boolean> => {
     const { config } = await ctx.request('config.get') as
       { config?: { models?: { providers?: Record<string, { models?: { id: string }[] }> } } };
-    return Boolean(config?.models?.providers?.[provider]?.models?.some((m) => `${provider}/${m.id}` === model));
+    return Boolean(config?.models?.providers?.[provider]?.models?.some((m) => kitId(provider, m.id) === model));
   };
   const errorReason = (error: unknown, sent: boolean): KeyFailureReason => {
     if (transient(error)) return 'busy';
@@ -79,16 +81,42 @@ export function createKeys(ctx: ActivationCtx & {
     return ['ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'ETIMEDOUT', 'CLIENT_TIMEOUT', 'NETWORK_ERROR'].includes(e?.code ?? '')
       || e?.name === 'TimeoutError' ? 'network' : 'engine';
   };
+  // The engine writes a Google preview id without its `-preview` suffix, so the kit names the id it keeps.
+  const canonical = (id: string): string => id.startsWith('google/') && id.endsWith('-preview')
+    ? id.slice(0, -'-preview'.length) : id;
+  const canonicalModel = (model: string): string => {
+    const at = model.indexOf('/');
+    return at < 0 ? model : `${model.slice(0, at)}/${canonical(model.slice(at + 1))}`;
+  };
+  // The live catalog's rows, as the engine registers them (provider-local ids, deduped by the id it keeps).
+  const catalog = async (member: Member, provider: string): Promise<Record<string, unknown>[]> => {
+    await ctx.ensure(member);
+    const answer = await ctx.request('byokit.catalog', { provider }) as
+      { ok: boolean; reason?: string; models?: Record<string, unknown>[] };
+    if (!answer.ok) {
+      if (answer.reason !== 'no-key') throw new Error('Model catalog is unavailable.');
+      return [];
+    }
+    const rows = (answer.models ?? []).map((m) => ({ ...m, id: canonical(String(m.id)) }));
+    return [...new Map(rows.map((m) => [String(m.id), m])).values()];
+  };
+  const listed = (provider: string, rows: Record<string, unknown>[]): ModelInfo[] =>
+    modelsOf(provider, { models: rows.map((m) => ({ ...m, provider })) });
   const models = async (member: Member, o: { authChoice: string }): Promise<ModelInfo[]> => {
     if (!check(member)) throw new Error('Choose your own member.');
     const route = ctx.routes().find((r) => r.choice === o.authChoice && r.keyEntry && r.readiness === 'ready');
     if (!route || !LIVE_CATALOGS.includes(route.provider)) return [];
-    await ctx.ensure(member);
-    const catalog = await ctx.request('byokit.catalog', { provider: route.provider }) as
-      { ok: boolean; reason?: string; models?: Record<string, unknown>[] };
-    if (catalog.ok) return modelsOf(route.provider, { models: catalog.models?.map((m) => ({ ...m, provider: route.provider })) });
-    if (catalog.reason !== 'no-key') throw new Error('Model catalog is unavailable.');
-    return [];
+    try { return listed(route.provider, await catalog(member, route.provider)); }
+    catch (error) {
+      // The engine answers `failed` when no agent holds a key: a lane without the provider's profile lists nothing,
+      // a saved one is a real failure.
+      const held = await ctx.request('models.authStatus', { agentId: keyAgentId(member) }).then((answer) => {
+        const rows = (answer as { providers?: ({ provider?: string } | string)[] }).providers ?? [];
+        return rows.some((row) => (typeof row === 'string' ? row : row?.provider) === route.provider);
+      }, () => undefined);
+      if (held !== false) throw error;
+      return [];
+    }
   };
   return {
     models,
@@ -101,12 +129,13 @@ export function createKeys(ctx: ActivationCtx & {
         if (!o.apiKey.trim()) return failure('invalid', 'empty');
         const route = ctx.routes().find((r) => r.choice === o.authChoice && r.keyEntry && r.readiness === 'ready');
         if (!route || (o.model !== undefined && !LIVE_CATALOGS.includes(route.provider))) return failure('not_included', 'model');
-        // A workspace names a live-catalog login's own workspace only; another route takes no header, and a
+        const model = o.model === undefined ? undefined : canonicalModel(o.model);
+        // A workspace names a Go login's own workspace only; another route takes no header, and a
         // refusal here leaves the member's lanes untouched (it lands before any prepare or activation).
         let orgId = typeof o.orgId === 'string' ? o.orgId.trim() : '';
         if (orgId) {
           if (orgId.length > 256) return failure('invalid', 'auth');
-          if (!LIVE_CATALOGS.includes(route.provider)) return failure('not_included', 'model');
+          if (route.provider !== 'opencode-go') return failure('not_included', 'model');
         } else if (route.provider === 'opencode-go') {
           // The Go gateway refuses a login acting for several workspaces until one is named (403 Workspace selection
           // is required), so an add without `orgId` lists the key's own (the console listing `@byokit/accounts` uses):
@@ -158,7 +187,7 @@ export function createKeys(ctx: ActivationCtx & {
             if (orgId) {
               await ctx.setProviderHeaders(route.provider, { 'x-opencode-org-id': orgId });
               wroteHeader = true;
-            } else if (LIVE_CATALOGS.includes(route.provider)) {
+            } else if (route.provider === 'opencode-go') {
               await ctx.setProviderHeaders(route.provider, null);
               wroteHeader = true;
             }
@@ -170,15 +199,19 @@ export function createKeys(ctx: ActivationCtx & {
             if (ac.signal.aborted) return abandon(cancelled());
             if (!result.ok && !result.late) return abandon(probeResult(result.status));
             if (result.late) return abandon(failure('retry', 'busy'));
-            if (o.model !== undefined && !(await models(member, o)).some((m) => m.id === o.model && m.available))
+            const rows = model === undefined ? [] : await catalog(member, route.provider);
+            if (model !== undefined && !listed(route.provider, rows).some((m) => m.id === model && m.available))
               return abandon(failure('not_included', 'model'));
             // Prepare before publishing the ready marker: failed preparation remains unusable even if clear fails.
             try { await ctx.prepareOwner(agentId); }
             catch { return abandon(failure('retry', 'engine')); }
             if (ac.signal.aborted) return abandon(cancelled());
-            if (o.model !== undefined && LIVE_CATALOGS.includes(route.provider) && !(await registered(route.provider, o.model)))
+            // A live catalog the kit does not register whole (OpenRouter) registers the chosen model alone.
+            if (model !== undefined && !REGISTERED_CATALOGS.includes(route.provider))
+              await ctx.registerModels(route.provider, rows.filter((m) => kitId(route.provider, String(m.id)) === model)).catch(() => {});
+            if (model !== undefined && LIVE_CATALOGS.includes(route.provider) && !(await registered(route.provider, model)))
               return abandon(failure('retry', 'model'));
-            if (!(await control(member, 'seal', undefined, o.model)).ok) return abandon(failure('retry', 'engine'));
+            if (!(await control(member, 'seal', undefined, model)).ok) return abandon(failure('retry', 'engine'));
             await ctx.indexLane(member, route);
             return { status: 'ok' };
           } catch (error) {
@@ -224,7 +257,7 @@ export function createKeys(ctx: ActivationCtx & {
         const cleared = await control(member, 'clear').catch(() => undefined);
         if (cleared?.ok !== true && cleared?.absent !== true) refused();
         // A workspace header the removed key named must not outlive it; the next add names its own (or none).
-        if (o.provider !== undefined && LIVE_CATALOGS.includes(o.provider))
+        if (o.provider === 'opencode-go')
           await ctx.setProviderHeaders(o.provider, null).catch(() => { throw new Error('The key could not be removed.'); });
         await ctx.dropLane(member, o.provider);
       });

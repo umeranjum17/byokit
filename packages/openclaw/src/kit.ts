@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isDeepStrictEqual } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { PROTOCOL_VERSION, LIVE_CATALOGS } from './constants.ts';
+import { PROTOCOL_VERSION, REGISTERED_CATALOGS } from './constants.ts';
 import { atomic } from './engine-patches.ts';
 import { Approvals } from './approvals.ts';
 import { Bridge } from './bridge.ts';
@@ -105,7 +105,7 @@ export type KitOptions = {
   // and bridge still happen)
   onState?: (s: KitState) => void;
   log?: (line: string) => void;
-  // Where a live-catalog key's workspace listing comes from (the console read a multi-workspace key needs
+  // Where a Go key's workspace listing comes from (the console read a multi-workspace key needs
   // before the workspace header can be written). Default: `@byokit/accounts`'s console listing. Tests and
   // offline fakes name their own.
   listWorkspaces?: (key: string, signal: AbortSignal) => Promise<{ id: string; name: string }[]>;
@@ -743,7 +743,12 @@ export class OpenClawKit {
       ensure: (member) => this.ensureMember(member),
       authConfig: () => this.authSnapshot(),
       restarted: (authBefore, signal) => this.restarted(authBefore, signal),
-      setProviderHeaders: (provider, headers) => this.patchConfig({ models: { providers: { [provider]: { headers: headers ?? null } } } }) });
+      setProviderHeaders: (provider, headers) => this.patchConfig({ models: { providers: { [provider]: { headers: headers ?? null } } } }),
+      registerModels: (provider, rows) => {
+        const done = this.catalogs.then(() => this.registerModels(provider, rows as { id: string }[]));
+        this.catalogs = done.catch(() => {});
+        return done;
+      } });
     const slot: { bridge?: Pick<Bridge, 'resolveAsk'> } = {};
     this.approvalsCtl = new Approvals({
       request: (method, params, co) => this.request()(method, params, co),
@@ -1313,7 +1318,7 @@ export class OpenClawKit {
   // embedded runs resolve it. Serialized and in the background; a failure is logged and keeps the registered list.
   private syncCatalogs(): void {
     type Providers = { models?: { providers?: Record<string, { models?: { id: string }[] }> } };
-    for (const provider of LIVE_CATALOGS) {
+    for (const provider of REGISTERED_CATALOGS) {
       if ((this.o.config as Providers | undefined)?.models?.providers?.[provider]?.models !== undefined) continue;
       this.catalogs = this.catalogs.then(async () => {
         const answer = await this.request()('byokit.catalog', { provider }) as { ok?: boolean; reason?: string; models?: { id: string }[] };
@@ -1321,14 +1326,20 @@ export class OpenClawKit {
           if (answer.reason !== 'no-key') this.o.log?.(`catalog sync ${provider}: ${answer.reason ?? 'failed'}`);
           return;
         }
-        const { config } = await this.request()('config.get') as { config?: Providers };
-        const registered = config?.models?.providers?.[provider]?.models ?? [];
-        const byId = new Map(registered.map((m) => [m.id, m]));
-        for (const m of answer.models ?? []) byId.set(m.id, m);
-        const models = [...byId.values()];
-        if (!isDeepStrictEqual(models, registered)) await this.patchConfig({ models: { providers: { [provider]: { models } } } });
+        await this.registerModels(provider, answer.models ?? []);
       }).catch(() => { if (this.current.phase === 'ready') this.o.log?.(`catalog sync ${provider}: failed`); });
     }
+  }
+
+  // Merges catalog rows into the registered list by id; an unchanged list is never rewritten.
+  private async registerModels(provider: string, rows: { id: string }[]): Promise<void> {
+    type Providers = { models?: { providers?: Record<string, { models?: { id: string }[] }> } };
+    const { config } = await this.request()('config.get') as { config?: Providers };
+    const registered = config?.models?.providers?.[provider]?.models ?? [];
+    const byId = new Map(registered.map((m) => [m.id, m]));
+    for (const m of rows) byId.set(m.id, m);
+    const models = [...byId.values()];
+    if (!isDeepStrictEqual(models, registered)) await this.patchConfig({ models: { providers: { [provider]: { models } } } });
   }
 
   migrateRetainedLogin(member: Member, source: RetainedLogin): Promise<'staged' | 'nothing' | 'failed'> {
