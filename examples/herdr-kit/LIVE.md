@@ -21,9 +21,11 @@ person's own Herdr, HOME or agent sign-ins.
    sign-in folder. If the provider requires human consent, pause with its URL and code; never copy a person's
    existing sign-in or type their password.
 6. From the phone: send a message, see the reply on the agent's screen, see `Ready for you` again.
-7. Ask the agent for something that needs permission; answer from **Questions for you** with each of the key
-   buttons at least once over the run (`Enter`, `y`, `n`, `Esc`: the app sends Herdr the key names `Enter`, `y`,
-   `n`, `Escape`); the question leaves the list and the agent carries on.
+7. Ask the agent for something that needs permission; answer from **Questions for you** with each of the three
+   buttons at least once over the run: **Allow** (`y`), **Deny** (`n`) and **Skip** (`Escape`), the keys the app
+   sends Herdr; the question leaves the list and the agent carries on. A question reaches that list only when the
+   agent's Herdr detection profile has a `blocked` rule, so this step needs a kind that has one; a kind whose
+   profile has none can never show a question, however its own screen looks.
 8. Restart `npm start`: the phone reconnects without pairing again; the agent's sign-in is still there.
    Once over `--via lan` too (plain http): pair, reload the page, still paired.
 9. Screenshot each step on the phone; record the results below and in the PR. Stop the example, tear down only
@@ -35,6 +37,7 @@ person's own Herdr, HOME or agent sign-ins.
 |---|---|---|---|---|---|---|---|
 | 2026-09-29 | 0.1.0 (RC, this tree) | 0.9.1 (`2a02fed1…5c54b7`, matches `packages/herdr/schema/SOURCE.md`) | none — skipped, see §5 | lan (app boot) + loopback (H7 link proof) | 1, 2, 3 (boot only) | none — no phone in the lab | Lab run under a `--herdr-lab` brief; the machine's `default` session verified unchanged at teardown. Phone/agent steps skipped with reasons below. |
 | 2026-10-04 | 0.7.0 (this tree, `0913c2d2`) | 0.9.1 (`2a02fed1…5c54b7`, published asset, unmodified) | none — no agent started, see step 5 | lan (app boot) + guarded named session, `adopt` mode | 1, 2, 3 (boot only), 9 | none — the run stopped before the phone steps | Boot proof only: the example adopted an externally managed session instead of owning its lifecycle. Steps 4–8 have written reasons below. |
+| 2026-10-19 | none — no kit build (agent leg only) | 0.9.1, agent manifest for `pi` 2026.10.01.1 (remote) | `pi` on `deepseek/deepseek-flash` | none | none | none — no question appeared | Step 7 not reached: the sanctioned agent kind cannot report a question, so the buttons were not exercised. Reasons below. |
 
 ### 2026-10-04 run notes (0.7.0 against published Herdr 0.9.1, guarded named session)
 
@@ -97,3 +100,24 @@ What did not pass, and why:
   human login. The pinned schema offers no unsigned custom kind (`agent start --help` lists
   `pi` among possible values, no `bash`), so no agent path exists that avoids a sign-in.
   The lab contract run records the same skips with the same reason.
+
+### 2026-10-19 run notes (step 7, agent leg only — not reached)
+
+This run was scoped to step 7 with a cheap, non-Claude agent, and it stopped at the agent leg. Nothing about the
+question card is proven by it; the two reasons below are detection and sign-in limits, not a failing button.
+
+- Three lab sessions (helper-generated `fm-lab-…` names) started `pi` as a Herdr agent in a pane:
+  `herdr agent start pilab --kind pi --pane w1:p1 -- --model deepseek/deepseek-flash`. Every Herdr call went
+  through the guarded helper and every teardown exited 0 with the fleet `default` session unchanged.
+- The kind cannot report a question. Herdr 0.9.1's `pi` detection profile has two `working` rules and zero
+  `blocked` rules — in the binary's embedded manifest (2026.09.14.1) and in the remote manifest the lab actually
+  used (`https://herdr.dev/agent-detection/pi.toml`, 2026.10.01.1, the version `herdr agent explain` reports as
+  `cached_remote_version`). A real pi dialog sat on the pane for 14 s — `Trust project folder?` with its
+  `↑↓ navigate  enter select` hint — while `herdr agent list` reported the pane `unknown`, then `idle`, then
+  `idle`: never `blocked`, so **Questions for you** could never list it and no key could clear it.
+- The lab home has no pi sign-in, and copying one in is not allowed. The prompt did reach the model call, which
+  answered on the pane: `Error: No API key found for deepseek.` / `Use /login to log into a provider via OAuth or
+  API key.` Nothing ran — no file was created and the pane stayed `idle`.
+- No key was pressed and no screenshot is claimed. The 0.9.1 profiles whose `blocked` rule is a tool-permission
+  dialog that binds these keys are Claude's and Cursor's; Claude is out of scope for this lane and Cursor is over
+  its weekly quota.
