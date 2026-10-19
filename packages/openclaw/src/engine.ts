@@ -296,6 +296,91 @@ export class Engine {
     });
   }
   private get path() { return ['/usr/bin', '/bin', ...this.o.enginePath ?? []].join(':'); }
+  private async runOwned(binary: string, args: string[], env: NodeJS.ProcessEnv, timeoutMs: number, input?: string): Promise<{ code: number | null; output: string }> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(binary, args, { cwd: this.root, env, stdio: ['pipe', 'pipe', 'pipe'] });
+      let output = '', timedOut = false;
+      this.started.add(child);
+      const keep = (chunk: Buffer) => { output = (output + chunk.toString()).slice(-65_536); };
+      child.stdout.on('data', keep); child.stderr.on('data', keep);
+      const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
+      child.once('error', error => { clearTimeout(timer); this.started.forget(child); reject(error); });
+      child.once('close', code => { clearTimeout(timer); this.started.forget(child); resolve({ code: timedOut ? null : code, output }); });
+      child.stdin.end(input);
+    });
+  }
+  private composioMcpLogin?: { url: Promise<string>; done: Promise<{ code: number | null; output: string }>; child: ChildProcess };
+  private composioMcpContext() {
+    const { entry, env: inherited } = this.doctorContext();
+    const home = join(this.root, 'home');
+    return { entry, env: { ...inherited, HOME: home, XDG_CONFIG_HOME: join(home, '.config'),
+      XDG_DATA_HOME: join(home, '.local/share'), XDG_STATE_HOME: join(home, '.local/state') } };
+  }
+  beginComposioMcpLogin(): Promise<{ url: string }> {
+    if (this.composioMcpLogin) throw new Error('Composio MCP sign-in is already pending.');
+    const { entry, env } = this.composioMcpContext();
+    const child = spawn(process.execPath, [entry, 'mcp', 'login', 'composio'], {
+      cwd: join(this.root, 'home'), env, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    this.started.add(child);
+    let output = '', urlFound = false;
+    let resolveUrl!: (value: string) => void, rejectUrl!: (error: Error) => void;
+    let resolveDone!: (value: { code: number | null; output: string }) => void;
+    const url = new Promise<string>((resolve, reject) => { resolveUrl = resolve; rejectUrl = reject; });
+    const done = new Promise<{ code: number | null; output: string }>(resolve => { resolveDone = resolve; });
+    const timer = setTimeout(() => { child.kill('SIGKILL'); rejectUrl(new Error('OpenClaw MCP login did not return an authorization URL.')); }, 30_000);
+    const capture = (chunk: Buffer) => {
+      output = (output + chunk.toString()).slice(-65_536);
+      const raw = output.match(/https:\/\/[^\s"'<>]+/)?.[0];
+      if (!raw || urlFound) return;
+      try {
+        const parsed = new URL(raw);
+        if (parsed.protocol !== 'https:' || !['connect.composio.dev', 'login.composio.dev'].includes(parsed.hostname)
+          || parsed.username || parsed.password) throw new Error('OpenClaw returned an unsafe Composio OAuth URL.');
+        urlFound = true; clearTimeout(timer); resolveUrl(parsed.href);
+      } catch (error) { clearTimeout(timer); rejectUrl(error as Error); child.kill('SIGKILL'); }
+    };
+    child.stdout.on('data', capture); child.stderr.on('data', capture);
+    child.once('error', error => {
+      clearTimeout(timer); rejectUrl(error); this.started.forget(child);
+      if (this.composioMcpLogin?.done === done && !urlFound) this.composioMcpLogin = undefined;
+      resolveDone({ code: null, output });
+    });
+    child.once('close', code => {
+      clearTimeout(timer); this.started.forget(child);
+      if (!urlFound) {
+        rejectUrl(new Error(`OpenClaw MCP login exited before authorization URL (exit ${code}).`));
+        if (this.composioMcpLogin?.done === done) this.composioMcpLogin = undefined;
+      }
+      resolveDone({ code, output });
+    });
+    this.composioMcpLogin = { url, done, child };
+    return url.then(value => ({ url: value }));
+  }
+  async completeComposioMcpLogin(): Promise<void> {
+    const pending = this.composioMcpLogin;
+    if (!pending) throw new Error('No Composio MCP sign-in is pending.');
+    try {
+      await pending.url;
+      let timer!: NodeJS.Timeout;
+      const timedOut = new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 10 * 60_000); timer.unref(); });
+      const result = await Promise.race([pending.done, timedOut]);
+      clearTimeout(timer);
+      if (!result) {
+        pending.child.kill('SIGKILL'); await pending.done;
+        throw new Error('Composio MCP sign-in timed out.');
+      }
+      if (result.code !== 0) throw new Error(`Composio MCP sign-in did not complete (OpenClaw exit ${result.code}).`);
+    } finally {
+      if (this.composioMcpLogin?.done === pending.done) this.composioMcpLogin = undefined;
+    }
+  }
+  async signOutComposio(): Promise<void> {
+    if (this.composioMcpLogin) throw new Error('Cannot sign out while Composio MCP sign-in is pending.');
+    const { entry, env } = this.composioMcpContext();
+    const result = await this.runOwned(process.execPath, [entry, 'mcp', 'logout', 'composio'], env, 30_000);
+    if (result.code !== 0) throw new Error(`Composio MCP sign-out failed (OpenClaw exit ${result.code}).`);
+  }
   // The engine's own Claude folder: the fallback login writes it and, only with claudeFallback, the gateway reads it.
   private get claudeFolder() { return join(this.root, 'home', '.claude'); }
   doctorContext(): { entry: string; env: Record<string, string> } {
@@ -305,7 +390,8 @@ export class Engine {
       OPENCLAW_STATE_DIR: join(this.root, 'state'), OPENCLAW_CONFIG_PATH: join(this.root, 'openclaw.json'),
       // Upstream eagerly imports/refreshes Codex OAuth. Only the CLI may see the person's login.
       CODEX_HOME: join(home, '.codex'),
-      XDG_CACHE_HOME: join(home, '.cache'), ...this.claudeFallback ? { CLAUDE_CONFIG_DIR: this.claudeFolder } : {},
+      XDG_CACHE_HOME: join(home, '.cache'),
+      ...this.claudeFallback ? { CLAUDE_CONFIG_DIR: this.claudeFolder } : {},
       TMPDIR: join(this.root, 'tmp'), npm_config_cache: join(this.root, 'npm-cache'), npm_config_userconfig: join(this.root, 'npmrc'),
       OPENCLAW_NO_RESPAWN: '1', OPENCLAW_SKIP_CHANNELS: '1', OPENCLAW_DISABLE_BONJOUR: '1',
       OPENCLAW_EXEC_SHELL_SNAPSHOT: '0', OPENCLAW_LOAD_SHELL_ENV: '0', OPENCLAW_GATEWAY_TOKEN: this.token,
@@ -540,6 +626,7 @@ export class Engine {
     await this.starting?.catch(() => {});
     const child = this.child;
     await this.started.terminate(delay);
+    this.composioMcpLogin = undefined;
     if (child && child.exitCode === null && child.signalCode === null) throw new Error('engine did not stop; credential store still in use');
     this.child = undefined;
     this.removeOwnedPid(child?.pid);

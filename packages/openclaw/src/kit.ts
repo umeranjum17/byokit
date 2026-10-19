@@ -1073,6 +1073,20 @@ export class OpenClawKit {
     return routeTable({ plugins: installedPlugins(this.engine.root) });
   }
 
+  /** Start Composio's hosted MCP OAuth flow through the pinned engine; return the URL for the app to open. */
+  async beginComposioSignIn(): Promise<{ url: string }> {
+    await this.patchConfig({ mcp: { servers: { composio: {
+      url: 'https://connect.composio.dev/mcp', transport: 'streamable-http', auth: 'oauth', enabled: true,
+    } } } });
+    return this.engine.beginComposioMcpLogin();
+  }
+
+  /** Wait for OpenClaw's native MCP OAuth callback and token exchange to finish. */
+  completeComposioSignIn(): Promise<void> { return this.engine.completeComposioMcpLogin(); }
+
+  /** Clear the engine-owned native MCP OAuth credential for Composio. */
+  signOutComposio(): Promise<void> { return this.engine.signOutComposio(); }
+
   /** B7 (5.7): install one external provider plugin a `needs_plugin` route names into this kit's own engine, at its
    * pin; resolves once the restarted gateway lists it enabled at that version. Discovery never installs. Serialized:
    * concurrent installs would race the allow-list update and double-spawn the installer into one engine tree. */
