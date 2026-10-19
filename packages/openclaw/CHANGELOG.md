@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.18.3 (2026-10-19)
+
+- A signed-in Claude Code login is an account in the kit's account list, and its Claude CLI route's models are listed under it.
+
 ## 0.18.2 (2026-10-19)
 
 - A signed-in ChatGPT login lists the Codex CLI route's models in the account model list, marked available.
