@@ -690,6 +690,10 @@ test('a funded OpenRouter key takes the model the person chooses from its live c
   assert.equal((await kit.run({ member: 'm1', sessionKey: 'agent:m1:preview', auth: 'apiKey', message: 'Hi' })).ok, true);
   assert.equal((fake.calls.findLast((c) => c.method === 'agent')?.params as Record<string, unknown>).model,
     'google/gemini-3.1-flash-lite');
+  // A row whose id already begins with its provider runs on the engine id it names, not a stripped one.
+  assert.deepEqual(await kit.addKey('m1', { authChoice: 'openrouter-api-key', apiKey: key, model: 'openrouter/auto' }), { status: 'ok' });
+  assert.equal((await kit.run({ member: 'm1', sessionKey: 'agent:m1:auto', auth: 'apiKey', message: 'Hi' })).ok, true);
+  assert.equal((fake.calls.findLast((c) => c.method === 'agent')?.params as Record<string, unknown>).model, 'openrouter/auto');
   assert.deepEqual(await kit.addKey('m2', { authChoice: 'openrouter-api-key', apiKey: key, model: 'openrouter/not/a-model' }),
     { status: 'not_included', reason: 'model' }, 'a model the catalog does not list is still refused');
   assert.deepEqual(await kit.addKey('m2', { authChoice: 'openrouter-api-key', apiKey: key, model: chosen, orgId: 'org-umer' }),
@@ -703,6 +707,9 @@ test('a failed catalog lists nothing before a key is saved and refuses once one 
   assert.deepEqual(await kit.addKey('m1', { authChoice: 'openrouter-api-key', apiKey: 'CANARY-OPENROUTER-FAILED' }), { status: 'ok' });
   await assert.rejects(kit.models('m1', { authChoice: 'openrouter-api-key' }), /Model catalog is unavailable\./,
     'a saved key with a failed catalog is a real error');
+  fake.handle('models.authStatus', () => { throw new Error('gateway restarting'); });
+  await assert.rejects(kit.models('m1', { authChoice: 'openrouter-api-key' }), /Model catalog is unavailable\./,
+    'an unreadable probe never fakes an empty list');
 }));
 
 test('Go listing before a key is saved is empty and queries no agent',async () => withKit(async (kit, fake) => {

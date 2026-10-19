@@ -113,8 +113,8 @@ export function createKeys(ctx: ActivationCtx & {
       const held = await ctx.request('models.authStatus', { agentId: keyAgentId(member) }).then((answer) => {
         const rows = (answer as { providers?: ({ provider?: string } | string)[] }).providers ?? [];
         return rows.some((row) => (typeof row === 'string' ? row : row?.provider) === route.provider);
-      }, () => false);
-      if (held) throw error;
+      }, () => undefined);
+      if (held !== false) throw error;
       return [];
     }
   };
