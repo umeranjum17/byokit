@@ -1412,7 +1412,9 @@ test('session binding: a run stays on the account that holds its session; pick e
       const events: RunEvent[] = [];
       const end = await kit.run({ member: 'm1', message: 'hello', sessionKey, ...(account !== undefined ? { account } : {}) }, (e) => events.push(e));
       assert.deepEqual([end, events], [{ ok: false, kind: 'other', message }, []]);
+      // The account listing's reads: the roster, the sessions, the sign-ins and the native Claude Code detection.
       const listing = (c: { method: string; params: unknown }) => c.method === 'agents.list' || c.method === 'sessions.resolve'
+        || c.method === 'openclaw.setup.detect'
         || (c.method === 'byokit.accounts' && (c.params as { action?: string }).action === 'list');
       const reads = fake.calls.slice(from).filter((c) => !listing(c)).map((c) => c.method);
       assert.deepEqual(reads, []);
@@ -1507,7 +1509,9 @@ test('session binding: a run stays on the account that holds its session; pick e
       const from = fake.calls.length;
       const end = await kit.run({ member: 'm1', sessionKey, message: 'hello' });
       assert.deepEqual(end, gone, label);
+      // The account listing's reads include the native Claude Code detection (see `refuses`).
       const reads = fake.calls.slice(from).filter((c) => c.method !== 'agents.list' && c.method !== 'sessions.resolve'
+        && c.method !== 'openclaw.setup.detect'
         && !(c.method === 'byokit.accounts' && (c.params as { action?: string }).action === 'list')).map((c) => c.method);
       assert.deepEqual(reads, [], label);
     };

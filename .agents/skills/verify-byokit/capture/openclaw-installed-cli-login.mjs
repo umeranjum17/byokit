@@ -70,8 +70,11 @@ try {
   await kit.start();
   assert.equal(kit.state.phase, 'ready');
   const installed = gatewayEnv(), signedIn = await kit.signedIn('umer', 'claude-cli');
+  // The kit's account listing, as Crewhouse reads it: the installed login is an account whose Claude CLI models are available.
+  const claudeAccount = (await kit.accounts('umer')).find((row) => row.provider === 'claude-cli');
+  const claudeModels = claudeAccount ? (await kit.models('umer', claudeAccount.id)).filter((m) => m.id.startsWith('claude-cli/') && m.available) : [];
   const end = await kit.run({ member: 'umer', sessionKey: 'agent:umer:installed', message: 'Say hello to Umer', model: 'claude-cli/claude-sonnet-5' }, () => {});
-  show({ leg: 'installed login signed in', gatewayEnv: installed, signedInClaudeCli: signedIn, run: end.ok ? { ok: true, text: end.text } : end });
+  show({ leg: 'installed login signed in', gatewayEnv: installed, signedInClaudeCli: signedIn, account: claudeAccount ? { id: claudeAccount.id, state: claudeAccount.state, models: claudeModels.length } : null, run: end.ok ? { ok: true, text: end.text } : end });
   show({ leg: 'installed login signed in', cliCalls: seen() });
   if (expectFix) {
     assert.deepEqual([installed.HOME, installed.CLAUDE_CONFIG_DIR, installed.CODEX_HOME], [person, undefined, codexHome]);
@@ -81,6 +84,7 @@ try {
       if (call.who === 'codex') assert.ok(call.CODEX_HOME === undefined || call.CODEX_HOME === codexHome);
     }
     assert.ok(signedIn && end.ok && end.text === 'Hello Umer', JSON.stringify(end));
+    assert.ok(claudeAccount && claudeAccount.state === 'ready' && claudeModels.length > 0, JSON.stringify({ claudeAccount, claudeModels }));
   }
   // Leg 2: the engine calls a Codex process, without reading the throwaway person's canary login.
   writeFileSync(codexMarker, 'signed in');

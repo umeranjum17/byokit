@@ -10,10 +10,6 @@ import { provider } from '@byokit/accounts';
 import { OpenClawKit } from '../../src/kit.ts';
 import { scratchDir, sharedEngineDir } from '../../../test-support.ts';
 
-type Row = { provider: string; id: string; name: string; available?: boolean };
-const rowsOf = async (kit: OpenClawKit, agentId: string, view: 'all' | 'default'): Promise<Row[]> =>
-  ((await kit.call('models.list', { agentId, view })) as { models: Row[] }).models;
-
 test('a signed-in ChatGPT login lists the Codex CLI route\'s models', { timeout: 900_000 }, async () => {
   const dir = scratchDir('mlist-codex');
   const stateDir = join(dir, 'state');
@@ -41,7 +37,7 @@ test('a signed-in ChatGPT login lists the Codex CLI route\'s models', { timeout:
   }
 });
 
-test('a signed-in Claude Code login lists the Claude CLI route\'s models (engine rows, view all)', { timeout: 900_000 }, async () => {
+test('a signed-in Claude Code login is a kit account, and its Claude CLI models are listed', { timeout: 900_000 }, async () => {
   // A task-owned `claude` on the engine's PATH, logged in on a plan; it prints no credential.
   const dir = scratchDir('mlist-claude');
   const bin = join(dir, 'bin');
@@ -59,10 +55,12 @@ else process.exit(2);
     const { agentId } = await kit.ensureMember('m1');
     // The app's setup detection is how the engine learns a Claude Code login exists.
     await kit.call('openclaw.setup.detect', { agentId }, { timeoutMs: 30_000 });
-    // The Claude route is not a kit account (setup detection adds none), so this reads the engine's rows directly.
-    const claude = (await rowsOf(kit, agentId, 'all')).filter((row) => row.provider === 'claude-cli');
-    assert.ok(claude.length > 0, 'the signed-in Claude CLI route lists its models');
-    assert.ok(claude.some((row) => row.available === true), `a listed Claude CLI model is available: ${JSON.stringify(claude)}`);
+    const [claude] = (await kit.accounts('m1')).filter((row) => row.provider === 'claude-cli');
+    assert.ok(claude, 'the signed-in Claude Code login is a kit account');
+    assert.equal(claude.state, 'ready');
+    const models = (await kit.models('m1', claude.id)).filter((m) => m.id.startsWith('claude-cli/'));
+    assert.ok(models.length > 0, 'the Claude CLI route lists its models');
+    assert.ok(models.some((m) => m.available), `a listed Claude CLI model is available: ${JSON.stringify(models)}`);
   } finally {
     await kit.stop();
     rmSync(dir, { recursive: true, force: true });
