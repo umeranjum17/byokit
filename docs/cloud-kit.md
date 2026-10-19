@@ -1077,7 +1077,7 @@ ports it previously exposed as though it had this fresh-machine guarantee; the p
   `address.port` itself (5.11), so a recipe used with it binds loopback and does not serve its own port.
   Host port selection remains the app recipe's responsibility; the kit has no default app port.
 - Run `tailscale up` with the requested hostname, no DNS or route acceptance, and a short command timeout; surface
-  its validated HTTPS Tailscale login URL once as `open-page`. Poll status so the person can sign in on the phone:
+  its validated HTTPS Tailscale login URL once as `open-page`: from `up`'s output, or, when the control server answers only after `up` returned (seen on a real VM: about 6 s), from the daemon status's `AuthURL`, which then starts a fresh five-minute sign-in window. Poll status so the person can sign in on the phone:
   the startup wait has five minutes, and once `up` returns the sign-in window is a fresh five minutes, so a link shown
   at the end of the startup wait still gets a full five minutes. When the daemon reports `needs-approval` (`NeedsMachineAuth`: the tailnet must approve the
   machine), emit `approve` once with the hostname, with or without a sign-in link shown earlier. While the daemon is

@@ -621,6 +621,8 @@ test('private-network deadlines distinguish startup, approval, an unused link an
     ['NeedsMachineAuth', true, words('tailnet.approvalNeeded'), ['open-page', 'approve']],
     ['NeedsLogin', true, words('tailnet.loginExpired'), ['open-page']],
     ['NeedsLogin', false, 'Starting your private network took too long.', []],
+    // A real control server can hand out the link after `up` returned: the daemon's status carries it.
+    ['NeedsLogin', 'status', words('tailnet.loginExpired'), ['open-page']],
   ] as const) {
     mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 0 });
     try {
@@ -629,18 +631,21 @@ test('private-network deadlines distinguish startup, approval, an unused link an
       const provider: Provider = { ...base, exec: async (ref, argv, opts) => {
         if (argv[0] === 'tailscale' && argv[1] === 'up') {
           upCalls++;
-          return { code: 0, stdout: link ? 'https://login.tailscale.com/a/deadline' : '', stderr: '', timedOut: false };
+          return { code: 0, stdout: link === true ? 'https://login.tailscale.com/a/deadline' : '', stderr: '', timedOut: false };
         }
-        if (argv[0] === 'tailscale' && argv[1] === 'status')
-          return { code: 0, stdout: JSON.stringify({ BackendState: state }), stderr: '', timedOut: false };
+        if (argv[0] === 'tailscale' && argv[1] === 'status') {
+          const late = link === 'status' && upCalls > 0 ? { AuthURL: 'https://login.tailscale.com/a/late' } : {};
+          return { code: 0, stdout: JSON.stringify({ BackendState: state, ...late }), stderr: '', timedOut: false };
+        }
         if (['true', 'sh', 'systemctl'].includes(argv[0])) return { code: 0, stdout: '', stderr: '', timedOut: false };
         return base.exec(ref, argv, opts);
       } };
       const m = machine({ provider, store: memoryStore() });
       await m.create({ name: 'deadline', size: 'small', keepCopies: false });
       const steps: string[] = [];
+      const urls: string[] = [];
       let error: unknown;
-      const joined = m.joinTailnet({ hostname: 'deadline' }, s => steps.push(s.step)).then(
+      const joined = m.joinTailnet({ hostname: 'deadline' }, s => { steps.push(s.step); if (s.step === 'open-page') urls.push(s.url); }).then(
         () => { error = new Error('join unexpectedly succeeded'); }, e => { error = e; },
       );
       for (let ticks = 0; error === undefined; ticks++) {
@@ -654,7 +659,8 @@ test('private-network deadlines distinguish startup, approval, an unused link an
       assert.equal(error.message, message);
       assert.deepEqual(steps, expectedSteps);
       assert.equal(upCalls, state === 'Starting' ? 0 : 1, 'startup timeout must never run up');
-      assert.ok(Date.now() >= 300_000 && Date.now() <= 301_000);
+      if (link === 'status') assert.deepEqual(urls, ['https://login.tailscale.com/a/late'], 'shown once, with a fresh five minutes');
+      assert.ok(Date.now() >= 300_000 && Date.now() <= (link === 'status' ? 302_000 : 301_000));
     } finally { mock.timers.reset(); }
   }
 });
