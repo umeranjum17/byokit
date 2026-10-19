@@ -7,28 +7,24 @@ their own bill. The person-facing words say "your cloud computer". The Boat adap
 ([spec](../../docs/cloud-kit.md)).
 
 ```sh
-npm install @byokit/cloud@next
+npm install @byokit/cloud
 ```
 
 ```ts
-import { machine, status, type Provider, type MachineStore, type HostRecipe } from '@byokit/cloud';
+import { setup, words, type HostRecipe, type MachineStore, type Provider } from '@byokit/cloud';
 
 export async function start(provider: Provider, store: MachineStore, recipe: HostRecipe, show: (s: string) => void) {
-  const m = machine({ provider, store });
-  const ref = await m.create({ name: 'tracker', size: 'small', keepCopies: true });
   const vars = { app: 'Tracker', label: 'Boat' };
-  // Boat's create resolves before the machine is on; poll the one status a phone shows.
-  for (let s = await status(m, vars); s.machine !== 'on'; s = await status(m, vars)) {
-    show(s.words); // "Setting up your cloud computer. This takes a minute or two."
-    if (['failed', 'host-key-changed', 'gone'].includes(s.machine)) return ref;
-    await new Promise((r) => setTimeout(r, 3000));
+  // Rents a new computer on the person's own provider account, waits until it is on, then installs.
+  for await (const s of setup({ provider, store, recipe, create: { size: 'small', keepCopies: true } })) {
+    show(s.step === 'failed' ? words(s.cause, vars) : words(`setup.${s.step}`, vars));
+    if (s.step === 'ready') return s.ref; // "Tracker is running on your cloud computer."
   }
-  await m.install(recipe);
-  show((await status(m, vars)).words); // "Tracker is running on your cloud computer."
-  return ref;
+  return null; // failed: run the same setup() again and it resumes on the saved computer
 }
 ```
 
+The new computer bills the person's own provider account, never the app, so the app shows `estimate()`'s words and asks before it calls `setup({ create })`.
 `status(m, { app, label })` resolves `{ machine, host, words }`: the host is asked only while
 the machine is on, and `words` is the one plain sentence to show. Start and stop are
 `wake()` and `sleep()`; delete is `remove(ref.id)`.
@@ -51,10 +47,9 @@ for §5.1–5.5 and §5.7 plus install and supervise (§8: `install`, `update`, 
 and account link (`claim()`, §11.5). Idle sleep and wake-on-open land in M7 (manual `sleep()` and
 `wake()` are already here).
 `claim()` passed a recorded live sign-in against Boat on 2026-10-18 (discover, register, link
-and code, key, then `revokeClaim()`, after which Boat refused the key). The package publishes
-on the npm `next` tag: create, install and hosting with a claimed key are still unproven until
-M6's recorded run, so the app keeps `setup.makeKey` until that run passes, and `latest` moves
-to this package only then.
+and code, key, then `revokeClaim()`, after which Boat refused the key). Releases publish
+on the npm `latest` tag (from 0.2.1). Create, install and hosting with a claimed key are still
+unproven until M6's recorded run, so an app keeps `setup.makeKey` as its fallback until that run passes.
 Our later live Boat runs make no new claim: they use the fleet's saved Boat key, never print,
 log, commit or revoke it, and delete only the machines they made.
 
@@ -90,7 +85,8 @@ rows and a key callback from its own store; the kit has no default provider or U
 `fetch` is optional. `signal` cancels the provider for good: once aborted, every later call
 fails `unreachable`, so build a new `boat()` for the next operation. Setup runs from Node,
 Electron or React Native; Boat's CORS rules prevent setup from a web page. Tests use `boat.test`
-mapped to a loopback fake.
+mapped to a loopback fake. Boat's public API has no region or location, so the kit has no region
+option for Boat and the app shows none; Boat picks where the computer runs.
 
 ```ts
 import { boat, machine, type MachineStore } from '@byokit/cloud';
@@ -211,6 +207,12 @@ with `words('setup.<step>', { app, label })`. A rejection ends the stream with o
 phase, `cause` a words key via `errorKey`, `retryable` whether a repeat may pass): re-run `setup()` with
 the same arguments and it resumes at install on the saved machine instead of renting another.
 
+For a person with no computer yet, pass `create: { size, keepCopies }` instead of `pick` and
+`confirmId`: after `checking-access` the kit rents one named after the recipe, waits until it is on
+(Boat's create answers while it is still starting), and emits `creating` (`setup.creating` words) before
+`installing`; the rest is the same. The recipe is checked before the rental, so a refused recipe never
+bills. A retry with the same arguments finds the saved computer and resumes on it.
+
 ```ts
 import { setup, words, type HostRecipe, type MachineRef, type MachineStore, type Provider } from '@byokit/cloud';
 
@@ -240,6 +242,13 @@ After binding, the host writes `phoneReceipt(host, key)` to `<workDir>/.byokit/o
 `pairEnrol` waits up to a minute for that receipt for the same key and the `pairing` step carries it:
 the host's public key, the phone's device on it, and the secured address. The phone opens a real
 `@byokit/pair` link with that receipt and its own secret key alone. Every value in it is public.
+The receipt's `urls` are the address root, `ws://<tailnet name>:<port>`; an app whose link route has a
+path passes `pairEnrol(m, recipe, key, { url: (root, host) => ... })` to build it from each root and the
+host's public key.
+
+`EnrolHost`, `OwnerHost` and `ReceiptHost` are structural: the `@byokit/pair` `Host` fits, and so does an
+app's own device store that keeps the authority itself, as long as it answers `devices()`, `enrol()`
+(and `revoke()`, `keys`) the same way.
 
 ```ts
 import { machine, pairEnrol, setup, type HostRecipe, type MachineRef, type MachineStore, type Provider } from '@byokit/cloud';
@@ -266,17 +275,22 @@ export async function connectPhone(
 }
 ```
 
+On the machine, `takeInbox(workDir, file)` and `writeOutbox(workDir, file, text)` from
+`@byokit/cloud/unit` (Node) are the host's side of that hand-off: the first resolves the delivered
+bytes and a `done()` that removes the file (call it only after handling resolves), or `null` while
+absent; the second writes at 0600 through a temporary name and a rename.
+
 ```ts
-import { mkdir, rename, writeFile } from 'node:fs/promises';
-import { bindPhoneKey, phoneReceipt } from '@byokit/cloud';
+import { PHONE_KEY_FILE, RECEIPT_FILE, bindPhoneKey, phoneReceipt } from '@byokit/cloud';
+import { takeInbox, writeOutbox } from '@byokit/cloud/unit';
 import { Host } from '@byokit/pair';
 
-export async function bindOwner(host: Host, delivered: Uint8Array, workDir: string) {
-  const bound = await bindPhoneKey(host, delivered, 'Phone'); // { id, bound }: false when this phone was already bound
-  const outbox = `${workDir}/.byokit/outbox`;
-  await mkdir(outbox, { recursive: true, mode: 0o700 });
-  await writeFile(`${outbox}/.receipt.tmp`, phoneReceipt(host, delivered), { mode: 0o600 });
-  await rename(`${outbox}/.receipt.tmp`, `${outbox}/receipt.json`);
+export async function bindOwner(host: Host, workDir: string) {
+  const got = await takeInbox(workDir, PHONE_KEY_FILE);
+  if (got === null) return null; // nothing delivered yet: check again later
+  const bound = await bindPhoneKey(host, got.bytes, 'Phone'); // { id, bound }: false when this phone was already bound
+  await writeOutbox(workDir, RECEIPT_FILE, phoneReceipt(host, got.bytes));
+  await got.done();
   return bound;
 }
 ```

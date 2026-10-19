@@ -46,7 +46,7 @@ const b64urlOf = (bytes: Uint8Array): string => {
   return out;
 };
 
-/** The Host surface phone-key enrol needs: the real Host fits with no kit-to-kit import. */
+/** The Host surface phone-key enrol needs: the real Host fits with no kit-to-kit import, and so does an app's own device store. */
 export type EnrolHost = {
   devices(): readonly { id: string; key: string; kind?: string }[];
   enrol(g: { key: Uint8Array; name: string; role: 'control'; kind: string }): Promise<{ id: string }>;
@@ -95,7 +95,7 @@ export async function replacePhoneKey(host: OwnerHost, key: Uint8Array, name = '
   return bindPhoneKey(host, key, name);
 }
 
-/** The Host surface the receipt needs: its public key and its grants. The real Host fits. */
+/** The Host surface the receipt needs: its public key and its grants. The real Host fits, and so does an app's own device store. */
 export type ReceiptHost = {
   keys: { publicKey: Uint8Array };
   devices(): readonly { id: string; key: string; kind?: string; name: string; role: string }[];
@@ -146,16 +146,23 @@ const parseReceipt = (text: string | null): { key: string; host: string; device:
 
 /**
  * The setup() `pair` gate: deliver the phone key, then wait for the host's receipt for that
- * same key, so the `pairing` step carries what the phone pairs with.
+ * same key, so the `pairing` step carries what the phone pairs with. The receipt's `urls` are
+ * the secured address's root, `ws://<tailnet name>:<port>`; an app whose link route has a path
+ * passes `url(root, host)` to build it from each root and the host's public key.
  */
-export function pairEnrol(m: Machine, r: HostRecipe, key: Uint8Array): (ref: MachineRef, ctx: PairContext) => Promise<PairReceipt> {
+export function pairEnrol(
+  m: Machine, r: HostRecipe, key: Uint8Array, o: { url?: (root: string, host: string) => string } = {},
+): (ref: MachineRef, ctx: PairContext) => Promise<PairReceipt> {
   return async (_ref, ctx) => {
     await deliverPhoneKey(m, r, key, { replaceOwner: ctx.replaceOwner });
     const want = b64urlOf(key);
     const until = Date.now() + RECEIPT_WAIT_MS;
     for (;;) {
       const got = parseReceipt(await ctx.read(RECEIPT_FILE));
-      if (got?.key === want) return { host: got.host, device: got.device, urls: ctx.urls };
+      if (got?.key === want) {
+        const { url } = o;
+        return { host: got.host, device: got.device, urls: url === undefined ? ctx.urls : ctx.urls.map((root) => url(root, got.host)) };
+      }
       if (Date.now() >= until) {
         // A receipt for another phone means the host refused this one (bindPhoneKey `owner-enrolled`).
         throw got !== null

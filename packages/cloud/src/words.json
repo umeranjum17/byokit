@@ -24,6 +24,7 @@
   "tailnet.loginExpired": "The sign-in link expired. Try connecting your cloud computer again.",
   "setup.checking-access": "Checking your {label} account.",
   "setup.listing": "Looking for your existing cloud computers.",
+  "setup.creating": "Setting up a new cloud computer on your own {label} account. {label} bills you for it.",
   "setup.inspecting": "Checking this cloud computer can run {app}.",
   "setup.installing": "Putting {app} on your cloud computer.",
   "setup.securing": "Giving your cloud computer a private address on your own network.",

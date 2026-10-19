@@ -6,7 +6,7 @@ import { balanceCost, dateOf, enteredCost, monthStartIso, usageCost } from './co
 import { archOf, nodeInstallArgv, nodePath } from './node.ts';
 import { checkRecipe, defaultRange, markerPath, satisfiesRange } from './recipe.ts';
 import {
-  DELIVER_SHELL, PROBE_SHELL, WORKDIR_SHELL, WRITE_SHELL, renderUnit, systemUnitPath,
+  DELIVER_SHELL, FILE_NAME, PROBE_SHELL, WORKDIR_SHELL, WRITE_SHELL, renderUnit, systemUnitPath,
   userUnitPath, writeUnitFile, writeUserUnit,
 } from './unit.ts';
 import type {
@@ -17,7 +17,6 @@ import type {
 const EXEC_TIMEOUT_MS = 30_000;
 /** 8.3 steps 3-5: each installRoot, install and update argv gets 20 minutes. */
 const STEP_TIMEOUT_MS = 20 * 60 * 1000;
-const FILE_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
 const DELIVER_LIMIT = 64 * 1024;
 /** 8.3 step 5: a failed step reports the last 2 KB of stderr. */
 const STEP_TAIL = 2048;

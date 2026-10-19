@@ -46,8 +46,8 @@
       "default": "./dist/idle.js"
     },
     "./unit": {
-      "types": "./dist/unit.d.ts",
-      "default": "./dist/unit.js"
+      "types": "./dist/host.d.ts",
+      "default": "./dist/host.js"
     },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
