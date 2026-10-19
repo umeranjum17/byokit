@@ -1,15 +1,22 @@
 // SSH VM adapter (docs/cloud-kit.md section 7, './ssh' entry, Node only).
 //
-// One Linux machine the person already rents. `exec`, `write` and `adopt` only,
-// through the `ssh` binary the app passes by absolute path; every call carries a
-// kit-owned config file, a fixed env built from nothing, and a pinned host key.
+// One Linux machine the person already rents. The default transport for the portable
+// core (ssh-vm.ts): the `ssh` binary the app passes by absolute path; every call carries
+// a kit-owned config file, a fixed env built from nothing, and a pinned host key.
+// An app's own transport (`transport` + `pins`) goes straight to the core.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { access, chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 import { MachineError } from './errors.ts';
-import type { ExecResult, MachineRef, Price, Provider } from './types.ts';
+import {
+  badOption, checkHost, checkPort, checkUser, sshCore, sshHostKey as transportHostKey, sshVm as transportVm,
+  type SshTransport, type SshTransportHostKeyOptions, type SshTransportOptions,
+} from './ssh-vm.ts';
+import type { Price, Provider } from './types.ts';
+
+export type { SshPins, SshTarget, SshTransport, SshTransportHostKeyOptions, SshTransportOptions } from './ssh-vm.ts';
 
 export type SshVmOptions = {
   ssh: string /* absolute */;
@@ -31,8 +38,6 @@ export type SshHostKeyOptions = {
 
 /** Per-stream output cap: the tail is kept (7.1). */
 const STREAM_CAP = 8 * 1024 * 1024;
-/** Default remote timeout for calls that take none (status, write). */
-const DEFAULT_TIMEOUT_MS = 30_000;
 /** Local backstop past the remote timeout: SIGTERM, then SIGKILL 2 s later (7.1). */
 const KILL_GRACE_MS = 15_000;
 const KILL_WAIT_MS = 2_000;
@@ -40,9 +45,6 @@ const KILL_WAIT_MS = 2_000;
 const KEYSCAN_TIMEOUT_MS = 15_000;
 
 const HOST_KEY_MISMATCH = ['REMOTE HOST IDENTIFICATION HAS CHANGED', 'Host key verification failed'];
-
-const badOption = (why: string, message: string): MachineError =>
-  new MachineError('unreachable', message, { why });
 
 const hasControlOrQuote = (p: string): boolean => /[%\"\x00-\x1f\x7f]/.test(p);
 
@@ -55,27 +57,9 @@ async function checkSshBin(ssh: string): Promise<void> {
   }
 }
 
-function checkHost(host: string): void {
-  if (host.length === 0 || host.startsWith('-') || /\s/.test(host)) {
-    throw badOption('host', `host: must not start with - or hold whitespace, got ${JSON.stringify(host)}`);
-  }
-}
-
-function checkPort(port: number | undefined): void {
-  if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65535)) {
-    throw badOption('port', `port: must be an integer 1-65535, got ${JSON.stringify(port)}`);
-  }
-}
-
 function checkFsPath(name: string, p: string): void {
   if (!isAbsolute(p) || hasControlOrQuote(p)) {
     throw badOption('path', `${name}: must be absolute and hold no %, " or control character, got ${JSON.stringify(p)}`);
-  }
-}
-
-function checkUser(user: string): void {
-  if (!/^[a-z_][a-z0-9_-]{0,31}$/.test(user)) {
-    throw badOption('user', `user: must match ^[a-z_][a-z0-9_-]{0,31}$, got ${JSON.stringify(user)}`);
   }
 }
 
@@ -93,16 +77,6 @@ async function checkSshHostKeyOptions(o: SshHostKeyOptions): Promise<void> {
   checkFsPath('stateDir', o.stateDir);
   checkHost(o.host);
   checkPort(o.port);
-}
-
-/** POSIX single-quote quoting (6.4): `'` becomes `'\''`. NUL rejects `bad-recipe`. */
-function quoteArgv(argv: readonly string[]): string {
-  for (const arg of argv) {
-    if (arg.includes('\0')) {
-      throw new MachineError('bad-recipe', `argv: NUL byte in ${JSON.stringify(arg.slice(0, 32))}`);
-    }
-  }
-  return argv.map((arg) => `'${arg.replace(/'/g, `'\\''`)}'`).join(' ');
 }
 
 const sshConfigBytes = (keyPath: string, stateDir: string): string =>
@@ -184,14 +158,6 @@ function isHostKeyMismatch(stderr: string): boolean {
   return HOST_KEY_MISMATCH.some((marker) => stderr.includes(marker));
 }
 
-/** The remote command: `timeout -k 10 <s> <argv>`, after `sudo -n` when root applies (7.1). */
-function remoteCommand(o: { user: string }, argv: readonly string[], execOpts: { timeoutMs: number; root?: boolean }): string {
-  const secs = Math.ceil(execOpts.timeoutMs / 1000);
-  const inner = `timeout -k 10 ${secs} ${quoteArgv(argv)}`;
-  // No `sudo -n` prefix when the machine login already is root.
-  return execOpts.root === true && o.user !== 'root' ? `sudo -n ${inner}` : inner;
-}
-
 type SpawnResult = {
   code: number | null;
   stdout: string;
@@ -266,78 +232,28 @@ const sshArgv = (o: SshVmOptions, configPath: string, command: string): string[]
   command,
 ];
 
-export function sshVm(o: SshVmOptions): Provider {
-  const target = (): string => `${o.user}@${o.host}:${o.port ?? 22}`;
-
-  /** Every call first: options, then the host-key gate, then the kit-owned config. */
-  const gate = async (): Promise<string> => {
-    await checkSshVmOptions(o);
-    const known = await readKnownHosts(o.stateDir);
-    if (pinnedFingerprint(known ?? '') === null) {
-      throw new MachineError('host-key', 'no host key is pinned yet; confirm it with sshHostKey() first');
-    }
-    return ensureState(o);
-  };
-
-  const runRemote = async (
-    argv: readonly string[],
-    execOpts: { timeoutMs: number; root?: boolean; input?: Uint8Array },
-  ): Promise<ExecResult> => {
-    // Quote (and NUL-check) argv before the gate, so a caller bug fails even unpinned.
-    const command = remoteCommand(o, argv, execOpts);
-    const configPath = await gate();
-    const r = await runSsh(o.ssh, sshArgv(o, configPath, command), { input: execOpts.input, timeoutMs: execOpts.timeoutMs });
-    if (r.timedOut) return { code: r.code ?? 124, stdout: r.stdout, stderr: r.stderr, timedOut: true };
-    if (r.code === 255 && isHostKeyMismatch(r.stderr)) {
-      throw new MachineError('host-key', 'the pinned host key no longer matches');
-    }
-    if (r.code === 255) throw new MachineError('unreachable', `ssh exited 255: ${r.stderr.slice(-200)}`);
-    if (r.code === null) throw new MachineError('unreachable', 'ssh did not start');
-    return { code: r.code, stdout: r.stdout, stderr: r.stderr, timedOut: r.code === 124 || r.code === 137 };
-  };
-
-  const provider: Provider = {
-    id: 'ssh-vm',
-    label: o.label,
-    account: async () => {
-      await checkSshVmOptions(o);
-      return target();
-    },
-    sizes: () => [],
-    prices: () => (o.monthly ? [o.monthly] : []),
-    status: async (_m: MachineRef) => {
-      await checkSshVmOptions(o);
-      const known = await readKnownHosts(o.stateDir);
-      if (pinnedFingerprint(known ?? '') === null) return 'unknown';
+/** The Node transport: the app's `ssh` binary, its kit-owned config and `known_hosts` (7.1). */
+function binTransport(o: SshVmOptions): Omit<SshTransport, 'hostKey'> {
+  return {
+    exec: async (_to, command, x) => {
       const configPath = await ensureState(o);
-      const command = `timeout -k 10 ${Math.ceil(DEFAULT_TIMEOUT_MS / 1000)} true`;
-      const r = await runSsh(o.ssh, sshArgv(o, configPath, command), { timeoutMs: DEFAULT_TIMEOUT_MS });
-      if (r.timedOut) return 'unknown';
-      if (r.code === 0) return 'on';
-      if (r.code === 255 && isHostKeyMismatch(r.stderr)) return 'host-key-changed';
-      return 'unknown';
-    },
-    exec: (_m: MachineRef, argv: readonly string[], execOpts: { timeoutMs: number; root?: boolean; input?: Uint8Array }) =>
-      runRemote(argv, execOpts),
-    write: async (m: MachineRef, path: string, bytes: Uint8Array, mode: number) => {
-      void m;
-      const script = 'umask 077 && t=$(mktemp "$(dirname "$1")/.byokit-XXXXXX") && cat > "$t" && chmod "$2" "$t" && mv -f "$t" "$1"';
-      const r = await runRemote(['sh', '-c', script, 'sh', path, mode.toString(8)], { timeoutMs: DEFAULT_TIMEOUT_MS, input: bytes });
-      if (r.code !== 0) {
-        throw new MachineError('provider', `write failed with exit ${r.code}: ${r.stderr.slice(-200)}`);
+      const r = await runSsh(o.ssh, sshArgv(o, configPath, command), x);
+      if (r.timedOut) return { code: r.code ?? 124, stdout: r.stdout, stderr: r.stderr, timedOut: true };
+      if (r.code === 255 && isHostKeyMismatch(r.stderr)) {
+        throw new MachineError('host-key', 'the pinned host key no longer matches');
       }
-    },
-    adopt: async () => {
-      await checkSshVmOptions(o);
-      const known = await readKnownHosts(o.stateDir);
-      const fingerprint = known !== null ? pinnedFingerprint(known) : null;
-      if (fingerprint === null) {
-        throw new MachineError('host-key', 'no host key is pinned yet; confirm it with sshHostKey() first');
-      }
-      return fingerprint;
+      if (r.code === 255) throw new MachineError('unreachable', `ssh exited 255: ${r.stderr.slice(-200)}`);
+      if (r.code === null) throw new MachineError('unreachable', 'ssh did not start');
+      return { code: r.code, stdout: r.stdout, stderr: r.stderr };
     },
   };
-  return provider;
+}
+
+/** The `ssh` binary by default; `transport` + `pins` run the portable core with the app's own transport. */
+export function sshVm(o: SshVmOptions | SshTransportOptions): Provider {
+  if ('transport' in o) return transportVm(o);
+  const pins = { load: async () => pinnedFingerprint((await readKnownHosts(o.stateDir)) ?? '') };
+  return sshCore({ ...o, transport: binTransport(o), pins }, () => checkSshVmOptions(o));
 }
 
 const KEYSCAN_TYPES = ['ssh-ed25519', 'ecdsa-sha2-nistp256', 'ssh-rsa'] as const;
@@ -362,8 +278,9 @@ function pickScannedKey(stdout: string): { type: string; key: string } | null {
   return null;
 }
 
-export function sshHostKey(o: SshHostKeyOptions):
+export function sshHostKey(o: SshHostKeyOptions | SshTransportHostKeyOptions):
   Promise<{ fingerprint: string; pinned: boolean; confirm(): Promise<void> }> {
+  if ('transport' in o) return transportHostKey(o);
   const run = async (): Promise<{ fingerprint: string; pinned: boolean; confirm(): Promise<void> }> => {
     await checkSshHostKeyOptions(o);
     await mkdir(o.stateDir, { recursive: true, mode: 0o700 });

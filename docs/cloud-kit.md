@@ -47,7 +47,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D-3 | A capability kit, not a third aggregator. It sits beside `@byokit/openclaw` and `@byokit/herdr`: the app still picks one runtime kit, and that kit runs inside the app's host process on the machine exactly as it does at home. `@byokit/cloud` only decides where that process runs. It imports no other kit and no kit imports it. `@byokit/accounts` is untouched. |
 | D-4 | Adapters behind one `Provider` type (4). **Boat**: create, sleep, wake, snapshot, fork, remove, exec, write and an HTTPS URL per port, over `fetch` with no vendor SDK. **SSH VM**: any rented Linux machine the person already created; exec, write, install and supervise only, through the `ssh` binary the app passes by absolute path. **Hetzner** (first slice, below): create, status and confirmed delete over the Hetzner Cloud API with the app's own token, portable as `hetznerApi()` (first boot, G8) and Node only with SSH as `hetzner()`; no sleep, wake or copies yet. Optional `Provider` methods an adapter cannot do are absent, and the UI hides that action. |
 | D-5 | Types in section 4 are frozen at M1. A change is a spec change first: stop and ask. The approved tailnet amendment (4.6, 9; 2026-10-13) adds `joinTailnet` and `tailnet`; Boat keyed joins remain unsupported until a credential-safe stdin transport exists. |
-| D-6 | Entries. `.` is portable (Node, Electron, React Native): everything 3.1's `index.ts` re-exports (types, `machine()`, `boat()` (and deprecated `sandboxApi()`), `claim()` and `revokeClaim()` (M8), `MachineError`, `estimate()`, the words helpers, M7's `wakeResolve()`, and G8's `hetznerApi()`, `installScript()` and `setupCommand()`); no `node:*` import. `./ssh` is Node only (`sshVm()`, `sshHostKey()`). `./hetzner` is Node only (`hetzner()`, first slice below). `./idle` (M7: `idle()`, `stopSelf()`) runs on the machine inside the host process and is portable. `./testing` is Node only: the fake providers and the contract suite. No other entries. The Boat adapter does not run from a web page (15.1), so browsers and PWAs set up from the phone app or a desktop app. |
+| D-6 | Entries. `.` is portable (Node, Electron, React Native): everything 3.1's `index.ts` re-exports (types, `machine()`, `boat()` (and deprecated `sandboxApi()`), `claim()` and `revokeClaim()` (M8), `MachineError`, `estimate()`, the words helpers, M7's `wakeResolve()`, and G8's `hetznerApi()`, `installScript()` and `setupCommand()`); no `node:*` import. `./ssh` is Node only (`sshVm()`, `sshHostKey()` over the `ssh` binary). Amended 2026-10-19 (K-PHONE-SSH): `.` also exports `sshVm()` and `sshHostKey()` taking the app's own `transport` and `pins` (7.3), so a React Native app reaches any SSH box with its own SSH module; `./ssh`'s two accept the same options and keep the `ssh` binary as the default. `./hetzner` is Node only (`hetzner()`, first slice below). `./idle` (M7: `idle()`, `stopSelf()`) runs on the machine inside the host process and is portable. `./testing` is Node only: the fake providers and the contract suite. No other entries. The Boat adapter does not run from a web page (15.1), so browsers and PWAs set up from the phone app or a desktop app. |
 | D-7 | One person, one provider account, one machine per app install. The kit refuses a `MachineRef` whose `account` differs from `provider.account()`. An app operator provisioning on its own account for users is pooling and is not supported. |
 | D-8 | Model credentials are signed in on the machine, inside the aggregator (11). They are never copied from the person's computer and never pass through the provider's own credential features. Sandboxes are created with nothing of the person's passed in (`noEnv: true`). |
 | D-9 | Reach: the person's own tailnet, with no hosted relay or public app port. The bootstrap advertises the tailnet name, never a provider public URL. Pairing encryption and pinned host keys stay unchanged. Neither the kit nor a host bootstrap automatically calls `url()` or the provider's `/host`; `url()` is an explicit public-exposure escape hatch (9). |
@@ -99,7 +99,8 @@ packages/cloud/
     cost.ts           # estimate(), cost rules (10)
     boat.ts           # boat() (6)
     sandbox-api.ts    # deprecated compatibility re-export of boat()
-    ssh.ts            # './ssh': sshVm(), sshHostKey() (7)
+    ssh-vm.ts         # '.': the portable SSH VM core over the app's transport (7.3)
+    ssh.ts            # './ssh': sshVm(), sshHostKey() over the ssh binary (7)
     hetzner.ts        # './hetzner': hetzner(), first slice with SSH (6, Hetzner first slice)
     hetzner-api.ts    # hetznerApi(), the same adapter over HTTPS only, portable (G8)
     script.ts         # installScript(), setupCommand(): 8.3 as one sh script (G8, K-DIRECT), portable
@@ -407,6 +408,11 @@ Both methods follow 5.1's load/account/ref checks. This slice implements keyless
 before any exec with `tailnet.unsupported` ("This cloud computer cannot join your private network yet."). Boat
 emulates exec input using a temporary file (6.4), so it is **not** a credential-safe input path. Never pass a join key into it or embed one in command text.
 Hetzner/SSH joining and a private stdin transport are follow-ups, not weaker implementations of this rule.
+Amended 2026-10-19 (K-PUBLIC for generic VMs): the keyless join runs on every adapter whose `exec` works, so an SSH VM
+and a Hetzner server (over its SSH exec) join exactly as Boat does, with the same 9.1 bootstrap and serve. A join key
+still rejects `unsupported` with `tailnet.signInOnPhone` before any exec on every adapter: an app's SSH transport (7.3)
+is the app's own code, not a kit-checked private input path. `tailnet.unsupported` stays in the words for
+compatibility and is no longer emitted.
 
 ## 5. `Machine` (`src/machine.ts`)
 
@@ -829,6 +835,36 @@ This slice rejects `keepCopies: true`: it enables neither paid backups nor snaps
 - A changed key is never re-accepted by the kit. The person removes the machine from the app and sets it up again
   after checking with their provider (words `state.host-key-changed`).
 
+### 7.3 The app's own transport (K-PHONE-SSH, 2026-10-19)
+
+A phone has no `ssh` binary and no file system, so `.` exports the same adapter over an SSH connection the app
+supplies (`src/ssh-vm.ts`, portable). `sshVm({ transport, pins, host, port?, user, label, monthly? })` and
+`sshHostKey({ transport, pins, host, port? })` keep every 7.1 and 7.2 rule above the wire: the host, user and port
+checks, the quoted argv inside `timeout -k 10 <s>` and `sudo -n`, exit 124/137 as `timedOut`, the 8 MB tail, the 7.1
+write shell, `account()`, `adopt()`, `status()`, and no call but `account` before a pinned key.
+
+```ts
+export type SshTarget = { host: string; port: number; user: string; fingerprint: string };
+export type SshTransport = {
+  exec(to: SshTarget, command: string, o: { input?: Uint8Array; timeoutMs: number }): Promise<{ code: number; stdout: string; stderr: string; timedOut?: boolean }>;
+  hostKey(to: { host: string; port: number }): Promise<{ fingerprint: string }>;   // 'SHA256:<43 base64>'
+  write?(to: SshTarget, path: string, bytes: Uint8Array, mode: number): Promise<void>; // e.g. SFTP; absent: 7.1's shell
+};
+export type SshPins = { load(): Promise<string | null>; save(fingerprint: string): Promise<void> };
+```
+
+- The transport owns the login key (the phone's secure store) and the connection; the kit never sees a key.
+- Before it authenticates, the transport compares the server's key with `to.fingerprint` and throws
+  `MachineError('host-key')` on any difference; `status()` then reads `host-key-changed`. Any other throw is
+  `unreachable` carrying the transport's own message. It gives up at `timeoutMs` + 15 s with `timedOut: true`.
+- `pins` is the app's store for the one confirmed fingerprint; `sshHostKey().confirm()` saves it.
+- `./ssh`'s `sshVm()` and `sshHostKey()` accept these options too and send them here; without `transport` they run
+  the `ssh` binary as 7.1 and 7.2 say, with `known_hosts` as the pin.
+- Both adapters answer `list()` with the one machine they point at (`name: 'computer'`, the pinned fingerprint as
+  the id, `host-key` while unpinned), so `setup()`'s existing-computer path (5.11) runs its 5.2a checks, install,
+  securing and pairing on any SSH box. `./testing` exports `fakeSshTransport()`, an in-process transport over the
+  shared `FakeMachine`.
+
 ## 8. Installing and supervising the host process
 
 The app supplies its own host program and installer as a `HostRecipe`. The kit writes and owns exactly one systemd
@@ -1049,7 +1085,7 @@ ports it previously exposed as though it had this fresh-machine guarantee; the p
   `address.port` itself (5.11), so a recipe used with it binds loopback and does not serve its own port.
   Host port selection remains the app recipe's responsibility; the kit has no default app port.
 - Run `tailscale up` with the requested hostname, no DNS or route acceptance, and a short command timeout; surface
-  its validated HTTPS Tailscale login URL once as `open-page`. Poll status so the person can sign in on the phone:
+  its validated HTTPS Tailscale login URL once as `open-page`: from `up`'s output, or, when the control server answers only after `up` returned (seen on a real VM: about 6 s), from the daemon status's `AuthURL`, which then starts a fresh five-minute sign-in window. Poll status so the person can sign in on the phone:
   the startup wait has five minutes, and once `up` returns the sign-in window is a fresh five minutes, so a link shown
   at the end of the startup wait still gets a full five minutes. When the daemon reports `needs-approval` (`NeedsMachineAuth`: the tailnet must approve the
   machine), emit `approve` once with the hostname, with or without a sign-in link shown earlier. While the daemon is

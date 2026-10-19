@@ -50,7 +50,15 @@ const dnsName = (value: unknown): string | null => {
   return name.length <= 253 && /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+ts\.net$/i.test(name) ? name : null;
 };
 
+const LOGIN_URL = /https:\/\/login\.tailscale\.com\/[^\s"<>]+/;
+
 export async function tailnet(provider: Provider, ref: MachineRef): Promise<Tailnet> {
+  const { state, name } = await readTailnet(provider, ref);
+  return { state, name };
+}
+
+// The daemon's own answer, plus the sign-in link it holds while it waits for a login.
+async function readTailnet(provider: Provider, ref: MachineRef): Promise<Tailnet & { link?: string }> {
   const daemon = await provider.exec(ref, ['systemctl', 'is-active', '--quiet', 'tailscaled'], { root: true, timeoutMs: 30_000 });
   if (daemon.timedOut) throw new MachineError('timeout', 'Checking your private network took too long.');
   if (daemon.code === 3 || daemon.code === 4) return { state: 'off', name: null };
@@ -59,15 +67,17 @@ export async function tailnet(provider: Provider, ref: MachineRef): Promise<Tail
   if (r.code === 127 && !r.timedOut) return { state: 'off', name: null };
   if (r.timedOut) throw new MachineError('timeout', 'Checking your private network took too long.');
   let status;
-  try { status = JSON.parse(r.stdout) as { BackendState?: string; Self?: { DNSName?: string } }; }
+  try { status = JSON.parse(r.stdout) as { BackendState?: string; AuthURL?: string; Self?: { DNSName?: string } }; }
   catch { return { state: 'starting', name: null }; }
   const name = dnsName(status?.Self?.DNSName);
   switch (status?.BackendState) {
     case 'Running':
       if (r.code !== 0 || name === null) throw new MachineError('provider', 'Your private network did not return a cloud computer name.');
       return { state: 'joined', name };
-    case 'NeedsLogin':
-      return { state: 'needs-login', name };
+    case 'NeedsLogin': {
+      const link = typeof status.AuthURL === 'string' ? LOGIN_URL.exec(status.AuthURL)?.[0] : undefined;
+      return link === status.AuthURL && link !== undefined ? { state: 'needs-login', name, link } : { state: 'needs-login', name };
+    }
     case 'NeedsMachineAuth':
       return { state: 'needs-approval', name };
     case 'Starting': case 'NoState':
@@ -80,8 +90,8 @@ export async function tailnet(provider: Provider, ref: MachineRef): Promise<Tail
 }
 
 export async function joinTailnet(provider: Provider, ref: MachineRef, o: { hostname: string; authKey?: string }, onStep?: (s: TailnetStep) => void): Promise<{ name: string }> {
-  // REST exec input is file-backed. Never send a key into that transport, even an empty one.
-  if (provider.id !== 'sandbox-api') throw new MachineError('unsupported', words('tailnet.unsupported'));
+  // Keyless on every adapter (K-PUBLIC). Boat's exec input is file-backed and an app's SSH transport is the
+  // app's own code, so no join key is ever sent into either, not even an empty one.
   if (o.authKey !== undefined) throw new MachineError('unsupported', words('tailnet.signInOnPhone'));
   if (typeof o.hostname !== 'string' || !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i.test(o.hostname)) {
     throw new MachineError('bad-recipe', 'hostname: use one name of up to 63 letters, numbers or hyphens, with no hyphen at either end.');
@@ -100,19 +110,25 @@ export async function joinTailnet(provider: Provider, ref: MachineRef, o: { host
     await new Promise<void>((resolve) => setTimeout(resolve, 1000));
   }
   const up = await provider.exec(ref, ['tailscale', 'up', '--hostname', o.hostname, '--accept-dns=false', '--accept-routes=false', '--timeout=1s'], { root: true, timeoutMs: 30_000 });
-  const link = /https:\/\/login\.tailscale\.com\/[^\s"<>]+/.exec(`${up.stdout}\n${up.stderr}`)?.[0];
+  let link = LOGIN_URL.exec(`${up.stdout}\n${up.stderr}`)?.[0];
   if (link) onStep?.({ step: 'open-page', url: link });
-  // A short `up` deadline deliberately returns while the person signs in. Status is authoritative.
-  const signInUntil = Date.now() + 5 * 60_000;
+  // A short `up` deadline deliberately returns while the person signs in. Status is authoritative, and the
+  // control server may hand out the link only after `up` returned: then it comes from status, once.
+  let signInUntil = Date.now() + 5 * 60_000;
   let approvalShown = false;
   for (;;) {
-    const current = await tailnet(provider, ref).catch((error: unknown) => {
+    const current = await readTailnet(provider, ref).catch((error: unknown) => {
       if (error instanceof MachineError && error.code === 'timeout') return null;
       throw error;
     });
     if (current?.state === 'joined' && current.name !== null) {
       onStep?.({ step: 'joined', name: current.name });
       return { name: current.name };
+    }
+    if (link === undefined && current?.link !== undefined) {
+      link = current.link;
+      signInUntil = Date.now() + 5 * 60_000; // a shown link always gets the full five minutes
+      onStep?.({ step: 'open-page', url: link });
     }
     if (current?.state === 'needs-approval' && !approvalShown) {
       approvalShown = true;

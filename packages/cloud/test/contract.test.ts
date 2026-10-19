@@ -13,6 +13,8 @@ import { machineContract, type MachineBench } from '../src/testing/contract.ts';
 import type { Price } from '../src/types.ts';
 import { sshVm, sshHostKey } from '../src/ssh.ts';
 import { setupFakeSsh } from '../src/testing/fake-ssh.ts';
+import { fakeSshTransport } from '../src/testing/fake-ssh-transport.ts';
+import { sshHostKey as transportHostKey, sshVm as transportVm } from '../src/index.ts';
 import { boat } from '../src/boat.ts';
 import { startFakeSandboxServer, type SandboxServer } from '../src/testing/fake-sandbox-server.ts';
 
@@ -72,4 +74,14 @@ machineContract(async (): Promise<MachineBench> => {
     monthly,
   });
   return { provider, store: memoryStore(), installs: true };
+});
+
+// K-PHONE-SSH: the same contract through the portable entry with an app-supplied transport.
+machineContract(async (): Promise<MachineBench> => {
+  let pin: string | null = null;
+  const pins = { load: async () => pin, save: async (f: string) => { pin = f; } };
+  const transport = fakeSshTransport();
+  await (await transportHostKey({ transport, pins, host: 'vm.test' })).confirm();
+  const monthly: Price = { size: 'vm', perMonthCap: 6, asleepPerHour: 6, currency: 'EUR', basis: 'excl. VAT', source: 'http://boat.test/prices', checked: new Date().toISOString().slice(0, 10) };
+  return { provider: transportVm({ transport, pins, host: 'vm.test', user: 'user', label: 'Fake VM', monthly }), store: memoryStore(), installs: true };
 });
