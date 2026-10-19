@@ -4,7 +4,7 @@ Verification recipe for [the engine environment](../../../../docs/runtime-kits.m
 
 ## Sub-features
 
-- Installed Claude stand-in: normal HOME, no engine-root CLAUDE_CONFIG_DIR, `signedIn('umer', 'claude-cli')` true and a Claude run answers.
+- Installed Claude stand-in: normal HOME, no engine-root CLAUDE_CONFIG_DIR, `signedIn('umer', 'claude-cli')` true, `kit.accounts('umer')` lists it as a `ready` account whose `kit.models` rows include available `claude-cli/*` models, and a Claude run answers.
 - Installed Codex stand-in: `openai-codex/gpt-6-luna` answers through a real spawned CLI process with normal HOME and no CODEX_HOME override. Its login-status command, not a file read, establishes ChatGPT readiness. A sign-out marker makes the next checked run end `signed-out`.
 - Synthetic Codex login canary: deliberately old access/modification times remain unchanged after gateway start, Claude/Codex chats, status checks and shutdown. This repro's "installed login read" always refers to the throwaway person's canary, never an owner's actual login.
 - Claude fallback: no installed sign-in sets `<root>/home/.claude` only for Claude, still offers phone-started login, and cancel declines. Engine CODEX_HOME stays isolated in both legs.
