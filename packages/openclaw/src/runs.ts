@@ -203,8 +203,7 @@ export function createRuns(ctx: {
     const accountOf = async (model: string): Promise<{ provider: string; model: string }> => {
       const picked = account(model);
       catalogs ??= ctx.request('config.get', {}).then(
-        (answer) => (answer as { config?: { models?: { providers?: Record<string, { models?: unknown[] }> } } }).config?.models?.providers,
-        () => undefined);
+        (answer) => (answer as { config?: { models?: { providers?: Record<string, { models?: unknown[] }> } } }).config?.models?.providers);
       const providers = await catalogs;
       return { provider: picked.provider, model: engineId(picked.provider, model, providers?.[picked.provider]?.models) };
     };

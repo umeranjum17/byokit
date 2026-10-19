@@ -694,6 +694,9 @@ test('a funded OpenRouter key takes the model the person chooses from its live c
   assert.deepEqual(await kit.addKey('m1', { authChoice: 'openrouter-api-key', apiKey: key, model: 'openrouter/auto' }), { status: 'ok' });
   assert.equal((await kit.run({ member: 'm1', sessionKey: 'agent:m1:auto', auth: 'apiKey', message: 'Hi' })).ok, true);
   assert.equal((fake.calls.findLast((c) => c.method === 'agent')?.params as Record<string, unknown>).model, 'openrouter/auto');
+  // An unreadable model catalog fails the run instead of guessing a stripped id.
+  fake.failNext('config.get', 'gateway restarting');
+  await assert.rejects(kit.run({ member: 'm1', sessionKey: 'agent:m1:auto2', auth: 'apiKey', message: 'Hi' }), /gateway restarting/);
   assert.deepEqual(await kit.addKey('m2', { authChoice: 'openrouter-api-key', apiKey: key, model: 'openrouter/not/a-model' }),
     { status: 'not_included', reason: 'model' }, 'a model the catalog does not list is still refused');
   assert.deepEqual(await kit.addKey('m2', { authChoice: 'openrouter-api-key', apiKey: key, model: chosen, orgId: 'org-umer' }),

@@ -703,7 +703,8 @@ see them with no model setup in the app:
 - One naming rule: a row's engine id becomes `provider/<id>`, and a row already prefixed with its own provider is left
   alone (`openrouter/auto` stays one prefix; `deepseek/...` gains OpenRouter's). The list, the key lane, the saved model
   and the registration check all read that same id; a run or fork maps it back to the engine's provider-local id through
-  that provider's registered rows (`openrouter/auto` stays the local id, never `auto`).
+  that provider's registered rows (`openrouter/auto` stays the local id, never `auto`); an unreadable catalog fails the
+  run instead of guessing.
 - Source: the plugin's `byokit.catalog { provider }` runs the provider plugin's own `catalog.run` hook
   (`resolvePluginProviders`) with the key of the first agent holding one (`resolveApiKeyForProvider`). It answers
   `{ ok: true, models }`: the hook's live model rows, each with the `api` the provider's live catalog data gives it (Muse:
