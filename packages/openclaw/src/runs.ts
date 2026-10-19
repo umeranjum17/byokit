@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { Bridge } from './bridge.ts';
+import { HELPER_TAIL, HelperError, type createHelpers } from './helpers.ts';
 import type { Delegations } from './delegations.ts';
 import type { createAccounts } from './accounts.ts';
 import type { createLocks } from './locks.ts';
@@ -148,6 +149,7 @@ export function createRuns(ctx: {
   ensure(member: Member): Promise<{ agentId: string }>;
   bridge: Pick<Bridge, 'register'>;
   delegations?: Delegations;
+  helpers?: Pick<ReturnType<typeof createHelpers>, 'resolve'>;
   tools: ReadonlySet<string>; // KitOptions.tools names, the only names a run's subset may carry
   accounts?: Pick<ReturnType<typeof createAccounts>, 'bind' | 'keyRefusal' | 'pick' | 'rest'>; // 5.15: account runs
   locks?: ReturnType<typeof createLocks>;
@@ -178,6 +180,14 @@ export function createRuns(ctx: {
     // of one of the member's account agents is the member's too; binding below checks the index names it.
     if (!spec.sessionKey.startsWith(`agent:${spec.member}:`) && !(ctx.accounts && !keyAgent && spec.sessionKey.startsWith(`agent:${spec.member}--`)))
       throw new Error(`refused: "${spec.sessionKey}" is not a session of member "${spec.member}"`);
+    const tail = spec.sessionKey.slice(spec.sessionKey.indexOf(':', 'agent:'.length) + 1);
+    // A helper (5.8.3) speaks only under `agent:<member>:h-<helper>:`, with its persona as the whole system text, and
+    // only a run naming that helper speaks there. Refused before any request.
+    if (spec.helper !== undefined && (!ctx.helpers || keyAgent || spec.system !== undefined))
+      throw new HelperError('invalid', `refused: helper ${String(spec.helper)} runs on its own account with its own persona`);
+    const helper = spec.helper === undefined ? undefined : ctx.helpers!.resolve(spec.member, spec.helper);
+    if (helper ? !spec.sessionKey.startsWith(`agent:${spec.member}:h-${spec.helper}:`) : HELPER_TAIL.test(tail))
+      throw new HelperError('session', `refused: "${spec.sessionKey}" is not a session of ${helper ? `helper "${spec.helper}"` : 'this run'}`);
     if (spec.delegates) {
       if (spec.register === false || !ctx.delegations) throw new Error('delegation requires a registered run');
       ctx.delegations.validate(spec.delegates);
@@ -187,14 +197,14 @@ export function createRuns(ctx: {
       throw new Error('refused: idempotencyKey must be a non-empty string');
     const idempotencyKey = spec.idempotencyKey ?? randomUUID();
     const output = preparedOutput ?? (spec.schema === undefined ? undefined : outputSchema(spec.schema));
-    const system = [spec.system, output?.prompt].filter(Boolean).join('\n\n');
+    const system = [helper?.persona ?? spec.system, output?.prompt].filter(Boolean).join('\n\n');
     const picked = spec.model === undefined ? undefined : account(spec.model);
     for (const need of spec.needs ?? []) account(need);
     for (const tool of spec.tools ?? [])
       if (!ctx.tools.has(tool)) throw new Error(`refused: "${tool}" is not one of this kit's tools`);
-    const tail = spec.sessionKey.slice(spec.sessionKey.indexOf(':', 'agent:'.length) + 1);
     // Runs step 1 (5.15): every run first finds the account its session is bound to, the API-key lane included.
-    const binding = ctx.accounts ? await ctx.accounts.bind(spec.member, spec.sessionKey) : undefined;
+    // A helper is bound to the agent whose sign-in it reads, as a conversation held there is.
+    const binding = helper?.binding ?? (ctx.accounts ? await ctx.accounts.bind(spec.member, spec.sessionKey) : undefined);
     // Step 2 on the API-key lane: its own lane binding continues; any other binding is refused.
     if (keyAgent && ctx.accounts && binding) {
       const message = await ctx.accounts.keyRefusal(spec.member, binding);
@@ -203,7 +213,7 @@ export function createRuns(ctx: {
     // A run that waited for its agent's lock across a move (5.15) binds again under it: a changed binding means its
     // session went to another account, so it ends before any event and the caller's retry lands there.
     const moved = async (): Promise<boolean> =>
-      !!binding && (await ctx.accounts!.bind(spec.member, spec.sessionKey))?.agentId !== binding.agentId;
+      !helper && !!binding && (await ctx.accounts!.bind(spec.member, spec.sessionKey))?.agentId !== binding.agentId;
     const movedEnd = { ok: false as const, kind: 'other' as const, message: words('run.moved') };
     // Step 3: with `account` and `needs` both absent, on a key no account agent holds (or an API-key run, which binds only
     // to its lane), exactly the run on the agent it always was (a bound key under its shared lock).
@@ -321,9 +331,9 @@ export function createRuns(ctx: {
       }
     });
     try {
-      releaseDelegation = spec.delegates ? ctx.delegations!.register({ sessionKey, member: spec.member },
-        idempotencyKey, spec.tools, spec.delegates, spec.sessionKey) : undefined;
-      release = spec.register !== false ? ctx.bridge.register({ sessionKey, member: spec.member }, spec.tools, idempotencyKey) : undefined;
+      const ref = { sessionKey, member: spec.member, ...(spec.helper !== undefined ? { helper: spec.helper } : {}) };
+      releaseDelegation = spec.delegates ? ctx.delegations!.register(ref, idempotencyKey, spec.tools, spec.delegates, spec.sessionKey) : undefined;
+      release = spec.register !== false ? ctx.bridge.register(ref, spec.tools, idempotencyKey) : undefined;
       if (picked && !chosen) {
         // The picked account must be the one called: check it is signed in for this member before the run, since
         // the engine would otherwise fail the run only after admitting it. An explicit provider/model is strict on

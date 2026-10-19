@@ -17,6 +17,7 @@ import { Engine, canonicalStateDir, refusedOnly } from './engine.ts';
 import { AuthStoreSealSizeError } from './auth-store.ts';
 import { gatewayTransport } from './transport.ts';
 import { createMembers } from './members.ts';
+import { createHelpers, HELPER_TAIL, HelperError } from './helpers.ts';
 import { createAccounts, memberOfAccount } from './accounts.ts';
 import { createLocks } from './locks.ts';
 import { keyAgentId, KEY_PREFIX, MEMBER_ID } from './members.ts';
@@ -49,6 +50,7 @@ import type {
   GatewayResult,
   GatewayTransport,
   Hello,
+  Helper,
   KitState,
   KitEventName,
   KitEventPayload,
@@ -531,6 +533,7 @@ export class OpenClawKit {
   }
   private installs: Promise<void> = Promise.resolve();
   private accountsCtl?: ReturnType<typeof createAccounts>;
+  private helpersCtl?: ReturnType<typeof createHelpers>;
   // One bridge and one approval surface per kit: listeners and run registrations survive reconnects (B3).
   // Only the socket itself is per-connection. Approvals always reaches the live transport through this.request().
   private readonly bridge: Bridge;
@@ -854,6 +857,7 @@ export class OpenClawKit {
         ensure: (member) => this.ensureMember(member), locks: this.locks,
         signIn: (agentId, o, on, fresh) => startSignIn({ ...this.signInCtx(), ensure: async () => ({ agentId }), fresh }, agentId, o, on),
         routes: this.routeMap, log: this.o.log, reseal: () => this.engine.authStore.reseal() });
+      this.helpersCtl = createHelpers({ root: this.engine.root, list: (member) => this.accounts(member) });
       // The fail-closed tool bridge feeds the kit's single Approval surface (5.9, O5).
       await Promise.race([this.bridge.start(), exit]);
       this.off.push(transport.onEvent((e) => this.approvalsCtl.handleEvent(e)));
@@ -1050,6 +1054,12 @@ export class OpenClawKit {
     return result;
   }
 
+  /** One of the member's helpers (5.8.3): its own persona and sessions on the member's `account`, no new sign-in. */
+  ensureHelper(member: Member, helper: string, o: { account: AccountId; persona: string }): Promise<Helper> {
+    if (!this.helpersCtl) return Promise.reject(new Error('gateway not ready'));
+    return this.helpersCtl.ensure(member, helper, o);
+  }
+
   // sign-in (5.7): every body here is the module's, with this kit's transport, members and ports.
   private signInCtx(): SignInCtx {
     return { request: (method, params, o) => this.request()(method, params, o),
@@ -1212,6 +1222,8 @@ export class OpenClawKit {
   /** Carry a conversation to another account: its whole transcript forks onto that account, then the old session goes. */
   move(ref: RunRef, to: AccountId): Promise<MoveResult> {
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
+    if (HELPER_TAIL.test(String(ref.sessionKey).replace(/^agent:[^:]+:/, '')))
+      return Promise.reject(new HelperError('session', 'refused: a helper\'s session stays on its account'));
     return this.accountsCtl.move(ref.member, ref.sessionKey, to);
   }
 
@@ -1342,6 +1354,7 @@ export class OpenClawKit {
       bridge: { register: (run, tools, runId) => this.bridge.register(run, tools && this.o.browser ? [...tools, 'request_sign_in'] : tools, runId) },
       tools: new Set(this.toolNames()), delegations: this.delegations,
       ...(this.accountsCtl ? { accounts: this.accountsCtl } : {}),
+      ...(this.helpersCtl ? { helpers: this.helpersCtl } : {}),
       locks: this.locks,
       routes: this.routeMap,
     });
