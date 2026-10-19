@@ -2,6 +2,8 @@
 // Each speaks as its own persona in its own `h-<helper>:` sessions, its history survives the other's run, the same
 // account's key answers for both, and the account's sealed store is byte-for-byte unchanged by adding and running
 // helpers. Unknown ids, another helper's session and caller system text are refused typed before any model request.
+// Legacy adoption (S4): a plain m1 conversation from before helpers, across a kit restart, forks into research's key with
+// no model request and research's next turn holds its history; a legacy job parked on its approval is refused busy.
 // Synthetic keys, the loopback model stub, never an account or the network. Runs only in the engine job.
 import { test, before, after, mock } from 'node:test';
 import childProcess from 'node:child_process';
@@ -104,6 +106,13 @@ mock.method(globalThis, 'fetch', (input, options) => {
     assert.deepEqual(await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: planKey }), { status: 'ok' });
     const rows = (await kit.accounts('m1')).map((a) => [a.id, a.state]).sort();
     assert.deepEqual(rows, [['openai.aaaaaa', 'ready'], ['opencode-go.key', 'ready']]);
+    // The legacy store: before helpers, Crewhouse ran Umer's research conversation as a plain m1 session on the account.
+    // Then the kit restarts on that store, as at the teams cutover.
+    const sol = { account: 'openai.aaaaaa', model: 'openai/gpt-5.6-sol' };
+    assert.ok((await kit.run({ member: 'm1', sessionKey: 'agent:m1:crew-research', message: 'Remember the word plum.', ...sol })).ok);
+    await kit.stop();
+    kit = open();
+    await kit.start();
 
     const stores = () => ({ account: stored(root, agent), lane: stored(root, 'byokit-key-m1') });
     const before = stores();
@@ -123,7 +132,6 @@ mock.method(globalThis, 'fetch', (input, options) => {
       return JSON.stringify(calls[0]!.body);
     };
     // The account is billed per use (an API key), so each run names it, as any paid run does.
-    const sol = { account: 'openai.aaaaaa', model: 'openai/gpt-5.6-sol' };
     const first = await turn('research', 'Remember the word apricot.', accountKey, sol);
     const written = await turn('writer', 'Draft a title.', accountKey, sol);
     const again = await turn('research', 'Which word did I ask you to remember?', accountKey, sol);
@@ -141,6 +149,35 @@ mock.method(globalThis, 'fetch', (input, options) => {
       const history = JSON.stringify(await kit.call('chat.history', { sessionKey: key }));
       assert.ok(history.includes(has) && !history.includes(lacks), key);
     }
+
+    // Legacy adoption (S4): a legacy job still parked on its approval is refused busy and keeps its exact key and
+    // approval; settled, it adopts. The research conversation forks into research's key on the same account agent with
+    // no model request, the legacy session goes, and the helper's next turn holds its old history under its persona.
+    const resolves = async (key: string) =>
+      (await kit.call('sessions.resolve', { key, agentId: agent, allowMissing: true }) as { key?: string }).key !== undefined;
+    const inflight = kit.run({ member: 'm1', sessionKey: 'agent:m1:crew-job', tools: ['report'], message: '[tool report {"mode":"ask"}]', ...sol });
+    for (const end = Date.now() + 120_000; !kit.approvals().length;) { if (Date.now() > end) throw new Error('never parked'); await delay(50); }
+    const parkedJob = kit.approvals()[0]!;
+    const busy = await kit.adoptHelperSession({ member: 'm1', sessionKey: 'agent:m1:crew-job' }, 'writer');
+    assert.equal(busy.ok === false && busy.code, 'busy', JSON.stringify(busy));
+    assert.deepEqual(kit.approvals().map((a) => [a.id, a.sessionKey]), [[parkedJob.id, parkedJob.sessionKey]], 'the approval keeps its owner');
+    await kit.decide(parkedJob.id, { allow: true });
+    assert.ok((await inflight).ok);
+    const quietAdopt = stub.calls.length;
+    assert.deepEqual(await kit.adoptHelperSession({ member: 'm1', sessionKey: 'agent:m1:crew-research' }, 'research'),
+      { ok: true, session: 'agent:m1:h-research:crew-research' });
+    assert.deepEqual(await kit.adoptHelperSession({ member: 'm1', sessionKey: 'agent:m1:crew-job' }, 'writer'),
+      { ok: true, session: 'agent:m1:h-writer:crew-job' });
+    assert.equal(stub.calls.length, quietAdopt, 'adoption sent nothing to the model');
+    assert.ok(!(await resolves(`agent:${agent}:crew-research`)) && !(await resolves(`agent:${agent}:crew-job`)), 'the legacy sessions are gone');
+    const adoptedFrom = stub.calls.length;
+    assert.ok((await kit.run({ member: 'm1', helper: 'research', sessionKey: 'agent:m1:h-research:crew-research',
+      message: 'Which word did I ask you to remember?', ...sol })).ok);
+    const adopted = JSON.stringify(stub.calls[adoptedFrom]!.body);
+    assert.ok(adopted.includes('plum') && adopted.includes(persona('research')), 'the adopted conversation keeps its history as research');
+    assert.ok(stub.calls.slice(adoptedFrom).every((c) => c.authorization === `Bearer ${accountKey}`), 'on the same account');
+    console.log('PASS legacy adoption: in-flight job refused busy then adopted, plum history carried to h-research, no replay');
+    gated.length = 0; called.length = 0;
 
     // Refused typed, before any model request.
     const quiet = stub.calls.length;

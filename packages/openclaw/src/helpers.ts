@@ -28,7 +28,7 @@ type Saved = { v: 1; account: AccountId; agent: string; persona: string };
 
 export function createHelpers(ctx: { root: string; list(member: Member): Promise<Account[]> }): {
   ensure(member: Member, helper: string, o: { account: AccountId; persona: string }): Promise<Helper>;
-  resolve(member: Member, helper: string): { agentId: string; binding: Binding; persona: string };
+  resolve(member: Member, helper: string): { account: AccountId; agentId: string; binding: Binding; persona: string };
 } {
   const valid = (member: unknown, helper: unknown): boolean => typeof member === 'string' && MEMBER_ID.test(member)
     && !member.startsWith(KEY_PREFIX) && typeof helper === 'string' && HELPER_ID.test(helper);
@@ -69,7 +69,7 @@ export function createHelpers(ctx: { root: string; list(member: Member): Promise
       const saved = valid(member, helper) ? read(member, helper) : undefined;
       const entry = saved && loadIndex(ctx.root, member).file.accounts[saved.account];
       if (!saved || entry?.agent !== saved.agent) throw new HelperError('unknown_helper', `unknown helper: ${String(helper)}`);
-      return { agentId: saved.agent, persona: saved.persona,
+      return { account: saved.account, agentId: saved.agent, persona: saved.persona,
         binding: saved.agent === member ? { agentId: member } : { agentId: saved.agent, id: saved.account } };
     },
   };

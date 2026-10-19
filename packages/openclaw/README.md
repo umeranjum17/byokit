@@ -409,7 +409,7 @@ Entries:
 
 | Export | What it does |
 | --- | --- |
-| `OpenClawKit` (`.`) | Prepares, starts, supervises and stops the engine. `call` / `callDynamic` pass through to the Gateway, `onEvent` listens. Helpers: `ensureMember`, `ensureHelper`, `routes`, `providers`, `signedIn`, `signIn`, `signOut`, `removeKey`, `migrateRetainedLogin`, `confirmRetainedLogin`, `toolNames`, `run`, `steer`, `abort`, `approvals`, `onApproval`, `decide`, `allowOnce`, `disallowOnce`, `patchConfig`, `getConfigKey`, `setConfigKey`, `memoryLimited`, `doctorContext` |
+| `OpenClawKit` (`.`) | Prepares, starts, supervises and stops the engine. `call` / `callDynamic` pass through to the Gateway, `onEvent` listens. Helpers: `ensureMember`, `ensureHelper`, `adoptHelperSession`, `routes`, `providers`, `signedIn`, `signIn`, `signOut`, `removeKey`, `migrateRetainedLogin`, `confirmRetainedLogin`, `toolNames`, `run`, `steer`, `abort`, `approvals`, `onApproval`, `decide`, `allowOnce`, `disallowOnce`, `patchConfig`, `getConfigKey`, `setConfigKey`, `memoryLimited`, `doctorContext` |
 | `ENGINE_VERSION`, `PROTOCOL_VERSION`, `OPERATOR_SCOPES` (`.`) | The pinned engine version, its protocol and the operator scopes the kit connects with |
 | `KitOptions`, `RunSpec`, `RunEvent`, `RunEnd`, `RunUsage`, `PlanWindow`, `Route`, `Approval`, `Decision`, `ToolSpec`, `ToolHost`, `KitState`, ... (`.`) | Public types (docs/runtime-kits.md §5.2) |
 | `GatewayMethods`, `GatewayMethod`, `GatewayParams`, `GatewayResult`, `GatewayEventName`, `GatewayEventPayload` (`.`) | The generated pass-through tables, so an app can write its own generic wrapper over `call` / `onEvent` once |
@@ -491,6 +491,15 @@ A target that is not a helper key, a helper on another account, one never ensure
 refused before dispatch; the parent's tool result reads `session: …`, `bound: …` or `unknown_helper: …`.
 `abort(rootSessionKey)` revokes the children, and a helper whose account is removed loses them at their next call. The
 child runs without the helper's persona (a native send carries no system text).
+
+Conversations from before helpers (plain member sessions) move into a helper with
+`kit.adoptHelperSession({ member, sessionKey }, helper)`: the whole transcript forks to
+`agent:<member>:h-<helper>:<tail>` on the helper's account agent, the old session goes, and nothing is sent to the
+model. The result is `move`'s `MoveResult` with `session` set to the helper key to run on. A conversation still in
+flight (a live run, a parked approval or an admitted delegated child under it) is refused `busy` and keeps its exact
+old key and approval owner until it settles, so adopt again later; a target key already taken is refused and leaves
+both. A helper key, another member's key or a helper never ensured is a typed `HelperError` (`session`,
+`unknown_helper`).
 
 ## Owned browser (unqualified handoff)
 
