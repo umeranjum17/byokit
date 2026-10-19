@@ -38,9 +38,10 @@ the machine is on, and `words` is the one plain sentence to show. Start and stop
 Model sign-in happens on the machine, inside the aggregator — credentials are never copied from
 the person's computer. One person, one provider account, one machine per app install.
 
-Entries: `.` is portable (Node, Electron, React Native); `./ssh` is Node only (an already-rented
+Entries: `.` is portable (Node, Electron, React Native), including the HTTPS-only Hetzner adapter
+and the one-line console install; `./ssh` is Node only (an already-rented
 Linux machine over the `ssh` binary the app passes by absolute path); `./hetzner` is Node only
-(the Hetzner Cloud first slice below); `./idle` runs on the machine inside the host process;
+(the Hetzner Cloud first slice below, with SSH); `./idle` runs on the machine inside the host process;
 `./testing` is Node only (the fake providers and the contract suite).
 
 **Status: in development.** This is the M8 build ([spec](../../docs/cloud-kit.md) §14):
@@ -164,6 +165,48 @@ a backup. API prices remain a list estimate, not an invoice. Without usage,
 `machine.cost()` uses the app's `monthlyEntered` amount or the first (smallest) price's
 monthly cap; record a larger selected size's cap explicitly. It does not measure
 elapsed Hetzner spend. `provider.url`, usage, plan and scoped keys are absent.
+
+## Hetzner from the phone alone (first boot)
+
+`await hetznerApi(options)` from `.` is the same adapter over HTTPS only, so it runs in React Native:
+create, status, confirmed delete and the catalogue, with no SSH and no `node:*` import. Pass
+`firstBoot: { recipe, phoneKey }` and cloud-init installs the recipe on the server's first boot:
+the pinned Node (SHA256 checked), the install steps, the system unit, and the owner phone's public
+key in `<workDir>/.byokit/inbox/phone.bin` before the host starts (§5.12). `recipe.name` must equal
+the machine name, and `workDir` may start with `~/`. The provider token never enters cloud-init.
+
+```ts
+import { hetznerApi, machine, type HetznerApiOptions, type HostRecipe } from '@byokit/cloud';
+
+export async function rentFromPhone(options: HetznerApiOptions, recipe: HostRecipe, phoneKey: Uint8Array, size: string) {
+  const provider = await hetznerApi({ ...options, firstBoot: { recipe, phoneKey } });
+  const m = machine({ provider, store: options.store });
+  return m.create({ name: recipe.name, size, keepCopies: false }); // installs itself; exec and write reject 'unsupported'
+}
+```
+
+Without `publicKey` the server's firewall lets **nothing** in; the host reaches the phone outbound
+(its own relay or tailnet, which the recipe sets up). With `publicKey`, SSH 22/tcp opens as in the
+Node slice. The phone cannot see the install: `status()` reads `on` while it still runs, and the
+host's first answer on its own link is the ready signal. Full Hetzner power stays typed:
+`server` adds `POST /servers` fields (`ssh_keys`, `volumes`, `networks`, `labels`, IPv6 and others;
+the kit's own fields win), `cloudConfig` adds cloud-config keys (its `users` follow the kit's `user`; its `write_files` and
+`runcmd` come before the kit's install), and `provider.request(method, path, body)` makes any
+other Hetzner Cloud call with the same key, masking and typed errors. The Node `hetzner()` is this
+adapter plus SSH exec and write, unchanged. Hetzner bills the person's own account per hour up to
+the monthly cap, as usage, not a subscription; a stopped server still bills.
+
+## One line on a console
+
+`setupCommand(recipe, { phoneKey?, returnFile? })` from `.` returns `{ command, script, ready }`:
+one line to paste into the person's own computer's terminal or any provider's web console. It runs
+the same install as the first boot (as root: a system unit; as the person: a user unit with
+linger; root steps use `sudo`). A good run ends with exactly `ready` (`byokit-ready <name>`),
+followed by the first line of `<workDir>/.byokit/outbox/<returnFile>` when the host writes one
+within 60 s, such as the app's own pairing code. A failed run ends `byokit-failed <name> <step>`
+with exit 1. Pasting it again repairs in place. `script` is the readable text the line decodes,
+for the app to show; a truncated paste runs nothing. `installScript(recipe, o)` is that text alone,
+for another provider's user-data box.
 
 ## Your own tailnet
 

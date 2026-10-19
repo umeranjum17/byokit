@@ -26,7 +26,7 @@ export function nodeUrl(version: string, arch: NodeArch): string {
   return `https://nodejs.org/dist/v${version}/node-v${version}-${arch}.tar.xz`;
 }
 
-const INSTALL_SCRIPT = 'set -e; d=$(mktemp -d); trap "rm -rf \\"$d\\"" EXIT\ncurl -fsSL -o "$d/n.tar.xz" "$1"\necho "$2  $d/n.tar.xz" | sha256sum -c --status || exit 3\nmkdir -p "$3"; tar -xJf "$d/n.tar.xz" -C "$3" --strip-components=1';
+export const NODE_INSTALL_SHELL = 'set -e; d=$(mktemp -d); trap "rm -rf \\"$d\\"" EXIT\ncurl -fsSL -o "$d/n.tar.xz" "$1"\necho "$2  $d/n.tar.xz" | sha256sum -c --status || exit 3\nmkdir -p "$3"; tar -xJf "$d/n.tar.xz" -C "$3" --strip-components=1';
 
 /**
  * The 8.3 step 4 argv, run as the run user: downloads the tarball, checks its sha256
@@ -34,7 +34,7 @@ const INSTALL_SCRIPT = 'set -e; d=$(mktemp -d); trap "rm -rf \\"$d\\"" EXIT\ncur
  */
 export function nodeInstallArgv(r: HostRecipe, arch: NodeArch, home: string): readonly string[] {
   return [
-    'sh', '-c', INSTALL_SCRIPT, 'sh',
+    'sh', '-c', NODE_INSTALL_SHELL, 'sh',
     nodeUrl(r.node.version, arch),
     r.node.sha256[arch],
     nodeDir(home, r.node.version),

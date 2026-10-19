@@ -25,7 +25,7 @@ export async function startFakeHetznerServer() {
     }
     if (path === '/firewalls' && method === 'GET') return send(200, { firewalls: [...firewalls.values()].filter(f => !url.searchParams.has('name') || f['name'] === url.searchParams.get('name')), meta: { pagination: { next_page: null } } });
     if (path === '/firewalls' && method === 'POST') {
-      assert.deepEqual(body['rules'], [{ direction: 'in', protocol: 'tcp', port: '22', source_ips: ['0.0.0.0/0'] }]);
+      assert.ok([[], [{ direction: 'in', protocol: 'tcp', port: '22', source_ips: ['0.0.0.0/0'] }]].some(rules => JSON.stringify(rules) === JSON.stringify(body['rules'])), 'SSH-only or nothing inbound');
       const f = { ...body, id: nextFirewall++ }; firewalls.set(f.id, f); return send(201, { firewall: f, actions: [] });
     }
     if (path === '/servers' && method === 'GET') {
