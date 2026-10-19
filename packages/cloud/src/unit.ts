@@ -58,6 +58,9 @@ export const WORKDIR_SHELL = 'cd "$1" && PATH="$2:$PATH" && shift 2 && exec "$@"
 /** The 7.1 write shell: stdin bytes land at `$1` with octal mode `$2`, atomically. */
 export const WRITE_SHELL = 'umask 077 && t=$(mktemp "$(dirname "$1")/.byokit-XXXXXX") && cat > "$t" && chmod "$2" "$t" && mv -f "$t" "$1"';
 
+/** A delivered inbox or outbox file name (5.8). */
+export const FILE_NAME = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
 /** The 5.8 deliver shell: stdin bytes land at `$1/$2` at mode 0600. */
 export const DELIVER_SHELL = 'umask 077 && mkdir -p "$1" && t=$(mktemp "$1/.in-XXXXXX") && cat > "$t" && mv -f "$t" "$1/$2"';
 

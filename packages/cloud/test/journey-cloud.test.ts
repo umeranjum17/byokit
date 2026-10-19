@@ -1226,6 +1226,38 @@ test('a connect screen follows setup steps in order and retries a failed install
   } finally { await server.close(); }
 });
 
+test('a phone with no computer yet rents one through setup, and a retry resumes on it instead of renting another', async () => {
+  // Boat's create resolves while the new machine is still provisioning: setup waits for it to come on.
+  const server = await startFakeSandboxServer({ slowCreateReads: 2 });
+  try {
+    const provider = boat({ baseUrl: server.url, label: 'Boat', prices: prices(), key: async () => 'test-key' });
+    const rentals = () => server.requests.filter((r) => r.method === 'POST' && r.path === '/sandboxes').length;
+    const fresh = { provider, store: memoryStore(), recipe: recipe(), create: { size: 'small', keepCopies: true } };
+
+    server.machine.script('npm', { code: 1, stdout: '', stderr: 'install refused', timedOut: false });
+    const failed = await collectSteps(setup(fresh));
+    assert.deepEqual(failed.map((s) => s.step), ['checking-access', 'creating', 'failed']);
+    const made = failed[1];
+    assert.ok(made.step === 'creating' && made.ref.name === 'web' && made.ref.keepCopies);
+    assert.equal(words('setup.creating', { label: 'Boat' }), 'Setting up a new cloud computer on your own Boat account. Boat bills you for it.');
+    assert.deepEqual(failed.at(-1), { step: 'failed', at: 'installing', cause: 'state.failed', retryable: true });
+
+    server.machine.script('npm', { code: 0, stdout: 'installed\n', stderr: '', timedOut: false });
+    const lines: string[] = [];
+    const resumed = await collectSteps(setup({ ...fresh, onLine: (l) => lines.push(l) }));
+    assert.deepEqual(resumed.map((s) => s.step), ['checking-access', 'creating', 'installing', 'ready']);
+    const ready = resumed.at(-1);
+    assert.ok(ready?.step === 'ready' && ready.ref.id === made.ref.id);
+    assert.deepEqual(lines, ['installed']);
+    assert.equal(rentals(), 1);
+
+    // A recipe the kit refuses fails before any rental, so it never bills.
+    const refused = await collectSteps(setup({ ...fresh, store: memoryStore(), recipe: { ...recipe('bad'), workDir: 'relative' } }));
+    assert.deepEqual(refused.at(-1), { step: 'failed', at: 'creating', cause: 'error.app', retryable: false });
+    assert.equal(rentals(), 1);
+  } finally { await server.close(); }
+});
+
 test('setup failures name their step: access, pairing, and a provider without listing', async () => {
   const unreachablePick = (): MachineRef => { throw new Error('pick runs only after a listing'); };
 

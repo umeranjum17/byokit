@@ -55,7 +55,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D-11 | Library code reads no environment variable (capability-kits D-G). Every spawned process gets an env built from nothing; argv is an array. |
 | D-12 | Words. `src/words.json` holds the section 12 sentences, tested against the repo's banned-jargon expression (the one `packages/herdr/test/words.test.ts` uses). UI code shows `words(key, vars)`; it never builds sentences from states or codes. |
 | D-13 | Fakes and contract (capability-kits 3.4): `./testing` ships `fakeProvider()` and `machineContract(make, o?)`. The same assertions run against the fake and each adapter's loopback or fake-bin bench in `npm test`, and against a real provider only in M6's lab run. |
-| D-14 | Release: 0.1.0 publishes after the recorded live claim proof (K-CLAIM), on npm dist-tag `next` (`publishConfig.tag`); create, install and hosting with a claimed key stay unproven until M6's recorded run, and `latest` moves to cloud only after M6 passes. `scripts/release.ts`' canonical order gains `cloud` after `overlay` (M1). |
+| D-14 | Release: 0.1.0 publishes after the recorded live claim proof (K-CLAIM), on npm dist-tag `next` (`publishConfig.tag`); create, install and hosting with a claimed key stay unproven until M6's recorded run, and `latest` moves to cloud only after M6 passes. `scripts/release.ts`' canonical order gains `cloud` after `overlay` (M1). Amended 2026-10-18: from 0.2.1 releases publish on `latest` (#741) while M6 is still unrun; apps keep `setup.makeKey` as the fallback until M6 passes. |
 | D-15 | Isolation carve-out, added to `CONTRIBUTING.md` (Rules, Isolation first) and `README.md` (What byokit never touches) in M0: "`@byokit/cloud` spawns only the `ssh` binary the app passes by absolute path and the `ssh-keyscan` beside it, with the key path the app passes and a kit-owned config, and holds only the provider keys the app's store gives it and the scoped keys it mints for that app." |
 | D-16 | Builders: **Opus** for spec, architecture and the real-provider proof; **Muse** for builds (14). This supersedes the Sol/Flash naming used in the older specs for this kit only. |
 
@@ -356,20 +356,23 @@ over the 5.2a paths, for the app to show with `words()` (5.11).
 
 ```ts
 // src/setup.ts, exported from '.'
-export type SetupStepName = 'checking-access' | 'listing' | 'inspecting' | 'installing' | 'securing' | 'pairing';
+export type SetupStepName = 'checking-access' | 'listing' | 'creating' | 'inspecting' | 'installing' | 'securing' | 'pairing';
 export type SetupStep =
   | { step: 'checking-access'; account: string }   // provider.account() returned
   | { step: 'listing'; machines: MachineRef[] }    // provider.list() returned
+  | { step: 'creating'; ref: MachineRef }          // the new machine (create path) is saved and on
   | { step: 'inspecting'; ref: MachineRef }        // the picked machine passed the 5.2a guards and is saved
   | { step: 'installing'; ref: MachineRef }        // install(recipe) resolved
   | { step: 'securing'; name: string }             // the tailnet name is joined and the app port is served (9.1)
   | { step: 'pairing'; receipt?: PairReceipt }     // the app's pair gate resolved; pairEnrol's carries the receipt (5.12)
   | { step: 'ready'; ref: MachineRef }
   | { step: 'failed'; at: SetupStepName; cause: WordKey; retryable: boolean };
-export function setup(o: {
+export function setup(o: (
+  | { pick: (listed: MachineRef[]) => MachineRef;  // the app's choice from the listing event
+      confirmId: string; create?: never }          // must equal the picked id (5.2a)
+  | { create: { size: string; keepCopies: boolean }; pick?: never; confirmId?: never }  // 5.11 create path (2026-10-19)
+) & {
   provider: Provider; store: MachineStore; recipe: HostRecipe;
-  pick: (listed: MachineRef[]) => MachineRef;      // the app's choice from the listing event
-  confirmId: string;                               // must equal the picked id (5.2a)
   onLine?: (line: string) => void;                 // install lines, in order
   address?: { hostname: string; port: number; onStep?: (s: TailnetStep) => void };  // the secure address; absent skips securing
   pair?: (ref: MachineRef, ctx: PairContext) => Promise<PairReceipt | void>;  // the app's Pair-ready gate; absent skips pairing
@@ -610,6 +613,16 @@ are out of scope (phone-key enrol is 5.12).
 - A retry calls `setup()` again with the same arguments: when the store already holds the picked machine
   (`exists`), the stream resumes at install on that ref. Install stays idempotent, so a re-run on an installed
   machine reinstalls rather than reporting work it did not do.
+- Create path (2026-10-19, for a phone-only person with no computer yet): `create: { size, keepCopies }` in
+  place of `pick` and `confirmId`. After checking-access the recipe is checked (`bad-recipe` fails `creating`
+  before any rental, so a refused recipe never bills), then `Machine.create({ name: recipe.name, size,
+  keepCopies })`, then `state()` every 2 s until `on` (`asleep` wakes; `failed` or `gone` rejects `provider`;
+  `host-key-changed` rejects `host-key`; 5 minutes rejects `timeout`), then `{ step: 'creating', ref }`,
+  `install(recipe)` and `installing`; securing, pairing and ready follow as above. A failure before the step
+  reads `creating`. A retry with the same arguments meets `exists` with a saved ref named `recipe.name` and
+  resumes on it (waiting until on, then installing), so it never rents a second machine. There is no
+  listing step and no `inspecting` step on this path. Boat's public API (boat-v1) has no region or location,
+  so neither `create` nor `MachineRef` takes one.
 
 ### 5.12 Phone-key enrol (K-ENROL)
 
@@ -618,8 +631,8 @@ are out of scope (phone-key enrol is 5.12).
 The key travels only as delivery bytes: never in `run.env`, `run.argv`, files outside the inbox, logs or error text, so the 8.1 `KEY`/`TOKEN`/`SECRET`/`PASSWORD` refusal stays unchanged.
 `bindPhoneKey(host, key, name?)` runs on the machine inside the host process against a structural host (`devices()` and `enrol()` only, so the real `Host` fits with no kit-to-kit import): it checks 32 bytes, resolves `{ id, bound: false }` when a `kind: 'phone'` grant already holds that key, rejects `owner-enrolled` when one holds another key, and otherwise calls `host.enrol({ key, name, role: 'control', kind: 'phone' })` and resolves `{ id, bound: true }`.
 First writer wins and restart-safe: the durable grant store is the binding record, so after a restart the same key rebinds idempotently and any other key is still refused.
-`phoneReceipt(host, key)` (K-RECEIPT) runs on the machine after `bindPhoneKey` or `replacePhoneKey`, against `{ keys, devices() }` (the real `Host` fits): it returns the receipt text `{ v: 1, key, host, device: { id, name, role: 'control' } }` (base64url public keys only; it rejects `bad-recipe` for a key no phone grant holds). The host process writes it to `<workDir>/.byokit/outbox/receipt.json` (`RECEIPT_FILE`) at mode 0600, through a temporary name and a rename.
-`pairEnrol(machine, recipe, key)` is the `setup()` `pair` gate: it delivers the key, then reads `RECEIPT_FILE` through `ctx.read` once a second for up to 60 s until a receipt for that same key appears, and resolves `PairReceipt = { host, device, urls: ctx.urls }`, which the `pairing` step carries (shown with `setup.pairing`). At the deadline a receipt for another key rejects `owner-enrolled` (the host refused this phone); none rejects `timeout`. A malformed or half-written file reads as absent.
+`phoneReceipt(host, key)` (K-RECEIPT) runs on the machine after `bindPhoneKey` or `replacePhoneKey`, against `{ keys, devices() }` (the real `Host` fits): it returns the receipt text `{ v: 1, key, host, device: { id, name, role: 'control' } }` (base64url public keys only; it rejects `bad-recipe` for a key no phone grant holds). The host process writes it to `<workDir>/.byokit/outbox/receipt.json` (`RECEIPT_FILE`) at mode 0600, through a temporary name and a rename: `writeOutbox(workDir, file, text)` from `./unit` (Node) does exactly that, and `takeInbox(workDir, file)` resolves a delivered inbox file's bytes with a `done()` that removes it (called only after handling resolves), or `null` while absent; both refuse a file name outside 5.8's rule with `bad-recipe`. The structural `EnrolHost`, `OwnerHost` and `ReceiptHost` may be an app's own device store, not only `@byokit/pair`'s `Host`.
+`pairEnrol(machine, recipe, key)` is the `setup()` `pair` gate: it delivers the key, then reads `RECEIPT_FILE` through `ctx.read` once a second for up to 60 s until a receipt for that same key appears, and resolves `PairReceipt = { host, device, urls: ctx.urls }` (`urls` are the address roots; `pairEnrol(m, recipe, key, { url })` maps each root through the app's `url(root, host)` for a link route with a path), which the `pairing` step carries (shown with `setup.pairing`). At the deadline a receipt for another key rejects `owner-enrolled` (the host refused this phone); none rejects `timeout`. A malformed or half-written file reads as absent.
 The phone links with the receipt and its own secret alone: `new DeviceLink({ v: 1, secretKey, hostName, ...receipt }, …)` from `@byokit/pair`. Every receipt value is public; none enters `run.env`, `run.argv`, logs or error text.
 
 Owner re-enrol (K-EXISTS). A reinstalled app or a new phone has an empty store, so `setup()` on its own computer fails `owner-enrolled` (`error.ownerEnrolled`, at `inspecting`, not retryable) and changes nothing. The app shows that sentence and asks the person to confirm; only then it calls the same `setup()` with `replaceOwner: true`. adopt takes over the kit's own install (5.2a) and reinstalls in place, and the gate's `PairContext` carries `replaceOwner: true`, so `pairEnrol` (or `deliverPhoneKey(machine, recipe, key, { replaceOwner: true })`) delivers the key as `OWNER_KEY_FILE` (`'owner.bin'`) instead of `phone.bin`. setup() never replaces an owner by itself. On the machine the host calls `replacePhoneKey(host, key, name?)` for `owner.bin` only, against `OwnerHost` (`EnrolHost` plus the real Host's `revoke(id)`): one call that revokes every other `kind: 'phone'` grant, then binds the key as `bindPhoneKey` does (a key already bound resolves `bound: false`); the host then writes the new phone's receipt as above. Revoking first ends the old phone's access at once and leaves room under a one-phone cap; a crash between the two leaves no phone, and handling the same file again finishes the swap, so the host removes an inbox file only after its call resolves. Other device kinds stay. The durable grant store holds the result across restarts, where the old key is still refused.
@@ -1185,6 +1198,7 @@ key })` ends a claimed key (RFC 7009 at the metadata's `revocation_endpoint`, th
 | `tailnet.loginExpired` | The sign-in link expired. Try connecting your cloud computer again. |
 | `setup.checking-access` | Checking your {label} account. |
 | `setup.listing` | Looking for your existing cloud computers. |
+| `setup.creating` | Setting up a new cloud computer on your own {label} account. {label} bills you for it. |
 | `setup.inspecting` | Checking this cloud computer can run {app}. |
 | `setup.installing` | Putting {app} on your cloud computer. |
 | `setup.securing` | Giving your cloud computer a private address on your own network. |

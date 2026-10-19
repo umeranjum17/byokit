@@ -1,17 +1,19 @@
 // Phone-key enrol (docs/cloud-kit.md 5.12): fake provider and loopback link; no network, key or real machine is used.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import { DeviceLink, Host, b64url, keyPair, type DeviceGrant, type Grant, type LinkStatus } from '../../pair/src/index.ts';
 import { machine } from '../src/machine.ts';
 import { setup, type SetupStep } from '../src/setup.ts';
-import { OWNER_KEY_FILE, PHONE_KEY_FILE, RECEIPT_FILE, bindPhoneKey, deliverPhoneKey, pairEnrol, phoneReceipt, replacePhoneKey } from '../src/enrol.ts';
-import { DELIVER_SHELL } from '../src/unit.ts';
+import { OUTBOX_SHELL, OWNER_KEY_FILE, PHONE_KEY_FILE, RECEIPT_FILE, bindPhoneKey, deliverPhoneKey, pairEnrol, phoneReceipt, replacePhoneKey } from '../src/enrol.ts';
+import { DELIVER_SHELL, takeInbox, writeOutbox } from '../src/host.ts';
 import { checkRecipe } from '../src/recipe.ts';
 import { MachineError } from '../src/errors.ts';
-import type { ExecResult, HostRecipe, MachineRef, Provider } from '../src/types.ts';
+import type { ExecResult, HostRecipe, Machine, MachineRef, Provider } from '../src/types.ts';
 import { fakeProvider, memoryStore } from '../src/testing/index.ts';
 
 const sha = (c: string): Record<'linux-x64' | 'linux-arm64', string> => ({ 'linux-x64': c.repeat(64), 'linux-arm64': c.repeat(64) });
@@ -191,6 +193,43 @@ test('setup secures the address, the host answers with a receipt, and the phone 
     address: { hostname: 'computer', port: 7300 }, pair: pairEnrol(machine({ provider: fresh, store: store2 }), recipe('web'), phone.publicKey),
   })) again.push(s.step === 'failed' ? `failed:${s.at}:${s.cause}:${s.retryable}` : s.step);
   assert.deepEqual(again, ['checking-access', 'listing', 'inspecting', 'installing', 'failed:securing:state.failed:true']);
+});
+
+test('on its own disk the host takes the delivered key from its inbox and answers through its outbox', async (t) => {
+  // The machine's disk is a real directory, written and read by the kit's real delivery and outbox shells.
+  const workDir = mkdtempSync(`${process.env.TMPDIR ?? '/tmp'}/byokit-host-`);
+  t.after(() => rmSync(workDir, { recursive: true, force: true }));
+  const sh = (script: string, args: string[], input?: Uint8Array) => execFileSync('sh', ['-c', script, 'sh', ...args], { input }).toString();
+  const host = await openHost(grantsBacking());
+  t.after(() => host.close());
+  const answered = (async () => {
+    for (;;) {
+      const got = await takeInbox(workDir, PHONE_KEY_FILE);
+      if (got !== null) {
+        await bindPhoneKey(host, got.bytes);
+        await writeOutbox(workDir, RECEIPT_FILE, phoneReceipt(host, got.bytes));
+        await got.done();
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
+  })();
+  const m = { deliver: async (_r: HostRecipe, file: string, bytes: Uint8Array) => { sh(DELIVER_SHELL, [`${workDir}/.byokit/inbox`, file], bytes); } } as unknown as Machine;
+  const phone = keyPair();
+  // An app whose link route has a path builds it from each address root and the host's key.
+  const gate = pairEnrol(m, { ...recipe(), workDir }, phone.publicKey, { url: (root, hostKey) => `${root}/link/${hostKey}` });
+  const receipt = await gate({} as MachineRef, {
+    urls: ['ws://computer.tail-test.ts.net:7300'],
+    read: async (file) => sh(OUTBOX_SHELL, [`${workDir}/.byokit/outbox/${file}`]) || null,
+  });
+  await answered;
+  const hostKey = b64url(host.keys.publicKey);
+  assert.deepEqual(receipt.urls, [`ws://computer.tail-test.ts.net:7300/link/${hostKey}`]);
+  assert.equal(receipt.host, hostKey);
+  assert.equal(statSync(`${workDir}/.byokit/outbox/${RECEIPT_FILE}`).mode & 0o777, 0o600);
+  assert.equal(statSync(`${workDir}/.byokit/outbox`).mode & 0o777, 0o700);
+  assert.equal(await takeInbox(workDir, PHONE_KEY_FILE), null, 'the handled key is gone from the inbox');
+  await assert.rejects(writeOutbox(workDir, '../escape', 'x'), (e: unknown) => e instanceof MachineError && e.code === 'bad-recipe');
 });
 
 test('the recipe guard still refuses key-like names', () => {
