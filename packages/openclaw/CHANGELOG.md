@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.22.0 (2026-10-19)
+
+- FEAT: a helper's delegated run is visible from start to finish on `onEvent('byokit.delegated')`: `admitted` carries `run.tools` (its app-tool subset, also on `delegatedRuns()`), and the one `ended` says why in `reason`: `terminal`, `cancelled` (a kit or engine abort, or ended admission), `error` (with the engine's `message`) or `resting`, where the model's usage limit ended a helper's run and the kit rests that helper's account `until` the stated reset, as a kit run's resting end does.
+- FEAT: `Approval.helper` names the helper whose run asks, for gate approvals and for native approvals on a helper's `agent:<agent>:h-<helper>:` key.
+- FEAT: `kit.adoptHelperSession({ member, sessionKey }, helper)` moves a conversation from before helpers into a helper: its whole transcript forks to `agent:<member>:h-<helper>:<tail>` on the helper's account agent and the old session is deleted, with no model request, credential or SQLite copy. A conversation still in flight (live run, parked approval or admitted delegated child) is refused `busy` and keeps its exact old key and approval owner until it settles.
+
 ## 0.21.0 (2026-10-19)
 
 - FEAT: `run({ helperDelegates: { writer: ['report'] } })` lets a run hand work to the member's own helpers: the engine's native `sessions_send` to the exact key `agent:<the helper's agent>:h-<helper>:<rest>`, on an ordinary account or the plan-key lane, is admitted from its receipt as that helper's delegated run (`RunRef.helper`), so its app-tool calls cross the same gate, approvals and tool subset as any delegated child. `abort(rootSessionKey)` revokes them.
