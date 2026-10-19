@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.21.0 (2026-10-19)
+
+- FEAT: `run({ helperDelegates: { writer: ['report'] } })` lets a run hand work to the member's own helpers: the engine's native `sessions_send` to the exact key `agent:<the helper's agent>:h-<helper>:<rest>`, on an ordinary account or the plan-key lane, is admitted from its receipt as that helper's delegated run (`RunRef.helper`), so its app-tool calls cross the same gate, approvals and tool subset as any delegated child. `abort(rootSessionKey)` revokes them.
+- SECURITY: a helper key is entered only on this path, never through `delegates` or a key prefix. A target that is not a helper key, a helper on another member's or account's agent, a helper never ensured, or one the run was not given is refused before dispatch with a typed `HelperError` code in the parent's tool result; a helper whose account is removed or rebound since admission ends its children's admission at their next gate or call, its unspent permits included.
+- FIX: an OpenRouter API key with funds accepts and runs the model the person chooses (pay-as-you-go, no plan check). Before, `addKey` refused every `model` on the OpenRouter key route with `{ status: 'not_included', reason: 'model' }` (only the OpenCode Go route took a model) and `models()` listed nothing for it; now the key's own OpenRouter live catalog decides, `models()` lists it as `openrouter/<id>` (one prefix, and the engine's canonical id for a Google preview), and only the chosen model is registered with the engine.
+
 ## 0.20.0 (2026-10-19)
 
 - FEAT: `ensureHelper(member, helper, { account, persona })` gives a member several helpers, each with its own persona and its own sessions (`agent:<member>:h-<helper>:…`) on one account the member already signed in, the API-key lane included: runs go to the engine agent already holding that account, so no credential is copied and no sign-in starts. `run({ helper })` speaks as that helper with its persona as the system text; `RunRef.helper` names it on `ToolHost.gate` and `call`, and its approvals stay the member's.
