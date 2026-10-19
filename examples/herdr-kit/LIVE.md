@@ -21,9 +21,9 @@ person's own Herdr, HOME or agent sign-ins.
    sign-in folder. If the provider requires human consent, pause with its URL and code; never copy a person's
    existing sign-in or type their password.
 6. From the phone: send a message, see the reply on the agent's screen, see `Ready for you` again.
-7. Ask the agent for something that needs permission; answer from **Questions for you** with each of the key
-   buttons at least once over the run (`Enter`, `y`, `n`, `Esc`: the app sends Herdr the key names `Enter`, `y`,
-   `n`, `Escape`); the question leaves the list and the agent carries on.
+7. Ask the agent for something that needs permission; answer from **Questions for you** with each of the three
+   buttons at least once over the run: **Allow** (`y`), **Deny** (`n`) and **Skip** (`Escape`), the keys the app
+   sends Herdr; the question leaves the list and the agent carries on.
 8. Restart `npm start`: the phone reconnects without pairing again; the agent's sign-in is still there.
    Once over `--via lan` too (plain http): pair, reload the page, still paired.
 9. Screenshot each step on the phone; record the results below and in the PR. Stop the example, tear down only
