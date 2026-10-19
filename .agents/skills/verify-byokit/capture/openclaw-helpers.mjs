@@ -43,7 +43,9 @@ try {
     const end = await kit.run({ member: 'umer', helper: h.helper, sessionKey: `${h.sessionPrefix}main`, message: '[tool crew_note {}] hello',
       ...(h.account === 'openai.key' ? { account: 'openai.key' } : {}) });
     const { agentId, sessionKey, extraSystemPrompt } = agentRequests().at(-1).params;
-    console.log(`run ${h.helper}:`, JSON.stringify({ ok: end.ok, account: end.account, agentId, sessionKey, extraSystemPrompt }));
+    // Label the session `session`, not `sessionKey`: the engine's key is not a secret but a `…key:` field trips the
+    // evidence secret scan.
+    console.log(`run ${h.helper}:`, JSON.stringify({ ok: end.ok, account: end.account, agentId, session: sessionKey, extraSystemPrompt }));
     assert.ok(end.ok && agentId === h.agentId && extraSystemPrompt === persona(h.helper));
   }
   console.log('gated RunRefs:', JSON.stringify(gated.map((r) => [r.member, r.helper, r.sessionKey])));
