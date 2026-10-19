@@ -186,7 +186,11 @@ export type HostRecipe = {
 
 // The app's own persistence for the one MachineRef + provider key; the same load/save seam as
 // recordStore(load, save) (packages/accounts/src/stores.ts:11). The kit imports no other kit.
-export type MachineRecord = { ref: MachineRef | null; providerKey: string; monthlyEntered?: number }
+// `pending` is a create the provider may have made but whose answer never came back (5.2 step 3).
+export type MachineRecord = {
+  ref: MachineRef | null; providerKey: string; monthlyEntered?: number
+  pending?: { name: string; size: string; keepCopies: boolean; idempotencyKey: string }
+}
 export type MachineStore = { load(): Promise<MachineRecord | null>; save(r: MachineRecord): Promise<void> }
 
 export interface Machine {
@@ -429,8 +433,14 @@ Hetzner/SSH joining and a private stdin transport are follow-ups, not weaker imp
    else reject `bad-recipe` naming the field.
 3. **Provider with `create`** (Boat): the kit makes one idempotency key per `create` call,
    `` `byokit-${name}-${n}` `` where `n` is 16 random base36 chars from `crypto.getRandomValues` (available on Node 22,
-   Electron, React Native with Hermes, and browsers). It calls `provider.create({ name, size, keepCopies, idempotencyKey })`,
-   retrying up to 3 times with the same key on `unreachable` only.
+   Electron, React Native with Hermes, and browsers). Before the call it saves
+   `{ ...record, ref: null, pending: { name, size, keepCopies, idempotencyKey } }`, so the key outlives a lost answer
+   and an app restart. It calls `provider.create({ name, size, keepCopies, idempotencyKey })`,
+   retrying up to 3 times with the same key on `unreachable` only. A later `create` with a saved `pending` sends that
+   key again, so the provider answers with the machine it already made (Boat keeps a key 24 h, 15.1; Hetzner finds
+   the server by its operation label); one with another `name`, `size` or `keepCopies` rejects `exists` and rents
+   nothing. A refusal that made nothing (`unauthorized`, `balance`, `bad-recipe`, `exists`, `unsupported`) drops `pending`; any other
+   failure keeps it. Saving a ref drops it.
 4. **Provider without `create`** (SSH VM): the machine already exists. The kit adopts it: `keepCopies` must be
    `false` (else `bad-recipe`); `provider.adopt` must exist (else `unsupported`) and resolves the id (it rejects
    `host-key` while the host key is unpinned, 7.2); the ref is
@@ -622,7 +632,8 @@ are out of scope (phone-key enrol is 5.12).
   `host-key-changed` rejects `host-key`; 5 minutes rejects `timeout`), then `{ step: 'creating', ref }`,
   `install(recipe)` and `installing`; securing, pairing and ready follow as above. A failure before the step
   reads `creating`. A retry with the same arguments meets `exists` with a saved ref named `recipe.name` and
-  resumes on it (waiting until on, then installing), so it never rents a second machine. There is no
+  resumes on it (waiting until on, then installing), so it never rents a second machine; after a lost create
+  answer it finds the saved `pending` and gets the same machine back (5.2 step 3). There is no
   listing step and no `inspecting` step on this path. Boat's public API (boat-v1) has no region or location,
   so neither `create` nor `MachineRef` takes one.
 

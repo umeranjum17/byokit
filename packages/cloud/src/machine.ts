@@ -59,8 +59,10 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
   };
   const current = (): MachineRef | null => shared.record?.ref ?? null;
 
-  const save = async (next: MachineRef | null): Promise<void> => {
-    const saved: MachineRecord = { ...(shared.record ?? { providerKey: '' }), ref: next };
+  // A saved ref ends any pending create; only create() passes `pending` (5.2 step 3).
+  const save = async (next: MachineRef | null, pending?: MachineRecord['pending']): Promise<void> => {
+    const { pending: _done, ...kept } = shared.record ?? { providerKey: '' };
+    const saved: MachineRecord = { ...kept, ref: next, ...(pending !== undefined ? { pending } : {}) };
     await o.store.save(saved);
     shared.record = saved;
   };
@@ -88,8 +90,8 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
   };
 
   // 5.10: create, and every retry of it, carries one idempotency key; unreachable only.
-  const withKey = async <T>(name: string, run: (idempotencyKey: string) => Promise<T>): Promise<T> => {
-    const idempotencyKey = `byokit-${name}-${randomBase36(16)}`;
+  const newKey = (name: string): string => `byokit-${name}-${randomBase36(16)}`;
+  const withKey = async <T>(idempotencyKey: string, run: (idempotencyKey: string) => Promise<T>): Promise<T> => {
     for (let attempt = 0; ; attempt++) {
       try {
         return await run(idempotencyKey);
@@ -429,7 +431,22 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
         }
         const { create } = o.provider;
         if (create !== undefined) {
-          const created = await withKey(name, (idempotencyKey) => create({ name, size, keepCopies, idempotencyKey }));
+          // 5.2 step 3: the key is saved before the call, so a retry after a lost answer, even from a
+          // restarted app, sends the same key and the provider answers with the machine it already made.
+          const pending = shared.record?.pending;
+          if (pending !== undefined && (pending.name !== name || pending.size !== size || pending.keepCopies !== keepCopies)) {
+            throw new MachineError('exists', `the creation of ${pending.name} may already have made a machine: retry it with the same name, size and keepCopies`);
+          }
+          const job = pending ?? { name, size, keepCopies, idempotencyKey: newKey(name) };
+          if (pending === undefined) await save(null, job);
+          let created: MachineRef;
+          try {
+            created = await withKey(job.idempotencyKey, (idempotencyKey) => create({ name, size, keepCopies, idempotencyKey }));
+          } catch (e) {
+            // The provider refused outright, so it made nothing; any other failure may hide a made machine.
+            if (['unauthorized', 'balance', 'bad-recipe', 'exists', 'unsupported'].includes((e as { code?: string }).code ?? '')) await save(null);
+            throw e;
+          }
           await save(created);
           return created;
         }
@@ -815,7 +832,7 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
         }
         // The app confirmed; the words say what is lost (`snapshot.restore`). The new ref is
         // saved (through `replaced`) before the adapter deletes the old machine.
-        await withKey(r.name, (idempotencyKey) => restore(r, id, { idempotencyKey, replaced: save }));
+        await withKey(newKey(r.name), (idempotencyKey) => restore(r, id, { idempotencyKey, replaced: save }));
       });
     },
 

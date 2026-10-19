@@ -254,7 +254,10 @@ For a person with no computer yet, pass `create: { size, keepCopies }` instead o
 `confirmId`: after `checking-access` the kit rents one named after the recipe, waits until it is on
 (Boat's create answers while it is still starting), and emits `creating` (`setup.creating` words) before
 `installing`; the rest is the same. The recipe is checked before the rental, so a refused recipe never
-bills. A retry with the same arguments finds the saved computer and resumes on it.
+bills. A retry with the same arguments finds the saved computer and resumes on it. The kit saves the
+create's idempotency key in the store (`record.pending`) before it asks the provider, so even when the
+answer is lost, or the app restarts, the retry gets back the computer already made instead of renting a
+second one. A retry with another size is refused while that create is pending.
 
 ```ts
 import { setup, words, type HostRecipe, type MachineRef, type MachineStore, type Provider } from '@byokit/cloud';

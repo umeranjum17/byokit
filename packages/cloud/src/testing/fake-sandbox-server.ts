@@ -75,6 +75,8 @@ export type SandboxServer = {
   setPlan(p: { planKey?: string; subscriptionTrialEndsAt?: string | null; canStart?: boolean }): void;
   /** Destroy the next n connections without answering (a dropped connection). */
   dropNext(n: number): void;
+  /** Make the sandbox for the next n creates, then destroy the connection instead of answering (a lost answer). */
+  loseNextCreateAnswers(n: number): void;
   /** Answer the next request(s) with these one-shot failures first. */
   failNext(failures: readonly { status: number; body?: unknown }[]): void;
   /** Make the next detached command's status read report a lost command. */
@@ -123,6 +125,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
   let subscriptionTrialEndsAt: string | null = o.trialEndsAt ?? null;
   let slowWakeReads = o.slowWakeReads ?? 0;
   let drop = 0;
+  let loseCreateAnswers = 0;
   let loseCommand = false;
   let nextCreateRaw: string | null = null;
   const failures: { status: number; body?: unknown }[] = [];
@@ -306,6 +309,12 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
       });
 
       if (route === 'POST /sandboxes') {
+        const answer = (body: unknown): void => {
+          if (loseCreateAnswers > 0) {
+            loseCreateAnswers -= 1;
+            req.socket.destroy();
+          } else send(res, 202, body);
+        };
         const from = str(b['from']);
         // A sandbox made from a named snapshot inherits no-env from its source; an explicit
         // `noEnv` would be a conversion (6.3), so the bench refuses it.
@@ -316,7 +325,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
         if (idemKey !== '' && createdByKey.has(idemKey)) {
           const id = createdByKey.get(idemKey) as string;
           const sb = sandboxes.get(id) as Sandbox;
-          return send(res, 202, { ok: true, type: 'sandbox.created', status: 'ready', ttlSeconds: b['ttlSeconds'] ?? null, sandbox: sandboxBody(sb, 'Sandbox') });
+          return answer({ ok: true, type: 'sandbox.created', status: 'ready', ttlSeconds: b['ttlSeconds'] ?? null, sandbox: sandboxBody(sb, 'Sandbox') });
         }
         if (trial && b['ttlSeconds'] === null) {
           return send(res, 422, { error: 'trial_auto_stop_required', message: 'the trial caps auto-stop at 2 hours' });
@@ -329,7 +338,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
         nextCreateRaw = null;
         sandboxes.set(id, sb);
         if (idemKey !== '') createdByKey.set(idemKey, id);
-        return send(res, 202, { ok: true, type: 'sandbox.created', status: 'provisioning', ttlSeconds: b['ttlSeconds'] ?? null, sandbox: sandboxBody(sb, 'Sandbox') });
+        return answer({ ok: true, type: 'sandbox.created', status: 'provisioning', ttlSeconds: b['ttlSeconds'] ?? null, sandbox: sandboxBody(sb, 'Sandbox') });
       }
 
       const sbMatch = /^\/sandboxes\/([^/]+)(\/.*)?$/.exec(path);
@@ -525,6 +534,9 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
     },
     dropNext: (n) => {
       drop += n;
+    },
+    loseNextCreateAnswers: (n) => {
+      loseCreateAnswers += n;
     },
     failNext: (list) => {
       failures.push(...list);
