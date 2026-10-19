@@ -178,7 +178,7 @@
     "company": "MiniMax",
     "models": {
       "strong": "MiniMax-M3",
-      "fast": "MiniMax-M2.7-highspeed"
+      "fast": "MiniMax-M3.1-Flash-Preview"
     },
     "billing": "subscription",
     "source": "https://www.minimax.io",
