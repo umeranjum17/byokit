@@ -4,6 +4,8 @@
 // helpers. Unknown ids, another helper's session and caller system text are refused typed before any model request.
 // Legacy adoption (S4): a plain m1 conversation from before helpers, across a kit restart, forks into research's key with
 // no model request and research's next turn holds its history; a legacy job parked on its approval is refused busy.
+// A helper's delegated run reaches the app by helper from start to finish (S3): admitted with its tool subset, its
+// approvals owned by the helper, one typed end (finished, cancelled, or resting, which rests the helper's account).
 // Synthetic keys, the loopback model stub, never an account or the network. Runs only in the engine job.
 import { test, before, after, mock } from 'node:test';
 import childProcess from 'node:child_process';
@@ -18,7 +20,7 @@ import { OpenClawKit } from '../../src/kit.ts';
 import { HelperError } from '../../src/helpers.ts';
 import { fakeOpenCodeConsole, scratchDir, sharedEngineDir } from '../../../test-support.ts';
 import { startModelStub, type ModelStub } from '../../src/testing/model-stub.ts';
-import type { RunEvent, RunRef } from '../../src/types.ts';
+import type { DelegatedEvent, RunEvent, RunRef } from '../../src/types.ts';
 
 fakeOpenCodeConsole();
 
@@ -77,7 +79,13 @@ mock.method(globalThis, 'fetch', (input, options) => {
     call: async (run: RunRef) => (called.push(run), 'Umer report recorded'),
   };
   const tools = [{ name: 'report', description: 'Record a helper result', parameters: { type: 'object', properties: { text: { type: 'string' } } } }];
-  const open = () => new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), config, callbackPort: 0, tools, host });
+  const delegated: DelegatedEvent[] = [];
+  const open = () => {
+    const opened = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), config, callbackPort: 0, tools, host });
+    opened.onEvent('byokit.delegated', (e) => { delegated.push(e);
+      if (e.type !== 'event') console.log('delegated', e.type, e.run.helper, e.reason ?? '', e.message ?? '', JSON.stringify(e.run.tools)); });
+    return opened;
+  };
   let kit = open();
   try {
     await kit.start();
@@ -195,9 +203,10 @@ mock.method(globalThis, 'fetch', (input, options) => {
     const until = async (check: () => boolean, why: string) => {
       for (const end = Date.now() + 120_000; !check();) { if (Date.now() > end) throw new Error(why); await delay(50); }
     };
-    // Escape the nested marker in the parent's JSON so only the target parses that script.
+    // Escape the nested markers in the parent's JSON so only the target parses that script.
     const send = (sessionKey: string, script: string) =>
-      `[tool sessions_send ${JSON.stringify({ sessionKey, timeoutSeconds: 0, message: script }).replaceAll('[tool ', '\\u005btool ')}]`;
+      `[tool sessions_send ${JSON.stringify({ sessionKey, timeoutSeconds: 0, message: script }).replaceAll('[tool ', '\\u005btool ')
+        .replaceAll('hit the limit', '\\u0068it the limit')}]`;
     const lead = (tail: string, target: string, script = '[tool report {"text":"done"}]', events?: RunEvent[]) =>
       kit.run({ member: 'm1', helper: 'research', sessionKey: `agent:m1:h-research:${tail}`, ...sol, tools: ['report'],
         helperDelegates: { writer: ['report'], planner: ['report'] }, message: send(target, script) }, (e) => events?.push(e));
@@ -213,6 +222,15 @@ mock.method(globalThis, 'fetch', (input, options) => {
     assert.deepEqual(gated.map(ref), expected, 'each child is gated as its helper');
     assert.deepEqual(called.map(ref), expected, 'each child is called as its helper');
     console.log('delegated helper runs:', JSON.stringify(called.map(ref)));
+    // Each child's lifecycle by helper, from the engine's own stream: admitted with its tool subset, then one finished end.
+    const ends = (helper: string) => delegated.filter((e) => e.type === 'ended' && e.run.helper === helper);
+    await until(() => ends('writer').length === 1 && ends('planner').length === 1, 'children never ended');
+    for (const helper of ['writer', 'planner']) {
+      const life = delegated.filter((e) => e.run.helper === helper);
+      assert.deepEqual(life[0]!.run.tools, ['report']);
+      assert.deepEqual([life[0]!.type, life.at(-1)!.type, life.at(-1)!.reason], ['admitted', 'ended', 'terminal']);
+      assert.ok(life.some((e) => e.type === 'event' && e.event?.stream === 'tool'), `${helper} streamed its tool`);
+    }
     // A run on a helper key the kit never receipted stays an unknown run: the engine runs it, the host never sees it.
     const rogue = await kit.call('agent', { agentId: agent, sessionKey: `agent:${agent}:h-writer:rogue`, provider: 'openai', model: 'gpt-5.6-sol',
       message: '[tool report {"text":"rogue"}]', idempotencyKey: 'rogue-helper-child' }) as { runId: string };
@@ -229,17 +247,27 @@ mock.method(globalThis, 'fetch', (input, options) => {
     assert.ok((await lead('abort', `agent:${agent}:h-writer:main`, '[tool report {"mode":"ask"}]')).ok);
     await until(() => kit.approvals().length === 1, 'writer never parked');
     const parked = kit.approvals()[0]!;
-    assert.deepEqual([parked.member, parked.sessionKey], ['m1', `agent:${agent}:h-writer:main`]);
+    assert.deepEqual([parked.member, parked.helper, parked.sessionKey], ['m1', 'writer', `agent:${agent}:h-writer:main`]);
     assert.ok(kit.delegatedRuns().some(rooted), 'the parked child is admitted');
     await kit.abort('agent:m1:h-research:abort');
     assert.equal(kit.approvals().length, 0);
     await assert.rejects(kit.decide(parked.id, { allow: true }), /unknown approval/);
     assert.equal(called.length, expected.length, 'a revoked child ran a tool');
     assert.ok(!kit.delegatedRuns().some(rooted), 'abort ended the child\'s admission');
-    console.log('PASS delegated helpers: exact receipted children admitted as writer and planner, rogue key refused, typed bound refusal, abort revokes');
+    assert.ok(delegated.some((e) => e.type === 'ended' && e.reason === 'cancelled' && rooted(e.run)), 'the abort reached the app');
+    // The model's usage limit ends a child `resting`, and its helper's account rests until then, as a kit run's would.
+    const restFrom = delegated.length;
+    // Scripted, so the stub answers this turn and not an earlier one of the session's history.
+    assert.ok((await lead('limit', `agent:${agent}:h-writer:main`, '[tool report {"text":"limit"}] hit the limit')).ok);
+    await until(() => delegated.slice(restFrom).some((e) => e.type === 'ended'), 'the limited child never ended');
+    const rested = delegated.slice(restFrom).find((e) => e.type === 'ended')!;
+    assert.deepEqual([rested.run.helper, rested.reason], ['writer', 'resting'], JSON.stringify(rested));
+    const account = (await kit.accounts('m1')).find((a) => a.id === 'openai.aaaaaa')!;
+    assert.deepEqual([account.state, account.until], ['resting', rested.until]);
+    console.log('PASS delegated helpers: exact receipted children admitted as writer and planner, rogue key refused, typed bound refusal, abort revokes; lifecycle by helper: tools, approval owner, finished, cancelled, resting rests the account');
 
     assert.deepEqual(stores(), before, 'running helpers leaves the sign-ins byte for byte');
-    assert.deepEqual((await kit.accounts('m1')).map((a) => [a.id, a.state]).sort(), rows, 'no new sign-in');
+    assert.deepEqual((await kit.accounts('m1')).map((a) => a.id).sort(), rows.map(([id]) => id), 'no new sign-in');
     const files = readFileSync(join(root, 'helpers', 'm1', 'research.json'), 'utf8');
     assert.ok(!files.includes(accountKey) && !files.includes(planKey), 'a helper record holds no key');
   } finally { await kit.stop(); mock.restoreAll(); syncBuiltinESMExports(); }

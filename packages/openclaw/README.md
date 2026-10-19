@@ -501,6 +501,12 @@ old key and approval owner until it settles, so adopt again later; a target key 
 both. A helper key, another member's key or a helper never ensured is a typed `HelperError` (`session`,
 `unknown_helper`).
 
+`kit.onEvent('byokit.delegated', fn)` follows each helper child start to finish: `admitted` (with `run.helper` and
+`run.tools`, its app-tool subset), the engine's events, then one `ended` whose `reason` is `terminal`, `cancelled` (an
+abort, or its admission ended), `error` (with `message`) or `resting`: the model's usage limit ended it, and the kit
+rests the helper's account `until` the stated reset, as a kit run's resting end does. An approval raised by a helper's
+run names it in `Approval.helper`.
+
 ## Owned browser (unqualified handoff)
 
 `browser: { executablePath, members }` opts into isolated member Chromium profiles. It requires a closed

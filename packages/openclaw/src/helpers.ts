@@ -11,6 +11,8 @@ import type { Account, AccountId, Helper, Member } from './types.ts';
 export const HELPER_ID: RegExp = /^[a-z][a-z0-9-]{0,15}$/;
 /** A session key tail of some helper: only a run naming that helper speaks there. */
 export const HELPER_TAIL: RegExp = /^h-[a-z][a-z0-9-]{0,15}:/;
+/** The helper an engine key `agent:<agent>:h-<helper>:<rest>` belongs to, from its tail; undefined for any other key. */
+export const helperOf = (key: string): string | undefined => /^agent:[^:]+:h-([a-z][a-z0-9-]{0,15}):/.exec(key)?.[1];
 const PERSONA_MAX = 8192;
 
 export type HelperErrorCode = 'invalid' | 'unknown_account' | 'bound' | 'unknown_helper' | 'session';

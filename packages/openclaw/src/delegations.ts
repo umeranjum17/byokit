@@ -1,13 +1,17 @@
 // Native receipts, never session-prefix authority. Persist identity/tool policy only, not prompts or credentials.
 import { existsSync, readFileSync } from 'node:fs';
 import { atomic } from './engine-patches.ts';
-import { HELPER_ID, HELPER_TAIL, HelperError } from './helpers.ts';
+import { classify } from './classify.ts';
+import { HELPER_ID, HelperError, helperOf } from './helpers.ts';
 import type { DelegatedEvent, DelegatedRun, GatewayTransport, RunRef } from './types.ts';
 
 // `helpers`: the member's helpers (5.8.3) a run may hand work to by an exact send to `agent:<its agent>:h-<helper>:<rest>`.
 type Grant = { ref: DelegatedRun; tools: string[]; delegates: Record<string, string[]>; helpers?: Record<string, string[]>; sourceKey: string };
 type Pending = { parent: Grant; agent: string; key?: string; helper?: string; expires: number };
 type Root = Omit<Grant, 'ref'> & { ref: RunRef & { runId: string; root: { sessionKey: string; runId: string } } };
+type End = Pick<DelegatedEvent, 'reason' | 'until' | 'message'>;
+// A resting end whose message names no time rests the account this long, as a kit run's does (runs.ts).
+const REST_MS = 300_000;
 const object = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v);
 const agentOf = (key: string) => /^agent:([^:]+):.+/.exec(key)?.[1];
 const actionKey = (m: Record<string, any>) => JSON.stringify([m.key, m.runId, m.callId]);
@@ -21,7 +25,8 @@ export class Delegations {
   private early = new Map<string, Record<string, any>[]>();
   constructor(privateOptions: {
     file: string; tools: ReadonlySet<string>; memberOf(agent: string): string | undefined;
-    helper(member: string, helper: string): { agentId: string }; // the ensured helper's agent, else a typed HelperError
+    helper(member: string, helper: string): { agentId: string; account: string }; // the ensured helper, else a typed HelperError
+    rest(member: string, account: string, until: number): Promise<void>; // the account's runs skip it until then (5.15)
     request: GatewayTransport['request']; emit(e: DelegatedEvent): void; revoke(key: string, runId: string): void;
   }) { this.o = privateOptions; }
   private readonly o;
@@ -77,8 +82,7 @@ export class Delegations {
     if (!send && m.tool !== 'sessions_spawn') throw new Error('unsupported delegation tool');
     const agent = send ? typeof m.input.sessionKey === 'string' && agentOf(m.input.sessionKey) : m.input.agentId;
     // A helper's session is entered only on the helper path, so a run naming the helper always speaks there (5.8.3).
-    const tail = send && typeof agent === 'string' ? m.input.sessionKey.slice(`agent:${agent}:`.length) : '';
-    const helper = HELPER_TAIL.test(tail) ? tail.slice(2, tail.indexOf(':')) : undefined;
+    const helper = send && typeof agent === 'string' ? helperOf(m.input.sessionKey) : undefined;
     if ((send && (m.input.timeoutSeconds !== 0 || m.input.label !== undefined))
       || (!send && m.input.runtime !== undefined && m.input.runtime !== 'subagent')) throw new Error('delegation target or mode refused');
     if (helper !== undefined) {
@@ -110,12 +114,13 @@ export class Delegations {
     const member = p.helper !== undefined ? (this.bound(p.parent.ref.member, p.helper, p.agent) ? p.parent.ref.member : undefined)
       : this.o.memberOf(p.agent);
     if (!member) { this.save(); return; }
-    const ref: DelegatedRun = { sessionKey: key, member, ...(p.helper !== undefined ? { helper: p.helper } : {}), runId: d.runId, agentId: p.agent,
-      parent: { sessionKey: p.parent.ref.sessionKey, runId: p.parent.ref.runId }, root: p.parent.ref.root };
     const allowed = p.helper !== undefined ? p.parent.helpers![p.helper]! : p.parent.delegates[p.agent]!;
+    const tools = p.parent.tools.filter(t => allowed.includes(t));
+    const ref: DelegatedRun = { sessionKey: key, member, ...(p.helper !== undefined ? { helper: p.helper } : {}), runId: d.runId, agentId: p.agent,
+      parent: { sessionKey: p.parent.ref.sessionKey, runId: p.parent.ref.runId }, root: p.parent.ref.root, tools };
     const grant: Grant = { ref, delegates: p.parent.delegates,
       ...(p.parent.helpers && ref.member === p.parent.ref.member ? { helpers: p.parent.helpers } : {}),
-      sourceKey: p.parent.sourceKey, tools: p.parent.tools.filter(t => allowed.includes(t)) };
+      sourceKey: p.parent.sourceKey, tools };
     // A steered/already-admitted run keeps its original parent and cannot acquire a broader grant.
     if (this.children.has(ref.runId)) { this.save(); return; }
     this.children.set(ref.runId, grant); this.save();
@@ -137,7 +142,7 @@ export class Delegations {
     const grant = get();
     // A helper removed or rebound since admission ends its runs' admission (5.8.3: never moved to another sign-in).
     if (grant?.ref.helper !== undefined && !this.bound(grant.ref.member, grant.ref.helper, grant.ref.agentId)) {
-      this.end(grant, 'cancelled');
+      this.end(grant, { reason: 'cancelled' });
       return undefined;
     }
     return grant;
@@ -157,18 +162,33 @@ export class Delegations {
     }
     if (event.sessionKey !== grant.ref.sessionKey) return;
     this.o.emit({ type: 'event', run: structuredClone(grant.ref), event: { stream: event.stream, data: event.data } });
-    if (event.stream === 'lifecycle' && ['end', 'error'].includes(event.data?.phase)) this.end(grant);
+    if (event.stream === 'lifecycle' && ['end', 'error'].includes(event.data?.phase)) void this.ended(grant, event.data);
   }
-  private end(grant: Grant, reason: 'terminal' | 'cancelled' = 'terminal'): void {
+  // The engine's lifecycle end, mapped: an abort is `cancelled`; an error is `error`, or `resting` when the model's limit
+  // ended a helper's run, which rests the helper's account as a kit run's resting end does (5.15 Runs step 7).
+  private async ended(grant: Grant, data: Record<string, any>): Promise<void> {
+    if (data.aborted === true) return this.end(grant, { reason: 'cancelled' });
+    if (data.phase !== 'error') return this.end(grant, { reason: 'terminal' });
+    const message = typeof data.error === 'string' ? data.error : '';
+    const failed = classify(message);
+    const { member, helper } = grant.ref;
+    if (failed.kind !== 'resting' || helper === undefined) return this.end(grant, { reason: 'error', message });
+    this.children.delete(grant.ref.runId); // ended now: a later gate or event finds no admission
+    const until = failed.until ?? Date.now() + REST_MS;
+    try { await this.o.rest(member, this.o.helper(member, helper).account, until); }
+    catch { /* its account is gone: the run still ended resting */ }
+    this.end(grant, { reason: 'resting', until, message });
+  }
+  private end(grant: Grant, end: End): void {
     this.children.delete(grant.ref.runId); this.save();
     this.o.revoke(grant.ref.sessionKey, grant.ref.runId);
-    this.o.emit({ type: 'ended', run: structuredClone(grant.ref), reason });
+    this.o.emit({ type: 'ended', run: structuredClone(grant.ref), ...end });
   }
   async reconcile(): Promise<void> {
     for (const ref of this.list()) {
       const end = await this.o.request('agent.wait', { runId: ref.runId, timeoutMs: 1 }) as { status?: string };
       const grant = this.children.get(ref.runId);
-      if (grant && ['ok', 'error'].includes(end.status ?? '')) this.end(grant);
+      if (grant && ['ok', 'error'].includes(end.status ?? '')) this.end(grant, { reason: end.status === 'ok' ? 'terminal' : 'error' });
     }
   }
   async abort(key: string): Promise<void> {

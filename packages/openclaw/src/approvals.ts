@@ -1,6 +1,7 @@
 // Native approvals: exec.approval.*, plugin.approval.* and question.* surfaced through the same Approval shape (5.9, O5).
 import { randomBytes } from 'node:crypto';
 import type { Bridge } from './bridge.ts';
+import { helperOf } from './helpers.ts';
 import { MEMBER_ID } from './members.ts';
 import type { Approval, Decision, GatewayTransport, Member } from './types.ts';
 
@@ -32,14 +33,15 @@ const asString = (v: unknown): string | undefined => (typeof v === 'string' && v
  * engine nests exec/plugin details under `request` (question events stay flat); unattributed approvals carry ''
  * so they can never match a member id (B2).
  */
-function attribute(payload: Record<string, unknown>, memberOf: (ref: string) => Member | undefined): { member: Member; sessionKey?: string } {
+function attribute(payload: Record<string, unknown>, memberOf: (ref: string) => Member | undefined): { member: Member; sessionKey?: string; helper?: string } {
   const detail = isRecord(payload.request) ? payload.request : payload;
   const agent = asString(detail.agentId);
   const key = asString(detail.sessionKey);
   const fromAgent = agent ? memberOf(agent) : undefined;
   const fromKey = key ? memberOf(key) : undefined;
   const member = fromAgent ?? fromKey ?? asString(detail.member) ?? '';
-  return { member, ...(key ? { sessionKey: key } : {}) };
+  const helper = key ? helperOf(key) : undefined; // a helper's run asks as the member, owned by that helper (5.8.3)
+  return { member, ...(key ? { sessionKey: key } : {}), ...(helper ? { helper } : {}) };
 }
 
 /** Exec policy modes (`off|on-miss|always`) ride in `request.ask`; they are not something a person said (B8). */
@@ -86,7 +88,7 @@ export class Approvals {
     if (source) {
       const id = asString(payload.id) ?? randomBytes(12).toString('base64url');
       if (this.approvals.has(id)) return;
-      const { member, sessionKey } = attribute(payload, this.memberOf);
+      const { member, sessionKey, helper } = attribute(payload, this.memberOf);
       const detail = isRecord(payload.request) ? payload.request : payload;
       const now = Date.now();
       const approval: Stored = {
@@ -94,6 +96,7 @@ export class Approvals {
         source,
         member,
         ...(sessionKey ? { sessionKey } : {}),
+        ...(helper ? { helper } : {}),
         ...(asString(detail.tool) ?? asString(detail.toolName) ? { tool: (asString(detail.tool) ?? asString(detail.toolName)) as string } : {}),
         summary: summaryOf(source, payload),
         ...('questions' in detail ? { input: detail.questions } : {}),

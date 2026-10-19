@@ -68,6 +68,11 @@ try {
   const ref = (r) => [r.member, r.helper, r.agentId, r.sessionKey, r.parent?.sessionKey];
   console.log('delegated calls:', JSON.stringify(called.map(ref)));
   assert.deepEqual(called.map((r) => r.helper), ['writer', 'planner']);
+  // Lifecycle by helper (S3): admitted with its tool subset, then one typed end.
+  const life = (helper) => delegated.filter((e) => e.type !== 'event' && e.run.helper === helper).map((e) => [e.type, e.reason ?? '', e.run.tools]);
+  await until(() => life('writer').length === 2 && life('planner').length === 2, 'children never ended');
+  console.log('lifecycle writer:', JSON.stringify(life('writer')), 'planner:', JSON.stringify(life('planner')));
+  assert.deepEqual(life('writer'), [['admitted', '', ['crew_note']], ['ended', 'terminal', ['crew_note']]]);
   const quiet = gated.length;
   await kit.call('agent', { agentId: writer.agentId, sessionKey: `agent:${writer.agentId}:h-writer:rogue`, message: '[tool crew_note {}]', idempotencyKey: 'rogue' });
   await delay(100);
@@ -84,7 +89,12 @@ try {
   assert.ok((await lead('abort', `agent:${writer.agentId}:h-writer:main`, '[tool crew_note {"mode":"ask"}]')).ok);
   await until(() => kit.approvals().length === 1, 'writer never parked');
   const parked = kit.approvals()[0];
+  console.log('parked approval owner:', JSON.stringify([parked.member, parked.helper]));
+  assert.equal(parked.helper, 'writer');
   await kit.abort('agent:umer:h-research:abort');
+  const cancelled = delegated.find((e) => e.type === 'ended' && rooted('abort')(e.run));
+  console.log('abort end:', JSON.stringify([cancelled?.run.helper, cancelled?.reason]));
+  assert.equal(cancelled?.reason, 'cancelled');
   console.log('after abort:', JSON.stringify({ approvals: kit.approvals().length, rootedAtAbort: kit.delegatedRuns().filter(rooted('abort')).length }));
   assert.ok(!kit.delegatedRuns().some(rooted('abort')));
   await assert.rejects(kit.decide(parked.id, { allow: true }), /unknown approval/);
@@ -111,6 +121,15 @@ try {
   console.log('adopted history holds apricot:', history.includes('apricot'), 'legacy session left:', JSON.stringify(old));
   assert.ok(history.includes('apricot') && old.key === undefined);
   await refused('adopting a helper key', kit.adoptHelperSession({ member: 'umer', sessionKey: 'agent:umer:h-research:main' }, 'writer'));
+  // The model's usage limit ends a child resting and rests the helper's account.
+  const restFrom = delegated.length;
+  assert.ok((await lead('limit', `agent:${writer.agentId}:h-writer:main`, 'hit the limit')).ok);
+  await until(() => delegated.slice(restFrom).some((e) => e.type === 'ended'), 'the limited child never ended');
+  const rested = delegated.slice(restFrom).find((e) => e.type === 'ended');
+  const account = (await kit.accounts('umer')).find((a) => a.id === work.id);
+  console.log('limit end:', JSON.stringify({ helper: rested.run.helper, reason: rested.reason, message: rested.message,
+    restsMinutes: Math.round((rested.until - Date.now()) / 60_000), account: [account.name, account.state] }));
+  assert.deepEqual([rested.reason, account.state, account.until], ['resting', 'resting', rested.until]);
   assert.ok((await lead('removed', `agent:${writer.agentId}:h-writer:main`, '[tool crew_note {"mode":"ask"}]')).ok);
   await until(() => kit.approvals().length === 1, 'writer never parked again');
   const removedAsk = kit.approvals()[0].id;

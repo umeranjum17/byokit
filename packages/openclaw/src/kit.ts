@@ -777,6 +777,10 @@ export class OpenClawKit {
         if (!this.helpersCtl) throw new Error('gateway not ready');
         return this.helpersCtl.resolve(member, helper);
       },
+      rest: async (member, account, until) => {
+        if (!this.accountsCtl) throw new Error('gateway not ready');
+        await this.accountsCtl.rest(member, account, until);
+      },
       emit: payload => { for (const fn of this.listeners) fn({ event: 'byokit.delegated', payload }); },
       revoke: (key, runId) => this.bridge.revoke(key, runId) });
     this.bridge = new Bridge({ path: this.engine.bridgeSock, delegations: this.delegations, host, tools: new Set([...this.toolNames(), ...(o.browser ? ['request_sign_in'] : [])]),
