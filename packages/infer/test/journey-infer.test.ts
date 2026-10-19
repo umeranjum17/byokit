@@ -20,7 +20,7 @@ import {
   samePromptIdentity, commonPrefixLength, PromptIdentityLog, whereWords,
   type InferDevice, type InferLimits, type InferModel, type InferState, type InferGenerationBackend, type InferLocalBackend,
 } from '@byokit/infer';
-import { fakeLlama, fakeNano, memoryModelStore } from '@byokit/infer/testing';
+import { fakeLlama, fakeNano, memoryModelStore, sampledReply } from '@byokit/infer/testing';
 import nativeFixture from '../../../fixtures/conformance/infer-typescript.json' with { type: 'json' };
 import finalNativeResult from './fixtures/final-explicit-result.json' with { type: 'json' };
 
@@ -174,6 +174,27 @@ test('an app completes a call with bounded, greedy, schema-constrained decoding,
   assert.deepEqual(scored.llama.contexts[0].completions[0].n_probs, 3);
   assert.deepEqual(withProbabilities.completion_probabilities, probabilities);
   for (const n_probs of [-1, 1.5, NaN]) assert.throws(() => local.complete({ prompt: 'x', n_probs }), RangeError);
+  // A probability read is the model's own next-token distribution, and the returned token is drawn from it: an
+  // ambiguous rating spreads its mass, a peaked one still reads near 1. Without n_probs decoding stays greedy.
+  const softmax = (l: Record<string, number>) => {
+    const z = Object.values(l).reduce((s, v) => s + Math.exp(v), 0);
+    return Object.fromEntries(Object.entries(l).map(([t, v]) => [t, Math.exp(v) / z]));
+  };
+  for (const [logits, spread] of [[{ A: 2, D: 1.8, B: 1.5, C: 0 }, true], [{ A: 12, D: 0, B: 0, C: 0 }, false]] as const) {
+    const rated = await installed(sampledReply([logits]));
+    const read = await rated.local.complete({ prompt: 'rate this', n_probs: 4 });
+    const [{ content, probs }] = read.completion_probabilities!, real = softmax(logits);
+    assert.equal(new Set(probs.map(p => p.tok_str)).size, probs.length, 'distinct tokens');
+    assert.ok(probs.reduce((s, p) => s + p.prob, 0) <= 1 + 1e-9, 'sums to at most 1');
+    for (const p of probs) assert.ok(Math.abs(p.prob - real[p.tok_str]) < 1e-9, `${p.tok_str} reads ${p.prob}, the model gives ${real[p.tok_str]}`);
+    if (spread) assert.ok(probs.filter(p => p.prob > 0.01).length >= 2, 'an uncertain model reads uncertain');
+    else assert.ok(probs[0].prob > 0.99, 'a peaked model still reads peaked');
+    assert.equal(read.text, content);
+    assert.ok(probs.find(p => p.tok_str === content)!.prob > 0, 'the returned token is one the read gives mass');
+    const greedy = await rated.local.complete({ prompt: 'rate this' });
+    assert.equal(greedy.text, probs[0].tok_str, "greedy returns the read's argmax");
+    assert.equal(greedy.completion_probabilities, undefined);
+  }
   await local.complete({ prompt: 'again' });
   assert.equal(llama.contexts.length, 1, 'one native context for the model');
   assert.deepEqual(llama.contexts[0].params, { model: '/models/tiny.gguf', n_ctx: 2048, n_threads: 4, n_gpu_layers: 0, use_mlock: false, use_mmap: true });

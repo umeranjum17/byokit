@@ -48,6 +48,43 @@ export function fakeLlama(o: { reply?: (p: LlamaRnCompletionParams) => string | 
   return { initLlama, contexts };
 }
 
+/**
+ * A `fakeLlama` reply that decodes the way llama.rn 0.12.9's default sampler chain does, one next-token logit map per
+ * generated position: `top_k` (default 40), `top_p` (0.95) and `min_p` (0.05) cut the candidates, a temperature of 0
+ * or less sets all but the highest logit to -inf, then `dist` softmaxes what is left and draws from it. `n_probs` reads
+ * those candidates after sampling, as `rn-completion.cpp` does.
+ */
+export function sampledReply(positions: Record<string, number>[]) {
+  return (p: LlamaRnCompletionParams): Partial<LlamaRnCompletionResult> => {
+    let state = p.seed >>> 0; // mulberry32
+    const random = () => {
+      state = (state + 0x6d2b79f5) >>> 0;
+      let t = Math.imul(state ^ state >>> 15, state | 1);
+      t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+      return ((t ^ t >>> 14) >>> 0) / 2 ** 32;
+    };
+    const softmax = (c: { tok: string; logit: number }[]) => {
+      const max = c[0].logit, e = c.map(x => Math.exp(x.logit - max)), sum = e.reduce((a, b) => a + b, 0);
+      return c.map((x, i) => ({ ...x, p: e[i] / sum }));
+    };
+    const tokens: string[] = [], probabilities: { content: string; probs: { tok_str: string; prob: number }[] }[] = [];
+    for (const logits of positions) {
+      let c = Object.entries(logits).map(([tok, logit]) => ({ tok, logit })).sort((a, b) => b.logit - a.logit);
+      const topK = p.top_k ?? 40, topP = p.top_p ?? 0.95, minP = p.min_p ?? 0.05;
+      if (topK > 0) c = c.slice(0, topK);
+      if (topP < 1) { let sum = 0; c = c.slice(0, softmax(c).findIndex(x => (sum += x.p) >= topP) + 1); }
+      if (minP > 0) { const s = softmax(c); c = c.filter((_, i) => s[i].p >= minP * s[0].p); }
+      const s = softmax(c.map((x, i) => ({ ...x, logit: p.temperature > 0 ? x.logit / p.temperature : i === 0 ? x.logit : -Infinity })));
+      let r = random(), pick = s[s.length - 1];
+      for (const x of s) if ((r -= x.p) <= 0) { pick = x; break; }
+      tokens.push(pick.tok);
+      if (p.n_probs) probabilities.push({ content: pick.tok, probs: s.slice(0, p.n_probs).map(x => ({ tok_str: x.tok, prob: x.p })) });
+    }
+    const text = tokens.join('');
+    return { text, content: text, tokens_predicted: tokens.length, ...(p.n_probs ? { completion_probabilities: probabilities } : {}) };
+  };
+}
+
 /** In-memory store. `files` maps a model URL to the bytes its download yields; hashing uses Web Crypto. */
 export function memoryModelStore(files: Record<string, Uint8Array> = {}, o: { freeBytes?: number; failDownload?: boolean } = {}) {
   const saved = new Map<string, Uint8Array>();
