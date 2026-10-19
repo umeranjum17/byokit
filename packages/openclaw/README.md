@@ -403,7 +403,7 @@ Entries:
 
 | Export | What it does |
 | --- | --- |
-| `OpenClawKit` (`.`) | Prepares, starts, supervises and stops the engine. `call` / `callDynamic` pass through to the Gateway, `onEvent` listens. Helpers: `ensureMember`, `routes`, `providers`, `signedIn`, `signIn`, `signOut`, `removeKey`, `migrateRetainedLogin`, `confirmRetainedLogin`, `toolNames`, `run`, `steer`, `abort`, `approvals`, `onApproval`, `decide`, `allowOnce`, `disallowOnce`, `patchConfig`, `getConfigKey`, `setConfigKey`, `memoryLimited`, `doctorContext` |
+| `OpenClawKit` (`.`) | Prepares, starts, supervises and stops the engine. `call` / `callDynamic` pass through to the Gateway, `onEvent` listens. Helpers: `ensureMember`, `ensureHelper`, `routes`, `providers`, `signedIn`, `signIn`, `signOut`, `removeKey`, `migrateRetainedLogin`, `confirmRetainedLogin`, `toolNames`, `run`, `steer`, `abort`, `approvals`, `onApproval`, `decide`, `allowOnce`, `disallowOnce`, `patchConfig`, `getConfigKey`, `setConfigKey`, `memoryLimited`, `doctorContext` |
 | `ENGINE_VERSION`, `PROTOCOL_VERSION`, `OPERATOR_SCOPES` (`.`) | The pinned engine version, its protocol and the operator scopes the kit connects with |
 | `KitOptions`, `RunSpec`, `RunEvent`, `RunEnd`, `RunUsage`, `PlanWindow`, `Route`, `Approval`, `Decision`, `ToolSpec`, `ToolHost`, `KitState`, ... (`.`) | Public types (docs/runtime-kits.md §5.2) |
 | `GatewayMethods`, `GatewayMethod`, `GatewayParams`, `GatewayResult`, `GatewayEventName`, `GatewayEventPayload` (`.`) | The generated pass-through tables, so an app can write its own generic wrapper over `call` / `onEvent` once |
@@ -442,10 +442,41 @@ durably revokes its recorded subtree, closes parked gates/active calls, then ask
 revokes its subtree. An engine resume with a different run ID, or a dispatch with no retained receipt, is not
 silently granted authority. No prefix grants or `allowOnce` bypass are used.
 
-**Per-helper account binding is not included:** targets retain their own existing engine credentials, persona,
-workspace and history. This option never copies credentials or gives helpers another person's account. Legacy
+**Targets keep their own sign-in:** a target retains its own engine credentials, persona, workspace and history; a
+member's own helpers run on the member's account (below). This option never copies credentials or gives helpers
+another person's account. Legacy
 in-flight jobs may retain their exact old session keys and approval owners; all new helper work uses the new
 mapping. Never copy agent SQLite or replay old sent actions. See the [binding contract](../../docs/runtime-kits.md#native-delegated-tool-admission-opt-in).
+
+## Helpers on a member's account
+
+A member can keep several helpers, each with its own persona and its own conversations, all on one account the
+member already signed in. Nothing is copied and nobody signs in again: a helper's runs go to the engine agent that
+already holds that account, under the helper's own session keys, with the helper's persona as the system text.
+
+```ts
+import { OpenClawKit, HelperError } from '@byokit/openclaw';
+
+declare const kit: OpenClawKit;
+const research = await kit.ensureHelper('umer', 'research', { account: 'openai', persona: 'You are Umer\'s research helper.' });
+// research.sessionPrefix === 'agent:umer:h-research:'
+const end = await kit.run({ member: 'umer', helper: 'research', sessionKey: `${research.sessionPrefix}main`,
+  message: 'Summarise the notes' });
+try {
+  await kit.run({ member: 'umer', helper: 'ghost', sessionKey: 'agent:umer:h-ghost:main', message: 'hi' });
+} catch (e) {
+  if (e instanceof HelperError) console.log(e.code, end.ok); // 'unknown_helper', before any request
+}
+```
+
+`account` is one of `kit.accounts(member)`, the API-key lane (`'<provider>.key'`) included; a key-lane helper's run
+names that account, as any paid run does. A helper's run is bound to its account (pick, rests and locks apply), and
+`RunRef.helper` names it on `ToolHost.gate` and `call`; its approvals are the member's. The persona is the run's whole
+system text: a helper run refuses `system`. Refusals are a typed `HelperError` before any engine request: `invalid`
+(ids, persona, `system`), `unknown_account`, `bound` (another account), `unknown_helper` (not ensured, or its account
+was removed: never moved to another sign-in) and `session` (a key outside the helper, a helper key without `helper`,
+or `move` of one). Helpers share their account's engine agent (its id and workspace files); a helper gains no tool,
+builtin or key prefix the member's run would not. See [Helpers](../../docs/runtime-kits.md#583-helpers).
 
 ## Owned browser (unqualified handoff)
 

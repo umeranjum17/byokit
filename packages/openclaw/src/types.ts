@@ -20,12 +20,19 @@ export interface ToolSpec {
 export interface RunRef {
   sessionKey: string;
   member: Member;
+  // A helper of `member` (5.8.3): on a RunSpec, the ensured helper the run speaks as (its persona is the system text,
+  // its key `agent:<member>:h-<helper>:…`); on a gated or called RunRef, the helper the run belongs to. Absent: the member.
+  helper?: string;
   meta?: unknown;
   runId?: string;
   agentId?: string;
   parent?: { sessionKey: string; runId: string };
   root?: { sessionKey: string; runId: string };
 }
+
+/** One of a member's helpers (5.8.3): its own persona and sessions (`sessionPrefix`) on `account`, run by `agentId`, the
+ * engine agent already holding that sign-in. */
+export type Helper = { member: Member; helper: string; account: AccountId; agentId: string; sessionPrefix: string };
 
 export type DelegatedRun = RunRef & Required<Pick<RunRef, 'runId' | 'agentId' | 'parent' | 'root'>>;
 export type DelegatedEvent = { type: 'admitted' | 'event' | 'ended'; run: DelegatedRun;

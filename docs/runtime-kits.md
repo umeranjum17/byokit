@@ -474,6 +474,7 @@ export declare class OpenClawKit {
   onEvent<E extends GatewayEventName>(event: E | '*', fn: (payload: GatewayEventPayload<E>, event: E) => void): () => void;
   // members
   ensureMember(member: Member): Promise<{ agentId: string; workspace: string }>;
+  ensureHelper(member: Member, helper: string, o: { account: AccountId; persona: string }): Promise<Helper>;   // 5.8.3
   // one chat channel (5.18)
   reply(chat: ChannelChat, text: string): Promise<void>;   // the engine's own send, as the channel's member
   // sign-in (5.7)
@@ -1267,7 +1268,7 @@ export declare class ArtifactHashError extends Error { readonly offset: number }
 
 `RunSpec.delegates?: Record<string, string[]>` maps exact target engine agent IDs to allowed app-tool names.
 It does **not** share credentials or change agent ownership: each target uses its own existing engine account,
-workspace and history. Per-helper/person account binding is not included. Targets and tool names are validated
+workspace and history. A member's own helpers (5.8.3) run on the member's account. Targets and tool names are validated
 before dispatch. Parent app-tool restrictions also constrain every descendant. Builtins still cross `ToolHost.gate`.
 
 For opted-in runs the bridge records an allowed native `sessions_spawn` or `sessions_send` call using the trusted
@@ -1293,6 +1294,36 @@ to revoke its subtree. Revocation is durable even if the engine is unavailable. 
 Legacy adoption retains exact old session keys for finite in-flight jobs and their original approval owners.
 New helper work uses new agent/session mappings. Never bulk-copy agent SQLite, rename a live approval's owner,
 or replay a previously sent action. This slice does not migrate history or copy credentials.
+
+### 5.8.3 Helpers
+
+A member can run several helpers (personas) on one account the member already signed in, with no copied credential and
+no new sign-in. Pin facts (`openclaw@2026.8.35`): a run reads only its own agent's auth store plus the one global
+`agents.defaults.authInheritance` owner (5.15 forces it to the base), and a config write giving two agents one
+`agentDir` is refused (`Duplicate agentDir detected`). So a helper is not an engine agent: it is its own session
+namespace and persona on the agent that already holds the account.
+
+- `ensureHelper(member, helper, { account, persona })`: `helper` matches `/^[a-z][a-z0-9-]{0,15}$/`, `member` is a
+  valid member id (not a key lane), `persona` is 1 to 8192 characters of plain text (newline and tab the only control
+  characters), and `account` is one of `accounts(member)`, the key lane included; otherwise a typed `HelperError`
+  (`invalid`, `unknown_account`). The kit records `{ account, agent, persona }` in
+  `<root>/helpers/<member>/<helper>.json` (0600) and asks the engine nothing. Idempotent; a persona may change, the
+  account may not (`bound`). Returns `Helper { member, helper, account, agentId, sessionPrefix }`, where `agentId` is
+  the engine agent holding the account and `sessionPrefix` is `agent:<member>:h-<helper>:`.
+- `run({ member, helper, sessionKey })`: `sessionKey` starts with that prefix (`session`); the helper is one this kit
+  recorded whose account the member's index still names on the same agent (`unknown_helper`): removing the account
+  leaves the helper unusable, never moved to another sign-in. The persona is the run's whole system text, so a helper
+  run with `system` is refused (`invalid`), as is one with `auth: 'apiKey'`. The run is bound (5.15) to the helper's
+  account: it runs as `agent:<agent>:h-<helper>:<rest>` under that account's pick, `paid` (a key-lane helper's run
+  names `account: '<provider>.key'`), rests and locks. A run without `helper` on any `h-<helper>:` key, and `move` of a
+  helper key, are refused (`session`). Every refusal is before any request.
+- `RunRef.helper` names the helper on the gated and called run. The session stays on the member's agent, so
+  attribution and approvals are the member's. The bridge and `ToolHost.gate` are unchanged: a helper gains no tool,
+  builtin or session-key prefix the member's run would not.
+- Known limit: helpers share the engine agent (id, workspace files, memory) of their account; separate engine agents
+  need per-agent auth inheritance, an engine patch (5.16). Not here: admitting engine-created children aimed at a
+  helper's session (S2), lifecycle event mapping by helper (S3), adopting legacy sessions into helpers (S4), listing or
+  removing a helper.
 
 ### 5.9 Tools, approvals and the bridge
 

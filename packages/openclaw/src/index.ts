@@ -41,6 +41,7 @@ export type {
   RunEvent,
   RunFrame,
   RunRef,
+  Helper,
   DelegatedRun,
   DelegatedEvent,
   RunSpec,
@@ -65,6 +66,7 @@ export type { AddKeyHandle, AddKeyResult, KeyFailureReason } from './keys.ts';
 export { stateWords, toAccountView, words, type AccountView, type WordKey } from './words.ts';
 export { chooseAccount, consider, resolveSelection, type RoomOf } from './pick.ts';
 
+export { HelperError, type HelperErrorCode } from './helpers.ts';
 export { AuthStoreUnreadableError, AuthStoreSealSizeError } from './auth-store.ts';
 export { EngineAlreadyRunningError } from './engine-status.ts';
 export { PluginInstallError, type PluginInstallFailure } from './plugins.ts';
