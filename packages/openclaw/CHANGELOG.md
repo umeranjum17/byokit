@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.20.0 (2026-10-19)
+
+- FEAT: `ensureHelper(member, helper, { account, persona })` gives a member several helpers, each with its own persona and its own sessions (`agent:<member>:h-<helper>:…`) on one account the member already signed in, the API-key lane included: runs go to the engine agent already holding that account, so no credential is copied and no sign-in starts. `run({ helper })` speaks as that helper with its persona as the system text; `RunRef.helper` names it on `ToolHost.gate` and `call`, and its approvals stay the member's.
+- SECURITY: helper requests fail closed with a typed `HelperError` before any engine request: an invalid id or persona, caller `system` text on a helper run, an account the member does not hold, a removed account (never moved to another sign-in), a session key outside the helper, a helper key run without `helper`, or `move` of a helper key. A helper gains no tool, builtin or session-key prefix the member's run would not.
+
 ## 0.19.0 (2026-10-19)
 
 - FEAT: connect Composio through the pinned engine's native MCP OAuth flow, with browser URL handoff and native sign-out.
