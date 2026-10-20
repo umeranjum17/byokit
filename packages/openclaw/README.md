@@ -131,7 +131,9 @@ API key (billed per use) entry still requires explicit selection; there is no su
 To choose the model for a run, pass `model: 'provider/model'` in the run spec (for example
 `'openai/gpt-5.1'`, where `provider` is an id `kit.providers(member)` lists). That provider is the one called and billed for this run only, with no fallback to another
 provider or model. If the member isn't signed in to it, the run ends `{ ok: false, kind: 'signed-out' }` and the
-engine is never called. Leave `model` out to keep the engine's own choice. A specific sign-in (`@profile`) can't be
+engine is never called. A signed-out `claude-cli` run also carries `cause: { code: 'needs_cli_login', cli: 'claude', home, configDir?, signIn }`:
+with `signIn: true` offer `kit.signIn(member, { authChoice: 'anthropic-cli' })`, which runs the Claude Code login; with
+`signIn: false` ask the person to run `claude` on this machine to sign in. Leave `model` out to keep the engine's own choice. A specific sign-in (`@profile`) can't be
 picked per run: the pinned engine may still switch to another sign-in for the same provider.
 
 To let the kit choose among a member's accounts, pass `account: 'auto'` (the account with the most room left, decided

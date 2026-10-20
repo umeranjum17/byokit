@@ -17,7 +17,7 @@ import { writePlugin, resolveBridge } from './bridge.ts';
 import { sweepOrphans } from './accounts.ts';
 import { installedPlugins } from './plugins.ts';
 import type { KitOptions } from './kit.ts';
-import type { KitState, ToolSpec } from './types.ts';
+import type { CliLoginCause, KitState, ToolSpec } from './types.ts';
 
 /** The app's stateDir as an absolute path with no symlinked ancestor (macOS /tmp and /var are symlinks):
  * the native Claude login's accounts store refuses any other, so a relative or symlinked stateDir failed it. */
@@ -447,9 +447,16 @@ export class Engine {
     this.claudeAccounts = cli; this.claudeLogin = remoteCliHost({ cli, bins });
     return this.claudeLogin;
   }
-  /** Whether a fallback sign-in would write a folder this engine's gateway does not read: it started on the person's
-   * login location (installed sign-in, or a probe with no answer), and an in-process restart keeps that env. */
-  claudeLoginUnread(): boolean { return Boolean(this.o.spawnEngine) && !this.claudeFallback; }
+  /** Where a Claude Code login must be for this engine's gateway to read it. `signIn: false` when a fallback sign-in
+   * would write a folder the gateway does not read: it started on the person's login location (installed sign-in, or
+   * a probe with no answer), and an in-process restart keeps that env. */
+  claudeLoginCause(): CliLoginCause {
+    if (this.o.spawnEngine && !this.claudeFallback) {
+      const { HOME, CLAUDE_CONFIG_DIR } = personal();
+      return { code: 'needs_cli_login', cli: 'claude', home: HOME, ...CLAUDE_CONFIG_DIR ? { configDir: CLAUDE_CONFIG_DIR } : {}, signIn: false };
+    }
+    return { code: 'needs_cli_login', cli: 'claude', home: join(this.root, 'home'), configDir: this.claudeFolder, signIn: true };
+  }
   resetNativeClaudeLogin(): Promise<void> {
     if (this.claudeReset) return this.claudeReset;
     const cli = this.claudeAccounts, host = this.claudeLogin;

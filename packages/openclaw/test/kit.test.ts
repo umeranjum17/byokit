@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fakeOpenCodeConsole, scratchDir } from '../../test-support.ts';
 import { after, mock, test } from 'node:test';
 import { AuthStoreUnreadableError } from '../src/auth-store.ts';
@@ -829,13 +829,15 @@ test('ready runs reuse only witnessed, bounded member auth; mutations, expiry an
     loggedIn = false;
     const agentCalls = fake.calls.filter(c => c.method === 'agent').length;
     const out = await run();
-    assert.ok(!out.ok && 'kind' in out && out.kind === 'signed-out');
+    // A signed-out claude-cli run says where the login is missing; without a spawned engine the kit's sign-in writes it.
+    const kitLogin = { code: 'needs_cli_login', cli: 'claude', home: join(stateDir, 'openclaw/home'), configDir: dirname(credentials), signIn: true };
+    assert.deepEqual(out, { ok: false, kind: 'signed-out', message: 'claude-cli is not signed in for umer', cause: kitLogin });
     assert.equal(fake.calls.filter(c => c.method === 'agent').length, agentCalls);
     await kit.call('openclaw.setup.activate', { agentId: 'umer', kind: 'claude-cli' });
     assert.ok((await run()).ok);
     fake.failNext('agent', '401 Unauthorized: your sign-in has expired');
     const revoked = await run();
-    assert.ok(!revoked.ok && 'kind' in revoked && revoked.kind === 'signed-out', JSON.stringify(revoked));
+    assert.deepEqual(revoked, { ok: false, kind: 'signed-out', message: '401 Unauthorized: your sign-in has expired', cause: kitLogin });
     await kit.call('models.authLogout', { agentId: 'umer', provider: 'claude-cli' }); // an auth mutation through the kit
     assert.ok(!(await run()).ok);
     await kit.stop();
@@ -854,7 +856,7 @@ test('ready runs reuse only witnessed, bounded member auth; mutations, expiry an
     assert.ok((await kit.run(oauth)).ok);
     t.mock.timers.tick(1_001);
     const expired = await kit.run(oauth);
-    assert.ok(!expired.ok && 'kind' in expired && expired.kind === 'signed-out');
+    assert.ok(!expired.ok && 'kind' in expired && expired.kind === 'signed-out' && !('cause' in expired));
   } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
 });
 

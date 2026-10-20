@@ -8,6 +8,7 @@ export type {
   AccountRef,
   Approval,
   CallOptions,
+  CliLoginCause,
   ChannelChat,
   ChannelMessage,
   Considered,

@@ -132,18 +132,20 @@ else process.exit(2);
       await engine.start();
       assert.equal(engine.doctorContext().env.CLAUDE_CONFIG_DIR, undefined, 'an unanswered sign-in probe keeps the installed login location');
       // The gateway sees no login there, and its in-process restart keeps that env: the fallback sign-in stops before any login.
-      assert.equal(engine.claudeLoginUnread(), true);
+      const own = { code: 'needs_cli_login', cli: 'claude', home: decoy, signIn: false };
+      assert.deepEqual(engine.claudeLoginCause(), own, 'the login the gateway reads is the person\'s own');
       const phone = await signIn({ request: async method => { assert.equal(method, 'openclaw.setup.detect'); return { candidates: [] }; },
         ensure: async member => ({ agentId: member }), callbackPort: 0, authConfig: () => '', restarted: async () => true,
-        claudeLoginUnread: () => engine.claudeLoginUnread() }, 'umer', { authChoice: 'anthropic-cli' }, () => {}).done;
-      assert.deepEqual(phone, { state: 'failed', via: 'browser', why: 'failed', error: 'Claude Code is installed here, but its sign-in could not be checked. Run claude once on this machine to sign in, then try again.' });
+        claudeLogin: () => engine.claudeLoginCause() }, 'umer', { authChoice: 'anthropic-cli' }, () => {}).done;
+      assert.deepEqual(phone, { state: 'failed', via: 'browser', why: 'failed', error: 'Claude Code is installed here, but its sign-in could not be checked. Run claude once on this machine to sign in, then try again.', cause: own });
       await engine.stop();
       writeFileSync(status, 'signed-out');
       process.env.CODEX_HOME = join(decoy, '.codex');
       await engine.start();
       const fallback = engine.doctorContext().env, folder = join(engine.root, 'home', '.claude');
       assert.deepEqual([fallback.HOME, fallback.CLAUDE_CONFIG_DIR, fallback.CODEX_HOME], [decoy, folder, join(engine.root, 'home', '.codex')]);
-      assert.equal(engine.claudeLoginUnread(), false, 'the fallback sign-in writes the folder the gateway reads');
+      assert.deepEqual(engine.claudeLoginCause(), { code: 'needs_cli_login', cli: 'claude', home: join(engine.root, 'home'), configDir: folder, signIn: true },
+        'the fallback sign-in writes the folder the gateway reads');
       const childEnv = () => { try { return JSON.parse(readFileSync(join(engine.root, 'home', 'child.json'), 'utf8')).env; } catch { return {}; } };
       for (let i = 0; i < 300 && childEnv().CLAUDE_CONFIG_DIR !== folder; i++) await delay(20);
       assert.equal(childEnv().CLAUDE_CONFIG_DIR, folder, 'the gateway got the fallback folder');
