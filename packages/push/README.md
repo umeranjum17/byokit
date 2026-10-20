@@ -3,7 +3,7 @@
 Open a sealed push notice before the phone displays it, even when the app's JavaScript is asleep.
 The app owns push registration, permissions, delivery and product wording. This package supplies an iOS
 Notification Service Extension, an Android data-message handler, and device-key provisioning.
-It consumes `@byokit/seal` 0.2.0; keys are raw 32-byte X25519 **secret keys**, not seeds or public keys.
+It consumes `@byokit/seal` 0.3.1; keys are raw 32-byte X25519 **secret keys**, not seeds or public keys.
 
 ## App setup
 
@@ -34,7 +34,7 @@ It consumes `@byokit/seal` 0.2.0; keys are raw 32-byte X25519 **secret keys**, n
    The React Native entry loads the Expo module. Default Node/web entries are native-free; provisioning
    there rejects as unavailable. `openNoticeContent(payload, key)` is the pure JS parser for app-side use.
    Rotation replaces the one stored key; messages sent to an old key fall back. There is no key history.
-3. Send `sealNotice({ title, body, data? }, deviceBoxPublic)` from seal 0.2.0. `title` is a non-empty string,
+3. Send `sealNotice({ title, body, data? }, deviceBoxPublic)` from seal 0.3.1. `title` is a non-empty string,
    `body` a string, and optional `data` a JSON object. Muxr's routing fields (`sessionId`, `eventId`, etc.)
    fit in `data`; the kit adds no product-specific fields. Notices assert no sender identity. The server
    must authenticate recipients and delivery; opening a notice never authorizes a tap action.

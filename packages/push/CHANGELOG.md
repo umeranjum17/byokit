@@ -10,7 +10,6 @@
   opens it with `openAnswer`. `setAnswerTargets` provisions each host's relay origin and key. Proven by Swift vectors and a
   loopback relay journey; a press on a real phone is not proven here.
 - FIX: Notices sent through `@byokit/relay` (envelope at Expo's `body.data`) now open in the NSE and `openNoticeContent`.
-- Unreleased source dependency metadata: pin @byokit/seal 0.3.0; this package's existing version is not republished. Previously published consumer metadata remains unchanged.
 
 - Dependency update: pins @byokit/seal 0.3.1.
 
