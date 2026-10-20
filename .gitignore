@@ -2,7 +2,7 @@ node_modules/
 dist/
 *.tsbuildinfo
 .lab/
-# verify-byokit run outputs: scratch consumers and private proof evidence.
+# done-done-verify-byokit run outputs: scratch consumers and private proof evidence.
 scratch/
 scratch.verify-byokit.*/
 .verify-artifacts/
