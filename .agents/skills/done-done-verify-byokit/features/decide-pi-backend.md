@@ -4,6 +4,7 @@ A decision and `generate` backend that runs the person's installed pi binary wit
 
 ## Sub-features
 
+- `pi-model-required`: `pi({ bin, timeoutMs })` with no `model` throws "Choose a model for pi first" before any process starts; pi's own default model is never used.
 - `pi-model`: the chosen model reaches pi as `--model <provider/id>`, and the request reaches that provider's endpoint.
 - `pi-answer`: the assistant text is validated against the schema; `data`, `usage` (`input_tokens`/`output_tokens`) and `raw` come back.
 - `pi-refusal`: a pi that exits nonzero, or an assistant message whose `stopReason` is `error`, rejects with `PiError` `process` and fixed text (no stderr).

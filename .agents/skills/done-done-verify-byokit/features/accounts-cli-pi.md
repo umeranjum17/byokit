@@ -8,6 +8,7 @@ A host app driving the built `@byokit/accounts/cli` sees how much room a managed
 - `cli-pi-usage-codex`: for `openai-codex`, `pick('pi')` reads ChatGPT's Codex windows (`GET chatgpt.com/backend-api/wham/usage`) addressed by the account's own `ChatGPT-Account-Id` and its own `Bearer` token, so the row's `room.left` and both windows match the quota body; a roomier row wins and equal room keeps list order.
 - `cli-pi-usage-kimi`: for `kimi-coding`, the same read goes to `api.kimi.com/coding/v1/usages` with that account's own bearer and parses Kimi's weekly window (`used`/`remaining`/`resetTime`).
 - `cli-pi-usage-unknown`: a Pi provider with no route is `unknown`, never zero; a missing or malformed folder login is `unknown`, never zero; no token, folder path or response body reaches a row, the plans store or the output.
+- `cli-pi-launch-model`: `launchArgs(id, model)` for a Pi row is `['--provider', piProvider, '--model', model]`; with no model (or an empty or `-`-leading one) it throws "Choose a model for <provider> first", so Pi's own per-provider default is never used.
 
 ## How to get to it (user POV)
 

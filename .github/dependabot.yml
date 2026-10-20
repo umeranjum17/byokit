@@ -33,3 +33,4 @@ updates:
       # No filters: every other npm update lands in one PR so a dependabot burst
       # cannot hold the shared runner pool during a release.
       npm:
+        patterns: ['*']

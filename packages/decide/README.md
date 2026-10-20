@@ -861,7 +861,7 @@ else {
 
 The Node-only `@byokit/decide/pi` subpath runs the person's installed pi binary, for example with
 `deepseek/deepseek-flash`, so an app never needs that provider's key: pi reads its own key store. The host
-passes the absolute binary path and a `model` (passed through as `--model`); without one, pi picks its default.
+passes the absolute binary path and a required `model` (passed through as `--model`); without one, `pi()` throws instead of letting pi pick its own default.
 Each call runs `pi --mode json --no-session --no-tools --no-extensions --no-skills --no-prompt-templates
 --no-context-files --no-approve --system-prompt <file> --model <model>` in a temporary directory, with the
 prompt on stdin. The answer is the last assistant message's text, validated against the schema; the schema is
