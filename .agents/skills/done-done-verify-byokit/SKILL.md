@@ -5,7 +5,7 @@ description: The done-done verify skill for byokit — drive the built SDK the w
 
 # Verify byokit
 
-This skill is `done-done-verify-byokit` (source prefix first; it was `verify-byokit`). Both names are recognized in Checks blocks: `proof:` may name either.
+This skill is `done-done-verify-byokit` (source prefix first; it was `verify-byokit`). `.agents/skills/verify-byokit` is a symlink alias to this folder until the fleet merge gates move to the new name (do not remove it yet); Checks blocks may name either.
 
 byokit is a TypeScript SDK monorepo: the user is a consumer app importing `@byokit/*`. "Driving the app" means importing the **built** packages (`packages/*/dist`) from a plain Node script and observing real output. The browser (PWA), React Native and Android surfaces are separate entries; see the feature map for what is provable on this host.
 
