@@ -95,4 +95,8 @@ figure is the JavaScript/native boundary, not the model.
 `.` is portable: no Node, no React Native, no browser-only API. `./node` is the Node/desktop
 adapter and is the only entry that imports `onnxruntime-node`, declared as an **optional**
 peer — an app on another runtime never installs it and supplies its own session instead.
+`./react-native` is the React Native adapter and mirrors `./node`: `sileroSession(bytes, onnxruntime-react-native)` takes the
+app's bundled copy of the pinned graph (verified by size and a pure-JS SHA-256, no `node:*` import) and runs it on the CPU provider.
+`onnxruntime-react-native` 1.24.3 is a second **optional** peer; the app installs it and passes it in. Its unit proof is a
+deterministic fake runtime, so handset CPU and battery are unmeasured.
 Nothing here starts a GPU or a local service; the CPU execution provider is the only one used.
