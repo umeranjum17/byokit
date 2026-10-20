@@ -48,3 +48,9 @@ test('the installed pi on PATH answers with the chosen model passed as --model, 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('pi refuses to start without a chosen model, so the installed pi never falls back to its own default', async () => {
+  for (const model of [undefined, '', '  ']) {
+    assert.throws(() => pi({ bin: '/usr/bin/pi', model, timeoutMs: 5000 } as never), /^Error: Choose a model for pi first: /);
+  }
+});

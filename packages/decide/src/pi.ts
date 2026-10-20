@@ -9,7 +9,7 @@ import { outputSchema, type OutputSchema } from './schema.ts';
 import { parsedAnswers, responsesInstructions, responsesSchema } from './responses-wire.ts';
 import { runCli } from './cli-run.ts';
 
-export type PiOptions = { bin: string; model?: string; timeoutMs: number };
+export type PiOptions = { bin: string; model: string; timeoutMs: number };
 export type PiBackend = Backend & GenerationBackend;
 type FailureCode = 'invalid_json' | 'invalid_output' | 'process' | 'timeout' | 'aborted';
 const messages: Record<FailureCode, string> = {
@@ -29,8 +29,9 @@ const record = (v: unknown): v is Record<string, any> => v !== null && typeof v 
 /** The installed pi runs once in JSON mode with no tools, extensions, skills, context files or session; its own key answers. */
 export function pi(options: PiOptions): PiBackend {
   if (!isAbsolute(options.bin)) throw new Error('Supply an absolute binary path.');
-  if (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0 || options.timeoutMs > 2_147_483_647 ||
-      (options.model !== undefined && (typeof options.model !== 'string' || !options.model.trim()))) {
+  // Pi has its own default model per provider; the app must name the one the person chose.
+  if (typeof options.model !== 'string' || !options.model.trim()) throw new Error('Choose a model for pi first: pass model, for example from pi --list-models.');
+  if (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0 || options.timeoutMs > 2_147_483_647) {
     throw new Error('The model or timeout is invalid.');
   }
   const o = { ...options };
@@ -47,7 +48,7 @@ export function pi(options: PiOptions): PiBackend {
       const system = [input.system, validator.prompt].filter(Boolean).join('\n\n');
       try { await writeFile(systemFile, system); } catch { throw new PiError('process'); }
       const args = ['--mode', 'json', '--no-session', '--no-tools', '--no-extensions', '--no-skills', '--no-prompt-templates',
-        '--no-context-files', '--no-approve', '--system-prompt', systemFile, ...(o.model ? ['--model', o.model] : [])];
+        '--no-context-files', '--no-approve', '--system-prompt', systemFile, '--model', o.model];
       const deadline = Date.now() + o.timeoutMs;
       // The person's own environment so their installed pi answers with its own provider keys; only preload variables are dropped.
       const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'NODE_OPTIONS'));

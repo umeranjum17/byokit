@@ -722,7 +722,13 @@ export function cliAccounts(options: CliOptions) {
       savePrefer(tools);
     },
     folderOf: (id: string): string => row(id).folder,
-    launchArgs: (id: string): string[] => { const r = row(id); return r.provider === 'pi' ? ['--provider', r.piProvider!] : []; },
+    /** Pi's own default model is never used: a Pi row launches only with the `model` the caller chose. */
+    launchArgs: (id: string, model?: string): string[] => {
+      const r = row(id);
+      if (r.provider !== 'pi') return [];
+      if (!text(model) || !model.trim() || model.startsWith('-')) throw new Error(`Choose a model for ${r.piProvider} first: pass the model id to launchArgs(id, model).`);
+      return ['--provider', r.piProvider!, '--model', model];
+    },
     kinds: (provider: CliProvider): string[] => providers.includes(provider) ? [provider] : [],
     resumeArgs(kind: string, ref: { kind: 'id' | 'path'; value: string }): string[] {
       if (!record(ref) || !text(ref.value) || !ref.value || ref.value.startsWith('-') || !providers.includes(kind as CliProvider) || (ref.kind !== 'id' && (kind !== 'pi' || ref.kind !== 'path'))) throw new CliAccountError('kind-mismatch');

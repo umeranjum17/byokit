@@ -277,7 +277,9 @@ test('managed Pi uses TUI instructions, OAuth-only readiness, isolated roster an
   const folder = kit.launchEnv(account.id).set.PI_CODING_AGENT_DIR;
   assert.equal(account.name, 'ChatGPT'); assert.equal(account.piProvider, 'openai-codex');
   assert.deepEqual(signIn.argv, [pi.bin]); assert.deepEqual(signIn.instruction, { words: 'cli.piLogin', command: '/login openai-codex' });
-  assert.ok(!signIn.shell.includes('/login')); assert.deepEqual(kit.launchArgs(account.id), ['--provider', 'openai-codex']);
+  assert.ok(!signIn.shell.includes('/login')); assert.deepEqual(kit.launchArgs(account.id, 'gpt-6-sol'), ['--provider', 'openai-codex', '--model', 'gpt-6-sol']);
+  // Pi's own per-provider default model is never used: no chosen model, no launch argv.
+  for (const none of [undefined, '', '  ', '--provider']) assert.throws(() => kit.launchArgs(account.id, none), /^Error: Choose a model for openai-codex first: /);
   assert.deepEqual(kit.kinds('pi'), ['pi']);
   assert.deepEqual(await kit.usageSource(account.id), { provider: 'pi', folder, piProvider: 'openai-codex' });
   for (const kind of ['id', 'path'] as const) assert.deepEqual(kit.resumeArgs('pi', { kind, value: 'session.jsonl' }), ['--session', 'session.jsonl']);
