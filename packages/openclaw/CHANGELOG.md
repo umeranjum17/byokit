@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.23.0 (2026-10-20)
+
+- FEATURE: A signed-out `claude-cli` run now says why: its end carries `cause: { code: 'needs_cli_login', cli: 'claude', home, configDir?, signIn }` (the new `CliLoginCause` type, also on `./device`). `signIn: true` means `kit.signIn(member, { authChoice: 'anthropic-cli' })` runs the Claude Code login into the kit's own folder (subscription billing); `signIn: false` means the engine reads the person's own Claude Code login, so they run `claude` on that machine. An `anthropic-cli` sign-in the kit cannot run carries the same `cause` on its failed view. `kind`, `message` and every other run end are unchanged.
+
 ## 0.22.2 (2026-10-19)
 
 - Dependency update: pins @byokit/accounts 0.28.2.
