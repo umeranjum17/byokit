@@ -2,7 +2,7 @@
 
 Open a sealed push notice before the phone displays it, even when the app's JavaScript is asleep.
 The app owns push registration, permissions, delivery and product wording. This package supplies an iOS
-Notification Service Extension, an Android data-message handler, and device-key provisioning. Private at 0.1.0.
+Notification Service Extension, an Android data-message handler, and device-key provisioning.
 It consumes `@byokit/seal` 0.2.0; keys are raw 32-byte X25519 **secret keys**, not seeds or public keys.
 
 ## App setup
