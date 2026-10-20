@@ -6,6 +6,8 @@
 
 FIX: Moving a plan to another account no longer fails every time on Herdr 0.9.1 with "The new pane did not receive that sign-in"; the new pane's own shell now confirms the sign-in, and a pane that did not receive it is still refused.
 
+FIX: Moving a plan to another account first checks the Herdr version and, on a server older than 0.9.1, refuses before any change with "Moving accounts needs Herdr 0.9.1 or newer. You have X. Run herdr update." (older versions are untested, not known unsupported).
+
 ## 0.16.1 (2026-10-18)
 
 FIX: A ready Herdr that goes silent is now reported stalled, then ready when it answers again.

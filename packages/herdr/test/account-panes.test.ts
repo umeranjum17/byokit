@@ -23,7 +23,7 @@ function harness(t: TestContext) {
     terminal_id: 'original-terminal', state_change_seq: 1, name: 'original',
     cwd: '/repo', agent_session: { source: 'herdr', agent: 'claude', kind: 'id', value: 'conversation' } }]]);
   const panes = new Map<string, Raw>([['old', {}]]);
-  const state = { failStart: false, failClose: new Set<string>(),
+  const state = { version: undefined as string | undefined, failStart: false, failClose: new Set<string>(),
     paneEnv: 'recorded' as 'recorded' | 'wrong-value' | 'leaked-unset' | 'missing' | 'unreadable',
     waitReady: true, generation: 'conversation', splitGate: undefined as Promise<void> | undefined,
     interactive: true, publish: true,
@@ -33,7 +33,7 @@ function harness(t: TestContext) {
   const transport: HerdrTransport = {
     async call(method, params) {
       calls.push({ method, params });
-      if (method === 'ping') return { protocol: HERDR_PROTOCOL };
+      if (method === 'ping') return { protocol: HERDR_PROTOCOL, ...(state.version === undefined ? {} : { version: state.version }) };
       if (method === 'session.snapshot') return { snapshot: { workspaces: [], tabs: [], panes: [], agents: [] } };
       if (method === 'agent.get') {
         if (params.target === 'old') state.beforeSourceRead?.();
@@ -105,6 +105,19 @@ function harness(t: TestContext) {
   const move = async () => { await ready; return kit.moveToAccount({ paneId: 'old' }, { provider: 'claude', folder: '/new/claude', timeoutMs: 250 }); };
   return { kit, ready, move, calls, state, agents, panes };
 }
+
+test('older Herdr is refused first with the upgrade sentence; nothing is read or changed', async (t) => {
+  for (const [have, refused] of [['0.9.0', true], ['0.8.9', true], ['0.9.1', false], ['0.10.0', false]] as const) {
+    const h = harness(t);
+    h.state.version = have;
+    const result = await h.move();
+    if (refused) {
+      assert.deepEqual(result, { ok: false, code: 'unsupported', live: 'old',
+        message: `Moving accounts needs Herdr 0.9.1 or newer. You have ${have}. Run herdr update.` });
+      assert.deepEqual(h.calls.filter((c) => !['ping', 'session.snapshot'].includes(c.method)), []);
+    } else assert.equal(result.ok, true);
+  }
+});
 
 test('MS-S3: native target status refuses before waiting or splitting; generic move stays caller-gated', async (t) => {
   const root = scratchDir('move-signed-out'); const folder = join(root, 'account'); mkdirSync(folder);
