@@ -643,6 +643,24 @@ test('a Go plan key registers the live catalog once and runs any Go model', asyn
   assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
 }));
 
+test('a MiniMax key runs a model its vendor list lags, with the route\'s own capabilities, and lists the vendor\'s models', async () => withKit(async (kit, fake) => {
+  const key = 'CANARY-MINIMAX-KEY-784';
+  const chosen = 'minimax/MiniMax-M3.1-Flash-Preview';
+  fake.handle('byokit.catalog', (p) => p.provider === 'minimax' && fake.calls.some((c) => c.method === 'openclaw.setup.activate')
+    ? { ok: true, models: [
+      { id: 'MiniMax-M3', name: 'MiniMax-M3', api: 'anthropic-messages', baseUrl: 'https://api.minimax.io/anthropic', input: ['text', 'image'], contextWindow: 1_000_000 },
+      { id: 'MiniMax-M3.1-Flash', name: 'MiniMax-M3.1-Flash', api: 'anthropic-messages', baseUrl: 'https://api.minimax.io/anthropic', input: ['text', 'image'], contextWindow: 1_000_000 }] }
+    : { ok: false, reason: 'no-key' });
+  assert.deepEqual(await kit.addKey('m1', { authChoice: 'minimax-global-api', apiKey: key }), { status: 'ok' });
+  assert.deepEqual((await kit.models('m1', { authChoice: 'minimax-global-api' })).map((m) => m.id), ['minimax/MiniMax-M3', 'minimax/MiniMax-M3.1-Flash']);
+  // The vendor's list lacks Preview: the add still takes it, registered with the richest row's image input (warn, never block).
+  assert.deepEqual(await kit.addKey('m1', { authChoice: 'minimax-global-api', apiKey: key, model: chosen }), { status: 'ok' });
+  const { config } = await fake.transport.request('config.get') as { config: { models: { providers: Record<string, { models: { id: string; input: string[] }[] }> } } };
+  const row = config.models.providers.minimax!.models.find((m) => m.id === 'MiniMax-M3.1-Flash-Preview');
+  assert.deepEqual(row?.input, ['text', 'image']);
+  assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: true, model: chosen });
+}));
+
 test('a funded OpenRouter key takes the model the person chooses from its live catalog, with no plan check', async () => withKit(async (kit, fake) => {
   const key = 'CANARY-OPENROUTER-KEY-950';
   const chosen = 'openrouter/deepseek/deepseek-v4.1-flash-1017';

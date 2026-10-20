@@ -1,7 +1,7 @@
-// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.3.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   shortHash
-} from "./chunk-HOZNWAQG.js";
+} from "./chunk-VAPZ7LCI.js";
 import {
   buildBaseOptions,
   getJsonSchemaToolParameters,
@@ -9,7 +9,7 @@ import {
   resolveJsonSchemaStrictSampling,
   sanitizeSurrogates,
   transformMessages
-} from "./chunk-VZSF4MVH.js";
+} from "./chunk-U6W4PXEE.js";
 import {
   calculateCost,
   clampThinkingLevel,
@@ -17,17 +17,18 @@ import {
   getSystemMessageText,
   renderSystemMessageUpdate,
   resolveTranscript
-} from "./chunk-2HB4SJL3.js";
+} from "./chunk-44QVZSI4.js";
 import {
-  parseStreamingJson
-} from "./chunk-AT2YCN4O.js";
+  parseStreamingJson,
+  parseToolCallArguments
+} from "./chunk-7Z5MAJVW.js";
 import {
   headersToRecord
-} from "./chunk-VXRRDOKP.js";
+} from "./chunk-TAONF3RX.js";
 import {
   AssistantMessageEventStream
-} from "./chunk-JK2DMSVJ.js";
-import "./chunk-JOZQDPST.js";
+} from "./chunk-XHKJTHE7.js";
+import "./chunk-KWV666JL.js";
 
 // node_modules/@earendil-works/pi-ai/dist/utils/abort-signals.js
 function combineAbortSignals(signals) {
@@ -597,7 +598,7 @@ async function consumeChatStream(model, output, stream2, mistralStream, onProvid
     if (block.type !== "toolCall")
       continue;
     const toolBlock = block;
-    toolBlock.arguments = parseStreamingJson(toolBlock.partialArgs);
+    Object.assign(toolBlock, parseToolCallArguments(toolBlock.partialArgs));
     delete toolBlock.partialArgs;
     stream2.push({
       type: "toolcall_end",

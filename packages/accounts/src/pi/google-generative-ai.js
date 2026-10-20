@@ -1,11 +1,11 @@
-// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.3.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   formatProviderError,
   normalizeProviderError
-} from "./chunk-E54CWL3Z.js";
+} from "./chunk-RDJUIRLA.js";
 import {
   retryProviderRequest
-} from "./chunk-B7RY6CKU.js";
+} from "./chunk-RZGFK6O6.js";
 import {
   buildBaseOptions,
   getJsonSchemaToolParameters,
@@ -13,7 +13,7 @@ import {
   resolveJsonSchemaStrictSampling,
   sanitizeSurrogates,
   transformMessages
-} from "./chunk-VZSF4MVH.js";
+} from "./chunk-U6W4PXEE.js";
 import {
   calculateCost,
   clampThinkingLevel,
@@ -22,14 +22,14 @@ import {
   getInitialSystemMessage,
   getSystemMessageText,
   withoutInitialSystemMessage
-} from "./chunk-2HB4SJL3.js";
+} from "./chunk-44QVZSI4.js";
 import {
   providerHeadersToRecord
-} from "./chunk-VXRRDOKP.js";
+} from "./chunk-TAONF3RX.js";
 import {
   AssistantMessageEventStream
-} from "./chunk-JK2DMSVJ.js";
-import "./chunk-JOZQDPST.js";
+} from "./chunk-XHKJTHE7.js";
+import "./chunk-KWV666JL.js";
 
 // node_modules/@earendil-works/pi-ai/dist/api/google-generative-ai.js
 import { GoogleGenAI } from "@google/genai";
@@ -61,7 +61,8 @@ function usesGoogleThinkingLevel(model) {
   return (
     // Match Gemini 3 Pro/Flash IDs with or without a minor version, such as
     // gemini-3-flash-preview, gemini-3.1-pro-preview, and gemini-3.8-flash.
-    /gemini-3(?:\.\d+)?-(?:pro|flash)/.test(id) || id === "gemini-flash-latest" || id === "gemini-flash-lite-latest" || // Match both hosted Gemma 4 naming forms: gemma-4-* and gemma4-*.
+    /gemini-3(?:\.\d+)?-(?:pro|flash)/.test(id) || // Match Gemini 4 and later, such as gemini-4-argon (#10890).
+    /gemini-(?:[4-9]|[1-9]\d)/.test(id) || id === "gemini-flash-latest" || id === "gemini-flash-lite-latest" || // Match both hosted Gemma 4 naming forms: gemma-4-* and gemma4-*.
     /gemma-?4/.test(id)
   );
 }

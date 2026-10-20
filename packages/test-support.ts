@@ -33,7 +33,7 @@ export function cleanStaleScratch(at: string = parent): void {
   }
 }
 
-/** The accounts journeys are written against the exact @earendil-works/pi-ai pin in packages/accounts/package.json
+/** The accounts journeys are written against the @earendil-works/pi-ai range in packages/accounts/package.json
  *  (the 1.x provider catalogue and the Anthropic callback pin). A checkout moved past a pin bump while
  *  node_modules still holds the old catalogue fails them as two suite-order-looking journey errors: the azure
  *  lookup finds no provider, and the browser sign-in has no callback fallback. Return that mismatch so the
@@ -45,7 +45,7 @@ export function piPinMismatch(root: string): string | undefined {
   let installed: unknown;
   try { installed = JSON.parse(readFileSync(join(root, 'node_modules/@earendil-works/pi-ai/package.json'), 'utf8'))?.version; }
   catch { installed = undefined; }
-  if (installed === pin) return undefined;
+  if (installed === pin.replace(/^\^/, '')) return undefined;
   return typeof installed === 'string'
     ? `installed @earendil-works/pi-ai is ${installed} but packages/accounts/package.json pins ${pin}: this checkout and node_modules disagree, so journeys written for the pinned catalogue fail as misleading suite errors - run npm ci`
     : `@earendil-works/pi-ai is not installed under ${root}/node_modules (packages/accounts/package.json pins ${pin}) - run npm ci`;

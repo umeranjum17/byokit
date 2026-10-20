@@ -1,11 +1,11 @@
-// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.3.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   buildCopilotDynamicHeaders,
   hasCopilotVisionInput
-} from "./chunk-T2VSXZNQ.js";
+} from "./chunk-NVYPJUI2.js";
 import {
   retryProviderRequest
-} from "./chunk-B7RY6CKU.js";
+} from "./chunk-RZGFK6O6.js";
 import {
   adjustMaxTokensForThinking,
   buildBaseOptions,
@@ -14,8 +14,9 @@ import {
   getPiUserAgent,
   resolveJsonSchemaStrictSampling,
   sanitizeSurrogates,
+  splitErrorToolResultImages,
   transformMessages
-} from "./chunk-VZSF4MVH.js";
+} from "./chunk-U6W4PXEE.js";
 import {
   calculateCost,
   getCurrentTools,
@@ -23,25 +24,26 @@ import {
   getSystemMessageText,
   renderSystemMessageUpdate,
   resolveTranscript
-} from "./chunk-2HB4SJL3.js";
+} from "./chunk-44QVZSI4.js";
 import {
   getProviderEnvValue
-} from "./chunk-TAO7TECG.js";
+} from "./chunk-HFF7HWFJ.js";
 import {
   parseJsonWithRepair,
-  parseStreamingJson
-} from "./chunk-AT2YCN4O.js";
+  parseStreamingJson,
+  parseToolCallArguments
+} from "./chunk-7Z5MAJVW.js";
 import {
   headersToRecord
-} from "./chunk-VXRRDOKP.js";
+} from "./chunk-TAONF3RX.js";
 import {
   AssistantMessageEventStream,
   appendAssistantMessageDiagnostic
-} from "./chunk-JK2DMSVJ.js";
+} from "./chunk-XHKJTHE7.js";
 import {
   __require,
   __toESM
-} from "./chunk-JOZQDPST.js";
+} from "./chunk-KWV666JL.js";
 
 // node_modules/@earendil-works/pi-ai/dist/api/anthropic-messages.js
 import Anthropic, {} from "@anthropic-ai/sdk";
@@ -131,6 +133,16 @@ var fromClaudeCodeName = (name, tools) => {
   }
   return name;
 };
+function convertImageBlock(image) {
+  return {
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: image.mimeType,
+      data: image.data
+    }
+  };
+}
 function convertContentBlocks(content) {
   const hasImages = content.some((c) => c.type === "image");
   if (!hasImages) {
@@ -143,14 +155,7 @@ function convertContentBlocks(content) {
         text: sanitizeSurrogates(block.text)
       };
     }
-    return {
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: block.mimeType,
-        data: block.data
-      }
-    };
+    return convertImageBlock(block);
   });
   const hasText = blocks.some((b) => b.type === "text");
   if (!hasText) {
@@ -397,14 +402,12 @@ var stream = (model, context, options) => {
   const normalizedContext = resolveTranscript(context, getAnthropicCompat(model).supportsMidConvoSystemMessages);
   const currentTools = getCurrentTools(normalizedContext.messages);
   (async () => {
-    const providerThinkingLevel = model.compat?.supportsMidConvoEffort ? options?.effort ?? "high" : void 0;
     const output = {
       role: "assistant",
       content: [],
       api: model.api,
       provider: model.provider,
       model: model.id,
-      ...providerThinkingLevel === void 0 ? {} : { providerThinkingLevel },
       usage: {
         input: 0,
         output: 0,
@@ -453,6 +456,8 @@ var stream = (model, context, options) => {
       for (; ; ) {
         __byokitPiThrowIfAborted(options?.signal);
         const built = buildParams(model, normalizedContext, isOAuth, options, disablePreferredStrictTools);
+        if (built.providerThinkingLevel)
+          output.providerThinkingLevel = built.providerThinkingLevel;
         let params = built.params;
         const nextParams = await options?.onPayload?.(params, model);
         if (nextParams !== void 0) {
@@ -616,7 +621,7 @@ var stream = (model, context, options) => {
                 partial: output
               });
             } else if (block.type === "toolCall") {
-              block.arguments = parseStreamingJson(block.partialJson);
+              Object.assign(block, parseToolCallArguments(block.partialJson));
               delete block.partialJson;
               stream2.push({
                 type: "toolcall_end",
@@ -869,12 +874,14 @@ function buildParams(model, context, isOAuthToken2, options, disablePreferredStr
   };
   const initialTools = initialSystemMessage?.toolsAdded ?? [];
   const nativeToolChanges = compat.supportsMidConvoSystemMessages && compat.supportsMidConvoToolChanges && initialTools.length > 0;
-  const converted = convertMessages(conversationMessages, isOAuthToken2, cacheControl, compat.allowEmptySignature, model.compat?.supportsMidConvoEffort === true ? model.provider : void 0, nativeToolChanges ? convertToolDefinitions : void 0);
+  const thinkingDisabled = model.reasoning && options?.thinkingEnabled === false && model.thinkingLevelMap?.off !== null;
+  const effortMessages = model.compat?.supportsMidConvoEffort === true && !thinkingDisabled;
+  const converted = convertMessages(conversationMessages, isOAuthToken2, cacheControl, compat.allowEmptySignature, effortMessages ? model.provider : void 0, nativeToolChanges ? convertToolDefinitions : void 0);
   const activeEffort = options?.effort ?? "high";
   const betaFeatures = getBetaFeatures(model, context, isOAuthToken2, nativeToolChanges, options);
   const params = {
     model: model.id,
-    messages: model.compat?.supportsMidConvoEffort === true ? insertThinkingLevelMessages(converted, activeEffort) : converted.messages,
+    messages: effortMessages ? insertThinkingLevelMessages(converted, activeEffort) : converted.messages,
     max_tokens: options?.maxTokens ?? model.maxTokens,
     stream: true,
     ...betaFeatures.length > 0 ? { betas: betaFeatures } : {}
@@ -915,30 +922,28 @@ function buildParams(model, context, isOAuthToken2, options, disablePreferredStr
       params.tools = convertToolDefinitions(tools, toolCacheControl);
     }
   }
-  if (model.compat?.supportsMidConvoEffort === true) {
+  if (thinkingDisabled) {
+    params.thinking = { type: "disabled" };
+  } else if (effortMessages) {
     params.thinking = {
       type: "adaptive",
       display: options?.thinkingDisplay ?? "summarized",
       block_binding: { prefix_mismatch_behavior: "drop_block" }
     };
     params.output_config = { effort: "high" };
-  } else if (model.reasoning) {
-    if (options?.thinkingEnabled) {
-      const display = options.thinkingDisplay ?? "summarized";
-      if (model.compat?.forceAdaptiveThinking === true) {
-        params.thinking = { type: "adaptive", display };
-        if (options.effort) {
-          params.output_config = { effort: options.effort };
-        }
-      } else {
-        params.thinking = {
-          type: "enabled",
-          budget_tokens: options.thinkingBudgetTokens || 1024,
-          display
-        };
+  } else if (model.reasoning && options?.thinkingEnabled) {
+    const display = options.thinkingDisplay ?? "summarized";
+    if (model.compat?.forceAdaptiveThinking === true) {
+      params.thinking = { type: "adaptive", display };
+      if (options.effort) {
+        params.output_config = { effort: options.effort };
       }
-    } else if (options?.thinkingEnabled === false && model.thinkingLevelMap?.off !== null) {
-      params.thinking = { type: "disabled" };
+    } else {
+      params.thinking = {
+        type: "enabled",
+        budget_tokens: options.thinkingBudgetTokens || 1024,
+        display
+      };
     }
   }
   if (options?.metadata) {
@@ -958,16 +963,16 @@ function buildParams(model, context, isOAuthToken2, options, disablePreferredStr
   if (allowedFallbackModels && allowedFallbackModels.length > 0) {
     params.fallbacks = allowedFallbackModels.map((fallback) => ({ model: fallback.model }));
   }
-  return { params, hasPreferredStrictTools };
+  return { params, hasPreferredStrictTools, providerThinkingLevel: effortMessages ? activeEffort : void 0 };
 }
 function normalizeToolCallId(id) {
   return id.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
 }
-function convertToolResult(msg) {
+function convertToolResult(msg, content = msg.content) {
   return {
     type: "tool_result",
     tool_use_id: msg.toolCallId,
-    content: convertContentBlocks(msg.content),
+    content: convertContentBlocks(content),
     is_error: msg.isError
   };
 }
@@ -1019,14 +1024,7 @@ function convertMessages(transformedMessages, isOAuthToken2, cacheControl, allow
               text: sanitizeSurrogates(item.text)
             };
           } else {
-            return {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: item.mimeType,
-                data: item.data
-              }
-            };
+            return convertImageBlock(item);
           }
         });
         const filteredBlocks = blocks.filter((b) => {
@@ -1102,15 +1100,21 @@ function convertMessages(transformedMessages, isOAuthToken2, cacheControl, allow
       }
     } else if (msg.role === "toolResult") {
       const toolResults = [];
+      const errorImages = [];
       let j = i;
       while (j < transformedMessages.length && transformedMessages[j].role === "toolResult") {
-        toolResults.push(convertToolResult(transformedMessages[j]));
+        const toolMsg = transformedMessages[j];
+        const split = splitErrorToolResultImages(toolMsg);
+        toolResults.push(convertToolResult(toolMsg, split?.content));
+        if (split) {
+          errorImages.push({ type: "text", text: split.caption }, ...split.images.map(convertImageBlock));
+        }
         j++;
       }
       i = j - 1;
       params.push({
         role: "user",
-        content: toolResults
+        content: [...toolResults, ...errorImages]
       });
     }
   }

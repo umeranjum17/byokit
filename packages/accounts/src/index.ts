@@ -8,6 +8,7 @@ import type { CredentialStore } from '@earendil-works/pi-ai';
 import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 import { Accounts as Portable, type AccountsOptions, type AuthHost, type Loopback, type Member, type Platform } from './accounts.ts';
 import { emptyAuthContext } from './isolate.ts';
+import { withNamedModels } from './named-model.ts';
 import { endpointDriver } from './node-endpoints.ts';
 import { cloudStream } from './cloud-node.ts';
 
@@ -40,7 +41,7 @@ subscribe('undici:request:headers', ({ request, response }: any) => { const w = 
 
 /** Pi's engine, its failed refresh carrying the provider's refusal as `httpStatus`, as the kit's own store carries it. */
 function engine(credentials: CredentialStore) {
-  const models = builtinModels({ credentials, authContext: emptyAuthContext });
+  const models = withNamedModels(builtinModels({ credentials, authContext: emptyAuthContext }));
   const getAuth = models.getAuth.bind(models) as (id: string, opts?: object) => ReturnType<typeof models.getAuth>;
   return Object.assign(models, { getAuth: (id: string, opts?: object) => {
     const w: { provider: string; status?: number } = { provider: id };

@@ -1,7 +1,7 @@
-// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.3.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   shortHash
-} from "./chunk-HOZNWAQG.js";
+} from "./chunk-VAPZ7LCI.js";
 import {
   appendGrammarToolInputJsonDelta,
   getGrammarToolInput,
@@ -10,17 +10,18 @@ import {
   resolveJsonSchemaStrictSampling,
   sanitizeSurrogates,
   transformMessages
-} from "./chunk-VZSF4MVH.js";
+} from "./chunk-U6W4PXEE.js";
 import {
   calculateCost,
   getSystemMessageText,
   renderSystemMessageUpdate,
   resolveTranscript,
   resolveTranscriptTools
-} from "./chunk-2HB4SJL3.js";
+} from "./chunk-44QVZSI4.js";
 import {
-  parseStreamingJson
-} from "./chunk-AT2YCN4O.js";
+  parseStreamingJson,
+  parseToolCallArguments
+} from "./chunk-7Z5MAJVW.js";
 
 // node_modules/@earendil-works/pi-ai/dist/api/openai-responses-shared.js
 function encodeTextSignatureV1(id, phase) {
@@ -126,6 +127,12 @@ function convertResponsesMessages(model, context, allowedToolCallProviders, opti
     });
   };
   const includeInitialSystemMessage = options?.includeSystemPrompt ?? true;
+  const pushConfigurationUpdate = (effort) => {
+    messages.push({
+      type: "configuration_update",
+      reasoning: { effort }
+    });
+  };
   const compat = model.compat;
   const instructionRole = model.reasoning && compat?.supportsDeveloperRole !== false ? "developer" : "system";
   let msgIndex = 0;
@@ -232,6 +239,9 @@ function convertResponsesMessages(model, context, allowedToolCallProviders, opti
       }
       if (output.length === 0)
         continue;
+      if (options?.configurationUpdateEffort !== void 0 && isSameModel && msg.providerThinkingLevel !== void 0) {
+        pushConfigurationUpdate(msg.providerThinkingLevel);
+      }
       messages.push(...output);
     } else if (msg.role === "toolResult") {
       const [callId] = msg.toolCallId.split("|");
@@ -253,6 +263,8 @@ function convertResponsesMessages(model, context, allowedToolCallProviders, opti
     if (!isLeadingSystemMessage)
       msgIndex++;
   }
+  if (options?.configurationUpdateEffort !== void 0)
+    pushConfigurationUpdate(options.configurationUpdateEffort);
   return messages;
 }
 function convertResponsesTools(tools, options) {
@@ -571,7 +583,7 @@ async function processResponsesStream(openaiStream, output, stream, model, optio
         });
         outputSlots.delete(event.output_index);
       } else if (item.type === "function_call" && slot?.type === "toolCall" && slot.block.partialJson !== void 0) {
-        slot.block.arguments = parseStreamingJson(item.arguments || slot.block.partialJson || "{}");
+        Object.assign(slot.block, parseToolCallArguments(item.arguments || slot.block.partialJson));
         if (item.namespace !== void 0)
           slot.block.namespace = item.namespace;
         delete slot.block.partialJson;
@@ -655,4 +667,4 @@ export {
   convertResponsesTools,
   processResponsesStream
 };
-//# sourceMappingURL=chunk-SVEGEFBM.js.map
+//# sourceMappingURL=chunk-DAXRXMR6.js.map

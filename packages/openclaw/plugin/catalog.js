@@ -38,6 +38,19 @@ export function registerCatalog(api) {
         const models = [...live.models, ...(pinned?.models ?? []).filter((m) => !liveIds.has(m.id))]
           .map(({ provider: _p, apiKey: _k, headers: _h, ...model }) =>
             (endpoint.has(model.api) ? { ...model, baseUrl: endpoint.get(model.api) } : model));
+        // MiniMax's engine catalog is a fixed list: its vendor `/models` lists newer ids, which join it with the richest
+        // row's api, base URL and capabilities (the vendor lists ids only). A failed fetch keeps the engine's list.
+        if (provider === 'minimax' && models.length) {
+          const base = models.reduce((a, b) => (b.contextWindow ?? 0) > (a.contextWindow ?? 0) ? b : a);
+          const input = ['text', 'image'].filter((i) => models.some((m) => m.input?.includes(i)));
+          const listed = await fetch(`${String(base.baseUrl).replace(/\/$/, '')}/v1/models`,
+            { headers: { authorization: `Bearer ${apiKey}`, 'anthropic-version': '2023-06-01' }, signal: AbortSignal.timeout(10_000) })
+            .then((r) => r.ok ? r.json() : null, () => null);
+          const have = new Set(models.map((m) => m.id));
+          for (const m of Array.isArray(listed?.data) ? listed.data : [])
+            if (typeof m?.id === 'string' && m.id && !have.has(m.id))
+              models.push({ ...base, id: m.id, name: m.display_name || m.id, input, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } });
+        }
         return respond(true, { ok: true, models });
       }
       respond(true, { ok: false, reason: unreadable ? 'failed' : 'no-key' });

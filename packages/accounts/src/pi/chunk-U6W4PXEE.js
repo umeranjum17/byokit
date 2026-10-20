@@ -1,8 +1,8 @@
-// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.3.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   clampThinkingLevel,
   getSystemMessageText
-} from "./chunk-2HB4SJL3.js";
+} from "./chunk-44QVZSI4.js";
 
 // node_modules/@earendil-works/pi-ai/dist/utils/pi-user-agent.js
 function loadNodeOs() {
@@ -398,6 +398,19 @@ function adjustMaxTokensForThinking(baseMaxTokens, modelMaxTokens, reasoningLeve
 // node_modules/@earendil-works/pi-ai/dist/api/transform-messages.js
 var NON_VISION_USER_IMAGE_PLACEHOLDER = "(image omitted: model does not support images)";
 var NON_VISION_TOOL_IMAGE_PLACEHOLDER = "(tool image omitted: model does not support images)";
+var ERROR_TOOL_IMAGE_PLACEHOLDER = "(image attached after the tool results)";
+function splitErrorToolResultImages(msg) {
+  if (!msg.isError)
+    return void 0;
+  const images = msg.content.filter((block) => block.type === "image");
+  if (images.length === 0)
+    return void 0;
+  return {
+    content: replaceImagesWithPlaceholder(msg.content, ERROR_TOOL_IMAGE_PLACEHOLDER),
+    caption: `Images from the error result of tool call ${msg.toolCallId} (${msg.toolName}):`,
+    images
+  };
+}
 function replaceImagesWithPlaceholder(content, placeholder) {
   const result = [];
   let previousWasPlaceholder = false;
@@ -454,19 +467,13 @@ function transformMessages(messages, model, normalizeToolCallId) {
       const isSameModel = assistantMsg.provider === model.provider && assistantMsg.api === model.api && assistantMsg.model === model.id;
       const transformedContent = assistantMsg.content.flatMap((block) => {
         if (block.type === "thinking") {
-          if (block.redacted) {
-            return isSameModel ? block : [];
-          }
-          if (isSameModel && block.thinkingSignature)
+          if (!isSameModel)
+            return [];
+          if (block.redacted || block.thinkingSignature)
             return block;
           if (!block.thinking || block.thinking.trim() === "")
             return [];
-          if (isSameModel)
-            return block;
-          return {
-            type: "text",
-            text: block.thinking
-          };
+          return block;
         }
         if (block.type === "text") {
           if (isSameModel)
@@ -574,6 +581,7 @@ export {
   thinkingBudgetForLevel,
   clampThinkingBudgetToAnswerRoom,
   adjustMaxTokensForThinking,
+  splitErrorToolResultImages,
   transformMessages
 };
-//# sourceMappingURL=chunk-VZSF4MVH.js.map
+//# sourceMappingURL=chunk-U6W4PXEE.js.map

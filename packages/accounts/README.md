@@ -256,6 +256,8 @@ A signed-in OAuth subscription account (Grok, GitHub Copilot, Kimi, Meta, MiniMa
 pinned Models path: `accounts.respond(member, { account: 'grok.<id>', model, context, onText })`. Its auth comes from
 that account's own `runtime(member, id)`, refreshed first when due, as its pinned Pi provider derives it (Kimi's bearer
 header, Copilot's per-token base URL); on phones and in browsers the portable engine gives the access token as the key.
+`getModel(provider, id)` on the computer engine also answers an id Pi's catalogue lacks (for example `MiniMax-M3.1-Flash`) when the provider is a known route: every catalogue row shares one HTTPS base URL on OpenAI-compatible or Anthropic Messages. `resolveModel(engine, provider, id, { apiKey })` (also on phones and browsers, given any Pi `Models`) additionally reads context, output limit and price from the route's live `GET /models` when it lists them, else 128k / 16k / unpriced, and reports `listed: false` for an id the list lacks, so an app can warn. It never blocks, and an unknown provider gets `undefined`.
+
 For MiniMax, use `account: 'minimax.<id>'` and a model whose provider matches the saved region: `minimax` for global,
 `minimax-cn` for China. The pinned Anthropic Messages adapter sends its OAuth token only as a bearer, never `x-api-key`.
 MiniMax has no refresh grant: expiry sends neither a refresh nor a model request, rejects with `ResponseError` kind
@@ -938,7 +940,7 @@ Exit code is 0 on success and non-zero with one plain sentence on error; `pick` 
 
 ### Native Pi and found-row boundaries
 
-Managed Pi accounts require stock published Pi 1.2.0 and an explicit subscription OAuth provider: `openai-codex`, `anthropic`, `github-copilot`, `xai`, `kimi-coding` or `meta`. On React Native, `login(member, 'copilot')` uses GitHub device sign-in on github.com; passing `enterpriseDomain` signs in on that host instead and keeps it on the account, so refresh re-mints there too. A malformed domain is refused there, before anything is stored. Unsupported providers are refused; Claude subscription routes must be offered only where the provider's terms allow their use.
+Managed Pi accounts require stock published Pi 1.3.0 and an explicit subscription OAuth provider: `openai-codex`, `anthropic`, `github-copilot`, `xai`, `kimi-coding` or `meta`. On React Native, `login(member, 'copilot')` uses GitHub device sign-in on github.com; passing `enterpriseDomain` signs in on that host instead and keeps it on the account, so refresh re-mints there too. A malformed domain is refused there, before anything is stored. Unsupported providers are refused; Claude subscription routes must be offered only where the provider's terms allow their use.
 
 ```ts
 import { cliAccounts } from '@byokit/accounts/cli';
