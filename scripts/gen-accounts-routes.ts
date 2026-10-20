@@ -11,8 +11,9 @@ const portableDevice = (id: string) => Object.values(CATALOGUE).some((p) => (p a
 const dist = new URL('.', import.meta.resolve('@earendil-works/pi-ai'));
 const source = (path: string) => readFileSync(new URL(path, dist), 'utf8');
 const manifest = JSON.parse(source('../package.json')) as { version: string };
-const pin = JSON.parse(readFileSync(new URL('../packages/accounts/package.json', import.meta.url), 'utf8')).dependencies['@earendil-works/pi-ai'];
-if (manifest.version !== pin) throw new Error(`Install the accounts pin ${pin} before generating routes`);
+const range: string = JSON.parse(readFileSync(new URL('../packages/accounts/package.json', import.meta.url), 'utf8')).dependencies['@earendil-works/pi-ai'];
+const pin = manifest.version;
+if (!range.endsWith(pin)) throw new Error(`Install the accounts range ${range} before generating routes`);
 const revision = `@earendil-works/pi-ai@${pin}`;
 // The env map is private upstream data. Fail closed if its published shape changes.
 const envBlock = source('env-api-keys.js').match(/const envMap = \{([\s\S]*?)\n    \};/)?.[1];

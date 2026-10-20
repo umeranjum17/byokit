@@ -1,12 +1,12 @@
-// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.3.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   AssistantMessageEventStream,
   formatThrownValue
-} from "./chunk-JK2DMSVJ.js";
+} from "./chunk-XHKJTHE7.js";
 import {
   __require,
   __toESM
-} from "./chunk-JOZQDPST.js";
+} from "./chunk-KWV666JL.js";
 
 // node_modules/@earendil-works/pi-ai/dist/api/lazy.js
 function createSetupErrorMessage(model, error, timestamp) {
@@ -1185,4 +1185,4 @@ function __byokitPiThrowIfAborted(signal) {
   if (signal == null || !signal.aborted) return;
   throw signal.reason !== void 0 ? signal.reason : Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
 }
-//# sourceMappingURL=chunk-2HB4SJL3.js.map
+//# sourceMappingURL=chunk-44QVZSI4.js.map

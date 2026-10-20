@@ -42,16 +42,19 @@ export function patchBundledNodePreload(text: string): string {
 }
 // Verified published registry record; this repo's lock entry can omit resolved/integrity.
 // A pin bump must verify this record again, not silently label new inputs with old provenance.
-const registry = { version: '1.2.0', tarball: 'https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-1.2.0.tgz',
-  integrity: 'sha512-U5/1zXqfV1on7/9sbez03tT4Ru49Lvfb4+zXSDK3DBKF5cRk6KxvAOTOY3HJ4jimlZth+rs7vbJqN6iBQAoNuQ==',
-  gitHead: '06a466935536f8c9bcacb2d5efc0fc021be1bdff' };
+// The accounts dependency is a caret range, so the installed version moves with Dependabot; the bundle moves only when
+// this record does (1.3.0 publishes no gitHead).
+const registry = { version: '1.3.0', tarball: 'https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-1.3.0.tgz',
+  integrity: 'sha512-KaBI8x7q7sPoFUXICNGD9efHzDG+oRNwVvkA9jdIsSQWH1RjFssOlEGsbLtewUPPgCrvmz0l2KTgSLXTyj3acw==',
+  gitHead: null };
 
 export async function generatePi(): Promise<Map<string, string>> {
   const accounts = json('packages/accounts/package.json');
-  const pin = accounts.dependencies['@earendil-works/pi-ai'];
+  const range = accounts.dependencies['@earendil-works/pi-ai'];
   const piRoot = relative(root, fileURLToPath(new URL('../', import.meta.resolve('@earendil-works/pi-ai'))));
   const pi = json(`${piRoot}/package.json`);
-  if (pi.version !== pin) throw new Error(`Install the accounts pin ${pin} before generating Pi`);
+  const pin = pi.version;
+  if (!range.endsWith(pin)) throw new Error(`Install the accounts range ${range} before generating Pi`);
   if (json('package.json').devDependencies.esbuild !== version) throw new Error('Install the exact esbuild pin before generating Pi');
   const locked = json('package-lock.json').packages['node_modules/@earendil-works/pi-ai'];
   if (locked.version !== pin || pin !== registry.version || locked.integrity && locked.integrity !== registry.integrity || locked.resolved && locked.resolved !== registry.tarball) throw new Error('Verify registry provenance before changing the Pi pin');

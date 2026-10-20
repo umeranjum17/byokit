@@ -940,7 +940,7 @@ Exit code is 0 on success and non-zero with one plain sentence on error; `pick` 
 
 ### Native Pi and found-row boundaries
 
-Managed Pi accounts require stock published Pi 1.2.0 and an explicit subscription OAuth provider: `openai-codex`, `anthropic`, `github-copilot`, `xai`, `kimi-coding` or `meta`. On React Native, `login(member, 'copilot')` uses GitHub device sign-in on github.com; passing `enterpriseDomain` signs in on that host instead and keeps it on the account, so refresh re-mints there too. A malformed domain is refused there, before anything is stored. Unsupported providers are refused; Claude subscription routes must be offered only where the provider's terms allow their use.
+Managed Pi accounts require stock published Pi 1.3.0 and an explicit subscription OAuth provider: `openai-codex`, `anthropic`, `github-copilot`, `xai`, `kimi-coding` or `meta`. On React Native, `login(member, 'copilot')` uses GitHub device sign-in on github.com; passing `enterpriseDomain` signs in on that host instead and keeps it on the account, so refresh re-mints there too. A malformed domain is refused there, before anything is stored. Unsupported providers are refused; Claude subscription routes must be offered only where the provider's terms allow their use.
 
 ```ts
 import { cliAccounts } from '@byokit/accounts/cli';

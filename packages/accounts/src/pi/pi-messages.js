@@ -1,20 +1,20 @@
-// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.3.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 import {
   getProviderEnvValue
-} from "./chunk-TAO7TECG.js";
+} from "./chunk-HFF7HWFJ.js";
 import {
   parseStreamingJson
-} from "./chunk-AT2YCN4O.js";
+} from "./chunk-7Z5MAJVW.js";
 import {
   headersToRecord,
   providerHeadersToRecord
-} from "./chunk-VXRRDOKP.js";
+} from "./chunk-TAONF3RX.js";
 import {
   AssistantMessageEventStream,
   appendAssistantMessageDiagnostic,
   createAssistantMessageDiagnostic
-} from "./chunk-JK2DMSVJ.js";
-import "./chunk-JOZQDPST.js";
+} from "./chunk-XHKJTHE7.js";
+import "./chunk-KWV666JL.js";
 
 // node_modules/@earendil-works/pi-ai/dist/api/pi-messages.js
 var PiMessagesResponseError = class extends Error {

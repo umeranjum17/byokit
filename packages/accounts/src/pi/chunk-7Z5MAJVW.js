@@ -1,8 +1,8 @@
-// @earendil-works/pi-ai@1.2.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
+// @earendil-works/pi-ai@1.3.0 (MIT, (c) 2025 Mario Zechner), bundled by @byokit/accounts with a Hermes throwIfAborted guard; see NOTICE.
 
 // node_modules/@earendil-works/pi-ai/dist/utils/json-parse.js
 import { parse as partialParse } from "partial-json";
-var VALID_JSON_ESCAPES = /* @__PURE__ */ new Set(['"', "\\", "/", "b", "f", "n", "r", "t", "u"]);
+var VALID_JSON_ESCAPES = /* @__PURE__ */ new Set(['"', "\\", "/", "b", "f", "n", "r", "t"]);
 function isControlCharacter(char) {
   const codePoint = char.codePointAt(0);
   return codePoint !== void 0 && codePoint >= 0 && codePoint <= 31;
@@ -77,6 +77,25 @@ function parseJsonWithRepair(json) {
     throw error;
   }
 }
+function parseToolCallArguments(json) {
+  if (!json?.trim())
+    return { arguments: {} };
+  try {
+    const parsed = parseJsonWithRepair(json);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      throw new Error("Tool arguments must be a JSON object");
+    }
+    return { arguments: parsed };
+  } catch (error) {
+    return {
+      arguments: {},
+      argumentsError: `${error instanceof Error ? error.message : String(error)}
+
+Received arguments:
+${json}`
+    };
+  }
+}
 function parseStreamingJson(partialJson) {
   if (!partialJson || partialJson.trim() === "") {
     return {};
@@ -100,6 +119,7 @@ function parseStreamingJson(partialJson) {
 
 export {
   parseJsonWithRepair,
+  parseToolCallArguments,
   parseStreamingJson
 };
-//# sourceMappingURL=chunk-AT2YCN4O.js.map
+//# sourceMappingURL=chunk-7Z5MAJVW.js.map
