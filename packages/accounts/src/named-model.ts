@@ -6,7 +6,7 @@ import type { Api, Model } from '@earendil-works/pi-ai';
 const APIS = ['anthropic-messages', 'openai-completions', 'openai-responses'];
 
 /** What a provider's live `/models` list said about one id; absent fields keep the safe defaults. */
-export type Limits = { contextWindow?: number; maxTokens?: number; cost?: Model<Api>['cost'] };
+export type Limits = { contextWindow?: number; maxTokens?: number; cost?: Model<Api>['cost']; input?: Model<Api>['input'] };
 
 type Catalogue = { getProvider(id: string): { getModels(): readonly Model<Api>[] } | undefined; getModel(provider: string, id: string): Model<Api> | undefined };
 
@@ -18,15 +18,18 @@ function route(models: Catalogue, provider: string): Model<Api> | undefined {
   return rows.every((m) => m.api === first.api && m.baseUrl === first.baseUrl) ? first : undefined;
 }
 
-/** The catalogue's `provider`/`id` entry, else (known route only) an entry for that id. Unpriced (cost 0), 128k context,
- *  16k output and text input until `limits` says more; `reasoning` follows the route's own models. */
+/** The catalogue's `provider`/`id` entry, else (known route only) an entry for that id. Unpriced (cost 0), 128k context
+ *  and 16k output until `limits` says more. Capabilities are the vendor's: input is every modality the route's own
+ *  models take (an unknown model never loses image input), `reasoning` whether any of them reasons. */
 export function namedModel(models: Catalogue, provider: string, id: string, limits: Limits = {}): Model<Api> | undefined {
   const known = models.getModel(provider, id);
   if (known || !id.trim()) return known;
   const base = route(models, provider);
   if (!base) return undefined;
-  const { contextWindow = 128_000, maxTokens = 16_384, cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } } = limits;
-  return { id, name: id, api: base.api, provider, baseUrl: base.baseUrl, reasoning: base.reasoning, input: ['text'], cost,
+  const rows = models.getProvider(provider)!.getModels();
+  const { contextWindow = 128_000, maxTokens = 16_384, cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    input = (['text', 'image'] as const).filter((m) => rows.some((r) => r.input.includes(m))) } = limits;
+  return { id, name: id, api: base.api, provider, baseUrl: base.baseUrl, reasoning: rows.some((r) => r.reasoning), input, cost,
     contextWindow, maxTokens: Math.min(maxTokens, contextWindow),
     ...(base.headers ? { headers: base.headers } : {}), ...(base.compat ? { compat: base.compat } : {}) } as Model<Api>;
 }
@@ -48,7 +51,9 @@ export async function liveLimits(model: Pick<Model<Api>, 'api' | 'baseUrl' | 'id
     const contextWindow = count(row.context_length) ?? count(row.context_window) ?? count(row.max_model_len);
     const maxTokens = count(row.top_provider?.max_completion_tokens) ?? count(row.max_completion_tokens) ?? count(row.max_output_tokens);
     const p = row.pricing;
-    return { ...(contextWindow ? { contextWindow } : {}), ...(maxTokens ? { maxTokens } : {}),
+    const modes: unknown = row.architecture?.input_modalities ?? row.modalities?.input;
+    const input = Array.isArray(modes) ? (['text', 'image'] as const).filter((m) => modes.includes(m)) : [];
+    return { ...(input.length ? { input } : {}), ...(contextWindow ? { contextWindow } : {}), ...(maxTokens ? { maxTokens } : {}),
       ...(p && typeof p === 'object' && p.prompt !== undefined ? { cost: { input: perMillion(p.prompt), output: perMillion(p.completion), cacheRead: perMillion(p.input_cache_read), cacheWrite: perMillion(p.input_cache_write) } } : {}) };
   } catch { return {}; }
 }

@@ -496,7 +496,7 @@ test('the computer engine answers an id its catalogue lacks on a known route, fr
       const m = engine.getModel(provider, id)!;
       assert.deepEqual([m.id, m.provider, m.api], [id, provider, 'anthropic-messages']);
       assert.ok(m.baseUrl.includes(host));
-      assert.deepEqual([m.contextWindow, m.maxTokens, m.cost.input], [128_000, 16_384, 0]);
+      assert.deepEqual([m.contextWindow, m.maxTokens, m.cost.input, m.input, m.reasoning], [128_000, 16_384, 0, ['text', 'image'], true], "the vendor's own models take images: an unknown one keeps that");
     }
     assert.equal(engine.getModel(provider, 'MiniMax-M3')!.contextWindow, 1_000_000, 'a catalogue id is the catalogue row');
   }
@@ -508,10 +508,11 @@ test('the computer engine answers an id its catalogue lacks on a known route, fr
     seen.push(`${url} ${init.headers.authorization}`);
     return new Response(JSON.stringify({ data }), { status });
   }) as never;
-  const row = { id: 'fresh/model', context_length: 400_000, top_provider: { max_completion_tokens: 64_000 }, pricing: { prompt: '0.000001', completion: '0.000004' } };
+  const row = { id: 'fresh/model', context_length: 400_000, top_provider: { max_completion_tokens: 64_000 }, pricing: { prompt: '0.000001', completion: '0.000004' }, architecture: { input_modalities: ['text'] } };
   const live = await resolveModel(engine, 'groq', 'fresh/model', { apiKey: 'k', fetch: list([row]) });
   assert.deepEqual(seen, ['https://api.groq.com/openai/v1/models Bearer k']);
   assert.deepEqual([live!.listed, live!.model.contextWindow, live!.model.maxTokens, live!.model.cost.input, live!.model.cost.output], [true, 400_000, 64_000, 1, 4]);
+  assert.deepEqual(live!.model.input, ['text'], 'the live list can narrow the capability');
   const lagging = await resolveModel(engine, 'groq', 'fresh/other', { apiKey: 'k', fetch: list([row]) });
   assert.deepEqual([lagging!.listed, lagging!.model.id, lagging!.model.contextWindow], [false, 'fresh/other', 128_000], 'warn, never block');
   assert.equal((await resolveModel(engine, 'groq', 'fresh/model', { apiKey: 'k', fetch: list([row], 500) }))!.listed, false);
