@@ -46,7 +46,7 @@ if (process.argv[2] === 'app-server') {
 } else if (process.argv[2] === 'auth' && process.argv[3] === 'status') {
  if (process.env.STATUS_MODE === 'hang') setInterval(()=>{},1000);
  else if (process.env.STATUS_MODE === 'flood') console.log('x'.repeat(256*1024+1));
- else console.log(JSON.stringify({loggedIn:process.env.STATUS_MODE !== 'out',...account}));
+ else console.log(JSON.stringify({loggedIn:process.env.STATUS_MODE !== 'out',...account,...(process.env.AUTH_METHOD && {authMethod:process.env.AUTH_METHOD})}));
 }
 `, { mode: 0o755 });
   return { bin, calls: () => readFileSync(log, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line)) };
@@ -524,8 +524,15 @@ test('installed CLIs signed in under the app HOME: listed, picked and launched w
     await assert.rejects(async () => refused(), { code: 'unknown-account' });
   }
   assert.equal(readFileSync(join(home, '.claude', '.credentials.json'), 'utf8'), 'never read');
-  // Signed out, or no answer: never ready, with the real cause.
+  // The sign-in method is typed from Claude's own authMethod; absent when it does not say, and never for Codex.
+  assert.deepEqual(rows.map((r) => r.method), [undefined, undefined, undefined]);
   const installed = (bin: string, extra: Record<string, string> = {}) => cliAccounts({ stateDir, bins: { claude: bin }, env: { ...env, ...extra }, installed: true });
+  for (const [authMethod, method] of [['claude.ai', 'subscription'], ['api_key', 'api_key'], ['third_party', 'other']] as const) {
+    assert.equal((await installed(claude.bin, { AUTH_METHOD: authMethod }).status('installed-claude')).method, method, authMethod);
+  }
+  assert.equal((await cliAccounts({ stateDir, bins: { codex: codex.bin }, env: { ...env, AUTH_METHOD: 'claude.ai' }, installed: true }).status('installed-codex')).method, undefined);
+  // Signed out, or no answer: never ready, with the real cause.
+ (bin: string, extra: Record<string, string> = {}) => cliAccounts({ stateDir, bins: { claude: bin }, env: { ...env, ...extra }, installed: true });
   const out = await installed(claude.bin, { STATUS_MODE: 'out' }).launch('installed-claude');
   assert.equal(out.ok, false);
   if (!out.ok) { assert.equal(out.code, 'signed_out'); assert.equal(out.message, 'Claude is not signed in on this computer.'); assert.equal(out.account.why, undefined); }

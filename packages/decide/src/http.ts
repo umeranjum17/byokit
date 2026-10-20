@@ -11,6 +11,9 @@ export type RetryOptions = {
 
 /** The same codes as @byokit/accounts' `KeyRouteError` refusals, matched by value so neither kit imports the other. */
 export type RefusalCode = 'key_refused' | 'out_of_credit' | 'rate_limited';
+/** Why an answer failed. A refusal is the provider turning the key or account away; `bad_reply` is a model that
+ * answered but not in the asked shape (not JSON, or JSON that does not fit), so the app retries rather than signs in. */
+export type FailureCode = RefusalCode | 'bad_reply';
 
 /** The provider turned the key or account away. Only its code and HTTP status: never its body or the credential. */
 export class BackendRefusedError extends Error {
@@ -47,6 +50,13 @@ export function refusalOf(e: unknown): BackendRefusedError | undefined {
   const { code, status } = (e ?? {}) as { code?: unknown; status?: unknown };
   if (code !== 'key_refused' && code !== 'out_of_credit' && code !== 'rate_limited') return undefined;
   return new BackendRefusedError(code, typeof status === 'number' ? status : undefined);
+}
+
+/** A backend's failure as `Answer.failure` reports it: a refusal, or a reply that was not valid JSON or did not fit the
+ * schema (the `invalid_json`/`invalid_output` codes of the Claude Code, Codex and Pi backends' own errors). */
+export function failureOf(e: unknown): { code: FailureCode; status?: number } | undefined {
+  const code = (e as { code?: unknown } | null | undefined)?.code;
+  return code === 'invalid_json' || code === 'invalid_output' ? { code: 'bad_reply' } : refusalOf(e);
 }
 
 function retryPolicy(name: string, o: RetryOptions) {

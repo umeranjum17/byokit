@@ -12,11 +12,15 @@ import routes from './routes.json' with { type: 'json' };
 export { remoteCliHost, remoteCliState, type RemoteCliHostOptions } from './remote-cli-host.ts';
 export { poolPrepare, type PoolPrepareOptions } from './prepare.ts';
 
+export type SignInMethod = 'subscription' | 'api_key' | 'other';
 export type CliProvider = 'claude' | 'codex' | 'pi' | 'opencode' | 'kimi' | 'vibe' | 'cursor';
 /** Published Pi subscription OAuth provider id, validated against the route catalogue. */
 export type PiProvider = string;
 /** Shared selection surface; the CLI entry remains Node-only. */
-export type CliAccount = AccountLike & { provider: CliProvider; billing: 'subscription'; email?: string; plan?: string; piProvider?: PiProvider; adoptedFrom?: string; why?: 'api_key' | 'unknown'; addedAt?: number;
+export type CliAccount = AccountLike & { provider: CliProvider; billing: 'subscription'; email?: string; plan?: string;
+  /** How a signed-in Claude is signed in, as its own status command reports it: a Claude subscription, an API key, or another route
+   *  (a cloud provider or token). Absent for the other CLIs and when the CLI does not say. */
+  method?: SignInMethod; piProvider?: PiProvider; adoptedFrom?: string; why?: 'api_key' | 'unknown'; addedAt?: number;
   /** The CLI installed on this computer, signed in (or not) under the app's `env.HOME`: no folder of its own. */
   installed?: true;
   /** Why an installed row is not signed in, in plain words. */
@@ -431,7 +435,7 @@ export function cliAccounts(options: CliOptions) {
     operations.set(id, task);
     return task.finally(() => { if (operations.get(id) === task) operations.delete(id); });
   }
-  type Probe = Identity & { why?: 'api_key' | 'unknown'; cause?: 'cli.installedSlow' | 'cli.installedStart' | 'cli.installedUnreadable' | 'cli.installedExit' | 'cli.installedRpc' | 'cli.installedWrite' };
+  type Probe = Identity & { method?: SignInMethod; why?: 'api_key' | 'unknown'; cause?: 'cli.installedSlow' | 'cli.installedStart' | 'cli.installedUnreadable' | 'cli.installedExit' | 'cli.installedRpc' | 'cli.installedWrite' };
   async function readIdentity(r: Row): Promise<Probe> {
     if (r.provider === 'codex') {
       const source = codexSource(r);
@@ -489,7 +493,8 @@ export function cliAccounts(options: CliOptions) {
         if (!record(raw) || raw.loggedIn !== true) { finish(record(raw) && raw.loggedIn === false ? { signedIn: false } : failed('cli.installedUnreadable')); return; }
         const email = typeof raw.email === 'string' && raw.email.length <= 320 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(raw.email) ? raw.email : undefined;
         const plan = [raw.subscriptionType, raw.plan, raw.planName, raw.tier].find((v) => typeof v === 'string' && /^[a-zA-Z][a-zA-Z0-9 _+-]{0,63}$/.test(v));
-        finish({ signedIn: true, ...(email ? { email } : {}), ...(typeof plan === 'string' ? { plan } : {}) });
+        const method = typeof raw.authMethod === 'string' ? raw.authMethod === 'claude.ai' ? 'subscription' : /api.?key/i.test(raw.authMethod) ? 'api_key' : 'other' : undefined;
+        finish({ signedIn: true, ...(email ? { email } : {}), ...(typeof plan === 'string' ? { plan } : {}), ...(method && r.provider === 'claude' ? { method } : {}) });
       });
     });
   }
@@ -502,7 +507,7 @@ export function cliAccounts(options: CliOptions) {
   async function installedStatus(r: Row): Promise<CliAccount> {
     const account = { id: r.id, provider: r.provider, name: suggestName(undefined, r.provider), billing: 'subscription' as const, installed: true as const };
     const info = await readIdentity(r);
-    if (info.signedIn) return { ...account, name: suggestName(info.email, r.provider), state: 'ready', ...(info.email ? { email: info.email } : {}), ...(info.plan ? { plan: info.plan } : {}) };
+    if (info.signedIn) return { ...account, name: suggestName(info.email, r.provider), state: 'ready', ...(info.email ? { email: info.email } : {}), ...(info.plan ? { plan: info.plan } : {}), ...(info.method ? { method: info.method } : {}) };
     const cause = info.cause ?? 'cli.installedSignedOut';
     return { ...account, state: 'signed_out', ...(info.cause ? { why: 'unknown' as const } : {}),
       ...(info.probeFailure ? { probeFailure: info.probeFailure } : {}), cause: say(cause, { name: account.name }) };
@@ -541,7 +546,7 @@ export function cliAccounts(options: CliOptions) {
       const info = await readIdentity(r);
       if (marker(pending(r)) && (r.provider !== 'pi' || info.signedIn)) rmSync(pending(r), { force: true });
       // Pre-existing roster rows have no kit marker; their native status remains authoritative.
-      return { ...account, name: r.name.trim() || (r.provider === 'pi' ? account.name : suggestName(info.email, r.provider)), state: info.signedIn ? 'ready' : signing && !info.why ? 'signing' : 'signed_out', ...(info.why ? { why: info.why } : {}), ...(info.email ? { email: info.email } : {}), ...(info.plan ? { plan: info.plan } : {}) };
+      return { ...account, name: r.name.trim() || (r.provider === 'pi' ? account.name : suggestName(info.email, r.provider)), state: info.signedIn ? 'ready' : signing && !info.why ? 'signing' : 'signed_out', ...(info.why ? { why: info.why } : {}), ...(info.email ? { email: info.email } : {}), ...(info.plan ? { plan: info.plan } : {}), ...(info.method ? { method: info.method } : {}) };
     });
   }
   function discard(r: Row, login: boolean) {
