@@ -7,9 +7,18 @@ import type { Call } from './agents.ts';
 import type { AgentReadiness, AgentStatusOptions, AgentRef, Move, MoveResult, MoveToAccount, MoveToAccountResult, OpenSignInTab, StartAgent } from './types.ts';
 import { words } from './words.ts';
 import { accountKind } from './kinds.ts';
+import { HERDR_VERSION } from './constants.ts';
 import { isLaunchEnvironment, isOverlayEnvironment, verifyPaneEnv } from './launch-env.ts';
 
 type Raw = Record<string, any>;
+// Numeric dotted-version compare; false when either side is not plain `x.y.z`.
+function olderThan(have: string, need: string): boolean {
+  const parse = (v: string) => /^\d+\.\d+\.\d+/.exec(v)?.[0].split('.').map(Number);
+  const a = parse(have), b = parse(need);
+  if (!a || !b) return false;
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i]! < b[i]!;
+  return false;
+}
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent): Promise<AgentRef>;
@@ -63,6 +72,14 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
     if (moving.has(target.paneId)) return failed('busy');
     moving.add(target.paneId);
     try {
+      // Checked first, before any read or change. Older Herdr is untested, not known broken; a server
+      // that reports no version is let through.
+      let have: unknown;
+      try { have = ((await call('ping', {})) as Raw)?.version; } catch { /* the first real call reports it */ }
+      if (typeof have === 'string' && olderThan(have, HERDR_VERSION)) {
+        return { ok: false, code: 'unsupported', live: target.paneId,
+          message: `Moving accounts needs Herdr ${HERDR_VERSION} or newer. You have ${have}. Run herdr update.` };
+      }
       let agent: Raw;
       try { agent = (await call('agent.get', { target: target.paneId }) as Raw)?.agent; }
       catch { return failed('too_early'); }
