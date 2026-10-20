@@ -10,9 +10,13 @@ export type Limits = { contextWindow?: number; maxTokens?: number; cost?: Model<
 
 type Catalogue = { getProvider(id: string): { getModels(): readonly Model<Api>[] } | undefined; getModel(provider: string, id: string): Model<Api> | undefined };
 
+/** A gateway whose catalogue mixes APIs (OpenRouter lists Anthropic Messages rows for `anthropic/*` beside its
+ *  OpenAI-compatible rest) names the one API an unlisted id is called on. */
+const GATEWAY_API: Record<string, string> = { openrouter: 'openai-completions' };
+
 /** The provider's route when it is known: the one API and base URL every catalogue row shares. */
 function route(models: Catalogue, provider: string): Model<Api> | undefined {
-  const rows = models.getProvider(provider)?.getModels() ?? [];
+  const rows = (models.getProvider(provider)?.getModels() ?? []).filter((m) => !GATEWAY_API[provider] || m.api === GATEWAY_API[provider]);
   const first = rows[0];
   if (!first || !APIS.includes(first.api) || !/^https:\/\/[^{}]+$/.test(first.baseUrl ?? '')) return undefined;
   return rows.every((m) => m.api === first.api && m.baseUrl === first.baseUrl) ? first : undefined;
@@ -26,7 +30,7 @@ export function namedModel(models: Catalogue, provider: string, id: string, limi
   if (known || !id.trim()) return known;
   const base = route(models, provider);
   if (!base) return undefined;
-  const rows = models.getProvider(provider)!.getModels();
+  const rows = models.getProvider(provider)!.getModels().filter((m) => !GATEWAY_API[provider] || m.api === GATEWAY_API[provider]);
   const { contextWindow = 128_000, maxTokens = 16_384, cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     input = (['text', 'image'] as const).filter((m) => rows.some((r) => r.input.includes(m))) } = limits;
   return { id, name: id, api: base.api, provider, baseUrl: base.baseUrl, reasoning: rows.some((r) => r.reasoning), input, cost,
