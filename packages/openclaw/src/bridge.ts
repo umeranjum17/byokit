@@ -49,8 +49,8 @@ export function writePlugin(
     name: 'BYOKit bridge',
     activation: { onStartup: true },
     cliBackends: ['openai-codex'],
-    // The engine lists a plugin route's rows only from here. ponytail: two Codex ids kept here until the Codex CLI's own
-    // list is read (the CLI-routes part that follows this change).
+    // The engine lists a plugin route's rows only from here. Named exception: the Codex CLI's own list (its app-server
+    // `model/list`) is not read yet, so the route names these two ids; a recorded real `model/list` reply lifts it.
     modelCatalog: { providers: { 'openai-codex': { models: ['gpt-6-sol', 'gpt-6-luna'].map((id) => ({ id, name: id })) } }, discovery: { 'openai-codex': 'static' } },
     contracts: { tools: o.tools.map((t) => t.name), ...(o.browser ? { agentToolResultMiddleware: ['openclaw', 'codex'] } : {}) },
     configSchema: { type: 'object', additionalProperties: false },

@@ -63,6 +63,7 @@ jobs:
       - if: needs.changes.outputs.code == 'true'
         run: npm run check
       - run: node scripts/readme-check.ts
+      - run: node scripts/check-accounts-pi.ts
       - name: Isolated tests (including hosted MCP HTTP round trip)
         if: needs.changes.outputs.code == 'true'
         env:
