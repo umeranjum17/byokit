@@ -13,7 +13,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { Accounts, KeyRouteError, ResponseError, deviceFlow, portable, recordStore, type AssistantMessageEvent, type Context, type EndingStore, type Model, type Platform } from '@byokit/accounts';
+import { Accounts, KeyRouteError, ResponseError, computer, deviceFlow, memoryStore, portable, recordStore, type AssistantMessageEvent, type Context, type EndingStore, type Model, type Platform } from '@byokit/accounts';
 import { withKeys } from '@byokit/accounts/keys';
 import { mockDevice } from '@byokit/accounts/testing';
 
@@ -485,5 +485,23 @@ for (const platform of [undefined, portable] as const) test(`MiniMax respond on 
     await cnApi.close();
     await g.close();
     await c.close();
+  }
+});
+
+test('the computer engine resolves MiniMax-M3.1-Flash and its Preview on the Global and CN providers, beside the pinned models', () => {
+  const engine = computer.engine(memoryStore() as never) as unknown as { getModel(p: string, id: string): Model<'anthropic-messages'> | undefined };
+  for (const [provider, host] of [['minimax', 'api.minimax.io'], ['minimax-cn', 'api.minimaxi.com']] as const) {
+    for (const id of ['MiniMax-M3.1-Flash', 'MiniMax-M3.1-Flash-Preview']) {
+      const m = engine.getModel(provider, id);
+      assert.ok(m, `${provider}/${id} resolves`);
+      assert.equal(m.id, id);
+      assert.equal(m.provider, provider);
+      assert.equal(m.api, 'anthropic-messages');
+      assert.ok(m.baseUrl.includes(host));
+      assert.deepEqual(m.input, ['text', 'image']);
+      assert.equal(m.contextWindow, 1_000_000);
+      assert.equal(m.cost.input, 0.15);
+    }
+    assert.ok(engine.getModel(provider, 'MiniMax-M3'), `${provider}/MiniMax-M3 stays`);
   }
 });

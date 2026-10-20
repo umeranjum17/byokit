@@ -256,6 +256,8 @@ A signed-in OAuth subscription account (Grok, GitHub Copilot, Kimi, Meta, MiniMa
 pinned Models path: `accounts.respond(member, { account: 'grok.<id>', model, context, onText })`. Its auth comes from
 that account's own `runtime(member, id)`, refreshed first when due, as its pinned Pi provider derives it (Kimi's bearer
 header, Copilot's per-token base URL); on phones and in browsers the portable engine gives the access token as the key.
+MiniMax's `MiniMax-M3.1-Flash` and `MiniMax-M3.1-Flash-Preview` are listed on `minimax` and `minimax-cn` by the computer engine, because the pinned pi-ai has neither.
+
 For MiniMax, use `account: 'minimax.<id>'` and a model whose provider matches the saved region: `minimax` for global,
 `minimax-cn` for China. The pinned Anthropic Messages adapter sends its OAuth token only as a bearer, never `x-api-key`.
 MiniMax has no refresh grant: expiry sends neither a refresh nor a model request, rejects with `ResponseError` kind
