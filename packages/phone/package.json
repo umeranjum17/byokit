@@ -1,0 +1,19 @@
+{
+  "name": "@byokit/phone",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An agent that runs on the phone itself: the person's own AI account, a chat kept on the phone, and the app's own tools.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": { "type": "git", "url": "git+https://github.com/umeranjum17/byokit.git", "directory": "packages/phone" },
+  "engines": { "node": ">=22.18" },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+  },
+  "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md"],
+  "scripts": { "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs" },
+  "peerDependencies": {
+    "@byokit/accounts": "0.28.2"
+  },
+  "publishConfig": { "access": "public" }
+}

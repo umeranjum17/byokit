@@ -160,6 +160,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [Decide refusal codes](./decide-refusal-codes.md) — a refused key or plan account (401/403, 402, a 429 past the retries) abstains with `failure: { code, status }` on Go, Jev and an `answerer` over `accounts.respond`, never the body or key; a 500 has none and a plan 404 stays `UnsupportedAccountError`. Built kit on a loopback fake.
 - [Decide slim install](./decide-slim-install.md) — the built `@byokit/decide/slim` decides with rules, any host-owned model and Jev with zero peers; the main entry is unchanged and account billing without the peer names it.
 - [Outbox requestId retry-safe enqueue](./outbox-request-id.md) — built `@byokit/outbox`: duplicate `requestId` enqueue returns the existing entry (queued, after reopen, and after sent) so flush never double-sends.
+- [Phone session](./phone-session.md) — built `@byokit/phone`: a ChatGPT sign-in on the phone labelled "Uses your ChatGPT plan.", a tool turn, a real SIGKILL mid-tool leaving the reopened turn `interrupted` (`blocked`) until `resume` finishes it with no second tool run, a repeated `requestId` sending nothing, and a 429 ending the turn `rate-limited` on one account. Loopback stand-in.
 
 ## Not provable here (declare honestly, do not fake)
 
