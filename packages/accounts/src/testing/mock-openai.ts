@@ -1,6 +1,7 @@
 // OpenAI's sign-in, stood in for: device code, its page where a person types the code, the authorize page (already
 // signed in, so it sends the browser straight back to the one address the client may return to), token exchange and refresh
-// (rotating), revoke, ChatGPT's streamed answers (`/codex/responses`, echoing the question), and the same CORS answer the
+// (rotating), revoke, ChatGPT's streamed answers (`/codex/responses`, echoing the question), its model list
+// (`/codex/models`), and the same CORS answer the
 // real sign-in endpoints give (the answers endpoint, like the real one, answers no web page), so a web page, a phone app or a test signs in
 // end to end with no account and no real network. Run it alone for a demo or an emulator:
 //   node packages/accounts/src/testing/mock-openai.ts [port]      (21455 by default, never ChatGPT's own 1455)
@@ -44,6 +45,9 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
     dropPolls: 0,
     /** The authorize page sends the browser back declined (`error=access_denied`), as when the person says no. */
     decline: false,
+    /** What `/codex/models` lists, as ChatGPT shapes it: only `visibility: 'list'` rows are shown to a person. */
+    models: [{ slug: 'gpt-6-sol', display_name: 'GPT-6 Sol', visibility: 'list' }, { slug: 'gpt-6-luna', display_name: 'GPT-6 Luna', visibility: 'list' },
+      { slug: 'codex-auto-review', display_name: 'Auto review', visibility: 'hide' }] as { slug: string; display_name?: string; visibility: string }[],
     /** Answer the next question with this HTTP error instead (a limit, a lapsed sign-in), then answer normally. */
     fail: undefined as { status: number; body: string } | undefined,
   };
@@ -76,6 +80,11 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
     };
     const json = () => { try { return JSON.parse(body); } catch { return {}; } };
     if (req.method === 'OPTIONS') return send(200, '');
+    // A live access token, sent with the account it names, as ChatGPT checks both.
+    const signedIn = () => {
+      const bearer = req.headers.authorization?.replace(/^Bearer /, '');
+      return [...state.live].some((r) => accessOf.get(r) === bearer) && req.headers['chatgpt-account-id'] === (bearer && JSON.parse(Buffer.from(bearer.split('.')[1], 'base64url').toString())['https://api.openai.com/auth'].chatgpt_account_id);
+    };
     switch (url.pathname) {
       case '/api/accounts/deviceauth/usercode': {
         const userCode = `MOCK-${String(10000 + ++asked).slice(-5)}`;
@@ -122,11 +131,12 @@ export async function mockOpenAI({ port = 0, host = '127.0.0.1', plan = 'plus', 
           const claims = JSON.parse(Buffer.from(access.split('.')[1], 'base64url').toString());
           return send(200, issue({ accountId: claims['https://api.openai.com/auth'].chatgpt_account_id, plan: claims['https://api.openai.com/auth'].chatgpt_plan_type, email: claims['https://api.openai.com/profile'].email }));
         }
+      case '/codex/models':
+        if (!signedIn()) return send(401, { error: { message: 'Provided authentication token is expired. Please try signing in again.' } });
+        return send(200, { models: state.models });
       case '/codex/responses': {
-        const bearer = req.headers.authorization?.replace(/^Bearer /, '');
         if (state.fail) { const f = state.fail; state.fail = undefined; return send(f.status, f.body); }
-        if (![...state.live].some((r) => accessOf.get(r) === bearer) || req.headers['chatgpt-account-id'] !== (bearer && JSON.parse(Buffer.from(bearer.split('.')[1], 'base64url').toString())['https://api.openai.com/auth'].chatgpt_account_id))
-          return send(401, { error: { message: 'Provided authentication token is expired. Please try signing in again.' } });
+        if (!signedIn()) return send(401, { error: { message: 'Provided authentication token is expired. Please try signing in again.' } });
         const asked = json();
         const turns = Array.isArray(asked.input) ? asked.input : [];
         const said: string[] = [];

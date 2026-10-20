@@ -1,0 +1,1 @@
+- BREAKING: `PhoneSession.open({ ... })` now requires `model` for ChatGPT account (a string id from `accounts.models()`); other accounts take a `Model<Api>` object. Pass `model: 'gpt-6-sol'` or similar for ChatGPT.

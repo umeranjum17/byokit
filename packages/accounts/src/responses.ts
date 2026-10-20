@@ -233,8 +233,8 @@ export type Ask = {
   /** The person's words, or the turns so far: messages (with `input_image` where the person attached one) and, after a
    *  tool call, the `function_call` with its `function_call_output`. */
   input: string | ResponseInputItem[];
-  /** Default: the provider's strong model in the catalogue. */
-  model?: string;
+  /** The model to ask, an id from `models()`: BYOKit keeps no default model. */
+  model: string;
   /** The tools the model may call. Passed, the result carries the output items next to the text. */
   tools?: ResponseTool[];
   /** Whether ChatGPT may call tools in parallel. Omitted: the provider's default. */

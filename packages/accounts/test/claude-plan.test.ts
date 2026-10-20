@@ -129,9 +129,15 @@ test('plan inference uses direct bearer/native headers and identity body; 401 re
   assert.equal(headers.get('anthropic-beta'), 'claude-code-20250219,oauth-2025-04-20'); assert.equal(headers.get('user-agent'), null, 'no client value is invented');
   assert.equal(headers.get('anthropic-version'), '2023-06-01'); assert.equal(call.body.provider, undefined);
   assert.equal(call.body.system[0].text, "You are Claude Code, Anthropic's official CLI for Claude.");
+  // The plan's models are Anthropic's own list, read with the same sign-in as a bearer, never as an API key.
+  s.set({ data: [{ id: 'claude-opus-5-5', display_name: 'Claude Opus 5.5' }] });
+  assert.deepEqual(await s.a.models(1, 'claude'), [{ id: 'claude-opus-5-5', name: 'Claude Opus 5.5', available: true }]);
+  const listed = s.calls[1], asked = new Headers(listed.init.headers);
+  assert.equal(listed.url, 'https://api.anthropic.com/v1/models'); assert.equal(asked.get('authorization'), 'Bearer recorded-access');
+  assert.equal(asked.get('x-api-key'), null); assert.equal(asked.get('anthropic-beta'), 'oauth-2025-04-20');
   s.set({}, 401);
   await assert.rejects(s.a.respond(1, request), ClaudePlanExpiredError);
-  assert.equal(s.calls.length, 2); assert.equal(await s.store.read(id), undefined); assert.equal((await s.a.status(1, 'claude')).state, 'needs_again');
+  assert.equal(s.calls.length, 3); assert.equal(await s.store.read(id), undefined); assert.equal((await s.a.status(1, 'claude')).state, 'needs_again');
 });
 
 test('a failed Claude plan answer names its cause in plain words and never echoes the provider message', async () => {

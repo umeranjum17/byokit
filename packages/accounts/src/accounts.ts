@@ -353,50 +353,58 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       rooms.set(account.id, read);
     }
     const models = new Map<string, readonly { id: string; available: boolean }[]>();
-    for (const account of accounts) models.set(account.id, capabilities ? capabilities.models(account) : await this.liveModelsOf(member, account) ?? this.modelsOf(account));
+    for (const account of accounts) models.set(account.id, capabilities ? capabilities.models(account) : await this.liveModelsOf(member, account) ?? []);
     return resolveSelection(accounts, defaults, sel, (account) => rooms.get(account.id) ?? { left: 'unknown' }, Date.now(),
       (account) => models.get(account.id) ?? [], !capabilities);
   }
 
-  /** One account's models from the catalogue, each usable or the word for why it is not. Read-only. */
+  /** One account's models from its vendor's own live list; empty when the account is not ready or the list cannot be
+   *  read. BYOKit keeps no list of its own. Read-only. */
   async models(member: M, id: string): Promise<ModelInfo[]> {
     id = this.accountKey(member, id);
     const account = (await this.list(member)).find((a) => a.id === id);
     if (!account) throw new Error('No such account.');
-    return await this.liveModelsOf(member, account) ?? this.modelsOf(account);
+    return await this.liveModelsOf(member, account) ?? [];
   }
 
-  /** A ready account's models from its vendor's own live list (the route's `models`), read with that account's key or
-   *  sign-in token; `undefined` when the route names no list or it cannot be read, and the catalogue's rows stand. */
+  /** A signed-in account's models from its vendor's own live list (the route's `models`), read with that account's key
+   *  or sign-in token, each usable or the word for why it is not (a resting account still reads its list); `undefined`
+   *  when the route names no list or it cannot be read. ChatGPT's is Codex's own list (`/codex/models`, the rows it
+   *  shows), Claude's the Anthropic list its plan sign-in reads. */
   private async liveModelsOf(member: M, account: Account): Promise<ModelInfo[] | undefined> {
-    if (account.state !== 'ready') return undefined;
-    try {
-      const p = this.offer(this.providerKey(account.id));
-      const keyed = account.route.includes(':') || this.isKey(p);
-      let upstream = account.route.includes(':') ? route(account.route).upstream.id : p.pi;
-      if (upstream === 'minimax' && !keyed && await this.regionOf(member, account.id) === 'cn') upstream = 'minimax-cn';
-      const list = routes().find((r) => r.upstream.id === upstream && r.models)?.models;
-      if (!list || !keyed && !OAUTH_RESPOND.includes(upstream)) return undefined;
-      const auth: ModelAuth | undefined = keyed ? { apiKey: await this.key(member, account.id) }
-        : (await (await this.runtime(member, account.id)).getAuth(p.pi))?.auth;
-      if (!auth?.apiKey) return undefined;
-      const rows = await liveModels({ ...list, provider: upstream }, { apiKey: auth.apiKey, headers: auth.headers, baseUrl: auth.baseUrl, fetch: this.opts.fetch });
-      return rows?.map((m) => ({ id: m.id, name: m.name, available: true }));
-    } catch { return undefined; }
+    if (!['ready', 'resting', 'not_included'].includes(account.state)) return undefined;
+    const why: ModelInfo['why'] = account.state === 'resting' ? 'resting' : account.state === 'not_included' ? 'plan' : undefined;
+    return (await this.vendorList(member, account).catch(() => undefined))?.map((m) => ({ ...m, available: !why,
+      ...(why ? { why } : {}), ...(why === 'resting' && account.until ? { until: account.until } : {}) }));
   }
 
-  private modelsOf(account: Account): ModelInfo[] {
-    const p = PROVIDERS[account.provider];
-    if (!p) return [];
-    const why: ModelInfo['why'] = account.state === 'resting' ? 'resting' : account.state === 'not_included' ? 'plan' : account.state === 'ready' ? undefined : 'signed_out';
-    const rows: ModelInfo[] = [];
-    for (const tier of ['strong', 'fast'] as const) {
-      const id = p.models[tier];
-      if (!id) continue;
-      rows.push({ id, name: id, tier, available: account.state === 'ready',
-        ...(why ? { why } : {}), ...(account.state === 'resting' && account.until ? { until: account.until } : {}) });
+  private async vendorList(member: M, account: Account): Promise<{ id: string; name: string }[] | undefined> {
+    const p = this.offer(this.providerKey(account.id));
+    if (p.key === 'chatgpt') {
+      const rt = await this.runtime(member, account.id);
+      const access = (await rt.getAuth(p.pi))?.auth?.apiKey;
+      const c = await rt.readCredential(p.pi);
+      if (!access || c?.type !== 'oauth') return undefined;
+      const res = await (this.opts.fetch ?? fetch)(`${this.opts.apiBase ?? 'https://chatgpt.com/backend-api'}/codex/models`, { headers: {
+        authorization: `Bearer ${access}`, 'chatgpt-account-id': String(c.accountId ?? ''), originator: this.opts.originator ?? 'byokit' } });
+      const rows: unknown = res.ok ? ((await res.json()) as { models?: unknown }).models : undefined;
+      return Array.isArray(rows) ? rows.filter((m) => typeof m?.slug === 'string' && m.slug && m.visibility === 'list')
+        .map((m) => ({ id: m.slug, name: typeof m.display_name === 'string' && m.display_name || m.slug })) : undefined;
     }
-    return rows;
+    if (p.key === 'claude') {
+      const apiKey = (await (await this.runtime(member, account.id)).getAuth(CLAUDE_PLAN_ID))?.auth?.apiKey;
+      return apiKey ? liveModels({ api: 'anthropic-messages', baseUrl: 'https://api.anthropic.com', provider: 'anthropic' },
+        { apiKey, bearer: true, headers: { 'anthropic-beta': 'oauth-2025-04-20' }, fetch: this.opts.fetch }) : undefined;
+    }
+    const keyed = account.route.includes(':') || this.isKey(p);
+    let upstream = account.route.includes(':') ? route(account.route).upstream.id : p.pi;
+    if (upstream === 'minimax' && !keyed && await this.regionOf(member, account.id) === 'cn') upstream = 'minimax-cn';
+    const list = routes().find((r) => r.upstream.id === upstream && r.models)?.models;
+    if (!list || !keyed && !OAUTH_RESPOND.includes(upstream)) return undefined;
+    const auth: ModelAuth | undefined = keyed ? { apiKey: await this.key(member, account.id) }
+      : (await (await this.runtime(member, account.id)).getAuth(p.pi))?.auth;
+    if (!auth?.apiKey) return undefined;
+    return liveModels({ ...list, provider: upstream }, { apiKey: auth.apiKey, headers: auth.headers, baseUrl: auth.baseUrl, fetch: this.opts.fetch });
   }
 
   async rename(member: M, id: string, name: string): Promise<Account> {
@@ -750,7 +758,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       const r = route(this.providerKey(key));
       if (!['key', 'plan_key'].includes(r.via)) throw new Error('This route needs its own sign-in adapter.');
       return { key: r.id, pi: r.upstream.id, name: r.name, company: r.company, label: r.label, billing: r.billing,
-        auth: 'api-key', models: { strong: '' }, routes: [r.id],
+        auth: 'api-key', routes: [r.id],
         source: r.upstream.revision, multiAccount: { terms: 'grey', why: 'Each account belongs to its member.', source: r.upstream.revision } };
     }
     const p = provider(this.providerKey(key));
@@ -993,9 +1001,10 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     const p = this.offer(key);
     // Select once, before any request, through the same helper the Claude branch uses.
     const picked = ask.select ? await this.resolveRespondAccount(member, 'chatgpt', ask.select) : undefined;
+    if (!ask.model?.trim()) throw new ResponseError('Name the model to ask: pass `model`, an id from models().', null);
     const { access, accountId } = await this.access(member, ask.signal, picked);
     try {
-      const base = { ...ask, access, accountId, model: ask.model ?? p.models.strong, base: this.opts.apiBase, fetch: this.opts.fetch, originator: ask.originator ?? this.opts.originator };
+      const base = { ...ask, access, accountId, model: ask.model, base: this.opts.apiBase, fetch: this.opts.fetch, originator: ask.originator ?? this.opts.originator };
       return await respond(base);
     } catch (e: any) {
       if (e instanceof ResponseError && e.kind && e.kind !== 'network') {

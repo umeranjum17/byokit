@@ -1,0 +1,1 @@
+- BREAKING: `ModelInfo.tier` is removed from the schema. Every route's live list applies; CLI-tool routes read from the wrapped tool's own list (part C).

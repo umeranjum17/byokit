@@ -1,5 +1,5 @@
 // Lab-only consumer: the subscription stays on the phone; the cloud host holds only its own pairing keys.
-import { provider, type Accounts, type AnthropicToolUse } from '@byokit/accounts';
+import { type Accounts, type AnthropicToolUse } from '@byokit/accounts';
 import type { DeviceLink } from '@byokit/pair';
 import type { HostRecipe } from '@byokit/cloud';
 export const M6_KEY = 'byokit.m6.provider';
@@ -68,7 +68,7 @@ export const diagnostic = (e: unknown) => {
   const detail = typeof (x as { detail?: unknown }).detail === 'string' ? (x as { detail: string }).detail.slice(0, 300) : undefined; // already credential-redacted by the kit
   return 'M6 diagnostic ' + JSON.stringify({ call: safe(x.call), status: safe(x.status), kind: safe(x.kind), reason: safe(x.reason) ?? safe(x.name), detail });
 };
-const ask = { provider: 'claude' as const, model: provider('claude').models.strong, max_tokens: 1024 };
+const ask = { provider: 'claude' as const, model: 'claude-opus-5-5', max_tokens: 1024 }; // the lab's own pick: the kit keeps no default model
 const tools = [{ name: 'get_machine', description: 'Read the paired cloud computer state.', input_schema: schema }];
 /** The turn's first Claude call on its own: the no-machine check that the phone's Claude plan answers. */
 export const claudeToolCall = (accounts: Accounts<any, number>) => step('tool call', () => accounts.respond(1, { ...ask, system: 'Call only the approved machine-state tool.',

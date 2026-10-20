@@ -55,7 +55,7 @@ openai.approve(shown!.code!); // the person types the code on the provider's pag
 await accounts.finished(1, 'chatgpt'); // the whole sign-in, once the code is approved
 console.log((await accounts.status(1, 'chatgpt')).words);
 
-const answer = await accounts.respond(1, { instructions: 'Answer briefly.', input: 'Plan my day', onText: (d) => process.stdout.write(d) });
+const answer = await accounts.respond(1, { model: 'gpt-6-sol', instructions: 'Answer briefly.', input: 'Plan my day', onText: (d) => process.stdout.write(d) });
 console.log('\nfinal:', answer);
 await openai.close();
 ```
@@ -116,7 +116,7 @@ Then ask ChatGPT with that sign-in, showing streamed pieces while it runs and th
 finishes (the completion can correct earlier pieces):
 
 ```ts
-const answer = await accounts.respond(1, { instructions: 'Answer briefly.', input: 'Plan my day', onText: (d) => show(d) });
+const answer = await accounts.respond(1, { model: 'gpt-6-sol', instructions: 'Answer briefly.', input: 'Plan my day', onText: (d) => show(d) });
 show(answer);
 ```
 
@@ -409,8 +409,10 @@ const accounts = new Accounts({
 
 ## Asking
 
-`respond(member, { instructions, input, model?, onText?, signal?, select? })` asks ChatGPT's own answers endpoint with the
-member's sign-in, refreshed first when due, and returns the whole text (`onText` gets each piece as it streams; the
+`respond(member, { model, instructions, input, onText?, signal?, select? })` asks ChatGPT's own answers endpoint with the
+member's sign-in, refreshed first when due, and returns the whole text. `model` is required (an id from `models()`, which
+reads ChatGPT's own list): BYOKit keeps no default model, and an ask without one is refused as a `ResponseError` with
+kind `null` before anything is sent (`onText` gets each piece as it streams; the
 returned completion is authoritative). Pass `result: true` to receive `{ text, output, usage? }` even without tools.
 `usage` retains provider-reported `input_tokens`, `output_tokens` and native details in the same shape as the
 Messages route; absent usage stays absent. Subscription token counts do not imply an API-key charge.
@@ -451,6 +453,7 @@ before. `onEvent` sees each tool call and output item as it streams:
 
 ```ts
 const result = await accounts.respond(1, {
+  model: 'gpt-6-sol',
   instructions: 'Answer briefly.',
   input: 'What time is it in Norwich?',
   tools: [{ type: 'function', name: 'get_time', description: 'The time somewhere.', parameters: { type: 'object', properties: { place: { type: 'string' } } } }],
@@ -458,6 +461,7 @@ const result = await accounts.respond(1, {
 });
 if (isFunctionCall(result.output[0])) {
   const answer = await accounts.respond(1, {
+    model: 'gpt-6-sol',
     instructions: 'Answer briefly.',
     input: [
       { role: 'user', content: [{ type: 'input_text', text: 'What time is it in Norwich?' }] },
@@ -829,7 +833,7 @@ if (picked.ok) {
   for (const model of await accounts.models('umer', picked.account.id))
     console.log(model.id, model.available, model.why ?? '');
   const answer = await accounts.respond('umer', {
-    instructions: 'Answer briefly.', input: 'Plan my day', select: { account: picked.account.id },
+    model: picked.model, instructions: 'Answer briefly.', input: 'Plan my day', select: { account: picked.account.id },
   });
 }
 ```
@@ -839,7 +843,7 @@ For independent agent preferences, use `setDefaults(member, { account, model }, 
 `{ agentKind: 'pi', account: 'default' }`: missing, signed-out, unavailable or resting selections and
 stale models refuse without fallback. Removing an account clears every referencing selection and model.
 The optional fourth `pick` argument, `AgentCapabilities`, supplies supported `Account.route` values and a
-per-account model reader for a qualified host adapter; without it, catalogue models apply. Preferences
+per-account model reader for a qualified host adapter; without it, each account's own live list applies. Preferences
 contain no credentials. This does not connect native CLI account stores or qualify new agent adapters.
 
 ## Managed CLI accounts (Node only)

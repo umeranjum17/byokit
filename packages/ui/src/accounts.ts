@@ -151,8 +151,8 @@ export function nameSuggestions(email: string | undefined, taken: readonly strin
 
 /** Why one of an account's models cannot be used right now, restated from `@byokit/accounts` (multi.ts). */
 export type ModelWhy = 'plan' | 'resting' | 'signed_out';
-/** One model as `@byokit/accounts` `models()` lists it: a strong/fast tier, whether it can run, and, when it can't, why. */
-export type ModelInfo = { id: string; name: string; tier?: 'strong' | 'fast'; available: boolean; why?: ModelWhy; until?: number };
+/** One model as `@byokit/accounts` `models()` lists it (the vendor's own live list): whether it can run, and, when it can't, why. */
+export type ModelInfo = { id: string; name: string; available: boolean; why?: ModelWhy; until?: number };
 
 /** What a run asks for, restated structurally: an account (or `default`/`auto`) and one model. */
 export type RunSelection = { account: string | 'default' | 'auto'; model?: string };

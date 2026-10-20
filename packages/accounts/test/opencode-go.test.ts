@@ -46,7 +46,6 @@ test('the catalogue offers OpenCode Go as a pasted plan key, on phones and brows
   const p = provider('opencode');
   assert.deepEqual([p.pi, p.name, p.company, p.billing, p.auth], ['opencode-go', 'OpenCode Go', 'OpenCode', 'subscription', 'api-key']);
   assert.ok(p.offer !== false && (!p.readiness || p.readiness === 'ready'), 'a default subscription offer');
-  assert.ok(p.models.strong, 'names its strong model for the picker');
   assert.deepEqual(p.routes, ['opencode:plan_key:opencode-go']);
   assert.ok(offered().some((q) => q.key === 'opencode'), 'in the default offer');
   assert.ok(!signInChoices().some((q) => q.key === 'opencode'), 'no device flow, so never in the device picker');

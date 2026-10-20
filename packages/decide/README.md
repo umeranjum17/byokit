@@ -261,7 +261,7 @@ must be trusted with answers and any backend raw responses they store.
       name: 'chatgpt',
       leaves: true,
       text: { format: { type: 'json_object' } }, // or a json_schema matching the question/probability map
-      ask: (p, signal, _images, request) => accounts.respond(me, { ...request, input: p, signal }),
+      ask: (p, signal, _images, request) => accounts.respond(me, { ...request, model: 'gpt-6-sol', input: p, signal }),
     });
   }
   ```

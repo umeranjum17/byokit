@@ -5,9 +5,9 @@ import { clock, say } from './words.ts';
 export type AccountId = string;
 export type AccountRef = AccountId;
 export type Via = RouteVia;
-export type ProviderInfo = Pick<Provider, 'key' | 'name' | 'company' | 'billing' | 'models'> & { via: Via[] };
+export type ProviderInfo = Pick<Provider, 'key' | 'name' | 'company' | 'billing'> & { via: Via[] };
 export type Account = AccountLike & { route: string; label: string; email?: string; plan?: string; billing: Billing; addedAt: number; readiness?: Readiness };
-export type ModelInfo = { id: string; name: string; tier?: 'strong' | 'fast'; available: boolean; why?: 'plan' | 'resting' | 'signed_out'; until?: number };
+export type ModelInfo = { id: string; name: string; available: boolean; why?: 'plan' | 'resting' | 'signed_out'; until?: number };
 export type SignInState = 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included';
 export type AccountLike = { id: string; provider: string; name: string; state: SignInState; billing: Billing; until?: number };
 export type RoomSpan = 'session' | 'week' | 'month' | 'tightest';
@@ -115,7 +115,8 @@ export function chooseAccount<A extends AccountLike>(accounts: readonly A[], roo
 
 /** Resolve once before starting. Without `models`, membership is host-validated and a missing model is ''.
  *  `open`: the lists are the vendors' own, which can lag a model they already run, so an id no eligible account lists is
- *  picked anyway and named in `unlisted`; a host's own closed list (an agent kind's models) leaves it refused. */
+ *  picked anyway and named in `unlisted`, and an account with no list read is picked with model ''; a host's own closed
+ *  list (an agent kind's models) leaves both refused. */
 export function resolveSelection<A extends AccountLike>(accounts: readonly A[], defaults: Defaults, sel: RunSelection,
   room: (a: A, demand: readonly string[]) => Room, nowMs: number, models?: Models<A>, open = false): AccountPick<A> {
   const demand = [...new Set([...(sel.model ? [sel.model] : []), ...(sel.needs ?? [])])];
@@ -144,7 +145,8 @@ export function resolveSelection<A extends AccountLike>(accounts: readonly A[], 
   function finish(account: A, row: Considered, how: 'chosen' | 'default' | 'auto', why: PickWhy): AccountPick<A> {
     const available = models?.(account).filter((m) => m.available);
     const model = sel.model ?? (defaults.model && (!available || available.some((m) => m.id === defaults.model)) ? defaults.model : available?.[0]?.id) ?? '';
-    if (models && !model) return { ok: false, code: 'not_included', reason: say('pick.noModel'), considered };
+    // Open: an empty list is one the vendor's list could not be read for, so the account is picked with model '' to name.
+    if (models && !model && !(open && !models(account).length)) return { ok: false, code: 'not_included', reason: say('pick.noModel'), considered };
     row.reason = why;
     const slots = { name: account.name, provider: account.provider };
     const reason = how !== 'auto' ? say(`pick.why.${why}`, slots) : row.tier === 'unknown' ? say('auto.unknown', slots) : row.tier === 'exhausted' ?

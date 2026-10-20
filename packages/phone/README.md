@@ -54,7 +54,7 @@ export async function phoneChat(accounts: Accounts<AuthHost, string>, log: Phone
     replaySafe: true, // the note is keyed by callId, so a second run finds the first
     run: async (args, { callId }) => `Saved note ${callId}: ${String(args.text)}`,
   };
-  const session = await PhoneSession.open({ accounts, member: 'Umer', account: 'chatgpt', log, tools: [note],
+  const session = await PhoneSession.open({ accounts, member: 'Umer', account: 'chatgpt', model: 'gpt-6-sol', log, tools: [note],
     instructions: 'You run on this phone only. Anything that needs a computer, say so in one line.' });
 
   const account = await session.account(); // { name: 'ChatGPT', billing: 'subscription', words: 'Uses your ChatGPT plan.', signedIn }
@@ -75,8 +75,9 @@ also `withKeys(portable)` from `@byokit/accounts/keys`.
 
 ## API
 
-`PhoneSession.open({ accounts, member, account, model?, instructions, tools?, log, maxSteps?, now?, newId? })` reads
-the kept chat (a line torn by a kill is skipped). `account` is `chatgpt` or an id from `accounts.list`; `maxSteps`
+`PhoneSession.open({ accounts, member, account, model, instructions, tools?, log, maxSteps?, now?, newId? })` reads
+the kept chat (a line torn by a kill is skipped). `account` is `chatgpt` or an id from `accounts.list`; `model` is a
+ChatGPT model id (from `accounts.models()`), or the `Model` for any other account; `maxSteps`
 caps model calls per turn (default 8). Then:
 
 - `send(text, { requestId?, signal?, onText? })` runs one turn to its end; an abort rejects with the signal's reason

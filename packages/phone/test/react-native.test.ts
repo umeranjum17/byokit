@@ -20,7 +20,7 @@ test('the main entry bundles for React Native with nothing from Node, and a turn
           if (!shown?.code) throw new Error('no code: ' + JSON.stringify(shown));
           await approve(shown.code);
           await accounts.finished('Umer', 'chatgpt');
-          const session = await PhoneSession.open({ accounts, member: 'Umer', account: 'chatgpt', instructions: 'Be brief.', log: memoryLog() });
+          const session = await PhoneSession.open({ accounts, member: 'Umer', account: 'chatgpt', model: 'gpt-6-sol', instructions: 'Be brief.', log: memoryLog() });
           const turn = await session.send('hello from the phone', { signal: new AbortController().signal });
           return { turn, account: await session.account() };
         };`,

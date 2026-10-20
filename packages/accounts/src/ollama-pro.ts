@@ -15,8 +15,6 @@ export type OllamaProAccount = {
 export const OLLAMA_PRO_PLAN_ROUTE = 'ollama-pro:plan_key';
 /** Hosted OpenAI-compatible base URL: https://docs.ollama.com/api/openai-compatibility */
 export const OLLAMA_PRO_BASE_URL = 'https://ollama.com/v1';
-/** Default cloud model: https://ollama.com/library/deepseek-v4.1-flash:cloud */
-export const OLLAMA_PRO_DEFAULT_MODEL = 'deepseek-v4.1-flash';
 
 export const ollamaProPlanKeyEntry = (route: string = OLLAMA_PRO_PLAN_ROUTE): string => openCodePlanKeyEntry(route);
 export async function saveOllamaProPlanKey(store: Keystore, key: string, route: string = OLLAMA_PRO_PLAN_ROUTE): Promise<void> {
@@ -34,7 +32,7 @@ export function ollamaProPlanAccount(store: Keystore, route: string = OLLAMA_PRO
 
 /** One non-streaming chat turn on Ollama Cloud. Plan key from the store only — never argv/env. */
 export async function ollamaProChat(opts: {
-  store: Keystore; prompt: string; model?: string; baseUrl?: string; fetch?: typeof fetch; signal?: AbortSignal; route?: string;
+  store: Keystore; prompt: string; model: string; baseUrl?: string; fetch?: typeof fetch; signal?: AbortSignal; route?: string;
 }): Promise<string> {
   if (typeof opts.prompt !== 'string' || !opts.prompt.trim()) throw new Error('ollamaProChat needs a prompt');
   const key = await readOllamaProPlanKey(opts.store, opts.route);
@@ -42,7 +40,7 @@ export async function ollamaProChat(opts: {
   const res = await (opts.fetch ?? globalThis.fetch)(`${base}/chat/completions`, {
     method: 'POST', signal: opts.signal,
     headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model: opts.model ?? OLLAMA_PRO_DEFAULT_MODEL, messages: [{ role: 'user', content: opts.prompt }], stream: false }),
+    body: JSON.stringify({ model: opts.model, messages: [{ role: 'user', content: opts.prompt }], stream: false }),
   });
   if (!res.ok) throw new Error(`Ollama Pro request failed (http ${res.status}).`);
   const json = await res.json() as { choices?: { message?: { content?: string } }[] };
