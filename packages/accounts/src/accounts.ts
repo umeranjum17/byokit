@@ -884,7 +884,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
 
   /** Fresh ChatGPT access for a host-side capability. Never send this to another device. */
   async access(member: M, signal?: AbortSignal, accountId?: string): Promise<{ access: string; accountId: string }> {
-    signal?.throwIfAborted();
+    if (signal?.aborted) throw signal.reason; // not throwIfAborted: Hermes has none
     const key = accountId ? this.accountKey(member, accountId) : await this.resolveKey(member, 'chatgpt');
     if (this.providerKey(key) !== 'chatgpt') throw new ResponseError('This capability needs a ChatGPT subscription account.', 'not_included');
     const p = this.offer(key);
@@ -902,7 +902,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     }
     const c = await rt.readCredential(p.pi).catch(() => undefined);
     if (!access || c?.type !== 'oauth') throw new ResponseError(say('status.signedOut', { name: p.name }), 'signed_out');
-    signal?.throwIfAborted();
+    if (signal?.aborted) throw signal.reason;
     return { access, accountId: String(c.accountId ?? '') };
   }
 

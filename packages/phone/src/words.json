@@ -1,0 +1,13 @@
+{
+  "phone.busy": "Wait for the answer on screen to finish first.",
+  "phone.cutShort": "The answer was cut short. Try again.",
+  "phone.failed": "Could not finish on this phone. Try again.",
+  "phone.interrupted": "The app closed before this finished. Tap Try again to finish it.",
+  "phone.network": "No internet connection. Reconnect, then try again.",
+  "phone.notIncluded": "Your plan does not include this. Pick another account or model.",
+  "phone.outOfCredit": "This account is out of credit. Add credit, then try again.",
+  "phone.rateLimited": "This account has reached its limit for now. Try again later.",
+  "phone.resting": "The model is busy right now. Try again in a few minutes.",
+  "phone.signedOut": "This account is signed out on this phone. Sign in again to keep going.",
+  "phone.stepLimit": "This needs too many steps for the phone. Try a smaller request."
+}
