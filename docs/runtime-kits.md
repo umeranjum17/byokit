@@ -364,11 +364,17 @@ export type RunEnd<T = unknown> =
       account?: AccountId; model?: string;                     // both exactly when the run used an account (5.15)
       thinking?: ThinkingReport }                              // when the run asked for thinking; used may be clamped to the catalog
   | { ok: false; aborted: true }
-  | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other' | 'output'; until?: number; message: string };
+  | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other' | 'output'; until?: number; message: string;
+      cause?: CliLoginCause };                                 // only on a signed-out claude-cli run
+// Claude Code has no login where the engine reads it (5.5). signIn: true → signIn(member, { authChoice: 'anthropic-cli' })
+// runs it into configDir (subscription billing); false → the person runs `claude` on this machine as `home` (configDir
+// only when they set CLAUDE_CONFIG_DIR): the engine reads their own login, which the kit never writes.
+export type CliLoginCause = { code: 'needs_cli_login'; cli: 'claude'; home: string; configDir?: string; signIn: boolean };
 export type SignInView = {
   state: 'waiting' | 'done' | 'failed'; via: 'browser' | 'code';
   url?: string; code?: string; expiresAt?: number; message?: string; prompt?: string; error?: string;
   why?: 'busy' | 'declined' | 'expired' | 'failed';
+  cause?: CliLoginCause;                                 // an anthropic-cli sign-in the kit cannot run (signIn: false)
 };                                                       // expiresAt: epoch ms when `code` expires, when the engine says; message: the engine's instructions shown with `code`; prompt: what a waiting text step asks
 export type Approval = {
   id: string;                                                  // kit-minted, url-safe
@@ -611,7 +617,7 @@ Each `start()` first asks the installed `claude auth status --json` (the person'
 phone-started fallback sign-in (5.7) signs into; a signed-in installed Claude Code is used as is. Any other outcome
 (timeout, overflow, no parsed answer) is unknown and keeps the person's own login location, with no fallback.
 The fallback sign-in always writes `<home>/.claude`, and the gateway's in-process restart keeps its env, so a launch
-without that `CLAUDE_CONFIG_DIR` (`Engine.claudeLoginUnread()`) never starts it: a phone sign-in the gateway does not
+without that `CLAUDE_CONFIG_DIR` (`Engine.claudeLoginCause()` `signIn: false`, carried as the failed view's `cause`) never starts it: a phone sign-in the gateway does not
 detect fails before any login with "Claude Code is installed here, but its sign-in could not be checked. Run claude
 once on this machine to sign in, then try again."
 
@@ -1064,7 +1070,10 @@ the engine. External retained sources are touched only when explicitly passed to
 - `spec.model` (`provider/model`) picks the account a run is called and billed on. It is refused before any request
   if it is not `provider/model` or carries an `@profile` pin. Before the run, `models.authStatus { agentId }` (once
   more with `refresh: true` while it answers `unavailable`) must list the provider (lowercased, as the engine
-  normalizes ids; a bare string row, or a row with a profile `ok`/`expiring`/`static`, is signed in), else the run ends `{ ok: false, kind: 'signed-out' }` without calling the engine. The
+  normalizes ids; a bare string row, or a row with a profile `ok`/`expiring`/`static`, is signed in), else the run ends `{ ok: false, kind: 'signed-out' }` without calling the engine. A signed-out
+  `claude-cli` run (this check, a not-ready `claude-cli` account, or the engine's own signed-out error) also carries
+  `cause: CliLoginCause` (`needs_cli_login`, from `Engine.claudeLoginCause()`), so the app can say which login to make
+  and whether `signIn` makes it. The
   check may reuse a positive snapshot from this kit's `providerStatus`/`providers`/`signedIn`, device `oc.state`,
   or previous run, scoped by exact agent
   and native-Claude detection mode, for at most 30 s from check start and never beyond reported expiry of a

@@ -13,7 +13,7 @@ import { classify } from './classify.ts';
 import { providerOf } from './pick.ts';
 import { engineId } from './accounts.ts';
 import { catalogModelOf, clampThinking, levelsOf, type CatalogModel } from './thinking.ts';
-import type { AccountPick, GatewayTransport, Member, PlanWindow, RunEnd, RunEvent, RunFrame, RunSpec, RunUsage, ThinkingReport } from './types.ts';
+import type { AccountPick, CliLoginCause, GatewayTransport, Member, PlanWindow, RunEnd, RunEvent, RunFrame, RunSpec, RunUsage, ThinkingReport } from './types.ts';
 
 // The gateway gives up on a silent run after an hour; we wait ten minutes longer for the reply frame itself.
 const WAIT_MS = 3_600_000;
@@ -146,6 +146,7 @@ export function createRuns(ctx: {
   request: GatewayTransport['request'];
   authStatus?: (agentId: string, refresh: boolean, native: boolean) => ReturnType<typeof authStatus>;
   invalidateAuth?: () => void;
+  claudeLogin?: () => CliLoginCause;
   onEvent: GatewayTransport['onEvent'];
   ensure(member: Member): Promise<{ agentId: string }>;
   bridge: Pick<Bridge, 'register'>;
@@ -171,10 +172,13 @@ export function createRuns(ctx: {
       return undefined;
     }
   };
-  const failure = (message: string) => {
+  // A signed-out claude-cli run names where its Claude Code login is missing (`cause`).
+  const cause = (provider: string | undefined) => provider === 'claude-cli' && ctx.claudeLogin ? { cause: ctx.claudeLogin() } : {};
+  const signedOut = (provider: string, message: string) => ({ ok: false as const, kind: 'signed-out' as const, message, ...cause(provider) });
+  const failure = (message: string, provider?: string) => {
     const classified = classify(message);
     if (classified.kind === 'signed-out') ctx.invalidateAuth?.();
-    return { ok: false as const, ...classified, message };
+    return { ok: false as const, ...classified, message, ...classified.kind === 'signed-out' ? cause(provider) : {} };
   };
   const execute = async <const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: Emission) => void, keyAgent?: string, preparedOutput?: ReturnType<typeof outputSchema>): Promise<RunEnd<SchemaOutput<S>>> => {
     // Member boundary first: a member never speaks in another member's session, refused before any request. A key
@@ -273,7 +277,7 @@ export function createRuns(ctx: {
         ctx.routes.set(spec.sessionKey, route);
         try {
           on?.({ type: 'account', account: pick.account.id, model: pick.model, sessionKey, how: pick.how, why: pick.why, considered: pick.considered });
-          if (!ready) return { ok: false, kind: 'signed-out', message: `${pick.account.name} is not signed in` };
+          if (!ready) return signedOut(pick.account.provider, `${pick.account.name} is not signed in`);
           return await start(spec, on, { agentId: agent!, sessionKey, idempotencyKey, system,
             picked: pick.model ? await accountOf(pick.model) : undefined, output, chosen: pick }); // '' = no override
         } finally {
@@ -357,7 +361,7 @@ export function createRuns(ctx: {
           return { ok: false, kind: 'other', message: String(auth.unavailable.message ?? 'account status unavailable') };
         const row = (auth.providers ?? []).find((e) => (typeof e === 'string' ? e : e?.provider) === picked.provider);
         if (!row || !usable(row))
-          return { ok: false, kind: 'signed-out', message: `${picked.provider} is not signed in for ${spec.member}` };
+          return signedOut(picked.provider, `${picked.provider} is not signed in for ${spec.member}`);
       }
       // One `agent` request: its interim `accepted` frame names the run, its final frame (after the run) carries the
       // run's usage. The wait below still decides how the run ended. Thinking is clamped to the catalog before the
@@ -422,10 +426,10 @@ export function createRuns(ctx: {
       if (result.stopReason === 'aborted' || (abortedByEngine && result.status !== 'ok')) return { ok: false, aborted: true };
       const message = typeof result.error === 'string' ? result.error
         : typeof result.message === 'string' ? result.message : '';
-      return failure(message);
+      return failure(message, picked?.provider);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return failure(message);
+      return failure(message, picked?.provider);
     } finally {
       ended = true;
       unsubscribe();

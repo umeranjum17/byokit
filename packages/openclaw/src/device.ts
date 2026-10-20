@@ -27,7 +27,7 @@ import type {
 } from './types.ts';
 
 export type { GatewayEventName, GatewayEventPayload, GatewayMethod, GatewayParams, GatewayResult } from './types.ts';
-export type { Approval, Decision, KitState, PlanWindow, Route, RunEnd, RunEvent, RunFrame, RunUsage, SignInView, OutputSchema, SchemaOutput } from './types.ts';
+export type { Approval, CliLoginCause, Decision, KitState, PlanWindow, Route, RunEnd, RunEvent, RunFrame, RunUsage, SignInView, OutputSchema, SchemaOutput } from './types.ts';
 
 /** One `oc.events` frame: a member's Gateway event, typed by name, or an approval add/resolve (7.2). */
 export type OpenClawLinkEvent =

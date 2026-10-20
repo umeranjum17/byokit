@@ -134,7 +134,14 @@ export type RunEnd<T = unknown> =
     account?: AccountId; model?: string; // both exactly when the run used an account (5.15); model '' only when neither the pick nor the engine names one
     thinking?: ThinkingReport } // present when the run asked for a thinking level; used may be clamped to the catalog
   | { ok: false; aborted: true }
-  | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other' | 'output'; until?: number; message: string };
+  | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other' | 'output'; until?: number; message: string;
+    cause?: CliLoginCause }; // only on a signed-out claude-cli run
+
+/** Why a `claude-cli` run or `anthropic-cli` sign-in failed: Claude Code has no login where this engine reads it (5.5).
+ * `signIn` true: `signIn(member, { authChoice: 'anthropic-cli' })` runs that login into `configDir` (subscription
+ * billing, the person's Claude plan). False: the engine reads the person's own login, which the kit never writes; the
+ * person runs `claude` on this machine, as `home`, to sign in (`configDir` only when they set CLAUDE_CONFIG_DIR). */
+export type CliLoginCause = { code: 'needs_cli_login'; cli: 'claude'; home: string; configDir?: string; signIn: boolean };
 
 export type SignInOptions = { authChoice: string; via?: 'browser' | 'code'; signal?: AbortSignal };
 
@@ -148,6 +155,7 @@ export type SignInView = {
   prompt?: string; // what a waiting text step asks, answered through paste: the engine's question, or a fixed label once sensitive; never a value
   error?: string;
   why?: 'busy' | 'declined' | 'expired' | 'failed';
+  cause?: CliLoginCause; // an `anthropic-cli` sign-in the kit cannot run (`signIn: false`)
 };
 
 export type Approval = {
