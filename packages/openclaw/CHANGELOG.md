@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.24.0 (2026-10-20)
+
+- FEAT: a helper's delegated run now speaks as its helper. A native `sessions_send` carries no system text, so the kit's plugin adds the helper's recorded persona (from `ensureHelper`) as system context to the admitted helper child's run, and only to it. No app change: Chief's `helperDelegates` send to `agent:<agent>:h-<helper>:<rest>` is enough. The kit plugin's config entry now sets `hooks.allowConversationAccess: true` for this hook. `sessions_spawn` children get no persona.
+- FEAT: a tracked `sessions_spawn` into the run's own agent (`delegates` naming it, e.g. Chief spawning under its own signed-in agent) reaches the engine as its own-agent spawn, so an app `subagents.allowAgents` list that names only other agents no longer refuses it.
+- FIX: a delegated child the engine no longer knows (as after an engine restart, when its end never reached the kit) now ends `lost` (new `DelegatedEvent.reason`, outcome unknown) at reconnect instead of staying admitted forever, and a dispatch that finds the 1024-entry journal full reconciles with the engine first, so those children can no longer block delegation. One unreadable `agent.wait` no longer fails the whole reconnect.
+
 ## 0.23.0 (2026-10-20)
 
 - FEATURE: A signed-out `claude-cli` run now says why: its end carries `cause: { code: 'needs_cli_login', cli: 'claude', home, configDir?, signIn }` (the new `CliLoginCause` type, also on `./device`). `signIn: true` means `kit.signIn(member, { authChoice: 'anthropic-cli' })` runs the Claude Code login into the kit's own folder (subscription billing); `signIn: false` means the engine reads the person's own Claude Code login, so they run `claude` on that machine. An `anthropic-cli` sign-in the kit cannot run carries the same `cause` on its failed view. `kind`, `message` and every other run end are unchanged.
