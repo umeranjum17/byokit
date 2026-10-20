@@ -1,1 +1,0 @@
-- FIX: The loopback Boat bench (`startFakeSandboxServer()` in `./testing`) answers every request with `Connection: close`, so a test suite on Node 22, whose `fetch` (undici 6) can fire an idle keep-alive socket's timer after its parser was collected, no longer fails with `Cannot destructure property 'socket' of 'parser.deref(...)'` after its tests passed.
