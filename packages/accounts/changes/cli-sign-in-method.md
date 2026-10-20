@@ -1,1 +1,0 @@
-- FEATURE: A signed-in Claude row from `cliAccounts` (the person's installed `installed-claude` and managed ones) carries `method`: `'subscription'`, `'api_key'` or `'other'`, read from `claude auth status`'s own `authMethod`, so an app can show which sign-in the person is on. New type export: `SignInMethod`. Absent when the CLI does not say.

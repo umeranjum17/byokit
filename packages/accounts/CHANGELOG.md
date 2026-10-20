@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.29.0 (2026-10-20)
+
+- FEATURE: A signed-in Claude row from `cliAccounts` (the person's installed `installed-claude` and managed ones) carries `method`: `'subscription'`, `'api_key'` or `'other'`, read from `claude auth status`'s own `authMethod`, so an app can show which sign-in the person is on. New type export: `SignInMethod`. Absent when the CLI does not say.
+- FIX: A ChatGPT `respond` (or `access`) given an `AbortSignal` no longer throws `TypeError` on Hermes, whose `AbortSignal` has no `throwIfAborted`: an aborted signal still rejects with its reason.
+- FEAT: a model id Pi's catalogue lacks now resolves on a known route (a provider whose models share one API and base URL, on OpenAI-compatible or Anthropic Messages APIs): `computer.engine`'s `getModel(provider, id)` builds the entry, and the new `resolveModel(models, provider, id, { apiKey })` takes context, output limit and price from the provider's live `GET /models` when it lists them, else 128k / 16k / unpriced; capabilities are the vendor's (image input is whatever the route's own models take, so `MiniMax-M3.1-Flash-Preview` takes images; a live list's modalities override); an id the list lacks still resolves (`listed: false`, for the app to warn about). Unknown providers get nothing. First proof: `MiniMax-M3.1-Flash` and `MiniMax-M3.1-Flash-Preview` on `minimax` and `minimax-cn`.
+- Dependency update: `@earendil-works/pi-ai` is now a caret range (`^1.3.0`, so Dependabot opens its bumps), and the bundled copy for phones and browsers is regenerated from 1.3.0 with the Hermes `throwIfAborted` guard kept.
+
 ## 0.28.2 (2026-10-19)
 
 - FIX: MiniMax (Global and CN) now offers `MiniMax-M3.1-Flash-Preview` as its fast model, replacing `MiniMax-M2.7-highspeed`.

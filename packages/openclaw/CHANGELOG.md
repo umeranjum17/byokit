@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.25.0 (2026-10-20)
+
+- Dependency update: pins @byokit/accounts 0.29.0.
+
+- FEAT: a MiniMax API key now lists and runs any model MiniMax's own `/models` lists, with no BYOKit model list: `kit.models({ authChoice: 'minimax-global-api' })` answers the vendor's models, and `addKey({ ..., model })` takes an id the list lags (such as `MiniMax-M3.1-Flash-Preview`) with the route's own capabilities (image input included) instead of refusing it or falling back to `MiniMax-M3`.
+- FIX: When a child a run sent work to (`sessions_send`, `timeoutSeconds: 0`) finished, the engine's own reply run bringing its report back to the sender's session was refused `unknown run` at every app tool. That return run is now admitted as the sender: same member and helper, same app-tool subset and delegates, and the sender's system text as its persona; `RunRef.parent` names the finished child. Any other run on that session is still refused.
+
 ## 0.24.0 (2026-10-20)
 
 - FEAT: a helper's delegated run now speaks as its helper. A native `sessions_send` carries no system text, so the kit's plugin adds the helper's recorded persona (from `ensureHelper`) as system context to the admitted helper child's run, and only to it. No app change: Chief's `helperDelegates` send to `agent:<agent>:h-<helper>:<rest>` is enough. The kit plugin's config entry now sets `hooks.allowConversationAccess: true` for this hook. `sessions_spawn` children get no persona.
