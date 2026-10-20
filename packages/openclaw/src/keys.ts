@@ -6,7 +6,7 @@ import { keyAgentId, MEMBER_ID, KEY_PREFIX, untilListed } from './members.ts';
 import { providerOf } from './pick.ts';
 import type { RouteView } from './routes.ts';
 import { kitId, modelsOf } from './accounts.ts';
-import { LIVE_CATALOGS, OPEN_CATALOGS, REGISTERED_CATALOGS } from './constants.ts';
+import { REGISTERED_CATALOGS } from './constants.ts';
 import type { Member, ModelInfo } from './types.ts';
 
 // retry: the engine may have taken the key but it was not kept; the unsealed key is cleared best-effort. If that clear
@@ -116,7 +116,7 @@ export function createKeys(ctx: ActivationCtx & {
   // The vendor's list can lag a model that runs: an id it lacks rides the route's own models (the richest row's api,
   // base URL and context, every input modality any row takes), unpriced. Nothing is added to an empty list.
   const unlisted = (provider: string, rows: Record<string, unknown>[], model: string): Record<string, unknown>[] => {
-    if (!rows.length || rows.some((m) => kitId(provider, String(m.id)) === model)) return [];
+    if (!rows.length || !model.startsWith(`${provider}/`) || rows.some((m) => kitId(provider, String(m.id)) === model)) return [];
     const base = rows.reduce((a, b) => (Number(b.contextWindow) || 0) > (Number(a.contextWindow) || 0) ? b : a);
     const input = ['text', 'image'].filter((i) => rows.some((m) => Array.isArray(m.input) && m.input.includes(i)));
     const id = model.slice(provider.length + 1);
@@ -127,7 +127,7 @@ export function createKeys(ctx: ActivationCtx & {
   const models = async (member: Member, o: { authChoice: string }): Promise<ModelInfo[]> => {
     if (!check(member)) throw new Error('Choose your own member.');
     const route = keyRoute(o.authChoice);
-    if (route.readiness !== 'ready' || !LIVE_CATALOGS.includes(route.provider)) return [];
+    if (route.readiness !== 'ready') return [];
     try { return listed(route.provider, await catalog(member, route.provider)); }
     catch (error) {
       // The engine answers `failed` when no agent holds a key: a lane without the provider's profile lists nothing,
@@ -150,8 +150,7 @@ export function createKeys(ctx: ActivationCtx & {
         if (!check(member)) throw new Error('Choose your own member.');
         if (!o.apiKey.trim()) return failure('invalid', 'empty');
         const route = keyRoute(o.authChoice);
-        if (route.readiness !== 'ready' || (o.model !== undefined && !LIVE_CATALOGS.includes(route.provider)))
-          return failure('not_included', 'model');
+        if (route.readiness !== 'ready') return failure('not_included', 'model');
         const model = o.model === undefined ? undefined : canonicalModel(o.model);
         // A workspace names a Go login's own workspace only; another route takes no header, and a
         // refusal here leaves the member's lanes untouched (it lands before any prepare or activation).
@@ -223,7 +222,7 @@ export function createKeys(ctx: ActivationCtx & {
             if (!result.ok && !result.late) return abandon(probeResult(result.status));
             if (result.late) return abandon(failure('retry', 'busy'));
             const rows = model === undefined ? [] : await catalog(member, route.provider);
-            const lagging = model !== undefined && OPEN_CATALOGS.includes(route.provider) ? unlisted(route.provider, rows, model) : [];
+            const lagging = model !== undefined ? unlisted(route.provider, rows, model) : [];
             rows.push(...lagging);
             if (model !== undefined && !listed(route.provider, rows).some((m) => m.id === model && m.available))
               return abandon(failure('not_included', 'model'));
@@ -231,10 +230,10 @@ export function createKeys(ctx: ActivationCtx & {
             try { await ctx.prepareOwner(agentId); }
             catch { return abandon(failure('retry', 'engine')); }
             if (ac.signal.aborted) return abandon(cancelled());
-            // A live catalog the kit does not register whole (OpenRouter) registers the chosen model alone.
+            // A catalog the kit does not register whole (OpenRouter's, and any other provider's) registers the chosen model alone.
             if (model !== undefined && (!REGISTERED_CATALOGS.includes(route.provider) || lagging.length))
               await ctx.registerModels(route.provider, rows.filter((m) => kitId(route.provider, String(m.id)) === model)).catch(() => {});
-            if (model !== undefined && LIVE_CATALOGS.includes(route.provider) && !(await registered(route.provider, model)))
+            if (model !== undefined && !(await registered(route.provider, model)))
               return abandon(failure('retry', 'model'));
             if (!(await control(member, 'seal', undefined, model)).ok) return abandon(failure('retry', 'engine'));
             await ctx.indexLane(member, route);

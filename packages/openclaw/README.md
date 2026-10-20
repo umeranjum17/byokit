@@ -159,10 +159,10 @@ other choice that takes no key (a subscription such as `openai`, a provider with
 throws its cause before anything is sent.
 `reason` is `auth` (provider refused the key) or `billing` (the provider's billing refused it; the kit words it and never passes
 provider text): both are `invalid`, and an unchanged key must not be retried. `empty` is a blank key, rejected locally before any
-provider call, also `invalid`. `model` is an unsupported route or unknown model (`not_included`), or a live model the engine did not
+provider call, also `invalid`. `model` is an unsupported route or a model on a route with no catalog (`not_included`), or a model the engine did not
 register (`retry`). `network` is a timeout or transport failure; `inference` is a provider reply in an unexpected format, an unknown
 probe failure, or a typed request-validation refusal; `engine` is a control or preparation failure; `busy` is a rate limit or a
-restarting engine. `not_included` covers an unsupported route, an unknown chosen model and a probe reporting the route unavailable;
+restarting engine. `not_included` covers an unsupported route, a chosen model on a route with no catalog and a probe reporting the route unavailable;
 every other failure is `retry`. Migrate from the old string result with `result.status === 'ok'`, not `result === 'ok'`.
 An OpenCode Go plan login can act for several workspaces, and the Go gateway refuses its every call until one is named
 (`403 Workspace selection is required`). Pass the workspace as `orgId` when you have it; it rides the probe and every run as
@@ -185,16 +185,19 @@ live catalog. Before a key exists it returns `[]` (a failed catalog probe with n
 empty; with one it is an error) and runs no engine discovery. Only available key-lane
 models can be saved; the ordinary member's sign-ins never supply the list. Pass a full catalog id, e.g.
 `model: 'opencode-go/muse-spark-1.3-contributor'`, to `addKey` to save it as the lane's default after activation.
-Model listing and selection belong to the live-catalog routes, OpenCode Go and OpenRouter. An OpenRouter key is
+Every key route lists and takes models: its catalog is the provider plugin's own, joined by the vendor's own `/models`
+list, and the kit keeps no provider or model list. An OpenRouter key is
 pay-as-you-go with no plan, so it takes any model its own live catalog lists, named `openrouter/<id>`, e.g.
 `model: 'openrouter/deepseek/deepseek-v4.1-flash-1017'`; an id already beginning with its own provider keeps one
 prefix (`openrouter/auto`). A Google preview id is named and saved as the canonical id the engine keeps
 (`openrouter/google/gemini-3.1-flash-lite-preview` becomes `openrouter/google/gemini-3.1-flash-lite`); the add
-registers that one model with the engine. Other key routes list no models, and a `model` on them returns
-`not_included`/`model` before activation.
-An unknown model returns `{ status: 'not_included', reason: 'model' }` and clears the replacement.
+registers that one model with the engine (every provider but OpenCode Go and MiniMax, whose whole lists are registered).
+A vendor's list can lag a model it already runs, so an id the catalog lacks is taken, not refused: it rides the route's
+own models (the richest row's api, base URL and context), unpriced, and the app sees it missing from `models()` to warn.
+A route with no catalog rows (its plugin has none) lists nothing, and a `model` there returns
+`{ status: 'not_included', reason: 'model' }` and clears the replacement.
 Before success, `addKey` waits for catalog registration and prepares the new key agent's full-catalog owner once.
-For a live-catalog provider, a chosen model must also be in the engine's registered `models.providers[provider].models`
+A chosen model must also be in the engine's registered `models.providers[provider].models`
 list before anything is sealed; otherwise the add clears the attempt and returns `{ status: 'retry', reason: 'model' }`.
 Preparation failure clears the attempted key and returns `{ status: 'retry', reason: 'engine' }`; ordinary runs stay unchanged.
 With no choice, today's starter stays.

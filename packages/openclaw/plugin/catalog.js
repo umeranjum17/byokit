@@ -1,6 +1,6 @@
 // byokit.catalog (5.6 live provider catalogs): the provider plugin's own live model list, with each model's api and
-// baseUrl from its catalog data, so the kit can register models embedded runs cannot resolve otherwise. The engine's
-// catalog loader stops at a registered list; the provider's catalog hook does not.
+// baseUrl from its catalog data, joined by the vendor's own model list, so the kit can register models embedded runs
+// cannot resolve otherwise. The engine's catalog loader stops at a registered list; the provider's catalog hook does not.
 export function registerCatalog(api) {
   api.registerGatewayMethod('byokit.catalog', async ({ params, respond }) => {
     try {
@@ -11,7 +11,8 @@ export function registerCatalog(api) {
       const { resolveApiKeyForProvider } = await import('openclaw/plugin-sdk/provider-auth-runtime');
       const config = getRuntimeConfig();
       const hook = resolvePluginProviders({ config, env: process.env }).find((p) => p.id === provider)?.catalog;
-      if (!provider || typeof hook?.run !== 'function') return respond(true, { ok: false, reason: 'failed' });
+      if (!provider) return respond(true, { ok: false, reason: 'failed' });
+      if (typeof hook?.run !== 'function') return respond(true, { ok: true, models: [] }); // a provider with no catalog lists nothing
       // The first agent holding the provider's key; every account of one provider sees the same catalog.
       let unreadable = false;
       for (const agentId of new Set([...Object.keys(config.agents?.entries ?? {}), 'main'])) {
@@ -38,13 +39,16 @@ export function registerCatalog(api) {
         const models = [...live.models, ...(pinned?.models ?? []).filter((m) => !liveIds.has(m.id))]
           .map(({ provider: _p, apiKey: _k, headers: _h, ...model }) =>
             (endpoint.has(model.api) ? { ...model, baseUrl: endpoint.get(model.api) } : model));
-        // MiniMax's engine catalog is a fixed list: its vendor `/models` lists newer ids, which join it with the richest
-        // row's api, base URL and capabilities (the vendor lists ids only). A failed fetch keeps the engine's list.
-        if (provider === 'minimax' && models.length) {
-          const base = models.reduce((a, b) => (b.contextWindow ?? 0) > (a.contextWindow ?? 0) ? b : a);
+        // A plugin catalog can be a fixed list (MiniMax's): the vendor's own `/models` lists newer ids, which join it with
+        // the richest row's api, base URL and capabilities (a vendor list carries ids only). Same rule as
+        // @byokit/accounts' live lists; another api, or a failed fetch, keeps the plugin's rows.
+        const base = models.reduce((a, b) => (b.contextWindow ?? 0) > (a.contextWindow ?? 0) ? b : a);
+        const openai = String(base.api).startsWith('openai-');
+        if (base.baseUrl && (openai || base.api === 'anthropic-messages')) {
           const input = ['text', 'image'].filter((i) => models.some((m) => m.input?.includes(i)));
-          const listed = await fetch(`${String(base.baseUrl).replace(/\/$/, '')}/v1/models`,
-            { headers: { authorization: `Bearer ${apiKey}`, 'anthropic-version': '2023-06-01' }, signal: AbortSignal.timeout(10_000) })
+          const bearer = openai || /^minimax/.test(provider);
+          const listed = await fetch(`${String(base.baseUrl).replace(/\/$/, '')}${openai ? '/models' : '/v1/models'}`, { signal: AbortSignal.timeout(10_000),
+            headers: bearer ? { authorization: `Bearer ${apiKey}`, 'anthropic-version': '2023-06-01' } : { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' } })
             .then((r) => r.ok ? r.json() : null, () => null);
           const have = new Set(models.map((m) => m.id));
           for (const m of Array.isArray(listed?.data) ? listed.data : [])
