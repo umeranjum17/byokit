@@ -1,1 +1,1 @@
-- BREAKING: `ModelInfo.tier` is removed from the schema. Every route's live list applies; CLI-tool routes read from the wrapped tool's own list (part C).
+- The bridge's Codex CLI route now names its two model rows itself instead of reading them from `@byokit/accounts`' catalogue, which no longer keeps model tiers; the rows the engine lists are unchanged.

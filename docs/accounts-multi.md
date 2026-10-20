@@ -16,7 +16,7 @@ Existing provider-key calls choose that provider's default account, else its fir
 
 `pick(member, {agentKind, account: 'default'}, room?, capabilities?)` reads that kind's saved choice once. A missing, signed-out, unavailable or resting saved account refuses with an unsuccessful `AccountPick`, never another saved account or the person's default login. An unavailable saved model also refuses rather than silently choosing a different model. Explicit `account: 'auto'` retains subscription-only Auto; it is not a fallback from a refused selection. Scoped explicit ids receive the same readiness gate. Unscoped selection retains its existing host-validated behavior.
 
-The optional host-supplied `AgentCapabilities` contains supported route ids and a per-account model reader (`{id, available}[]`); it narrows the app's accounts and model choices without persisting credentials or claiming native adapter support. Without it, picks use the existing catalogue models. Hosts bind a successful account/model to a new run and must not switch a running session. This slice launches no native process; native readiness adapters and UI remain separate work.
+The optional host-supplied `AgentCapabilities` contains supported route ids and a per-account model reader (`{id, available}[]`); it narrows the app's accounts and model choices without persisting credentials or claiming native adapter support. Without it, picks use each account's own live model list, and an id that list lacks is picked with a warning (`unlisted`). Hosts bind a successful account/model to a new run and must not switch a running session. This slice launches no native process; native readiness adapters and UI remain separate work.
 
 ## Read-only native Pi descriptor
 

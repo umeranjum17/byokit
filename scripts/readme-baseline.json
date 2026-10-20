@@ -7,9 +7,21 @@
   },
   {
     "readme": "packages/accounts/README.md",
+    "block": 4,
+    "snapshot": "6db207ccfb21ff9b59f53d800b8886da9e8851711fa298593af6b1ea76f1343b",
+    "reason": "Diagnostic callbacks are a contextual fragment using host-supplied accounts and show."
+  },
+  {
+    "readme": "packages/accounts/README.md",
     "block": 7,
     "snapshot": "bc79bc2bfdd0f965b81e392989fdaa0508a83eac09fc33b8e5249b6d52a2a72b",
     "reason": "Per-person storage fragment omits Accounts imports and host-supplied SecureStore context."
+  },
+  {
+    "readme": "packages/accounts/README.md",
+    "block": 8,
+    "snapshot": "16c48b5c6638858cc871a1c3efe9990518f03eb6311e46614e1f22426c60792e",
+    "reason": "Asking fragment relies on earlier accounts setup, isFunctionCall and host-supplied show."
   },
   {
     "readme": "packages/decide/README.md",
