@@ -1,11 +1,26 @@
 ---
 name: verify-byokit
-description: Drive the built byokit SDK the way a consumer app does — build the workspace, doctor the built artifacts, run real Node consumers against the built packages, capture evidence. Use for any proof of byokit behavior on this host, before claiming a feature works.
+description: The done-done verify skill for byokit — drive the built SDK the way a consumer app does (build, doctor, real Node consumers, the offline voice demo) and capture evidence through done-done. Use for any proof of byokit behavior on this host, before claiming a feature works.
 ---
 
 # Verify byokit
 
 byokit is a TypeScript SDK monorepo: the user is a consumer app importing `@byokit/*`. "Driving the app" means importing the **built** packages (`packages/*/dist`) from a plain Node script and observing real output. The browser (PWA), React Native and Android surfaces are separate entries; see the feature map for what is provable on this host.
+
+## Prove it with done-done
+
+Proofs run through [done-done](https://www.npmjs.com/package/done-done-axi), not by hand: it seals the run, keeps the evidence outside the repo (`~/.done-done/evidence/byokit`), has a judge look at every capture and records the receipt. Config: `.done-done.yaml` (journeys at `.done-done.yaml:15`: `build`, `node-tests`, `browser-tests`). From a clean, committed tree:
+
+```sh
+done-done doctor                                  # git, config, evidence root, this skill, agent, judge
+done-done verify --outcome "<what a user can now do>" --feature <name>   # the author agent drives features/<name>.md, the judge checks its captures, a receipt records HEAD
+done-done run build                               # standing journey; also node-tests, browser-tests
+done-done maintain                                # keep this skill true against the source
+```
+
+`--feature` names a file in [the feature map](features/README.md); the default offline user surface is [realtime-voice-offline](features/realtime-voice-offline.md). If the judge or agent route is unavailable, report done-done's exact error; never launch a model of your own.
+
+Default surface (the offline voice demo): launch `BYOKIT_EXAMPLE_FAKE=1 node examples/realtime-voice/server.ts` (the flag is read at `examples/realtime-voice/server.ts:14`; it binds loopback on a free port and prints `Offline stand-in demo (not a live pass): <origin>` at `server.ts:106`; `GET /proof` returns counts only, `server.ts:42`). Ready = that line printed and `GET /` returns 200. Unset flag = the live demo: never. Drive it with headless Chromium and a fake microphone at 390x844, as `examples/realtime-voice/e2e.test.ts:54` (tap to talk and a blocked microphone), `:143` (the pick screen) and `:186` (a double tap cancels) do; stop the server with SIGINT when done.
 
 ## Launch (build)
 
@@ -76,7 +91,7 @@ An explicitly native-only lab journey uses its feature-indexed maintained device
 
 ## Evidence
 
-Every proof writes to an exclusive run directory under `.verify-artifacts/<feature>/` in the worktree root. The feature recipe sets `feature`, `entry` and the Bash `drive` array; then run this capture block in the same shell:
+Under `done-done verify` a drive writes its captures to `$DONE_DONE_EVIDENCE_ROOT`, a run folder outside the repo. A scratch drive without done-done writes to an exclusive run directory under `.verify-artifacts/<feature>/` in the worktree root. The feature recipe sets `feature`, `entry` and the Bash `drive` array; then run this capture block in the same shell:
 
 ```bash
 mkdir -p ".verify-artifacts/$feature" || exit 1
