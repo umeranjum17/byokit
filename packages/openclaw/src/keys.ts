@@ -6,7 +6,7 @@ import { keyAgentId, MEMBER_ID, KEY_PREFIX, untilListed } from './members.ts';
 import { providerOf } from './pick.ts';
 import type { RouteView } from './routes.ts';
 import { kitId, modelsOf } from './accounts.ts';
-import { LIVE_CATALOGS, REGISTERED_CATALOGS } from './constants.ts';
+import { LIVE_CATALOGS, OPEN_CATALOGS, REGISTERED_CATALOGS } from './constants.ts';
 import type { Member, ModelInfo } from './types.ts';
 
 // retry: the engine may have taken the key but it was not kept; the unsealed key is cleared best-effort. If that clear
@@ -113,6 +113,15 @@ export function createKeys(ctx: ActivationCtx & {
     throw new Error(keyed.length ? `${authChoice} takes no API key: add the key with ${keyed.map((r) => r.choice).join(' or ')}.`
       : `${authChoice} takes no API key.`);
   };
+  // The vendor's list can lag a model that runs: an id it lacks rides the route's own models (the richest row's api,
+  // base URL and context, every input modality any row takes), unpriced. Nothing is added to an empty list.
+  const unlisted = (provider: string, rows: Record<string, unknown>[], model: string): Record<string, unknown>[] => {
+    if (!rows.length || rows.some((m) => kitId(provider, String(m.id)) === model)) return [];
+    const base = rows.reduce((a, b) => (Number(b.contextWindow) || 0) > (Number(a.contextWindow) || 0) ? b : a);
+    const input = ['text', 'image'].filter((i) => rows.some((m) => Array.isArray(m.input) && m.input.includes(i)));
+    const id = model.slice(provider.length + 1);
+    return [{ ...base, id, name: id, input, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }];
+  };
   const listed = (provider: string, rows: Record<string, unknown>[]): ModelInfo[] =>
     modelsOf(provider, { models: rows.map((m) => ({ ...m, provider })) });
   const models = async (member: Member, o: { authChoice: string }): Promise<ModelInfo[]> => {
@@ -214,6 +223,8 @@ export function createKeys(ctx: ActivationCtx & {
             if (!result.ok && !result.late) return abandon(probeResult(result.status));
             if (result.late) return abandon(failure('retry', 'busy'));
             const rows = model === undefined ? [] : await catalog(member, route.provider);
+            const lagging = model !== undefined && OPEN_CATALOGS.includes(route.provider) ? unlisted(route.provider, rows, model) : [];
+            rows.push(...lagging);
             if (model !== undefined && !listed(route.provider, rows).some((m) => m.id === model && m.available))
               return abandon(failure('not_included', 'model'));
             // Prepare before publishing the ready marker: failed preparation remains unusable even if clear fails.
@@ -221,7 +232,7 @@ export function createKeys(ctx: ActivationCtx & {
             catch { return abandon(failure('retry', 'engine')); }
             if (ac.signal.aborted) return abandon(cancelled());
             // A live catalog the kit does not register whole (OpenRouter) registers the chosen model alone.
-            if (model !== undefined && !REGISTERED_CATALOGS.includes(route.provider))
+            if (model !== undefined && (!REGISTERED_CATALOGS.includes(route.provider) || lagging.length))
               await ctx.registerModels(route.provider, rows.filter((m) => kitId(route.provider, String(m.id)) === model)).catch(() => {});
             if (model !== undefined && LIVE_CATALOGS.includes(route.provider) && !(await registered(route.provider, model)))
               return abandon(failure('retry', 'model'));
