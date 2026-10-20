@@ -100,7 +100,9 @@ export function reconcileConfig(saved: object | undefined, o: {
     ...o.plugins ?? [],
     ...telegram ? ['telegram'] : []])];
   c.plugins.entries ??= {};
-  c.plugins.entries[o.pluginId] = merge(c.plugins.entries[o.pluginId] ?? {}, { hooks: { timeouts: { before_tool_call: 200_000 } } });
+  // Conversation access lets the plugin's prompt hook give an admitted helper child its persona (5.8.3).
+  c.plugins.entries[o.pluginId] = merge(c.plugins.entries[o.pluginId] ?? {}, { hooks: { timeouts: { before_tool_call: 200_000 },
+    allowConversationAccess: true } });
   if (o.browser) {
     // Replace, never merge caller-controlled profiles/targets. The dead default fails closed without our hook.
     c.browser = { enabled: true, defaultProfile: 'byokit-none', evaluateEnabled: false,
@@ -108,7 +110,6 @@ export function reconcileConfig(saved: object | undefined, o: {
       profiles: { 'byokit-none': { cdpUrl: 'http://127.0.0.1:1', attachOnly: true }, ...o.browser.profiles } };
     c.plugins.allow = [...new Set([...c.plugins.allow, 'browser'])];
     c.plugins.entries.browser = { enabled: true };
-    c.plugins.entries[o.pluginId].hooks.allowConversationAccess = true;
     c.tools ??= {};
     const browserTools = [...new Set([...(c.tools.alsoAllow ?? []), 'browser', 'request_sign_in', ...o.browser.tools])];
     // The stock schema rejects allow + alsoAllow in one scope; an explicit closed allow must absorb additions.

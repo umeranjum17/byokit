@@ -25,7 +25,7 @@ export class Delegations {
   private early = new Map<string, Record<string, any>[]>();
   constructor(privateOptions: {
     file: string; tools: ReadonlySet<string>; memberOf(agent: string): string | undefined;
-    helper(member: string, helper: string): { agentId: string; account: string }; // the ensured helper, else a typed HelperError
+    helper(member: string, helper: string): { agentId: string; account: string; persona: string }; // the ensured helper, else a typed HelperError
     rest(member: string, account: string, until: number): Promise<void>; // the account's runs skip it until then (5.15)
     request: GatewayTransport['request']; emit(e: DelegatedEvent): void; revoke(key: string, runId: string): void;
   }) { this.o = privateOptions; }
@@ -73,8 +73,16 @@ export class Delegations {
   has(key: string, runId: string): boolean {
     this.load(); return (this.roots.get(runId) ?? this.children.get(runId))?.ref.sessionKey === key;
   }
-  prepare(m: Record<string, any>): boolean {
+  private full(): boolean {
+    for (const [id, p] of this.pending) if (p.expires < Date.now()) this.pending.delete(id);
+    return this.pending.size + this.children.size >= 1024;
+  }
+  async prepare(m: Record<string, any>): Promise<boolean> {
     this.load();
+    // Children whose end never reached the kit would fill the journal for good: settle them with the engine first,
+    // before the parent is read, so an abort meanwhile is seen.
+    // ponytail: a full journal of live children re-reads all 1024 per dispatch; index ends by age if that shows up.
+    if (this.full()) await this.reconcile();
     const parent = this.roots.get(m.runId) ?? this.children.get(m.runId);
     if (!parent || parent.ref.sessionKey !== m.key) return false;
     if (typeof m.callId !== 'string' || !m.callId || !object(m.input)) throw new Error('delegation identity unavailable');
@@ -94,8 +102,7 @@ export class Delegations {
         throw new HelperError('session', `refused: "${String(m.input.sessionKey ?? agent)}" is not a helper session`);
       throw new Error('delegation target or mode refused');
     }
-    for (const [id, p] of this.pending) if (p.expires < Date.now()) this.pending.delete(id);
-    if (this.pending.size + this.children.size >= 1024) throw new Error('delegated run journal is full');
+    if (this.full()) throw new Error('delegated run journal is full');
     this.pending.set(actionKey(m), { parent: structuredClone(parent) as Grant, agent: agent as string,
       ...(send ? { key: m.input.sessionKey } : {}), ...(helper !== undefined ? { helper } : {}), expires: Date.now() + 60_000 });
     this.save(); return true;
@@ -147,6 +154,11 @@ export class Delegations {
     }
     return grant;
   }
+  /** The persona of the admitted helper child on this exact key and run, as its own run would carry it (5.8.3). */
+  async persona(key: string, runId?: string): Promise<string | undefined> {
+    const helper = (await this.resolve(key, runId))?.ref;
+    return helper?.helper === undefined ? undefined : this.o.helper(helper.member, helper.helper).persona;
+  }
   private bound(member: string, helper: string, agent: string): boolean {
     try { return this.o.helper(member, helper).agentId === agent; } catch { return false; }
   }
@@ -184,11 +196,18 @@ export class Delegations {
     this.o.revoke(grant.ref.sessionKey, grant.ref.runId);
     this.o.emit({ type: 'ended', run: structuredClone(grant.ref), ...end });
   }
+  // An exact recorded run the engine finished ends as it ended. One the engine no longer knows (no job, no queued turn,
+  // no live run, as after an engine restart: a plain `timeout` in the `queue` phase that never reached a provider) ends
+  // `lost`. A live or queued run stays admitted; a run whose wait fails stays for the next reconcile.
   async reconcile(): Promise<void> {
     for (const ref of this.list()) {
-      const end = await this.o.request('agent.wait', { runId: ref.runId, timeoutMs: 1 }) as { status?: string };
+      let end: { status?: string; timeoutPhase?: string; providerStarted?: boolean };
+      try { end = await this.o.request('agent.wait', { runId: ref.runId, timeoutMs: 1 }) as typeof end; }
+      catch { continue; }
       const grant = this.children.get(ref.runId);
-      if (grant && ['ok', 'error'].includes(end.status ?? '')) this.end(grant, { reason: end.status === 'ok' ? 'terminal' : 'error' });
+      if (!grant) continue;
+      if (end.status === 'ok' || end.status === 'error') this.end(grant, { reason: end.status === 'ok' ? 'terminal' : 'error' });
+      else if (end.status === 'timeout' && end.timeoutPhase === 'queue' && end.providerStarted === false) this.end(grant, { reason: 'lost' });
     }
   }
   async abort(key: string): Promise<void> {

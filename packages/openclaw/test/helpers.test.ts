@@ -125,6 +125,10 @@ test('helpers: personas on an account agent, the member agent and the plan key, 
     assert.deepEqual(gated.slice(gatedFrom).map(ref), [writerRef, plannerRef]);
     assert.deepEqual(called.slice(-2).map(ref), [writerRef, plannerRef]);
     assert.deepEqual(admitted(), ['writer', 'planner']);
+    // A native send carries no system text: the plugin's prompt hook gives each admitted child its own helper's persona.
+    assert.deepEqual(fake.calls.filter((c) => c.method === 'before_prompt_build').map((c) => c.params),
+      [{ sessionKey: writerRef[3], runId: called.at(-2)!.runId, appendSystemContext: persona('writer') },
+        { sessionKey: plannerRef[3], runId: called.at(-1)!.runId, appendSystemContext: persona('planner') }]);
     // Each child's lifecycle by helper: admitted with its tool subset, its engine events, then one finished end.
     const ends = (helper: string) => delegated.filter((e) => e.type === 'ended' && e.run.helper === helper);
     await until(() => ends('writer').length === 1 && ends('planner').length === 1, 'children never ended');
