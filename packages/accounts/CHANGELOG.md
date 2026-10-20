@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.30.0 (2026-10-20)
+
+- FEAT: `Accounts.models(member, id)` lists a ready account's models from its vendor's live `GET /models` (OpenAI-style routes with a bearer, Anthropic Messages at `/v1/models`), read with that account's own key, or for a Grok, Copilot, Kimi, Meta or MiniMax sign-in its token, so a model the vendor adds shows without a kit release; each route in `routes.json` now names that list as `models: { api, baseUrl }`, generated from the installed Pi pin. A route with no single list (Bedrock, Azure, Vertex, Cloudflare, Google AI Studio, Mistral, Radius, Typesafe, custom) or a list that cannot be read keeps the catalogue's rows. Without host `capabilities`, `pick` no longer refuses a model id only because no account lists it: the pick goes ahead and names it in `unlisted` for the app to warn (`resolveSelection` takes the same as a new `open` argument, off by default); a listed model the account cannot use, or one a host's `capabilities` omit, still refuses.
+- FIX: `resolveModel` reports `listed: true` for an id an Anthropic Messages vendor's live list carries (MiniMax's `MiniMax-M3.1-Flash`), and for an OpenAI-style row that names no limits; before, only a row with limits counted.
+- FEAT: `accounts.add(member, 'openrouter:key', { keyFile })` on a computer reads the key from a file (read once, never echoed); an off-catalogue OpenRouter model id (for example `minimax/minimax-m3.1-flash:free`) now resolves on OpenRouter's OpenAI-compatible API with its live-list limits.
+- FIX: A Pi launch no longer lets Pi pick its own default model for the provider (OpenRouter's was Kimi K2.6, run on a key nobody chose it for). `cliAccounts.launchArgs(id, model)` takes the model the caller chose and returns `['--provider', …, '--model', model]`, and throws "Choose a model for <provider> first" for a Pi row when none is given; `@byokit/decide/pi` likewise requires `model`.
+- BREAKING: `Ask.model` is now required for ChatGPT and Ollama Pro respond calls (pass an id from `models()`); before, callers could omit it and the kit supplied a default. `Provider.models` (the catalogue's strong/fast tiers), `ModelInfo.tier`, and `ProviderInfo.models` are removed; every vendor's live list applies. `OLLAMA_PRO_DEFAULT_MODEL` is removed from the export; call `ollamaProChat` with `model: string` explicit.
+- FIX: BYOKit never exports a provider key into the systemd user environment, and `npm run check:user-env` now fails, naming each such variable (never its value) and the `systemctl --user unset-environment` command, when one is there; keys are read only by path through the kit.
+
 ## 0.29.0 (2026-10-20)
 
 - FEATURE: A signed-in Claude row from `cliAccounts` (the person's installed `installed-claude` and managed ones) carries `method`: `'subscription'`, `'api_key'` or `'other'`, read from `claude auth status`'s own `authMethod`, so an app can show which sign-in the person is on. New type export: `SignInMethod`. Absent when the CLI does not say.

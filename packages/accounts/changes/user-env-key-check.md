@@ -1,1 +1,0 @@
-- FIX: BYOKit never exports a provider key into the systemd user environment, and `npm run check:user-env` now fails, naming each such variable (never its value) and the `systemctl --user unset-environment` command, when one is there; keys are read only by path through the kit.

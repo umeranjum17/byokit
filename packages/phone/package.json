@@ -1,6 +1,6 @@
 {
   "name": "@byokit/phone",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "An agent that runs on the phone itself: the person's own AI account, a chat kept on the phone, and the app's own tools.",
   "license": "Apache-2.0",
   "type": "module",
@@ -12,7 +12,7 @@
   "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md"],
   "scripts": { "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs" },
   "peerDependencies": {
-    "@byokit/accounts": "0.29.0"
+    "@byokit/accounts": "0.30.0"
   },
   "publishConfig": { "access": "public" }
 }

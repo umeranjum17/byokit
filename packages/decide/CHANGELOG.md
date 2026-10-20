@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.14.1 (2026-10-20)
+
+- Dependency update: pins @byokit/accounts 0.30.0.
+- FIX: (from @byokit/accounts 0.30.0) `resolveModel` reports `listed: true` for an id an Anthropic Messages vendor's live list carries (MiniMax's `MiniMax-M3.1-Flash`), and for an OpenAI-style row that names no limits; before, only a row with limits counted.
+- FIX: (from @byokit/accounts 0.30.0) A Pi launch no longer lets Pi pick its own default model for the provider (OpenRouter's was Kimi K2.6, run on a key nobody chose it for). `cliAccounts.launchArgs(id, model)` takes the model the caller chose and returns `['--provider', …, '--model', model]`, and throws "Choose a model for <provider> first" for a Pi row when none is given; `@byokit/decide/pi` likewise requires `model`.
+- FIX: (from @byokit/accounts 0.30.0) BYOKit never exports a provider key into the systemd user environment, and `npm run check:user-env` now fails, naming each such variable (never its value) and the `systemctl --user unset-environment` command, when one is there; keys are read only by path through the kit.
+
+- DOCS: the README's ChatGPT `answerer` example names its model (`model: 'gpt-6-sol'`), since `@byokit/accounts` `respond` now requires one for ChatGPT.
+- FIX: `pi({ bin, model, timeoutMs })` requires `model` and throws "Choose a model for pi first" without it, so the installed pi never answers with its own default model.
+
 ## 0.14.0 (2026-10-20)
 
 - Dependency update: pins @byokit/accounts 0.29.0.
