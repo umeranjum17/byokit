@@ -105,7 +105,7 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
 | `zai({ model, key, route?, request?, ... })` / `zai({ model, account, request?, ... })` | Z.AI (GLM) coding-plan models used for decisions; the plan key (`zai` or `zai-coding-cn` route) or its plan account, never an API-billed route |
 | `parseConfig(objectOrJSON)`, `createDecider(config, options)` | Validate portable config and set it once, with optional per-call overrides |
 | `ConfigError`, `UnsupportedAccountError`, `UnsupportedImagesError`, `InvalidImageError`, `OPENAI_ROUTES`, `ANTHROPIC_ROUTES`, `OPENCODE_GO_ROUTES`, `ZAI_ROUTES` | Typed config/account errors and billing labels (API keys are never offered by default; the Go plan key bills subscription) |
-| `BackendRefusedError`, `RefusalCode` | The provider refused the key or account: `code` is `'key_refused'` (401/403), `'out_of_credit'` (402) or `'rate_limited'` (429 after retries), with its `status`; `decide()` abstains with `failure: { code, status }` |
+| `BackendRefusedError`, `RefusalCode`, `FailureCode` | The provider refused the key or account: `code` is `'key_refused'` (401/403), `'out_of_credit'` (402) or `'rate_limited'` (429 after retries), with its `status`; `decide()` abstains with `failure: { code, status }`. `FailureCode` adds `'bad_reply'`, a model that returned text in the wrong shape |
 | `RateLimitError` | A `BackendRefusedError` with `code: 'rate_limited'`: 429 retries exhausted (`status: 429`, `retries`) |
 | `MemoryCache`, `cacheKey(state, questions, images?)` | In-memory reference cache for `decide({ cache })`, and the stable request key it uses |
 | `resolve(question, raw)` | The floors on one raw answer, for an app that holds a recorded answer |
@@ -174,6 +174,13 @@ keeps its code. A callback error with only an HTTP `status` is an ordinary failu
 `reason`. Refused answers are never stored by `cache`, so the next decision asks the backend again. Neither field
 ever holds the provider's body or the key. For example, on `answer.failure?.code === 'key_refused'` an app can show
 "Your writer account refused. Connect it again."
+
+A model that answered but not in the asked shape abstains with `failure: { code: 'bad_reply' }`, a different cause
+from a refused sign-in: an `answerer` reply that is not JSON for the question, or a backend that rejects with the
+`invalid_json` or `invalid_output` code (Claude Code, Codex and Pi). An app retries or asks a person rather than
+asking for a sign-in. `FailureCode` is `RefusalCode | 'bad_reply'`; it carries no `status`, and the reply text is
+never kept in it. A bad reply is never stored by `cache` either. A cut-off answer and a timeout stay ordinary
+failures with only a `reason`.
 
 For custom `Backend.ask`, a rank `Raw` has `{ probabilities: {}, ranking, confidence, scores?, personReason? }`.
 `resolve` validates it and carries `usage`/`raw` as usual. Recorded Jev Choice responses can replay as ranks;

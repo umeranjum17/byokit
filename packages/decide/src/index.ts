@@ -5,7 +5,7 @@ export { resolve, rules, answerer, cacheKey, MemoryCache, FLOOR, RateLimitError,
   UnsupportedAccountError, UnsupportedImagesError, InvalidImageError,
   type Question, type QuestionOptions, type Answer, type Usage, type Raw, type Backend, type Options,
   type DecideCache, type RuleAnswer, type AnswererReply, type AnswererRequestOptions, type AnswererOptions,
-  type AnswererBackend, type RetryOptions, type RefusalCode, type ImageInput, type DecisionImage } from './core.ts';
+  type AnswererBackend, type RetryOptions, type RefusalCode, type FailureCode, type ImageInput, type DecisionImage } from './core.ts';
 // Typed questions in, a typed answer with confidence out, abstaining below a floor. The floor, the per-option floors,
 // the runner-up and the tie are code, never a prompt.
 export { jev } from './jev.ts';

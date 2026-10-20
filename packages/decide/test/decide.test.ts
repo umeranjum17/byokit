@@ -174,6 +174,23 @@ test('the Jev wire asks for a requested answer field and returns it on the answe
   assert.deepEqual([out.intent.answer, (out.intent as Answer & { title?: unknown }).title], ['followup', 'Plumber call-back']);
 });
 
+test('a model that answers in the wrong shape is a bad_reply, never a refused sign-in, and is not cached', async () => {
+  const cache = new MemoryCache();
+  const q = { keep: { kind: 'yesno', question: 'Keep it?' } } as const;
+  let text = 'Sure! Here you go';
+  const talky = answerer({ name: 'talky', leaves: true, ask: async () => text });
+  const bad = await decide({}, q, { privacy: 'may-leave', backends: [talky], cache });
+  assert.deepEqual([bad.keep.abstained, bad.keep.failure], [true, { code: 'bad_reply' }]);
+  text = JSON.stringify({ keep: { probabilities: { true: 0.9, false: 0.1 } } });
+  const good = await decide({}, q, { privacy: 'may-leave', backends: [talky], cache });
+  assert.deepEqual([good.keep.answer, good.keep.failure], [true, undefined]);
+  // A backend that rejects with invalid_json/invalid_output (Claude Code, Codex, Pi) reads the same; sign-in stays key_refused.
+  for (const [code, failure] of [['invalid_json', { code: 'bad_reply' }], ['invalid_output', { code: 'bad_reply' }], ['key_refused', { code: 'key_refused' }], ['process', undefined]] as const) {
+    const backend = { name: 'cli', leaves: true, ask: async () => { throw Object.assign(new Error('x'), { code }); } };
+    assert.deepEqual((await decide({}, q, { privacy: 'may-leave', backends: [backend] })).keep.failure, failure, code);
+  }
+});
+
 test('a refused answer is never cached, so the next decision asks the backend again', async () => {
   const cache = new MemoryCache();
   const questions = jevQuestions();

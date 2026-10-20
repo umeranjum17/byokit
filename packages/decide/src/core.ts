@@ -5,13 +5,16 @@
 import { normalizeImages, validateImageReferences, UnsupportedImagesError, InvalidImageError, type ImageInput, type DecisionImage } from './images.ts';
 export { UnsupportedImagesError, InvalidImageError, type ImageInput, type DecisionImage } from './images.ts';
 import { parseUsage } from './http.ts';
-import { BackendRefusedError, refusalOf, retryCall, type RefusalCode, type RetryOptions } from './http.ts';
-export { BackendRefusedError, RateLimitError, type RefusalCode, type RetryOptions } from './http.ts';
+import { failureOf, refusalOf, retryCall, type BackendRefusedError, type FailureCode, type RetryOptions } from './http.ts';
+export { BackendRefusedError, RateLimitError, type FailureCode, type RefusalCode, type RetryOptions } from './http.ts';
 import { STATE_INSTRUCTIONS } from './prompt.ts';
 import { PairedHostError } from './paired-errors.ts';
 import { UnsupportedAccountError } from './account-error.ts';
 export { UnsupportedAccountError } from './account-error.ts';
 import type { ResponseText } from '@byokit/accounts';
+
+/** Answerer replies that were not readable JSON for their question, so `decide()` reports `failure: { code: 'bad_reply' }`. */
+const badReplies = new WeakSet<object>();
 
 export type Question = QuestionOptions & (
   /** Pick one option; `floors` holds an option's own floor, checked against that option's probability. */
@@ -49,8 +52,9 @@ export type Answer = {
   abstained: boolean;
   /** Why it abstained, or which runner-up it fell to. For logs, not for people. */
   reason?: string;
-  /** Set when it abstained because the provider refused the key or account, so the app can say so in its own words. */
-  failure?: { code: RefusalCode; status?: number };
+  /** Set when it abstained because the provider refused the key or account (`key_refused`, `out_of_credit`, `rate_limited`), or
+   *  because the model answered but not in the asked shape (`bad_reply`), so the app can say so in its own words. */
+  failure?: { code: FailureCode; status?: number };
   /** Opt-in plain text for a person, at most 160 characters. Never a diagnostic or abstention reason. */
   personReason?: string;
   by: string;
@@ -247,7 +251,7 @@ export async function decideWithKey(state: unknown, questions: Record<string, Qu
     const t0 = Date.now();
     const raws: Record<string, Raw | undefined> = Object.create(null);
     const failures: Record<string, string> = Object.create(null);
-    const refusals: Record<string, BackendRefusedError> = Object.create(null);
+    const refusals: Record<string, { code: FailureCode; status?: number }> = Object.create(null);
     let failed = '';
     const controller = new AbortController();
     let timer!: ReturnType<typeof setTimeout>;
@@ -275,7 +279,8 @@ export async function decideWithKey(state: unknown, questions: Record<string, Qu
             if (e instanceof UnsupportedAccountError || e instanceof UnsupportedImagesError || e instanceof InvalidImageError || e instanceof PairedHostError) throw e;
             for (const k of Object.keys(groupQuestions)) {
               failures[k] = backendFailure(b.name, e);
-              if (e instanceof BackendRefusedError) refusals[k] = e;
+              const failure = failureOf(e);
+              if (failure) refusals[k] = failure;
             }
           }
         };
@@ -298,7 +303,7 @@ export async function decideWithKey(state: unknown, questions: Record<string, Qu
       const raw = Object.hasOwn(raws, k) ? raws[k] : undefined;
       const a = { ...(b.confidenceSource && { confidenceSource: b.confidenceSource }), ...resolve(q, raw), by: b.name, ms };
       if (!raw && (failures[k] || failed)) a.reason = failures[k] || failed;
-      const refused = raw ? undefined : refusals[k];
+      const refused = raw ? badReplies.has(raw) ? { code: 'bad_reply' as const } : undefined : refusals[k];
       if (refused) a.failure = { code: refused.code, ...(refused.status && { status: refused.status }) };
       if (!Object.hasOwn(out, k) || !a.abstained || a.probabilities || (q.kind === 'rank' && raw?.ranking !== undefined)) out[k] = a;
     }
@@ -487,6 +492,7 @@ export function answerer(o: AnswererOptions): AnswererBackend {
           ? (parsed as Record<string, unknown>)[k] : undefined;
         const a = value !== null && typeof value === 'object' && !Array.isArray(value)
           ? value as Record<string, any> : {};
+        const unreadable = a !== value;
         const explanation = typeof a.rationale === 'string' ? a.rationale : rationale;
         const carried = { ...(q.answerFields ? Object.fromEntries(q.answerFields.filter((key) => Object.hasOwn(a, key)).map((key) => [key, a[key]])) : {}), confidenceSource: 'self-reported' as const, ...(usage && { usage }), ...metadata,
           ...(typeof explanation === 'string' && { rationale: explanation }) };
@@ -497,6 +503,7 @@ export function answerer(o: AnswererOptions): AnswererBackend {
             ? a.probabilities : a ?? {};
           out[k] = { probabilities, ...(q.personReason && { personReason: a?.personReason }), ...carried };
         }
+        if (unreadable) badReplies.add(out[k]);
       }
       return out;
     },
