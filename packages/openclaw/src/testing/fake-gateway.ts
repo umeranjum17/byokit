@@ -354,6 +354,12 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
     setTimeout(() => {
       void (async () => {
         const table = bridgeSock ? pluginTable(bridgeSock) : undefined;
+        // As the plugin's prompt hook: a child on a helper key asks the kit for its helper's persona (5.8.3).
+        if (child && bridgeSock && /^agent:[^:]+:h-[a-z][a-z0-9-]{0,15}:/.test(run.sessionKey)) {
+          const reply = await bridgeRequest(bridgeSock, { kind: 'delegation-persona', key: run.sessionKey, runId: run.runId }).catch((): Record<string, unknown> => ({}));
+          calls.push({ method: 'before_prompt_build', params: { sessionKey: run.sessionKey, runId: run.runId,
+            ...(typeof reply.persona === 'string' ? { appendSystemContext: reply.persona } : {}) } });
+        }
         let n = 0;
         for (const call of toolCalls(message)) {
           const toolCallId = `call-${++n}`;
@@ -651,12 +657,16 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       return { status: 'cancelled' };
     },
     agent: (p, bridgeSock) => startRun(p, bridgeSock),
+    // The pin: a run it never had (or forgot, as after a restart) waits out as a `timeout` in the `queue` phase that never
+    // reached a provider; a live run past `timeoutMs` is a `timeout` while it drains.
     'agent.wait': (p) =>
-      new Promise((resolve, reject) => {
-        const run = runs.get(String(p.runId));
-        if (!run) return reject(new Error(`unknown run: ${p.runId}`));
-        if (run.result) resolve(run.result);
-        else run.waiters.push(resolve);
+      new Promise((resolve) => {
+        const runId = String(p.runId);
+        const run = runs.get(runId);
+        if (!run) return resolve({ runId, status: 'timeout', timeoutPhase: 'queue', providerStarted: false });
+        if (run.result) return resolve(run.result);
+        run.waiters.push(resolve);
+        if (typeof p.timeoutMs === 'number') setTimeout(() => resolve({ runId, status: 'timeout', timeoutPhase: 'gateway_draining' }), p.timeoutMs).unref();
       }),
     'sessions.steer': () => ({}),
     // The pin: a key the agent holds answers its canonical key; a missing one errors unless `allowMissing`, which answers `{ ok: false }`.

@@ -322,20 +322,28 @@ export class Bridge {
       return;
     }
     if (message.kind.startsWith('delegation-') && this.delegations) {
-      try {
+      const delegations = this.delegations;
+      void (async () => {
         if (message.kind === 'delegation-prepare') {
           if (typeof message.key !== 'string' || typeof message.runId !== 'string'
-            || (!this.isRegisteredRun(message.key, message.runId) && !this.delegations.has(message.key, message.runId)))
+            || (!this.isRegisteredRun(message.key, message.runId) && !delegations.has(message.key, message.runId)))
             return this.deny(socket, 'unknown delegation parent');
-          this.reply(socket, { tracked: this.delegations.prepare(message) });
+          this.reply(socket, { tracked: await delegations.prepare(message) });
         }
-        else if (message.kind === 'delegation-receipt') { this.delegations.receipt(message); this.reply(socket, { ok: true }); }
-        else if (message.kind === 'delegation-event' && isRecord(message.event)) { this.delegations.event(message.event); this.reply(socket, { ok: true }); }
+        else if (message.kind === 'delegation-receipt') { delegations.receipt(message); this.reply(socket, { ok: true }); }
+        else if (message.kind === 'delegation-event' && isRecord(message.event)) { delegations.event(message.event); this.reply(socket, { ok: true }); }
+        // The plugin's prompt hook on a helper key: an admitted helper child speaks as its helper (5.8.3).
+        else if (message.kind === 'delegation-persona' && typeof message.key === 'string') {
+          const runId = typeof message.runId === 'string' ? message.runId : undefined;
+          // A kit run carries its own persona; only an engine-created child is looked up (it may wait for its receipt).
+          const persona = runId && this.isRegisteredRun(message.key, runId) ? undefined : await delegations.persona(message.key, runId);
+          this.reply(socket, persona === undefined ? {} : { persona });
+        }
         else this.deny(socket, 'invalid delegation message');
-      } catch (error) {
+      })().catch((error) => {
         // A typed helper refusal (5.8.3) reaches the parent's tool result with its code.
         this.deny(socket, error instanceof HelperError ? `${error.code}: ${error.message}` : error instanceof Error ? error.message : 'delegation unavailable');
-      }
+      });
       return;
     }
     if (message.kind === 'gate') return void this.gate(socket, message).catch(() => this.deny(socket, 'run unavailable'));

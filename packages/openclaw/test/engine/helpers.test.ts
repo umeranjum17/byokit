@@ -213,10 +213,15 @@ mock.method(globalThis, 'fetch', (input, options) => {
     const ref = (r: RunRef) => [r.member, r.helper, r.agentId, r.sessionKey, r.parent?.sessionKey];
     // The targets are the helpers' standing sessions (their turns above): the pin's send reaches only an existing session.
     const targets = [[`agent:${agent}:h-writer:main`, 'writer', agent, 'lead'], ['agent:byokit-key-m1:h-planner:main', 'planner', 'byokit-key-m1', 'plan']] as const;
-    for (const [target, , , tail] of targets) {
+    for (const [target, helper, , tail] of targets) {
+      const from = stub.calls.length;
       const end = await lead(tail, target);
       assert.ok(end.ok, `${target}: ${JSON.stringify(end)}`);
       await until(() => called.some((r) => r.sessionKey === target), `${target} never called`);
+      // A native send carries no system text: the child's own model request carries its helper's persona as system text.
+      const system = (c: (typeof stub.calls)[number]) => JSON.stringify(c.body.messages?.filter((m) => ['system', 'developer'].includes(m.role ?? '')));
+      assert.ok(stub.calls.slice(from).some((c) => system(c).includes(persona(helper)) && !system(c).includes(persona('research'))),
+        `${helper} child speaks as its persona`);
     }
     const expected = targets.map(([target, helper, owner, tail]) => ['m1', helper, owner, target, `agent:${agent}:h-research:${tail}`]);
     assert.deepEqual(gated.map(ref), expected, 'each child is gated as its helper');

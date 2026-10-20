@@ -159,6 +159,17 @@ export default {
         callId: ctx?.toolCallId ?? event.toolCallId,
         result: { details: d && { status: d.status, runId: d.runId, sessionKey: d.sessionKey, childSessionKey: d.childSessionKey } } });
     });
+    // A native send carries no system text: an admitted helper child gets its helper's persona from the kit (5.8.3).
+    // Any other run, or no answer, adds nothing; the persona is the helper's voice, never a grant.
+    api.on('before_prompt_build', async (_event, ctx) => {
+      const key = ctx?.sessionKey;
+      if (typeof key !== 'string' || !/^agent:[^:]+:h-[a-z][a-z0-9-]{0,15}:/.test(key)) return undefined;
+      try {
+        const reply = await bridgeRequest({ kind: 'delegation-persona', key, runId: ctx?.runId }, { timeoutMs: 10_000 });
+        if (typeof reply?.persona === 'string' && reply.persona) return { appendSystemContext: reply.persona };
+      } catch { /* no kit: nothing added */ }
+      return undefined;
+    });
     api.registerAgentEventSubscription?.({ id: 'byokit-delegated-events', handle(event) {
       if (!['assistant', 'tool', 'thinking', 'lifecycle'].includes(event.stream)) return;
       const data = Object.fromEntries(['text', 'name', 'phase', 'toolCallId', 'isError', 'progressTokens', 'aborted', 'error', 'provider', 'model']
@@ -281,6 +292,12 @@ export default {
             callId: ctx?.toolCallId ?? event.toolCallId, tool: event.toolName, input: params });
           if (prepared.allow === false) return { block: true, blockReason: prepared.reason };
         } catch { return { block: true, blockReason: 'delegation admission unavailable' }; }
+        // A tracked spawn into the run's own agent goes without `agentId`, the engine's own-agent spawn, so an app's
+        // `subagents.allowAgents` list for other agents never refuses it. The kit already admitted that exact agent.
+        // Hook params merge over the model's, so the key is overridden, not left out.
+        const own = ctx?.agentId ?? /^agent:([^:]+):/.exec(key)?.[1];
+        if (event.toolName === 'sessions_spawn' && typeof own === 'string' && params.agentId === own)
+          return { params: { ...params, agentId: undefined } };
       }
       if (builtin) return BROWSER && event.toolName === 'browser' ? { params } : undefined;
       // The bridge mints a permit for permitted tools and admits the rest ticket-side; either way the run key

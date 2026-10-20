@@ -1297,7 +1297,9 @@ before dispatch. Parent app-tool restrictions also constrain every descendant. B
 For opted-in runs the bridge records an allowed native `sessions_spawn` or `sessions_send` call using the trusted
 hook's exact parent run ID, session key and tool-call ID. Send requires an explicit full target session key and
 `timeoutSeconds: 0`; label lookup, synchronous waits and ACP spawns are refused on this tracked path. Spawn requires
-an explicit allowed `agentId`. The native after-tool receipt, not model arguments or a key prefix, supplies the
+an explicit allowed `agentId`. A tracked spawn into the run's own agent (`delegates` naming it) reaches the engine
+without `agentId`, the pin's own-agent spawn, so an app's `subagents.allowAgents` list naming other agents never
+refuses it; the kit configures nothing else for it. The native after-tool receipt, not model arguments or a key prefix, supplies the
 exact child run ID/session key. Until that receipt arrives child gates wait briefly, then fail closed. Unknown
 children never acquire authority. Approval denial creates no admitted action; every child action is gated again.
 
@@ -1308,7 +1310,11 @@ surface. Native events are observations, never a completion/delivery guarantee.
 
 Pending dispatch receipts and admitted children are persisted under the app-owned engine root, without messages,
 credentials or approval answers. Parent settlement does not revoke children. Reconnect/start reconciles exact
-recorded run IDs with `agent.wait`; terminal records are revoked, while timeout is unknown, not completion.
+recorded run IDs with `agent.wait` (`timeoutMs: 1`): `ok`/`error` end `terminal`/`error`; the pin's answer for a run
+it does not know at all (`timeout` in the `queue` phase with `providerStarted: false`: no job, queued turn or live run,
+as after an engine restart) ends `lost` (outcome unknown, admission ended); a live run's `timeout` and a failed wait
+keep the child for the next reconcile. A dispatch that finds the journal full (1024 pending and admitted) reconciles
+first, so children whose end never reached the kit cannot block delegation.
 No new run IDs are guessed on restart: an engine resume with a different ID needs fresh admission. A dispatch
 whose receipt never arrived stays fail-closed. `abort(rootSessionKey)` revokes the recorded subtree before native
 abort requests, closes its parked gates/active calls, and preserves original errors. Call `abort` with a child key
@@ -1356,7 +1362,11 @@ namespace and persona on the agent that already holds the account.
   never ensured (`unknown_helper`), a helper this run was not given (`session`). `sessions_spawn` mints its own
   `subagent:` key, so it never reaches a helper session. Revocation is the native path's (`abort(rootSessionKey)`), and
   a helper whose account was removed or rebound since admission ends its children's admission (`ended`, `cancelled`)
-  at their next gate or call. The child runs without the helper's persona: a native send carries no system text.
+  at their next gate or call. A native send carries no system text, so the kit gives the child its helper's persona:
+  the plugin's `before_prompt_build` hook on an `h-<helper>:` key asks the bridge (`delegation-persona`, exact key and
+  run id) and appends the recorded persona as system context only for the admitted helper child of that run; any
+  other run (a kit run carries its persona itself) and an unanswered ask add nothing. The kit plugin's entry sets
+  `hooks.allowConversationAccess: true` for this hook. `sessions_spawn` children (`subagent:` keys) get no persona.
 - Legacy adoption (S4): `adoptHelperSession(ref, helper): Promise<MoveResult>` takes a member session from before
   helpers (`agent:<member>:<tail>`, its tail not a helper's, else `session`) into an ensured helper (`unknown_helper`).
   It is `move` (5.15) onto the helper's account with the target tail `h-<helper>:<tail>`, the same agent included: on
@@ -1373,7 +1383,7 @@ namespace and persona on the agent that already holds the account.
   `abort(rootSessionKey)`, `abort(childKey)` and ended admission), `error` is `error` with the engine's `message`, or
   `resting` when it classifies as the model's limit (5.8 rules) on a helper's run: the kit rests the helper's account
   `until` the stated reset (else five minutes), as a kit run's resting end does (5.15 Runs step 7), so its next Auto
-  pick skips it. A reconnect's `agent.wait` maps `ok` to `terminal` and `error` to `error`. A gate approval on a
+  pick skips it. A reconnect's `agent.wait` maps `ok` to `terminal`, `error` to `error`, and a run the engine does not know to `lost`. A gate approval on a
   helper's run and a native approval on a helper's key carry `Approval.helper`; `member` stays the member. The app
   projects these; it keeps no delegation supervisor of its own.
 - Known limit: helpers share the engine agent (id, workspace files, memory) of their account; separate engine agents

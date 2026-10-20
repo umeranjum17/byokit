@@ -443,14 +443,17 @@ Pass `delegates: { scout: ['report'] }` on `kit.run` to permit native delegation
 that app-tool subset. Ensure the target member first and configure the engine's own A2A/visibility/subagent policy;
 this option does not enable engine tools or bypass `host.gate`. The parent subset narrows descendants too.
 Tracked `sessions_send` requires an explicit full `sessionKey` and `timeoutSeconds: 0`; tracked `sessions_spawn`
-requires an explicit allowed `agentId` and native runtime (not ACP). Unknown children fail closed.
+requires an explicit allowed `agentId` and native runtime (not ACP). A tracked spawn into the run's own agent
+(`delegates: { chief: [...] }` on a `chief` run) goes to the engine as its own-agent spawn, so an app
+`subagents.allowAgents` list for other agents does not refuse it. Unknown children fail closed.
 
 `kit.delegatedRuns()` lists admitted children. `kit.onEvent('byokit.delegated', fn)` reports admission, native streams
 and terminal observations with exact `runId`, `agentId`, `member`, `sessionKey`, `parent` and `root` identity.
 The same identity reaches `ToolHost`; each delegated action has its own gate/approval. Tool arguments/results
 are omitted from this event surface. An accepted native dispatch is not finished work or proof of delivery.
 
-Admitted exact run IDs survive parent settlement and are reconciled on reconnect/start. `abort(rootSessionKey)`
+Admitted exact run IDs survive parent settlement and are reconciled on reconnect/start; a child the engine no longer
+knows (as after an engine restart) ends `lost`, and a dispatch that finds the journal full reconciles first. `abort(rootSessionKey)`
 durably revokes its recorded subtree, closes parked gates/active calls, then asks the engine to abort; a child key
 revokes its subtree. An engine resume with a different run ID, or a dispatch with no retained receipt, is not
 silently granted authority. No prefix grants or `allowOnce` bypass are used.
@@ -496,8 +499,9 @@ above, builtin gating on): the engine's own `sessions_send` to the exact key `ag
 (`timeoutSeconds: 0`) is admitted from its receipt as writer's run, `RunRef.helper: 'writer'` on every gate and call.
 A target that is not a helper key, a helper on another account, one never ensured, or one the run was not given is
 refused before dispatch; the parent's tool result reads `session: …`, `bound: …` or `unknown_helper: …`.
-`abort(rootSessionKey)` revokes the children, and a helper whose account is removed loses them at their next call. The
-child runs without the helper's persona (a native send carries no system text).
+`abort(rootSessionKey)` revokes the children, and a helper whose account is removed loses them at their next call. A
+native send carries no system text, so the kit adds the helper's recorded persona as system context to the admitted
+child's run; a `sessions_spawn` child gets none.
 
 Conversations from before helpers (plain member sessions) move into a helper with
 `kit.adoptHelperSession({ member, sessionKey }, helper)`: the whole transcript forks to
@@ -510,8 +514,9 @@ both. A helper key, another member's key or a helper never ensured is a typed `H
 
 `kit.onEvent('byokit.delegated', fn)` follows each helper child start to finish: `admitted` (with `run.helper` and
 `run.tools`, its app-tool subset), the engine's events, then one `ended` whose `reason` is `terminal`, `cancelled` (an
-abort, or its admission ended), `error` (with `message`) or `resting`: the model's usage limit ended it, and the kit
-rests the helper's account `until` the stated reset, as a kit run's resting end does. An approval raised by a helper's
+abort, or its admission ended), `error` (with `message`), `lost` (the engine no longer knows the run: outcome unknown)
+or `resting`: the model's usage limit ended it, and the kit rests the helper's account `until` the stated reset, as a
+kit run's resting end does. An approval raised by a helper's
 run names it in `Approval.helper`.
 
 ## Owned browser (unqualified handoff)

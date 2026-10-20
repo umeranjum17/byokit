@@ -90,8 +90,25 @@ test('native send/spawn receipts admit only exact child runs; approvals, events,
     assert.equal(kit.approvals().length, 0);
     await assert.rejects(kit.decide(parkedId, { allow: true }), /unknown approval/);
     assert.equal(calls.length, callCount, 'revoked approval ran a tool');
+    // Same-agent spawn: Chief hands work to a subagent of its own agent. The app's allowAgents list names only scout,
+    // yet the tracked spawn into m1 itself goes through as the engine's own-agent spawn and is admitted exactly.
+    const selfRoot = 'agent:m1:teams:self';
+    const selfEnd = await kit.run({ member: 'm1', sessionKey: selfRoot, tools: ['report'], delegates: { m1: ['report'] },
+      message: script('sessions_spawn', { agentId: 'm1', task: '[tool report {"text":"self"}]', mode: 'run' }) });
+    console.log('parent self spawn', JSON.stringify(selfEnd)); assert.ok(selfEnd.ok, JSON.stringify(selfEnd));
+    await until(() => kit.approvals().length === 1, 'same-agent spawn never reached approval');
+    const self = kit.delegatedRuns().find(r => r.root.sessionKey === selfRoot)!;
+    assert.ok(self && self.agentId === 'm1' && self.member === 'm1' && self.sessionKey.startsWith('agent:m1:subagent:'), JSON.stringify(self));
+    assert.equal(kit.approvals()[0]!.sessionKey, self.sessionKey);
+    await kit.decide(kit.approvals()[0]!.id, { allow: true });
+    await until(() => events.some(e => e.type === 'ended' && e.run.runId === self.runId), 'same-agent child never ended');
+    assert.deepEqual([calls.at(-1)!.sessionKey, calls.at(-1)!.parent?.sessionKey], [self.sessionKey, selfRoot]);
+    assert.equal(events.find(e => e.type === 'ended' && e.run.runId === self.runId)!.reason, 'terminal');
+    // The engine's answer for a run it does not know, which reconcile reads as `lost` (the kit's restart sweep).
+    const forgotten = await kit.call('agent.wait', { runId: 'never-a-run', timeoutMs: 1 }) as Record<string, unknown>;
+    assert.deepEqual([forgotten.status, forgotten.timeoutPhase, forgotten.providerStarted], ['timeout', 'queue', false]);
     await kit.stop(); await kit.start();
     assert.equal(kit.delegatedRuns().length, 0, 'revoked child revived after engine restart');
-    console.log('PASS native send/spawn: exact actors, parent settlement, deny/allow, narrowed tools, unknown refusal, durable receipt/revocation, cancellation/restart');
+    console.log('PASS native send/spawn: exact actors, same-agent spawn, parent settlement, deny/allow, narrowed tools, unknown refusal, durable receipt/revocation, cancellation/restart');
   } finally { await kit.stop(); await stub.close(); }
 });
