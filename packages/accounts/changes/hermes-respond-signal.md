@@ -1,1 +1,0 @@
-- FIX: A ChatGPT `respond` (or `access`) given an `AbortSignal` no longer throws `TypeError` on Hermes, whose `AbortSignal` has no `throwIfAborted`: an aborted signal still rejects with its reason.

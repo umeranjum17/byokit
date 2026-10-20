@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.14.0 (2026-10-20)
+
+- Dependency update: pins @byokit/accounts 0.29.0.
+
+- FEATURE: An answer from a model that returned text in the wrong shape now abstains with `failure: { code: 'bad_reply' }`, apart from a refused sign-in (`key_refused`, `out_of_credit`, `rate_limited`), so an app can retry or ask a person instead of asking for a sign-in. It covers an `answerer` reply that is not JSON for its question and a backend that rejects with `invalid_json` or `invalid_output` (Claude Code, Codex, Pi). New type export: `FailureCode` (`RefusalCode | 'bad_reply'`), now the type of `Answer.failure.code`. A bad reply is never cached.
+
 ## 0.13.1 (2026-10-19)
 
 - Dependency update: pins @byokit/accounts 0.28.2.
