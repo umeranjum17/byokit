@@ -332,11 +332,13 @@ export class Bridge {
         }
         else if (message.kind === 'delegation-receipt') { delegations.receipt(message); this.reply(socket, { ok: true }); }
         else if (message.kind === 'delegation-event' && isRecord(message.event)) { delegations.event(message.event); this.reply(socket, { ok: true }); }
-        // The plugin's prompt hook on a helper key: an admitted helper child speaks as its helper (5.8.3).
+        // The plugin's prompt hook on a helper key or an inter-session prompt: an admitted helper child speaks as its
+        // helper (5.8.3), a return run as the kit run that sent the work (5.8.4).
         else if (message.kind === 'delegation-persona' && typeof message.key === 'string') {
           const runId = typeof message.runId === 'string' ? message.runId : undefined;
           // A kit run carries its own persona; only an engine-created child is looked up (it may wait for its receipt).
-          const persona = runId && this.isRegisteredRun(message.key, runId) ? undefined : await delegations.persona(message.key, runId);
+          const persona = runId && this.isRegisteredRun(message.key, runId) ? undefined
+            : await delegations.persona(message.key, runId, typeof message.header === 'string' ? message.header : undefined);
           this.reply(socket, persona === undefined ? {} : { persona });
         }
         else this.deny(socket, 'invalid delegation message');
