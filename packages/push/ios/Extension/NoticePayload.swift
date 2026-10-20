@@ -10,7 +10,8 @@ struct NoticeContent {
 enum NoticePayload {
   static func openTransport(_ fields: [AnyHashable: Any], key: Data) -> NoticeContent? {
     let expo = fields["body"] as? [String: Any]
-    guard let payload = fields["notice"] ?? expo?["notice"] else { return nil }
+    // `@byokit/relay` sends the envelope itself as `data`, which Expo carries at `body.data`.
+    guard let payload = fields["notice"] ?? expo?["notice"] ?? expo?["data"] else { return nil }
     return open(payload, key: key)
   }
   static func open(_ payload: Any, key: Data) -> NoticeContent? {

@@ -7,6 +7,7 @@ final class NoticePayloadTests: XCTestCase {
     let opened = NoticePayload.open(envelope, key: key)
     XCTAssertEqual(NoticePayload.openTransport(["body": ["notice": envelope]], key: key)?.title, "Build ready ☀️")
     XCTAssertEqual(NoticePayload.openTransport(["notice": envelope], key: key)?.title, "Build ready ☀️")
+    XCTAssertEqual(NoticePayload.openTransport(["body": ["data": envelope]], key: key)?.title, "Build ready ☀️") // @byokit/relay
     XCTAssertEqual(opened?.title, "Build ready ☀️")
     XCTAssertEqual(opened?.body, "The task finished.")
     XCTAssertEqual(opened?.data?["sessionId"] as? String, "s-1")

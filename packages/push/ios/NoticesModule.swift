@@ -15,5 +15,13 @@ public class NoticesModule: Module {
       guard let group = Bundle.main.object(forInfoDictionaryKey: "ByokitNoticeAppGroup") as? String else { throw NoticeKeyError.unavailable }
       try NoticeKeyStore(group: group).clear()
     }
+    AsyncFunction("setAnswerTargets") { (targets: [[String: Any]]) in
+      try NoticeAnswerCenter.setTargets(targets.map { target in
+        guard let host = target["host"] as? String, let relay = target["relay"] as? String,
+              let key = target["key"] as? [Int], key.count == 32, key.allSatisfy({ (0...255).contains($0) })
+        else { throw NoticeKeyError.invalid }
+        return AnswerTarget(host: host, relay: relay, key: Data(key.map { UInt8($0) }))
+      })
+    }
   }
 }
