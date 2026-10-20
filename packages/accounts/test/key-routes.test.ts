@@ -1,11 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Accounts, recordStore, routes, route, chooseAccount, resolveSelection, KeyRouteError, computer, portable, type Api, type Model, type Context } from '../src/index.ts';
+import { Accounts, recordStore, routes, route, resolveModel, memoryStore, chooseAccount, resolveSelection, KeyRouteError, computer, portable, type Api, type Model, type Context } from '../src/index.ts';
 import { Accounts as Portable } from '../src/portable.ts';
 import { keys, withKeys } from '../src/keys.ts';
 import type { Record as CredentialRecord } from '../src/stores.ts';
 import type { Keystore } from '@byokit/secrets';
 import { createServer } from 'node:http';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import streamFixture from '../../../fixtures/conformance/pi-streams.json' with { type: 'json' };
@@ -389,4 +392,36 @@ test('the main portable entry has no key runtime: key requests need @byokit/acco
   assert.equal(withRuntime.engine, portable.engine);
   assert.equal(withRuntime.keys, keys);
   assert.deepEqual((await keys()).supported, (await computer.keys!()).supported.filter((api) => api !== 'google-vertex'));
+});
+
+test('openrouter:key from a key file: the live list names the free model, the ask goes out with that key, and the key stays out of every result', async () => {
+  const r = route('openrouter:key');
+  assert.deepEqual([r.offer, r.billing, r.label], ['explicit', 'api', 'API key (billed per use by OpenRouter)']);
+  const dir = mkdtempSync(join(tmpdir(), 'or-key-'));
+  try {
+    const file = join(dir, 'api_key');
+    writeFileSync(file, `${canary}\n`);
+    const h = harness(); const a = h.a as Accounts;
+    await assert.rejects(a.add('member', 'openrouter:key', { keyFile: file, key: canary }), /either key or keyFile/);
+    await assert.rejects(a.add('member', 'openrouter:key', { keyFile: join(dir, 'missing') }), (e: Error) => /Couldn’t read the key file/.test(e.message) && !e.message.includes(canary));
+    const { id } = await a.add('member', 'openrouter:key', { keyFile: file });
+    assert.equal(await a.key('member', id), canary, 'the trimmed file content is the saved key');
+    const free = 'minimax/minimax-m3.1-flash:free';
+    const sent: string[] = [];
+    let body: any;
+    const fetcher = (async (url: string, init: RequestInit) => {
+      sent.push(`${init.method ?? 'GET'} ${url}`);
+      if (url.endsWith('/models')) return new Response(JSON.stringify({ data: [{ id: free, context_length: 1_000_000, pricing: { prompt: '0', completion: '0' } }] }));
+      body = JSON.parse(String(init.body));
+      assert.equal(new Headers(init.headers).get('authorization'), `Bearer ${canary}`);
+      return sse(openaiEvents);
+    }) as never;
+    const engine = computer.engine(memoryStore() as never) as unknown as Parameters<typeof resolveModel>[0];
+    const found = await resolveModel(engine, 'openrouter', free, { apiKey: await a.key('member', id), fetch: fetcher });
+    assert.deepEqual([found!.listed, found!.model.contextWindow, found!.model.cost.input, found!.model.cost.output], [true, 1_000_000, 0, 0]);
+    const answer = await a.respond('member', { account: id, model: found!.model as Model<'openai-completions'>, context, options: { fetch: fetcher } });
+    assert.deepEqual([sent.length, body.model, answer.content.map((c: any) => c.text).join('')], [2, free, 'Hello']);
+    assert.ok(sent[1]!.startsWith('POST https://openrouter.ai/api/v1/'));
+    assert.ok(!JSON.stringify(answer).includes(canary));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

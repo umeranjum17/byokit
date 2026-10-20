@@ -1148,6 +1148,11 @@ OpenRouter's browser/paste authorization also creates a permanent API-billed key
 secret only in `keyStore`; the ordinary credential store/index keeps non-secret membership/route metadata.
 Saving a key marks it connected locally; the selected provider checks validity on the first request.
 
+### OpenRouter key from a file (tools, free models)
+
+On a computer, `openrouter:key` takes the key from a file instead of a string: `const { id } = await accounts.add('tool', 'openrouter:key', { keyFile: '/path/to/api_key' })` (the file holds only the key; it is read once and never echoed). Offer it explicitly: it is never in the default ladder, and OpenRouter bills per use (a `:free` model costs nothing).
+Name the model by its OpenRouter id: `const found = await resolveModel(engine, 'openrouter', 'minimax/minimax-m3.1-flash:free', { apiKey: await accounts.key('tool', id) })` reads its limits and price from OpenRouter's live `/models` list (`found.listed` is false when the list lacks the id), then `accounts.respond('tool', { account: id, model: found.model, context, options: { reasoningEffort: 'low' } })` asks it. The MiniMax free model refuses a request that disables reasoning, so pass a `reasoningEffort`.
+
 ### Computer sign-in methods
 
 ```ts
