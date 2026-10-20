@@ -15,6 +15,7 @@
     "check": "tsc -p tsconfig.json",
     "gen:write": "node packages/write/scripts/gen-types.ts",
     "gen:herdr": "node packages/herdr/scripts/gen-types.ts",
+    "check:user-env": "node scripts/user-env-check.ts",
     "release": "node scripts/release.ts",
     "smoke:pack": "node scripts/pack-smoke.ts",
     "test": "sh scripts/test.sh",
