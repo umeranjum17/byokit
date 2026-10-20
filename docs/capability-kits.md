@@ -1974,7 +1974,7 @@ system settings. The words test uses the D-P jargon expression.
 ## 13. `@byokit/push`
 
 Owner-approved capability name: **push**. One Expo module opens sealed notices before native display;
-`private: true` at 0.1.0. It sits beside seal and relay, consumes exactly seal 0.2.0, and imports no runtime kit.
+first public release 0.1.0. It sits beside seal and relay, consumes exactly seal 0.3.1, and imports no runtime kit.
 The transport credentials, notification permission, registration, routing policy and visible product copy stay
 with the host app. It never reads installed AI tools or starts a host service.
 
@@ -2019,7 +2019,7 @@ fallback. Portable entry bundles without Node/native imports. Root build/check/t
 assembles and runs JVM tests; `push-ios` runs Swift tests and builds the generated extension. Neither test suite
 needs a push account or delivery network. Signed physical-device sleeping-phone proof is the manual procedure
 in the package README, with generic fallback, key clearing, tap routing and first-unlock behavior recorded.
-Publishing remains held by `private: true` until release approval.
+Publishing follows the normal release flow (`npm run release`), as for every other kit.
 
 ## 14. `@byokit/share`
 
