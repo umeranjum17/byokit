@@ -3,6 +3,7 @@ import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { scratchDir } from '../../test-support.ts';
 import { startFakeHerdr } from '../src/testing/index.ts';
 import { HerdrKit } from '../src/kit.ts';
@@ -47,22 +48,28 @@ function harness(t: TestContext) {
         panes.set(id, { env: params.env });
         return { pane: { pane_id: id, tab_id: `t${id}`, workspace_id: 'w1' }, root_pane: { pane_id: id, tab_id: `t${id}`, workspace_id: 'w1' } };
       }
-      // Moves never type into the new pane: any keystroke would stay in its scrollback.
-      if (method === 'pane.send_text' || method === 'pane.read') {
-        throw new Error(`fixture: a move must stay silent (unexpected ${method})`);
-      }
-      if (method === 'pane.get') {
+      // Real Herdr 0.9.1 applies the split env to the new shell but never reports it: `pane.get`
+      // has no `env`. Only the shell itself can say what it holds, so the fixture runs the
+      // sourced private file in a real sh whose env is the pane's, like the fake server does.
+      if (method === 'pane.process_info') return { process_info: { shell_pid: 1, foreground_processes: [{ pid: 1, name: 'zsh' }] } };
+      if (method === 'pane.send_text') {
         if (state.paneEnv === 'unreadable') throw new Error('secret-canary');
-        const id = String(params.pane_id);
-        if (!panes.has(id)) throw new Error('missing pane');
-        if (state.paneEnv === 'missing') return { pane: { pane_id: id } };
-        const env = { ...(panes.get(id)?.env as Raw) };
+        const pane = panes.get(String(params.pane_id));
+        if (!pane) throw new Error('missing pane');
+        const env: Raw = state.paneEnv === 'missing' ? {} : { ...pane.env };
         if (state.paneEnv === 'wrong-value') {
           const key = Object.keys(env).find((k) => k.endsWith('CONFIG_DIR') || k.endsWith('_HOME')) ?? Object.keys(env)[0];
           if (key) env[key] = '/wrong';
         }
         if (state.paneEnv === 'leaked-unset') env.ANTHROPIC_API_KEY = 'leak';
-        return { pane: { pane_id: id, tab_id: `t${id}`, workspace_id: 'w1', env } };
+        pane.text = spawnSync('/bin/sh', ['-c', String(params.text)], { env: { PATH: '/usr/bin:/bin', ...env }, encoding: 'utf8' }).stdout;
+        return {};
+      }
+      if (method === 'pane.read') return { read: { text: panes.get(String(params.pane_id))?.text ?? '' } };
+      if (method === 'pane.get') {
+        const id = String(params.pane_id);
+        if (!panes.has(id)) throw new Error('missing pane');
+        return { pane: { pane_id: id, tab_id: `t${id}`, workspace_id: 'w1' } };
       }
       if (method === 'agent.start') {
         if (state.failStart) throw new Error('secret-canary');
@@ -168,9 +175,8 @@ test('WP11: start and wait precede source close; a resumed new generation is fol
     assert.ok(methods.indexOf('agent.wait') < methods.indexOf('pane.close'));
     assert.deepEqual(h.calls.find((c) => c.method === 'agent.start')?.params.args, ['--resume', 'conversation']);
     assert.equal(h.calls.find((c) => c.method === 'pane.split')?.params.cwd, '/repo');
-    // Silent prep: nothing typed into the new pane, verified through pane.get instead.
-    assert.ok(!h.calls.some((c) => c.method === 'pane.send_text' || c.method === 'pane.read'));
-    assert.ok(h.calls.some((c) => c.method === 'pane.get' && c.params.pane_id === 'new1'));
+    // The new shell confirms the env through one private sourcing line (pane.get has no env).
+    assert.equal(h.calls.filter((c) => c.method === 'pane.send_text' && c.params.pane_id === 'new1' && /byokit-env-/.test(String(c.params.text))).length, 1);
     // User-meaningful name: a unique start while the source lives, then the session name.
     assert.match(String(h.calls.find((c) => c.method === 'agent.start')?.params.name), /^original-[0-9a-f]{6}$/);
     assert.deepEqual(h.calls.find((c) => c.method === 'agent.rename')?.params, { target: 'new1', name: 'original' });
@@ -228,16 +234,29 @@ test('WP11: env mismatch is exact and unreadable panes fail before starting', as
   assert.ok(!h.calls.some((c) => c.method === 'agent.start'));
 });
 
-test('WP11: moves never type into the new pane; placement env plus pane.get verify it', async (t) => {
+test('WP11: the new shell confirms the placement env; no value reaches the terminal', async (t) => {
   for (const api of ['move', 'moveToAccount'] as const) {
     const h = harness(t); await h.ready;
     const result = api === 'moveToAccount' ? await h.move()
       : await h.kit.move({ paneId: 'old', kind: 'claude', args: ['--resume', 'conversation'],
           set: { CLAUDE_CONFIG_DIR: '/new/claude' }, unset: ['ANTHROPIC_API_KEY'], timeoutMs: 250 });
     assert.equal(result.ok, true);
-    assert.ok(!h.calls.some((c) => c.method === 'pane.send_text' || c.method === 'pane.read'));
-    assert.ok(h.calls.some((c) => c.method === 'pane.get'));
+    // pane.get reports no env (as on real Herdr), so the move rests on the shell's own answer.
+    const typed = h.calls.filter((c) => c.method === 'pane.send_text' && /byokit-env-/.test(String(c.params.text)));
+    assert.equal(typed.length, 1);
+    assert.match(String(typed[0]!.params.text), /^set \+x \+v; \. '\/.*\/prepare\.sh'\n$/);
+    assert.ok(!h.calls.some((c) => (c.method === 'pane.send_text' || c.method === 'pane.read') && JSON.stringify(c.params).includes('/new/claude')));
   }
+});
+
+test('WP11: a pane that never received the env refuses fast, not at the deadline', async (t) => {
+  const h = harness(t); h.state.paneEnv = 'missing'; await h.ready;
+  const started = Date.now();
+  const result = await h.kit.moveToAccount({ paneId: 'old' }, { provider: 'claude', folder: '/new/claude', timeoutMs: 20_000 });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.code, 'env_mismatch');
+  assert.ok(Date.now() - started < 5_000);
+  assert.deepEqual([...h.panes.keys()], ['old']);
 });
 
 test('WP11: unsupported, too-early and busy agents never split, including concurrent moves', async (t) => {
@@ -279,7 +298,7 @@ test('WP11: Codex resume args and account env; sign-in opens an explicit-env tab
   assert.equal(ref.paneId, 'new1');
   assert.deepEqual(h.calls.find((c) => c.method === 'tab.create')?.params,
     { workspace_id: 'w1', cwd: '/repo', focus: false, env: { CODEX_HOME: '/signin' } });
-  assert.ok(!h.calls.some((c) => c.method === 'pane.send_text'));
+  assert.ok(!h.calls.some((c) => c.method === 'pane.send_text' && /byokit-env-/.test(String(c.params.text))));
   assert.ok(!('env' in h.calls.find((c) => c.method === 'agent.start')!.params));
   h.state.failStart = true;
   await assert.rejects(h.kit.openSignInTab({ workspaceId: 'w1', kind: 'codex', cwd: '/repo',
@@ -325,7 +344,6 @@ test('move: seven-case start-then-close failure matrix and staged notifications'
       const start = h.calls.find((c) => c.method === 'agent.start')!;
       assert.deepEqual(start.params.args, ['--resume', 'caller-ref']);
       assert.match(String(start.params.name), /^original-[0-9a-f]{6}$/);
-      assert.ok(!h.calls.some((c) => c.method === 'pane.send_text' || c.method === 'pane.read'));
       if (scenario === 'success') {
         assert.deepEqual(h.calls.find((c) => c.method === 'agent.rename')?.params,
           { target: 'new1', name: 'original' });
@@ -363,7 +381,8 @@ test('move: retained credentials and unsafe env identifiers fail closed before a
     if (!result.ok) assert.equal(result.code, 'env_mismatch');
     assert.deepEqual([...h.panes.keys()], ['old']);
     assert.ok(!h.calls.some((c) => c.method === 'agent.start'));
-    assert.ok(!h.calls.some((c) => c.method === 'pane.send_text'));
+    // An unsafe name never reaches the shell; a retained credential is found by the shell itself.
+    assert.equal(h.calls.some((c) => c.method === 'pane.send_text' && /byokit-env-/.test(String(c.params.text))), !unsafe);
     assert.ok(!JSON.stringify(h.calls).includes('secret-canary'));
   }
 });

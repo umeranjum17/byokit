@@ -94,12 +94,13 @@ test('K7: a failed start rolls back a created split pane but never a caller-owne
 });
 
 test('K7: the worktree pane receives the env, and the branch is optional', async () => {
-  await withKit(async (kit) => {
+  await withKit(async (kit, fake) => {
     const ref = await kit.startAgent({ kind: 'pi', cwd: '/tmp/k7-wt', place: { workspace: 'new' },
       worktree: { branch: 'k7' }, env: { K7_ENV: 'yes' } });
     const pane = (await kit.call('pane.get', { pane_id: ref.paneId })) as
       { pane?: { cwd?: string; env?: Record<string, string>; workspace_id?: string } };
-    assert.deepEqual(pane.pane?.env, { K7_ENV: 'yes' }, 'the worktree pane carries the start env');
+    // Real Herdr never reports pane env over pane.get; the fake's world is where it landed.
+    assert.deepEqual(fake.world.panes.find((p) => p.pane_id === ref.paneId)?.env, { K7_ENV: 'yes' }, 'the worktree pane carries the start env');
     const ws = (await kit.call('workspace.get', { workspace_id: pane.pane?.workspace_id ?? '' })) as
       { workspace?: { worktree?: { checkout_path?: string; is_linked_worktree?: boolean } } };
     assert.equal(ws.workspace?.worktree?.is_linked_worktree, true);
@@ -110,7 +111,7 @@ test('K7: the worktree pane receives the env, and the branch is optional', async
       worktree: {}, env: { HOME: '/tasks/t1', XDG_CACHE_HOME: '/tasks/cache' } });
     const plainPane = (await kit.call('pane.get', { pane_id: plain.paneId })) as
       { pane?: { workspace_id?: string; env?: Record<string, string> } };
-    assert.deepEqual(plainPane.pane?.env, { HOME: '/tasks/t1', XDG_CONFIG_HOME: '/tasks/t1/.config',
+    assert.deepEqual(fake.world.panes.find((p) => p.pane_id === plain.paneId)?.env, { HOME: '/tasks/t1', XDG_CONFIG_HOME: '/tasks/t1/.config',
       XDG_DATA_HOME: '/tasks/t1/.local/share', XDG_STATE_HOME: '/tasks/t1/.local/state', XDG_CACHE_HOME: '/tasks/cache' });
     const plainWs = (await kit.call('workspace.get', { workspace_id: plainPane.pane?.workspace_id ?? '' })) as
       { workspace?: { worktree?: { is_linked_worktree?: boolean } } };
