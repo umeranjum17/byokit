@@ -1,0 +1,10 @@
+{
+  "deviceSecret": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32],
+  "hostSecret": [33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64],
+  "devicePublic": [7, 163, 124, 188, 20, 32, 147, 200, 183, 85, 220, 27, 16, 232, 108, 180, 38, 55, 74, 209, 106, 168, 83, 237, 11, 223, 192, 178, 184, 109, 28, 124],
+  "hostPublic": [88, 105, 175, 244, 80, 84, 151, 50, 203, 170, 237, 94, 93, 249, 179, 10, 109, 163, 28, 176, 229, 116, 43, 173, 90, 212, 161, 167, 104, 241, 166, 123],
+  "nonce": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+  "reply": {"event": "ask-42", "action": "answer", "text": "y, ✓ go/on"},
+  "sealed": "AAECAwQFBgcICQoLbvgsyU2CDoVU9C-XB7yy081v43lkK9Zh30hMuuYvDkEu5bmJpg-DrTSrrJRDqCVOSQnzON0UTMf0Wmq_ccW-YNDX6bMpJhpMyTqoRFNjL9o",
+  "userInfo": {"body": {"id": "ask-42", "title": "An agent needs you", "action": "tok-1", "actions": ["answer"], "data": {"sessionId": "s-1", "answer": {"host": "home"}}}}
+}

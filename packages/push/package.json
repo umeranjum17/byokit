@@ -58,6 +58,9 @@
     "access": "public"
   },
   "dependencies": {
-    "@byokit/seal": "0.3.1"
+    "@byokit/seal": "0.3.1",
+    "@noble/ciphers": "2.4.0",
+    "@noble/curves": "2.4.0",
+    "@noble/hashes": "2.4.0"
   }
 }
