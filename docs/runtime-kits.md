@@ -1390,6 +1390,32 @@ namespace and persona on the agent that already holds the account.
   need per-agent auth inheritance, an engine patch (5.16). Not here: listing or removing a helper, refusing a send to a
   helper whose account is already resting.
 
+### 5.8.4 Return runs
+
+A tracked `sessions_send` (`timeoutSeconds: 0`) from a kit run, or from a return run, has a second half on the pin
+(`openclaw@2026.8.35`, `runSessionsSendA2AFlow`): once the child ends, the engine starts its own reply step, a fresh
+`agent` run with a random id on the sender's exact key, its prompt being the child's reply headed by the engine's
+`[Inter-session message] sourceSession=<child key> … sourceTool=sessions_send isUser=false` line. The pin repeats this
+ping-pong for up to five turns, and starts none when the child takes longer than its 30 s wait. Nothing registered that
+run, so the bridge's deny-by-default check refuses its tools `unknown run`; the check stays as it is.
+
+- Arming: the kit's own `terminal` end of an admitted send child whose parent is a kit run (or a return run) arms one
+  return on the parent's key for 60 s. A spawn, a child of a child, and an `error`, `resting`, `cancelled` or `lost` end
+  arm none. The kit run's system text (its persona, or a helper's) is held in memory by run id for this, never
+  persisted. A child whose root's system text the kit no longer holds (a kit restart) arms none: fail closed.
+- Binding: the plugin's `before_prompt_build` hook sends the bridge (`delegation-persona`) the run's exact key, run id and
+  the first line of a prompt that starts with the engine's header. The bridge binds that exact run id only when the key
+  is the armed parent's, the header names the armed child's exact session and no other run holds that return. A child
+  still running when its reply arrives is waited for for at most 5 s. Each bound run's end re-arms the same return for
+  60 s, so the sender's later ping-pong turns bind one at a time. Any other run on the key, a header naming any other
+  session, and anything outside the window stay unknown.
+- A bound return run is the sender's: `RunRef { sessionKey, member, helper?, runId, agentId, parent: <the finished
+  child's key and run>, root }`, the sender's app-tool subset, `delegates` and `helperDelegates` (so it may send work
+  again on the same native path), and the sender's system text appended as system context (`appendSystemContext`).
+  Each action still crosses `ToolHost.gate`, approvals and builtin gating. `abort(rootSessionKey)` revokes return runs
+  and armed returns with the subtree. Return runs are not listed on `delegatedRuns()` nor emitted on
+  `byokit.delegated`: the app sees them as the engine's own `agent` events on the sender's key.
+
 ### 5.9 Tools, approvals and the bridge
 
 **Plugin** (`plugin/index.js`, written to `<root>/plugin/` at prepare with a generated `openclaw.plugin.json`

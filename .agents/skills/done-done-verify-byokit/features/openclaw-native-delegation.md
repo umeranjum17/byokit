@@ -28,9 +28,21 @@ The proof asserts native `sessions_send` to a standing helper and `sessions_spaw
 actor/member/parent/run identity, parent settlement while a child remains admitted, denial then approval of separate
 child actions, the intersection of parent/target app tools, unknown-child refusal before the host gate, retained exact
 receipts readable by a fresh kit, active-call cancellation, and no revival of revoked children after engine restart.
-Native tool and terminal events must reach `byokit.delegated`. Remove only the task-owned engine install after proof.
+Native tool and terminal events must reach `byokit.delegated`. Its return-run journey (5.8.4) asserts that the engine's
+own reply step after a finished send child is admitted as the sender: a host call on the sender's key with the root's
+member and agent, `parent` the finished child, `root` the sender, the root's system text in that run's model request,
+and a plain run plus one with a forged inter-session header on the same key still refused before the host. Run it alone
+with `--test-name-pattern='return run'` before `"$entry"`. Remove only the task-owned engine install after proof.
+
+Live return-run leg (only on a lane dispatched with an approved hosted-model route): a Crewhouse checkout whose
+`node_modules/@byokit/openclaw` is the built kit under test (a scratch overlay of the Crewhouse `src`, `templates`,
+`package.json` and `tsconfig.json`, symlinking its other `node_modules`) runs Crewhouse's native-read pilot (Chief sends
+Scout to read `facts.txt` with `crew_read`; Chief's return reads it again) on the dedicated key file, passed by path,
+through the memory gate. Pass: exit 0, `childCalls: 1`, `returnCalls: 1`, the return's gated `RunRef` naming the root,
+and its reply starting with the root persona's marker. The pin starts no return when the child runs longer than 30 s:
+that run fails on the deadline with no return run, an engine limit, not the kit's.
 
 This is backend behavior: no screenshots. It does **not** qualify shared helper credentials, OAuth refresh ownership,
-ACP delegation, synchronous/label-based sends, or resumption under a new engine run ID. A receipt absent after a crash
+ACP delegation, synchronous/label-based sends, resumption under a new engine run ID, or return runs across a kit restart. A receipt absent after a crash
 is fail-closed, not reconstructed. The target keeps its own existing accounts. Do not relabel the scripted provider
 as an authenticated subscription or the fresh-kit journal read as an actual live reconnect.

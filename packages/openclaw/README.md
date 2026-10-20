@@ -452,6 +452,13 @@ and terminal observations with exact `runId`, `agentId`, `member`, `sessionKey`,
 The same identity reaches `ToolHost`; each delegated action has its own gate/approval. Tool arguments/results
 are omitted from this event surface. An accepted native dispatch is not finished work or proof of delivery.
 
+When a sent child finishes, the engine starts its own reply run on the sender's session to bring the report back.
+The kit admits that exact run as the sender: same member and helper, same app-tool subset and delegates, the sender's
+`system` as its persona, `RunRef.parent` naming the finished child. Only a run whose prompt the engine headed with that
+child's session, on the sender's exact key, within a minute of the child's (or the previous return turn's) end, binds;
+any other run there stays unknown. Return runs are not on `delegatedRuns()` or `byokit.delegated`; read them from the
+engine's `agent` events on the sender's key. The pinned engine starts no reply run for a child that took over 30 s.
+
 Admitted exact run IDs survive parent settlement and are reconciled on reconnect/start; a child the engine no longer
 knows (as after an engine restart) ends `lost`, and a dispatch that finds the journal full reconciles first. `abort(rootSessionKey)`
 durably revokes its recorded subtree, closes parked gates/active calls, then asks the engine to abort; a child key

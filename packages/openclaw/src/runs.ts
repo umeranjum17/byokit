@@ -346,7 +346,7 @@ export function createRuns(ctx: {
     try {
       const ref = { sessionKey, member: spec.member, ...(spec.helper !== undefined ? { helper: spec.helper } : {}) };
       releaseDelegation = spec.delegates || spec.helperDelegates
-        ? ctx.delegations!.register(ref, idempotencyKey, spec.tools, spec.delegates ?? {}, spec.sessionKey, spec.helperDelegates) : undefined;
+        ? ctx.delegations!.register(ref, idempotencyKey, spec.tools, spec.delegates ?? {}, spec.sessionKey, spec.helperDelegates, system) : undefined;
       release = spec.register !== false ? ctx.bridge.register(ref, spec.tools, idempotencyKey) : undefined;
       if (picked && !chosen) {
         // The picked account must be the one called: check it is signed in for this member before the run, since

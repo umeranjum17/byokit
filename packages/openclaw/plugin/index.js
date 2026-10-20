@@ -160,12 +160,16 @@ export default {
         result: { details: d && { status: d.status, runId: d.runId, sessionKey: d.sessionKey, childSessionKey: d.childSessionKey } } });
     });
     // A native send carries no system text: an admitted helper child gets its helper's persona from the kit (5.8.3).
-    // Any other run, or no answer, adds nothing; the persona is the helper's voice, never a grant.
-    api.on('before_prompt_build', async (_event, ctx) => {
+    // The engine's reply step bringing a sent child's report back (an inter-session prompt) asks too: the kit binds that
+    // exact run as the sender's return run (5.8.4) and answers the sender's persona. Any other run, or no answer, adds
+    // nothing; the persona is a voice, never a grant.
+    api.on('before_prompt_build', async (event, ctx) => {
       const key = ctx?.sessionKey;
-      if (typeof key !== 'string' || !/^agent:[^:]+:h-[a-z][a-z0-9-]{0,15}:/.test(key)) return undefined;
+      const header = typeof event?.prompt === 'string' && event.prompt.startsWith('[Inter-session message] ')
+        ? event.prompt.slice(0, 1024).split('\n', 1)[0] : undefined;
+      if (typeof key !== 'string' || (!header && !/^agent:[^:]+:h-[a-z][a-z0-9-]{0,15}:/.test(key))) return undefined;
       try {
-        const reply = await bridgeRequest({ kind: 'delegation-persona', key, runId: ctx?.runId }, { timeoutMs: 10_000 });
+        const reply = await bridgeRequest({ kind: 'delegation-persona', key, runId: ctx?.runId, ...(header ? { header } : {}) }, { timeoutMs: 10_000 });
         if (typeof reply?.persona === 'string' && reply.persona) return { appendSystemContext: reply.persona };
       } catch { /* no kit: nothing added */ }
       return undefined;
