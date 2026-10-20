@@ -366,6 +366,8 @@ test('sign in with Claude in a browser: its page, the code pasted back, the plan
   await page.route('**/fwd/claude/v1/oauth/token', answer(JSON.stringify({ ...plan.exchange, expires_in: 28_800 }))); // a real sign-in lasts hours
   await page.route('**/fwd/anthropic/api/oauth/profile', answer(JSON.stringify({ account: { email: 'umer@example.com' }, organization: { organization_type: 'claude_max' } })));
   await page.route('**/fwd/anthropic/v1/messages**', answer(messages.stream, 'text/event-stream'));
+  // Claude's own model list, as the vendor answers it: the model asked with is picked from it.
+  await page.route('**/fwd/anthropic/v1/models', answer(JSON.stringify({ data: [{ id: 'claude-sonnet-4-5', display_name: 'Claude Sonnet 4.5' }] })));
   await page.goto(site.url);
   await part(page, 'claude', 'signin').waitFor();
 
@@ -388,6 +390,7 @@ test('sign in with Claude in a browser: its page, the code pasted back, the plan
   await part(page, 'claude', 'answer').filter({ hasText: messages.text }).waitFor();
   const inference = asked.find((a) => a.url.includes('/v1/messages'))!;
   assert.equal(inference.headers.authorization, 'Bearer recorded-access');
+  assert.equal(inference.body.model, 'claude-sonnet-4-5', "a model from Claude's own list");
   assert.equal(inference.body.messages[0].content, 'Hello');
 
   await page.reload();
@@ -413,6 +416,8 @@ test('two ChatGPT plans: every plan listed with billing, room and both windows, 
   let usageDown = false;
   await page.route('**/fwd/chatgpt/backend-api/wham/usage', (route) => usageDown ? route.fulfill({ status: 503, body: '' }) : route.fulfill({
     json: route.request().headers()['chatgpt-account-id'] === 'acct-2' ? quota(10) : quota(85) }));
+  // Each plan's own model list, as ChatGPT answers it.
+  await page.route('**/fwd/chatgpt/backend-api/codex/models', (route) => route.fulfill({ json: { models: [{ slug: 'gpt-5.5', display_name: 'GPT-5.5', visibility: 'list' }] } }));
   const askedIds: string[] = [];
   // The next answer fails once as a plan exclusion, then answers normally.
   let failPlan = false;
@@ -525,6 +530,9 @@ test('Ask on both cards: one question at a time, Stop, and an older answer never
   page.on('pageerror', (e) => errors.push(String(e)));
   await page.route('**/fwd/claude/v1/oauth/token', (route) => route.fulfill({ json: { ...plan.exchange, expires_in: 28_800 } }));
   await page.route('**/fwd/anthropic/api/oauth/profile', (route) => route.fulfill({ json: { account: { email: 'umer@example.com' }, organization: { organization_type: 'claude_max' } } }));
+  // Each vendor's own model list.
+  await page.route('**/fwd/anthropic/v1/models', (route) => route.fulfill({ json: { data: [{ id: 'claude-sonnet-4-5', display_name: 'Claude Sonnet 4.5' }] } }));
+  await page.route('**/fwd/chatgpt/backend-api/codex/models', (route) => route.fulfill({ json: { models: [{ slug: 'gpt-5.5', display_name: 'GPT-5.5', visibility: 'list' }] } }));
   const held: { route: Route; question: string }[] = [];
   const stream = {
     chatgpt: (text: string) => `data: ${JSON.stringify({ type: 'response.output_text.delta', delta: text })}\n\ndata: ${JSON.stringify({ type: 'response.completed', response: { output: [] } })}\n\n`,
