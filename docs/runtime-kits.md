@@ -621,7 +621,9 @@ without that `CLAUDE_CONFIG_DIR` (`Engine.claudeLoginCause()` `signIn: false`, c
 detect fails before any login with "Claude Code is installed here, but its sign-in could not be checked. Run claude
 once on this machine to sign in, then try again."
 
-The installed ChatGPT route is `openai-codex/<model>` (including `gpt-6-luna`). The bridge registers the pin's
+The installed ChatGPT route is `openai-codex/<model>` (including `gpt-6-luna`). Its two rows (`gpt-6-sol`, `gpt-6-luna`)
+are the bridge's static `modelCatalog`, the named exception to the kit keeping no model list: the Codex CLI's own
+list (its app-server `model/list`) is not read yet, and a recorded real `model/list` reply lifts the exception. The bridge registers the pin's
 supported `registerCliBackend` adapter, not an engine patch. Admission asks `codex login status`, never a credential
 file; only a ChatGPT login is ready. The backend runs `codex exec` with normal HOME and no CODEX_HOME override,
 ChatGPT-only auth, no user-config/rules or native tools, and the engine's bundled MCP bridge for gated tools. The

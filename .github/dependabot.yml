@@ -25,6 +25,11 @@ updates:
       - dependency-name: 'react-native'
         update-types: ['version-update:semver-major', 'version-update:semver-minor']
     groups:
-      # No filters: every npm update lands in one PR so a dependabot burst
+      # pi-ai alone: its bump PR must regenerate the bundled Pi copy and routes.json
+      # (scripts/check-accounts-pi.ts fails it until then), so it never holds the other updates back.
+      # The first matching group wins.
+      pi-ai:
+        patterns: ['@earendil-works/pi-ai']
+      # No filters: every other npm update lands in one PR so a dependabot burst
       # cannot hold the shared runner pool during a release.
       npm:
