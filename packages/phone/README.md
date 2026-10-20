@@ -3,8 +3,7 @@
 An agent that runs on the phone itself, with no computer: the person signs in to their own AI account on the phone
 and chats with an agent that uses only the app's own tools. A second kind of session beside the Herdr panes an app
 such as muxr shows: a pane's terminal is its own truth, so a phone session, with none, owns its chat. Portable
-(nothing from Node: React Native and browsers); private at 0.1.0 until the owner confirms the kit name
-([docs/kit-conventions.md](../../docs/kit-conventions.md) §1.2).
+(nothing from Node: React Native and browsers).
 
 ## What it promises, and what it does not
 
