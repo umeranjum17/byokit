@@ -1,1 +1,0 @@
-- FEAT: MiniMax (Global and CN) now resolves `MiniMax-M3.1-Flash` and `MiniMax-M3.1-Flash-Preview` through the kit's Pi models, which the pinned pi-ai does not list. Flash is priced at its published rate; Preview, which has none, takes the same.

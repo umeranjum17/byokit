@@ -13,6 +13,8 @@ export { IncompleteError, ResponseError, isFunctionCall, limitResponse, respond,
 export { viewStore, type EndingStore, type AccountStore, type AccountsIndex, type AccountMetadata, type IndexStore, browserStore, keystoreStore, memoryStore, recordStore, secureStore, RefreshRequiredError, type RefreshStore, type SecureStoreLike } from './stores.ts';
 export { WORDS, billingWords, callbackPage, clock, failure, planLabel, say, signInError, type WordKey, type Why } from './words.ts';
 
+export { liveLimits, namedModel, resolveModel, withNamedModels, type Limits } from './named-model.ts';
+
 export { chatgptPlan, UnsupportedAccountError, type ChatGPTPlanAccount, type ChatGPTRespondAccount, type ChatGPTPlanSession } from './chatgpt-plan.ts';
 
 export type { OpenCodeGoAccount, OpenCodeGoWorkspace } from './opencode-go.ts';
