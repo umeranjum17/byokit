@@ -64,7 +64,7 @@ Names still marked **pending** require owner approval before a rename or first p
 | usage | yes | no | pending |
 | write (was compose) | no | no | **write** (renamed in #142) |
 | connect (in flight) | no | no | pending |
-| phone | no | no | pending |
+| phone | no | no | **phone** (approved for first public release) |
 
 ## 2. Codes
 
