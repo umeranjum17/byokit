@@ -44,7 +44,7 @@
   "dependencies": {
     "@byokit/ui": "0.9.0",
     "bonjour-service": "^1.4.4",
-    "react-native-zeroconf": "0.17.4"
+    "react-native-zeroconf": "0.17.6"
   },
   "publishConfig": {
     "access": "public"
@@ -58,6 +58,6 @@
     }
   },
   "devDependencies": {
-    "expo-modules-core": "58.0.15"
+    "expo-modules-core": "58.0.22"
   }
 }
