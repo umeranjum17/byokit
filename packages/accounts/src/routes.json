@@ -23,6 +23,10 @@
       "method": "QWEN_TOKEN_PLAN_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
     }
   },
   {
@@ -49,6 +53,10 @@
       "method": "QWEN_TOKEN_PLAN_CN_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
     }
   },
   {
@@ -75,6 +83,10 @@
       "method": "QWEN_TOKEN_PLAN_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
     }
   },
   {
@@ -99,6 +111,10 @@
       "method": "ANT_LING_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://api.ant-ling.com/v1"
     }
   },
   {
@@ -123,6 +139,10 @@
       "method": "loopback",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "anthropic-messages",
+      "baseUrl": "https://api.anthropic.com"
     }
   },
   {
@@ -147,6 +167,10 @@
       "method": "ANTHROPIC_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "anthropic-messages",
+      "baseUrl": "https://api.anthropic.com"
     }
   },
   {
@@ -171,6 +195,10 @@
       "method": "ANTHROPIC_AUTH_TOKEN",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "anthropic-messages",
+      "baseUrl": "https://api.anthropic.com"
     }
   },
   {
@@ -195,6 +223,10 @@
       "method": "paste",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "anthropic-messages",
+      "baseUrl": "https://api.anthropic.com"
     }
   },
   {
@@ -219,6 +251,10 @@
       "method": "ANTHROPIC_OAUTH_TOKEN",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "anthropic-messages",
+      "baseUrl": "https://api.anthropic.com"
     }
   },
   {
@@ -243,6 +279,10 @@
       "method": "ANTHROPIC_OAUTH_TOKEN",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "anthropic-messages",
+      "baseUrl": "https://api.anthropic.com"
     }
   },
   {
@@ -395,6 +435,10 @@
       "method": "BASETEN_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://inference.baseten.co/v1"
     }
   },
   {
@@ -419,6 +463,10 @@
       "method": "CEREBRAS_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://api.cerebras.ai/v1"
     }
   },
   {
@@ -569,6 +617,10 @@
       "method": "DEEPSEEK_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://api.deepseek.com"
     }
   },
   {
@@ -593,6 +645,10 @@
       "method": "FIREWORKS_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://api.fireworks.ai/inference/v1"
     }
   },
   {
@@ -617,6 +673,10 @@
       "method": "device",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://api.individual.githubcopilot.com"
     }
   },
   {
@@ -641,6 +701,10 @@
       "method": "COPILOT_GITHUB_TOKEN",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://api.individual.githubcopilot.com"
     }
   },
   {
@@ -859,6 +923,10 @@
       "method": "GROQ_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://api.groq.com/openai/v1"
     }
   },
   {
@@ -883,6 +951,10 @@
       "method": "HF_TOKEN",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://router.huggingface.co/v1"
     }
   },
   {
@@ -909,6 +981,10 @@
       "method": "device",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://api.kimi.com/coding/v1"
     }
   },
   {
@@ -935,6 +1011,10 @@
       "method": "KIMI_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://api.kimi.com/coding/v1"
     }
   },
   {
@@ -959,6 +1039,10 @@
       "method": "device",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-responses",
+      "baseUrl": "https://api.meta.ai/v1"
     }
   },
   {
@@ -983,6 +1067,10 @@
       "method": "META_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-responses",
+      "baseUrl": "https://api.meta.ai/v1"
     }
   },
   {
@@ -1007,6 +1095,10 @@
       "method": "device",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "anthropic-messages",
+      "baseUrl": "https://api.minimax.io/anthropic"
     }
   },
   {
@@ -1033,6 +1125,10 @@
       "method": "device",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "anthropic-messages",
+      "baseUrl": "https://api.minimaxi.com/anthropic"
     }
   },
   {
@@ -1057,6 +1153,10 @@
       "method": "MINIMAX_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "anthropic-messages",
+      "baseUrl": "https://api.minimax.io/anthropic"
     }
   },
   {
@@ -1083,6 +1183,10 @@
       "method": "MINIMAX_CN_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "anthropic-messages",
+      "baseUrl": "https://api.minimaxi.com/anthropic"
     }
   },
   {
@@ -1107,6 +1211,10 @@
       "method": "plan-key",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "absent"
+    },
+    "models": {
+      "api": "anthropic-messages",
+      "baseUrl": "https://api.minimax.io/anthropic"
     }
   },
   {
@@ -1157,6 +1265,10 @@
       "method": "MOONSHOT_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://api.moonshot.ai/v1"
     }
   },
   {
@@ -1183,6 +1295,10 @@
       "method": "MOONSHOT_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://api.moonshot.cn/v1"
     }
   },
   {
@@ -1207,6 +1323,10 @@
       "method": "NVIDIA_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://integrate.api.nvidia.com/v1"
     }
   },
   {
@@ -1233,6 +1353,10 @@
       "method": "OLLAMA_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://ollama.com/v1"
     }
   },
   {
@@ -1257,6 +1381,10 @@
       "method": "loopback",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-responses",
+      "baseUrl": "https://api.openai.com/v1"
     }
   },
   {
@@ -1307,6 +1435,10 @@
       "method": "OPENAI_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-responses",
+      "baseUrl": "https://api.openai.com/v1"
     }
   },
   {
@@ -1331,6 +1463,10 @@
       "method": "paste",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-responses",
+      "baseUrl": "https://api.openai.com/v1"
     }
   },
   {
@@ -1355,6 +1491,10 @@
       "method": "OPENCODE_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://opencode.ai/inference/v1"
     }
   },
   {
@@ -1381,6 +1521,10 @@
       "method": "OPENCODE_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://opencode.ai/inference/go/v1"
     }
   },
   {
@@ -1405,6 +1549,10 @@
       "method": "loopback",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://openrouter.ai/api/v1"
     }
   },
   {
@@ -1429,6 +1577,10 @@
       "method": "OPENROUTER_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://openrouter.ai/api/v1"
     }
   },
   {
@@ -1453,6 +1605,10 @@
       "method": "paste",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://openrouter.ai/api/v1"
     }
   },
   {
@@ -1573,6 +1729,10 @@
       "method": "TOGETHER_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://api.together.ai/v1"
     }
   },
   {
@@ -1621,6 +1781,10 @@
       "method": "AI_GATEWAY_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "anthropic-messages",
+      "baseUrl": "https://ai-gateway.vercel.sh"
     }
   },
   {
@@ -1645,6 +1809,10 @@
       "method": "device",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-responses",
+      "baseUrl": "https://api.x.ai/v1"
     }
   },
   {
@@ -1669,6 +1837,10 @@
       "method": "XAI_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-responses",
+      "baseUrl": "https://api.x.ai/v1"
     }
   },
   {
@@ -1693,6 +1865,10 @@
       "method": "XIAOMI_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://api.xiaomimimo.com/v1"
     }
   },
   {
@@ -1719,6 +1895,10 @@
       "method": "XIAOMI_TOKEN_PLAN_AMS_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://token-plan-ams.xiaomimimo.com/v1"
     }
   },
   {
@@ -1745,6 +1925,10 @@
       "method": "XIAOMI_TOKEN_PLAN_CN_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://token-plan-cn.xiaomimimo.com/v1"
     }
   },
   {
@@ -1771,6 +1955,10 @@
       "method": "XIAOMI_TOKEN_PLAN_SGP_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://token-plan-sgp.xiaomimimo.com/v1"
     }
   },
   {
@@ -1795,6 +1983,10 @@
       "method": "ZAI_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://api.z.ai/api/coding/paas/v4"
     }
   },
   {
@@ -1821,6 +2013,10 @@
       "method": "ZAI_CODING_CN_API_KEY",
       "revision": "@earendil-works/pi-ai@1.3.0",
       "flow": "present"
+    },
+    "models": {
+      "api": "openai-completions",
+      "baseUrl": "https://open.bigmodel.cn/api/coding/paas/v4"
     }
   }
 ]

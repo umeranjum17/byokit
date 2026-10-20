@@ -14,6 +14,9 @@ export type Route = {
   platforms: { node: Support; browser: Support; rn: Support };
   needs?: { binary?: string; plugin?: string; client?: string };
   upstream: { surface: 'accounts' | 'openclaw' | 'herdr'; id: string; method?: string; revision: string; flow: 'present' | 'absent' };
+  /** Where the vendor lists its own models (`GET {baseUrl}/models`, Anthropic Messages at `/v1/models`): the one API and
+   *  base URL every pinned row of the provider shares. Absent when the route has no single list to read. */
+  models?: { api: string; baseUrl: string };
 };
 export type RouteView = Route & { readiness: Readiness; why?: string };
 /** hostSide means the app supplies the required route driver/forwarder, not merely that it runs on a computer. */

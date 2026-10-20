@@ -12,6 +12,7 @@ import { CodeAssistSignedOutError, CodeAssistTierError, CodeAssistUnauthorizedEr
 import { anthropic, type AnthropicAsk, type AnthropicResult, type AnthropicTool } from './anthropic.ts';
 import { deviceFlow, offered, planKey, provider, route, routes, PROVIDERS, type Provider, type Route, type RouteView, type Readiness, type RouteHost } from './catalogue.ts';
 import { endpointConfig, endpointLabel, endpointNeedsHost, EndpointError, type EndpointDriver, type EndpointOptions, type EndpointConfig } from './endpoints.ts';
+import { liveModels } from './named-model.ts';
 import { checkKeyModel, keyRespond, KeyRouteError, type KeyAsk, type KeyRuntime } from './key-routes.ts';
 import { CHATGPT_RETURN, claims, PORTABLE, portableEngine, redirectLogin, signable, validEnterpriseDomain, withDevice } from './engine.ts';
 import { classify, REST_MS, type Kind } from './limits.ts';
@@ -351,9 +352,10 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
       try { if (room) read = await room(account, demand); } catch { read = { left: 'unknown' }; }
       rooms.set(account.id, read);
     }
-    const models = new Map(accounts.map((account) => [account.id, capabilities ? capabilities.models(account) : this.modelsOf(account)]));
+    const models = new Map<string, readonly { id: string; available: boolean }[]>();
+    for (const account of accounts) models.set(account.id, capabilities ? capabilities.models(account) : await this.liveModelsOf(member, account) ?? this.modelsOf(account));
     return resolveSelection(accounts, defaults, sel, (account) => rooms.get(account.id) ?? { left: 'unknown' }, Date.now(),
-      (account) => models.get(account.id) ?? []);
+      (account) => models.get(account.id) ?? [], !capabilities);
   }
 
   /** One account's models from the catalogue, each usable or the word for why it is not. Read-only. */
@@ -361,7 +363,26 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
     id = this.accountKey(member, id);
     const account = (await this.list(member)).find((a) => a.id === id);
     if (!account) throw new Error('No such account.');
-    return this.modelsOf(account);
+    return await this.liveModelsOf(member, account) ?? this.modelsOf(account);
+  }
+
+  /** A ready account's models from its vendor's own live list (the route's `models`), read with that account's key or
+   *  sign-in token; `undefined` when the route names no list or it cannot be read, and the catalogue's rows stand. */
+  private async liveModelsOf(member: M, account: Account): Promise<ModelInfo[] | undefined> {
+    if (account.state !== 'ready') return undefined;
+    try {
+      const p = this.offer(this.providerKey(account.id));
+      const keyed = account.route.includes(':') || this.isKey(p);
+      let upstream = account.route.includes(':') ? route(account.route).upstream.id : p.pi;
+      if (upstream === 'minimax' && !keyed && await this.regionOf(member, account.id) === 'cn') upstream = 'minimax-cn';
+      const list = routes().find((r) => r.upstream.id === upstream && r.models)?.models;
+      if (!list || !keyed && !OAUTH_RESPOND.includes(upstream)) return undefined;
+      const auth: ModelAuth | undefined = keyed ? { apiKey: await this.key(member, account.id) }
+        : (await (await this.runtime(member, account.id)).getAuth(p.pi))?.auth;
+      if (!auth?.apiKey) return undefined;
+      const rows = await liveModels({ ...list, provider: upstream }, { apiKey: auth.apiKey, headers: auth.headers, baseUrl: auth.baseUrl, fetch: this.opts.fetch });
+      return rows?.map((m) => ({ id: m.id, name: m.name, available: true }));
+    } catch { return undefined; }
   }
 
   private modelsOf(account: Account): ModelInfo[] {

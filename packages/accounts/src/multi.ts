@@ -25,7 +25,9 @@ export type Considered = {
   reason: PickWhy | 'state' | 'resting' | 'billing' | 'model' | 'provider';
 };
 export type AccountPick<A extends AccountLike = AccountLike> =
-  | { ok: true; account: A; model: string; how: 'chosen' | 'default' | 'auto'; why: PickWhy; reason: string; considered: Considered[] }
+  /** `unlisted` (an `open` pick only): demanded ids the account's model list lacks. A vendor's list can lag a model it runs, so these
+   *  never block a pick when no account lists them: the app warns. */
+  | { ok: true; account: A; model: string; how: 'chosen' | 'default' | 'auto'; why: PickWhy; reason: string; considered: Considered[]; unlisted?: string[] }
   | { ok: false; code: 'none' | 'not_included' | 'unknown_account'; reason: string; considered: Considered[] };
 type Models<A> = (a: A) => readonly { id: string; available: boolean }[];
 type Candidate<A> = { account: A; row: Considered };
@@ -49,7 +51,7 @@ export function roomWords(room: Room): string {
 
 // One shared eligibility predicate for direct picks, Auto and all explanation rows. Room is read once per row.
 function consider<A extends AccountLike>(accounts: readonly A[], room: (a: A) => Room, nowMs: number,
-  demand: readonly string[] = [], models?: Models<A>, provider?: string, named?: string): Candidate<A>[] {
+  demand: readonly string[] = [], models?: Models<A>, provider?: string, named?: string, lenient = false): Candidate<A>[] {
   return accounts.map((account) => {
     const r = room(account);
     const age = finite(r.at) ? Math.max(0, nowMs - r.at) : 'unknown';
@@ -70,7 +72,8 @@ function consider<A extends AccountLike>(accounts: readonly A[], room: (a: A) =>
     }
     if (!row.out && demand.length && models) {
       const available = models(account);
-      const missing = demand.find((id) => !available.some((m) => m.id === id && m.available));
+      // Lenient: only a listed model the account cannot use (its plan, a rest) is missing; an unlisted id is not.
+      const missing = demand.find((id) => lenient ? available.some((m) => m.id === id && !m.available) : !available.some((m) => m.id === id && m.available));
       if (missing !== undefined) { row.out = 'model'; row.missing = missing; }
     }
     if (!row.out && !demand.length && provider !== undefined && account.provider !== provider && account.id !== named) row.out = 'provider';
@@ -110,16 +113,20 @@ export function chooseAccount<A extends AccountLike>(accounts: readonly A[], roo
   return pick && { account: pick.account, why: pick.why };
 }
 
-/** Resolve once before starting. Without `models`, membership is host-validated and a missing model is ''. */
+/** Resolve once before starting. Without `models`, membership is host-validated and a missing model is ''.
+ *  `open`: the lists are the vendors' own, which can lag a model they already run, so an id no eligible account lists is
+ *  picked anyway and named in `unlisted`; a host's own closed list (an agent kind's models) leaves it refused. */
 export function resolveSelection<A extends AccountLike>(accounts: readonly A[], defaults: Defaults, sel: RunSelection,
-  room: (a: A, demand: readonly string[]) => Room, nowMs: number, models?: Models<A>): AccountPick<A> {
+  room: (a: A, demand: readonly string[]) => Room, nowMs: number, models?: Models<A>, open = false): AccountPick<A> {
   const demand = [...new Set([...(sel.model ? [sel.model] : []), ...(sel.needs ?? [])])];
   const defaultAccount = accounts.find((a) => a.id === defaults.account);
   // A saved ready non-custom API default is explicit choice, never API fallback. Custom endpoints retain B4's refusal.
   const named = sel.account === 'default' ? defaultAccount?.state === 'ready' &&
     (defaultAccount.billing === 'subscription' || defaultAccount.billing === 'api' && defaultAccount.provider !== 'custom') ? defaultAccount.id : undefined : sel.account === 'auto' ? undefined : sel.account;
   const provider = sel.provider ?? defaultAccount?.provider ?? accounts[0]?.provider;
-  const rows = consider(accounts, (a) => room(a, demand), nowMs, demand, models, provider, named);
+  let rows = consider(accounts, (a) => room(a, demand), nowMs, demand, models, provider, named);
+  if (open && models && demand.length && (named !== undefined ? rows.find((c) => c.account.id === named)?.row.out === 'model' : !rows.some((c) => !c.row.out)))
+    rows = consider(accounts, (a) => room(a, demand), nowMs, demand, models, provider, named, true);
   const considered = rows.map((c) => c.row);
   const auto = rank(rows); // also fills explanations for every eligible row, even on explicit selection
   if (named !== undefined) {
@@ -143,6 +150,7 @@ export function resolveSelection<A extends AccountLike>(accounts: readonly A[], 
     const reason = how !== 'auto' ? say(`pick.why.${why}`, slots) : row.tier === 'unknown' ? say('auto.unknown', slots) : row.tier === 'exhausted' ?
       say(finite(row.resetsAt) ? 'auto.refills' : 'auto.refillsNoTime', { ...slots, time: finite(row.resetsAt) ? clock(row.resetsAt) : '' }) :
       say('auto.room', { ...slots, room: roomWords({ left: Number(row.left), span: row.span ?? 'tightest' }) });
-    return { ok: true, account, model, how, why, reason, considered };
+    const unlisted = open && models ? [...new Set([model, ...demand])].filter((id) => id && !models(account).some((m) => m.id === id)) : [];
+    return { ok: true, account, model, how, why, reason, considered, ...(unlisted.length ? { unlisted } : {}) };
   }
 }
