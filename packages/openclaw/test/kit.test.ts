@@ -637,10 +637,11 @@ test('a Go plan key registers the live catalog once and runs any Go model', asyn
   assert.equal((fake.calls.findLast((c) => c.method === 'agent')?.params as Record<string, unknown>).model, 'fake-live-model');
   assert.deepEqual(await kit.run({ member: 'm1', sessionKey: 'agent:m1:muse', auth: 'apiKey', model: 'openai/gpt-5.1', message: 'Hi' }),
     { ok: false, kind: 'plan', message: 'Choose a model of the provider saved with this key.' });
-  const rejected = await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY', model: 'opencode-go/not-a-model' });
-  assert.deepEqual(rejected, { status: 'not_included', reason: 'model' });
-  assert.equal(JSON.stringify([rejected, fake.calls]).includes('CANARY-GO-KEY'), false);
-  assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
+  // An id the plan's list lags is warned about, never refused: it rides the plan's own models.
+  const lagged = await kit.addKey('m1', { authChoice: 'opencode-go', apiKey: 'CANARY-GO-KEY', model: 'opencode-go/not-yet-listed' });
+  assert.deepEqual(lagged, { status: 'ok' });
+  assert.equal(JSON.stringify([lagged, fake.calls]).includes('CANARY-GO-KEY'), false);
+  assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: true, model: 'opencode-go/not-yet-listed' });
 }));
 
 test('a MiniMax key runs a model its vendor list lags, with the route\'s own capabilities, and lists the vendor\'s models', async () => withKit(async (kit, fake) => {
@@ -659,6 +660,28 @@ test('a MiniMax key runs a model its vendor list lags, with the route\'s own cap
   const row = config.models.providers.minimax!.models.find((m) => m.id === 'MiniMax-M3.1-Flash-Preview');
   assert.deepEqual(row?.input, ['text', 'image']);
   assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: true, model: chosen });
+}));
+
+test('any key route lists its own catalog and takes a model it names or lags, registered alone', async () => withKit(async (kit, fake) => {
+  const key = 'CANARY-XAI-KEY-B3';
+  fake.handle('byokit.catalog', (p) => p.provider === 'xai' && fake.calls.some((c) => c.method === 'openclaw.setup.activate')
+    ? { ok: true, models: [
+      { id: 'grok-4.7', name: 'Grok 4.7', api: 'openai-responses', baseUrl: 'https://api.x.ai/v1', input: ['text', 'image'], contextWindow: 2_000_000 },
+      { id: 'grok-4.7-fast', name: 'Grok 4.7 Fast', api: 'openai-responses', baseUrl: 'https://api.x.ai/v1', input: ['text'], contextWindow: 256_000 }] }
+    : { ok: false, reason: 'no-key' });
+  assert.deepEqual(await kit.models('m1', { authChoice: 'xai-api-key' }), [], 'no key saved: nothing listed');
+  assert.deepEqual(await kit.addKey('m1', { authChoice: 'xai-api-key', apiKey: key, model: 'xai/grok-4.7-fast' }), { status: 'ok' });
+  assert.deepEqual((await kit.models('m1', { authChoice: 'xai-api-key' })).map((m) => m.id), ['xai/grok-4.7', 'xai/grok-4.7-fast']);
+  const registered = async () => (await kit.call('config.get', {}) as { config: { models?: { providers?: Record<string,
+    { models?: { id: string; input?: string[] }[] }> } } }).config.models?.providers?.xai?.models ?? [];
+  assert.deepEqual((await registered()).map((m) => m.id), ['grok-4.7-fast'], 'only the chosen model is registered');
+  // An id the list lags is warned about by its absence from models(), never refused: it rides the richest row.
+  assert.deepEqual(await kit.addKey('m1', { authChoice: 'xai-api-key', apiKey: key, model: 'xai/grok-5-preview' }), { status: 'ok' });
+  assert.deepEqual((await registered()).find((m) => m.id === 'grok-5-preview')?.input, ['text', 'image']);
+  assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: true, model: 'xai/grok-5-preview' });
+  assert.deepEqual(await kit.addKey('m2', { authChoice: 'xai-api-key', apiKey: key, model: 'grok-4.7' }),
+    { status: 'not_included', reason: 'model' }, 'a model is a full provider/model id');
+  assert.equal(JSON.stringify(fake.calls).includes(key), false);
 }));
 
 test('a funded OpenRouter key takes the model the person chooses from its live catalog, with no plan check', async () => withKit(async (kit, fake) => {
@@ -719,7 +742,7 @@ test('a funded OpenRouter key takes the model the person chooses from its live c
   fake.failNext('config.get', 'gateway restarting');
   await assert.rejects(kit.run({ member: 'm1', sessionKey: 'agent:m1:auto2', auth: 'apiKey', message: 'Hi' }), /gateway restarting/);
   assert.deepEqual(await kit.addKey('m2', { authChoice: 'openrouter-api-key', apiKey: key, model: 'openrouter/not/a-model' }),
-    { status: 'not_included', reason: 'model' }, 'a model the catalog does not list is still refused');
+    { status: 'ok' }, 'a model the catalog lags is warned about, never refused');
   assert.deepEqual(await kit.addKey('m2', { authChoice: 'openrouter-api-key', apiKey: key, model: chosen, orgId: 'org-umer' }),
     { status: 'not_included', reason: 'model' }, 'a workspace is Go-only');
   assert.equal(JSON.stringify(fake.calls).includes(key), false);
@@ -989,12 +1012,13 @@ test('a chosen live model the engine did not register is a retry and nothing is 
   assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
 }));
 
-test('a model is listed and saved only for the live-catalog routes; other routes refuse it before activation', async () => withKit(async (kit, fake) => {
-  const key = 'CANARY-NONLIVE-MODEL-204';
+test('a key route whose provider has no catalog lists nothing and refuses a model, saving nothing', async () => withKit(async (kit, fake) => {
+  const key = 'CANARY-NOLIST-MODEL-204';
+  fake.handle('byokit.catalog', () => ({ ok: true, models: [] })); // the provider plugin has no catalog hook
   assert.deepEqual(await kit.models('m1', { authChoice: 'openai-api-key' }), []);
   assert.deepEqual(await kit.addKey('m1', { authChoice: 'openai-api-key', apiKey: key, model: 'openai/gpt-5.1' }),
     { status: 'not_included', reason: 'model' });
-  assert.equal(fake.calls.some((c) => c.method === 'openclaw.setup.activate' || c.method === 'agents.create'), false);
+  assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: false, absent: true });
   assert.equal(JSON.stringify(fake.calls).includes(key), false);
 }));
 
