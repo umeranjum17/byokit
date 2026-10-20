@@ -384,7 +384,8 @@ function isAncestor(ancestor: string, descendant: string): boolean {
 
 function npmView(args: string[]): { ok: boolean; out: string; err: string } {
   const r = spawnSync("npm", ["view", ...args], { cwd: root, encoding: "utf8" });
-  return { ok: r.status === 0, out: r.stdout ?? "", err: r.stderr ?? "" };
+  // npm prints its JSON error (E404 for a name never published) to stdout under --json.
+  return { ok: r.status === 0, out: r.stdout ?? "", err: (r.stderr ?? "") + (r.stdout ?? "") };
 }
 
 function npmVersions(name: string): string[] | null {

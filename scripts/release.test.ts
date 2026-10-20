@@ -193,7 +193,7 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
     return r.stdout;
   };
   try {
-    for (const path of ["scripts", "bin", "examples/expo", "examples/consumer", "packages/probe/changes", "packages/a-consumer", "packages/b-range", "packages/c-dev", "packages/d-first"]) mkdirSync(join(dir, path), { recursive: true });
+    for (const path of ["scripts", "bin", "examples/expo", "examples/consumer", "packages/probe/changes", "packages/a-consumer", "packages/b-range", "packages/c-dev", "packages/d-first", "packages/e-new"]) mkdirSync(join(dir, path), { recursive: true });
     copyFileSync(join(root, "scripts/release.ts"), join(dir, "scripts/release.ts"));
     // Prefer the npm shipped beside the running node: a version-manager shim on
     // PATH (e.g. mise) can spin forever under this test's isolated HOME.
@@ -204,7 +204,8 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
     assert.ok(realNpm.startsWith("/"));
     // Only registry version discovery is canned; lockfile resolution uses the actual npm, offline.
     // A placeholder-only package (0.0.0 reserves its name) answers its own list.
-    writeFileSync(join(dir, "bin/npm"), `#!/bin/sh\nif [ "$1" = view ] && [ "$2" = @byokit/d-first ]; then echo '["0.0.0"]'; elif [ "$1" = view ]; then echo '["0.1.0"]'; else exec '${realNpm}' "$@"; fi\n`);
+    // A name never published answers E404 on stdout, as npm --json prints it.
+    writeFileSync(join(dir, "bin/npm"), `#!/bin/sh\nif [ "$1" = view ] && [ "$2" = @byokit/d-first ]; then echo '["0.0.0"]'; elif [ "$1" = view ] && [ "$2" = @byokit/e-new ]; then echo '{"error":{"code":"E404"}}'; exit 1; elif [ "$1" = view ]; then echo '["0.1.0"]'; else exec '${realNpm}' "$@"; fi\n`);
     chmodSync(join(dir, "bin/npm"), 0o755);
     writeFileSync(join(dir, "package.json"), JSON.stringify({ private: true, type: "module", workspaces: ["packages/*"] }));
     writeFileSync(join(dir, "examples/expo/package.json"), '{"private":true}');
@@ -222,7 +223,8 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
     writeFileSync(join(dir, "packages/d-first/package.json"), JSON.stringify({ name: "@byokit/d-first", version: "0.1.0", publishConfig: { tag: "next" } }, null, 2));
     writeFileSync(join(dir, "bin/gh"), "#!/bin/sh\nexit 1\n");
     chmodSync(join(dir, "bin/gh"), 0o755);
-    for (const kit of ["a-consumer", "b-range", "c-dev", "d-first"]) writeFileSync(join(dir, `packages/${kit}/CHANGELOG.md`), "# Changelog\n\n## Unreleased\n\n- Existing note.\n");
+    for (const kit of ["a-consumer", "b-range", "c-dev", "d-first", "e-new"]) writeFileSync(join(dir, `packages/${kit}/CHANGELOG.md`), "# Changelog\n\n## Unreleased\n\n- Existing note.\n");
+    writeFileSync(join(dir, "packages/e-new/package.json"), JSON.stringify({ name: "@byokit/e-new", version: "0.1.0" }, null, 2));
     writeFileSync(join(dir, "packages/probe/package.json"), JSON.stringify({ name: "@byokit/probe", version: "0.1.0" }, null, 2));
     const cl = join(dir, "packages/probe/CHANGELOG.md");
     writeFileSync(cl, "# Changelog\n\n## Unreleased\n\n- Existing note for Umer.\n");
@@ -245,6 +247,9 @@ test("prepare CLI compiles fragments with existing notes and deletes them in its
     const first = run(process.execPath, ["scripts/release.ts", "prepare", "d-first=0.1.0", "--dry-run"]);
     assert.equal(first.status, 0, first.stderr);
     assert.match(first.stdout, /@byokit\/d-first 0.1.0 -> 0.1.0/, "first release at the current version past a 0.0.0 placeholder");
+    const unpublished = run(process.execPath, ["scripts/release.ts", "prepare", "e-new=0.1.0", "--dry-run"]);
+    assert.equal(unpublished.status, 0, unpublished.stderr);
+    assert.match(unpublished.stdout, /@byokit\/e-new 0.1.0 -> 0.1.0/, "a name never on npm (E404 on stdout) is a first release, not an error");
     // Configure the writer's commit identity locally in this throwaway repository.
     git("config", "user.name", "Umer"); git("config", "user.email", "umer@example.invalid"); git("config", "commit.gpgsign", "false");
     const prepared = run(process.execPath, ["scripts/release.ts", "prepare", "probe=patch"]);
