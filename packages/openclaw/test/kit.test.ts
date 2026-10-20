@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { dirname, join } from 'node:path';
@@ -830,7 +830,8 @@ test('ready runs reuse only witnessed, bounded member auth; mutations, expiry an
     const agentCalls = fake.calls.filter(c => c.method === 'agent').length;
     const out = await run();
     // A signed-out claude-cli run says where the login is missing; without a spawned engine the kit's sign-in writes it.
-    const kitLogin = { code: 'needs_cli_login', cli: 'claude', home: join(stateDir, 'openclaw/home'), configDir: dirname(credentials), signIn: true };
+    const kitLogin = { code: 'needs_cli_login', cli: 'claude', home: realpathSync(join(stateDir, 'openclaw/home')),
+      configDir: realpathSync(dirname(credentials)), signIn: true }; // the engine root is a real path (macOS /tmp is a link)
     assert.deepEqual(out, { ok: false, kind: 'signed-out', message: 'claude-cli is not signed in for umer', cause: kitLogin });
     assert.equal(fake.calls.filter(c => c.method === 'agent').length, agentCalls);
     await kit.call('openclaw.setup.activate', { agentId: 'umer', kind: 'claude-cli' });
