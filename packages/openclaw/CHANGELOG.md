@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.26.0 (2026-10-20)
+
+- Dependency update: pins @byokit/accounts 0.30.0.
+
+- FEAT: every key route now lists its own models: `kit.models(member, { authChoice })` answers the provider plugin's catalog joined by the vendor's own `/models` (not only OpenCode Go, OpenRouter and MiniMax), and `addKey({ ..., model })` takes any full `provider/model` id on any key route. An id the catalog lags is taken with the route's own capabilities instead of being refused; only a route with no catalog at all refuses a model.
+- The bridge's Codex CLI route now names its two model rows itself instead of reading them from `@byokit/accounts`' catalogue, which no longer keeps model tiers; the rows the engine lists are unchanged.
+
 ## 0.25.0 (2026-10-20)
 
 - Dependency update: pins @byokit/accounts 0.29.0.

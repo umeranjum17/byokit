@@ -1,1 +1,0 @@
-- FIX: `pi({ bin, model, timeoutMs })` requires `model` and throws "Choose a model for pi first" without it, so the installed pi never answers with its own default model.

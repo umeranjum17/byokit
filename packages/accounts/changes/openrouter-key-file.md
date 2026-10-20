@@ -1,1 +1,0 @@
-- FEAT: `accounts.add(member, 'openrouter:key', { keyFile })` on a computer reads the key from a file (read once, never echoed); an off-catalogue OpenRouter model id (for example `minimax/minimax-m3.1-flash:free`) now resolves on OpenRouter's OpenAI-compatible API with its live-list limits.

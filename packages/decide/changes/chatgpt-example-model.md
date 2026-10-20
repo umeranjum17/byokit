@@ -1,1 +1,0 @@
-- DOCS: the README's ChatGPT `answerer` example names its model (`model: 'gpt-6-sol'`), since `@byokit/accounts` `respond` now requires one for ChatGPT.
