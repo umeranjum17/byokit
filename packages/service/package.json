@@ -33,7 +33,7 @@
     "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"
   },
   "dependencies": {
-    "@byokit/cloud": "0.2.1"
+    "@byokit/cloud": "0.3.0"
   },
   "publishConfig": {
     "access": "public"

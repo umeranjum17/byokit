@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+## 0.3.0 (2026-10-20)
+
+- FIX: A lost answer from a cloud computer create no longer bills a second computer. `machine().create` saves the
+  create's idempotency key in the store (`MachineRecord.pending`) before it asks the provider, so a retry, even after
+  an app restart, sends the same key and gets back the computer already made; a retry with another name, size or
+  `keepCopies` rejects `exists` while that create is pending.
+- NOTE: Boat keeps an idempotency key for 24 hours; a retry after that cannot find the earlier computer by key.
+- FIX: The loopback Boat bench (`startFakeSandboxServer()` in `./testing`) answers every request with `Connection: close`, so a test suite on Node 22, whose `fetch` (undici 6) can fire an idle keep-alive socket's timer after its parser was collected, no longer fails with `Cannot destructure property 'socket' of 'parser.deref(...)'` after its tests passed.
+- FEAT: An app can hand off pairing through its own host command with no shell of its own: `machine.handoff(recipe, argv, { prefix, timeoutMs? })` removes old `<workDir>/.byokit/outbox/<prefix>*` files so an interrupted run's offer is never read, starts `argv` the way `machine.run` does (10 minutes by default), and resolves `{ offer, deliver, done }`: `offer` yields each new `<prefix>*` offer whose name the machine chose, `deliver(file, bytes)` writes the answer to the inbox, and `done` is the command's `ExecResult`. The `setup()` `pair` gate's `PairContext` now carries `run(argv, o?)` and `handoff(argv, o)` for the setup recipe.
+- FEAT: A person with only the phone app can rent a Hetzner server and have the app's host installed on it, with no SSH
+  and no install by hand: `hetznerApi()` (portable, React Native) creates, reads and deletes over HTTPS alone, and
+  `firstBoot: { recipe, phoneKey }` makes cloud-init install the pinned Node, the recipe, the unit and the owner phone's
+  key on first boot, behind a firewall that lets nothing in. `server`, `cloudConfig` and `request()` pass any other
+  Hetzner field or call through, typed. The Node `./hetzner` entry is unchanged.
+- FEAT: `setupCommand(recipe)` returns one line to paste into the person's own computer or any provider console; it
+  installs the same way and ends with the pinned `byokit-ready <name>` line (plus the host's answer, such as a pairing
+  code) or `byokit-failed <name> <step>`.
+- NOTE: Real Hetzner is not proven yet: the first-boot install was proven only on local QEMU VMs with real cloud-init, against a
+  stand-in Hetzner API, never on a real Hetzner server or account.
+- FEATURE: A phone app can now set up any SSH box with no `ssh` binary. `.` exports `sshVm({ transport, pins, host, user, label })` and `sshHostKey({ transport, pins, host })`, where `transport` is the app's own SSH module (`exec`, `hostKey`, optional `write`) and `pins` its store for the confirmed host key. The kit keeps quoting, `timeout`/`sudo -n` wrapping, the pinned-key gate and typed errors; the login key never reaches it. `@byokit/cloud/ssh` accepts the same options and keeps the `ssh` binary as the default. Both adapters list the one box they point at, so `setup({ pick, confirmId })` runs its consent and no-takeover checks, install, securing and pairing on an SSH box. `./testing` adds `fakeSshTransport()`.
+- FEATURE: A runner on an SSH box or a Hetzner server is now reachable from the phone: the keyless private-network join (and `setup()`'s `securing` step) runs on every adapter, not only Boat, and serves the app port on the person's own tailnet with nothing public opened. A join key is still refused on every adapter.
+- FIX: Joining the private network no longer waits five minutes and fails when Tailscale's control server sends the sign-in link a few seconds after `tailscale up` returned (seen on a real VM): the kit now also reads the link from the daemon's status, shows it once as `open-page`, and gives the person the full five minutes from then.
+- FEAT: An app can run its own command on the person's computer the way the host's unit sees it, and read the newest file the host wrote, with no shell of its own: `machine.run(recipe, argv, { timeoutMs?, input? })` runs as the recipe's user in `workDir` with the kit's Node first on `PATH` and `recipe.run.env` set, and resolves the full `ExecResult` (it never installs a missing Node); `machine.newest(recipe, prefix)` resolves the newest `<workDir>/.byokit/outbox/<prefix>*` file as `{ file, text }`, or `null` while none exists.
+- FEATURE: A person who has only the phone app can now get a new cloud computer and the app's host on it in one `setup()` run. `setup({ create: { size, keepCopies } })` (in place of `pick` and `confirmId`) checks the recipe before renting, so a refused recipe never bills; it rents a computer named after the recipe on the person's own provider account, waits until it is on (Boat answers while it is still starting), and emits the new `creating` step (`setup.creating` words, which say the provider bills the person), then installs, secures and pairs as before. A retry with the same arguments resumes on the saved computer instead of renting another. Boat's public API has no region, so there is no region option.
+- FEATURE: The host's side of phone enrol is now two calls in `@byokit/cloud/unit` (Node): `takeInbox(workDir, file)` resolves the delivered bytes and a `done()` that removes the file only once the host has handled it, and `writeOutbox(workDir, file, text)` writes the receipt at 0600 through a temporary name and a rename, so apps no longer hand-write that.
+- FEATURE: `pairEnrol(m, recipe, key, { url })` builds the receipt's `urls` with the app's own link route from each address root and the host's public key; without `url` they stay the root `ws://<tailnet name>:<port>`. The README now says `EnrolHost`, `OwnerHost` and `ReceiptHost` may be an app's own device store, and that releases publish on npm's `latest` tag.
+
 ## 0.2.1 (2026-10-18)
 
 - FIX: Cloud releases now publish to npm’s `latest` tag by default.
