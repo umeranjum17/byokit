@@ -161,12 +161,14 @@ test('a person with two ChatGPT accounts picks the roomier one, reads each oneâ€
     await accounts.rename(1, work, 'Work');
     assert.notEqual(work, personal);
 
-    // Each account reports the catalogue's models while it is ready.
+    // Each account reports ChatGPT's own live list while it is ready: the rows it shows, never a hidden one.
     const readyModels = await accounts.models(1, work);
-    assert.deepEqual(readyModels.map((m) => [m.id, m.tier, m.available, m.why]), [
-      ['gpt-6-sol', 'strong', true, undefined],
-      ['gpt-6-luna', 'fast', true, undefined],
+    assert.deepEqual(readyModels.map((m) => [m.id, m.name, m.available, m.why]), [
+      ['gpt-6-sol', 'GPT-6 Sol', true, undefined],
+      ['gpt-6-luna', 'GPT-6 Luna', true, undefined],
     ]);
+    const listed = openai.state.requests.filter((r) => r.path === '/codex/models');
+    assert.equal(listed.at(-1)?.account, 'umer-work', 'read with that account\'s own sign-in');
 
     // Work has more room this week, so Auto names Work and says why; the pick writes neither store nor defaults.
     const rooms: Record<string, Room> = { [work]: { left: 60, span: 'week' }, [personal]: { left: 30, span: 'week' } };
@@ -216,11 +218,13 @@ test('a person with two ChatGPT accounts picks the roomier one, reads each oneâ€
     if (!missing.ok) assert.equal(missing.code, 'unknown_account');
     await assert.rejects(accounts.models(1, 'chatgpt.deadbeef'), /No such account/);
 
-    // A plan without this use and a sign-in that lapsed each say why every model is unavailable.
+    // A plan without this use says why every model is unavailable.
     accounts.notIncluded(1, personal, true);
-    for (const model of await accounts.models(1, personal)) assert.equal(model.why, 'plan');
+    const excluded = await accounts.models(1, personal);
+    assert.ok(excluded.length && excluded.every((m) => !m.available && m.why === 'plan'));
+    // Signed out, there is no sign-in to read the list with, so nothing is listed.
     accounts.forget(1, personal);
-    for (const model of await accounts.models(1, personal)) assert.equal(model.why, 'signed_out');
+    assert.deepEqual(await accounts.models(1, personal), []);
   } finally {
     accounts.stop();
     await openai.close();

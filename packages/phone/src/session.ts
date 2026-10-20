@@ -68,8 +68,8 @@ export type PhoneSessionOptions<M extends Member> = {
   member: M;
   /** The one account this session answers from (`chatgpt`, or an id from `accounts.list`). It never changes. */
   account: string;
-  /** The model, for every account but ChatGPT (whose catalogue model is used): the kit never guesses one. */
-  model?: Model<Api>;
+  /** The model: an id from `accounts.models()` for ChatGPT, a `Model` for every other account. The kit never guesses one. */
+  model?: Model<Api> | string;
   instructions: string;
   tools?: readonly PhoneTool[];
   log: PhoneLog;
@@ -210,7 +210,7 @@ export class PhoneSession<M extends Member = Member> {
     const tools = this.o.tools ?? [];
     const row = await this.row();
     if (!row || row.state === 'signed_out' || row.state === 'needs_again') return this.fail(rid, 'signed-out');
-    if (row.provider !== 'chatgpt' && !this.o.model) throw new TypeError(`a model is needed for ${this.o.account}`);
+    if (row.provider === 'chatgpt' ? !this.o.model : typeof this.o.model !== 'object') throw new TypeError(`a model is needed for ${this.o.account}`);
     let steps = this.entries.filter((e) => e.t === 'step' && e.rid === rid).length;
     for (;;) {
       // Answer every call of the last kept step first: a resumed turn may have stopped between them.
@@ -279,12 +279,13 @@ export class PhoneSession<M extends Member = Member> {
             ...e.calls.map((c) => ({ type: 'function_call' as const, call_id: c.id, name: c.name, arguments: JSON.stringify(c.args) }))]
           : e.t === 'tool-end' ? [{ type: 'function_call_output', call_id: e.id, output: e.output }] : []);
       const result = await this.o.accounts.respond(this.o.member, {
+        model: typeof this.o.model === 'string' ? this.o.model : this.o.model!.id,
         instructions: this.o.instructions, input, result: true, signal, onText: stream, select: { account: this.o.account },
         ...(tools.length ? { tools: tools.map((t): ResponseTool => ({ type: 'function', name: t.name, description: t.description, parameters: t.parameters })) } : {}),
       }) as ResponseResult;
       return { text: result.text, calls: result.output.filter(isFunctionCall).map((c) => ({ id: c.call_id ?? c.id ?? '', name: c.name, args: parse(c.arguments) })) };
     }
-    const model = this.o.model!;
+    const model = this.o.model as Model<Api>;
     const meta = { api: model.api, provider: model.provider, model: model.id, usage: ZERO, timestamp: 0 };
     const messages = history.flatMap((e): Context['messages'] =>
       e.t === 'user' ? [{ role: 'user', content: e.text, timestamp: 0 }]

@@ -42,8 +42,9 @@ const count = (v: unknown): number | undefined => typeof v === 'number' && Numbe
 const perMillion = (v: unknown): number => { const n = Number(v); return Number.isFinite(n) && n >= 0 ? n * 1e6 : 0; };
 
 type Auth = { apiKey: string; fetch?: typeof fetch; signal?: AbortSignal };
-/** A sign-in's own request auth on top: its headers (Copilot's) and the base its token names. */
-type ListAuth = Auth & { headers?: Record<string, string | null>; baseUrl?: string };
+/** A sign-in's own request auth on top: its headers (Copilot's), the base its token names, and `bearer` for an
+ *  Anthropic Messages sign-in token (Claude's plan) rather than a key. */
+type ListAuth = Auth & { headers?: Record<string, string | null>; baseUrl?: string; bearer?: boolean };
 
 /** The rows a vendor's own `GET /models` lists, or `undefined` when it cannot be read. OpenAI-style routes answer
  *  `{base}/models` with the key as a bearer; Anthropic Messages answers `{base}/v1/models` (`x-api-key`, or a bearer for
@@ -52,7 +53,7 @@ async function listed(model: Pick<Model<Api>, 'api' | 'baseUrl' | 'provider'>, o
   const openai = model.api.startsWith('openai-');
   if (!openai && model.api !== 'anthropic-messages') return undefined;
   const base = (o.baseUrl ?? model.baseUrl).replace(/\/$/, '');
-  const bearer = openai || /^minimax/.test(model.provider);
+  const bearer = openai || o.bearer || /^minimax/.test(model.provider);
   try {
     const res = await (o.fetch ?? fetch)(openai ? `${base}/models` : `${base}/v1/models`, { signal: o.signal,
       headers: { ...Object.fromEntries(Object.entries(o.headers ?? {}).filter((e): e is [string, string] => typeof e[1] === 'string')),

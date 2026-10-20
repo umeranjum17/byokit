@@ -55,7 +55,7 @@ test('a person signs in with the ChatGPT plan they already pay for, asks, and th
 
     // They ask a question: the answer streams in pieces, then the final answer is returned.
     let streamed = '';
-    const answer = await accounts.respond(1, { instructions: 'Answer briefly.', input: 'Plan my day', onText: (piece) => { streamed += piece; } });
+    const answer = await accounts.respond(1, { model: 'gpt-6-sol', instructions: 'Answer briefly.', input: 'Plan my day', onText: (piece) => { streamed += piece; } });
     assert.equal(answer, 'You said: Plan my day');
     assert.equal(streamed, answer);
 
@@ -115,7 +115,7 @@ test("on a phone, one button: ChatGPT's own page in the app's in-app browser, an
     assert.equal(accounts.view(1, 'chatgpt')?.state, 'waiting');
     assert.equal((await accounts.complete(1, 'chatgpt', back))?.state, 'done');
     assert.equal((await accounts.status(1, 'chatgpt')).words, 'ChatGPT is connected.');
-    assert.equal(await accounts.respond(1, { instructions: 'Answer briefly.', input: 'Plan my day' }), 'You said: Plan my day');
+    assert.equal(await accounts.respond(1, { model: 'gpt-6-sol', instructions: 'Answer briefly.', input: 'Plan my day' }), 'You said: Plan my day');
     // Handed over twice, or with no sign-in waiting: turned away, and the sign-in made stays.
     await assert.rejects(accounts.complete(1, 'chatgpt', back), refused(fixture.outcomes['the same address twice']));
     await assert.rejects(accounts.complete(2, 'chatgpt', back), refused(fixture.outcomes['no redirect sign-in waiting']));

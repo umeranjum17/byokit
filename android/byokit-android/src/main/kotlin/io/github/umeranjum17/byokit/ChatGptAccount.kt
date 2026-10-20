@@ -20,8 +20,9 @@ class ChatGptAccount(
     val name: String = entry.getString("name")
     /** The grey-terms line to show next to the button: "Uses your ChatGPT plan. OpenAI may change this at any time." */
     val termsLine: String = Byokit.say("terms.grey", mapOf("name" to name, "company" to entry.getString("company")))
-    val strongModel: String = entry.getJSONObject("models").getString("strong")
-    val fastModel: String = entry.getJSONObject("models").optString("fast", strongModel)
+    // The frozen Kotlin mirror keeps its own two ids: it reads no live model list, and the shared catalogue names none.
+    val strongModel: String = "gpt-6-sol"
+    val fastModel: String = "gpt-6-luna"
 
     /** 0 when the account can be used; otherwise when it stops resting. */
     @Volatile var restingUntil: Long = 0

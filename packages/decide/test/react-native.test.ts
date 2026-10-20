@@ -61,7 +61,7 @@ test('answerer isolates injected state and forwards typed JSON schema through ac
       } },
     } } } };
   const backend = answerer({ name: 'chatgpt', leaves: true, text,
-    ask: (prompt, signal, _images, options) => accounts.respond('Umer', { ...options, input: prompt, signal }) });
+    ask: (prompt, signal, _images, options) => accounts.respond('Umer', { ...options, model: 'gpt-6-sol', input: prompt, signal }) });
   const cache = new MemoryCache();
   const state = { author: 'Umer', post };
   const result = await decide(state, q, { privacy: 'may-leave', backends: [backend], cache });

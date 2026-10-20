@@ -46,7 +46,7 @@ test('a ChatGPT plan answers on the phone, labelled as the plan, with the app to
   const tool: PhoneTool = { name: 'save_note', description: 'Save a note on this phone.',
     parameters: { type: 'object', properties: { input: { type: 'string' } } },
     run: async (args) => { ran.push(args); return 'note saved'; } };
-  const session = await PhoneSession.open({ accounts, member: 'Umer', account: 'chatgpt', instructions: 'You run on a phone.', tools: [tool], log: memoryLog() });
+  const session = await PhoneSession.open({ accounts, member: 'Umer', account: 'chatgpt', model: 'gpt-6-sol', instructions: 'You run on a phone.', tools: [tool], log: memoryLog() });
 
   assert.deepEqual(await session.account(), { id: 'chatgpt', name: 'ChatGPT', billing: 'subscription', words: 'Uses your ChatGPT plan.', signedIn: true });
   assert.equal(session.status, 'idle');
@@ -74,7 +74,7 @@ test('killed mid-tool, the reopened chat waits for Try again and never reruns a 
   const { accounts, asked } = await signedIn(t);
   const log = memoryLog();
   const held = heldTool(false);
-  const o = { accounts, member: 'Umer', account: 'chatgpt', instructions: 'You run on a phone.', tools: [held.tool], log };
+  const o = { accounts, member: 'Umer', account: 'chatgpt', model: 'gpt-6-sol', instructions: 'You run on a phone.', tools: [held.tool], log };
   const first = await PhoneSession.open(o);
   const kill = new AbortController();
   const sent = first.send('remember the milk', { requestId: 'r1', signal: kill.signal });
@@ -103,7 +103,7 @@ test('a replay-safe tool cut off mid-run runs again on Try again, under the same
   const { accounts } = await signedIn(t);
   const log = memoryLog();
   const held = heldTool(true);
-  const o = { accounts, member: 'Umer', account: 'chatgpt', instructions: 'You run on a phone.', tools: [held.tool], log };
+  const o = { accounts, member: 'Umer', account: 'chatgpt', model: 'gpt-6-sol', instructions: 'You run on a phone.', tools: [held.tool], log };
   const kill = new AbortController();
   const sent = (await PhoneSession.open(o)).send('remember the milk', { requestId: 'r1', signal: kill.signal });
   await held.running;
@@ -119,7 +119,7 @@ test('a replay-safe tool cut off mid-run runs again on Try again, under the same
 
 test('a limit ends the turn with its words and never moves to another account', async (t) => {
   const { openai, accounts, asked } = await signedIn(t);
-  const session = await PhoneSession.open({ accounts, member: 'Umer', account: 'chatgpt', instructions: 'Be brief.', log: memoryLog() });
+  const session = await PhoneSession.open({ accounts, member: 'Umer', account: 'chatgpt', model: 'gpt-6-sol', instructions: 'Be brief.', log: memoryLog() });
   openai.state.fail = { status: 429, body: JSON.stringify({ error: { type: 'usage_limit_reached', message: 'The usage limit has been reached', resets_in_seconds: 600 } }) };
   const turn = await session.send('plan my day', { requestId: 'r1' });
   assert.equal(turn.state, 'failed');
@@ -128,7 +128,7 @@ test('a limit ends the turn with its words and never moves to another account', 
   assert.equal(asked().length, 1, 'no second account was asked');
   assert.equal(session.status, 'idle');
 
-  const later = await PhoneSession.open({ accounts, member: 'Umer', account: 'chatgpt.someone-else', instructions: 'Be brief.', log: memoryLog() });
+  const later = await PhoneSession.open({ accounts, member: 'Umer', account: 'chatgpt.someone-else', model: 'gpt-6-sol', instructions: 'Be brief.', log: memoryLog() });
   assert.equal((await later.account()).signedIn, false);
   assert.equal((await later.send('hello')).code, 'signed-out');
   assert.equal(asked().length, 1);
@@ -137,7 +137,7 @@ test('a limit ends the turn with its words and never moves to another account', 
 test('one turn at a time, and every sentence is plain', async (t) => {
   const { accounts } = await signedIn(t);
   const held = heldTool(false);
-  const session = await PhoneSession.open({ accounts, member: 'Umer', account: 'chatgpt', instructions: 'Be brief.', tools: [held.tool], log: memoryLog() });
+  const session = await PhoneSession.open({ accounts, member: 'Umer', account: 'chatgpt', model: 'gpt-6-sol', instructions: 'Be brief.', tools: [held.tool], log: memoryLog() });
   const stop = new AbortController();
   const sent = session.send('one', { signal: stop.signal });
   await assert.rejects(session.send('two'), (e) => e instanceof PhoneError && e.code === 'busy', 'busy before its first line is kept');

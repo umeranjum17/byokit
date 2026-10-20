@@ -4,10 +4,10 @@ A consumer app with two signed-in ChatGPT accounts asks `Accounts.pick` which ac
 
 ## Sub-features
 
-- `pick-auto`: with two ready accounts and a room reading each, `pick(member, { account: 'auto' }, room)` names the roomier account and its catalogue model, with the `auto.room` reason.
+- `pick-auto`: with two ready accounts and a room reading each, `pick(member, { account: 'auto' }, room)` names the roomier account and the first model its own live list names, with the `auto.room` reason.
 - `pick-after-rest`: after `failed(member, id, 429)`, only that account rests, and the next Auto names the other.
 - `rest-next-reset`: `failed(member, id, "… usage limit. Next reset in 4 hours, 3:00 PM.")` rests that account until the stated reset (~4h), not the 60-minute fallback; the same wording with no number falls back to 60 minutes.
-- `models-ready`: `models(member, id)` lists the catalogue's strong/fast models, `available: true`.
+- `models-ready`: `models(member, id)` lists ChatGPT's own live list (`/codex/models`, the `visibility: 'list'` rows), `available: true`; the kit keeps no list of its own.
 - `models-resting`: for the resting account, every model is `available: false`, `why: 'resting'`, with `until`.
 - `pick-unknown-id`: an id not in the list returns `ok: false`, `code: 'unknown_account'`; `models` refuses it.
 - `pick-no-reading`: a `room` source absent leaves every reading unknown, so list order decides.
@@ -24,7 +24,7 @@ Preconditions: baseline (features/README.md); no process of a previous drive is 
 
 - **Write the consumer.** Create `"$scratch_dir/verify-accounts-pick.mjs"` importing `Accounts, memoryStore, portable, ResponseError` from `@byokit/accounts` and `mockOpenAI` from `@byokit/accounts/testing`. Sign in `umer-personal` (plus) and `umer-work` (team) into one `memoryStore`, rename the second `Work`, then print the `models` rows, the `pick` on rooms work 60 / personal 30, the `pick` after `failed(member, work, new ResponseError('429 …', 'rate_limit', …))`, the resting account's `models`, an explicit unknown id, an absent-room pick, the `models` refusal, and the rest after `failed(member, personal, "You've reached your Codex subscription usage limit. Next reset in 4 hours, 3:00 PM.")`. `await openai.close()` in a `finally`.
 - **Run and capture.** `feature=accounts-pick; entry=@byokit/accounts; drive=(node "$scratch_dir/verify-accounts-pick.mjs")`, then run SKILL.md Evidence's capture block. Exit code `0`.
-- **Happy path shows.** `pick: Work gpt-6-sol - Right now that's Work: 60% left this week`, and `models ready: [["gpt-6-sol","strong",true],["gpt-6-luna","fast",true]]`.
+- **Happy path shows.** `pick: Work gpt-6-sol - Right now that's Work: 60% left this week`, and `models ready: [["gpt-6-sol",true],["gpt-6-luna",true]]` (the stand-in's list; its hidden `codex-auto-review` row is not shown).
 - **Rest and error cases show.** `after limit: Personal`; `next reset: +240min, future=true`; `resting models: gpt-6-sol:resting:true, gpt-6-luna:resting:true`; `unknown id: unknown_account`; `no readings: Personal`; `models unknown id error: No such account.`.
 - **Per-kind journey.** After building, run `sh scripts/test.sh packages/accounts/test/journey-pick.test.ts`. It imports the built public package, signs in two loopback identities into an encrypted file store, starts a separate Node consumer to resolve Pi/Codex preferences, then drives removal, secret-field exclusion and missing/signed-out/unavailable/stale-model refusals. Capture its TAP output outside the repository; expect both journeys to pass, with `consumer restart`, `launch refused` and `removal` receipts. No native CLI is launched: the unsuccessful `AccountPick` is the admission boundary; native adapters and real provider qualification are not claimed.
 - **Proof.** The captured artifact contains command output for the action and resulting state of every sub-feature above.

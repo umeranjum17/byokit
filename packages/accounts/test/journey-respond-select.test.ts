@@ -60,7 +60,7 @@ test('respond answers from the selected ChatGPT account, rests only that one, an
     await accounts.setDefaults(1, { account: personal });
     const defaultsBefore = await accounts.defaults(1);
 
-    const first = await accounts.respond(1, { instructions: 'Be brief.', input: 'Which account am I?', select: { account: 'auto' } });
+    const first = await accounts.respond(1, { model: 'gpt-6-sol', instructions: 'Be brief.', input: 'Which account am I?', select: { account: 'auto' } });
     assert.equal(first, 'You said: Which account am I?');
     assert.equal(answers(openai.state.requests).at(-1)!.account, 'umer-work', 'Auto answered with Work, not the default');
 
@@ -68,7 +68,7 @@ test('respond answers from the selected ChatGPT account, rests only that one, an
     openai.state.fail = { status: 429, body: JSON.stringify({ error: { code: 'rate_limit_exceeded', message: 'You have hit your usage limit' } }) };
     const before = answers(openai.state.requests).length;
     await assert.rejects(
-      accounts.respond(1, { instructions: 'Be brief.', input: 'again', select: { account: 'auto' } }),
+      accounts.respond(1, { model: 'gpt-6-sol', instructions: 'Be brief.', input: 'again', select: { account: 'auto' } }),
       (e: any) => e instanceof ResponseError && e.kind === 'rate_limit' && e.until > Date.now(),
     );
     assert.equal(answers(openai.state.requests).length, before + 1, 'one request, no retry on another account');
@@ -77,7 +77,7 @@ test('respond answers from the selected ChatGPT account, rests only that one, an
     assert.equal(rows.find((r) => r.id === personal)!.state, 'ready', 'the default is untouched');
 
     // The next Auto skips the resting account and answers from Personal.
-    const second = await accounts.respond(1, { instructions: 'Be brief.', input: 'Who now?', select: { account: 'auto' } });
+    const second = await accounts.respond(1, { model: 'gpt-6-sol', instructions: 'Be brief.', input: 'Who now?', select: { account: 'auto' } });
     assert.equal(second, 'You said: Who now?');
     assert.equal(answers(openai.state.requests).at(-1)!.account, 'umer-personal', 'the next Auto moved to Personal');
 
@@ -87,12 +87,12 @@ test('respond answers from the selected ChatGPT account, rests only that one, an
     // A resting default is refused typed with its until, and no request is sent, even though Work is ready.
     openai.state.fail = { status: 429, body: JSON.stringify({ error: { code: 'rate_limit_exceeded', message: 'You have hit your usage limit' } }) };
     await assert.rejects(
-      accounts.respond(1, { instructions: 'Be brief.', input: 'rest', select: { account: personal } }),
+      accounts.respond(1, { model: 'gpt-6-sol', instructions: 'Be brief.', input: 'rest', select: { account: personal } }),
       (e: any) => e instanceof ResponseError && e.kind === 'rate_limit',
     );
     const resting = answers(openai.state.requests).length;
     await assert.rejects(
-      accounts.respond(1, { instructions: 'Be brief.', input: 'default', select: { account: 'default' } }),
+      accounts.respond(1, { model: 'gpt-6-sol', instructions: 'Be brief.', input: 'default', select: { account: 'default' } }),
       (e: any) => e instanceof ResponseError && e.kind === 'rate_limit' && e.until > Date.now(),
     );
     assert.equal(answers(openai.state.requests).length, resting, 'no request was sent for the resting default');
@@ -101,7 +101,7 @@ test('respond answers from the selected ChatGPT account, rests only that one, an
     await store.delete(personal);
     const asked = answers(openai.state.requests).length;
     await assert.rejects(
-      accounts.respond(1, { instructions: 'Be brief.', input: 'ghost', select: { account: personal } }),
+      accounts.respond(1, { model: 'gpt-6-sol', instructions: 'Be brief.', input: 'ghost', select: { account: personal } }),
       (e: any) => e instanceof ResponseError && e.kind === 'signed_out',
     );
     assert.equal(answers(openai.state.requests).length, asked, 'no request was sent for the signed-out id');
@@ -141,11 +141,11 @@ test('a default that cannot answer is refused typed, and Auto never answers from
     // A saved Anthropic key is the default: Auto still answers from the ChatGPT sign-in, and the default is refused.
     const api = await accounts.add(1, 'anthropic', { via: 'key', key: 'sk-ant-journey' });
     await accounts.setDefaults(1, { account: api.id });
-    assert.equal(await accounts.respond(1, { instructions: 'Be brief.', input: 'Auto?', select: { account: 'auto' } }), 'You said: Auto?');
+    assert.equal(await accounts.respond(1, { model: 'gpt-6-sol', instructions: 'Be brief.', input: 'Auto?', select: { account: 'auto' } }), 'You said: Auto?');
     assert.equal(answers(openai.state.requests).at(-1)!.account, 'umer-work', 'Auto answered from ChatGPT, not the Anthropic default');
     const apiAsked = answers(openai.state.requests).length;
     await assert.rejects(
-      accounts.respond(1, { instructions: 'Be brief.', input: 'default', select: { account: 'default' } }),
+      accounts.respond(1, { model: 'gpt-6-sol', instructions: 'Be brief.', input: 'default', select: { account: 'default' } }),
       (e: any) => e instanceof ResponseError && e.kind === 'not_included',
     );
     assert.equal(answers(openai.state.requests).length, apiAsked, 'no request for a non-ChatGPT default');
@@ -155,7 +155,7 @@ test('a default that cannot answer is refused typed, and Auto never answers from
     await store.delete(personal);
     const outAsked = answers(openai.state.requests).length;
     await assert.rejects(
-      accounts.respond(1, { instructions: 'Be brief.', input: 'default', select: { account: 'default' } }),
+      accounts.respond(1, { model: 'gpt-6-sol', instructions: 'Be brief.', input: 'default', select: { account: 'default' } }),
       (e: any) => e instanceof ResponseError && e.kind === 'signed_out',
     );
     assert.equal(answers(openai.state.requests).length, outAsked, 'no request for the signed-out default');
@@ -163,12 +163,12 @@ test('a default that cannot answer is refused typed, and Auto never answers from
     // Work is the only signed-in account. A limit rests it, and the next Auto refuses as rate_limit with its until.
     openai.state.fail = { status: 429, body: JSON.stringify({ error: { code: 'rate_limit_exceeded', message: 'You have hit your usage limit' } }) };
     await assert.rejects(
-      accounts.respond(1, { instructions: 'Be brief.', input: 'limit', select: { account: 'auto' } }),
+      accounts.respond(1, { model: 'gpt-6-sol', instructions: 'Be brief.', input: 'limit', select: { account: 'auto' } }),
       (e: any) => e instanceof ResponseError && e.kind === 'rate_limit' && e.until > Date.now(),
     );
     const restingAsked = answers(openai.state.requests).length;
     await assert.rejects(
-      accounts.respond(1, { instructions: 'Be brief.', input: 'all resting', select: { account: 'auto' } }),
+      accounts.respond(1, { model: 'gpt-6-sol', instructions: 'Be brief.', input: 'all resting', select: { account: 'auto' } }),
       (e: any) => e instanceof ResponseError && e.kind === 'rate_limit' && e.until > Date.now(),
     );
     assert.equal(answers(openai.state.requests).length, restingAsked, 'no request while every signed-in account rests');
@@ -186,7 +186,7 @@ test('a revoked picked account is signed out alone: the saved default keeps its 
     openai.state.fail = { status: 401, body: JSON.stringify({ error: { code: 'token_expired', message: 'Provided authentication token is expired.' } }) };
     openai.state.refuse = true;
     await assert.rejects(
-      accounts.respond(1, { instructions: 'Be brief.', input: 'revoked', select: { account: 'auto' } }),
+      accounts.respond(1, { model: 'gpt-6-sol', instructions: 'Be brief.', input: 'revoked', select: { account: 'auto' } }),
       (e: any) => e instanceof ResponseError && e.kind === 'signed_out',
     );
     assert.deepEqual((await store.list()).map((c) => c.providerId), [personal], 'only the revoked picked sign-in was removed');
@@ -205,7 +205,7 @@ test('a bare-id default that is signed out is refused, not answered from the oth
     for (const c of await store.list()) if (!c.providerId.includes('.')) await store.delete(c.providerId);
     const asked = answers(openai.state.requests).length;
     await assert.rejects(
-      accounts.respond(1, { instructions: 'Be brief.', input: 'bare', select: { account: 'default' } }),
+      accounts.respond(1, { model: 'gpt-6-sol', instructions: 'Be brief.', input: 'bare', select: { account: 'default' } }),
       (e: any) => e instanceof ResponseError && e.kind === 'signed_out',
     );
     assert.equal(answers(openai.state.requests).length, asked, 'no request for the signed-out bare default');

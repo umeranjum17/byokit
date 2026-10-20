@@ -7,7 +7,7 @@ import { Accounts, memoryStore, ResponseError, type Context, type Model } from '
 import { offered, planKey, provider, route, signInChoices } from '../src/catalogue.ts';
 import { portable } from '../src/accounts.ts';
 import {
-  OLLAMA_PRO_BASE_URL, OLLAMA_PRO_DEFAULT_MODEL, OLLAMA_PRO_PLAN_ROUTE,
+  OLLAMA_PRO_BASE_URL, OLLAMA_PRO_PLAN_ROUTE,
   ollamaProChat, ollamaProPlanAccount, ollamaProPlanKeyEntry,
   readOllamaProPlanKey, saveOllamaProPlanKey, deleteOllamaProPlanKey,
 } from '../src/ollama-pro.ts';
@@ -35,10 +35,9 @@ function local() {
   }) });
 }
 
-test('catalogue offers Ollama Pro as a pasted plan key with deepseek-v4.1-flash', () => {
+test('catalogue offers Ollama Pro as a pasted plan key', () => {
   const p = provider('ollama-pro');
   assert.deepEqual([p.pi, p.name, p.company, p.billing, p.auth], ['ollama-pro', 'Ollama Pro', 'Ollama', 'subscription', 'api-key']);
-  assert.equal(p.models.strong, OLLAMA_PRO_DEFAULT_MODEL);
   assert.deepEqual(p.routes, [OLLAMA_PRO_PLAN_ROUTE]);
   assert.equal(OLLAMA_PRO_BASE_URL, 'https://ollama.com/v1');
   assert.ok(offered().some((q) => q.key === 'ollama-pro'));
@@ -53,7 +52,7 @@ test('respondKey streams openai-completions to ollama.com/v1 with the plan key h
   const accounts = local();
   const { id } = await accounts.add('Umer', OLLAMA_PRO_PLAN_ROUTE, { key: CANARY });
   const model: Model<'openai-completions'> = {
-    id: OLLAMA_PRO_DEFAULT_MODEL, name: 'DeepSeek', provider: 'ollama-pro', api: 'openai-completions',
+    id: 'deepseek-v4.1-flash', name: 'DeepSeek', provider: 'ollama-pro', api: 'openai-completions',
     baseUrl: OLLAMA_PRO_BASE_URL, reasoning: false, input: ['text'],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192,
   };
@@ -134,13 +133,13 @@ test('ollamaProChat hits a loopback fake; canary stays out of argv, env, logs an
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as { port: number };
   try {
-    const text = await ollamaProChat({ store, prompt: 'ping', baseUrl: `http://127.0.0.1:${port}/v1` });
+    const text = await ollamaProChat({ store, prompt: 'ping', model: 'deepseek-v4.1-flash', baseUrl: `http://127.0.0.1:${port}/v1` });
     assert.equal(text, 'hello-from-fake');
     assert.equal(seen.auth, `Bearer ${CANARY}`);
-    assert.equal(seen.model, OLLAMA_PRO_DEFAULT_MODEL);
+    assert.equal(seen.model, 'deepseek-v4.1-flash');
     assert.ok(!JSON.stringify(seen.argv).includes(CANARY) && !JSON.stringify(seen.env).includes(CANARY));
     leak(text);
-    await assert.rejects(ollamaProChat({ store, prompt: 'x', baseUrl: `http://127.0.0.1:${port}/v1`,
+    await assert.rejects(ollamaProChat({ store, prompt: 'x', model: 'deepseek-v4.1-flash', baseUrl: `http://127.0.0.1:${port}/v1`,
       fetch: async () => new Response('denied', { status: 401 }) }), (e: unknown) => {
       assert.ok(e instanceof Error);
       leak(e.message);
@@ -151,7 +150,7 @@ test('ollamaProChat hits a loopback fake; canary stays out of argv, env, logs an
     await new Promise<void>((resolve, reject) => server.close((err) => err ? reject(err) : resolve()));
   }
   await deleteOllamaProPlanKey(store);
-  await assert.rejects(ollamaProChat({ store, prompt: 'x', baseUrl: 'http://127.0.0.1:9/v1' }), (e: unknown) => {
+  await assert.rejects(ollamaProChat({ store, prompt: 'x', model: 'deepseek-v4.1-flash', baseUrl: 'http://127.0.0.1:9/v1' }), (e: unknown) => {
     assert.ok(e instanceof Error && e.message === 'Add the Ollama Pro plan key first.');
     leak(e.message);
     return true;

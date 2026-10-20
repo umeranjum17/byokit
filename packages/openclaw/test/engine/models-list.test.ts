@@ -6,7 +6,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { provider } from '@byokit/accounts';
 import { OpenClawKit } from '../../src/kit.ts';
 import { scratchDir, sharedEngineDir } from '../../../test-support.ts';
 
@@ -26,10 +25,9 @@ test('a signed-in ChatGPT login lists the Codex CLI route\'s models', { timeout:
     await kit.start();
     const [chatgpt] = (await kit.accounts('m1')).filter((row) => row.provider === 'openai');
     assert.ok(chatgpt, 'the ChatGPT login is an account');
-    // The same ids the ChatGPT catalogue names for its strong and fast models.
-    const { strong, fast } = provider('chatgpt').models;
+    // The ids the bridge's Codex CLI catalog names.
     const codex = (await kit.models('m1', chatgpt.id)).filter((m) => m.id.startsWith('openai-codex/'));
-    assert.deepEqual(codex.map((m) => m.id).sort(), [`openai-codex/${strong}`, `openai-codex/${fast}`].sort());
+    assert.deepEqual(codex.map((m) => m.id).sort(), ['openai-codex/gpt-6-luna', 'openai-codex/gpt-6-sol']);
     assert.ok(codex.every((m) => m.available === true), `the Codex CLI models are available: ${JSON.stringify(codex)}`);
   } finally {
     await kit.stop();

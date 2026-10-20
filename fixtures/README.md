@@ -4,7 +4,8 @@ The shared fixtures, including `revoke.json`, are the frozen `byokit-android` Ko
 
 The shared data itself has one copy, `packages/accounts/src/catalogue.json` and `words.json`; the Kotlin build bundles
 those same files. Catalogue conformance checks the explicit Anthropic API billing and opt-in labels without adding
-a Messages backend to the frozen Kotlin runtime.
+a Messages backend to the frozen Kotlin runtime. The catalogue names no models (each vendor lists its own, read live by
+the TypeScript kit); the frozen Kotlin mirror keeps its two ChatGPT ids in `ChatGptAccount.kt`, its one exception.
 
 | File | What it is |
 |---|---|

@@ -68,7 +68,7 @@ export type MultiAccountTerms = { terms: 'allowed' | 'grey' | 'partner' | 'forbi
  *  serves public and enterprise. */
 export type DeviceFlow = { authorization: string; token: string; clientId: string; scope?: string; form?: Record<string, string>; source: string;
   pkce?: boolean; grant?: string; dialect?: 'minimax'; exchange?: string; regions?: Record<string, { authorization: string; token: string }> };
-export type Provider = { key: string; pi: string; name: string; company: string; models: { strong: string; fast?: string }; fresh?: { param: string; value: string }; callbackPort?: number; clientId?: string; revoke?: string; billing: Billing; auth?: 'api-key' | 'oauth'; label?: string; offer?: boolean; readiness?: Readiness; routes?: string[]; device?: DeviceFlow; source: string; multiAccount: MultiAccountTerms };
+export type Provider = { key: string; pi: string; name: string; company: string; fresh?: { param: string; value: string }; callbackPort?: number; clientId?: string; revoke?: string; billing: Billing; auth?: 'api-key' | 'oauth'; label?: string; offer?: boolean; readiness?: Readiness; routes?: string[]; device?: DeviceFlow; source: string; multiAccount: MultiAccountTerms };
 
 export const PROVIDERS: Record<string, Provider> = Object.fromEntries(Object.entries(CATALOGUE).map(([key, p]) => [key, { key, ...p } as Provider]));
 // The loopback ports have one source of truth, the runtime client config: the catalogue derives them, so the
@@ -77,7 +77,7 @@ for (const client of Object.keys(GOOGLE_CLIENTS) as GoogleClient[])
   PROVIDERS[client].callbackPort = GOOGLE_CLIENTS[client].callback.port;
 // This gateway's billing is not subscription-qualified at the pin. Never add it to the default offer.
 PROVIDERS.radius = {
-  key: 'radius', pi: 'radius', name: 'Radius', company: 'Radius', models: { strong: 'balanced', fast: 'cheap' },
+  key: 'radius', pi: 'radius', name: 'Radius', company: 'Radius',
   billing: 'unknown', auth: 'oauth', offer: false, label: 'Billing set by Radius', routes: ['radius:browser', 'radius:code'],
   source: 'https://radius.pi.dev', multiAccount: { terms: 'grey', why: 'Billing and account terms are set by the gateway.', source: 'https://radius.pi.dev' },
 };
