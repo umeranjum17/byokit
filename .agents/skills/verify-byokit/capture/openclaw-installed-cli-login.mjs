@@ -15,7 +15,7 @@ mkdirSync(person, { recursive: true });
 const stateDir = mkdtempSync(join(root, 'state-')), bin = join(stateDir, 'bin'), calls = join(stateDir, 'calls.jsonl');
 const login = join(person, '.claude', 'stand-in-login'), folder = join(stateDir, 'openclaw', 'home', '.claude');
 const codexHome = join(stateDir, 'openclaw/home/.codex'), codexLogin = join(person, '.codex/auth.json');
-const codexMarker = join(person, 'codex-signed-in');
+const codexMarker = join(person, 'codex-signed-in'), unknownStatus = join(person, 'claude-status-unknown');
 mkdirSync(join(person, '.codex'), { recursive: true });
 writeFileSync(codexLogin, 'SYNTHETIC-CODEX-CANARY-MUST-NOT-BE-READ');
 utimesSync(codexLogin, new Date(0), new Date(0));
@@ -30,6 +30,7 @@ ${record('claude')}
 const marker=path.join(CLAUDE_CONFIG_DIR||path.join(HOME,'.claude'),'stand-in-login'),loggedIn=fs.existsSync(marker);
 const args=argv.join(' ');
 if(args==='--version') console.log('2.1.0 (Claude Code)');
+else if(args==='auth status --json'&&fs.existsSync(${JSON.stringify(unknownStatus)})) console.log('status unavailable');
 else if(args.startsWith('auth status')) { console.log(args.endsWith('--text')?(loggedIn?'Login method: Claude Max Account':'Not logged in'):JSON.stringify({loggedIn,authMethod:'claude.ai',subscriptionType:'max'})); if(!loggedIn) process.exit(1); }
 else if(args==='auth login --claudeai') { console.log('If the browser did not open, visit: https://claude.example.test/authorize'); process.stdin.once('data',()=>process.exit(1)); }
 else {
@@ -111,6 +112,11 @@ try {
   kit = kitFor();
   await kit.start();
   const fallback = gatewayEnv();
+  // A run before any sign-in ends signed-out and names the login the kit's own sign-in makes (Crewhouse K3).
+  const needsLogin = await kit.run({ member: 'umer', sessionKey: 'agent:umer:fallback', message: 'hello', model: 'claude-cli/claude-sonnet-5' });
+  show({ leg: 'no installed login', run: needsLogin });
+  if (expectFix) assert.deepEqual(!needsLogin.ok && needsLogin.kind === 'signed-out' && needsLogin.cause,
+    { code: 'needs_cli_login', cli: 'claude', home: join(stateDir, 'openclaw', 'home'), configDir: folder, signIn: true }, JSON.stringify(needsLogin));
   let shown;
   const drive = kit.signIn('umer', { authChoice: 'anthropic-cli' }, view => { if (view.url) shown = view; });
   for (let i = 0; !shown && i < 300; i++) await delay(100);
@@ -121,6 +127,23 @@ try {
   if (expectFix) {
     assert.deepEqual([fallback.HOME, fallback.CLAUDE_CONFIG_DIR, fallback.CODEX_HOME], [person, folder, codexHome]);
     assert.equal(shown?.url, 'https://claude.example.test/authorize');
+  }
+  await kit.stop(); kit = undefined;
+
+  // Leg 4: the installed sign-in status gives no answer. The engine keeps the person's own login location, which the
+  // kit never writes: the run and the sign-in both name that login and say the kit cannot make it.
+  writeFileSync(unknownStatus, 'unknown');
+  kit = kitFor();
+  await kit.start();
+  const own = gatewayEnv();
+  const ownRun = await kit.run({ member: 'umer', sessionKey: 'agent:umer:own', message: 'hello', model: 'claude-cli/claude-sonnet-5' });
+  const ownSignIn = await kit.signIn('umer', { authChoice: 'anthropic-cli' }, () => {}).done;
+  show({ leg: 'installed login status unknown', gatewayEnv: own, run: ownRun, signIn: ownSignIn });
+  if (expectFix) {
+    const cause = { code: 'needs_cli_login', cli: 'claude', home: person, signIn: false };
+    assert.equal(own.CLAUDE_CONFIG_DIR, undefined);
+    assert.deepEqual(!ownRun.ok && ownRun.kind === 'signed-out' && ownRun.cause, cause, JSON.stringify(ownRun));
+    assert.deepEqual([ownSignIn.state, ownSignIn.cause], ['failed', cause], JSON.stringify(ownSignIn));
   }
   const canaryAfter = statSync(codexLogin, { bigint: true });
   assert.equal(canaryAfter.atimeNs, canaryBefore.atimeNs, 'synthetic login was not read');
