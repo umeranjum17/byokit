@@ -175,7 +175,10 @@ export async function* setup(o: Target & {
     if (o.pair !== undefined) {
       let receipt: PairReceipt | void;
       try {
-        receipt = await o.pair(ref, { urls, read: (file) => readOutbox(o.provider, ref, o.recipe, file), replaceOwner });
+        receipt = await o.pair(ref, {
+          urls, read: (file) => readOutbox(o.provider, ref, o.recipe, file), replaceOwner,
+          run: (argv, ro) => m.run(o.recipe, argv, ro), handoff: (argv, ho) => m.handoff(o.recipe, argv, ho),
+        });
       } catch (e) {
         yield fail('pairing', e);
         return;

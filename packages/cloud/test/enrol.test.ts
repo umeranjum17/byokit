@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, statSync, utimesSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, statSync, utimesSync, mkdirSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
@@ -10,7 +10,7 @@ import { DeviceLink, Host, b64url, keyPair, type DeviceGrant, type Grant, type L
 import { machine } from '../src/machine.ts';
 import { setup, type SetupStep } from '../src/setup.ts';
 import { OUTBOX_SHELL, OWNER_KEY_FILE, PHONE_KEY_FILE, RECEIPT_FILE, bindPhoneKey, deliverPhoneKey, pairEnrol, phoneReceipt, replacePhoneKey } from '../src/enrol.ts';
-import { DELIVER_SHELL, NEWEST_SHELL, WORKDIR_SHELL, takeInbox, writeOutbox } from '../src/host.ts';
+import { CLEAR_SHELL, DELIVER_SHELL, NEWEST_SHELL, WORKDIR_SHELL, takeInbox, writeOutbox } from '../src/host.ts';
 import { checkRecipe } from '../src/recipe.ts';
 import { MachineError } from '../src/errors.ts';
 import type { ExecResult, HostRecipe, Machine, MachineRef, Provider } from '../src/types.ts';
@@ -232,7 +232,7 @@ test('on its own disk the host takes the delivered key from its inbox and answer
   await assert.rejects(writeOutbox(workDir, '../escape', 'x'), (e: unknown) => e instanceof MachineError && e.code === 'bad-recipe');
 });
 
-test('on its own disk the newest offer is chosen by time, and a command runs in workDir with the node dir and recipe env first', async (t) => {
+test('on its own disk the newest offer is chosen by time, a handoff clears old offers, and a command runs in workDir with the node dir and recipe env first', async (t) => {
   const workDir = mkdtempSync(`${process.env.TMPDIR ?? '/tmp'}/byokit-newest-`);
   t.after(() => rmSync(workDir, { recursive: true, force: true }));
   const sh = (script: string, args: string[]) => execFileSync('sh', ['-c', script, 'sh', ...args]).toString();
@@ -247,6 +247,11 @@ test('on its own disk the newest offer is chosen by time, and a command runs in 
   utimesSync(`${outbox}/offer-dir`, 500, 500);
   assert.equal(sh(NEWEST_SHELL, [outbox, 'offer-']), 'offer-a.json\ntext of offer-a.json\n');
   assert.equal(sh(NEWEST_SHELL, [outbox, 'missing-']), '');
+  // A handoff clears its own prefix's files first: directories and other names stay.
+  assert.equal(sh(CLEAR_SHELL, [`${workDir}/none`, 'offer-']), '', 'no outbox yet');
+  sh(CLEAR_SHELL, [outbox, 'offer-']);
+  assert.deepEqual(readdirSync(outbox).sort(), ['offer-dir', 'other.json']);
+  assert.equal(sh(NEWEST_SHELL, [outbox, 'offer-']), '');
   // The unit's view: cwd is workDir, the node dir leads PATH, and the recipe env reaches the command.
   const seen = sh(WORKDIR_SHELL, [workDir, '/nodebin', 'env', 'PORT=7310', 'sh', '-c', 'pwd -P; echo "$PATH"; echo "$PORT"']).split('\n');
   assert.equal(seen[0], workDir);

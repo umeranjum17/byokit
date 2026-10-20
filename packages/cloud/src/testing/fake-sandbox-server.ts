@@ -177,6 +177,9 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
   };
 
   const server = http.createServer((req, res) => {
+    // No keep-alive: Node 22's fetch (undici 6) can fire an idle socket's timer after its parser is
+    // collected and throw outside any test; a socket per request leaves no idle timer behind.
+    res.setHeader('connection', 'close');
     if (drop > 0) {
       drop -= 1;
       const dropUrl = new URL(req.url ?? '/', 'http://boat.test');

@@ -380,16 +380,28 @@ From the app, `machine.run(recipe, argv, { timeoutMs?, input? })` runs one comma
 way the host's unit sees it (as the recipe's user, in `workDir`, with the kit's Node first on `PATH` and
 `recipe.run.env` set) and resolves the full `ExecResult`; a non-zero exit is the app's to read. It
 never installs a missing Node (it rejects `provider`). `machine.newest(recipe, prefix)` resolves the
-newest `<workDir>/.byokit/outbox/<prefix>*` file as `{ file, text }`, or `null` while none exists, so
-the app can poll for an offer whose name it cannot know.
+newest `<workDir>/.byokit/outbox/<prefix>*` file as `{ file, text }`, or `null` while none exists.
+
+For a command that writes an offer under a name it picks and then waits for the phone's answer,
+`machine.handoff(recipe, argv, { prefix, timeoutMs? })` removes old `<prefix>*` outbox files (an
+interrupted run's offer is never read as this one's), starts `argv` as `run` does (10 minutes by
+default), and resolves `{ offer, deliver, done }`: `offer` yields each new or rewritten `<prefix>*` file
+as `{ file, text }` until the command ends, `deliver(file, bytes)` writes the answer to the inbox, and
+`done` is the command's `ExecResult`. The `setup()` `pair` gate gets both as `ctx.run(argv, o?)` and
+`ctx.handoff(argv, o)`, bound to the setup recipe (optional in the type, so a gate an app calls with
+its own context still type-checks; `setup()` always passes them).
 
 ```ts
-import type { HostRecipe, Machine } from '@byokit/cloud';
+import type { PairContext } from '@byokit/cloud';
 
-export async function handoff(m: Machine, recipe: HostRecipe) {
-  const out = await m.run(recipe, ['my-app', 'pair', '--handoff']);
+export async function pairByHandoff(ctx: PairContext, answer: (offer: string) => Promise<{ file: string; bytes: Uint8Array }>) {
+  const h = await ctx.handoff!(['my-app', 'pair', '--handoff'], { prefix: 'my-app-pair-' });
+  for await (const offer of h.offer) {
+    const { file, bytes } = await answer(offer.text); // e.g. the words file the offer names
+    await h.deliver(file, bytes);
+  }
+  const out = await h.done;
   if (out.code !== 0) throw new Error(out.stderr);
-  return m.newest(recipe, 'offer-'); // { file: 'offer-17.json', text } | null
 }
 ```
 
