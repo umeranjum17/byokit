@@ -1,12 +1,13 @@
 // Account-specific CLI panes (D11/6.6). No credentials are read or copied. Moves follow
 // the decided start-then-close order; only fake transports exercise this in tests.
+// The placement env rides `pane.split`; the new shell then confirms it (launch-env.ts).
 import { randomBytes } from 'node:crypto';
 import { isAbsolute } from 'node:path';
 import type { Call } from './agents.ts';
 import type { AgentReadiness, AgentStatusOptions, AgentRef, Move, MoveResult, MoveToAccount, MoveToAccountResult, OpenSignInTab, StartAgent } from './types.ts';
 import { words } from './words.ts';
 import { accountKind } from './kinds.ts';
-import { isLaunchEnvironment, isOverlayEnvironment } from './launch-env.ts';
+import { isLaunchEnvironment, isOverlayEnvironment, verifyPaneEnv } from './launch-env.ts';
 
 type Raw = Record<string, any>;
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -19,28 +20,6 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
   async function close(paneId: string): Promise<boolean> {
     try { await call('pane.close', { pane_id: paneId }); return true; }
     catch { return false; }
-  }
-
-  // Env verification types nothing into the pane: every prep keystroke (unset lines,
-  // echo probes) stays in the new pane's scrollback where users see it after a move. The
-  // placement env rides `pane.split`, applied by the server before the shell is shown,
-  // so `pane.get` proves the new shell's launch env: every set var exact, every unset
-  // var absent. Fail closed: the split call cannot express removals, so a leaked
-  // credential in the launch env refuses the move instead of running on it.
-  // Limitation: a shell rc overriding placement env after launch is not visible here;
-  // no pinned RPC reads shell-effective env without typing into the pane.
-  async function verifyPaneEnv(paneId: string, set: Record<string, string>, unset: string[], timeout: number): Promise<boolean> {
-    const entries = Object.entries(set);
-    if ([...entries.map(([key]) => key), ...unset].some((key) => !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key))
-      || entries.some(([, value]) => typeof value !== 'string' || /[\r\n\0]/.test(value))
-      || unset.some((key) => key in set)) return false;
-    try {
-      const pane = (await call('pane.get', { pane_id: paneId }, timeout) as Raw)?.pane;
-      const env = pane?.env;
-      if (!pane || typeof env !== 'object' || env === null || Array.isArray(env)) return false;
-      if (unset.some((key) => Object.hasOwn(env, key))) return false;
-      return entries.every(([key, value]) => env[key] === value);
-    } catch { return false; }
   }
 
   // The replacement keeps the conversation's user-visible name. The server rejects
@@ -154,8 +133,8 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
       try { request?.onStaged?.(paneId); }
       catch { return rollback('start_failed'); }
       if (request !== undefined) {
-        if (!await verifyPaneEnv(paneId, request.set, request.unset ?? [], timeout)) return rollback('env_mismatch');
-      } else if (!await verifyPaneEnv(paneId, { ...o.env, [variable]: o.folder }, [], timeout)) {
+        if (!await verifyPaneEnv(call, paneId, request.set, request.unset ?? [], timeout)) return rollback('env_mismatch');
+      } else if (!await verifyPaneEnv(call, paneId, { ...o.env, [variable]: o.folder }, [], timeout)) {
         return rollback('env_mismatch');
       }
       const names = moveNames(agent?.name, kind);

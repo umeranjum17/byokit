@@ -1129,7 +1129,6 @@ function paneView(pane: FakePane) {
     terminal_title: pane.terminal_title,
     terminal_title_stripped: pane.terminal_title_stripped,
     focused: pane.focused,
-    ...(pane.env === undefined ? {} : { env: { ...pane.env } }),
     terminal_id: `term-${pane.pane_id}`,
     revision: pane.revision,
     scroll: { ...pane.scroll },

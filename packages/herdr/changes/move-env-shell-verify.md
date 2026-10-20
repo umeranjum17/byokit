@@ -1,0 +1,1 @@
+FIX: Moving a plan to another account no longer fails every time on Herdr 0.9.1 with "The new pane did not receive that sign-in"; the new pane's own shell now confirms the sign-in, and a pane that did not receive it is still refused.

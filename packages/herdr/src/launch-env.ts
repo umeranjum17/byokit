@@ -38,28 +38,55 @@ async function waitIdleShell(call: Call, paneId: string, deadline: number): Prom
 }
 
 // The private-file round trip: values stay in a host file sourced once, never terminal text or
-// argv; the marker read proves the shell ran every step. Neither values nor variable listings
+// argv; the marker read proves the shell ran every step, and a failing step prints a second
+// marker so a refusal does not wait out the deadline. Neither values nor variable listings
 // reach the terminal.
 async function runPrivateSteps(call: Call, paneId: string, steps: string[], deadline: number): Promise<void> {
   let dir: string | undefined;
   try {
     const marker = `BYOKIT_ENV_${randomBytes(16).toString('hex')}`;
+    const refused = `BYOKIT_ENV_${randomBytes(16).toString('hex')}`;
     dir = mkdtempSync(join(tmpdir(), 'byokit-env-'));
     const file = join(dir, 'prepare.sh');
-    writeFileSync(file, [...steps, `printf '%s\\n' ${quote(marker)}`].join(' &&\n') + '\n',
+    writeFileSync(file, `${steps.join(' &&\n')} &&\nprintf '%s\\n' ${quote(marker)} ||\nprintf '%s\\n' ${quote(refused)}\n`,
       { mode: 0o600, flag: 'wx' });
     await call('pane.send_text', { pane_id: paneId, text: `set +x +v; . ${quote(file)}\n` },
       Math.max(1, deadline - Date.now()));
     for (;;) {
       const result = await call('pane.read', { pane_id: paneId, source: 'recent_unwrapped', lines: 40,
         format: 'text', strip_ansi: true }, Math.max(1, deadline - Date.now())) as { read?: { text?: string } };
-      if (result?.read?.text?.split(/\r?\n/).some((line) => line.trim() === marker)) return;
+      const lines = result?.read?.text?.split(/\r?\n/).map((line) => line.trim()) ?? [];
+      if (lines.includes(refused)) throw new Error();
+      if (lines.includes(marker)) return;
       if (Date.now() >= deadline) throw new Error();
       await sleep(Math.min(100, Math.max(1, deadline - Date.now())));
     }
   } finally {
     if (dir !== undefined) rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/** Whether the pane's own shell holds every `set` value exactly and none of the `unset` names.
+ * Herdr 0.9.1 applies the `pane.split` env but never reports it in `pane.get`, so the shell
+ * itself answers: a private file tests each variable in place and prints only a marker, never
+ * a value. False on anything that is not a clean yes. */
+export async function verifyPaneEnv(call: Call, paneId: string, set: Record<string, string>,
+  unset: string[], timeout: number): Promise<boolean> {
+  try {
+    const entries = Object.entries(set);
+    if (!Number.isFinite(timeout) || timeout <= 0
+      || [...entries.map(([key]) => key), ...unset].some((key) => !validName(key))
+      || entries.some(([, value]) => !validValue(value))
+      || unset.some((key) => Object.hasOwn(set, key))) return false;
+    const deadline = Date.now() + timeout;
+    await waitIdleShell(call, paneId, deadline);
+    await runPrivateSteps(call, paneId, [
+      'set +x +v',
+      ...unset.map((key) => `test "\${${key}+present}" = ''`),
+      ...entries.map(([key, value]) => `test "\${${key}+present}" = present && test "$${key}" = ${quote(value)}`),
+    ], deadline);
+    return true;
+  } catch { return false; }
 }
 
 // An idle pane shell the kit may type a sourcing line into. Herdr panes can run other shells
