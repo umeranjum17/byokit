@@ -1,7 +1,8 @@
 // Generated from the installed pin, not the person's environment or credentials.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { builtinProviders } from '@earendil-works/pi-ai/providers/all';
+import { builtinModels, builtinProviders } from '@earendil-works/pi-ai/providers/all';
+import { OLLAMA_PRO_BASE_URL } from '../packages/accounts/src/ollama-pro.ts';
 import type { Billing, Route, RouteVia } from '../packages/accounts/src/catalogue.ts';
 import CATALOGUE from '../packages/accounts/src/catalogue.json' with { type: 'json' };
 
@@ -129,6 +130,22 @@ export function generateRoutes(): Route[] {
     for (const via of ['browser', 'paste'] as const)
       add(id, name, via, 'subscription', 'oauth', undefined, { company: 'Google', platforms: node });
   if (new Set(result.map((r) => r.id)).size !== result.length) throw new Error('Duplicate route id');
+  // Where each route's vendor lists its own models: the one HTTPS base the pin's OpenAI-style rows share (OpenRouter and
+  // OpenCode also serve Messages rows elsewhere), else the one its Anthropic Messages rows share.
+  const pinned = builtinModels();
+  const listOf = (id: string) => {
+    const rows = pinned.getProvider(id)?.getModels() ?? [];
+    for (const api of [/^openai-(completions|responses)$/, /^anthropic-messages$/]) {
+      const speaking = rows.filter((m) => api.test(m.api));
+      const bases = [...new Set(speaking.map((m) => m.baseUrl))];
+      if (bases.length === 1 && /^https:\/\/[^{}]+$/.test(bases[0])) return { api: speaking[0].api, baseUrl: bases[0] };
+    }
+    return id === 'ollama-pro' ? { api: 'openai-completions', baseUrl: OLLAMA_PRO_BASE_URL } : undefined;
+  };
+  for (const r of result) {
+    const models = r.provider === 'custom' ? undefined : listOf(r.upstream.id);
+    if (models) r.models = models;
+  }
   return result.sort((a, b) => a.id.localeCompare(b.id, 'en'));
 }
 

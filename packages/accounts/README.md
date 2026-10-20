@@ -800,8 +800,14 @@ for runtime integration; the chooser consumes host-validated state and never ado
 
 `Accounts.pick(member, selection, room?)` makes that choice over the accounts a person is really signed in to:
 it lists them, reads the saved defaults, takes one reading per account, and returns the same `AccountPick`.
-`Accounts.models(member, id)` lists one account's models from the catalogue, each with `available` and, when it
-cannot run, `why` (`resting`, when a rest's `until` is named, `signed_out`, or `plan` for a use the plan omits).
+`Accounts.models(member, id)` lists one account's models, each with `available` and, when it cannot run, `why`
+(`resting`, when a rest's `until` is named, `signed_out`, or `plan` for a use the plan omits). A ready key account, or a
+Grok, Copilot, Kimi, Meta or MiniMax sign-in, lists its vendor's own live `GET /models` (the route's `models` endpoint,
+read with that account's key or token), so a model the vendor adds shows with no kit release; a route with no such list,
+or a list that cannot be read, keeps the catalogue's rows. Without host `capabilities`, `pick` never refuses a model only
+because no list names it (a vendor's list can lag a model it already runs): it picks as if listed and names the id in
+`unlisted` for the app to warn (`resolveSelection(..., models, true)` does the same). A listed model the account cannot
+use, or a model a host's own `capabilities` list omits, still refuses.
 Both are read-only: neither writes the defaults nor the account index. An id that is not in the list comes back
 `ok: false` with `code: 'unknown_account'`; `models` refuses it. A `room` source that is absent or throws leaves
 every reading unknown, so list order decides.

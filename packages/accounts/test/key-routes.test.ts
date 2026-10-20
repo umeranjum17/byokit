@@ -103,6 +103,42 @@ test('Auto chooses a plan key, never an API/free/local/unknown key; Default cann
   assert.ok(!resolveSelection([api], {}, { account: 'default' }, room, Date.now()).ok, 'no automatic API discovery/fallback without an explicit saved default');
 });
 
+test('a key account lists its vendor’s own live models; an id the list lags is picked with a warning, never refused', async () => {
+  for (const Kit of [Accounts, Portable]) {
+    const seen: { url: string; headers: Record<string, string> }[] = [];
+    const lists: Record<string, unknown> = {
+      'https://api.groq.com/openai/v1/models': { data: [{ id: 'vendor/new-model' }, { id: 'vendor/other' }] },
+      'https://api.anthropic.com/v1/models': { data: [{ id: 'claude-new', display_name: 'Claude New' }] },
+    };
+    const h = harness(Kit);
+    const fetch = async (input: Parameters<typeof globalThis.fetch>[0], init?: RequestInit) => {
+      seen.push({ url: String(input), headers: Object.fromEntries(new Headers(init?.headers).entries()) });
+      return lists[String(input)] ? Response.json(lists[String(input)]) : new Response('', { status: 404 });
+    };
+    const a = Kit === Portable ? new Portable({ ...h.opts, fetch }, withKeys(portable)) : new Kit({ ...h.opts, fetch });
+    const groq = await a.add('member', 'groq:key', { key: canary });
+    const claude = await a.add('member', 'anthropic:key', { key: canary });
+    await a.saveKey('member', groq.id, canary, { billedPerUse: true });
+    await a.saveKey('member', claude.id, canary, { billedPerUse: true });
+    assert.deepEqual(await a.models('member', groq.id), [
+      { id: 'vendor/new-model', name: 'vendor/new-model', available: true }, { id: 'vendor/other', name: 'vendor/other', available: true }]);
+    assert.deepEqual(await a.models('member', claude.id), [{ id: 'claude-new', name: 'Claude New', available: true }]);
+    // Bearer for OpenAI-style lists; Anthropic Messages takes its own key header and version.
+    assert.equal(seen.find((s) => s.url.includes('groq'))?.headers.authorization, `Bearer ${canary}`);
+    assert.deepEqual([seen.find((s) => s.url.includes('anthropic'))?.headers['x-api-key'], seen.find((s) => s.url.includes('anthropic'))?.headers.authorization],
+      [canary, undefined]);
+    const listed = await a.pick('member', { account: groq.id, model: 'vendor/new-model' });
+    assert.ok(listed.ok && listed.model === 'vendor/new-model' && !listed.unlisted);
+    const lagging = await a.pick('member', { account: groq.id, model: 'vendor/not-listed-yet' });
+    assert.ok(lagging.ok && lagging.model === 'vendor/not-listed-yet', 'an unlisted id is never refused');
+    assert.deepEqual(lagging.ok && lagging.unlisted, ['vendor/not-listed-yet']);
+    // A list that cannot be read keeps the account usable: the model is taken as named.
+    delete lists['https://api.groq.com/openai/v1/models'];
+    assert.deepEqual(await a.models('member', groq.id), []);
+    assert.ok((await a.pick('member', { account: groq.id, model: 'vendor/new-model' })).ok);
+  }
+});
+
 test('both pinned compatibility families stream on Node and portable, selected account only, with usage, callbacks and typed pass-through', async () => {
   for (const Kit of [Accounts, Portable]) for (const [routeId, api, events, named] of [
     ['groq:key', 'openai-completions', openaiEvents, false],
