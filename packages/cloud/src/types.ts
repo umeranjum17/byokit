@@ -92,6 +92,12 @@ export type MachineRecord = {
   ref: MachineRef | null; providerKey: string; monthlyEntered?: number
   pending?: { name: string; size: string; keepCopies: boolean; idempotencyKey: string }
 }
+/** 5.13: a running `run` whose outbox offers the app reads as they appear, and answers through the inbox. */
+export type Handoff = {
+  offer: AsyncIterable<{ file: string; text: string }>  // each new <prefix>* outbox file (or rewrite), until the command ends
+  deliver(file: string, bytes: Uint8Array): Promise<void>  // 5.8 deliver with the handoff's recipe
+  done: Promise<ExecResult>                              // the command's own result, as run() resolves it
+}
 export type MachineStore = { load(): Promise<MachineRecord | null>; save(r: MachineRecord): Promise<void> }
 
 export interface Machine {
@@ -115,6 +121,7 @@ export interface Machine {
   deliver(r: HostRecipe, file: string, bytes: Uint8Array): Promise<void>  // G9 (5.8)
   run(r: HostRecipe, argv: readonly string[], o?: { timeoutMs?: number; input?: Uint8Array }): Promise<ExecResult>  // 5.13: argv in the unit's PATH, user, workDir and env
   newest(r: HostRecipe, prefix: string): Promise<{ file: string; text: string } | null>  // 5.13: the newest outbox file starting with prefix
+  handoff(r: HostRecipe, argv: readonly string[], o: { prefix: string; timeoutMs?: number }): Promise<Handoff>  // 5.13: run argv and stream its new prefix offers
   snapshots(): Promise<Snapshot[]>                       // K3 (5.10): newest first
   snapshot(o?: { keep?: number }): Promise<Snapshot & { pruneError?: MachineError }>  // K3: keep defaults to 3; a failed prune is reported, not thrown
   scheduleSnapshots(o: { everyMs: number; keep?: number; onResult?(result: Snapshot | null | Error): void }): Promise<{ stop(): void }>  // K3: saves when the newest copy is everyMs old, while the app runs

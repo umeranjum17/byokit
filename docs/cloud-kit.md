@@ -192,6 +192,8 @@ export type MachineRecord = {
   ref: MachineRef | null; providerKey: string; monthlyEntered?: number
   pending?: { name: string; size: string; keepCopies: boolean; idempotencyKey: string }
 }
+/** 5.13: a running `run` whose outbox offers the app reads as they appear, and answers through the inbox. */
+export type Handoff = { offer: AsyncIterable<{ file: string; text: string }>; deliver(file: string, bytes: Uint8Array): Promise<void>; done: Promise<ExecResult> }
 export type MachineStore = { load(): Promise<MachineRecord | null>; save(r: MachineRecord): Promise<void> }
 
 export interface Machine {
@@ -307,6 +309,7 @@ export interface Machine { /* 4.1 members */
   deliver(r: HostRecipe, file: string, bytes: Uint8Array): Promise<void>  // G9 (5.8)
   run(r: HostRecipe, argv: readonly string[], o?: { timeoutMs?: number; input?: Uint8Array }): Promise<ExecResult>  // 5.13
   newest(r: HostRecipe, prefix: string): Promise<{ file: string; text: string } | null>  // 5.13
+  handoff(r: HostRecipe, argv: readonly string[], o: { prefix: string; timeoutMs?: number }): Promise<Handoff>  // 5.13
 }
 
 // src/claim.ts, exported from '.' (G1, built in M8)
@@ -660,11 +663,12 @@ Owner re-enrol (K-EXISTS). A reinstalled app or a new phone has an empty store, 
 
 Threat. Replacing the owner phone hands the computer to a new key, so the authority must be the provider account, never a phone or the network. Only a holder of the provider account key can write the inbox (provider delivery runs `exec` as the run user through the provider API), and the person consents on that setup device before `replaceOwner` is passed. The host never calls `replacePhoneKey` for anything a paired device, link peer or HTTP request sent, never writes its own inbox from such a request, and a `phone.bin` delivery can never replace an owner. Anyone who holds the account key can already run code on the machine, so this adds no new power to that holder; a stolen phone loses its grant the moment the owner re-enrols from a new phone.
 
-### 5.13 `run` and `newest` (K-RUN)
+### 5.13 `run`, `newest` and `handoff` (K-RUN)
 
 An app that drives its own host's command line (for example `<app> self-host`, or one that prints a pairing offer) needs the kit's view of the machine, not a bare `exec`: the node the unit uses is not on a plain `exec`'s PATH.
 - `run(r, argv, { timeoutMs?, input? })`: `r` passes the 8.1 checks and `r.name` equals `ref.name`; `argv` is non-empty and its first item is a command name (non-empty, no `=`), else `bad-recipe`. Read-only setup: the 8.3 step 2 probe, then step 4's lookup of the pinned node or a machine node in range, never its install (none found rejects `provider`, "install the host first"). Then one `exec` as the run user in workDir with the node bin dir first on PATH (8.2), and, when `r.run.env` is not empty, `env NAME=value ... <argv>` so the command sees the same variables as the unit (a `PATH` in `r.run.env` wins, as in the unit). `timeoutMs` defaults to 30 s. It resolves the provider's `ExecResult` unchanged: a non-zero exit, `stderr` and `timedOut` are the app's to read, not errors. `input` is the provider's stdin and carries 6.4's warning: never a credential. Names and argv are not checked for secrets (the command is the app's own).
 - `newest(r, prefix)`: `prefix` matches 5.8's file rule, else `bad-recipe`. One `exec` as the run user lists `<workDir>/.byokit/outbox/` files (not directories) whose name starts with `prefix`, newest by modification time, and prints that name then its bytes. It resolves `{ file, text }`, or `null` while none exists (or no outbox yet); a failing read rejects `provider`, a timed-out one `timeout`. The host writes with `writeOutbox`, so a file is never read half-written. Polling is the app's: call it again until the offer it expects appears.
+- `handoff(r, argv, { prefix, timeoutMs? })` -> `Handoff = { offer: AsyncIterable<{ file; text }>; deliver(file, bytes); done: Promise<ExecResult> }`, for a command that writes an offer under a name it picks and blocks until the phone answers. `r`, `prefix` and `argv` are checked as above, before anything runs. One `exec` as the run user removes the outbox files (not directories) whose name starts with `prefix` (a failing one rejects `provider`, a timed-out one `timeout`), so an offer an interrupted run left is never read as this run's. Then `run(r, argv, { timeoutMs })` starts, `timeoutMs` defaulting to 10 minutes; `done` is its promise, unchanged. `offer` reads `newest(r, prefix)` once a second and yields each `{ file, text }` that differs from the last one yielded, until `done` settles, after which it reads once more and ends; a failing read throws from the iterator. `deliver` is 5.8's `deliver(r, file, bytes)`. The setup() `pair` gate's `PairContext` carries `run(argv, o?)` and `handoff(argv, o)` bound to the setup recipe; setup() always passes them, and they are optional in the type so an app's own context for a gate still type-checks.
 
 ## 6. Boat adapter (`src/boat.ts`)
 

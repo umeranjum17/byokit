@@ -6,11 +6,11 @@ import { balanceCost, dateOf, enteredCost, monthStartIso, usageCost } from './co
 import { archOf, nodeInstallArgv, nodePath } from './node.ts';
 import { checkRecipe, defaultRange, markerPath, satisfiesRange } from './recipe.ts';
 import {
-  DELIVER_SHELL, FILE_NAME, NEWEST_SHELL, PROBE_SHELL, WORKDIR_SHELL, WRITE_SHELL, renderUnit, systemUnitPath,
+  CLEAR_SHELL, DELIVER_SHELL, FILE_NAME, NEWEST_SHELL, PROBE_SHELL, WORKDIR_SHELL, WRITE_SHELL, renderUnit, systemUnitPath,
   userUnitPath, writeUnitFile, writeUserUnit,
 } from './unit.ts';
 import type {
-  AsleepWhy, Disk, ExecResult, HostRecipe, HostState, Machine, MachineRecord, MachineRef, MachineStore, Plan, Provider,
+  AsleepWhy, Disk, ExecResult, Handoff, HostRecipe, HostState, Machine, MachineRecord, MachineRef, MachineStore, Plan, Provider,
   Snapshot,
 } from './types.ts';
 
@@ -18,6 +18,9 @@ const EXEC_TIMEOUT_MS = 30_000;
 /** 8.3 steps 3-5: each installRoot, install and update argv gets 20 minutes. */
 const STEP_TIMEOUT_MS = 20 * 60 * 1000;
 const DELIVER_LIMIT = 64 * 1024;
+/** 5.13: a handoff's command waits on the person, so it gets 10 minutes; its outbox is read every second. */
+const HANDOFF_TIMEOUT_MS = 10 * 60 * 1000;
+const OFFER_POLL_MS = 1000;
 /** 8.3 step 5: a failed step reports the last 2 KB of stderr. */
 const STEP_TAIL = 2048;
 /** 5.10: copies kept by default, well inside Boat's 10 free per wallet. */
@@ -86,6 +89,18 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
   const checkPort = (port: number): void => {
     if (!Number.isInteger(port) || port < 1 || port > 65535) {
       throw new MachineError('bad-recipe', `port: must be an integer 1-65535, got ${JSON.stringify(port)}`);
+    }
+  };
+
+  // 5.8 file rule for an inbox or outbox name, and 5.13's command rule.
+  const checkName = (what: string, name: string): void => {
+    if (!FILE_NAME.test(name)) {
+      throw new MachineError('bad-recipe', `${what}: must match ^[a-z0-9][a-z0-9._-]{0,63}$, got ${JSON.stringify(name)}`);
+    }
+  };
+  const checkArgv = (argv: readonly string[]): void => {
+    if (argv.length === 0 || argv[0] === '' || argv[0].includes('=')) {
+      throw new MachineError('bad-recipe', `argv: the first item must be a command name, got ${JSON.stringify(argv[0])}`);
     }
   };
 
@@ -759,9 +774,7 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
     async deliver(r: HostRecipe, file: string, bytes: Uint8Array): Promise<void> {
       const ref = await need();
       checkRecipe(r, ref.name);
-      if (!FILE_NAME.test(file)) {
-        throw new MachineError('bad-recipe', `file: must match ^[a-z0-9][a-z0-9._-]{0,63}$, got ${JSON.stringify(file)}`);
-      }
+      checkName('file', file);
       if (bytes.length > DELIVER_LIMIT) {
         throw new MachineError('bad-recipe', `bytes: at most ${DELIVER_LIMIT} bytes, got ${bytes.length}`);
       }
@@ -778,9 +791,7 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
     async run(r: HostRecipe, argv: readonly string[], ro?: { timeoutMs?: number; input?: Uint8Array }): Promise<ExecResult> {
       const ref = await need();
       checkRecipe(r, ref.name);
-      if (argv.length === 0 || argv[0] === '' || argv[0].includes('=')) {
-        throw new MachineError('bad-recipe', `argv: the first item must be a command name, got ${JSON.stringify(argv[0])}`);
-      }
+      checkArgv(argv);
       // 8.2: the unit's view. Read-only: a machine without the recipe's node is refused, never installed into.
       const { runHome } = await probeMachine(ref, r);
       const node = await findNode(ref, r, runHome);
@@ -796,15 +807,44 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
     async newest(r: HostRecipe, prefix: string): Promise<{ file: string; text: string } | null> {
       const ref = await need();
       checkRecipe(r, ref.name);
-      if (!FILE_NAME.test(prefix)) {
-        throw new MachineError('bad-recipe', `prefix: must match ^[a-z0-9][a-z0-9._-]{0,63}$, got ${JSON.stringify(prefix)}`);
-      }
+      checkName('prefix', prefix);
       const got = await asRunUser(ref, r.user, ['sh', '-c', NEWEST_SHELL, 'sh', `${r.workDir}/.byokit/outbox`, prefix], { timeoutMs: EXEC_TIMEOUT_MS });
       if (got.timedOut) throw new MachineError('timeout', `reading the newest ${prefix} took too long`);
       if (got.code !== 0) throw new MachineError('provider', `reading the newest ${prefix} failed with exit ${got.code}: ${got.stderr.slice(-200)}`);
       if (got.stdout === '') return null;
       const cut = got.stdout.indexOf('\n');
       return { file: got.stdout.slice(0, cut), text: got.stdout.slice(cut + 1) };
+    },
+
+    async handoff(r: HostRecipe, argv: readonly string[], ho: { prefix: string; timeoutMs?: number }): Promise<Handoff> {
+      const ref = await need();
+      checkRecipe(r, ref.name);
+      const { prefix } = ho;
+      checkName('prefix', prefix);
+      checkArgv(argv);
+      // An offer an interrupted run left behind is removed first, so every offer read is this run's.
+      const cleared = await asRunUser(ref, r.user, ['sh', '-c', CLEAR_SHELL, 'sh', `${r.workDir}/.byokit/outbox`, prefix], { timeoutMs: EXEC_TIMEOUT_MS });
+      if (cleared.timedOut) throw new MachineError('timeout', `clearing old ${prefix} offers took too long`);
+      if (cleared.code !== 0) throw new MachineError('provider', `clearing old ${prefix} offers failed with exit ${cleared.code}: ${cleared.stderr.slice(-200)}`);
+      const done = self.run(r, argv, { timeoutMs: ho.timeoutMs ?? HANDOFF_TIMEOUT_MS });
+      let ended = false;
+      const settled = done.then(() => { ended = true; }, () => { ended = true; });
+      async function* offers(): AsyncGenerator<{ file: string; text: string }> {
+        let last: string | null = null;
+        for (;;) {
+          const wasEnded = ended; // one last read after the command ends catches an offer written just before
+          const got = await self.newest(r, prefix);
+          if (got !== null && `${got.file}\n${got.text}` !== last) {
+            last = `${got.file}\n${got.text}`;
+            yield got;
+          }
+          if (wasEnded) return;
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          await Promise.race([settled, new Promise<void>((resolve) => { timer = setTimeout(resolve, OFFER_POLL_MS); })]);
+          clearTimeout(timer);
+        }
+      }
+      return { offer: offers(), deliver: (file, bytes) => self.deliver(r, file, bytes), done };
     },
 
     async snapshots(): Promise<Snapshot[]> {

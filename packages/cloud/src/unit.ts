@@ -67,6 +67,9 @@ export const DELIVER_SHELL = 'umask 077 && mkdir -p "$1" && t=$(mktemp "$1/.in-X
 /** The newest outbox file whose name starts with `$2` in directory `$1`: its name on the first line, then its bytes; nothing while none. */
 export const NEWEST_SHELL = 'cd "$1" 2>/dev/null || exit 0; f=$(ls -tp -- "$2"* 2>/dev/null | grep -v / | head -n 1); [ -n "$f" ] || exit 0; printf "%s\\n" "$f"; cat -- "$f"'
 
+/** Removes the outbox files (not directories) in `$1` whose name starts with `$2`; nothing while there is no outbox. */
+export const CLEAR_SHELL = 'cd "$1" 2>/dev/null || exit 0; for f in "$2"*; do if [ -f "$f" ]; then rm -f -- "$f" || exit 1; fi; done'
+
 /** A system unit's path for an app name. */
 export const systemUnitPath = (name: string): string => `/etc/systemd/system/byokit-${name}.service`;
 

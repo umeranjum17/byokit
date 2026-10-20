@@ -4,7 +4,7 @@
 // travels only as delivery bytes, never in run.env, run.argv, logs or error text. The host answers with a
 // receipt of public values in its outbox, which the setup device reads back as the run user.
 import { MachineError } from './errors.ts';
-import type { ExecResult, HostRecipe, Machine, MachineRef, Provider } from './types.ts';
+import type { ExecResult, Handoff, HostRecipe, Machine, MachineRef, Provider } from './types.ts';
 
 /** The one inbox file holding the owner's phone public key (5.8 delivery). */
 export const PHONE_KEY_FILE = 'phone.bin';
@@ -18,8 +18,16 @@ export const RECEIPT_FILE = 'receipt.json';
 /** What the phone pairs with: the host's public key, its grant on that host, and the secure address. */
 export type PairReceipt = { host: string; device: { id: string; name: string; role: 'control' }; urls: string[] };
 
-/** What setup() hands its `pair` gate: the secured address, a read of the host's outbox, and the person's re-enrol consent. */
-export type PairContext = { urls: string[]; read(file: string): Promise<string | null>; replaceOwner?: boolean };
+/**
+ * What setup() hands its `pair` gate: the secured address, a read of the host's outbox, the person's
+ * re-enrol consent, and the setup recipe's `Machine.run` and `Machine.handoff` (5.13).
+ */
+export type PairContext = {
+  urls: string[]; read(file: string): Promise<string | null>; replaceOwner?: boolean;
+  // setup() always passes these; optional so a gate an app calls with its own context still type-checks.
+  run?(argv: readonly string[], o?: { timeoutMs?: number; input?: Uint8Array }): Promise<ExecResult>;
+  handoff?(argv: readonly string[], o: { prefix: string; timeoutMs?: number }): Promise<Handoff>;
+};
 
 /** A phone public key is 32 raw bytes, nothing else. */
 const PHONE_KEY_BYTES = 32;

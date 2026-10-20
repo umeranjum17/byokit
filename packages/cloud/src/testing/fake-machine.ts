@@ -3,7 +3,7 @@
 // a Node version. M2's fake `ssh` and M4's fake server delegate `exec` to it through
 // parseCommand(s), so all three benches run the same machine.
 import type { ExecResult } from '../types.ts';
-import { DELIVER_SHELL, NEWEST_SHELL, PROBE_SHELL, WORKDIR_SHELL, WRITE_SHELL } from '../unit.ts';
+import { CLEAR_SHELL, DELIVER_SHELL, NEWEST_SHELL, PROBE_SHELL, WORKDIR_SHELL, WRITE_SHELL } from '../unit.ts';
 import { OUTBOX_SHELL } from '../enrol.ts';
 
 export type RunOptions = { root?: boolean; input?: Uint8Array; asUser?: string };
@@ -269,6 +269,16 @@ export class FakeMachine {
       if (hit === undefined) return { code: 0, stdout: '', stderr: '', timedOut: false };
       if (hit[1].owner !== writer) return { code: 1, stdout: '', stderr: 'cat: permission denied', timedOut: false };
       return { code: 0, stdout: `${hit[0].slice(dir.length)}\n${new TextDecoder().decode(hit[1].bytes)}`, stderr: '', timedOut: false };
+    }
+    // Clear the outbox files by prefix: only their owner removes them.
+    if (cmd === 'sh' && rest[0] === '-c' && rest[1] === CLEAR_SHELL && rest[2] === 'sh' && args.length === 6) {
+      const dir = `${this.resolve(args[4])}/`;
+      for (const [p, f] of [...this.files]) {
+        if (!p.startsWith(dir + args[5]) || p.slice(dir.length).includes('/')) continue;
+        if (f.owner !== writer) return { code: 1, stdout: '', stderr: 'rm: permission denied', timedOut: false };
+        this.files.delete(p);
+      }
+      return { code: 0, stdout: '', stderr: '', timedOut: false };
     }
     // The 8.2 in-workDir wrapper: answer the inner argv, consulting `script`
     // registrations by the inner command first.

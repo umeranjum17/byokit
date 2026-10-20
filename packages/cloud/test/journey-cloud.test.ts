@@ -215,6 +215,59 @@ test('an app runs its own command on the kit machine with the unit\'s node, user
   await rejects(m.newest(r, '../x'), 'bad-recipe');
 });
 
+test('a pair gate hands off through the app\'s own command: old offers are cleared, each new offer streams, and the answers reach the host', async () => {
+  const provider = fakeProvider();
+  const fake = provider.fake.machine;
+  const r = { ...recipe('web'), user: 'svc', workDir: '/home/user/.users/svc/app' };
+  const outbox = `${r.workDir}/.byokit/outbox`;
+  const inbox = `${r.workDir}/.byokit/inbox`;
+  const enc = (t: string) => new TextEncoder().encode(t);
+  // An interrupted run left an offer behind; another prefix is not the handoff's to touch.
+  fake.writeFile(`${outbox}/muxr-pair-old.json`, enc('{"words":"stale"}'), 0o600, 'svc');
+  fake.writeFile(`${outbox}/other.json`, enc('keep'), 0o600, 'svc');
+  // `muxr pair --handoff`: writes an offer under a name it picks, blocks until the words file it
+  // names arrives, refreshes the offer once, then exits.
+  const sent: (readonly string[])[] = [];
+  const exec = provider.exec;
+  provider.exec = async (ref, argv, eo) => {
+    if (!argv.includes('--handoff')) return exec(ref, argv, eo);
+    sent.push(argv);
+    for (const n of [1, 2]) {
+      assert.equal(fake.readFile(`${outbox}/muxr-pair-old.json`), null, 'the old offer is gone before the command starts');
+      fake.writeFile(`${outbox}/muxr-pair-${n}${'x'.repeat(n)}.json`, enc(JSON.stringify({ words: `words-${n}` })), 0o600, 'svc');
+      while (fake.readFile(`${inbox}/words-${n}`) === null) await new Promise((res) => setTimeout(res, 20));
+    }
+    return { code: 0, stdout: 'paired', stderr: '', timedOut: false };
+  };
+  const offers: string[] = [];
+  let done: ExecResult | undefined;
+  const steps = await collectSteps(setup({
+    provider, store: memoryStore(), recipe: r, create: { size: 'small', keepCopies: true },
+    pair: async (_ref, ctx) => {
+      await rejects(ctx.handoff!(['muxr', 'pair'], { prefix: '../x' }), 'bad-recipe');
+      const h = await ctx.handoff!(['muxr', 'pair', '--handoff'], { prefix: 'muxr-pair-', timeoutMs: 60_000 });
+      for await (const offer of h.offer) {
+        offers.push(offer.file);
+        await h.deliver(JSON.parse(offer.text).words, enc('two words'));
+      }
+      done = await h.done;
+      assert.deepEqual(await ctx.run!(['muxr', 'status']), { code: 0, stdout: '', stderr: '', timedOut: false });
+    },
+  }));
+  assert.deepEqual(steps.map((s) => s.step), ['checking-access', 'creating', 'installing', 'pairing', 'ready']);
+  assert.deepEqual(offers, ['muxr-pair-1x.json', 'muxr-pair-2xx.json'], 'each new offer once, never the stale one');
+  assert.deepEqual(done, { code: 0, stdout: 'paired', stderr: '', timedOut: false });
+  assert.equal(textOf(fake.readFile(`${inbox}/words-2`)!), 'two words');
+  assert.equal(textOf(fake.readFile(`${outbox}/other.json`)!), 'keep');
+  // One command, as the run user in workDir with the unit's node and env, under the handoff's own timeout.
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].slice(0, 4), ['runuser', '-u', 'svc', '--']);
+  assert.deepEqual(sent[0].slice(-7), [
+    '/home/user/.users/svc/app', '/home/user/.users/svc/.local/share/byokit/node/24.15.0/bin',
+    'env', 'PORT=7310', 'muxr', 'pair', '--handoff',
+  ]);
+});
+
 test('a phone polls one status while it creates, installs, stops, starts and deletes its cloud computer', async () => {
   // Boat's create resolves before the machine is on; the fake reads creating twice, and a command
   // sent to a machine that is not on fails, so the poll must not ask the host until it is on.
@@ -1263,6 +1316,29 @@ test('a connect screen follows setup steps in order and retries a failed install
     }));
     assert.deepEqual(callbackFailure.at(-1), { step: 'failed', at: 'installing', cause: 'error.app', retryable: false });
   } finally { await server.close(); }
+});
+
+test('a create whose answer was lost is retried with the same key, so the account holds one machine', async () => {
+  // The provider makes the machine and the answer is lost once; like Boat, it answers a known key with that machine.
+  const boxes: (MachineRef & { idempotencyKey: string })[] = [];
+  const provider: Provider = {
+    id: 'p', label: 'P', account: async () => 'a', sizes: () => [], prices: () => [],
+    status: async () => 'on', exec: async () => ({ code: 0, stdout: '', stderr: '', timedOut: false }),
+    write: async () => {}, list: async () => boxes,
+    create: async ({ name, keepCopies, idempotencyKey }) => {
+      const made = boxes.find((b) => b.idempotencyKey === idempotencyKey);
+      if (made !== undefined) return made;
+      boxes.push({ provider: 'p', account: 'a', id: `b${boxes.length + 1}`, name, keepCopies, idempotencyKey });
+      if (boxes.length === 1) throw new MachineError('provider', 'response lost');
+      return boxes.at(-1)!;
+    },
+  };
+  const m = machine({ provider, store: memoryStore() });
+  await rejects(m.create({ name: 'x', size: 's', keepCopies: false }), 'provider');
+  const ref = await m.create({ name: 'x', size: 's', keepCopies: false });
+  assert.equal(boxes.length, 1, 'one machine');
+  assert.equal(new Set(boxes.map((b) => b.idempotencyKey)).size, 1, 'one key');
+  assert.equal(ref.id, 'b1');
 });
 
 test('a phone with no computer yet rents one through setup, and a retry resumes on it instead of renting another', async () => {
