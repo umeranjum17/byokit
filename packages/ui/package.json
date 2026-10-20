@@ -65,8 +65,8 @@
     "@byokit/accounts": "0.29.0",
     "@types/react": "^19.3.0",
     "@types/react-test-renderer": "^19.3.0",
-    "react": "^19.3.0",
-    "react-test-renderer": "^19.3.0"
+    "react": "^19.3.1",
+    "react-test-renderer": "^19.3.1"
   },
   "publishConfig": {
     "access": "public"
