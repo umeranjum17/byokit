@@ -63,7 +63,9 @@ test('an app picks an existing Boat computer, consents to installation, and retr
     const provider = boat({ baseUrl: server.url, label: 'Boat', prices: prices(), key: async () => 'test-key' });
     const existing = await provider.create!({ name: 'old', size: 'small', keepCopies: true, idempotencyKey: 'seed' });
     const [selected] = await provider.list!();
-    assert.deepEqual(selected, { ...existing, name: 'computer' });
+    assert.deepEqual(selected, {
+      ...existing, name: 'computer', state: 'on', subdomain: `${existing.id}-box`, latestSnapshot: { at: null, status: null },
+    });
     assert.equal(server.machine.runs.length, 0);
     const start = server.requests.length;
     const store = memoryStore();
