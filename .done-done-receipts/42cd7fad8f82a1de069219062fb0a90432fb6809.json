@@ -1,0 +1,40 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "42cd7fad8f82a1de069219062fb0a90432fb6809",
+  "tree": "74bc067592cce717a2c9f5ebdee55e2cc9b7b92e",
+  "claim": "A refresh finishes when Herdr refuses a pane's status watch with its own probe id, and a bootstrap that parks keeps a bounded backlog instead of a growing one",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-21T08:13:37.842Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261021T081315Z-42cd7fad-57ec8d/herdr-bounded-buffer-run.txt",
+      "sha256": "0503ab4dce22e44b8f594755a80461afe7f993a49482de26132073d93a5005a0"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261021T081315Z-42cd7fad-57ec8d",
+      "journey": null,
+      "command": "node scratch.verify-byokit.herdr-bound/drive.mjs"
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261021T081315Z-42cd7fad-57ec8d/herdr-bounded-buffer-run.txt",
+        "sha256": "0503ab4dce22e44b8f594755a80461afe7f993a49482de26132073d93a5005a0",
+        "verdict": "pass",
+        "seen": "I read all 5 entries. The probe entry shows 'refresh settled in 1 ms' after 'herdr: status subscription rejected: pane_not_found: pane w1:p2 not found', so the refresh finishes on Herdr's rejection of a pane's status watch. The buffer entry shows 'the bootstrap buffer hit its cap (513 events, 61853 bytes held)' and says the tree is re-read, which shows the backlog is bounded. The 'stopped: ready settled in 0 ms: false' and 'refresh settled in 478 ms, snapshotCount 1 -> 2' entries don't contradict the outcome. The outcome names no separate widths, themes or frames, so parts is empty. The one soft point is whether w1:p2 counts as the refresh's 'own probe id'."
+      }
+    ]
+  }
+}

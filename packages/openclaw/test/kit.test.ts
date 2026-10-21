@@ -662,6 +662,24 @@ test('a MiniMax key runs a model its vendor list lags, with the route\'s own cap
   assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: true, model: chosen });
 }));
 
+test('a key lane lists the models the live catalog offers, and the pick takes the one the person chose', async () => withKit(async (kit, fake) => {
+  const key = 'CANARY-MINIMAX-FLASH-KEY-1';
+  const chosen = 'minimax/MiniMax-M3.1-Flash';
+  fake.handle('byokit.catalog', (p) => p.provider === 'minimax' && fake.calls.some((c) => c.method === 'openclaw.setup.activate')
+    ? { ok: true, models: [
+      { id: 'MiniMax-M3', name: 'MiniMax-M3', api: 'anthropic-messages', baseUrl: 'https://api.minimax.io/anthropic', input: ['text', 'image'], contextWindow: 1_000_000 },
+      { id: 'MiniMax-M3.1-Flash', name: 'MiniMax-M3.1-Flash', api: 'anthropic-messages', baseUrl: 'https://api.minimax.io/anthropic', input: ['text', 'image'], contextWindow: 1_000_000 }] }
+    : { ok: false, reason: 'no-key' });
+  assert.deepEqual(await kit.addKey('m1', { authChoice: 'minimax-global-api', apiKey: key }), { status: 'ok' });
+  // The engine's own list still lags the registration: the lane lists what the live catalog offers, so the model the
+  // picker showed stays pickable.
+  const lane = await kit.models('m1', 'minimax.key');
+  assert.ok(lane.some((m) => m.id === chosen), `the lane lists the live catalog: ${JSON.stringify(lane)}`);
+  const pick = await kit.pick('m1', { account: 'minimax.key', model: chosen });
+  assert.ok(pick.ok, `the pick takes the chosen model: ${JSON.stringify(pick)}`);
+  assert.equal(pick.model, chosen);
+}));
+
 test('any key route lists its own catalog and takes a model it names or lags, registered alone', async () => withKit(async (kit, fake) => {
   const key = 'CANARY-XAI-KEY-B3';
   fake.handle('byokit.catalog', (p) => p.provider === 'xai' && fake.calls.some((c) => c.method === 'openclaw.setup.activate')
@@ -1454,6 +1472,29 @@ test('schema validation precedes explicit API-key readiness and keeps its snapsh
 }));
 
 type ProvidersConfig = { config?: { models?: { providers?: Record<string, { headers?: Record<string, string> }> } } };
+
+test('a key sign-in and the app\'s poll after it cost one setup detection, not one per reader', async () => withKit(async (kit, fake) => {
+  let detects = 0;
+  fake.handle('openclaw.setup.detect', () => { detects++; return { candidates: [{ kind: 'claude-cli', credentials: false }] }; });
+  assert.deepEqual(await kit.addKey('m1', { authChoice: 'minimax-global-api', apiKey: 'CANARY-DETECT-KEY-1' }), { status: 'ok' });
+  const after = detects;
+  // The app's poll after a sign-in: the providers, the account list and the signed-in check, three rounds over.
+  for (let round = 0; round < 3; round++) {
+    await kit.providers('m1');
+    await kit.accounts('m1');
+    assert.equal(await kit.signedIn('m1', 'minimax'), true);
+  }
+  assert.equal(detects - after, 1, 'one detection answers every reader of the same engine');
+  // Two readers at once share the one probe that is in flight.
+  const before = detects;
+  await Promise.all([kit.providers('m1'), kit.accounts('m1')]);
+  assert.equal(detects - before, 0, 'a cached answer needs no probe');
+  // A sign-out moves the answer: the next reader asks the engine again.
+  await kit.removeKey('m1');
+  const moved = detects;
+  await kit.providers('m1');
+  assert.equal(detects - moved, 1, 'an account change drops the cached detection');
+}));
 
 test('a Go plan key add names its workspace: listed when the app names none; removal drops it; other routes refuse one', async () => withKit(async (kit, fake) => {
   orgs.answer(async () => new Response('', { status: 401 }));

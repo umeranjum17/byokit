@@ -1098,6 +1098,14 @@ the engine. External retained sources are touched only when explicitly passed to
   agent/secret mutations and key replacement invalidate (before and after mutation); engine signed-out failures
   invalidate too. No agent request runs in parallel with an unfinished admission check. Native Claude still asks
   engine `setup.detect`; local snapshots do not prove remote revocation, whose actual run error stays signed-out.
+  The setup detection itself is shared by every reader (the readiness read, the account list, a sign-in): one probe
+  per agent is in flight at a time, its answer is reused for a short window (10 s), and the pin's own status and the
+  detection run together instead of one after the other. The window bounds how long a login made outside the kit
+  stays unseen (the kit cannot witness the person's own CLI login), and every sign-in, sign-out, key change and
+  account change the kit sees drops the answer at once; a changed witness drops it too. A failed probe is never
+  cached and reads as no Claude Code login (the account is not listed), never as an error. A sign-in drive reads the
+  engine every time (what it does next is decided on that answer) and drops the shared answer when it starts and
+  when it ends.
   The split ref is sent as the `agent` request's per-run `provider`/`model` (pin `AgentParamsSchema`; needs `operator.admin`,
   which the kit holds). An explicit provider/model is strict: the engine reports failure instead of falling back to
   another provider or model, and nothing is persisted on the session (pin `docs/concepts/model-failover.md`
@@ -2083,7 +2091,9 @@ runs on the lane with its saved model, or a supplied model of the same provider 
 - `models(member, id)`: `models.list { agentId, view: 'default' }` rows of the account's provider, mapped `id =
   'provider/model'`, `available`, `unavailableReason` `missing-auth`/`auth-failed` → `why: 'signed_out'`, `cooldown`
   → `why: 'resting'` with `until = unavailableUntil`. The pin reports no per-plan availability, so `why: 'plan'` only
-  comes from a run ending `plan`.
+  comes from a run ending `plan`. The rows the kit registered for that provider (the provider's live catalog, 5.6)
+  join them, so a model the picker offered stays listed while the engine's own list still lags the registration; the
+  engine's row wins where both name a model, so the join never removes a row or its availability.
 - `move(ref, to)` moves a conversation (an app key binds as in Runs step 1; with no account agent, the member agent):
   `unsupported` when it is bound nowhere (no `sessions.list { agentId, search: <key> }` row); `busy` while a run is live
   on it (kit map, or that row's `hasActiveRun`); `start_failed` (words `move.notReady`) when the target is not `ready`.
@@ -2623,14 +2633,18 @@ export type HerdrState = {
 export type HerdrProtocolRange = { min?: number; max?: number };   // each defaults to HERDR_PROTOCOL
 export type HerdrKitOptions =
   | { mode: 'adopt'; bin: string; socketPath: string; env?: Record<string, string>; path?: string[];
-      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; onState?: (s: HerdrState) => void;
+      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; livenessTimeoutMs?: number; ackTimeoutMs?: number;
+      onState?: (s: HerdrState) => void;
       onLog?: (message: string) => void }
   | { mode: 'own'; bin: string; stateDir: string; env?: Record<string, string>; path?: string[];
-      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; onState?: (s: HerdrState) => void;
+      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; livenessTimeoutMs?: number; ackTimeoutMs?: number;
+      onState?: (s: HerdrState) => void;
       onLog?: (message: string) => void };
 // A live subscription: call to unsubscribe. `ready` resolves true on the server ack and false on a
-// rejected batch (reported via `onError`, never retried); the reconnect hooks fire only on later
-// drops of an acknowledged socket. The kit's own watches log rejections to `onLog`.
+// rejected batch (reported via `onError`, never retried); a subscription that is stopped, refused
+// or never acknowledged also settles `ready` false, so no caller waits on it forever; the
+// reconnect hooks fire only on later drops of an acknowledged socket. The kit's own watches log
+// subscription failures to `onLog`.
 export type HerdrSubscribeStop = (() => void) & {
   ready: Promise<boolean>;
   onReconnect(fn: () => void): void;
@@ -2852,11 +2866,23 @@ no new link/device operation; apps forward the result through their authorized j
   matched by id; error → `Error('herdr: <code>: <message>')` with `code` property), default timeout 15 s,
   per-call override (`agent.wait`, `agent.prompt` with wait: timeout + 5 s). Event socket: one long-lived
   subscription for unfiltered kinds; `pane.agent_status_changed` per pane on its own socket (filtered kind);
-  frames parsed as `{event, data}` or legacy `data.type`; an error frame with `id: ""` is a rejected subscription:
-  report it via `onError` and do **not** retry that subscription; other closes reconnect after 1 s (event socket) or
+  frames parsed as `{event, data}` or legacy `data.type`; an error frame answers the one request its socket
+  carries, so one with no id of its own (`""`, null, absent) **or with an id derived from the request id**
+  (Herdr's per-subscription probe answers `<id>:sub:0:probe`) is that request's refusal: report it via
+  `onError` and do **not** retry that subscription; other closes reconnect after 1 s (event socket) or
   2 s (per-pane). Start retries 250/500/1000/2000 ms, then the 1 s loop; the kit stays up (`reconnecting`).
+  A subscription's readiness always settles: the server's ack (`true`), a refusal, a stop, a closed transport
+  or the acknowledgement deadline (`ackTimeoutMs`, default 15 s — the request timeout) settle it `false`, so no
+  caller and no bootstrap barrier waits on an acknowledgement that never comes.
 - **Bootstrap** (Herdr docs): open `events.subscribe`, wait for its ack, buffer events, call `session.snapshot`,
-  install it, apply buffered events in order, continue. Re-bootstrap after every event-socket reconnect. `onState`
+  install it, apply buffered events in order, continue. The buffered events are bounded in count and bytes
+  (512 events, 2 MiB): a bootstrap that parks (a status watch that is never acknowledged) must not retain
+  every event that arrives. Past the cap the backlog is not kept — the tree is re-read from Herdr (a fresh
+  snapshot carries the topology, the panes and the statuses), the overflow is reported through `onLog` with
+  what the buffer held, and the events that follow are covered by that re-read: nothing is dropped silently.
+  The bootstrap's status barrier is bounded the same way: it settles on the watches' acknowledgements, on
+  `ackTimeoutMs`, or when the kit stops, and the watches still missing are named through `onLog`.
+  Re-bootstrap after every event-socket reconnect. `onState`
   fires only when `phase` or `why` changes: a re-bootstrap (`refresh()`, a structural event) that lands in the state
   the kit already holds emits nothing, while a reconnect still reports `reconnecting` then `ready`. Unfiltered
   kinds subscribed: `pane.agent_detected`, `pane.created`, `pane.closed`, `pane.moved`, `pane.exited`,

@@ -109,7 +109,7 @@ export class Supervisor {
       if (child.pid) writeFileSync(pidfile, String(child.pid), { mode: 0o600 });
       closeSync(log);
     }
-    const transport = this.transport ?? this.o.transport ?? socketTransport(this.socketPath);
+    const transport = this.transport ?? this.o.transport ?? socketTransport(this.socketPath, { ackTimeoutMs: this.o.ackTimeoutMs });
     this.transport = transport;
     for (const ms of [0, 250, 500, 1000, 2000]) {
       if (ms) await delay(ms);

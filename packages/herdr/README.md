@@ -175,6 +175,8 @@ kit does not have yet, and [Two ways in](#two-ways-in) plus
 
 Kit states include `connecting`, `ready`, `reconnecting`, `stalled`, `needs-update`, `missing`, and `failed`. A stalled computer is busy; the app keeps trying. Once connected, the kit pings Herdr periodically (default timeout: 1 second); set `livenessTimeoutMs` in `HerdrKitOptions` to change the ping timeout and interval. A missed ping changes the state to `stalled`; the next successful ping restores `ready`.
 
+A subscription that Herdr never acknowledges must not hold the kit: `ackTimeoutMs` in `HerdrKitOptions` (default 15 seconds) is the deadline for a subscription's acknowledgement, and a watch that is refused (with any error-frame id, including Herdr's own `<id>:sub:0:probe`), stopped, or never answered settles its readiness instead of waiting forever. The events a bootstrap holds for its replay are bounded too (512 events, 2 MiB): past that cap the kit reports the overflow through `onLog` and re-reads the tree from Herdr instead of keeping a backlog that grows without limit.
+
 The fake's test controls script what a real Herdr does on the wire. `fake.losePrompt(paneId)` makes the pane's next
 `agent.prompt` start no turn: a caller that passes `wait` gets `agent_prompt_stalled` after its wait window, and the pane stays idle; the returned function disarms it, since a prompt the kit refuses before the wire never reaches the fake. `fake.scriptDrawingReads(paneId, reads, source?)`
 makes the next `reads` pane reads from `source` (default `recent`, the caller read) show the agent still drawing (`drawing`) before the screen returns; the kit's own reads (`recent_unwrapped`, `detection`) do not consume it, and a second call adds to the count.
