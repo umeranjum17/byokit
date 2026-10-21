@@ -1347,7 +1347,10 @@ credentials or approval answers. Parent settlement does not revoke children. Rec
 recorded run IDs with `agent.wait` (`timeoutMs: 1`): `ok`/`error` end `terminal`/`error`; the pin's answer for a run
 it does not know at all (`timeout` in the `queue` phase with `providerStarted: false`: no job, queued turn or live run,
 as after an engine restart) ends `lost` (outcome unknown, admission ended); a live run's `timeout` and a failed wait
-keep the child for the next reconcile. A dispatch that finds the journal full (1024 pending and admitted) reconciles
+keep the child for the next reconcile. **9.33 qualification gap:** the no-snapshot branch now returns only
+`{ runId, status: 'timeout' }`; it omits both lost-proof fields and is also reachable for active work without a
+terminal snapshot. The kit conservatively retains such receipts; unknown-run reclamation is not qualified on
+this pin. Do not infer `lost` from a plain timeout or fabricate the removed fields. A dispatch that finds the journal full (1024 pending and admitted) reconciles
 first, so children whose end never reached the kit cannot block delegation.
 No new run IDs are guessed on restart: an engine resume with a different ID needs fresh admission. A dispatch
 whose receipt never arrived stays fail-closed. `abort(rootSessionKey)` revokes the recorded subtree before native
@@ -2301,11 +2304,15 @@ section holds for work run in a worker environment. Engine-started usage covered
 
 | Kind (Gateway) | Counted through |
 |---|---|
-| Your turns, restart-recovery resumes, pre-compaction memory flush | `sessions.usage` transcript totals (stock; these runs persist in the session transcript) |
+| Your turns, restart-recovery resumes | `sessions.usage` transcript totals, only where persisted |
+| Pre-compaction memory flush (9.33) | **Uncovered**: detached internal-session-effects inference is not retained in the source transcript or exposed by the observed Gateway usage methods |
 | Skill Workshop review (`kind: 'workshop-review'`) | the engine-started ledger below (its detached clone is never persisted and internal-effects keys are excluded from usage discovery) |
 
 Every other engine-started kind is **uncovered** and named so: skill collection review, history scan, slug generator,
-active-memory recall, out-of-turn compaction, one-shot helper completions, and all worker-bundle work. A new kind is
+active-memory recall, out-of-turn compaction, one-shot helper completions, and all worker-bundle work. Unlike 8.35,
+9.33 also detaches pre-compaction memory flushes: a successful flush can report provider tokens without adding
+those tokens to visible day accounting. The prior memory-flush inclusion promise is not satisfied on this pin;
+observing its success is not proof of usage coverage. A new kind is
 covered only by a new patched seam and a widened `EngineStartedKind`, never by a side source.
 
 **Engine-started ledger (R4-1).** Env `BYOKIT_ENGINE_USAGE_LEDGER=<stateDir>/openclaw/usage` and
@@ -2361,8 +2368,9 @@ reading old files. A month absent from a boot's counters means that boot attempt
 unproven yields `complete: false`.
 
 **Day total.** `transcripts (lane 19's sessions.usage term, fresh-or-unavailable rules unchanged) + Σ counted
-ended.usage.total for workshop-review`. Recovery resumes, memory flush and `RunEnd.usage` are never added from a side
-source (they are already in, or overlap, the transcript term). Time zones: `utc` or an IANA zone, applied the same way
+ended.usage.total for workshop-review`. Recovery resumes and `RunEnd.usage` are never added from a side source
+(they are already in, or overlap, the transcript term). Nor is a memory-flush total guessed: 9.33's detached flush
+usage is outside these two sources, so `knownTotalTokens` is not a full-spend total. Time zones: `utc` or an IANA zone, applied the same way
 to both terms; `gateway` (host-local) is refused. A review crossing midnight lands on its `ended.at` day. Cost is
 `{ state: 'missing' }` for every engine-started charge (no USD estimate); billing comes from `Route.billing` of the
 route that created `authProfileId`, else `'unknown'` (D18: never inferred from the provider name).
@@ -3800,8 +3808,11 @@ its fixture; `@byokit/ui` `AccountsSource` (for `fits`) · version: openclaw nex
 - Acceptance (real kit, patched engine, scripted loopback provider, no account): (1) Skill Workshop review scheduled
   by the engine (never dispatched by the test) lands one counted charge; the day total equals transcripts plus that
   charge, a caller cap between the two trips only on the sum, and a second read is identical (no double count);
-  (2) memory flush: crossing the soft threshold, the flush's provider usage is in the day total through the
-  transcript term and the ledger is unchanged; (3) restart recovery: after a real crash the recovery turn's usage is in
+  (2) memory flush on 9.33 (explicit coverage limitation, not full-spend acceptance): cross the soft threshold at
+  the original 32k window, confirm exactly one flush and two provider calls, await its persisted native success
+  marker, and assert the visible transcript total equals the foreground's reported usage only; the ledger is
+  unchanged. The 8.35 promise of including the flush's tokens is a documented 9.33 regression, not repaired by
+  adding fixture counters or inventing an internal-session RPC result; (3) restart recovery: after a real crash the recovery turn's usage is in
   the day total through the transcript term, and the total equals the provider-reported usage of the turns that ran;
   (4) SIGKILL during a review reads `pending` before restart and `interrupted`, `complete: false` after;
   (5) failed write: make the month file unwritable while one review runs and restore it for the next; assert `failed`

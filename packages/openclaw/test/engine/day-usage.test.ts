@@ -213,8 +213,14 @@ test('O16 threshold memory flush is counted through transcripts only', { timeout
     const deadline = Date.now() + 70_000;
     do { reading = await readAgentDayUsage(kit, 'm1', window); if (reading.transcripts.state === 'available') break; await delay(1500); }
     while (Date.now() < deadline);
-    assert.equal(reading.transcripts.state, 'available'); assert.equal(reading.transcripts.totals?.totalTokens, 19025);
-    assert.deepEqual(reading.engineStarted.charges, []); assert.equal(reading.knownTotalTokens, 19025);
+    const foregroundTokens = calls.filter(call => !call.flush).reduce((sum, call) => sum + call.total, 0);
+    assert.equal(foregroundTokens, 19007);
+    assert.ok(foregroundTokens > 32000 - 32000 * 0.25 - 6000, 'foreground did not cross the native soft threshold');
+    assert.equal(calls.filter(call => call.flush).reduce((sum, call) => sum + call.total, 0), STUB_USAGE.total_tokens);
+    // 9.33 detaches the flush; its successful provider usage is NOT in the visible transcript/day counters.
+    // Pin qualification asserts that limitation explicitly, not the 8.35 full-spend promise or a side-total fudge.
+    assert.equal(reading.transcripts.state, 'available'); assert.equal(reading.transcripts.totals?.totalTokens, foregroundTokens);
+    assert.deepEqual(reading.engineStarted.charges, []); assert.equal(reading.knownTotalTokens, foregroundTokens);
   } finally {
     await kit.stop(); await stub.close();
     if (process.env.BYOKIT_O16_EVIDENCE_DIR) writeFileSync(join(process.env.BYOKIT_O16_EVIDENCE_DIR, 'memory.json'),

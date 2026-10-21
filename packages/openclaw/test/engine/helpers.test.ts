@@ -92,7 +92,7 @@ mock.method(globalThis, 'fetch', (input, options) => {
     await kit.ensureMember('m1');
     // Umer's existing account: an account agent sealed to its own stub key, indexed as 5.15 writes it.
     await kit.call('agents.create', { name: agent, workspace: join(root, 'workspaces', 'm1') });
-    await untilListed(() => kit.call('agents.list'), agent);
+    await untilListed(() => kit.call('agents.list', {}), agent);
     const activated = await kit.call('openclaw.setup.activate', { kind: 'api-key', agentId: agent, authChoice: 'openai-api-key',
       apiKey: accountKey }, { timeoutMs: 180_000 }) as { ok: boolean };
     assert.equal(activated.ok, true);

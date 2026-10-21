@@ -43,6 +43,11 @@ through the memory gate. Pass: exit 0, `childCalls: 1`, `returnCalls: 1`, the re
 and its reply starting with the root persona's marker. The 9.33 pin waits at most 60 s for the child's terminal result:
 that run fails on the deadline with no return run, an engine limit, not the kit's.
 
+9.33 qualification gap: the full native send/spawn journey still fails its unknown-run `agent.wait` assertion:
+stock returns a plain timeout without `timeoutPhase`/`providerStarted`. The kit retains the receipt conservatively;
+no safe lost-vs-live equivalent was found. A passing return-run leg is not a passing full delegation qualification.
+Do not skip that assertion or treat every timeout as lost.
+
 This is backend behavior: no screenshots. It does **not** qualify shared helper credentials, OAuth refresh ownership,
 ACP delegation, synchronous/label-based sends, resumption under a new engine run ID, or return runs across a kit restart. A receipt absent after a crash
 is fail-closed, not reconstructed. The target keeps its own existing accounts. Do not relabel the scripted provider
