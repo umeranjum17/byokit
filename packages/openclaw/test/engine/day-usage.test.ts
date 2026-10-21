@@ -3,7 +3,7 @@ import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, existsSync, watch } from 'node:fs';
 import { processStartTime } from '../../src/engine-patches.ts';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -185,10 +185,28 @@ test('O16 threshold memory flush is counted through transcripts only', { timeout
     await kit.start(); await useModelStub(kit, stub, 32000); await kit.ensureMember('m1');
     const sessionKey = 'agent:m1:o16:memory';
     assert.equal((await kit.run({ member: 'm1', sessionKey, message: 'Cross the soft memory-flush threshold.' }, () => {})).ok, true);
-    assert.equal(calls.filter(c => c.flush).length, 1, 'soft threshold did not schedule the memory flush');
-    assert.equal(calls.length, 2, 'unexpected engine-started provider call; reassess accounting');
-    const db = new DatabaseSync(join(stateDir, 'openclaw/state/agents/m1/agent/openclaw-agent.sqlite'), { readOnly: true });
+    const agentDir = join(stateDir, 'openclaw/state/agents/m1/agent');
+    const db = new DatabaseSync(join(agentDir, 'openclaw-agent.sqlite'), { readOnly: true });
     try {
+      // 9.33 schedules maintenance after foreground settlement. Its persisted success marker, not a sleep or the
+      // foreground lifecycle end, proves completion. Watch commits before reading so a fast flush cannot be missed.
+      const signal = AbortSignal.timeout(70_000);
+      const watcher = watch(agentDir, { signal });
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const check = () => {
+            try {
+              const row = db.prepare('SELECT entry_json FROM session_nodes WHERE session_key=?').get(sessionKey) as { entry_json: string };
+              if (JSON.parse(row.entry_json).memoryFlush?.kind === 'succeeded') resolve();
+            } catch (error) { reject(error); }
+          };
+          watcher.on('change', check); watcher.once('error', reject);
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+          check();
+        });
+      } finally { watcher.close(); }
+      assert.equal(calls.filter(c => c.flush).length, 1, 'soft threshold did not schedule the memory flush');
+      assert.equal(calls.length, 2, 'unexpected engine-started provider call; reassess accounting');
       const row = db.prepare('SELECT entry_json FROM session_nodes WHERE session_key=?').get(sessionKey) as { entry_json: string };
       assert.equal(JSON.parse(row.entry_json).memoryFlush?.kind, 'succeeded', 'engine did not persist successful memory-flush metadata');
     } finally { db.close(); }
