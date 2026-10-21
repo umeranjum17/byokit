@@ -112,6 +112,7 @@ The maintained source for verifying the user-facing behavior of the built byokit
 - [Dictation live preview](./dictation-live-preview.md) — `@byokit/dictation`'s live preview drops a shown silence sentinel as soon as words arrive, keeps a silence-only take's sentinel, and never retracts real shown words.
 - [Dictation live preview decode](./dictation-preview-decode.md) — a live preview decodes greedily over a bounded recent window; a final keeps the host's beam and whole-recording windows.
 - [Fresh-project pack gate](./pack-fresh-project.md) — `npm run smoke:pack`: install packed tarballs into a scratch app and import them.
+- [CI done-done gate on a pull request only](./ci-done-done-gate-event.md) — the `done-done` job judges a receipt against the commit CI checked out, so it runs on a pull request only; a push to main skips it, the `ci-ok` aggregate passes a job skipped by design, and the Release workflow publishes on a green push to main.
 - [GitHub device sign-in](./connect-github-device.md) — `@byokit/connect` `deviceSignIn` against a loopback GitHub fake: pending, `slow_down` (+5 s), approved, `expired_token`, `access_denied` and app cancel, with a grant stored only on approval.
 - [Gmail send](./connect-mail-send.md) — `@byokit/connect` `MailSender` with fixture OAuth and a canned Gmail transport: approved, denied and missing-scope legs.
 - [House Google client file](./connect-house-client.md) — `googleClientFile` from `@byokit/connect/node` feeding a loopback Gmail sign-in and send: missing, refused, consent approved/denied and send approved/denied legs.
@@ -232,6 +233,7 @@ Each feature file starts with an H1 title and one paragraph of user-visible beha
 - [dictation-live-preview](./dictation-live-preview.md) — a shown silence sentinel drops when words arrive, a silence-only take keeps it, and real shown words are never retracted.
 - [dictation-preview-decode](./dictation-preview-decode.md) — previews decode greedily over a bounded recent window, finals keep the host beam and whole recording.
 - [pack-fresh-project](./pack-fresh-project.md) — the packed-tarball fresh-consumer gate.
+- [ci-done-done-gate-event](./ci-done-done-gate-event.md) — the CI `done-done` gate runs on a pull request only, so a push to main is green and the release workflow publishes.
 - [connect-github-device](./connect-github-device.md) — device code shown, slow_down widens the wait by 5 s, grant stored only on approval; expired, denied and cancelled store nothing.
 - [connect-mail-send](./connect-mail-send.md) — one approval per message, denial without a request, `gmail.send` scope refusal.
 - [connect-house-client](./connect-house-client.md) — the house Google client file: missing/refused files, consent approve/deny, send approve/deny.
