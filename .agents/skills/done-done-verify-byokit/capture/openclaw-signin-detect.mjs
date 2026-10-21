@@ -68,7 +68,7 @@ try {
   writeFileSync(join(evidenceDir, 'result.json'), JSON.stringify({ resolved, results }, null, 2));
   // The step record of the journey: the steps a person (an app) takes and what they can see at the end.
   writeFileSync(join(evidenceDir, 'steps.json'), JSON.stringify({
-    target: { version: '@byokit/openclaw 0.26.0' },
+    target: { version: '@byokit/openclaw 0.26.1' },
     start: 'The app has just signed in with a MiniMax API key: the engine holds the key and the provider\'s live catalog is registered.',
     steps: [
       'The app reads the member\'s providers after the sign-in (readiness)',

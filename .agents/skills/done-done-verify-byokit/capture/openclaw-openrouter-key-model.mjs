@@ -29,7 +29,7 @@ const writeSteps = () => {
   if (!evidenceDir) return;
   mkdirSync(evidenceDir, { recursive: true });
   writeFileSync(join(evidenceDir, 'steps.json'), `${JSON.stringify({
-    target: { version: '@byokit/openclaw 0.26.0' },
+    target: { version: '@byokit/openclaw 0.26.1' },
     start: 'The app has just signed in with an OpenRouter API key: the engine holds the key and the provider\'s live catalog is registered.',
     steps: [
       'The app signs in with the OpenRouter API key the person pasted',
