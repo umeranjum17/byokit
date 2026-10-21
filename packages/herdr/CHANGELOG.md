@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.16.4 (2026-10-21)
+
+FIX: A status watch Herdr refuses with its own per-subscription probe id (`<id>:sub:0:probe`) now settles the subscription's readiness, so a refresh finishes instead of hanging; a stopped subscription settles its readiness too. A watch that is never acknowledged is given up on after `ackTimeoutMs` (default 15 s), and the events a bootstrap holds for its replay are bounded (512 events, 2 MiB): past the cap the kit reports the overflow and re-reads the tree from Herdr instead of keeping a backlog that grows without limit.
+
 ## 0.16.3 (2026-10-21)
 
 FIX: Refreshing the pane list no longer waits forever when a pane has closed and Herdr answers its status watch with "pane not found"; the watch is dropped, the refresh finishes and the rejection is logged.
