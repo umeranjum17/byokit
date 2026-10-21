@@ -1,0 +1,81 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "683d20518e695f00caa93ef9060692bc201b37be",
+  "tree": "2d4e05834fe2366f4a9580033db40be1f5dd9313",
+  "claim": "a phone or web UI can show the person's cloud computers: the list with a search, each machine's state, newest saved copy and cost in plain words, the pick, and what the host answered when it woke one",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-21T06:22:30.984Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261021T062021Z-683d2051-6ece78/cloud-answered__light__phone.png",
+      "sha256": "30eb636c85b2eb71b76c85a93cf6427004fea4e8f9fb4fd6dd517ab49d5908e2"
+    },
+    {
+      "path": "<evidence root>/20261021T062021Z-683d2051-6ece78/cloud-list__light__desktop.png",
+      "sha256": "6e7fc5516b60cc93861f38876c6f59411582283ecec6a76143150feb9e90cf2e"
+    },
+    {
+      "path": "<evidence root>/20261021T062021Z-683d2051-6ece78/cloud-machines-drive.txt",
+      "sha256": "4ae0ca63788ed5c598e8a7970496e7f0761f607d3f0da0a0dd42963221344185"
+    },
+    {
+      "path": "<evidence root>/20261021T062021Z-683d2051-6ece78/cloud-search__light__phone.png",
+      "sha256": "5debd57a155531b077377a97d72e7bee70c5d640036d44ef9609dfd6aecf6de0"
+    },
+    {
+      "path": "<evidence root>/20261021T062021Z-683d2051-6ece78/cloud-waking__light__phone.png",
+      "sha256": "cf74ce7af3e06249754a7146d0b54d2a5b5f39e6014561cd31700be18f612df0"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261021T062021Z-683d2051-6ece78",
+      "journey": null,
+      "command": null,
+      "feature": "ui-cloud-machines"
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261021T062021Z-683d2051-6ece78/cloud-answered__light__phone.png",
+        "sha256": "30eb636c85b2eb71b76c85a93cf6427004fea4e8f9fb4fd6dd517ab49d5908e2",
+        "verdict": "pass",
+        "seen": "The outcome names a list of cloud computers with a search, each machine's state, newest saved copy and cost in plain words, the pick, and the host's reply after waking. The capture shows the title 'Your cloud computers' with a search field, and one entry 'lab' with state 'Awake', 'Copy from 5 hours ago', '$0.50 so far this month · about $5.00 a month', a reply 'It's awake.', and a 'Put it to sleep' button. This matches the described state. The pick is only implied by the single selected machine, so a small amount of uncertainty remains."
+      },
+      {
+        "path": "<evidence root>/20261021T062021Z-683d2051-6ece78/cloud-list__light__desktop.png",
+        "sha256": "6e7fc5516b60cc93861f38876c6f59411582283ecec6a76143150feb9e90cf2e",
+        "verdict": "pass",
+        "seen": "The screen is the cloud computers list. It quotes the heading \"Your cloud computers\" and the search box \"Search your cloud computers\". Each machine shows its state (\"desk ... Awake\", \"lab ... Asleep\"), its newest copy (\"Copy from 2 hours ago\", \"Copy from 5 hours ago\"), and its cost (\"$0.50 so far this month · about $5.00 a month\"). The pick buttons are visible (\"Put it to sleep\", \"Wake it\"). The outcome also mentions the host's answer after a wake, which isn't visible here, so I give some weight to unclear."
+      },
+      {
+        "path": "<evidence root>/20261021T062021Z-683d2051-6ece78/cloud-machines-drive.txt",
+        "sha256": "4ae0ca63788ed5c598e8a7970496e7f0761f607d3f0da0a0dd42963221344185",
+        "verdict": "pass",
+        "seen": "I read every entry: two list rows (desk, lab), two search results ('lab' returns lab; 'nothing here' returns 'No cloud computer matches nothing here.'), the pick (picked: lab), the wake request and host answer ('the host answered: It's awake.'), and the post-read row (lab — Awake). Each row shows state, 'Copy just now' as newest saved copy, '$0.50 so far this month' and 'about $5.00 a month' as plain-language cost, and the Put it to sleep / Wake it action. The outcome's list, search, state, copy, cost, pick, and host-answer features all appear. The error-message line is a specification, not an observed result, and the outcome does not require it. This matches the outcome."
+      },
+      {
+        "path": "<evidence root>/20261021T062021Z-683d2051-6ece78/cloud-search__light__phone.png",
+        "sha256": "5debd57a155531b077377a97d72e7bee70c5d640036d44ef9609dfd6aecf6de0",
+        "verdict": "pass",
+        "seen": "The screen is titled 'Your cloud computers' with the search box reading 'lab'. The result card shows 'lab Umer' (the selected pick), state 'Asleep', 'Copy from 5 hours ago' (newest saved copy), '$0.50 so far this month · about $5.00 a month' (cost in plain words), and a 'Wake it' button. This matches the list, search, state, copy, cost and pick the outcome describes. No wake response from the host is visible, but the card is asleep and not yet woken, so that part is not expected to appear."
+      },
+      {
+        "path": "<evidence root>/20261021T062021Z-683d2051-6ece78/cloud-waking__light__phone.png",
+        "sha256": "cf74ce7af3e06249754a7146d0b54d2a5b5f39e6014561cd31700be18f612df0",
+        "verdict": "pass",
+        "seen": "The screenshot shows the \"Your cloud computers\" screen with the search box \"Search your cloud cloud computers\" (quoted as \"Search your cloud cloud computers\" in the placeholder), a machine named \"lab\" with state \"Waking it up…\", newest copy \"Copy from 5 hours ago\", and cost \"$0.50 so far this month · about $5.00 a month\". That matches the list, search, state, newest copy and cost parts of the outcome. The pick and the host's wake response are not visible, since the machine is still waking, so the match is strong but not complete."
+      }
+    ]
+  }
+}
