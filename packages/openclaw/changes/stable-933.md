@@ -1,2 +1,3 @@
 - FIX: Upgrade the pinned OpenClaw engine to extended-stable 2026.9.33, regenerate routes and the full operator surface, and keep native Workshop skills scoped to each agent across workspaces. Breaking: requires Node 24.16+ on 24.x or Node 26.1+; Node 22 and 25 are no longer supported.
 - Preserve direct, individually gated builtin tools on the new engine: the kit defaults `tools.toolSearch` to `false`, but never overrides an app's explicit choice; app tools use native direct-only registration.
+- Keep app-owned Telegram messages separate instead of merging them under the engine's new 300 ms burst-batching default.

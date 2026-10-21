@@ -60,6 +60,8 @@ export function reconcileConfig(saved: object | undefined, o: {
       groupPolicy: 'disabled', configWrites: false, commands: { native: false, nativeSkills: false },
       execApprovals: { enabled: false }, ...(telegram.apiRoot ? { apiRoot: telegram.apiRoot } : {}) } };
     c.commands = { ...object(c.commands) ? c.commands : {}, allowFrom: { ...c.commands?.allowFrom, telegram: [] } };
+    // Messages belong to the app; 9.33's 300ms Telegram default must not merge separate callbacks.
+    merge(c, { messages: { inbound: { byChannel: { telegram: 0 } } } });
   }
   c.agents ??= {};
   c.agents.defaults ??= {};

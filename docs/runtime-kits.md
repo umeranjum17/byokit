@@ -2591,6 +2591,9 @@ type TelegramChannel = {
   thread, then `kit.run`) and answers with `kit.reply(chat, text)`.
 - **Second wall** (5.6): DMs only, from `allowFrom` (an unlisted sender is dropped by the engine), groups off, chat
   commands and channel config writes off, Telegram exec approvals off; `channels` holds only `telegram`.
+  The kit forces `messages.inbound.byChannel.telegram = 0`: 9.33 otherwise defaults ordinary burst batching to
+  300 ms and merges distinct short messages before the app's hook. This keeps app-owned messages separate,
+  including when a caller sets a global debounce; other channel/global settings stay unchanged.
 - **Reply.** `reply` sends through the engine's `send` with `agentId` = `member`'s agent (the pin needs one owner
   once several agents exist; it mirrors the sent text into that agent's DM session). It refuses a channel that is
   not on (`channel is not turned on: <channel>`).
