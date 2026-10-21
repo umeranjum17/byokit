@@ -49,9 +49,9 @@ function upgradeRecord(version) {
     target: { version },
     start: 'an app with the previous released @byokit/accounts version installed from the npm registry',
     steps: [
-      'the person links a ChatGPT account by device code and gets an answer back',
+      'the person links a ChatGPT account by device code and gets the provider\'s answer back',
       'the app upgrades the installed package in place, over the version it had',
-      'the person links a ChatGPT account again and gets an answer back through the upgraded package',
+      'the person links a ChatGPT account again and gets the provider\'s answer back through the upgraded package',
     ],
     result: 'the upgraded package answers: "ChatGPT is connected." and the answer "You said: Plan my day"',
   };
@@ -82,6 +82,7 @@ function main() {
       `package under test: ${PACKAGE}@${packed.version}`,
       `upgraded from: ${packed.file} (npm pack of packages/accounts)`,
       `app: ${appDir} (the same app directory before and after the upgrade)`,
+      'provider: the kit\'s own stand-in for OpenAI on 127.0.0.1 (no account, no key, no network)',
       '',
       `1. the previous shipped version, installed from the npm registry`,
       beforeTranscript.trimEnd(),

@@ -84,7 +84,7 @@ export function stepRecord(version) {
       'install the shipped @byokit/accounts package into the app',
       'the app links a ChatGPT account by device code: it shows a code and the person approves it',
       'the app reads the account status',
-      'the app asks a question and prints the answer it gets back',
+      'the app asks the provider a question and prints the answer it gets back',
     ],
     result: 'the installed package answers: "ChatGPT is connected." and the answer "You said: Plan my day"',
   };
@@ -111,6 +111,7 @@ function main() {
       `package under test: ${packed.name}@${version}`,
       `installed from: ${packed.file} (npm pack of packages/accounts)`,
       `app: ${appDir}`,
+      'provider: the kit\'s own stand-in for OpenAI on 127.0.0.1 (no account, no key, no network)',
       'run: node consumer.mjs (exit 0)',
       '',
       transcript.trimEnd(),
