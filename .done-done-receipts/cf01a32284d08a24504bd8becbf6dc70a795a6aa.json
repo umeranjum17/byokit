@@ -1,0 +1,41 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "cf01a32284d08a24504bd8becbf6dc70a795a6aa",
+  "tree": "3de704f6677259d662d7711860ec0e3ce5cd1ca0",
+  "claim": "a phone or web UI can show the person's cloud computers: list, search, state, newest saved copy, cost, and what the host answered",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-21T06:30:39.815Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261021T062947Z-cf01a322-abc490/cloud-machines-drive.txt",
+      "sha256": "e7d64a7341f1e291115072bfdf183b6c7ce1a1e4e89c190ccf347f55d73aa25d"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261021T062947Z-cf01a322-abc490",
+      "journey": null,
+      "command": null,
+      "feature": "ui-cloud-machines"
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261021T062947Z-cf01a322-abc490/cloud-machines-drive.txt",
+        "sha256": "e7d64a7341f1e291115072bfdf183b6c7ce1a1e4e89c190ccf347f55d73aa25d",
+        "verdict": "pass",
+        "seen": "I read every entry in the capture. The list shows desk (Awake) and lab (Asleep), each with 'Copy just now' (newest saved copy), '$0.50 so far this month' and 'about $5.00 a month' (cost), and a Put it to sleep or Wake it action (state). The search 'lab' returns lab, and search 'nothing here' returns 'No cloud computer matches nothing here.' Picking lab and asking the host to wake it returns 'It's awake.', and the next read shows lab as Awake. Those fields cover the outcome: list, search, state, newest copy, cost, and the host's answer. The outcome's failure message is only in the capture's mapping lines, not in the results, so it does not contradict the outcome."
+      }
+    ]
+  }
+}
