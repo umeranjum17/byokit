@@ -62,8 +62,8 @@ try {
   out('states-before', await states());
   const homeBefore = servers['key-home'].requests.length;
   await (await r.machine(beta.id)).sleep();
-  out('states-after-sleeping-beta', await states());
   out('home-bench-requests-while-sleeping-beta', servers['key-home'].requests.length - homeBefore);
+  out('states-after-sleeping-beta', await states());
   await (await r.machine(beta.id)).wake();
   out('states-after-waking-beta', await states());
   await (await r.machine(alpha.id)).remove(alpha.id);
