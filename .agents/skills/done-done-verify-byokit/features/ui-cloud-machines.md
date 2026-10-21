@@ -106,10 +106,11 @@ try {
 console.log('DRIVE OK');
 ```
 
-Run it from a `$scratch_dir` (see the parent skill) so the bare imports resolve to the workspace: `node consumer.mjs` prints both resolved paths inside `packages/*/dist`, one line per machine (`desk — Awake · Copy from just now · $0.50 so far this month · about $5.00 a month` and `lab — Asleep · $0.50 so far this month · about $5.00 a month`), the failure line and its host words, and `DRIVE OK`. The resolved paths must be inside `packages/*/dist`, never a registry copy. The same run fails when the list, the copy, the cost, the search, the pick, the waking row, the host's answer or the failure words are wrong.
+Run it from a `$scratch_dir` **inside the worktree root** (`scratch_dir=$(mktemp -d ./scratch.verify-byokit.XXXXXX)`) so the bare imports resolve to the workspace; do not import the built files by absolute path. `node consumer.mjs` prints both resolved paths inside `packages/*/dist`, one line per machine (`desk — Awake · Copy from just now · $0.50 so far this month · about $5.00 a month` and `lab — Asleep · $0.50 so far this month · about $5.00 a month`), the failure line and its host words, and `DRIVE OK`. The resolved paths must be inside `packages/*/dist`, never a registry copy. The same run fails when the list, the copy, the cost, the search, the pick, the waking row, the host's answer or the failure words are wrong. Remove the scratch folder when the run ends.
 
 ## Gotchas
 
+- This is not a visual change: there is no screen, so there are no narrow/larger-text screenshots — the consumer's exact text output in the drive output is the proof.
 - `@byokit/ui/kits` is a portable entry: no Node and no React. The cloud view imports only `./words.json` and the store helper; `test/portable.test.ts` and the entry's own bundle check fail otherwise.
 - The view reads only the fields it names, so a credential on a machine object never reaches a row (D3); extra fields are ignored, not copied.
 - The type restatement is deliberate: a change to the cloud kit's `Provider` does not flow through automatically. The kit's own provider fits `CloudProvider` as it is, and a provider that lists more machines (a roster of accounts, a machine with its own subdomain, state and newest copy) fits too.
