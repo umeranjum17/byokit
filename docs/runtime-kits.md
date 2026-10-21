@@ -2110,12 +2110,18 @@ runs on the lane with its saved model, or a supplied model of the same provider 
   The same `gone` tombstones exclude a later refresh from every persisted snapshot and object; the next `prepare`
   also prunes previously sealed entries and objects of those removed agents before they can be restored.
   The account's sessions go with it; `move` first keeps one.
-- `models(member, id)`: `models.list { agentId, view: 'default' }` rows of the account's provider, mapped `id =
+- `models(member, id)`: `models.list { agentId, view: 'all' }` rows of the account's provider, mapped `id =
   'provider/model'`, `available`, `unavailableReason` `missing-auth`/`auth-failed` → `why: 'signed_out'`, `cooldown`
   → `why: 'resting'` with `until = unavailableUntil`. The pin reports no per-plan availability, so `why: 'plan'` only
   comes from a run ending `plan`. The rows the kit registered for that provider (the provider's live catalog, 5.6)
   join them, so a model the picker offered stays listed while the engine's own list still lags the registration; the
   engine's row wins where both name a model, so the join never removes a row or its availability.
+  9.33 starts with a bootstrap catalog that can omit CLI/provider rows. The account controller prepares a full
+  catalog with `refresh: true` once per agent and owned-config witness (concurrent readers join that preparation;
+  failures retry). A reconnect creates a new controller. Only the preparation marker is kept, never model/auth
+  answers: later picker and run-selection reads still ask the engine for current availability without forcing
+  full provider discovery on every turn. Existing model/availability projection is unchanged; native filtering
+  remains in force.
 - `move(ref, to)` moves a conversation (an app key binds as in Runs step 1; with no account agent, the member agent):
   `unsupported` when it is bound nowhere (no `sessions.list { agentId, search: <key> }` row); `busy` while a run is live
   on it (kit map, or that row's `hasActiveRun`); `start_failed` (words `move.notReady`) when the target is not `ready`.

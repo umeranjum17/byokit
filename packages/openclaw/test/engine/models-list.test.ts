@@ -3,6 +3,7 @@
 // listing. Synthetic sign-ins, a task-owned `claude` on the engine's PATH, never a real account or the network. Runs
 // only in the engine job (npm run test:engine).
 import { test } from 'node:test';
+import { GatewayClient } from '@openclaw/gateway-client';
 import assert from 'node:assert/strict';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -35,7 +36,7 @@ test('a signed-in ChatGPT login lists the Codex CLI route\'s models', { timeout:
   }
 });
 
-test('a signed-in Claude Code login is a kit account, and its Claude CLI models are listed', { timeout: 900_000 }, async () => {
+test('a signed-in Claude Code login is a kit account, and its Claude CLI models are listed', { timeout: 900_000 }, async (t) => {
   // A task-owned `claude` on the engine's PATH, logged in on a plan; it prints no credential.
   const dir = scratchDir('mlist-claude');
   const bin = join(dir, 'bin');
@@ -51,6 +52,14 @@ else process.exit(2);
   try {
     await kit.start();
     const { agentId } = await kit.ensureMember('m1');
+    // Observe the real transport, never fake its answer: full discovery once, current readiness on later reads.
+    const reads: boolean[] = [];
+    const request = GatewayClient.prototype.request;
+    t.mock.method(GatewayClient.prototype, 'request', function (this: GatewayClient, ...args: Parameters<typeof request>) {
+      const params = args[1] as { agentId?: string; refresh?: boolean } | undefined;
+      if (args[0] === 'models.list' && params?.agentId === agentId) reads.push(params.refresh === true);
+      return request.apply(this, args);
+    });
     // The app's setup detection is how the engine learns a Claude Code login exists.
     await kit.call('openclaw.setup.detect', { agentId }, { timeoutMs: 30_000 });
     const [claude] = (await kit.accounts('m1')).filter((row) => row.provider === 'claude-cli');
@@ -59,6 +68,8 @@ else process.exit(2);
     const models = (await kit.models('m1', claude.id)).filter((m) => m.id.startsWith('claude-cli/'));
     assert.ok(models.length > 0, 'the Claude CLI route lists its models');
     assert.ok(models.some((m) => m.available), `a listed Claude CLI model is available: ${JSON.stringify(models)}`);
+    assert.deepEqual((await kit.models('m1', claude.id)).filter((m) => m.id.startsWith('claude-cli/')), models);
+    assert.deepEqual(reads, [true, false], 'a warm picker read does not repeat full provider discovery');
   } finally {
     await kit.stop();
     rmSync(dir, { recursive: true, force: true });
