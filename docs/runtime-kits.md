@@ -707,10 +707,16 @@ see them with no model setup in the app:
   another provider whole is a spec change. OpenRouter is pay-as-you-go: its API key
   has no plan, so its own live catalog is every model the key can run. Its row ids carry the maker's slash
   (`deepseek/deepseek-v4.1-flash-1017`); the kit names each `openrouter/<id>`. The Go workspace header is Go-only.
-- Registered whole: `opencode-go` and `minimax` (`REGISTERED_CATALOGS` in `src/constants.ts`); every other provider's add registers its chosen model alone. The pinned engine canonicalizes Google preview ids on
-  `config.patch` (`google/x-preview` becomes `google/x`), so OpenRouter's live list collides with itself (`Ambiguous
-  duplicate ID`). The kit names a preview id by the id the engine keeps (the pair lists once), and an OpenRouter key add
-  registers only its chosen model's catalog row, after preparation.
+- Registered whole: `opencode-go` and `minimax` (`REGISTERED_CATALOGS` in `src/constants.ts`), on every ready. A key
+  add registers its chosen model alone, and OpenRouter's add registers the provider's live list beside that model
+  (`LIVE_LIST_ADDS` in `src/constants.ts`): the engine's catalog stops at a registered list, so an add that registered
+  the chosen model alone would leave the member with that one row and nothing else to pick from. The chosen model id
+  sits beside the provider's own default (`openrouter/auto`), and every model the vendor lists stays pickable (the
+  MiniMax models, `minimax/minimax-m3.1-flash` and its free variant, among them). The pinned engine canonicalizes
+  Google preview ids on `config.patch` (`google/x-preview` becomes `google/x`), so the rows are deduped by the id it
+  keeps (`engineModelId` in `src/accounts.ts`) before they are written: the pair lists once and the list is never
+  refused (`Ambiguous duplicate ID`). The chosen model is registered on its own as well, so a list the engine refuses
+  never costs the member their own choice.
 - One naming rule: a row's engine id becomes `provider/<id>`, and a row already prefixed with its own provider is left
   alone (`openrouter/auto` stays one prefix; `deepseek/...` gains OpenRouter's). The list, the key lane, the saved model
   and the registration check all read that same id; a run or fork maps it back to the engine's provider-local id through

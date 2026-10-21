@@ -5,8 +5,8 @@ import { activate, type ActivationCtx } from './activation.ts';
 import { keyAgentId, MEMBER_ID, KEY_PREFIX, untilListed } from './members.ts';
 import { providerOf } from './pick.ts';
 import type { RouteView } from './routes.ts';
-import { kitId, modelsOf } from './accounts.ts';
-import { REGISTERED_CATALOGS } from './constants.ts';
+import { kitId, modelsOf, engineModelId } from './accounts.ts';
+import { LIVE_LIST_ADDS } from './constants.ts';
 import type { Member, ModelInfo } from './types.ts';
 
 // retry: the engine may have taken the key but it was not kept; the unsealed key is cleared best-effort. If that clear
@@ -81,12 +81,13 @@ export function createKeys(ctx: ActivationCtx & {
     return ['ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN', 'ETIMEDOUT', 'CLIENT_TIMEOUT', 'NETWORK_ERROR'].includes(e?.code ?? '')
       || e?.name === 'TimeoutError' ? 'network' : 'engine';
   };
-  // The engine writes a Google preview id without its `-preview` suffix, so the kit names the id it keeps.
-  const canonical = (id: string): string => id.startsWith('google/') && id.endsWith('-preview')
-    ? id.slice(0, -'-preview'.length) : id;
+  // The kit's name for a model: the provider and the row id the engine keeps (a model reference already carries its
+  // provider, so the row id is never prefixed twice).
   const canonicalModel = (model: string): string => {
     const at = model.indexOf('/');
-    return at < 0 ? model : `${model.slice(0, at)}/${canonical(model.slice(at + 1))}`;
+    if (at < 0) return model;
+    const provider = model.slice(0, at);
+    return kitId(provider, engineModelId(provider, model.slice(at + 1)));
   };
   // The live catalog's rows, as the engine registers them (provider-local ids, deduped by the id it keeps).
   const catalog = async (member: Member, provider: string): Promise<Record<string, unknown>[]> => {
@@ -97,7 +98,7 @@ export function createKeys(ctx: ActivationCtx & {
       if (answer.reason !== 'no-key') throw new Error('Model catalog is unavailable.');
       return [];
     }
-    const rows = (answer.models ?? []).map((m) => ({ ...m, id: canonical(String(m.id)) }));
+    const rows = (answer.models ?? []).map((m) => ({ ...m, id: engineModelId(provider, String(m.id)) }));
     return [...new Map(rows.map((m) => [String(m.id), m])).values()];
   };
   // The key route a choice names: its own, or the only key route of the provider whose other sign-in it names, billed
@@ -230,8 +231,14 @@ export function createKeys(ctx: ActivationCtx & {
             try { await ctx.prepareOwner(agentId); }
             catch { return abandon(failure('retry', 'engine')); }
             if (ac.signal.aborted) return abandon(cancelled());
-            // A catalog the kit does not register whole (OpenRouter's, and any other provider's) registers the chosen model alone.
-            if (model !== undefined && (!REGISTERED_CATALOGS.includes(route.provider) || lagging.length))
+            // The provider's live list, for a provider whose add registers it (the engine's catalog stops at a
+            // registered list, so the chosen model alone would leave the member with that one row to pick): the
+            // chosen model id sits beside the provider's own default, `openrouter/auto`.
+            if (model !== undefined && LIVE_LIST_ADDS.includes(route.provider))
+              await ctx.registerModels(route.provider, rows).catch(() => {});
+            // The chosen model is registered on its own, whatever the provider's catalog is: a list the engine
+            // refuses (two rows it would keep under one id) must never cost the member's own choice.
+            if (model !== undefined)
               await ctx.registerModels(route.provider, rows.filter((m) => kitId(route.provider, String(m.id)) === model)).catch(() => {});
             if (model !== undefined && !(await registered(route.provider, model)))
               return abandon(failure('retry', 'model'));

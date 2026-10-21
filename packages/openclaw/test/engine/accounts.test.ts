@@ -796,6 +796,30 @@ test('addKey: an OpenRouter key under Crewhouse\'s browser choice is activated, 
     .end(JSON.stringify({ error: { code: 402, message: 'Insufficient credits. Add more using https://openrouter.ai/settings/credits' } })));
   await new Promise<void>((resolve) => credits.listen(0, '127.0.0.1', resolve));
   const creditsUrl = `http://127.0.0.1:${(credits.address() as AddressInfo).port}`;
+  // The provider's live list (the maker's ids, the maker's slash, a Google preview pair).
+  const live = [
+    { id: 'openrouter/auto', name: 'OpenRouter Auto', context_length: 200000, pricing: { prompt: '0', completion: '0' },
+      supported_parameters: [], architecture: { modality: 'text->text', input_modalities: ['text'] } },
+    { id: 'deepseek/deepseek-v4.1-flash-1017', name: 'DeepSeek: DeepSeek V4.1 Flash 1017', context_length: 163840,
+      pricing: { prompt: '0.0000001', completion: '0.0000004' }, supported_parameters: ['reasoning'],
+      architecture: { modality: 'text->text', input_modalities: ['text'] } },
+    { id: 'minimax/minimax-m3.1-flash', name: 'MiniMax: MiniMax M3.1 Flash', context_length: 196608,
+      pricing: { prompt: '0.0000004', completion: '0.0000016' }, supported_parameters: ['reasoning'],
+      architecture: { modality: 'text->text', input_modalities: ['text'] } },
+    { id: 'minimax/minimax-m3.1-flash:free', name: 'MiniMax: MiniMax M3.1 Flash (free)', context_length: 196608,
+      pricing: { prompt: '0', completion: '0' }, supported_parameters: ['reasoning'],
+      architecture: { modality: 'text->text', input_modalities: ['text'] } },
+    { id: 'google/gemini-3.1-flash-lite', name: 'Google: Gemini 3.1 Flash Lite', context_length: 1048576,
+      pricing: { prompt: '0.00000025', completion: '0.0000015' }, supported_parameters: ['reasoning'],
+      architecture: { modality: 'text->text', input_modalities: ['text'] } },
+    { id: 'google/gemini-3.1-flash-lite-preview', name: 'Google: Gemini 3.1 Flash Lite Preview', context_length: 1048576,
+      pricing: { prompt: '0.00000025', completion: '0.0000015' }, supported_parameters: ['reasoning'],
+      architecture: { modality: 'text->text', input_modalities: ['text'] } },
+  ];
+  const catalog = createServer((_req, res) => res.writeHead(200, { 'content-type': 'application/json' })
+    .end(JSON.stringify({ data: live })));
+  await new Promise<void>((resolve) => catalog.listen(0, '127.0.0.1', resolve));
+  const catalogUrl = `http://127.0.0.1:${(catalog.address() as AddressInfo).port}`;
   const preload = join(dir, 'openrouter-fake.mjs');
   mkdirSync(dir, { recursive: true });
   writeFileSync(preload, `
@@ -805,7 +829,8 @@ mock.method(globalThis, 'fetch', (input, options) => {
   const url = new URL(input instanceof Request ? input.url : input);
   if (url.origin === 'https://openrouter.ai') {
     const bearer = new Headers(input instanceof Request ? input.headers : options?.headers).get('authorization');
-    const base = new URL(bearer === ${JSON.stringify(`Bearer ${broke}`)} ? ${JSON.stringify(creditsUrl)} : ${JSON.stringify(stub.url)});
+    const base = new URL(url.pathname.startsWith('/api/v1/models') ? ${JSON.stringify(catalogUrl)}
+      : bearer === ${JSON.stringify(`Bearer ${broke}`)} ? ${JSON.stringify(creditsUrl)} : ${JSON.stringify(stub.url)});
     url.protocol = base.protocol; url.host = base.host;
     input = input instanceof Request ? new Request(url, input) : url;
   }
@@ -835,5 +860,29 @@ mock.method(globalThis, 'fetch', (input, options) => {
     const calls = keyed(before);
     assert.ok(calls.length && calls.every((c) => c.body.model === 'deepseek/deepseek-v4.1-flash-1017'), JSON.stringify(calls.map((c) => c.body.model)));
     assert.ok(!JSON.stringify(end).includes(key), 'the key is never shown');
-  } finally { await kit.stop(); credits.close(); mock.restoreAll(); syncBuiltinESMExports(); }
+    // The member picks a model and the app signs in with it: the add registers the provider's live list, so the
+    // chosen model id sits beside `openrouter/auto` and the member keeps every model the vendor lists to pick from
+    // (the engine's catalog stops at a registered list).
+    const flashModel = 'openrouter/minimax/minimax-m3.1-flash';
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openrouter-api-key', apiKey: key, model: flashModel }), { status: 'ok' });
+    const { config } = await kit.call('config.get', {}) as { config: { models?: { providers?: Record<string,
+      { models?: { id: string }[] }> } } };
+    const registered = config.models?.providers?.openrouter?.models?.map((m) => m.id) ?? [];
+    assert.ok(registered.includes('openrouter/auto') && registered.includes('deepseek/deepseek-v4.1-flash-1017')
+      && registered.includes('minimax/minimax-m3.1-flash') && registered.includes('minimax/minimax-m3.1-flash:free'),
+    `the whole live list is registered: ${JSON.stringify(registered)}`);
+    assert.ok(!registered.includes('google/gemini-3.1-flash-lite-preview'), 'the preview pair is one row');
+    // The key lane lists them: the member can pick the MiniMax model and its free variant.
+    const lane = (await kit.models('m1', 'openrouter.key')).map((m) => m.id);
+    assert.ok(lane.includes('openrouter/minimax/minimax-m3.1-flash')
+      && lane.includes('openrouter/minimax/minimax-m3.1-flash:free') && lane.includes('openrouter/auto'),
+    `the lane lists the live models: ${JSON.stringify(lane)}`);
+    // A run on the MiniMax model the member picked answers on it.
+    const beforeFlash = stub.calls.length;
+    const flash = await kit.run({ member: 'm1', auth: 'apiKey', sessionKey: 'agent:m1:minimax',
+      model: flashModel, message: 'hello minimax' });
+    assert.ok(flash.ok, JSON.stringify(flash));
+    assert.ok(keyed(beforeFlash).length && keyed(beforeFlash).every((c) => c.body.model === 'minimax/minimax-m3.1-flash'),
+      JSON.stringify(keyed(beforeFlash).map((c) => c.body.model)));
+  } finally { await kit.stop(); credits.close(); catalog.close(); mock.restoreAll(); syncBuiltinESMExports(); }
 });
