@@ -10,6 +10,9 @@ export function socketTransport(socketPath: string): HerdrTransport {
     const timer = setTimeout(() => { timers.delete(timer); fn(); }, ms);
     timers.add(timer);
   };
+  // An error frame answers the one request its socket carries, so one with no id of its own (`""`,
+  // null, absent) is that request's refusal too; matching only `""` left a null id waiting forever.
+  const answers = (frame: any, id: string): boolean => frame.id === id || frame.id === '' || frame.id == null;
   const connect = (onLine: (frame: any) => void, onClose: () => void): Socket => {
     const socket = createConnection(socketPath);
     sockets.add(socket);
@@ -51,7 +54,7 @@ export function socketTransport(socketPath: string): HerdrTransport {
           if (error) reject(error); else resolve(result);
         };
         const socket = connect((frame) => {
-          if (frame.id !== id) return;
+          if (frame.error ? !answers(frame, id) : frame.id !== id) return;
           if (frame.error) {
             const error = new Error(`herdr: ${frame.error.code}: ${frame.error.message}`) as Error & { code: string };
             error.code = frame.error.code;
@@ -81,7 +84,7 @@ export function socketTransport(socketPath: string): HerdrTransport {
         let ack = false;
         let rejected = false;
         current = connect((frame) => {
-          if (frame.error && (frame.id === '' || frame.id === id)) {
+          if (frame.error && answers(frame, id)) {
             rejected = true;
             acknowledge?.(false);
             onError(String(frame.error.code), String(frame.error.message));

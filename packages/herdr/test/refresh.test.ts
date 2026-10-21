@@ -279,3 +279,26 @@ test('a refresh() after the in-flight read began answers with a follow-up read t
     await fake.stop().catch(() => {});
   }
 });
+
+// A closed pane answers its status watch with `pane_not_found`; whatever id the error frame carries,
+// the watch is rejected and refresh() finishes (muxr's pane attach hung on it).
+for (const replyId of ['empty', 'request', 'null', 'omitted'] as const) {
+  test(`refresh() finishes when a status watch is answered pane_not_found with ${replyId} id`, async () => {
+    const fake = await startFakeHerdr({ dir: scratchDir(`herdr-refresh-gone-${replyId}`) });
+    const logs: string[] = [];
+    const kit = new HerdrKit({ mode: 'adopt', bin: fake.bin, socketPath: fake.socketPath, onLog: (line) => logs.push(line) });
+    try {
+      await kit.start();
+      const agentPane = kit.snapshot().workspaces.flatMap((w) => w.tabs).flatMap((t) => t.panes).find((p) => p.agent !== undefined)!;
+      fake.rejectWatch(agentPane.id, replyId);
+      await Promise.race([
+        kit.refresh(),
+        settle(3000).then(() => assert.fail('refresh() waits on the rejected status watch')),
+      ]);
+      assert.ok(logs.some((line) => line.includes('pane_not_found')), 'the rejection is logged with its code');
+    } finally {
+      await kit.stop().catch(() => {});
+      await fake.stop().catch(() => {});
+    }
+  });
+}
