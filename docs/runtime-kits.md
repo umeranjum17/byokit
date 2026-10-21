@@ -2219,6 +2219,8 @@ skipped turn preparation and empty tool lists keep the stock prompt. No consumer
 `packages/openclaw/test/engine-unit.test.ts` exercises the shipped edit's rendered output; its minimal stock
 input is unit coverage, not qualification against the complete pinned engine or a live Claude CLI.
 
+**Native CLI setup detection (9.33 compatibility).** The immutable setup-inference patch supplies the omitted native `detectClaudeLoginState` and `detectCodexLoginState` dependencies to `setup.detect`: Claude uses the shipped bounded JSON auth seam; Codex uses a bounded, cancellation-aware `login status` command with API-key/billing-route and engine-folder overrides removed. Only verified boolean state and Claude subscription-kind metadata return, never CLI output or credentials. Signed-out remains false; unreadable remains unknown. Real-Gateway positive and negative controls own qualification. Drop this patch when upstream supplies these dependencies; do not replace it with optimistic client status. The update-recovery bundle remains outside Gateway coverage.
+
 **Key setup plan.** The 8.35 starter-model normalization patch is retired in 9.33: upstream replaced that setup planner with staged owner-evidence route resolution and no longer contains `canonicalizeSetupModelRef`. The kit does not carry a stale patch into the replacement pipeline. `test/engine/accounts.test.ts` activates an OpenRouter key on the pinned engine and runs on a chosen model.
 
 **Engine sets.** A patched engine is never made by editing files in place: stock OpenClaw rewrites its process

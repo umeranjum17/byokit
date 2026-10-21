@@ -349,9 +349,9 @@ else process.exit(2);
     const fallback = await detection();
     assert.ok(fallback.candidates?.some(row => row.kind === 'claude-cli' && row.credentials === false),
       `signed-out installed Claude remains a sign-in candidate: ${JSON.stringify(fallback.candidates)}`);
-    // The gateway's own detection runs `auth status --text`; the kit's probe runs `--json`.
+    // 9.33's shipped native auth seam and the kit both ask the CLI's bounded JSON status.
     const lastCliCall = () => readFileSync(calls, 'utf8').trim().split('\n').map(line => JSON.parse(line))
-      .filter(call => call.argv.join(' ') === 'auth status --text').at(-1);
+      .filter(call => call.argv.join(' ') === 'auth status --json').at(-1);
     assert.equal(lastCliCall().CLAUDE_CONFIG_DIR, join(stateDir, 'openclaw', 'home', '.claude'),
       'initial gateway setup detection reads the fallback login');
 
@@ -373,12 +373,14 @@ else process.exit(2);
 
 test('real gateway: a Claude Code login the engine detects is a signed-in claude-cli', { timeout: 300_000 }, async () => {
   // A task-owned `claude` on the engine's PATH, logged in on a plan; it prints no credential.
-  const bin = scratchDir('o6-claude-bin');
+  const bin = scratchDir('o6-claude-bin'), login = join(bin, 'login-state');
+  writeFileSync(login, 'signed-in');
   writeFileSync(join(bin, 'claude'), `#!${process.execPath}
+const signedIn = require('node:fs').readFileSync(${JSON.stringify(login)}, 'utf8') === 'signed-in';
 const a = process.argv.slice(2).join(' ');
 if (a === '--version') console.log('2.1.0 (Claude Code)');
 else if (a === 'auth status --text') console.log('Login method: Claude Max Account');
-else if (a === 'auth status --json') console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'max' }));
+else if (a === 'auth status --json') console.log(JSON.stringify({ loggedIn: signedIn, authMethod: signedIn ? 'claude.ai' : 'none', subscriptionType: 'max' }));
 else process.exit(2);
 `, { mode: 0o700 });
   try {
@@ -389,6 +391,11 @@ else process.exit(2);
       const status = await request('models.authStatus', { agentId: 'm1', refresh: true }, { timeoutMs: 20_000 });
       // Exactly claude-cli: a Claude Code login is plan-billed and never reads as 'anthropic', the API-billed provider.
       assert.deepEqual(await providers(ctx, 'm1'), ['claude-cli'], `engine status: ${JSON.stringify(status)}`);
+      writeFileSync(login, 'signed-out');
+      const signedOut = await request('openclaw.setup.detect', { agentId: 'm1' }, { timeoutMs: 20_000 }) as { candidates?: { kind?: string; credentials?: boolean }[] };
+      assert.ok(signedOut.candidates?.some(c => c.kind === 'claude-cli' && c.credentials === false),
+        `native negative control must stay signed out: ${JSON.stringify(signedOut.candidates)}`);
+      assert.deepEqual(await providers(ctx, 'm1'), [], 'a signed-out CLI must not gain kit readiness');
     }, [bin]);
   } finally { rmSync(bin, { recursive: true, force: true }); }
 });
