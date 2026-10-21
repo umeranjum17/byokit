@@ -481,7 +481,7 @@ type Render = {
   /** In the app's words, so a reviewer knows what the frames show. */
   what: string;
   /** The state the page shows. */
-  state: 'list' | 'search' | 'empty' | 'loading' | 'error' | 'waking' | 'asleep';
+  state: 'list' | 'search' | 'empty' | 'loading' | 'error' | 'waking' | 'answered' | 'asleep';
   themes: Theme[];
   formFactors: FormFactor[];
 };
@@ -498,6 +498,8 @@ const RENDER_SCREENS: Render[] = [
   { id: 'cloud-error', state: 'error', what: "The host could not answer: the plain line, then the host's own words",
     themes: [...themes], formFactors: ['phone', 'desktop'] },
   { id: 'cloud-waking', state: 'waking', what: 'The person asked the host to wake a machine: the row says so until the host answers',
+    themes: [...themes], formFactors: ['phone', 'desktop'] },
+  { id: 'cloud-answered', state: 'answered', what: 'The host answered: the row says the machine is awake',
     themes: [...themes], formFactors: ['phone', 'desktop'] },
   { id: 'cloud-asleep', state: 'asleep', what: 'An asleep machine offers the one action that helps: wake it',
     themes: [...themes], formFactors: ['phone', 'desktop'] },
@@ -549,6 +551,7 @@ const states: Record<string, CloudState> = {
   loading: { phase: 'loading', machines: [], actions: ['wake', 'sleep'], search: '' },
   error: { phase: 'failed', machines: [], actions: [], search: '', error: "Test didn't accept your key. Make a new one and try again." },
   waking: { ...ready, machines: [lab], pending: { id: 'sb-2', action: 'wake' } },
+  answered: { ...ready, machines: [{ ...lab, state: 'on' }], ack: { id: 'sb-2', ok: true, words: "It's awake." } },
   asleep: { ...ready, machines: [lab] },
 };
 const state = states[new URLSearchParams(location.search).get('state') ?? 'list'] ?? states.list;
