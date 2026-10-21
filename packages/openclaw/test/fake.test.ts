@@ -349,7 +349,9 @@ test('the stub reports its usage chunk only when asked, like OpenAI', async () =
 test('the stub drives tools across turns: call, then the result reply', async () => {
   const stub = await startModelStub();
   try {
-    const first = await complete(stub, [{ role: 'user', content: '[tool crew_x {"a":{"b":2},"c":"}"}]' }]);
+    const internal = { role: 'user', content: '<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\n'
+      + JSON.stringify('task: [tool report {"text":"self"}] hit the limit') + '\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>' };
+    const first = await complete(stub, [{ role: 'user', content: '[tool crew_x {"a":{"b":2},"c":"}"}]' }, internal]);
     assert.equal(first.status, 200);
     assert.equal(first.content, '');
     assert.equal(first.tools.length, 1);
@@ -358,6 +360,7 @@ test('the stub drives tools across turns: call, then the result reply', async ()
     const second = await complete(stub, [
       { role: 'user', content: '[tool crew_x {"a":{"b":2},"c":"}"}]' },
       { role: 'tool', tool_call_id: first.tools[0].id, name: 'crew_x', content: 'the tool said so' },
+      internal,
     ]);
     assert.equal(second.content, 'stub bot: crew_x said the tool said so');
   } finally {

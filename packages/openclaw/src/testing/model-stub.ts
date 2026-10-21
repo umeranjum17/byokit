@@ -103,7 +103,8 @@ export function startModelStub(script: string[] = [], o: ModelStubOptions = {}):
     // last user message that carries a script marker, falling back to the last user message for plain replies.
     // Tool results count from that same message, or the first scripted call replays forever: each follow-up
     // request carries a fresh trailing runtime-context user message with zero tool results after it.
-    const users = messages.filter((m) => m.role === 'user');
+    // 9.33 boxed completion context quotes prior task scripts as data, not a new fixture instruction.
+    const users = messages.filter((m) => m.role === 'user' && !words(m).startsWith('<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>'));
     const structural = (text: string) => /\[tool \w+ \{|\[route [\w?-]+\]/.test(text) || text.startsWith(routingMarker);
     const phrased = (text: string) => /hit the limit|no helpers in plan|sign me out|ask permission/i.test(text);
     const lastUser = [...users].reverse().find((m) => structural(words(m)))

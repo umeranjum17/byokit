@@ -670,8 +670,8 @@ writing only if bytes change (0600):
   `plugin` id of every route the app offers by name in `KitOptions.offered` (the provider, auth choice or alias a route
   carries — e.g. `openrouter`; a route nobody offers stays out), and every external plugin `installPlugin` installed
   (B7, 5.7), and `telegram` while that channel is on (5.18); the kit adds no other id;
-  `plugins.entries[id].hooks.timeouts.before_tool_call = 200_000`. On 9.33 the already-default-on, startup-loaded
-  `openai` provider is explicitly pinned enabled before boot unless the caller explicitly disabled it. This adds no
+  `plugins.entries[id].hooks.timeouts.before_tool_call = 200_000`. On 9.33 the native-default-enabled
+  `openai` and `opencode-go` providers are explicitly pinned enabled before boot unless the caller disabled them. This adds no
   provider authority: it prevents setup promotion from introducing a plugin-enable change inside its secret
   transaction, which native preflight correctly refuses. Other providers and caller disables are unchanged. The pinned
   engine treats a non-empty `plugins.allow` as a restrictive allowlist: a provider sign-in, and that provider's runs,

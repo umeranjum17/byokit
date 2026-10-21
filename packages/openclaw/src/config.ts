@@ -108,9 +108,9 @@ export function reconcileConfig(saved: object | undefined, o: {
     ...o.plugins ?? [],
     ...telegram ? ['telegram'] : []])];
   c.plugins.entries ??= {};
-  // 9.33 already loads OpenAI by default; pin it before boot so key promotion needs no plugin reload.
-  if (c.plugins.entries.openai?.enabled === undefined)
-    c.plugins.entries.openai = { ...c.plugins.entries.openai, enabled: true };
+  // 9.33 defaults these providers on; pin before boot so key promotion needs no plugin-enable transaction.
+  for (const id of ['openai', 'opencode-go']) if (c.plugins.entries[id]?.enabled === undefined)
+    c.plugins.entries[id] = { ...c.plugins.entries[id], enabled: true };
   // Conversation access lets the plugin's prompt hook give an admitted helper child its persona (5.8.3).
   c.plugins.entries[o.pluginId] = merge(c.plugins.entries[o.pluginId] ?? {}, { hooks: { timeouts: { before_tool_call: 200_000 },
     allowConversationAccess: true } });
