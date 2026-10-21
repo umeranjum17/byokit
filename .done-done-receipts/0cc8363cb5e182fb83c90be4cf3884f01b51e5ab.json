@@ -1,0 +1,62 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "0cc8363cb5e182fb83c90be4cf3884f01b51e5ab",
+  "tree": "52cfa85c5449113acc1cf52b95101f3a237f9f77",
+  "claim": "the built @byokit/herdr 0.16.4 settles a status watch Herdr refuses (pane_not_found with any id shape and with Herdr's own probe id), settles a stopped subscription's readiness, and keeps the events a parked bootstrap holds bounded",
+  "result": "pass",
+  "at": "2026-10-21T09:26:24.989Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261021T092532Z-0cc8363c-245446/herdr-bounded-buffer.txt",
+      "sha256": "d4824e7b2e359ebb0433f574166c47b9c839b787714767f120580e6d5b2ae781"
+    },
+    {
+      "path": "<evidence root>/20261021T092532Z-0cc8363c-245446/herdr-watch-pane-not-found.txt",
+      "sha256": "0d0f4a37c5b430875ecfed1eed57e88d34c471366257a46f15116e03b7bf56a1"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261021T092532Z-0cc8363c-245446",
+      "journey": null,
+      "command": null,
+      "tool": "0.6.0",
+      "steps": {
+        "target": {
+          "version": "@byokit/herdr 0.16.4 (built from commit 0cc8363cb5e182fb83c90be4cf3884f01b51e5ab)"
+        },
+        "start": "The built @byokit/herdr 0.16.4 adopts the kit's own stand-in Herdr (a Unix socket server, no real Herdr, no account, no network) and starts with a tree of one workspace whose pane carries an agent.",
+        "steps": [
+          "Herdr answers the pane's status watch with a pane_not_found refusal carrying its own per-subscription probe id; the app calls kit.refresh().",
+          "The app opens a subscription and stops it before any acknowledgement arrives.",
+          "The app calls kit.refresh() while a status watch is never acknowledged and 800 pane.updated events keep arriving."
+        ],
+        "result": "The first refresh finishes in 3 ms with the refusal logged; the stopped subscription's readiness settles false in 0 ms; the third refresh finishes in 459 ms after the kit reports 'the bootstrap buffer hit its cap (513 events, 61853 bytes held)' and re-reads the tree from Herdr (1 tree read before, 3 after). With a pane_not_found frame of any id shape (null, omitted, empty, request) the refresh finishes in 1-2 ms with the refusal logged."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261021T092532Z-0cc8363c-245446/herdr-bounded-buffer.txt",
+        "sha256": "d4824e7b2e359ebb0433f574166c47b9c839b787714767f120580e6d5b2ae781",
+        "verdict": "pass",
+        "seen": "I read all 7 capture lines plus EXIT=0. The probe line shows 'refresh settled in 3 ms' with the log 'status subscription rejected: pane_not_found: pane w1:p2 not found', which covers the status watch settling on a refused pane. The stopped line shows 'ready settled in 0 ms: false', which covers readiness settling for a stopped subscription. The buffer lines show 'the bootstrap buffer hit its cap (513 events, 61853 bytes held)', 'refresh settled in 459 ms', and 'every case settled and stayed bounded', which covers the bounded buffer. The capture does not show the other id shapes, but the other captures in the check cover those, and the capture shows the outcome for the parts it does include. EXIT=0."
+      },
+      {
+        "path": "<evidence root>/20261021T092532Z-0cc8363c-245446/herdr-watch-pane-not-found.txt",
+        "sha256": "0d0f4a37c5b430875ecfed1eed57e88d34c471366257a46f15116e03b7bf56a1",
+        "verdict": "pass",
+        "seen": "I read all 4 entries (null, omitted, empty, request). Each shows 'refresh settled in' with 1 to 3 ms and the log 'herdr: status subscription rejected: pane_not_found: pane w1:p2 not found', and the summary line reads 'pane not found: every id shape settled the refresh'. That supports the first clause, that a status watch Herdr refuses with pane_not_found settles across id shapes. The capture does not show a stopped subscription's readiness or the bounded parked-bootstrap events, and it has no separate entry labelled as Herdr's own probe id, so those parts are unsettled by this text. The exit code is 0. The outcome names no width or theme parts, so no parts are listed."
+      }
+    ]
+  }
+}
