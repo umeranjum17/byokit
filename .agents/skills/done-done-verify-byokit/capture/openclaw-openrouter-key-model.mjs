@@ -24,6 +24,23 @@ const writeProof = (name) => {
   mkdirSync(evidenceDir, { recursive: true });
   writeFileSync(join(evidenceDir, name), `${proof.join('\n')}\n`, { mode: 0o600 });
 };
+// The step record of the journey: the steps a person (an app) takes and what they can see at the end.
+const writeSteps = () => {
+  if (!evidenceDir) return;
+  mkdirSync(evidenceDir, { recursive: true });
+  writeFileSync(join(evidenceDir, 'steps.json'), `${JSON.stringify({
+    target: { version: '@byokit/openclaw 0.26.0' },
+    start: 'The app has just signed in with an OpenRouter API key: the engine holds the key and the provider\'s live catalog is registered.',
+    steps: [
+      'The app signs in with the OpenRouter API key the person pasted',
+      'The app lists the route\'s models (the provider\'s live catalog) for the model picker',
+      'The app signs in again with the model the person chose',
+      'The app lists the key lane\'s models, so the picker keeps every model the vendor lists',
+      'The app runs one turn on the chosen model',
+    ],
+    result: 'The add registered the provider\'s live list beside the chosen model: the key lane lists openrouter/auto, minimax/minimax-m3.1-flash and its free variant, and the run answers on the chosen model.',
+  }, null, 2)}\n`, { mode: 0o600 });
+};
 
 if (!engine) {
   const key = 'byokit-openrouter-stand-in-key-950';
@@ -88,6 +105,7 @@ if (!engine) {
     assert.equal(JSON.stringify(fake.calls).includes(key), false);
     record('OPENROUTER-KEY-MODEL OK');
     writeProof('openrouter-key-model.log');
+    writeSteps();
   } finally {
     await kit.stop();
     rmSync(stateDir, { recursive: true, force: true });
