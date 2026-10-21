@@ -1,0 +1,81 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "e0d3b6e5c59b7dab29c73bbdaef9779fc2e45edd",
+  "tree": "b8ba2965ddafa790d3961df221647a3e349b3e07",
+  "claim": "a person links a ChatGPT account in their own app and the provider's answer comes back through the installed @byokit/accounts package",
+  "result": "pass",
+  "at": "2026-10-21T09:47:22.617Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261021T094633Z-e0d3b6e5-12cf85/core-journey.txt",
+      "sha256": "8050086a1fe9aaab5dec3fc024ff5fd9b37d61a5436850f2d7fd9629feafb01a"
+    },
+    {
+      "path": "<evidence root>/20261021T094654Z-e0d3b6e5-f362e3/upgrade-journey.txt",
+      "sha256": "bb0febc620c405e314f251cfc7861695eff1d88ca261e86009e6220da8727769"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261021T094633Z-e0d3b6e5-12cf85",
+      "journey": "core",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/core-journey.mjs",
+      "tool": "0.6.0",
+      "steps": {
+        "target": {
+          "version": "0.30.0"
+        },
+        "start": "a fresh consumer app with no package installed and no account linked",
+        "steps": [
+          "install the shipped @byokit/accounts package into the app",
+          "the app links a ChatGPT account by device code: it shows a code and the person approves it",
+          "the app reads the account status",
+          "the app asks the provider a question and prints the answer it gets back"
+        ],
+        "result": "the installed package answers: \"ChatGPT is connected.\" and the answer \"You said: Plan my day\""
+      }
+    },
+    {
+      "run_id": "20261021T094654Z-e0d3b6e5-f362e3",
+      "journey": "upgrade",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/upgrade-journey.mjs",
+      "tool": "0.6.0",
+      "steps": {
+        "target": {
+          "version": "0.30.0"
+        },
+        "start": "an app with the previous released @byokit/accounts version installed from the npm registry",
+        "steps": [
+          "the person links a ChatGPT account by device code and gets the provider's answer back",
+          "the app upgrades the installed package in place, over the version it had",
+          "the person links a ChatGPT account again and gets the provider's answer back through the upgraded package"
+        ],
+        "result": "the upgraded package answers: \"ChatGPT is connected.\" and the answer \"You said: Plan my day\""
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261021T094633Z-e0d3b6e5-12cf85/core-journey.txt",
+        "sha256": "8050086a1fe9aaab5dec3fc024ff5fd9b37d61a5436850f2d7fd9629feafb01a",
+        "verdict": "pass",
+        "seen": "I read all entries: 9 fields in total. The status line reads 'ChatGPT is connected.' and the streamed and answer fields both read 'You said: Plan my day', so the sign-in-then-answer path produced a response through @byokit/accounts@0.30.0. The 'not offered' and 'no account' lines are negative-path checks that show expected errors, and they do not contradict the outcome. The provider is the kit's local stand-in rather than real ChatGPT, which is a caveat on the fidelity of the test, but the outcome as written (a linked account gets an answer back through the package) is shown. The outcome names only one part, so parts and covers are empty."
+      },
+      {
+        "path": "<evidence root>/20261021T094654Z-e0d3b6e5-f362e3/upgrade-journey.txt",
+        "sha256": "bb0febc620c405e314f251cfc7861695eff1d88ca261e86009e6220da8727769",
+        "verdict": "pass",
+        "seen": "Read all three sections of the capture. Section 1 (0.29.0) shows sign-in 'waiting code MOCK-10001', 'status: ChatGPT is connected.', and 'streamed: You said: Plan my day' with a matching 'answer'. Section 2 records the in-place upgrade from @byokit/accounts@0.29.0 to 0.30.0 over the same app. Section 3 (0.30.0) repeats the same sign-in, connected status, streamed text and answer. The outcome, linking a ChatGPT account and receiving the provider's answer through the installed package, is shown on the upgraded package in section 3. The 'not offered' and 'no account' lines are expected negative checks, not failures. The outcome names only one part, so parts and covers are empty."
+      }
+    ]
+  }
+}
