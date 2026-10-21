@@ -96,7 +96,7 @@ export type CloudRow = {
   state: MachineState;
   /** What the machine is doing, in plain words ('Awake', 'Waking up…'). */
   stateWords: string;
-  /** Its newest copy, in plain words ('Copy from 2 hours ago'), when the app knows one. */
+  /** Its newest copy, in plain words ('Saved copy 2 hours ago'), when the app knows one. */
   copy?: string;
   /** What it costs, in plain words ('About $5.00 a month'), when the app knows. */
   cost?: string;
@@ -165,7 +165,7 @@ export function agoWords(at: string | number, now: number): string {
   return `${d.toLocaleDateString([], { month: 'long' })} ${d.getDate()} ${d.getFullYear()}`;
 }
 
-/** The newest copy in plain words: `Copy just now` for a fresh one, `Copy from 2 hours ago` for an older one. */
+/** The newest saved copy in plain words: `Saved copy just now` for a fresh one, `Saved copy 2 hours ago` for an older one. */
 export const copyWords = (copy: CloudCopy, now: number): string => {
   const when = agoWords(copy.at, now);
   return when === WORDS['cloud.age.now'] ? WORDS['cloud.copy.now'] : fill(WORDS['cloud.copy.at'], { when });
