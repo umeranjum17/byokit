@@ -1,0 +1,41 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "7ec67fd0ef79d0c715dca36600976d3cd8e34b41",
+  "tree": "ee9f0ce00bf6cae01995712281614517592477e3",
+  "claim": "the byokit SDK builds and the built accounts entry resolves",
+  "result": "pass",
+  "at": "2026-10-21T02:38:54.267Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261021T023848Z-7ec67fd0-66bbe8/build.log",
+      "sha256": "76e8a2ef78ae5a61e3ba8df472b0189085823de6fdaa50bbb64b617c5a8e5f6d"
+    },
+    {
+      "path": "<evidence root>/20261021T023848Z-7ec67fd0-66bbe8/doctor.log",
+      "sha256": "ecffc1b13cb5b46c2c6538269802245c2da968e56fb3a1ddc3544219456b848b"
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261021T023848Z-7ec67fd0-66bbe8/build.log",
+        "sha256": "76e8a2ef78ae5a61e3ba8df472b0189085823de6fdaa50bbb64b617c5a8e5f6d",
+        "verdict": "pass"
+      },
+      {
+        "path": "<evidence root>/20261021T023848Z-7ec67fd0-66bbe8/doctor.log",
+        "sha256": "ecffc1b13cb5b46c2c6538269802245c2da968e56fb3a1ddc3544219456b848b",
+        "verdict": "pass",
+        "seen": "Read the one capture entry. It reports 'doctor ok: @byokit/accounts 0.30.0 resolves .../byokit/packages/accounts/dist/index.js'. That is a passing check that names the built dist/index.js entry for the accounts package, which is what the outcome describes. The outcome names only one part, so parts and covers stay empty."
+      }
+    ]
+  }
+}
