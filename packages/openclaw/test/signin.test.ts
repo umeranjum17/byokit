@@ -201,15 +201,20 @@ test('a caller signal cancels device approval through the kit facade', async (t)
 });
 
 test('sign-in: a step that asks for a note is acknowledged and its address is surfaced', async () => {
+  let progress = true;
   const fake = scripted({
     'openclaw.setup.auth.start': () => ({ sessionId: 'byokit-fake-note', done: false }),
-    'wizard.next': (params: any) => params.answer
-      ? { done: true, status: 'done' }
-      : { done: false, step: { id: 'step-note', type: 'confirm', externalUrl: 'https://example.test/please' } },
+    'wizard.next': (params: any) => {
+      if (progress) { progress = false; return { done: false, step: { id: 'step-progress', type: 'progress', externalUrl: 'https://example.test/loading' } }; }
+      return params.answer ? { done: true, status: 'done' }
+        : { done: false, step: { id: 'step-note', type: 'confirm', externalUrl: 'https://example.test/please' } };
+    },
   });
   const views: SignInView[] = [];
   const end = await signIn(ctx(fake), 'm1', { authChoice: 'xai-oauth' }, (view) => views.push(view)).done;
   assert.equal(end.state, 'done');
+  assert.ok(views.some((view) => view.url === 'https://example.test/loading'), 'progress carries the native browser link');
+  assert.ok(!fake.calls.some((call) => call.params?.answer?.stepId === 'step-progress'), 'progress is pulled, never acknowledged');
   assert.ok(views.some((view) => view.url === 'https://example.test/please'), JSON.stringify(views));
   assert.equal(fake.calls.find((call) => call.params?.answer)?.params.answer.stepId, 'step-note');
 });
@@ -404,10 +409,11 @@ test('sensitive setup-token wizard consumes an early or waiting paste once, with
       'wizard.next': (params) => {
         if (params.answer) {
           assert.deepEqual(params.answer, { stepId: 'secret', value: token });
-          return { step: { id: 'notice', type: 'note', externalUrl: `https://example.test/${token}` }, error: token };
+          return { step: { id: 'secret-progress', type: 'progress', externalUrl: `https://example.test/${token}` }, error: token };
         }
         if (++pulls === 1) return { step: { id: 'secret', type: 'text', sensitive: true,
           externalUrl: `https://example.test/${token}`, deviceCode: { code: token } } };
+        if (pulls === 2) return { step: { id: 'notice', type: 'note', externalUrl: `https://example.test/${token}` }, error: token };
         return { done: true };
       },
       'wizard.cancel': () => ({}),

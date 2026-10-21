@@ -899,7 +899,9 @@ release only this session. Code expiry yields `why: 'expired'`, cancellation `wh
 Every `text` step → view `{ prompt }`, wait for `paste` (15 min), then answer `{ stepId, value }`. The rule
 is the engine's own `sensitive` flag: a non-sensitive step is not a secret, so its `message` is the prompt as
 written (`github-copilot-enterprise` asks for the Enterprise domain first); once any step is sensitive, or the
-choice is `setup-token`, the prompt is the fixed `Sign-in token` label and no gateway prose is shown; `note|confirm|select|action` → surface `externalUrl`, acknowledge; `progress` → pull again.
+choice is `setup-token`, the prompt is the fixed `Sign-in token` label and no gateway prose, link or code is shown.
+Before sensitive entry, surface the native `externalUrl` on any step (9.33 also attaches it to progress/text);
+never reconstruct one from gateway prose. `note|confirm|select|action` → acknowledge; `progress` → pull again.
 A `keyEntry` choice (a plan key such as `opencode-go`) never starts the wizard, which refuses it: the view asks
 `{ prompt: 'Plan key' }` (`'API key (billed per use)'` for `api` billing), waits for `paste` (15 min) and calls typed
 `openclaw.setup.activate { kind: 'api-key', agentId, authChoice, apiKey }`; the engine live-tests the key and saves
