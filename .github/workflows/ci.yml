@@ -758,8 +758,6 @@ jobs:
           RESULTS: ${{ toJSON(needs) }}
         shell: node {0}
         run: |
-          # A job skipped by design (its area did not change, or the event does not run it) passes this gate; a job that ran
-          # and failed does not, so the required check still fails on a red job.
           const bad = Object.entries(JSON.parse(process.env.RESULTS)).filter(([, j]) => !['success', 'skipped'].includes(j.result));
           for (const [name, j] of bad) console.error(`${name}: ${j.result}`);
           process.exit(bad.length ? 1 : 0);
