@@ -18,12 +18,13 @@ import { AuthStoreSealSizeError } from './auth-store.ts';
 import { gatewayTransport } from './transport.ts';
 import { createMembers } from './members.ts';
 import { createHelpers, HELPER_TAIL, HelperError } from './helpers.ts';
-import { createAccounts, memberOfAccount } from './accounts.ts';
+import { createAccounts, memberOfAccount, modelsOf } from './accounts.ts';
 import { createLocks } from './locks.ts';
 import { keyAgentId, KEY_PREFIX, MEMBER_ID } from './members.ts';
 import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLogin } from './migrate.ts';
 import { createRuns, RunReplay, signedInProviders } from './runs.ts';
 import { authStatus, createAuthStatus } from './auth-status.ts';
+import { createDetect, type Detector } from './detect.ts';
 import { outputSchema } from './output.ts';
 import { words } from './words.ts';
 import { createKeys, type AddKeyHandle } from './keys.ts';
@@ -541,6 +542,9 @@ export class OpenClawKit {
   private readonly delegations: Delegations;
   private readonly keys: ReturnType<typeof createKeys>;
   private readonly admission: ReturnType<typeof createAuthStatus>;
+  // One setup detection for every reader (readiness, the account list, a sign-in): the engine's probe asks the
+  // installed CLI itself and takes seconds, so a poll that reads both pays for it once, not once per reader.
+  private readonly detect: Detector;
   private readonly approvalsCtl: Approvals;
   private listeners = new Set<(e: { event: string; payload?: unknown }) => void>();
   private off: (() => void)[] = [];
@@ -556,6 +560,8 @@ export class OpenClawKit {
   private engineExit?: () => void;
   private swept = false;
   private catalogs: Promise<void> = Promise.resolve();
+  // The catalog rows the kit registered, per provider: the provider's live list, as the engine can run it.
+  private readonly registered = new Map<string, ModelInfo[]>();
   browser?: BrowserHost;
   private browserHost?: BrowserHostController;
   private readonly brokers = new Map<Member, HostBroker>();
@@ -724,6 +730,9 @@ export class OpenClawKit {
         || (o.browser && ['browser', 'request_sign_in', 'exec', 'process', 'code_execution', 'terminal', 'read', 'write', 'edit', 'apply_patch', 'gateway'].includes(t.name))) throw new Error(`invalid tool name: ${t.name}`);
     }
     this.o = { ...o, stateDir: canonicalStateDir(o.stateDir) };
+    // The shared detection, above the request path: the witness check and the engine's probe run only when a probe is
+    // really made, so a cached answer costs nothing.
+    this.detect = createDetect((method, params, options) => this.request()(method, params, options));
     this.engine = new Engine({ ...o, pluginId: o.plugin?.id ?? 'byokit', tools: [...o.tools ?? [], ...(o.browser ? [{
       name: 'request_sign_in', description: 'Ask the person to sign in to the current browser site.',
       parameters: { type: 'object', additionalProperties: false, properties: {
@@ -732,7 +741,7 @@ export class OpenClawKit {
       ...(o.browser ? { browserConfig: () => this.browserConfig() } : {}),
       gateBuiltins: o.gateBuiltins !== false, spawnEngine: o.spawnEngine !== false,
       onState: (s) => this.setState(s), onExit: () => this.closed('engine exited') });
-    this.admission = createAuthStatus(this.engine.root, (method, params, options) => this.request()(method, params, options), () => this.engine.installedCodexSignedIn());
+    this.admission = createAuthStatus(this.engine.root, (method, params, options) => this.request()(method, params, options), () => this.engine.installedCodexSignedIn(), this.detect);
     this.keys = createKeys({ root: this.engine.root,
       prepareOwner: (agentId) => this.prepareKeyOwner(agentId),
       indexLane: (member, route) => this.indexKeyLane(member, route),
@@ -798,7 +807,7 @@ export class OpenClawKit {
   }
 
   private setState(s: KitState): void {
-    if (s.phase !== 'ready') this.admission?.invalidate();
+    if (s.phase !== 'ready') { this.admission?.invalidate(); this.detect?.invalidate(); }
     this.current = { ...s, ...(this.engine.patchSet !== undefined ? { patchSet: this.engine.patchSet } : {}) };
     this.o.onState?.(this.current);
     for (const fn of this.phaseListeners) fn();
@@ -870,7 +879,8 @@ export class OpenClawKit {
       this.accountsCtl = createAccounts({ request: (method, params, o) => this.request()(method, params, o), root: this.engine.root,
         ensure: (member) => this.ensureMember(member), locks: this.locks,
         signIn: (agentId, o, on, fresh) => startSignIn({ ...this.signInCtx(), ensure: async () => ({ agentId }), fresh }, agentId, o, on),
-        routes: this.routeMap, log: this.o.log, reseal: () => this.engine.authStore.reseal() });
+        routes: this.routeMap, log: this.o.log, reseal: () => this.engine.authStore.reseal(), detect: this.detect,
+        catalog: (provider) => this.registered.get(provider) ?? [] });
       this.helpersCtl = createHelpers({ root: this.engine.root, list: (member) => this.accounts(member) });
       // The fail-closed tool bridge feeds the kit's single Approval surface (5.9, O5).
       await Promise.race([this.bridge.start(), exit]);
@@ -1023,11 +1033,22 @@ export class OpenClawKit {
         await this.stop(); await this.start();
         return this.request()(method, params, options);
       }
+      // An account change (a sealed, cleared or adopted account) moves the detection too: a Claude Code login the
+      // person just made is an account the kit now knows about. A read of the accounts changes nothing.
+      if (method === 'byokit.accounts') {
+        const action = (params as { action?: string } | undefined)?.action;
+        if (action !== 'list' && action !== 'ready') this.detect.invalidate();
+      }
       const changesAuth = /^(models\.authLogout|openclaw\.setup\.(auth\.start|activate)|wizard\.(next|cancel)|config\.(apply|patch|set)|agents\.(create|update|delete)|secrets\.(reload|store\.(set|delete))|byokit\.keys)$/.test(method);
       if (!changesAuth || (method === 'byokit.keys' && (params as { action?: string } | undefined)?.action === 'ready'))
         return transport.request(method, params, options);
       this.admission.invalidate();
-      return Promise.resolve().then(() => transport.request(method, params, options)).finally(() => this.admission.invalidate());
+      // A sign-in, a sign-out or a key change moves the detection too: its answer is about this engine's logins.
+      this.detect.invalidate();
+      return Promise.resolve().then(() => transport.request(method, params, options)).finally(() => {
+        this.admission.invalidate();
+        this.detect.invalidate();
+      });
     };
   }
   call<M extends GatewayMethod>(method: M, params: GatewayParams<M>, o?: CallOptions): Promise<GatewayResult<M>> {
@@ -1098,6 +1119,7 @@ export class OpenClawKit {
     return { request: (method, params, o) => this.request()(method, params, o),
       // Public readiness/sign-in reads stay live; their fresh result can prepare the next run's admission.
       authStatus: (agentId, refresh, native) => this.admission.read(agentId, refresh, native, false),
+      detect: this.detect,
       ensure: (member) => this.ensureMember(member), callbackPort: this.o.callbackPort ?? 1455,
       nativeClaudeLogin: () => this.engine.nativeClaudeLogin(),
       resetNativeClaudeLogin: () => this.engine.resetNativeClaudeLogin(),
@@ -1363,6 +1385,9 @@ export class OpenClawKit {
     const byId = new Map(registered.map((m) => [m.id, m]));
     for (const m of rows) byId.set(m.id, m);
     const models = [...byId.values()];
+    // What the kit registered is what the engine can run for that provider: the account list joins it, so a model
+    // the live catalog offers is pickable even while the engine's own list still lags the registration.
+    this.registered.set(provider, modelsOf(provider, { models: models.map((m) => ({ ...m, provider })) }));
     if (!isDeepStrictEqual(models, registered)) await this.patchConfig({ models: { providers: { [provider]: { models } } } });
   }
 

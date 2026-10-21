@@ -3,8 +3,9 @@
 // default-refused, notices are sealed with title-only relay, and serve() binds per reach.
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
+import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
 import { scratchDir, fakeOpenCodeConsole } from '../../test-support.ts';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
@@ -44,6 +45,7 @@ after(() => closers.forEach((c) => c()));
 type World = {
   kit: OpenClawKit;
   fake: ReturnType<typeof fakeGateway>;
+  stateDir: string;
   api: ReturnType<typeof openclawLink>;
   host: Host;
   url: string;
@@ -102,7 +104,7 @@ async function world(o: { passThrough?: (method: string, grant: Grant) => boolea
     void kit.stop().then(() => rmSync(stateDir, { recursive: true, force: true }));
   };
   closers.push(stop);
-  return { kit, fake, api, host, url, relayCalls, activations, stop };
+  return { kit, fake, api, host, url, relayCalls, activations, stateDir, stop };
 }
 
 async function device(w: World, member: string | undefined, role: 'control' | 'view' = 'control') {
@@ -304,7 +306,9 @@ test('oc.state carries the kit and engine versions and the member\'s sign-ins', 
   assert.equal(await w.kit.signedIn('a', 'claude-cli'), true);
   w.fake.handle('openclaw.setup.detect', () => ({ candidates: [] }));
   w.fake.handle('models.authStatus', () => ({ providers: [], unavailable: { code: 'PREPARED_MODEL_AUTH_UNAVAILABLE' } }));
-  assert.equal((await a.oc.state()).signedIn, undefined, 'no prepared status is unknown, not none');
+  // The detection is shared and reused briefly, so the case is read on a member whose detection was never probed.
+  const c = await device(w, 'c');
+  assert.equal((await c.oc.state()).signedIn, undefined, 'no prepared status is unknown, not none');
   w.fake.handle('models.authStatus', (p) => ({ providers: p.agentId === 'a' ? [{ provider: 'openai', status: 'ok' }] : [] }));
   const b = await device(w, 'b', 'view');
   assert.deepEqual((await b.oc.state()).signedIn, []);
@@ -541,6 +545,11 @@ test('native CLI legacy browser sign-in survives full discovery and guards activ
   assert.equal(await w.kit.signedIn('a', native!.provider), true);
   assert.equal(await w.kit.signedIn('a', 'anthropic'), false);
   loggedIn = false;
+  // The engine's own Claude login changed: the kit witnesses that file, so it asks the engine again instead of
+  // reusing the detection it read a moment ago.
+  const credentials = join(w.stateDir, 'openclaw/home/.claude/.credentials.json');
+  mkdirSync(join(w.stateDir, 'openclaw/home/.claude'), { recursive: true });
+  writeFileSync(credentials, 'task-owned synthetic credential change');
   assert.deepEqual(await a.oc.signIn.view('claude-cli'), { ready: false, signIn: null });
   assert.deepEqual((await a.oc.state()).signedIn, []);
   const activations = w.fake.calls.filter(call => call.method === 'openclaw.setup.activate').length;

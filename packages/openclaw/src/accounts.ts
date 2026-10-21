@@ -11,6 +11,8 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createLocks } from './locks.ts';
+import { detection } from './auth-status.ts';
+import type { Detector } from './detect.ts';
 import { providerOf, resolveSelection } from './pick.ts';
 import { agentOf, memberOf as baseMemberOf } from './attribution.ts';
 import { KEY_PREFIX, MEMBER_ID, NEW_MEMBER_ID, keyAgentId, untilListed, untilUnlisted } from './members.ts';
@@ -326,6 +328,8 @@ export function createAccounts(ctx: {
   routes: ReadonlyMap<string, { session: string }>; // the runs' map: the caller's key -> the account session its live run uses
   log?: (line: string) => void;
   reseal?: () => Promise<void>; // re-seal the live credential store after a removal (no-op without a seal or a live engine)
+  detect?: Detector; // the shared setup detection (one probe per agent, reused briefly)
+  catalog?: (provider: string) => ModelInfo[]; // the catalog rows the kit registered for that provider (the live list)
 }): {
   list(member: Member): Promise<Account[]>;
   add(member: Member, o: AddOptions, on: (v: SignInView) => void): Promise<AccountSignIn>;
@@ -482,9 +486,10 @@ export function createAccounts(ctx: {
     return { rows, dirty };
   };
   // A detected Claude Code login has no profile in the kit: it stays in Claude Code. The engine's detection says whether
-  // it is there, and a detected one is the member's signed-in claude-cli profile for this read.
+  // it is there, and a detected one is the member's signed-in claude-cli profile for this read. The shared detection
+  // answers it for every reader (one probe per agent, reused briefly), so a listing and a readiness read cost one probe.
   const claudeDetected = (agentId: string): Promise<boolean> =>
-    (ctx.request('openclaw.setup.detect', { agentId }, { timeoutMs: 20_000 }) as Promise<{ candidates?: { kind?: string; credentials?: boolean }[] }>)
+    detection(ctx.request, agentId, ctx.detect)
       .then((r) => r.candidates?.some((c) => c.kind === 'claude-cli' && c.credentials === true) === true, () => false);
   const gather = async (agentId: string): Promise<[Set<string>, LiveProfile[]]> => {
     const [roster, profiles, claude] = await Promise.all([rosterOf(), profilesOf(agentId), claudeDetected(agentId)]);
@@ -597,9 +602,19 @@ export function createAccounts(ctx: {
     const { row, entry } = await entryOf(member, id);
     return readModels(row, entry);
   }
+  // The account's models: the engine's own rows, joined with the catalog rows the kit registered for that provider
+  // (the provider's live list). The engine's list can lag the registration, and a model the picker offered must
+  // stay pickable: the kit registered it, so the engine can run it. The engine's own row wins where both name it.
+  const withCatalog = (row: Account, own: ModelInfo[]): ModelInfo[] => {
+    const registered = ctx.catalog?.(row.provider) ?? [];
+    if (!registered.length) return own;
+    const byId = new Map(own.map((m) => [m.id, m]));
+    for (const model of registered) if (!byId.has(model.id)) byId.set(model.id, model);
+    return [...byId.values()];
+  };
   // The shared hold covers the read, so no kit read of the agent is in flight while it is removed.
   const readModels = (row: Account, entry: IndexEntry): Promise<ModelInfo[]> => ctx.locks.shared(entry.agent, async () =>
-    modelsOfAccount(row, await ctx.request('models.list', { agentId: entry.agent, view: 'all' })));
+    withCatalog(row, modelsOfAccount(row, await ctx.request('models.list', { agentId: entry.agent, view: 'all' }))));
 
   async function room(member: Member, id: AccountId, demand?: string[]): Promise<Room> {
     check(member);

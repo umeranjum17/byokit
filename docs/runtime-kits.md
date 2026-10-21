@@ -1098,6 +1098,14 @@ the engine. External retained sources are touched only when explicitly passed to
   agent/secret mutations and key replacement invalidate (before and after mutation); engine signed-out failures
   invalidate too. No agent request runs in parallel with an unfinished admission check. Native Claude still asks
   engine `setup.detect`; local snapshots do not prove remote revocation, whose actual run error stays signed-out.
+  The setup detection itself is shared by every reader (the readiness read, the account list, a sign-in): one probe
+  per agent is in flight at a time, its answer is reused for a short window (10 s), and the pin's own status and the
+  detection run together instead of one after the other. The window bounds how long a login made outside the kit
+  stays unseen (the kit cannot witness the person's own CLI login), and every sign-in, sign-out, key change and
+  account change the kit sees drops the answer at once; a changed witness drops it too. A failed probe is never
+  cached and reads as no Claude Code login (the account is not listed), never as an error. A sign-in drive reads the
+  engine every time (what it does next is decided on that answer) and drops the shared answer when it starts and
+  when it ends.
   The split ref is sent as the `agent` request's per-run `provider`/`model` (pin `AgentParamsSchema`; needs `operator.admin`,
   which the kit holds). An explicit provider/model is strict: the engine reports failure instead of falling back to
   another provider or model, and nothing is persisted on the session (pin `docs/concepts/model-failover.md`
@@ -2083,7 +2091,9 @@ runs on the lane with its saved model, or a supplied model of the same provider 
 - `models(member, id)`: `models.list { agentId, view: 'default' }` rows of the account's provider, mapped `id =
   'provider/model'`, `available`, `unavailableReason` `missing-auth`/`auth-failed` → `why: 'signed_out'`, `cooldown`
   → `why: 'resting'` with `until = unavailableUntil`. The pin reports no per-plan availability, so `why: 'plan'` only
-  comes from a run ending `plan`.
+  comes from a run ending `plan`. The rows the kit registered for that provider (the provider's live catalog, 5.6)
+  join them, so a model the picker offered stays listed while the engine's own list still lags the registration; the
+  engine's row wins where both name a model, so the join never removes a row or its availability.
 - `move(ref, to)` moves a conversation (an app key binds as in Runs step 1; with no account agent, the member agent):
   `unsupported` when it is bound nowhere (no `sessions.list { agentId, search: <key> }` row); `busy` while a run is live
   on it (kit map, or that row's `hasActiveRun`); `start_failed` (words `move.notReady`) when the target is not `ready`.
