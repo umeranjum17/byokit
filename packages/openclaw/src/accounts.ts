@@ -25,6 +25,34 @@ const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v ===
 // provider is left alone.
 export const kitId = (provider: string, id: string): string =>
   providerOf(id) === provider.toLowerCase() ? id : `${provider}/${id}`;
+// The id the pinned engine keeps for a catalog row: it rewrites a row id when it writes the config. A Google
+// preview id becomes the id Google calls it (`google/gemini-3.1-flash-lite-preview` becomes
+// `google/gemini-3.1-flash-lite`), and a bare id of a provider that names it carries that provider. The kit names
+// every row by the id the engine keeps, so the engine's list and the kit's never disagree, and two rows the engine
+// would keep under one id are one row: a list with both is refused ("Ambiguous duplicate ID").
+const googlePreviewIds: Record<string, string> = {
+  'gemini-3-pro': 'gemini-3.1-pro-preview',
+  'gemini-3-pro-preview': 'gemini-3.1-pro-preview',
+  'gemini-3.1-pro': 'gemini-3.1-pro-preview',
+  'gemini-3-flash': 'gemini-3-flash-preview',
+  'gemini-3.1-flash': 'gemini-3-flash-preview',
+  'gemini-3.1-flash-preview': 'gemini-3-flash-preview',
+  'gemini-3.1-flash-lite-preview': 'gemini-3.1-flash-lite',
+  'gemma-4-26b': 'gemma-4-26b-a4b-it',
+};
+/** The id the engine keeps for a row of `provider` (5.6): a Google preview id (a row of a provider that carries
+ *  Google's models) and a bare id of a provider that names it. Every other id is the vendor's own, kept as it is. */
+export const engineModelId = (provider: string, id: string): string => {
+  const at = id.indexOf('/');
+  const maker = at < 0 ? '' : id.slice(0, at);
+  const model = at < 0 ? id : id.slice(at + 1);
+  if (maker === 'google') {
+    const kept = googlePreviewIds[model] ?? model;
+    return kept === model ? id : `${maker}/${kept}`;
+  }
+  if (provider === 'openrouter' && at < 0) return `${provider}/${id}`;
+  return id;
+};
 // The engine's provider-local id for a kit `provider/model` reference, resolved against that provider's rows.
 export const engineId = (provider: string, model: string, rows: readonly unknown[] | undefined): string => {
   for (const row of rows ?? []) {

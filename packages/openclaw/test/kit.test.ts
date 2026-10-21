@@ -702,15 +702,19 @@ test('any key route lists its own catalog and takes a model it names or lags, re
   assert.equal(JSON.stringify(fake.calls).includes(key), false);
 }));
 
-test('a funded OpenRouter key takes the model the person chooses from its live catalog, with no plan check', async () => withKit(async (kit, fake) => {
+test('a funded OpenRouter key takes the model the person chooses from its live catalog and keeps the whole list to pick from, with no plan check', async () => withKit(async (kit, fake) => {
   const key = 'CANARY-OPENROUTER-KEY-950';
   const chosen = 'openrouter/deepseek/deepseek-v4.1-flash-1017';
+  const flash = 'openrouter/minimax/minimax-m3.1-flash';
+  const flashFree = 'openrouter/minimax/minimax-m3.1-flash:free';
   // OpenRouter's catalog ids carry their maker's slash; the kit names each as `openrouter/<id>`.
   const funded = () => fake.calls.some((c) => c.method === 'openclaw.setup.activate'
     && (c.params as { authChoice?: string }).authChoice === 'openrouter-api-key');
   fake.handle('byokit.catalog', (p) => p.provider === 'openrouter' && funded() ? { ok: true, models: [
     { id: 'openrouter/auto', name: 'OpenRouter Auto', api: 'openai-completions' },
     { id: 'deepseek/deepseek-v4.1-flash-1017', name: 'DeepSeek V4.1 Flash', api: 'openai-completions' },
+    { id: 'minimax/minimax-m3.1-flash', name: 'MiniMax M3.1 Flash', api: 'openai-completions' },
+    { id: 'minimax/minimax-m3.1-flash:free', name: 'MiniMax M3.1 Flash (free)', api: 'openai-completions' },
     { id: 'google/gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', api: 'openai-completions' },
     { id: 'google/gemini-3.1-flash-lite-preview', name: 'Gemini 3.1 Flash Lite Preview', api: 'openai-completions' }] }
     : { ok: false, reason: 'no-key' });
@@ -720,20 +724,25 @@ test('a funded OpenRouter key takes the model the person chooses from its live c
   assert.deepEqual(await kit.addKey('m1', { authChoice: 'openrouter-api-key', apiKey: key, model: chosen }), { status: 'ok' });
   // A maker slash, a provider-prefixed local id and a preview pair: each is named once, the engine id kept.
   assert.deepEqual((await kit.models('m1', { authChoice: 'openrouter-api-key' })).map((m) => m.id),
-    ['openrouter/auto', chosen, 'openrouter/google/gemini-3.1-flash-lite']);
+    ['openrouter/auto', chosen, flash, flashFree, 'openrouter/google/gemini-3.1-flash-lite']);
   // The engine row's id is provider-local even when it carries the maker's or provider's slash.
   fake.handle('models.list', (p) => p.agentId === 'byokit-key-m1' ? { models: [
     { id: 'openrouter/auto', name: 'OpenRouter Auto', provider: 'openrouter', available: true },
     { id: 'deepseek/deepseek-v4.1-flash-1017', name: 'DeepSeek V4.1 Flash', provider: 'openrouter', available: true },
+    { id: 'minimax/minimax-m3.1-flash', name: 'MiniMax M3.1 Flash', provider: 'openrouter', available: true },
+    { id: 'minimax/minimax-m3.1-flash:free', name: 'MiniMax M3.1 Flash (free)', provider: 'openrouter', available: true },
     { id: 'google/gemini-3.1-flash-lite', name: 'Gemini 3.1 Flash Lite', provider: 'openrouter', available: true }] }
     : { models: [] });
   assert.deepEqual((await kit.models('m1', 'openrouter.key')).map((m) => m.id),
-    ['openrouter/auto', chosen, 'openrouter/google/gemini-3.1-flash-lite'], 'the lane names each registered model once');
+    ['openrouter/auto', chosen, flash, flashFree, 'openrouter/google/gemini-3.1-flash-lite'], 'the lane names each registered model once');
   assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: true, model: chosen });
   const registered = (await kit.call('config.get', {}) as { config: { models?: { providers?: Record<string,
     { models?: { id: string }[]; headers?: unknown }> } } }).config.models?.providers?.openrouter;
-  // The engine canonicalizes ids on config write, so OpenRouter's whole list would collide; only the choice is registered.
-  assert.deepEqual(registered?.models?.map((m) => m.id), ['deepseek/deepseek-v4.1-flash-1017'], 'only the chosen model is registered');
+  // The engine's catalog stops at a registered list: the add registers the provider's live list, so the member keeps
+  // every model the vendor lists to pick from. The preview pair is one row, the id the engine keeps.
+  assert.deepEqual(registered?.models?.map((m) => m.id), ['openrouter/auto', 'deepseek/deepseek-v4.1-flash-1017',
+    'minimax/minimax-m3.1-flash', 'minimax/minimax-m3.1-flash:free', 'google/gemini-3.1-flash-lite'],
+  'the whole live list is registered beside the chosen model');
   assert.equal(registered?.headers, undefined, 'no Go workspace header is written for OpenRouter');
   const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat', auth: 'apiKey', message: 'Hi' });
   assert.equal(end.ok, true);
@@ -752,6 +761,14 @@ test('a funded OpenRouter key takes the model the person chooses from its live c
   assert.equal((await kit.run({ member: 'm1', sessionKey: 'agent:m1:preview', auth: 'apiKey', message: 'Hi' })).ok, true);
   assert.equal((fake.calls.findLast((c) => c.method === 'agent')?.params as Record<string, unknown>).model,
     'google/gemini-3.1-flash-lite');
+  // The MiniMax models the vendor lists are pickable on the lane, the paid one and its free variant.
+  for (const model of [flash, flashFree]) {
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'openrouter-api-key', apiKey: key, model }), { status: 'ok' });
+    assert.deepEqual(await fake.transport.request('byokit.keys', { member: 'm1', action: 'ready' }), { ok: true, model });
+    assert.equal((await kit.run({ member: 'm1', sessionKey: `agent:m1:${model}`, auth: 'apiKey', message: 'Hi' })).ok, true);
+    assert.equal((fake.calls.findLast((c) => c.method === 'agent')?.params as Record<string, unknown>).model,
+      model.slice('openrouter/'.length));
+  }
   // A row whose id already begins with its provider runs on the engine id it names, not a stripped one.
   assert.deepEqual(await kit.addKey('m1', { authChoice: 'openrouter-api-key', apiKey: key, model: 'openrouter/auto' }), { status: 'ok' });
   assert.equal((await kit.run({ member: 'm1', sessionKey: 'agent:m1:auto', auth: 'apiKey', message: 'Hi' })).ok, true);

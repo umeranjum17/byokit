@@ -18,7 +18,7 @@ import { AuthStoreSealSizeError } from './auth-store.ts';
 import { gatewayTransport } from './transport.ts';
 import { createMembers } from './members.ts';
 import { createHelpers, HELPER_TAIL, HelperError } from './helpers.ts';
-import { createAccounts, memberOfAccount, modelsOf } from './accounts.ts';
+import { createAccounts, memberOfAccount, modelsOf, engineModelId } from './accounts.ts';
 import { createLocks } from './locks.ts';
 import { keyAgentId, KEY_PREFIX, MEMBER_ID } from './members.ts';
 import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLogin } from './migrate.ts';
@@ -1377,13 +1377,15 @@ export class OpenClawKit {
     }
   }
 
-  // Merges catalog rows into the registered list by id; an unchanged list is never rewritten.
+  // Merges catalog rows into the registered list by the id the engine keeps (it rewrites a Google preview id when it
+  // writes the config, so two rows it would keep under one id are one row and never a refused write); an unchanged
+  // list is never rewritten.
   private async registerModels(provider: string, rows: { id: string }[]): Promise<void> {
     type Providers = { models?: { providers?: Record<string, { models?: { id: string }[] }> } };
     const { config } = await this.request()('config.get') as { config?: Providers };
     const registered = config?.models?.providers?.[provider]?.models ?? [];
-    const byId = new Map(registered.map((m) => [m.id, m]));
-    for (const m of rows) byId.set(m.id, m);
+    const byId = new Map(registered.map((m) => { const id = engineModelId(provider, m.id); return [id, { ...m, id }]; }));
+    for (const m of rows) byId.set(engineModelId(provider, m.id), { ...m, id: engineModelId(provider, m.id) });
     const models = [...byId.values()];
     // What the kit registered is what the engine can run for that provider: the account list joins it, so a model
     // the live catalog offers is pickable even while the engine's own list still lags the registration.

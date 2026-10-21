@@ -192,6 +192,11 @@ pay-as-you-go with no plan, so it takes any model its own live catalog lists, na
 prefix (`openrouter/auto`). A Google preview id is named and saved as the canonical id the engine keeps
 (`openrouter/google/gemini-3.1-flash-lite-preview` becomes `openrouter/google/gemini-3.1-flash-lite`); the add
 registers that one model with the engine (every provider but OpenCode Go and MiniMax, whose whole lists are registered).
+An OpenRouter key add registers the provider's live list beside the chosen model, so the member keeps every model the
+vendor lists to pick from (the MiniMax models, `minimax/minimax-m3.1-flash` and its free variant, among them) and
+`openrouter/auto` stays beside them; the engine's catalog stops at a registered list, so registering the chosen model
+alone would leave the member with that one row. The rows are deduped by the id the engine keeps, so the Google preview
+pair is one row and the list is never refused.
 A vendor's list can lag a model it already runs, so an id the catalog lacks is taken, not refused: it rides the route's
 own models (the richest row's api, base URL and context), unpriced, and the app sees it missing from `models()` to warn.
 A route with no catalog rows (its plugin has none) lists nothing, and a `model` there returns
