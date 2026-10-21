@@ -9,7 +9,7 @@ never sees them. Every way in is the kit's own route list: the phone page groups
 
 ## Minutes to working
 
-You need Node 22.18 or later. The first start downloads and installs the pinned OpenClaw engine into `./.state`,
+You need Node 24.16+ on 24.x, or Node 26.1+. The first start downloads and installs the pinned OpenClaw engine into `./.state`,
 which takes a few minutes; after that it runs offline, except for the model itself.
 
 ```sh

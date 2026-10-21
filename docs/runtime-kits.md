@@ -47,9 +47,9 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D1 | Package names `@byokit/openclaw` and `@byokit/herdr`, in `packages/openclaw` and `packages/herdr`, Apache-2.0, ESM, Node ≥ 22.18, same source rules as the rest of the repo (type-stripped TS, `.ts` imports, no enums/namespaces/parameter properties). |
 | D2 | Entries per kit: `.` (Node host side), `./device` (portable: browsers, React Native, Node; no `node:*` or Node-only imports), `./link` (Node host-side link/relay/seal adapter), `./testing` (fakes, contract suites, scripted model). No other entries. |
 | D3 | Connection adapters ship **inside each kit** (`./link`, `./device`). No new shared glue package; the ~40 lines of `serve()` wiring are deliberately duplicated per kit (`ponytail:` comment naming the upgrade path: extract when a third runtime kit appears). |
-| D4 | OpenClaw engine pin stays **`openclaw@2026.8.35`** with `@openclaw/gateway-client@2026.8.35` and `@openclaw/gateway-protocol@2026.8.35` pinned exactly (Crewhouse parity; protocol version 4). Upgrades follow [5.12](#512-version-pin-and-upgrades). |
+| D4 | OpenClaw engine pin stays **`openclaw@2026.9.33`** with `@openclaw/gateway-client@2026.9.33` and `@openclaw/gateway-protocol@2026.9.33` pinned exactly (Crewhouse parity; protocol version 4). Upgrades follow [5.12](#512-version-pin-and-upgrades). |
 | D5 | Herdr pin is **v0.9.1** (latest release on 2026-09-28). The kit bundles that release's `herdr api schema --json` snapshot; a server whose reported protocol differs from the snapshot's is state `needs-update`. muxr, which requires ≥ 0.8.0 today, must move to the kit's pin as a precondition of its later adoption. |
-| D6 | "Complete supported surface", OpenClaw: every Gateway method in the pinned engine's method table for the **operator** role (383 in 2026.8.35, including the 12 core methods whose scope is resolved `dynamic`), every Gateway event (55), plus a typed-`unknown` `callDynamic` for names **not** in the table (plugin/channel-registered methods). The 11 `node`-role methods are the other side of the node protocol and are excluded from `call` (listed in the generated table with `role: 'node'`). The kit connects with all seven operator scopes: `operator.read`, `operator.write`, `operator.admin`, `operator.approvals`, `operator.questions`, `operator.pairing`, `operator.talk`. |
+| D6 | "Complete supported surface", OpenClaw: every Gateway method in the pinned engine's method table for the **operator** role (476 in 2026.9.33, including the 13 core methods whose scope is resolved `dynamic`), every Gateway event (64), plus a typed-`unknown` `callDynamic` for names **not** in the table (plugin/channel-registered methods). The 11 `node`-role methods are the other side of the node protocol and are excluded from `call` (listed in the generated table with `role: 'node'`). The kit connects with all seven operator scopes: `operator.read`, `operator.write`, `operator.admin`, `operator.approvals`, `operator.questions`, `operator.pairing`, `operator.talk`. |
 | D7 | "Complete supported surface", Herdr: every request method and event in the pinned schema (typed `call`, typed `subscribe`), the raw CLI as `cli(argv)` (complete by construction), and a typed wrapper for the one CLI-only surface the socket lacks (`terminal session control|observe`). |
 | D8 | Host-side kit APIs are full-power. Over a link, the pass-through (`oc.call`, `hd.call`) is **denied by default**; an app opts in with a `passThrough(method, grant)` predicate. Typed link ops are always member/scope-checked. |
 | D9 | Members. OpenClaw: a member is an app-chosen id matching `/^[a-z](?!.*--)[a-z0-9-]{0,23}$/` (no `--`, at most 24 characters, so every account agent id `<member>--<6 hex>` stays within 32), never `main`, `openclaw`, `crestodian` or starting `byokit-`; an agent that already exists under the older `/^[a-z][a-z0-9-]{0,31}$/` rule and is no member's account agent keeps working with its member agent only (D17), and no new member is created under the old rule. The id is used verbatim as the OpenClaw `agentId` of the member agent; every session key must start `agent:<member>:`, `agent:<member>--<6 hex>:` for an account agent in the member's index (5.15), or (key lane) exactly `agent:byokit-key-<member>:`; each sign-in is granted once and shared across that member's agents as scoped views (D11, D17). Herdr: no member concept upstream; a link grant carries `meta.scope = { workspaces: 'all' \| string[] }`. |
@@ -280,7 +280,7 @@ the generated `report.json`.
 ```
 packages/openclaw/
   package.json  tsconfig.json  README.md  CHANGELOG.md  LICENSE
-  engine/package.json  engine/package-lock.json      # { "dependencies": { "openclaw": "2026.8.35" } }, integrity-locked
+  engine/package.json  engine/package-lock.json      # { "dependencies": { "openclaw": "2026.9.33" } }, integrity-locked
   engine/plugins.json                                # external provider plugin pins (B7): { "<id>": { spec, integrity } }
   plugin/index.js  plugin/accounts.js  plugin/package.json   # bridge plugin + account sealing (5.15); manifest at prepare
   policy/policy.mjs                                  # operator install policy (OpenClaw security.installPolicy, protocol 1)
@@ -303,7 +303,7 @@ packages/openclaw/
 `package.json`: `exports` `.` → `dist/index.js`, `./device` → `dist/device.js` (with `react-native` and `browser`
 conditions pointing at the same file), `./link` → `dist/link.js`, `./testing` → `dist/testing/index.js`; `files`:
 `dist`, `engine`, `plugin`, `policy`, `README.md`, `LICENSE`. Dependencies (exact pins in
-`packages/openclaw/package.json`): `@openclaw/gateway-client` and `@openclaw/gateway-protocol` (`2026.8.35`),
+`packages/openclaw/package.json`): `@openclaw/gateway-client` and `@openclaw/gateway-protocol` (`2026.9.33`),
 `@byokit/pair`, `@byokit/relay`, `@byokit/discover`, `@byokit/seal`, `@byokit/secrets`, `@byokit/accounts` (its
 `/cli` entry drives the native Claude login, 5.7), `ws`. Dev: `@byokit/ui` (assignability test only).
 
@@ -536,7 +536,7 @@ export declare class OpenClawKit {
   doctorContext(): { entry: string; env: Record<string, string> };
 }
 export type RetainedLogin = { path: string } | { record: Record<string, unknown> };
-export const ENGINE_VERSION = '2026.8.35';
+export const ENGINE_VERSION = '2026.9.33';
 export const PROTOCOL_VERSION = 4;
 ```
 
@@ -856,8 +856,10 @@ key (subscription); `microsoft-foundry-entra` is Entra cloud credentials, not an
 Until those packages merge, the table above is what ships.
 
 **External provider plugins (B7).** `installPlugin(pluginId)` is the one explicit install: discovery never runs it.
+Third-party catalog-only providers (9.33: Telnyx) remain visible but unavailable (`no_upstream_flow`). They are excluded from the B7 pin inventory: `installPlugin` rejects with `PluginInstallError.code = 'unsupported_plugin'` before any install. Only official `@openclaw/*` providers are installed at `ENGINE_VERSION`; no third-party package is installed.
+
 `pluginId` is a `needs.plugin` a route names; its pin in `engine/plugins.json` must be exactly the route's
-`install.npmSpec` at `ENGINE_VERSION` (`@openclaw/zai-provider@2026.8.35`), with the registry's `sha512` integrity
+`install.npmSpec` at `ENGINE_VERSION` (`@openclaw/zai-provider@2026.9.33`), with the registry's `sha512` integrity
 for that version. The kit adds the id to `plugins.allow` in `<root>/openclaw.json`, then runs the engine's own
 installer in the isolated engine env (5.5): `openclaw plugins install <spec> --force --accept-capabilities` (the
 explicit call is the consent; the policy, 5.6, holds the pin and integrity). The running gateway hot-reloads the
@@ -1238,7 +1240,7 @@ App-specific business checks belong in the app after the validated result.
 ### 5.8.2 Run artifacts (A5)
 
 A run's artifacts are what the pinned engine already lists: no engine patch, no kit-side store. Pin facts
-(`openclaw@2026.8.35`, `dist/artifacts-MAdHWzFI.js`): `artifacts.list`, `artifacts.get` and `artifacts.download`
+(`openclaw@2026.9.33`, `dist/artifacts-MAdHWzFI.js`): `artifacts.list`, `artifacts.get` and `artifacts.download`
 (`src/generated/methods.ts:21-23`, `operator.read`, which the kit holds) scan one session's transcript. Each
 image/audio/video/file content block of any message is an artifact with a stable id (`artifact_` + 18 base64url
 characters of sha256 over session key, message seq, block index, type and title; managed outgoing media keeps its
@@ -1355,7 +1357,7 @@ copies credentials.
 ### 5.8.3 Helpers
 
 A member can run several helpers (personas) on one account the member already signed in, with no copied credential and
-no new sign-in. Pin facts (`openclaw@2026.8.35`): a run reads only its own agent's auth store plus the one global
+no new sign-in. Pin facts (`openclaw@2026.9.33`): a run reads only its own agent's auth store plus the one global
 `agents.defaults.authInheritance` owner (5.15 forces it to the base), and a config write giving two agents one
 `agentDir` is refused (`Duplicate agentDir detected`). So a helper is not an engine agent: it is its own session
 namespace and persona on the agent that already holds the account.
@@ -1420,7 +1422,7 @@ namespace and persona on the agent that already holds the account.
 ### 5.8.4 Return runs
 
 A tracked `sessions_send` (`timeoutSeconds: 0`) from a kit run, or from a return run, has a second half on the pin
-(`openclaw@2026.8.35`, `runSessionsSendA2AFlow`): once the child ends, the engine starts its own reply step, a fresh
+(`openclaw@2026.9.33`, `runSessionsSendA2AFlow`): once the child ends, the engine starts its own reply step, a fresh
 `agent` run with a random id on the sender's exact key, its prompt being the child's reply headed by the engine's
 `[Inter-session message] sourceSession=<child key> … sourceTool=sessions_send isUser=false` line. The pin repeats this
 ping-pong for up to five turns, and starts none when the child takes longer than its 30 s wait. Nothing registered that
@@ -1497,10 +1499,9 @@ always carry `source.authority 'third-party'`, so authority is not the check. An
 
 ### 5.10 Pass-through generation (`scripts/gen-methods.ts`, O2)
 
-Input: the pinned tarball installed under a temp dir (`npm pack openclaw@2026.8.35` + extract, network allowed at
+Input: the pinned tarball installed under a temp dir (`npm pack openclaw@2026.9.33` + extract, network allowed at
 generation time only) and the installed `@openclaw/gateway-protocol` types. Steps: locate the file containing
-`const CORE_GATEWAY_METHOD_SPEC_LIST = [` and evaluate only that array literal; locate `GATEWAY_AUX_METHODS` and
-`GATEWAY_EVENTS` the same way (constant entries only; non-literal entries such as `GATEWAY_EVENT_UPDATE_AVAILABLE`
+`const CORE_GATEWAY_METHOD_SPECS = [` in the `.mjs` core-descriptors chunk and evaluate only that array literal (substituting the literal `CONTROL_PLANE_WRITE` policy). This is the complete handler table, including dynamic, hidden and node methods; 9.33 has no separate `GATEWAY_AUX_METHODS`. Locate `GATEWAY_EVENTS` the same way (constant entries only; non-literal entries such as `GATEWAY_EVENT_UPDATE_AVAILABLE`
 are resolved from their `const X = "…"` definitions in the tarball). For each method try, in order: `scripts/method-types.json`
 override, `Pascal(method) + 'Params'|'Result'` (e.g. `models.authStatus` → `ModelsAuthStatusParams`),
 `Pascal(group) + Pascal(last segment)`; accept only names exported by `@openclaw/gateway-protocol` (checked by
@@ -1510,7 +1511,7 @@ published type declarations drop properties from anyOf/oneOf branches; every mat
 a top-level anyOf/oneOf is re-emitted into `src/generated/params.ts` under its own name, with each branch's
 full property set (branch properties plus the properties declared beside the union on the parent schema, and
 the union of the parent and branch required lists; presence-exclusions from `not` spell as `prop?: never`).
-The tables reference the local name instead of the protocol export. Output `src/generated/methods.ts`
+The tables reference the local name instead of the protocol export. `SkillsWorkshopReadParams` and `SkillsWorkshopReadResult` are also emitted from their shipped schemas because 9.33 omits their public TS aliases. Runtime method-name arrays are generated beside the types so the facade's pass-through guard cannot retain an older table. Output `src/generated/methods.ts`
 (`export interface GatewayMethods { 'agents.create': { params: AgentsCreateParams; result: unknown; scope:
 'operator.admin'; role: 'operator' }; … }`, `import type` only), `events.ts`, `params.ts`, and `report.json`
 (`{ engine, protocol, methods: n, matchedParams, matchedResults, patchedTypes: [...], unmatched: [...] }`). Output is committed and
@@ -1524,7 +1525,7 @@ differs from a fresh run against the pinned tarball in the engine job.
   spawnEngine: false, … })`. The factory captures `bridgeSock` so scripted tool calls reach the real bridge,
   split as the plugin splits them: it reads the kit's `plugin/tools.json` beside the socket, gates a builtin unless
   `gateBuiltins` is false and never calls one back (no table: every tool counts as the app's). `start()` resolves a hello with `protocol: 4`,
-  `server.version: '2026.8.35'`, and methods/events from the generated tables. Unknown method → rejects
+  `server.version: '2026.9.33'`, and methods/events from the generated tables. Unknown method → rejects
   `unknown method: <m>`.
 - Default handlers: `health`; `agents.list`/`agents.create` (in-memory); `models.authStatus`/`models.authLogout`
   (in-memory per agent); `openclaw.setup.auth.start` + `wizard.next` + `wizard.cancel` running the device-code script
@@ -1558,6 +1559,10 @@ differs from a fresh run against the pinned tarball in the engine job.
 
 ### 5.12 Version pin and upgrades
 
+Follow `extended-stable` only, one release line at a time; confirm with `npm view openclaw dist-tags` before bumping.
+
+Node support follows the pinned engine: `>=24.16.0 <25 || >=26.1.0` (Node 26 recommended); Node 22 and 25 are unsupported.
+
 The pin is `ENGINE_VERSION` + `engine/package-lock.json` + exact client/protocol deps. An upgrade is one PR in
 byokit: bump all four, re-run `npm run gen:openclaw`, review `report.json` and the method/event diff (listed in the
 PR), re-verify `routes.json` choice ids, run `npm run test:engine` green, bump the kit's minor version, CHANGELOG
@@ -1568,6 +1573,8 @@ A pin bump also re-derives `engine/patches.json` from the new stock bytes (ancho
 change; a stale set fails `before` and blocks release), re-derives `engine/plugins.json` at the new pin (the B7 rule,
 5.7), re-checks that the Gateway-covered kinds of 5.16 still hold
 (the review stays out of `sessions.usage`, recovery and flush stay in it), and re-runs the O15–O17 engine tests.
+
+The native Workshop collection is agent-owned (`state/agents/<agentId>/agent/workshop-skills`), not tied to the current workspace. `workshopSkills(member): Promise<GatewayResult<'skills.proposals.list'>>` lists pending proposals and installed skills; `readWorkshopSkill(member, name): Promise<GatewayResult<'skills.workshop.read'>>` reads complete instructions. Both ensure the member and pass its exact agent id to native RPCs. The complete generated `call` surface retains Workshop proposal, review, curator, library and skill methods for account/helper agent ids, without translating storage or creating a parallel learning system.
 
 ### 5.13 Internal module seams (stub signatures for O1)
 
@@ -2183,7 +2190,7 @@ plus one reviewed edit. A fork, a republished tarball or a source build is never
 
 ```json
 { "v": 1, "id": "<16 hex>",
-  "upstream": { "name": "openclaw", "version": "2026.8.35",
+  "upstream": { "name": "openclaw", "version": "2026.9.33",
     "integrity": "<the lock's sha512 for openclaw>", "commit": "<dist/build-info.json commit>", "license": "MIT" },
   "files": [ { "path": "dist/<file>.js", "before": "<sha256>", "after": "<sha256>",
                "edits": [ { "find": "<text occurring exactly once>", "replace": "<text>" } ] } ] }
@@ -2209,13 +2216,7 @@ skipped turn preparation and empty tool lists keep the stock prompt. No consumer
 `packages/openclaw/test/engine-unit.test.ts` exercises the shipped edit's rendered output; its minimal stock
 input is unit coverage, not qualification against the complete pinned engine or a live Claude CLI.
 
-**Key setup plan.** Stock `setup.activate` with an API key plans its live test on the provider's starter model as
-written, while the route it stages for the default agent carries the provider-normalized ref: OpenRouter's bare
-`auto` is staged as `openrouter/auto`, so the plan never matches the staged route and every OpenRouter key is refused
-as `unavailable` before it is sent (the kit's `not_included`). The bundled patch plans the starter as the stage names
-it (`canonicalizeSetupModelRef`), so the live test runs on the route that was staged; the persisted model ref is
-unchanged, and a starter that needs no normalization plans as stock. `test/engine/accounts.test.ts` activates an
-OpenRouter key on the pinned engine and runs on a chosen model.
+**Key setup plan.** The 8.35 starter-model normalization patch is retired in 9.33: upstream replaced that setup planner with staged owner-evidence route resolution and no longer contains `canonicalizeSetupModelRef`. The kit does not carry a stale patch into the replacement pipeline. `test/engine/accounts.test.ts` activates an OpenRouter key on the pinned engine and runs on a chosen model.
 
 **Engine sets.** A patched engine is never made by editing files in place: stock OpenClaw rewrites its process
 title (`/proc/<pid>/cmdline` is `openclaw-gateway`, `test/engine/boot.test.ts`) and a running Gateway holds no file or
@@ -2270,7 +2271,7 @@ network; only building the stock set runs `npm ci` (registry unless cached). A k
 deleted.
 
 **Coverage.** Only the Gateway process (`openclaw.mjs` and the chunks it loads) is patched. The worker bundle
-`dist/worker/worker.mjs` has its own copies of the review and recovery code and is **uncovered**: no guarantee of this
+`dist/worker/worker.mjs`, `dist/worker/sqlite-store.worker.mjs` and the standalone update-recovery bundle `dist/package-update-activation-recovery.mjs` have their own copies of the review and recovery code and are **uncovered**: no guarantee of this
 section holds for work run in a worker environment. Engine-started usage covered by the kit is exactly:
 
 | Kind (Gateway) | Counted through |
@@ -3545,7 +3546,7 @@ H1, and O12/H10 (README example rows); later merges rebase.
 **O1 — scaffold and stubs** · Flash · deps: none
 - Files: `packages/openclaw/{package.json,tsconfig.json,README.md,CHANGELOG.md,LICENSE}`, all `src/*.ts` stubs
   (5.1) with 5.2/5.3/5.13/7.1/7.2 signatures, `src/constants.ts` (`ENGINE_VERSION`, `PROTOCOL_VERSION`, `OPERATOR_SCOPES`
-  per D6), `engine/package.json` + `engine/package-lock.json` (`npm install --package-lock-only openclaw@2026.8.35`,
+  per D6), `engine/package.json` + `engine/package-lock.json` (`npm install --package-lock-only openclaw@2026.9.33`,
   scripts off), `plugin/package.json` (`{"name":"byokit-openclaw-bridge","version":"0.1.0","type":"module",
   "openclaw":{"extensions":["./index.js"]}}`), empty `plugin/index.js` and `policy/policy.mjs` placeholders
   exporting nothing; root `package.json` build list gains `packages/openclaw`; `release.yml` options gain `openclaw`;
@@ -4022,7 +4023,7 @@ OpenClaw (pinned 2026.8.1, verified in Crewhouse at `a9ca74e`):
 - `wizard.cancel` answers `cancelled` at once, but the admission frees only once the cancelled runner and its
   setup-target lock settle; `wizard.status` on that session answers only after that. A cancel that finds the runner
   already finished purges the session before the lock is released, and one after the commit starts answers `running`
-  (pin 2026.8.35).
+  (pin 2026.9.33).
 - The engine cannot bind ChatGPT's 1455 callback first; the host holds it and pastes the redirect.
 - Doctor refuses to run while a Gateway owns the state dir; it exits 0 even when it imports nothing, so only the
   Gateway's `models.authStatus` confirms an import. Staging `auth.json` instead of `auth-profiles.json` imports the
@@ -4054,7 +4055,7 @@ OpenClaw (pinned 2026.8.1, verified in Crewhouse at `a9ca74e`):
   true`). `sessions.move` and `sessions.fork` stay in one agent; `sessions.create { agentId, key, fork: true,
   parentSessionKey, model }` copies the raw transcript across agents and refuses while the parent runs or when it
   exceeds the target model's context.
-- Live catalogs (2026.8.35, probed with a Go key): embedded runs use only static or configured models. A non-empty
+- Live catalogs (2026.9.33, probed with a Go key): embedded runs use only static or configured models. A non-empty
   `models.providers[p].models` fixes `p`'s catalog to exactly the listed ids in every `models.list` view and in the
   engine's catalog loader (unless a `modelPolicy.allow` wildcard `p/*` makes it dynamic), and `models.*` changes
   hot-reload with no restart. The provider plugin's `catalog.run` hook still answers the full live list with

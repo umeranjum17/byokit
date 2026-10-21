@@ -10,7 +10,7 @@
     "directory": "packages/openclaw"
   },
   "engines": {
-    "node": ">=22.18"
+    "node": ">=24.16.0 <25 || >=26.1.0"
   },
   "exports": {
     ".": {
@@ -66,8 +66,8 @@
     "@byokit/discover": "0.8.4",
     "@byokit/seal": "0.3.1",
     "@byokit/secrets": "0.5.2",
-    "@openclaw/gateway-client": "2026.8.35",
-    "@openclaw/gateway-protocol": "2026.8.35",
+    "@openclaw/gateway-client": "2026.9.33",
+    "@openclaw/gateway-protocol": "2026.9.33",
     "ws": "8.22.0"
   },
   "devDependencies": {

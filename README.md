@@ -59,7 +59,7 @@ These are the actual example interfaces in light and dark, not design mockups. T
 
 ## Quick start
 
-From a fresh checkout, with a JavaScript runtime version **22.18 or newer** and npm installed, run these three steps in the repository root:
+From a fresh checkout, with **Node 24.16+ on 24.x, or Node 26.1+** and npm installed, run these three steps in the repository root:
 
 **1. Install the workspace.**
 

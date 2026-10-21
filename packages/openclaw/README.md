@@ -7,7 +7,7 @@
 </p>
 
 <p align="center"><strong>The OpenClaw runtime kit: one object that runs the pinned engine for your app.</strong><br/>
-It drives the pinned OpenClaw engine (<code>openclaw@2026.8.35</code>, protocol 4) through one kit object. The
+It drives the pinned OpenClaw engine (<code>openclaw@2026.9.33</code>, protocol 4) through one kit object. The
 aggregator's full operator surface stays available as typed pass-through calls (<code>call</code> for every operator
 method, <code>callDynamic</code> for the rest), with plain-words helpers for members, sign-in, runs, approvals and
 config. For apps built on OpenClaw, where the engine holds the subscriptions.</p>
@@ -20,7 +20,7 @@ npm install @byokit/openclaw
 
 [![npm](https://img.shields.io/npm/v/@byokit/openclaw?style=flat&label=)](https://www.npmjs.com/package/@byokit/openclaw) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=openclaw-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
 
-Node 22.18 or later. The kit brings the engine with it: the first `start()` installs the pinned `openclaw@2026.8.35`
+Node 24.16+ on 24.x, or Node 26.1+ (recommended). Node 22 and 25 are unsupported. The kit brings the engine with it: the first `start()` installs the pinned `openclaw@2026.9.33`
 under your `stateDir` (a few minutes, needs the network once), and later starts run from there. For a whole app, a
 phone page that pairs, signs in to a plan (ChatGPT or a plan key), runs and answers approvals, see
 [`examples/openclaw-kit`](../../examples/openclaw-kit).
@@ -98,7 +98,7 @@ async function dispatch(kit: OpenClawKit, taskId: string, attempt: number, messa
 ```
 
 Omitting `idempotencyKey` preserves a fresh UUID per call. Supplied keys are non-empty strings passed unchanged.
-**Not exactly-once:** engine 2026.8.35 caches `agent` keys gateway-wide, across agents and sessions, without comparing
+**Not exactly-once:** engine 2026.9.33 caches `agent` keys gateway-wide, across agents and sessions, without comparing
 inputs. A collision silently returns the first run's result/error; a task id alone is not a safe key. Reconnects
 retain the in-memory cache; engine process restarts lose it. Inactive entries expire after five minutes (60-second
 cleanup tick), or earlier under the 1,000-entry cache limit; active and pending accepted runs are exempt.
@@ -268,12 +268,23 @@ RPC data is retained; existing typed `call` pass-through is unchanged. Windows a
 refresh it. The engine response cache lasts 30 seconds; pending/stale/unknown data leaves `totals` absent.
 An absent agent row is unavailable, not proof of zero usage. Reset/deletion/retention can reduce counters.
 
-**Coverage is always `retained-transcripts-only`.** Stock 2026.8.35's detached Skill Workshop reviews are omitted
+**Coverage is always `retained-transcripts-only`.** Stock 2026.9.33's detached Skill Workshop reviews are omitted
 from its ledger; actual crash-recovery resumes and threshold memory flushes are counted through persisted
 transcripts, never through a second side total. This reader cannot enforce a complete all-turn budget. The app owns budget,
 share and unavailable/partial-data policy. Do not add run results to these totals: they already overlap. Engine
 cost fields are price counters, not a bill or subscription quota; zero cost with `missingCostEntries > 0` is
 unknown cost, and tokens never establish subscription plan weights. No billing conversion is performed.
+
+### Native Workshop skills
+
+```ts
+import type { OpenClawKit } from '@byokit/openclaw';
+declare const kit: OpenClawKit;
+const collection = await kit.workshopSkills('m1'); // pending proposals + installedSkills
+const skill = await kit.readWorkshopSkill('m1', 'weather-planner'); // complete content
+```
+
+The engine keeps one persistent skill collection per agent, across workspaces. These helpers use the member's own agent; all native Workshop methods also remain available through typed `kit.call`, including explicit account-agent ids. Missing skills and refused access reject with the Gateway's real error. Catalog-only third-party plugins (Telnyx) are not installed: `installPlugin` rejects with typed `unsupported_plugin`.
 
 ### Day readings including Gateway Workshop reviews
 
@@ -440,8 +451,8 @@ Entries:
 
 Every method and event the pin publishes has a real type: `kit.call('sessions.list', params)` is checked in and
 returns the engine's declared result, with no cast. For the slots the pin itself leaves undeclared the table stays
-`unknown`, and `src/generated/report.json` names every one of them per release. On `openclaw@2026.8.35` that is 302
-of 394 methods' params and 193 of their results, plus 21 of 55 event payloads; the other slots are not missing from
+`unknown`, and `src/generated/report.json` names every one of them per release. On `openclaw@2026.9.33` that is 370
+of 487 methods' params and 241 of their results, plus 29 of 64 event payloads; the other slots are not missing from
 the kit, they are not published by the engine, and typing them here would be a guess that does not match the
 gateway. `callDynamic` stays the same shape for a method the pin never declared.
 
@@ -847,7 +858,7 @@ retained-login cleanup and sealed approval limits.
 
 Linux and macOS x64/arm64 are supported; Windows is unsupported.
 
-Pinned to OpenClaw `2026.8.35` (protocol 4); `ENGINE_VERSION` and `PROTOCOL_VERSION` carry the pin. Signatures are
+Pinned to OpenClaw `2026.9.33` (protocol 4); `ENGINE_VERSION` and `PROTOCOL_VERSION` carry the pin. Signatures are
 frozen (docs/runtime-kits.md §5).
 
 ## Links

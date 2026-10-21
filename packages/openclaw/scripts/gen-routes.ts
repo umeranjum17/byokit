@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Route } from '../src/types.ts';
 
-export const PIN = '2026.8.35';
-export const REVISION = '713ba5785d72d6ed1cec971e21307f16cc4234a6';
+export const PIN = '2026.9.33';
+export const REVISION = '5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82';
 export type Choice = {
   provider: string; method: string; choiceId: string; choiceLabel: string;
   choiceHint?: string; groupLabel?: string; appGuidedAuth?: string; appGuidedSecret?: boolean;
@@ -90,7 +90,7 @@ export function generateRoutes(snapshot: PinSnapshot): Route[] {
         : billing === 'local' ? 'Local runtime; explicitly select this route.'
         : 'Billing must be supplied by the host; a server address does not determine billing.',
       source: `${manifest.id ? `extensions/${manifest.id}/openclaw.plugin.json` : 'src/commands/auth-choice-options.static.ts'} (${PIN})`,
-      revision: PIN, checked: '2026-10-02', label: choice.choiceLabel,
+      revision: PIN, checked: '2026-10-21', label: choice.choiceLabel,
       keyEntry, keyErrors: keyEntry ? { invalid: 'key.invalid', not_included: 'key.notIncluded' } : null,
       id: `${choice.provider}:${via}:${id}`, name: choice.groupLabel ?? choice.provider,
       company: choice.groupLabel ?? choice.provider,
@@ -103,8 +103,20 @@ export function generateRoutes(snapshot: PinSnapshot): Route[] {
         flow: absent ? 'absent' : 'present' },
     };
   }
-  for (const manifest of snapshot.manifests) {
-    for (const choice of manifest.providerAuthChoices ?? []) rows.push(row(manifest, choice));
+  // Third-party catalog-only providers have no source manifest. Keep them visible, never install them (B7).
+  const catalogOnly = snapshot.catalog.filter(({ openclaw }) => !snapshot.manifests.some(m => m.id === openclaw.plugin.id));
+  const manifests = [...snapshot.manifests, ...catalogOnly.map(({ openclaw }) => ({
+    id: openclaw.plugin.id, providerAuthChoices: openclaw.providers.flatMap(provider =>
+      (provider.authChoices ?? []).map(choice => ({ ...choice, provider: provider.id }))),
+  }))];
+  for (const manifest of manifests) {
+    for (const choice of manifest.providerAuthChoices ?? []) {
+      const entry = row(manifest, choice);
+      rows.push(catalogOnly.some(({ openclaw }) => openclaw.plugin.id === manifest.id)
+        ? { ...entry, source: `scripts/lib/official-external-provider-catalog.json (${PIN})`, offer: false,
+          reason: 'Third-party provider plugins are not supported by this kit.',
+          upstream: { ...entry.upstream!, flow: 'absent' } } : entry);
+    }
     for (const provider of manifest.providers ?? []) {
       const via = CHOICELESS.get(provider);
       if (!via) continue;
@@ -128,7 +140,7 @@ export function generateRoutes(snapshot: PinSnapshot): Route[] {
     }
   }
   rows.push(row({ id: '' }, { provider: 'custom', method: 'custom', choiceId: 'custom-api-key', choiceLabel: 'Custom endpoint' }));
-  if (rows.filter(route => route.choice).length !== 91 || rows.length !== 96 || new Set(rows.map(route => route.id)).size !== rows.length) {
+  if (rows.filter(route => route.choice).length !== 97 || rows.length !== 102 || new Set(rows.map(route => route.id)).size !== rows.length) {
     throw new Error('Pin route inventory changed; reconcile source before generating');
   }
   return rows; // Sorted manifest directories, choice order preserved (legacy routeFor preference).
@@ -146,7 +158,7 @@ export function readSnapshot(packageRoot: string, sourceRoot: string): PinSnapsh
   }
   const source = manifests(join(sourceRoot, 'extensions'));
   const tarball = manifests(join(packageRoot, 'dist/extensions'));
-  if (source.length !== 151) throw new Error('Expected all 151 real pin manifests');
+  if (source.length !== 162) throw new Error('Expected all 162 real pin manifests');
   const all = new Map(source.map(manifest => [manifest.id, manifest]));
   for (const manifest of tarball) {
     const original = all.get(manifest.id);

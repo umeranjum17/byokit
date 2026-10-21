@@ -26,7 +26,7 @@ import { fakeGateway } from '@byokit/openclaw/testing';
 const require = createRequire(import.meta.url);
 console.log('resolved ->', require.resolve('@byokit/openclaw')); // must be packages/openclaw/dist/index.js
 
-const PIN = '2026.8.35';
+const PIN = '2026.9.33';
 const stateDir = mkdtempSync(join(tmpdir(), 'byokit-routes-pin-'));
 const kit = new OpenClawKit({ stateDir, transport: fakeGateway().factory, spawnEngine: false });
 try {

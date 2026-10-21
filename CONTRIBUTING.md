@@ -5,7 +5,7 @@ plain (no commands, paths, model ids or error codes), and nothing may touch thei
 
 ## Setup
 
-Node 22.18 or later.
+Node 24.16+ on 24.x, or Node 26.1+ (recommended). The pinned OpenClaw engine does not support Node 22 or 25.
 
 ```sh
 npm ci

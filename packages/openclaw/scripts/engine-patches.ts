@@ -27,7 +27,8 @@ if (functions.size) for (const entry of readdirSync(join(stock, 'dist'), { recur
   if (!entry.isFile() || !/\.m?js$/.test(entry.name)) continue;
   const absolute = join(entry.parentPath, entry.name);
   const relative = absolute.slice(stock.length + 1).replaceAll('\\', '/');
-  if (relative === 'dist/worker/worker.mjs') continue; // explicitly uncovered by D19
+  if (relative === 'dist/worker/worker.mjs' || relative === 'dist/worker/sqlite-store.worker.mjs'
+    || relative === 'dist/package-update-activation-recovery.mjs') continue; // explicitly uncovered by D19
   const text = readFileSync(absolute, 'utf8');
   for (const [name, source] of functions) if (relative !== source) assert.ok(!new RegExp(`\\bfunction\\s+${name.replaceAll('$', '\\$')}\\s*\\(`).test(text), `unpatched Gateway copy: ${name} in ${relative}`);
 }

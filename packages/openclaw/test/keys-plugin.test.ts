@@ -17,7 +17,7 @@ async function harness() {
   copyFileSync(new URL('../plugin/keys.js', import.meta.url), join(dir, 'keys.js'));
   mkdirSync(join(dir, 'node_modules/openclaw'), { recursive: true });
   writeFileSync(join(dir, 'node_modules/openclaw/package.json'), JSON.stringify({ name: 'openclaw', type: 'module', exports: {
-    './plugin-sdk/agent-runtime': './agent-runtime.js', './plugin-sdk/provider-auth': './provider-auth.js' } }));
+    './plugin-sdk/agent-scope-runtime': './agent-runtime.js', './plugin-sdk/provider-auth': './provider-auth.js' } }));
   writeFileSync(join(dir, 'node_modules/openclaw/agent-runtime.js'), `import { join } from 'node:path';
 export function resolveAgentDir(config, id) { return join(${JSON.stringify(state)}, 'agents', id); }
 `);

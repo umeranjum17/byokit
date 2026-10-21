@@ -81,8 +81,8 @@ test('account index: sign in, list, rename, defaults, restart, list again', asyn
 
     // A pre-O14 sign-in with no index entry is synthesized on first list.
     const listed = await kit.accounts('m1');
-    assert.deepEqual(listed, [{ id: 'openai', provider: 'openai', route: 'openai', name: 'ChatGPT Login 1',
-      label: 'ChatGPT Login', billing: 'subscription', state: 'ready', addedAt: 0 }]);
+    assert.deepEqual(listed, [{ id: 'openai', provider: 'openai', route: 'openai', name: 'Codex login (browser) 1',
+      label: 'Codex login (browser)', billing: 'subscription', state: 'ready', addedAt: 0 }]);
 
     // An unindexed `<member>--<hex6>` agent is never listed.
     await kit.call('agents.create', { name: 'm1--abc123', workspace: join(stateDir, 'openclaw', 'workspaces', 'm1') });
@@ -106,7 +106,7 @@ test('account index: sign in, list, rename, defaults, restart, list again', asyn
     try {
       await again.start();
       assert.deepEqual(await again.accounts('m1'), [{ id: 'openai', provider: 'openai', route: 'openai',
-        name: 'Work', label: 'ChatGPT Login', billing: 'subscription', state: 'ready', addedAt: 0 }]);
+        name: 'Work', label: 'Codex login (browser)', billing: 'subscription', state: 'ready', addedAt: 0 }]);
       assert.deepEqual(await again.defaults('m1'), { account: 'openai' });
     } finally { await again.stop(); }
 
@@ -172,7 +172,7 @@ test('account index: sign in, list, rename, defaults, restart, list again', asyn
       assert.ok((await roster()).includes('m1--def456'));
       assert.equal(await identity(), identityBefore, 'IDENTITY.md is byte-identical after the account agent is created');
       const entry = JSON.parse(readFileSync(file, 'utf8')).accounts['openai.def456'];
-      assert.deepEqual([entry.agent, entry.name, entry.route], ['m1--def456', 'ChatGPT Login 2', 'openai']);
+      assert.deepEqual([entry.agent, entry.name, entry.route], ['m1--def456', 'Codex login (browser) 2', 'openai']);
       assert.equal((await third.accounts('m1')).find((a) => a.id === 'openai.def456')?.state, 'signing');
 
       // One setup admission: a sign-in started while this one runs ends busy, and its agent and entry go.
@@ -196,7 +196,7 @@ test('account index: sign in, list, rename, defaults, restart, list again', asyn
       assert.deepEqual(sealed.profiles.map((p) => p.provider), ['openai']);
       assert.match(JSON.parse(readFileSync(file, 'utf8')).accounts['openai.def456'].who, /^[0-9a-f]{16}$/);
       assert.deepEqual((await third.accounts('m1')).map((a) => [a.id, a.name, a.state]),
-        [['openai', 'Work', 'ready'], ['openai.def456', 'ChatGPT Login 2', 'ready']], 'two ChatGPT accounts on two agents');
+        [['openai', 'Work', 'ready'], ['openai.def456', 'Codex login (browser) 2', 'ready']], 'two ChatGPT accounts on two agents');
 
       // A cancelled sign-in removes its new agent and entry; IDENTITY.md is still the member's.
       gate = new Promise(() => {});

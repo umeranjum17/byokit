@@ -66,7 +66,7 @@ export function registerAccounts(api) {
 async function handle(params) {
   const { readFile } = await import('node:fs/promises');
   const config = JSON.parse(await readFile(process.env.OPENCLAW_CONFIG_PATH, 'utf8'));
-  const { resolveAgentDir } = await import('openclaw/plugin-sdk/agent-runtime');
+  const { resolveAgentDir } = await import('openclaw/plugin-sdk/agent-scope-runtime');
   const { updateAuthProfileStoreWithLock } = await import('openclaw/plugin-sdk/provider-auth');
   // adopt names both agents itself: it is the one action that does not address a single agent.
   if (params?.action === 'adopt') return adopt(params, config, resolveAgentDir, updateAuthProfileStoreWithLock);

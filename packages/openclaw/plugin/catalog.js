@@ -5,7 +5,7 @@ export function registerCatalog(api) {
   api.registerGatewayMethod('byokit.catalog', async ({ params, respond }) => {
     try {
       const provider = String(params?.provider ?? '');
-      const { resolveAgentDir } = await import('openclaw/plugin-sdk/agent-runtime');
+      const { resolveAgentDir } = await import('openclaw/plugin-sdk/agent-scope-runtime');
       const { getRuntimeConfig } = await import('openclaw/plugin-sdk/config-runtime');
       const { resolvePluginProviders } = await import('openclaw/plugin-sdk/provider-catalog-runtime');
       const { resolveApiKeyForProvider } = await import('openclaw/plugin-sdk/provider-auth-runtime');

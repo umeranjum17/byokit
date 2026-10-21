@@ -1,19 +1,20 @@
 {
-  "engine": "2026.8.35",
+  "engine": "2026.9.33",
   "protocol": 4,
   "package": "openclaw",
-  "methods": 394,
-  "operatorMethods": 383,
+  "methods": 487,
+  "operatorMethods": 476,
   "nodeMethods": 11,
-  "events": 55,
-  "matchedParams": 302,
-  "matchedResults": 193,
-  "matchedEvents": 21,
+  "events": 64,
+  "matchedParams": 370,
+  "matchedResults": 241,
+  "matchedEvents": 29,
   "patchedTypes": [
     "AuditRunInspectParams",
     "BoardActionParams",
     "BoardEventParams",
     "ChatEvent",
+    "ChatStartupParams",
     "ConversationTurnResult",
     "CronAddResult",
     "CronGetParams",
@@ -38,10 +39,17 @@
     "SessionsGoalUpdateParams",
     "SessionsResolveResult",
     "SkillsInstallParams",
+    "SkillsLibraryUploadParams",
     "SkillsUpdateParams",
+    "SkillsWorkshopReadParams",
+    "SkillsWorkshopReadResult",
     "SystemAgentSetupVerifyResult",
     "TalkClientCreateResult",
-    "TaskSuggestionEvent"
+    "TaskSuggestionEvent",
+    "UpdateReportParams",
+    "UpdateReportResult",
+    "UsersAuthConnectStatusResult",
+    "UsersMentionableParams"
   ],
   "unmatched": [
     {
@@ -117,6 +125,10 @@
       "slot": "result"
     },
     {
+      "method": "canvas.document.preview",
+      "slot": "result"
+    },
+    {
       "method": "channels.logout",
       "slot": "result"
     },
@@ -162,10 +174,30 @@
     },
     {
       "method": "chat.startup",
+      "slot": "result"
+    },
+    {
+      "method": "claws.monitors",
       "slot": "params"
     },
     {
-      "method": "chat.startup",
+      "method": "claws.monitors",
+      "slot": "result"
+    },
+    {
+      "method": "claws.packages.remove",
+      "slot": "params"
+    },
+    {
+      "method": "claws.packages.remove",
+      "slot": "result"
+    },
+    {
+      "method": "computer.invoke",
+      "slot": "result"
+    },
+    {
+      "method": "computer.status",
       "slot": "result"
     },
     {
@@ -205,11 +237,27 @@
       "slot": "payload"
     },
     {
+      "method": "controlUi.githubDetail",
+      "slot": "params"
+    },
+    {
+      "method": "controlUi.githubDetail",
+      "slot": "result"
+    },
+    {
       "method": "controlUi.githubPreview",
       "slot": "params"
     },
     {
       "method": "controlUi.githubPreview",
+      "slot": "result"
+    },
+    {
+      "method": "controlUi.linkPreview",
+      "slot": "params"
+    },
+    {
+      "method": "controlUi.linkPreview",
       "slot": "result"
     },
     {
@@ -223,6 +271,14 @@
     {
       "event": "controlUi.sessionPullRequests.changed",
       "slot": "payload"
+    },
+    {
+      "method": "controlUi.sessionPullRequests.checks",
+      "slot": "params"
+    },
+    {
+      "method": "controlUi.sessionPullRequests.checks",
+      "slot": "result"
     },
     {
       "method": "controlUi.sessionPullRequests.subscribe",
@@ -321,6 +377,30 @@
       "slot": "result"
     },
     {
+      "method": "diagnostics.cpuProfile",
+      "slot": "params"
+    },
+    {
+      "method": "diagnostics.cpuProfile",
+      "slot": "result"
+    },
+    {
+      "method": "diagnostics.heapProfile",
+      "slot": "params"
+    },
+    {
+      "method": "diagnostics.heapProfile",
+      "slot": "result"
+    },
+    {
+      "method": "diagnostics.heapSnapshot",
+      "slot": "params"
+    },
+    {
+      "method": "diagnostics.heapSnapshot",
+      "slot": "result"
+    },
+    {
       "method": "diagnostics.lanes",
       "slot": "params"
     },
@@ -390,6 +470,10 @@
     },
     {
       "method": "doctor.memory.status",
+      "slot": "result"
+    },
+    {
+      "method": "environments.session.exec",
       "slot": "result"
     },
     {
@@ -467,6 +551,18 @@
     {
       "method": "gateway.restart.request",
       "slot": "result"
+    },
+    {
+      "method": "gateway.stop.request",
+      "slot": "params"
+    },
+    {
+      "method": "gateway.stop.request",
+      "slot": "result"
+    },
+    {
+      "event": "gateway.suspension",
+      "slot": "payload"
     },
     {
       "method": "health",
@@ -553,11 +649,19 @@
       "slot": "result"
     },
     {
+      "method": "mcp.authLogin",
+      "slot": "result"
+    },
+    {
       "method": "memory.search",
       "slot": "params"
     },
     {
       "method": "memory.search",
+      "slot": "result"
+    },
+    {
+      "method": "mentions.dismiss",
       "slot": "result"
     },
     {
@@ -573,7 +677,23 @@
       "slot": "params"
     },
     {
+      "method": "models.authLogin",
+      "slot": "params"
+    },
+    {
+      "method": "models.authLogin",
+      "slot": "result"
+    },
+    {
       "method": "models.authLogout",
+      "slot": "result"
+    },
+    {
+      "method": "models.authOrderSet",
+      "slot": "result"
+    },
+    {
+      "method": "models.authRefresh",
       "slot": "result"
     },
     {
@@ -593,12 +713,12 @@
       "slot": "result"
     },
     {
-      "method": "node.invoke",
-      "slot": "result"
+      "event": "node.hostStats",
+      "slot": "payload"
     },
     {
-      "event": "node.invoke.cancel",
-      "slot": "payload"
+      "method": "node.invoke",
+      "slot": "result"
     },
     {
       "method": "node.invoke.progress",
@@ -749,12 +869,72 @@
       "slot": "result"
     },
     {
+      "event": "plugins.controlUi.changed",
+      "slot": "payload"
+    },
+    {
+      "method": "plugins.controlUi.list",
+      "slot": "params"
+    },
+    {
+      "method": "plugins.controlUi.list",
+      "slot": "result"
+    },
+    {
+      "method": "plugins.controlUi.reload",
+      "slot": "result"
+    },
+    {
+      "method": "plugins.controlUi.report",
+      "slot": "params"
+    },
+    {
+      "method": "plugins.controlUi.report",
+      "slot": "result"
+    },
+    {
+      "method": "plugins.controlUi.status",
+      "slot": "params"
+    },
+    {
+      "method": "plugins.controlUi.status",
+      "slot": "result"
+    },
+    {
       "method": "poll",
+      "slot": "result"
+    },
+    {
+      "method": "portal.session.close",
+      "slot": "params"
+    },
+    {
+      "method": "portal.session.close",
+      "slot": "result"
+    },
+    {
+      "method": "portal.session.list",
+      "slot": "params"
+    },
+    {
+      "method": "portal.session.list",
+      "slot": "result"
+    },
+    {
+      "method": "portal.session.open",
+      "slot": "params"
+    },
+    {
+      "method": "portal.session.open",
       "slot": "result"
     },
     {
       "event": "presence",
       "slot": "payload"
+    },
+    {
+      "method": "presence.activity",
+      "slot": "result"
     },
     {
       "method": "push.web.preferences.get",
@@ -853,6 +1033,14 @@
       "slot": "result"
     },
     {
+      "method": "sessions.activitySummary.ensure",
+      "slot": "params"
+    },
+    {
+      "method": "sessions.activitySummary.ensure",
+      "slot": "result"
+    },
+    {
       "event": "sessions.changed",
       "slot": "payload"
     },
@@ -877,11 +1065,35 @@
       "slot": "result"
     },
     {
+      "method": "sessions.github.confirm",
+      "slot": "params"
+    },
+    {
+      "method": "sessions.github.confirm",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.github.options",
+      "slot": "params"
+    },
+    {
+      "method": "sessions.github.options",
+      "slot": "result"
+    },
+    {
       "method": "sessions.github.publish",
       "slot": "params"
     },
     {
       "method": "sessions.github.publish",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.github.status",
+      "slot": "params"
+    },
+    {
+      "method": "sessions.github.status",
       "slot": "result"
     },
     {
@@ -921,11 +1133,19 @@
       "slot": "result"
     },
     {
+      "method": "sessions.providerReview.continue",
+      "slot": "result"
+    },
+    {
       "method": "sessions.reset",
       "slot": "result"
     },
     {
       "method": "sessions.send",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.setInvolvement",
       "slot": "result"
     },
     {
@@ -935,6 +1155,18 @@
     {
       "method": "sessions.steer",
       "slot": "result"
+    },
+    {
+      "method": "sessions.storage.run",
+      "slot": "params"
+    },
+    {
+      "method": "sessions.storage.run",
+      "slot": "result"
+    },
+    {
+      "method": "sessions.storage.status",
+      "slot": "params"
     },
     {
       "method": "sessions.subscribe",
@@ -1010,6 +1242,18 @@
     },
     {
       "method": "skills.install",
+      "slot": "result"
+    },
+    {
+      "method": "skills.library.import",
+      "slot": "result"
+    },
+    {
+      "method": "skills.library.mutate",
+      "slot": "result"
+    },
+    {
+      "method": "skills.library.save",
       "slot": "result"
     },
     {
@@ -1129,23 +1373,11 @@
       "slot": "result"
     },
     {
-      "event": "task",
-      "slot": "payload"
-    },
-    {
-      "method": "tasks.dismiss",
-      "slot": "params"
-    },
-    {
-      "method": "tasks.dismiss",
+      "method": "talk.voice.complete",
       "slot": "result"
     },
     {
-      "method": "tasks.retry",
-      "slot": "params"
-    },
-    {
-      "method": "tasks.retry",
+      "method": "talk.voice.get",
       "slot": "result"
     },
     {
@@ -1165,6 +1397,14 @@
       "slot": "result"
     },
     {
+      "method": "themes.import",
+      "slot": "result"
+    },
+    {
+      "method": "themes.set",
+      "slot": "result"
+    },
+    {
       "method": "tools.github.authorize.cancel",
       "slot": "params"
     },
@@ -1202,6 +1442,14 @@
     },
     {
       "method": "tools.github.status",
+      "slot": "result"
+    },
+    {
+      "method": "transcripts.summarize",
+      "slot": "params"
+    },
+    {
+      "method": "transcripts.summarize",
       "slot": "result"
     },
     {
@@ -1277,10 +1525,6 @@
       "slot": "payload"
     },
     {
-      "method": "update.run",
-      "slot": "result"
-    },
-    {
       "method": "usage.cost",
       "slot": "params"
     },
@@ -1294,6 +1538,54 @@
     },
     {
       "method": "usage.status",
+      "slot": "result"
+    },
+    {
+      "method": "users.authConnect.answer",
+      "slot": "result"
+    },
+    {
+      "method": "users.authConnect.cancel",
+      "slot": "result"
+    },
+    {
+      "method": "users.github.authorize.cancel",
+      "slot": "params"
+    },
+    {
+      "method": "users.github.authorize.cancel",
+      "slot": "result"
+    },
+    {
+      "method": "users.github.authorize.poll",
+      "slot": "params"
+    },
+    {
+      "method": "users.github.authorize.poll",
+      "slot": "result"
+    },
+    {
+      "method": "users.github.authorize.start",
+      "slot": "params"
+    },
+    {
+      "method": "users.github.authorize.start",
+      "slot": "result"
+    },
+    {
+      "method": "users.github.disconnect",
+      "slot": "params"
+    },
+    {
+      "method": "users.github.disconnect",
+      "slot": "result"
+    },
+    {
+      "method": "users.github.status",
+      "slot": "params"
+    },
+    {
+      "method": "users.github.status",
       "slot": "result"
     },
     {
