@@ -1,24 +1,24 @@
 {
   "schema": 2,
   "repo": "byokit",
-  "head": "f1646890e54be4919e5b134202840d88cbb23562",
-  "tree": "ca51713b1ad542b59c60894bb3d5f5bd94b47566",
+  "head": "d85da9a0a9bac345854da0a013956088d7a21f00",
+  "tree": "bb5eb60eaf426e2cc05709b3c1caa01f9cc5f934",
   "claim": "a person links a ChatGPT account in their own app and the provider's answer comes back through the installed @byokit/accounts package",
   "result": "pass",
-  "at": "2026-10-21T09:23:18.792Z",
+  "at": "2026-10-21T09:37:46.275Z",
   "files": [
     {
-      "path": "<evidence root>/20261021T092220Z-f1646890-403717/core-journey.txt",
-      "sha256": "c422da95775c0806bd195c1ca1c18c73312a6509c090ca7efb169da25d63635b"
+      "path": "<evidence root>/20261021T093656Z-d85da9a0-0d38d2/core-journey.txt",
+      "sha256": "fde463ac14b43cb1c6e350798abfbe7b8f951f834606ec61a33e12212e904756"
     },
     {
-      "path": "<evidence root>/20261021T092234Z-f1646890-b2100d/upgrade-journey.txt",
-      "sha256": "bc44cc2cca4624e8f236b5e3df65e23c73fdd3bb8dd5af1069144378cad99a60"
+      "path": "<evidence root>/20261021T093716Z-d85da9a0-0cb48f/upgrade-journey.txt",
+      "sha256": "9fcd17f28afc125899b84cd003f3302e91b16c3516f1cb17a5ca0d93abd2eba4"
     }
   ],
   "runs": [
     {
-      "run_id": "20261021T092220Z-f1646890-403717",
+      "run_id": "20261021T093656Z-d85da9a0-0d38d2",
       "journey": "core",
       "command": "node .agents/skills/done-done-verify-byokit/capture/core-journey.mjs",
       "tool": "0.6.0",
@@ -37,7 +37,7 @@
       }
     },
     {
-      "run_id": "20261021T092234Z-f1646890-b2100d",
+      "run_id": "20261021T093716Z-d85da9a0-0cb48f",
       "journey": "upgrade",
       "command": "node .agents/skills/done-done-verify-byokit/capture/upgrade-journey.mjs",
       "tool": "0.6.0",
@@ -65,16 +65,16 @@
     },
     "verdicts": [
       {
-        "path": "<evidence root>/20261021T092220Z-f1646890-403717/core-journey.txt",
-        "sha256": "c422da95775c0806bd195c1ca1c18c73312a6509c090ca7efb169da25d63635b",
+        "path": "<evidence root>/20261021T093656Z-d85da9a0-0d38d2/core-journey.txt",
+        "sha256": "fde463ac14b43cb1c6e350798abfbe7b8f951f834606ec61a33e12212e904756",
         "verdict": "pass",
-        "seen": "I read all 8 lines of the capture. The status line reads 'ChatGPT is connected.' and the streamed and answer lines both read 'You said: Plan my day', which shows the linked account's answer coming back through @byokit/accounts@0.30.0. The 'not offered' and 'no account' lines are error paths for other cases, not contradictions of the positive result. The outcome names one part, so parts and covers are empty."
+        "seen": "I read all six lines of the capture. The sign-in line shows a waiting code, and the status line reads 'ChatGPT is connected.' The streamed and answer lines both show 'You said: Plan my day', so the provider's answer came back through @byokit/accounts@0.30.0. The 'not offered' and 'no account' lines are separate negative cases and do not contradict the success path. The provider is the kit's local stand-in rather than real OpenAI, which is the only reason I did not put correct higher. The outcome names a single part, so parts and covers are empty."
       },
       {
-        "path": "<evidence root>/20261021T092234Z-f1646890-b2100d/upgrade-journey.txt",
-        "sha256": "bc44cc2cca4624e8f236b5e3df65e23c73fdd3bb8dd5af1069144378cad99a60",
+        "path": "<evidence root>/20261021T093716Z-d85da9a0-0cb48f/upgrade-journey.txt",
+        "sha256": "9fcd17f28afc125899b84cd003f3302e91b16c3516f1cb17a5ca0d93abd2eba4",
         "verdict": "pass",
-        "seen": "I read all three sections of the capture: the 0.29.0 baseline, the in-place upgrade step, and the core journey on @byokit/accounts@0.30.0. The upgraded run shows package @byokit/accounts@0.30.0, sign-in waiting code MOCK-10001, status ChatGPT is connected, and answer 'You said: Plan my day', which matches linking an account and getting the provider's answer back through the installed package. The provider is the kit's local stand-in rather than real ChatGPT, which is the only real gap against the outcome's wording. The outcome names one part, so parts and covers stay empty."
+        "seen": "Read 3 entries: the 0.29.0 install (step 1), the in-place upgrade (step 2), and the core journey on 0.30.0 (step 3). In step 3 the capture shows 'sign-in: waiting code MOCK-10001', 'status: ChatGPT is connected.', and 'streamed: You said: Plan my day' with 'answer: You said: Plan my day'. The provider's answer comes back through @byokit/accounts@0.30.0, which matches the outcome. The 'not offered' and 'no account' lines are expected negative checks and do not contradict the outcome. The outcome names no separate parts, so parts and covers are empty."
       }
     ]
   }
