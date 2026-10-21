@@ -99,7 +99,8 @@ export type FakeHerdr = {
   holdAgentWait(): () => void;        // hold `agent.wait` answers until the release runs (the deadline still starts on arrival)
   losePrompt(paneId: string): () => void;   // the next `agent.prompt` to the pane starts no turn; a caller that waits gets `agent_prompt_stalled`; the returned disarm cancels it
   scriptDrawingReads(paneId: string, reads: number, source?: string): void;   // the next `reads` `pane.read`s of the pane from `source` (default `recent`, the caller read) show the agent still drawing
-  failNextAck(code?: string, message?: string): void;        // the next subscribe is rejected once
+  failNextAck(code?: string, message?: string, replyId?: 'empty' | 'request' | 'null' | 'omitted'): void;   // the next subscribe is rejected once, its error frame carrying that id (default `empty`)
+  rejectWatch(paneId: string, replyId?: 'empty' | 'request' | 'null' | 'omitted'): void;   // every status watch of the pane is answered `pane_not_found` (the pane closed), its error frame carrying that id
   subscriptionCount(): number;        // distinct sockets holding a subscription (batch + filtered)
   stop(): Promise<void>;
 };
@@ -146,7 +147,8 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
   let nextSnapshotFailure: { code: string; message: string } | undefined;
   let ackGates: { promise: Promise<void>; release: () => void }[] = [];
   let agentWaitGates: { promise: Promise<void>; release: () => void }[] = [];
-  let nextAckFailure: { code: string; message: string } | undefined;
+  let nextAckFailure: { code: string; message: string; replyId: 'empty' | 'request' | 'null' | 'omitted' } | undefined;
+  const closedWatches = new Map<string, 'empty' | 'request' | 'null' | 'omitted'>();   // pane -> id of the pane_not_found frame
   const lostPrompts = new Set<string>();   // panes whose next prompt starts no turn
   const drawingReads = new Map<string, number>();   // `${paneId} ${source}` -> reads left that show the agent still drawing
 
@@ -727,13 +729,19 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     const subs = Array.isArray(params.subscriptions) ? params.subscriptions as Params[] : [];
     const ackFailure = nextAckFailure;
     nextAckFailure = undefined;
-    const invalid = (message: string, code = 'invalid_subscription') => {
+    const invalid = (message: string, code = 'invalid_subscription', replyId = 'empty') => {
       // A rejected subscribe answers `id: ""` once and the server closes; the client never retries it.
-      writeJson(socket, { id: '', error: { code, message } });
+      const frameId = replyId === 'request' ? id : replyId === 'null' ? null : replyId === 'omitted' ? undefined : '';
+      writeJson(socket, { id: frameId, error: { code, message } });
       socket.end();
     };
+    const gone = subs.find((s) => typeof s?.pane_id === 'string' && closedWatches.has(s.pane_id));
+    if (gone !== undefined) {
+      invalid(`pane ${gone.pane_id as string} not found`, 'pane_not_found', closedWatches.get(gone.pane_id as string));
+      return;
+    }
     if (ackFailure !== undefined) {
-      invalid(ackFailure.message, ackFailure.code);
+      invalid(ackFailure.message, ackFailure.code, ackFailure.replyId);
       return;
     }
     for (const s of subs) {
@@ -1103,8 +1111,11 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
       const key = `${paneId} ${source}`;
       drawingReads.set(key, (drawingReads.get(key) ?? 0) + reads);
     },
-    failNextAck(code = 'invalid_subscription', message = 'the next subscribe is rejected') {
-      nextAckFailure = { code, message };
+    failNextAck(code = 'invalid_subscription', message = 'the next subscribe is rejected', replyId = 'empty') {
+      nextAckFailure = { code, message, replyId };
+    },
+    rejectWatch(paneId, replyId = 'empty') {
+      closedWatches.set(paneId, replyId);
     },
     subscriptionCount() {
       const held = new Set<object>();
