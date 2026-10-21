@@ -25,6 +25,18 @@ const empty = (): HerdrSnapshot => ({ connected: false, revision: 0, workspaces:
 const structural = (name: string): boolean =>
   name === 'pane.agent.detected' || /^(pane|tab|workspace)\.(created|closed|moved|renamed)$/.test(name);
 
+// The events a bootstrap holds for its replay are bounded in count and bytes. A bootstrap that
+// parks (a status watch that is never acknowledged) must not retain every event that arrives:
+// past the cap the backlog is not kept, the tree is re-read from Herdr instead (a fresh snapshot
+// carries the topology, the panes and the statuses), and the overflow is reported through the
+// kit's log channel — so nothing is dropped silently.
+export const BUFFER_LIMITS = { events: 512, bytes: 2 * 1024 * 1024 } as const;
+
+// The deadline for the bootstrap's status barrier: a watch that is never acknowledged must not hold
+// the tree (and the events buffered behind it) forever. The transport's own deadline settles the
+// watch first; this is the kit's backstop for a host's own transport.
+const DEFAULT_ACK_TIMEOUT_MS = 15_000;
+
 type Waiter = { resolve: () => void; reject: (reason: unknown) => void };
 const notConnected = (): Error => Object.assign(new Error('herdr: not connected'), { code: 'not_connected' });
 
@@ -179,6 +191,8 @@ export class HerdrKit {
   private booting = false;                                 // a bootstrap is in flight
   private queued = false;                                  // one follow-up bootstrap is queued
   private buffered: HerdrEvent[] = [];                     // events held to replay after the next bootstrap
+  private bufferedBytes = 0;                               // the bytes those events hold
+  private bufferOverflowed = false;                        // the cap was hit: the tree is re-read instead
   private waiters: Waiter[] = [];                          // awaiting the in-flight bootstrap
   private nextWaiters: Waiter[] = [];                      // awaiting the queued follow-up bootstrap
   private published = new Map<string, string | undefined>(); // pane id -> agent status in the last published tree
@@ -229,6 +243,30 @@ export class HerdrKit {
     for (const fn of this.listeners) fn(this.snapshot(), changed);
   }
   private emitRaw(e: HerdrEvent) { for (const fn of [...this.rawListeners]) fn(e); }
+  /**
+   * Hold one event for the next bootstrap, inside the buffer's caps. Past the cap the backlog is
+   * not kept: the tree is re-read from Herdr (a fresh snapshot carries the topology, the panes and
+   * the statuses, so the events' meaning is recovered rather than lost), the overflow is reported
+   * through the kit's log channel, and the events that follow are covered by that re-read.
+   */
+  private hold(e: HerdrEvent): void {
+    if (this.bufferOverflowed) return;   // the queued re-read carries what comes next
+    const bytes = Buffer.byteLength(JSON.stringify(e));
+    if (this.buffered.length >= BUFFER_LIMITS.events || this.bufferedBytes + bytes > BUFFER_LIMITS.bytes) {
+      this.bufferOverflowed = true;
+      // What the buffer held when the cap was hit: the bound the kit kept itself to.
+      const held = this.buffered.length + 1;
+      const heldBytes = this.bufferedBytes + bytes;
+      // Emptied in place: the bootstrap in flight replays this very array.
+      this.buffered.length = 0;
+      this.bufferedBytes = 0;
+      this.o.onLog?.(`herdr: the bootstrap buffer hit its cap (${held} events, ${heldBytes} bytes held); the tree is re-read from Herdr`);
+      this.queueBootstrap();
+      return;
+    }
+    this.buffered.push(e);
+    this.bufferedBytes += bytes;
+  }
   // The kit's own watches report rejections here so the host keeps its invalid_subscription
   // logging without tapping the transport.
   private watchError(where: string): (code: string, message: string) => void {
@@ -333,17 +371,26 @@ export class HerdrKit {
   private async bootstrap(token: number, buffered: HerdrEvent[]): Promise<void> {
     let resolveStatus!: () => void;
     const statusReady = new Promise<void>((resolve) => { resolveStatus = resolve; });
+    // The barrier settles on the watches' acknowledgements, on the deadline, or when the kit
+    // stops: a readiness left pending would hold the tree (and the events buffered behind it).
+    let barrier: NodeJS.Timeout | undefined;
+    const settleStatus = (): void => {
+      if (barrier !== undefined) { clearTimeout(barrier); barrier = undefined; }
+      resolveStatus();
+    };
     this.statusReadyPromise = statusReady;
-    this.statusReadyResolve = resolveStatus;
+    this.statusReadyResolve = settleStatus;
+    // A new window opens: whatever the previous cap dropped is carried by this fresh read.
+    this.bufferOverflowed = false;
     const epochAtRead = new Map(this.statusEpoch);
     let result: Raw;
     try {
       result = await this.transport!.call('session.snapshot', {}) as Raw;
     } catch (error) {
-      resolveStatus();
+      settleStatus();
       throw error;
     }
-    if (token !== this.generation) { resolveStatus(); return; }
+    if (token !== this.generation) { settleStatus(); return; }
     const snap = result.snapshot as Raw;
     // K11: the declared range gates the snapshot metadata too. Older than `min` fails closed;
     // newer than `max` installs the snapshot and stays usable with the steady state
@@ -352,7 +399,7 @@ export class HerdrKit {
     const seen = [result.protocol, snap?.protocol].filter((v): v is number => typeof v === 'number');
     if (seen.some((v) => v < min)) {
       this.setState({ phase: 'needs-update', why: 'version' });
-      resolveStatus();
+      settleStatus();
       throw new Error('herdr: snapshot protocol mismatch');
     }
     const newer = seen.some((v) => v > max);
@@ -387,6 +434,7 @@ export class HerdrKit {
       p.agent = { ...p.agent, status: live.status, revision: live.revision };
     }
     for (const event of buffered.splice(0)) this.update(event);
+    this.bufferedBytes = 0;
     // Agents already blocked in the snapshot join the list; entries whose pane is gone resolve.
     for (const entry of this.blockedList.list()) {
       const still = this.tree.workspaces.some((w) => w.tabs.some((t) => t.panes.some((p) => p.id === entry.paneId)));
@@ -402,7 +450,21 @@ export class HerdrKit {
       const ack = this.openStatusWatch(pane.id, token);
       if (ack !== undefined) statusAcks.push(ack);
     }
-    void Promise.allSettled(statusAcks).then(() => { if (token === this.generation) resolveStatus(); });
+    let pendingAcks = statusAcks.length;
+    let allAcked = false;
+    void Promise.allSettled(statusAcks.map((ack) => ack.finally(() => { pendingAcks -= 1; })))
+      .then(() => { allAcked = true; settleStatus(); });
+    // The barrier's deadline: watches that are never acknowledged must not hold the tree. The
+    // transport's own deadline settles them first; this is the kit's backstop, and it names the
+    // watches that are still missing through the kit's log channel.
+    const ackTimeoutMs = this.o.ackTimeoutMs ?? DEFAULT_ACK_TIMEOUT_MS;
+    barrier = setTimeout(() => {
+      if (!allAcked) {
+        this.o.onLog?.(`herdr: ${pendingAcks} status watch(es) were not acknowledged within ${ackTimeoutMs} ms; the tree lands without them`);
+      }
+      settleStatus();
+    }, ackTimeoutMs);
+    barrier.unref();
     this.setState(newer ? { phase: 'needs-update', why: 'version' } : { phase: 'ready' });
   }
   // Re-read one agent and land its status, revision, session and launch flags: after a watch acks (a status
@@ -502,10 +564,14 @@ export class HerdrKit {
     const token = ++this.generation;
     this.transport = await this.supervisor.start();
     this.buffered = [];
+    this.bufferedBytes = 0;
+    this.bufferOverflowed = false;
     this.booting = false;
     this.queued = false;
     this.waiters = [];
     this.nextWaiters = [];
+    // The events subscription's own failure, so a refused or unacknowledged batch names its cause.
+    let eventFailure: string | undefined;
     const stop = this.transport.subscribe(kinds.map((type) => ({ type })), (e) => {
       // Raw tap (K3): fire on arrival, before buffering/refresh/update, so listeners see every
       // wire payload (pane.moved.previous_pane_id, workspace.*) exactly once. Buffered replays
@@ -517,10 +583,13 @@ export class HerdrKit {
       // A structural event during a bootstrap is buffered and queues one follow-up: the replay in
       // bootstrap() only merges, so the change lands in the tree from the next snapshot.
       if (this.booting || moves) {
-        this.buffered.push(e);
+        this.hold(e);
         if (moves) this.queueBootstrap();
       } else this.update(e);
-    }, this.watchError('events'));
+    }, (code, message) => {
+      eventFailure = `${code}: ${message}`;
+      this.watchError('events')(code, message);
+    });
     this.stops.add(stop);
     try {
       const control = stop as typeof stop & { ready?: Promise<boolean>; onReconnect?: (fn: () => void) => void;
@@ -531,7 +600,9 @@ export class HerdrKit {
         this.tree.connected = false; this.publish();
       });
       control.onReconnect?.(() => { if (token === this.generation) this.queueBootstrap(); });
-      if (await control.ready === false) throw new Error('herdr: event subscription rejected');
+      if (await control.ready === false) {
+        throw new Error(`herdr: event subscription rejected${eventFailure === undefined ? '' : ` (${eventFailure})`}`);
+      }
       await this.runBootstrap(token, false);
     } catch (error) {
       // The attempt owns this subscription: drop it so a retried `start()` dials clean.
@@ -551,6 +622,8 @@ export class HerdrKit {
     this.waiters = []; this.nextWaiters = [];
     this.queued = false;
     this.buffered = [];
+    this.bufferedBytes = 0;
+    this.bufferOverflowed = false;
     this.booting = false;
     for (const waiter of waiting) waiter.reject(notConnected());
     for (const entry of this.blockedList.list()) this.blockedList.update(entry.paneId, undefined, entry);

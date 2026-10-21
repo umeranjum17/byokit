@@ -2623,14 +2623,18 @@ export type HerdrState = {
 export type HerdrProtocolRange = { min?: number; max?: number };   // each defaults to HERDR_PROTOCOL
 export type HerdrKitOptions =
   | { mode: 'adopt'; bin: string; socketPath: string; env?: Record<string, string>; path?: string[];
-      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; onState?: (s: HerdrState) => void;
+      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; livenessTimeoutMs?: number; ackTimeoutMs?: number;
+      onState?: (s: HerdrState) => void;
       onLog?: (message: string) => void }
   | { mode: 'own'; bin: string; stateDir: string; env?: Record<string, string>; path?: string[];
-      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; onState?: (s: HerdrState) => void;
+      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; livenessTimeoutMs?: number; ackTimeoutMs?: number;
+      onState?: (s: HerdrState) => void;
       onLog?: (message: string) => void };
 // A live subscription: call to unsubscribe. `ready` resolves true on the server ack and false on a
-// rejected batch (reported via `onError`, never retried); the reconnect hooks fire only on later
-// drops of an acknowledged socket. The kit's own watches log rejections to `onLog`.
+// rejected batch (reported via `onError`, never retried); a subscription that is stopped, refused
+// or never acknowledged also settles `ready` false, so no caller waits on it forever; the
+// reconnect hooks fire only on later drops of an acknowledged socket. The kit's own watches log
+// subscription failures to `onLog`.
 export type HerdrSubscribeStop = (() => void) & {
   ready: Promise<boolean>;
   onReconnect(fn: () => void): void;
@@ -2852,11 +2856,23 @@ no new link/device operation; apps forward the result through their authorized j
   matched by id; error → `Error('herdr: <code>: <message>')` with `code` property), default timeout 15 s,
   per-call override (`agent.wait`, `agent.prompt` with wait: timeout + 5 s). Event socket: one long-lived
   subscription for unfiltered kinds; `pane.agent_status_changed` per pane on its own socket (filtered kind);
-  frames parsed as `{event, data}` or legacy `data.type`; an error frame with `id: ""` is a rejected subscription:
-  report it via `onError` and do **not** retry that subscription; other closes reconnect after 1 s (event socket) or
+  frames parsed as `{event, data}` or legacy `data.type`; an error frame answers the one request its socket
+  carries, so one with no id of its own (`""`, null, absent) **or with an id derived from the request id**
+  (Herdr's per-subscription probe answers `<id>:sub:0:probe`) is that request's refusal: report it via
+  `onError` and do **not** retry that subscription; other closes reconnect after 1 s (event socket) or
   2 s (per-pane). Start retries 250/500/1000/2000 ms, then the 1 s loop; the kit stays up (`reconnecting`).
+  A subscription's readiness always settles: the server's ack (`true`), a refusal, a stop, a closed transport
+  or the acknowledgement deadline (`ackTimeoutMs`, default 15 s — the request timeout) settle it `false`, so no
+  caller and no bootstrap barrier waits on an acknowledgement that never comes.
 - **Bootstrap** (Herdr docs): open `events.subscribe`, wait for its ack, buffer events, call `session.snapshot`,
-  install it, apply buffered events in order, continue. Re-bootstrap after every event-socket reconnect. `onState`
+  install it, apply buffered events in order, continue. The buffered events are bounded in count and bytes
+  (512 events, 2 MiB): a bootstrap that parks (a status watch that is never acknowledged) must not retain
+  every event that arrives. Past the cap the backlog is not kept — the tree is re-read from Herdr (a fresh
+  snapshot carries the topology, the panes and the statuses), the overflow is reported through `onLog` with
+  what the buffer held, and the events that follow are covered by that re-read: nothing is dropped silently.
+  The bootstrap's status barrier is bounded the same way: it settles on the watches' acknowledgements, on
+  `ackTimeoutMs`, or when the kit stops, and the watches still missing are named through `onLog`.
+  Re-bootstrap after every event-socket reconnect. `onState`
   fires only when `phase` or `why` changes: a re-bootstrap (`refresh()`, a structural event) that lands in the state
   the kit already holds emits nothing, while a reconnect still reports `reconnecting` then `ready`. Unfiltered
   kinds subscribed: `pane.agent_detected`, `pane.created`, `pane.closed`, `pane.moved`, `pane.exited`,
