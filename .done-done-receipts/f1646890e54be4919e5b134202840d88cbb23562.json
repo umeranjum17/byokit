@@ -1,0 +1,81 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "f1646890e54be4919e5b134202840d88cbb23562",
+  "tree": "ca51713b1ad542b59c60894bb3d5f5bd94b47566",
+  "claim": "a person links a ChatGPT account in their own app and the provider's answer comes back through the installed @byokit/accounts package",
+  "result": "pass",
+  "at": "2026-10-21T09:23:18.792Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261021T092220Z-f1646890-403717/core-journey.txt",
+      "sha256": "c422da95775c0806bd195c1ca1c18c73312a6509c090ca7efb169da25d63635b"
+    },
+    {
+      "path": "<evidence root>/20261021T092234Z-f1646890-b2100d/upgrade-journey.txt",
+      "sha256": "bc44cc2cca4624e8f236b5e3df65e23c73fdd3bb8dd5af1069144378cad99a60"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261021T092220Z-f1646890-403717",
+      "journey": "core",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/core-journey.mjs",
+      "tool": "0.6.0",
+      "steps": {
+        "target": {
+          "version": "0.30.0"
+        },
+        "start": "a fresh consumer app with no package installed and no account linked",
+        "steps": [
+          "install the shipped @byokit/accounts package into the app",
+          "the app links a ChatGPT account by device code: it shows a code and the person approves it",
+          "the app reads the account status",
+          "the app asks the provider a question and prints the answer it gets back"
+        ],
+        "result": "the installed package answers: \"ChatGPT is connected.\" and the answer \"You said: Plan my day\""
+      }
+    },
+    {
+      "run_id": "20261021T092234Z-f1646890-b2100d",
+      "journey": "upgrade",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/upgrade-journey.mjs",
+      "tool": "0.6.0",
+      "steps": {
+        "target": {
+          "version": "0.30.0"
+        },
+        "start": "an app with the previous released @byokit/accounts version installed from the npm registry",
+        "steps": [
+          "the person links a ChatGPT account by device code and gets the provider's answer back",
+          "the app upgrades the installed package in place, over the version it had",
+          "the person links a ChatGPT account again and gets the provider's answer back through the upgraded package"
+        ],
+        "result": "the upgraded package answers: \"ChatGPT is connected.\" and the answer \"You said: Plan my day\""
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261021T092220Z-f1646890-403717/core-journey.txt",
+        "sha256": "c422da95775c0806bd195c1ca1c18c73312a6509c090ca7efb169da25d63635b",
+        "verdict": "pass",
+        "seen": "I read all 8 lines of the capture. The status line reads 'ChatGPT is connected.' and the streamed and answer lines both read 'You said: Plan my day', which shows the linked account's answer coming back through @byokit/accounts@0.30.0. The 'not offered' and 'no account' lines are error paths for other cases, not contradictions of the positive result. The outcome names one part, so parts and covers are empty."
+      },
+      {
+        "path": "<evidence root>/20261021T092234Z-f1646890-b2100d/upgrade-journey.txt",
+        "sha256": "bc44cc2cca4624e8f236b5e3df65e23c73fdd3bb8dd5af1069144378cad99a60",
+        "verdict": "pass",
+        "seen": "I read all three sections of the capture: the 0.29.0 baseline, the in-place upgrade step, and the core journey on @byokit/accounts@0.30.0. The upgraded run shows package @byokit/accounts@0.30.0, sign-in waiting code MOCK-10001, status ChatGPT is connected, and answer 'You said: Plan my day', which matches linking an account and getting the provider's answer back through the installed package. The provider is the kit's local stand-in rather than real ChatGPT, which is the only real gap against the outcome's wording. The outcome names one part, so parts and covers stay empty."
+      }
+    ]
+  }
+}
