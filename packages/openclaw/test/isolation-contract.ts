@@ -135,7 +135,7 @@ else process.exit(2);
       const own = { code: 'needs_cli_login', cli: 'claude', home: decoy, signIn: false };
       assert.deepEqual(engine.claudeLoginCause(), own, 'the login the gateway reads is the person\'s own');
       const phone = await signIn({ request: async method => { assert.equal(method, 'openclaw.setup.detect'); return { candidates: [] }; },
-        ensure: async member => ({ agentId: member }), callbackPort: 0, authConfig: () => '', restarted: async () => true,
+        ensure: async member => ({ agentId: member }), callbackPort: 0, restarted: async () => true,
         claudeLogin: () => engine.claudeLoginCause() }, 'umer', { authChoice: 'anthropic-cli' }, () => {}).done;
       assert.deepEqual(phone, { state: 'failed', via: 'browser', why: 'failed', error: 'Claude Code is installed here, but its sign-in could not be checked. Run claude once on this machine to sign in, then try again.', cause: own });
       await engine.stop();

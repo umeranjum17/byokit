@@ -66,7 +66,7 @@ async function start(house: House): Promise<SignInCtx> {
       await untilListed(request, member);
     }
     return { agentId: member };
-  }, callbackPort: 0, authConfig: () => '', restarted: async () => true };
+  }, callbackPort: 0, restarted: async () => true };
 }
 
 const stop = async (house: House) => { await house.transport?.stop(); await house.engine.stop(); };

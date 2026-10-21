@@ -448,7 +448,7 @@ mock.method(globalThis, 'fetch', (input, options) => {
     const probe = go(start, key);
     assert.ok(probe.length && probe.every((c) => c.session), `activation probe: ${JSON.stringify(probe.map((c) => c.session))}`);
 
-    // Straight after done, with no model named: the gateway already restarted onto the new sign-in, and the
+    // Straight after done, with no model named: the gateway already applied the new sign-in, and the
     // models map the kit writes is not an allowlist that would send the member back to openai.
     const turn = async (sessionKey: string, spec: { member: string; auth?: 'apiKey' }, bearer: string) => {
       const before = stub.calls.length;

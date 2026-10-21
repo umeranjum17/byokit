@@ -23,8 +23,7 @@ export type SignInCtx = {
   // Where the gateway reads a Claude Code login; `signIn: false` when the fallback login's folder is not it (Engine.claudeLoginCause).
   claudeLogin?(): CliLoginCause;
   onDisconnect?(fn: () => void): () => void;
-  authConfig(): string;
-  restarted(authBefore: string | undefined, signal?: AbortSignal): Promise<boolean>;
+  restarted(signal?: AbortSignal): Promise<boolean>;
   // The engine's own shutdown signal (Engine.stop): a shutdown before the commit point declines this drive at once,
   // the key paste included, the same way a phone cancel does.
   stopSignal?: AbortSignal;

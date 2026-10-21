@@ -356,8 +356,7 @@ export class OpenClawKit {
       routes: () => this.routes(),
       request: (method, params, options) => this.request()(method, params, options),
       ensure: (member) => this.ensureMember(member),
-      authConfig: () => this.authSnapshot(),
-      restarted: (authBefore, signal) => this.restarted(authBefore, signal),
+      restarted: (signal) => this.restarted(signal),
       setProviderHeaders: (provider, headers) => this.patchConfig({ models: { providers: { [provider]: { headers: headers ?? null } } } }),
       registerModels: (provider, rows) => {
         const done = this.catalogs.then(() => this.registerModels(provider, rows as { id: string }[]));
@@ -556,14 +555,10 @@ export class OpenClawKit {
     return this.current.phase === 'restarting' || this.current.phase === 'starting';
   }
 
-  private authSnapshot(): string {
-    return JSON.stringify(this.getConfigKey('auth')) ?? '';
-  }
-
-  // An activation that changed config `auth` makes the pin restart the gateway; then this resolves true once that
-  // restart has begun and the kit is ready again, false if it fails, is aborted or runs past RESTART_MS. No change: true.
-  private restarted(authBefore: string | undefined, signal?: AbortSignal): Promise<boolean> {
-    if (this.o.spawnEngine === false || this.authSnapshot() === authBefore) return Promise.resolve(true);
+  // Called only when native activation requires a restart: observe its beginning and ready again, with the
+  // original RESTART_MS/abort bound. Auth changes alone can hot-apply and never enter this wait.
+  private restarted(signal?: AbortSignal): Promise<boolean> {
+    if (this.o.spawnEngine === false) return Promise.resolve(true);
     if (signal?.aborted) return Promise.resolve(false);
     return new Promise((resolve) => {
       let began = this.engineRestarting();
@@ -742,8 +737,7 @@ export class OpenClawKit {
       claudeLogin: () => this.engine.claudeLoginCause(),
       onDisconnect: (fn) => { this.signInDisconnects.add(fn); return () => { this.signInDisconnects.delete(fn); }; },
       stopSignal: this.engine.stopSignal,
-      authConfig: () => this.authSnapshot(),
-      restarted: (authBefore, signal) => this.restarted(authBefore, signal),
+      restarted: (signal) => this.restarted(signal),
       setProviderHeaders: (provider, headers) => this.patchConfig({ models: { providers: { [provider]: { headers: headers ?? null } } } }),
       listWorkspaces: (key, signal) => this.o.listWorkspaces
         ? this.o.listWorkspaces(key, signal)

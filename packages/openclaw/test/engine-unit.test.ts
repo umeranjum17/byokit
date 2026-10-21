@@ -821,7 +821,7 @@ test('prepare seals old auth archives and offline migration reseals even after a
   await engine.start();
   assert.match(readFileSync(join(agent, 'auth-profiles.json'), 'utf8'), /migration-access/);
   assert.equal(existsSync(join(agent, 'auth-profiles.json.migrated-old')), false, 'archives are never restored as live sources');
-  assert.equal(await confirmRetainedLogin({ seal, callbackPort: 0, authConfig: () => '', restarted: async () => true, ensure: async () => ({ agentId: 'm1' }),
+  assert.equal(await confirmRetainedLogin({ seal, callbackPort: 0, restarted: async () => true, ensure: async () => ({ agentId: 'm1' }),
     request: async () => ({ providers: ['openai'] }) }, 'm1', { path: source }), true);
   assert.equal(existsSync(moved + '.sealed'), false);
   assert.equal(existsSync(moved + '.canonicalized'), true);

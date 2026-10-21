@@ -900,9 +900,9 @@ choice is `setup-token`, the prompt is the fixed `Sign-in token` label and no ga
 A `keyEntry` choice (a plan key such as `opencode-go`) never starts the wizard, which refuses it: the view asks
 `{ prompt: 'Plan key' }` (`'API key (billed per use)'` for `api` billing), waits for `paste` (15 min) and calls typed
 `openclaw.setup.activate { kind: 'api-key', agentId, authChoice, apiKey }`; the engine live-tests the key and saves
-the agent's model. A failed key-entry sign-in shows only the kit's words (`API key activation failed`, or `This key type is not available on this engine.` when the engine refuses the key type); the engine's text never reaches the view. Activation (this one and `anthropic-cli`'s) writes
-`auth`, which the pin applies by restarting the gateway once its requests drain; when the activation changed config
-`auth` and a spawned engine restarts for it, `done` waits for that restart to begin and the kit to be ready again,
+the agent's model. A failed key-entry sign-in shows only the kit's words (`API key activation failed`, or `This key type is not available on this engine.` when the engine refuses the key type); the engine's text never reaches the view. Activation (this one and `anthropic-cli`'s) may hot-apply its saved route. Only the native success result's
+`gatewayRestartRequired: true` makes `done` wait for a spawned engine's restart to begin and the kit to be ready again;
+a changed config `auth` is not a restart signal on 9.33. The shared activation callback observes that requested restart,
 within 60 s (event-driven, not polled). Past that the sign-in ends `why: 'failed'` with the words that the engine took too long and to try again (cancelled
 during the wait it ends `why: 'declined'`), and the add is cleaned up either way: a new agent is discarded, a member agent
 clears only this provider's profile and its index entry. The same wait and cleanup apply to `addKey` (below). A cancel during the activation request waits for the engine's answer before the cleanup, and ends `why: 'declined'`. Adds of one provider for one member take turns until each settles. Done means sealed.
@@ -4075,8 +4075,8 @@ OpenClaw (pinned 2026.8.1, verified in Crewhouse at `a9ca74e`):
   old provider id as-is (looks signed in, cannot authenticate `openai/*`).
 - `openai/*` must use `agentRuntime: { id: 'openclaw' }`; an explicit `modelPolicy.allow` must include `openai/*`. No
   `modelPolicy` record makes the `agents.defaults.models` keys an allowlist (migrated to `modelPolicy.allow` on boot).
-- A config `auth` change (`setup.activate` writes one) restarts the gateway, deferred until in-flight requests drain; a
-  run admitted before it runs on the old config.
+- 9.33 setup activation can hot-apply a config `auth` change. Its native `gatewayRestartRequired: true` result,
+  not an auth-config diff, signals a required restart; that restart waits for in-flight requests to drain.
 - Unset/auto memory search defaults to API-billed OpenAI embeddings; force `none` (or local) and `fallback: 'none'`.
 - Exit code 78 at start is repaired by one doctor `--fix` run.
 - Plugin `before_tool_call` hook timeout must exceed the bridge relay timeout (200 s > 195 s).
@@ -4106,7 +4106,7 @@ OpenClaw (pinned 2026.8.1, verified in Crewhouse at `a9ca74e`):
   hot-reload with no restart. The provider plugin's `catalog.run` hook still answers the full live list with
   per-model `api`/`baseUrl` (the engine maps the upstream package: `@ai-sdk/openai` → `openai-responses`,
   `@ai-sdk/anthropic` → `anthropic-messages`, else `openai-completions`). An `openclaw.setup.activate` that writes
-  auth restarts the Gateway.
+  auth need not restart the Gateway; follow its explicit `gatewayRestartRequired` result.
 
 Herdr (muxr notes verified on 0.8.0; H2/H9 re-verify on 0.9.1):
 - One request per connection; the server closes after answering; only `events.subscribe` stays open.

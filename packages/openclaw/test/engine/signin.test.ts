@@ -119,7 +119,6 @@ const signInCtx = () => {
     request,
     ensure: createMembers({ request, root: join(stateDir, 'openclaw') }).ensure,
     callbackPort: 0,
-    authConfig: () => '',
     restarted: async () => true,
   };
 };
@@ -145,7 +144,7 @@ async function withGateway<T>(plugins: string[], fn: (ctx: SignInCtx, request: G
     const request: GatewayTransport['request'] = (method, params, options) => transport.request(method, params, options);
     const { ensure } = createMembers({ request, root: join(state, 'openclaw') });
     await ensure('m1');
-    return await fn({ request, ensure, callbackPort: 0, authConfig: () => '', restarted: async () => true }, request, state);
+    return await fn({ request, ensure, callbackPort: 0, restarted: async () => true }, request, state);
   } finally {
     await probeTransport?.stop().catch(() => {});
     await probe.stop().catch(() => {});
