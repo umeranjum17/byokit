@@ -28,7 +28,8 @@ test('O16 real Workshop, cold cache, failed writes, crash interruption and bound
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = []; for await (const c of req) chunks.push(c);
     const body = JSON.parse(Buffer.concat(chunks).toString());
-    const review = body.messages.some((m: any) => m.role === 'user' && String(m.content).includes('Skill review. The turn above has ended'));
+    const review = body.messages.some((m: any) => m.role === 'user' && (typeof m.content === 'string' ? m.content :
+      Array.isArray(m.content) ? m.content.map((part: any) => part.text ?? '').join('\n') : '').includes('Skill review. Distill new durable learning from the full retained conversation.'));
     if (review) reviews++; else foreground++;
     if (review && holdReviews) await new Promise<void>(resolve => { releaseReview = resolve; res.once('close', resolve); });
     const tool = !review && body.messages.filter((m: any) => m.role === 'tool').length < 9;
@@ -171,13 +172,16 @@ test('O16 threshold memory flush is counted through transcripts only', { timeout
   const stub = { port: address.port, url: `http://127.0.0.1:${address.port}/v1`, calls: [], close: async () => new Promise<void>(resolve => server.close(() => resolve())) };
   const stateDir = process.env.BYOKIT_O16_STATE_DIR ? process.env.BYOKIT_O16_STATE_DIR + '-memory' : scratchDir('o16-memory');
   const kit = new OpenClawKit({ stateDir, engineDir: process.env.BYOKIT_O16_ENGINE_DIR ?? sharedEngineDir(),
-    config: { plugins: { allow: ['memory-core'], slots: { memory: 'memory-core' } }, agents: { defaults: { heartbeat: { every: '0m' },
-      compaction: { reserveTokens: 0, memoryFlush: { enabled: true, softThresholdTokens: 6000 } } } } } });
+    config: { plugins: { allow: ['memory-core'], slots: { memory: 'memory-core' } },
+      // Only memory file operations belong in this 32k threshold fixture, not every direct builtin schema.
+      tools: { allow: ['read', 'write'] }, agents: { defaults: { heartbeat: { every: '0m' },
+      compaction: { memoryFlush: { enabled: true, softThresholdTokens: 6000 } } } } } });
   const startMs = Date.parse(new Date().toISOString().slice(0, 10)), endMs = startMs + 86_400_000 - 1;
   const window = { startMs, endMs, mode: 'utc' as const };
   let reading;
   try {
-    await kit.start(); await useModelStub(kit, stub); await kit.ensureMember('m1');
+    // Keep this threshold fixture at its original 32k, not the ordinary direct-tool stub's 128k.
+    await kit.start(); await useModelStub(kit, stub, 32000); await kit.ensureMember('m1');
     const sessionKey = 'agent:m1:o16:memory';
     assert.equal((await kit.run({ member: 'm1', sessionKey, message: 'Cross the soft memory-flush threshold.' }, () => {})).ok, true);
     assert.equal(calls.filter(c => c.flush).length, 1, 'soft threshold did not schedule the memory flush');

@@ -190,7 +190,7 @@ const plain = (res: import('node:http').ServerResponse, model: unknown, text: st
 };
 
 // provider id 'byokit-stub', model 'test': the stub becomes every agent's primary model.
-export async function useModelStub(kit: OpenClawKit, stub: ModelStub): Promise<void> {
+export async function useModelStub(kit: OpenClawKit, stub: ModelStub, contextWindow = 128000): Promise<void> {
   const current = await kit.call('config.get', {}) as { hash: string };
   await kit.call('config.patch', { baseHash: current.hash, raw: JSON.stringify({
     models: { providers: { 'byokit-stub': {
@@ -198,7 +198,7 @@ export async function useModelStub(kit: OpenClawKit, stub: ModelStub): Promise<v
       baseUrl: stub.url, apiKey: 'custom-local', api: 'openai-completions',
       models: [{ id: 'test', name: 'Test', reasoning: true, input: ['text'],
         // 9.33's direct tool schemas + stock workspace exceed 40k estimated input tokens.
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 2048,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow, maxTokens: 2048,
         compat: { supportsReasoningEffort: true, supportedReasoningEfforts: ['off', 'low', 'medium', 'high'] } }],
     } } },
     agents: { defaults: { model: { primary: 'byokit-stub/test' } } },

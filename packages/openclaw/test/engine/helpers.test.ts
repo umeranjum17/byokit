@@ -70,8 +70,7 @@ mock.method(globalThis, 'fetch', (input, options) => {
   const config = { plugins: { allow: ['openai'] }, models: { providers: { openai: { baseUrl: stub.url, api: 'openai-completions',
     models: [{ id: 'gpt-5.6-sol', name: 'Test', api: 'openai-completions', reasoning: false, input: ['text'],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 2048 }] } } },
-    tools: { allow: ['report', 'sessions_send'], agentToAgent: { enabled: true, allow: [agent, 'byokit-key-m1'] }, sessions: { visibility: 'all' } },
-    session: { agentToAgent: { maxPingPongTurns: 0 } } };
+    tools: { allow: ['report', 'sessions_send'], agentToAgent: { enabled: true, allow: [agent, 'byokit-key-m1'] }, sessions: { visibility: 'all' } } };
   const gated: RunRef[] = [], called: RunRef[] = [];
   const host = {
     gate: async (run: RunRef, tool: string, input: Record<string, unknown>) => tool !== 'report' ? { allow: true as const }
