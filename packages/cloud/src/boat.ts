@@ -272,6 +272,26 @@ export function boat(o: {
     return mapState(m.id, sandboxField(json, 'state'));
   };
 
+  // What a list row already says about a machine; a field the wire leaves out stays out.
+  const summary = (row: unknown): Pick<MachineRef, 'subdomain' | 'state' | 'latestSnapshot'> => {
+    const subdomain = field(row, 'subdomain');
+    const at = field(row, 'snapshotCompletedAt');
+    const last = field(row, 'lastSnapshotStatus');
+    let state: MachineState | undefined;
+    try {
+      state = mapState(field(row, 'id') as string, field(row, 'state'));
+    } catch {
+      state = typeof field(row, 'state') === 'string' ? 'unknown' : undefined;
+    }
+    return {
+      ...(typeof subdomain === 'string' && subdomain ? { subdomain } : {}),
+      ...(state !== undefined ? { state } : {}),
+      ...(at !== undefined || last !== undefined
+        ? { latestSnapshot: { at: typeof at === 'string' ? at : null, status: typeof last === 'string' ? last : null } }
+        : {}),
+    };
+  };
+
   const exec = async (
     m: MachineRef,
     argv: readonly string[],
@@ -443,7 +463,7 @@ export function boat(o: {
           if (typeof id !== 'string' || !id) throw new MachineError('provider', 'the provider answered without a sandbox id');
           const access = field(row, 'access');
           if (access !== undefined && access !== 'owner') continue;
-          refs.push({ provider: 'sandbox-api', account: acct, id, name: 'computer', keepCopies: field(row, 'snapshots') === true });
+          refs.push({ provider: 'sandbox-api', account: acct, id, name: 'computer', keepCopies: field(row, 'snapshots') === true, ...summary(row) });
         }
         const page = field(json, 'pageInfo');
         if (page === undefined || field(page, 'hasMore') === false) return refs;

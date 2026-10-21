@@ -7,6 +7,10 @@ export type MachineRef = {
   id: string                      // provider machine id
   name: string                    // ^[a-z][a-z0-9-]{0,31}$
   keepCopies: boolean             // provider snapshots on; false = no backups AND no sleep (section 11)
+  // list() only, where the wire returns them: a read at list time, never stored (the roster keeps identity only).
+  subdomain?: string              // the provider's stable slug for this machine
+  state?: MachineState
+  latestSnapshot?: { at: string | null; status: string | null }  // newest completed copy, and the last attempt's status
 }
 
 export type MachineState =

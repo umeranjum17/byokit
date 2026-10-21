@@ -288,6 +288,41 @@ If installation fails, the selected ref stays saved: retry `m.install(recipe)`, 
 or adopt. The app must keep the same consented recipe for that retry. Installation can execute
 the recipe's admin steps; adoption is not a sandbox for an untrusted installer.
 
+## More than one account or computer
+
+`machine()` holds one computer. For a person with several Boat accounts or computers, `roster()` keeps a
+non-secret list of accounts in your own `RosterStore` (a `load`/`save` pair, like `MachineStore`) and each
+account's key in your secure key store (`KeyStore`: `get`, `set`, `delete` by account id).
+
+```ts
+import { boat, roster } from '@byokit/cloud';
+import type { KeyStore, Price, RosterStore } from '@byokit/cloud';
+
+declare const rosterStore: RosterStore, keyStore: KeyStore, baseUrl: string, prices: Price[];
+declare const pastedKey: string, otherKey: string, homeId: string;
+
+const r = roster({
+  store: rosterStore,   // { load, save } for a non-secret record
+  keys: keyStore,       // { get, set, delete }: your keychain or SecureStore
+  provider: ({ label, key }) => boat({ baseUrl, label, prices, key }),
+});
+
+await r.add({ key: pastedKey, label: 'Work' });   // checked with the provider, key to keyStore
+await r.add({ key: otherKey, label: 'Home' });    // the first account added is active
+await r.select(homeId);                           // the active account
+const computers = await r.list();                 // refs with subdomain, state, latestSnapshot where Boat returns them
+await r.manage(computers[0]);                     // keep its identity, pinned to its account
+const m = await r.machine(computers[0].id);       // a Machine: wake, sleep, snapshot, remove touch only this one
+await m.sleep();
+const made = await (await r.fresh()).create({ name: 'web', size: 'small', keepCopies: true });  // joins the roster
+await r.remove(homeId);                           // forgets the account, its key and its machines; computers stay
+```
+
+Every account has its own `Provider` (`r.provider(id)`), so a key or a failure on one account never reaches
+another. `r.machines()` lists the managed computers, each with its `account`. A computer that is not managed
+rejects `no-machine`; an account not on the roster rejects `wrong-account`. An app with one account keeps
+calling `machine()` as before.
+
 ## Setup step stream
 
 `setup({ provider, store, recipe, pick, confirmId, onLine, address, pair })` drives one existing-computer
