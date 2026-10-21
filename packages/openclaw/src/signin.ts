@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import type { remoteCliHost } from '@byokit/accounts/cli';
 import { createServer, type Server } from 'node:http';
 import { activate, LATE_RESTART } from './activation.ts';
-import { authStatus } from './auth-status.ts';
+import { authStatus, detection } from './auth-status.ts';
+import type { Detector } from './detect.ts';
 import { routes } from './routes.ts';
 import { signedInProviders } from './runs.ts';
 import { words } from './words.ts';
@@ -13,6 +14,9 @@ import type { CliLoginCause, GatewayTransport, Member, SignInOptions, SignInView
 export type SignInCtx = {
   request: GatewayTransport['request'];
   authStatus?: (agentId: string, refresh: boolean, native: boolean) => ReturnType<typeof authStatus>;
+  // The shared setup detection (one probe per agent, reused briefly). A drive reads it fresh every time: what it
+  // decides (is a Claude Code login there? did the one the person just made land?) must be the engine's answer now.
+  detect?: Detector;
   ensure(member: Member): Promise<{ agentId: string }>;
   callbackPort: number;
   nativeClaudeLogin?(): ReturnType<typeof remoteCliHost>; resetNativeClaudeLogin?(): Promise<void>;
@@ -169,6 +173,8 @@ export function signIn(
     returned = undefined;
     pasteIn = undefined;
     await closeCallback();
+    // A drive moves the login state, so the shared detection is dropped: the next reader asks the engine.
+    if (agentId !== undefined) ctx.detect?.invalidate(agentId);
     if (sensitive && view.state === 'failed' && view.why === 'failed') view = { ...view, error: secretFailure };
     on(view);
     settle(view);
@@ -245,6 +251,9 @@ export function signIn(
       if (!server) return { state: 'failed', via, why: 'busy' };
     }
     ({ agentId } = await ctx.ensure(member));
+    // A drive moves the login state, so the shared detection is dropped before it reads one: the drive's own decision
+    // (is a Claude Code login there?) must be the engine's answer now, not an earlier one.
+    if (agentId !== undefined) ctx.detect?.invalidate(agentId);
     if (reconfirm && ctx.onDisconnect) {
       before = profiles(await authStatus(ctx.request, agentId).catch(() => undefined), false);
       if (signal.aborted) return cancelled();
@@ -257,9 +266,13 @@ export function signIn(
       settleStart();
       let apiKey: string | undefined;
       if (o.authChoice === 'anthropic-cli') {
-        const detected = async () => { const value = await ctx.request('openclaw.setup.detect', { agentId }, { timeoutMs: STATUS_MS, signal }) as {
-          candidates?: { kind?: string; credentials?: boolean }[];
-        }; return value.candidates?.some(candidate => candidate.kind === 'claude-cli' && candidate.credentials === true); };
+        // The drive reads the engine, never a reused answer: what it decides (is a Claude Code login there? did the
+        // one the person just made land?) must be the engine's answer now.
+        const probe = agentId as string;
+        const detected = async () => {
+          const value = await detection(ctx.request, probe, ctx.detect, { fresh: true, signal, timeoutMs: STATUS_MS });
+          return value.candidates?.some(candidate => candidate.kind === 'claude-cli' && candidate.credentials === true);
+        };
         native = ctx.nativeClaudeLogin?.();
         if (!await detected()) {
           const cause = ctx.claudeLogin?.();
