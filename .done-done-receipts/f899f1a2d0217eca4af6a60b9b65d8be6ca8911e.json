@@ -1,0 +1,39 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "f899f1a2d0217eca4af6a60b9b65d8be6ca8911e",
+  "tree": "6ae654cdba729b446ecc84cd7a08fbed372c14e8",
+  "claim": "the packed @byokit/herdr 0.16.3 resolves a pane-not-found reply and the refresh finishes",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-21T04:49:18.822Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261021T044824Z-f899f1a2-d27747/herdr-watch-pane-not-found.txt",
+      "sha256": "42085fc55734dde28c3a57a95784ac6a1e8428a438cd7bce2c5ce4e1fad86d31"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261021T044824Z-f899f1a2-d27747",
+      "journey": null,
+      "command": null
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261021T044824Z-f899f1a2-d27747/herdr-watch-pane-not-found.txt",
+        "sha256": "42085fc55734dde28c3a57a95784ac6a1e8428a438cd7bce2c5ce4e1fad86d31",
+        "verdict": "pass"
+      }
+    ]
+  }
+}
