@@ -39,12 +39,28 @@ const until = async (check, ms = 10_000) => {
 };
 const prices = [{ size: 'small', perHour: 0.018, planFloorPerMonth: 20, asleepPerHour: 0, currency: 'USD', basis: 'incl. IPv4, excl. VAT', source: 'http://boat.test/prices', checked: '2026-09-29' }];
 
+// The error case first, so the capture does not end on a failure: a key the provider does not accept.
+const denied = await startFakeSandboxServer();
+try {
+  const wrong = boat({ baseUrl: denied.url, label: 'Test', prices, key: async () => 'not-the-key' });
+  const plain = (e) => errorWords(e, { app: 'Your app', label: 'Test' });
+  const store = cloudStore(cloudSource(wrong, { words: plain }));
+  const off = store.subscribe(() => {});
+  await until(() => store.get().phase === 'failed');
+  const view = cloudView(store.get(), { words: plain });
+  if (view.headline !== "Can't read your cloud computers right now.") fail(`failure words: ${view.headline}`);
+  if (view.error !== "Test didn't accept your key. Make a new one and try again.") fail(`the host's words: ${view.error}`);
+  console.log('a host that cannot answer ->', view.headline, '|', view.error);
+  off();
+} finally { await denied.close(); }
+
 const server = await startFakeSandboxServer();
 try {
   const provider = boat({ baseUrl: server.url, label: 'Test', prices, key: async () => 'test-key' });
   const desk = await provider.create({ name: 'desk', size: 'small', keepCopies: true, idempotencyKey: 'desk' });
-  const lab = await provider.create({ name: 'lab', size: 'small', keepCopies: false, idempotencyKey: 'lab' });
+  const lab = await provider.create({ name: 'lab', size: 'small', keepCopies: true, idempotencyKey: 'lab' });
   await provider.snapshot(desk, 'today');
+  await provider.snapshot(lab, 'today');
   await provider.sleep(lab);
 
   // The app remembers the name it gave each machine; the provider's list does not carry one.
@@ -64,6 +80,7 @@ try {
   if (first.copy !== 'Copy just now') fail(`desk copy: ${first.copy}`);
   if (first.cost !== '$0.50 so far this month · about $5.00 a month') fail(`desk cost: ${first.cost}`);
   if (second.title !== 'lab' || second.stateWords !== 'Asleep' || second.action !== 'wake') fail(`lab row: ${JSON.stringify(second)}`);
+  if (!second.copy) fail(`lab copy: ${second.copy}`);
   const line = (r) => `${r.title} — ${r.stateWords}${r.copy ? ` · ${r.copy}` : ''}${r.cost ? ` · ${r.cost}` : ''}${r.actionWords ? ` · ${r.actionWords}` : ''}`;
   console.log('the list:');
   for (const r of view.rows) console.log(`  ${line(r)}`);
@@ -78,14 +95,15 @@ try {
   console.log(`search 'nothing here': ${cloudView(store.get()).headline}`);
   store.search('');
   store.select(lab.id);
-  if (!cloudView(store.get()).rows.find((r) => r.id === lab.id)?.selected) fail('the pick is not marked');
-  console.log(`picked: ${cloudView(store.get()).selected}`);
+  const picked = cloudView(store.get()).rows.find((r) => r.id === lab.id);
+  if (!picked?.selected) fail('the pick is not marked');
+  console.log(`picked: ${picked.title}`);
 
   // The person asks the host to wake it: the row says so until the host answers.
   store.act(lab.id, 'wake');
   const waking = cloudView(store.get()).rows.find((r) => r.id === lab.id);
   if (waking.stateWords !== 'Waking it up…' || !waking.pending) fail(`waking row: ${JSON.stringify(waking)}`);
-  console.log(`asked the host to wake ${lab.id}: ${waking.stateWords}`);
+  console.log(`asked the host to wake ${waking.title}: ${waking.stateWords}`);
   await until(() => store.get().ack !== undefined);
   const answered = cloudView(store.get()).rows.find((r) => r.id === lab.id);
   if (answered.ack !== "It's awake." || answered.pending) fail(`the host's answer: ${JSON.stringify(answered)}`);
@@ -97,29 +115,14 @@ try {
   off();
 } finally { await server.close(); }
 
-// The error case: a key the provider does not accept.
-const denied = await startFakeSandboxServer();
-try {
-  const wrong = boat({ baseUrl: denied.url, label: 'Test', prices, key: async () => 'not-the-key' });
-  const plain = (e) => errorWords(e, { app: 'Your app', label: 'Test' });
-  const store = cloudStore(cloudSource(wrong, { words: plain }));
-  const off = store.subscribe(() => {});
-  await until(() => store.get().phase === 'failed');
-  const view = cloudView(store.get(), { words: plain });
-  if (view.headline !== "Can't read your cloud computers right now.") fail(`failure words: ${view.headline}`);
-  if (view.error !== "Test didn't accept your key. Make a new one and try again.") fail(`the host's words: ${view.error}`);
-  console.log('failed ->', view.headline, '|', view.error);
-  off();
-} finally { await denied.close(); }
-
 console.log('DRIVE OK');
 ```
 
-Run it from a `$scratch_dir` **inside the worktree root** (`scratch_dir=$(mktemp -d ./scratch.verify-byokit.XXXXXX)`) so the bare imports resolve to the workspace; do not import the built files by absolute path. `node consumer.mjs` prints both resolved paths inside `packages/*/dist`, the list (one line per machine: `desk — Awake · Copy just now · $0.50 so far this month · about $5.00 a month · Put it to sleep` and `lab — Asleep · $0.50 so far this month · about $5.00 a month · Wake it`), the search and its words, the pick, the waking row, the host's answer, the next read, the failure line with the host's own words, and `DRIVE OK`. The resolved paths must be inside `packages/*/dist`, never a registry copy. The same run fails when the list, the copy, the cost, the search, the pick, the waking row, the host's answer or the failure words are wrong. Remove the scratch folder when the run ends.
+Run it from a `$scratch_dir` **inside the worktree root** (`scratch_dir=$(mktemp -d ./scratch.verify-byokit.XXXXXX)`) so the bare imports resolve to the workspace; do not import the built files by absolute path. `node consumer.mjs` prints both resolved paths inside `packages/*/dist`, then the failure line with the host's own words, then the journey: the list (one line per machine: `desk — Awake · Copy just now · $0.50 so far this month · about $5.00 a month · Put it to sleep` and `lab — Asleep · Copy just now · $0.50 so far this month · about $5.00 a month · Wake it`), the search and its words, the pick, the waking row, the host's answer, the next read, and `DRIVE OK`. The resolved paths must be inside `packages/*/dist`, never a registry copy. The same run fails when the list, the copy, the cost, the search, the pick, the waking row, the host's answer or the failure words are wrong. Remove the scratch folder when the run ends.
 
 ## Gotchas
 
-- The kit ships no screen of its own, so the drive is a consumer and the look is captured by the review-evidence capture: `node .agents/skills/done-done-verify-byokit/capture/review-evidence.ts --screens cloud-list,cloud-search,cloud-empty,cloud-loading,cloud-error,cloud-waking,cloud-asleep --out <folder>` renders the built package's own output in a real browser at 390 and 1280, light and dark, one frame per state. The page is the capture's; the words, the rows and the states are the package's.
+- The kit ships no screen of its own, so the drive is a consumer and the look is captured by the review-evidence capture: `node .agents/skills/done-done-verify-byokit/capture/review-evidence.ts --screens cloud-list,cloud-search,cloud-empty,cloud-loading,cloud-error,cloud-waking,cloud-answered,cloud-asleep --out <folder>` renders the built package's own output in a real browser at 390 and 1280, light and dark, one frame per state. The page is the capture's; the words, the rows and the states are the package's.
 - `@byokit/ui/kits` is a portable entry: no Node and no React. The cloud view imports only `./words.json` and the store helper; `test/portable.test.ts` and the entry's own bundle check fail otherwise.
 - The view reads only the fields it names, so a credential on a machine object never reaches a row (D3); extra fields are ignored, not copied.
 - The type restatement is deliberate: a change to the cloud kit's `Provider` does not flow through automatically. The kit's own provider fits `CloudProvider` as it is, and a provider that lists more machines (a roster of accounts, a machine with its own subdomain, state and newest copy) fits too.

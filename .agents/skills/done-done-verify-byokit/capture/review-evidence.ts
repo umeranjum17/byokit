@@ -542,7 +542,7 @@ import { cloudView, type CloudState } from '@byokit/ui/kits';
 const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
 const cost = { perMonth: 5, spent: 0.5, currency: 'USD' };
 const desk = { id: 'sb-1', name: 'desk', state: 'on' as const, account: 'Umer', snapshot: { id: 'byokit-desk-today', at: hoursAgo(2) }, cost };
-const lab = { id: 'sb-2', name: 'lab', state: 'asleep' as const, account: 'Umer', cost };
+const lab = { id: 'sb-2', name: 'lab', state: 'asleep' as const, account: 'Umer', snapshot: { id: 'byokit-lab-today', at: hoursAgo(5) }, cost };
 const ready = { phase: 'ready' as const, actions: ['wake', 'sleep'], search: '' };
 const states: Record<string, CloudState> = {
   list: { ...ready, machines: [desk, lab] },
