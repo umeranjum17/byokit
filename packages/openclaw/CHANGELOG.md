@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## 0.26.1 (2026-10-21)
+
+- FIX: a key sign-in through `@byokit/openclaw` no longer fires one slow `openclaw.setup.detect` per reader: the
+  readiness read, the account list and a sign-in share one detection per agent (one probe in flight, its answer reused
+  briefly, and every sign-in, sign-out, key change and account change drops it), and the pin's own status and the
+  detection now run together. The app's poll after a sign-in costs one probe instead of fifteen.
+- FIX: a key lane lists the models the provider's live catalog offers, so a model the picker showed (MiniMax Flash)
+  stays listed and pickable instead of being refused as "not included" while the engine's own list still lags the
+  registration. The kit keeps no model list of its own: the rows are the ones it registered from the live catalog.
+- FIX: an OpenRouter key sign-in now registers the provider's live list beside the model the person chose, so the
+  member keeps every model the vendor lists to pick from (the MiniMax models, `minimax/minimax-m3.1-flash` and its
+  free variant, among them) and `openrouter/auto` stays beside them. The engine's catalog stops at a registered list,
+  so an add that registered the chosen model alone left the member with that one row and nothing else to pick from.
+  The rows are deduped by the id the engine keeps, so the Google preview pair is one row and the list is never
+  refused, and the chosen model is registered on its own as well, so a list the engine refuses never costs the member
+  their own choice.
+
 ## 0.26.0 (2026-10-20)
 
 - Dependency update: pins @byokit/accounts 0.30.0.
