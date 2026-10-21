@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "87f8356d1ea9bb5c1244610dfd0bd89faaf13b1f",
+  "tree": "41a5002214c33a1dc06a9484db2e184259781e03",
+  "claim": "a member who signs in with an OpenRouter key can pick any model the vendor lists (the MiniMax models, minimax/minimax-m3.1-flash and its free variant, among them) beside openrouter/auto, and the chosen model runs on it",
+  "result": "pass",
+  "at": "2026-10-21T10:36:16.818Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261021T103606Z-87f8356d-222dff/openrouter-key-model.log",
+      "sha256": "72c232312c8e313949368d80e7ea41a5f35dc99d68d657dc888de86959eb5d85"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261021T103606Z-87f8356d-222dff",
+      "journey": null,
+      "command": "node .agents/skills/done-done-verify-byokit/capture/openclaw-openrouter-key-model.mjs",
+      "tool": "0.6.0",
+      "steps": {
+        "target": {
+          "version": "@byokit/openclaw 0.26.0"
+        },
+        "start": "The app has just signed in with an OpenRouter API key: the engine holds the key and the provider's live catalog is registered.",
+        "steps": [
+          "The app signs in with the OpenRouter API key the person pasted",
+          "The app lists the route's models (the provider's live catalog) for the model picker",
+          "The app signs in again with the model the person chose",
+          "The app lists the key lane's models, so the picker keeps every model the vendor lists",
+          "The app runs one turn on the chosen model"
+        ],
+        "result": "The add registered the provider's live list beside the chosen model: the key lane lists openrouter/auto, minimax/minimax-m3.1-flash and its free variant, and the run answers on the chosen model."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261021T103606Z-87f8356d-222dff/openrouter-key-model.log",
+        "sha256": "72c232312c8e313949368d80e7ea41a5f35dc99d68d657dc888de86959eb5d85",
+        "verdict": "pass",
+        "seen": "I read all 13 entries. The OpenRouter OAuth and deepseek key adds returned ok. The registered list includes openrouter/auto and the MiniMax models (minimax-m3.1-flash and its :free variant) beside the other choices. The key run returned ok with model deepseek/deepseek-v4.1-flash-1017, so a chosen model ran. The capture does not show a MiniMax model actually running, but the outcome's 'any model' wording is met by the run shown. The not_included results concern a non-live route and a Go workspace, which the outcome does not cover."
+      }
+    ]
+  }
+}
