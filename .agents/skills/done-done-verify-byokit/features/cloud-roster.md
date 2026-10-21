@@ -19,7 +19,7 @@ Preconditions: baseline (features/README.md).
 
 - **Write the consumer.** `"$scratch_dir/verify-cloud-roster.mjs"` (below). Import public entries only.
 - **Run and capture.** `feature=cloud-roster; entry=@byokit/cloud; drive=(node "$scratch_dir/verify-cloud-roster.mjs")`, then run SKILL.md Evidence's capture block. Exit code `0`.
-- **What it proves.** `accounts` lists both with `active: acct-work`; `listed` shows each computer's state, subdomain and `latestSnapshot`; `after-sleep` shows only `beta` asleep and `home-requests-during-sleep: 0`; `after-remove` lists the two left; the error leg prints `unmanaged: "no-machine"` and `bad-key: "unauthorized"`.
+- **What it proves.** `accounts` lists both with `active: acct-work`; `listed` shows each computer's state, subdomain and `latestSnapshot`; `after-sleep` shows only `beta` asleep and `home-requests-during-sleep: 0`; `after-remove` lists the two left; the error leg prints `unmanaged: "no-machine"` and `refused-add: "unauthorized"`.
 
 ```js
 import { boat, roster } from '@byokit/cloud';
@@ -45,7 +45,7 @@ try {
       },
     }),
   });
-  try { await r.add({ key: 'key-nope' }); } catch (e) { out('bad-key', e.code); }
+  try { await r.add({ key: 'key-nope' }); } catch (e) { out('refused-add', e.code); }
   await r.add({ key: 'key-work', label: 'Work' });
   await r.add({ key: 'key-home', label: 'Home' });
   out('accounts', { all: (await r.accounts()).map((a) => a.label), active: (await r.active()).id });
@@ -63,7 +63,7 @@ try {
   await (await r.machine(alpha.id)).remove(alpha.id);
   out('after-remove', (await r.machines()).map((m) => m.id));
   try { await r.machine(alpha.id); } catch (e) { out('unmanaged', e.code); }
-  out('key-in-roster', JSON.stringify(saved).includes('key-work'));
+  out('roster-holds-secret', JSON.stringify(saved).includes('key-work'));
 } finally {
   for (const s of Object.values(servers)) await s.close();
 }
@@ -72,5 +72,5 @@ try {
 ## Gotchas
 
 - Import from `@byokit/cloud` and `@byokit/cloud/testing` only; never `packages/cloud/src`.
-- The roster record must hold no key: `key-in-roster` prints `false`.
+- The roster record must hold no key: `roster-holds-secret` prints `false`.
 - Remove only `"$scratch_dir"` in cleanup; the `.verify-artifacts/cloud-roster/` evidence survives.
