@@ -158,7 +158,8 @@ test('O16 threshold memory flush is counted through transcripts only', { timeout
     const body = JSON.parse(Buffer.concat(chunks).toString());
     const flush = body.messages.some((m: any) => (typeof m.content === 'string' ? m.content :
       Array.isArray(m.content) ? m.content.map((p: any) => p.text ?? '').join('\n') : '').includes('Pre-compaction memory flush'));
-    const usage = flush ? STUB_USAGE : { prompt_tokens: 7000, completion_tokens: 7, total_tokens: 7007 };
+    // 9.33 caps reserve at 25%: 32k - 8k reserve - 6k soft = 18k; cross it without enlarging the window.
+    const usage = flush ? STUB_USAGE : { prompt_tokens: 19000, completion_tokens: 7, total_tokens: 19007 };
     calls.push({ flush, total: usage.total_tokens });
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     for (const [delta, finish] of [[{ role: 'assistant', content: flush ? 'NO_REPLY' : 'Done.' }, null], [{}, 'stop']])
@@ -194,8 +195,8 @@ test('O16 threshold memory flush is counted through transcripts only', { timeout
     const deadline = Date.now() + 70_000;
     do { reading = await readAgentDayUsage(kit, 'm1', window); if (reading.transcripts.state === 'available') break; await delay(1500); }
     while (Date.now() < deadline);
-    assert.equal(reading.transcripts.state, 'available'); assert.equal(reading.transcripts.totals?.totalTokens, 7025);
-    assert.deepEqual(reading.engineStarted.charges, []); assert.equal(reading.knownTotalTokens, 7025);
+    assert.equal(reading.transcripts.state, 'available'); assert.equal(reading.transcripts.totals?.totalTokens, 19025);
+    assert.deepEqual(reading.engineStarted.charges, []); assert.equal(reading.knownTotalTokens, 19025);
   } finally {
     await kit.stop(); await stub.close();
     if (process.env.BYOKIT_O16_EVIDENCE_DIR) writeFileSync(join(process.env.BYOKIT_O16_EVIDENCE_DIR, 'memory.json'),
