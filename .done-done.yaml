@@ -30,21 +30,40 @@ journeys:
       {
         echo "CI gate event rule, read at $(date -u +%Y-%m-%dT%H:%M:%SZ) on head $(git rev-parse HEAD)"
         echo
-        echo "1. The job that judges the receipt (.github/workflows/ci.yml, job done-done):"
+        echo "What this capture shows, in order:"
+        echo "  a. the bug: the push to main run 39548414209 (before this change) failed at the done-done gate;"
+        echo "  b. the fix: the done-done job's condition now runs it on a pull request only;"
+        echo "  c. that condition's false side is real: in this same workflow a step guarded by"
+        echo "     github.event_name == 'pull_request' ran in the pull request run and did not run in the push"
+        echo "     to main run, while the step guarded by github.event_name == 'push' did the opposite;"
+        echo "  d. the aggregate: a job skipped by design passes ci-ok, so the push to main run is green;"
+        echo "  e. the release: a green push to main CI run triggers the Release workflow."
+        echo
+        echo "1. The bug, in the push to main run's own job log (run 39548414209, event push, before this change; this is the run the fix removes):"
+        gh-axi run view 39548414209 --job 119051848588 --log 2>&1 | grep -o 'FAIL: receipt head[^\\]*'
+        gh-axi run view 39548414209 2>&1 | grep -E 'done-done,completed|ci-ok,completed'
+        echo
+        echo "2. The fix: the job that judges the receipt (.github/workflows/ci.yml, job done-done):"
         awk '/^  done-done:$/{p=1} p&&/^  [a-z0-9-]+:$/&&!/^  done-done:$/{exit} p' .github/workflows/ci.yml
         echo
-        echo "2. The rule that gate follows, in the failing push to main run's own job log (run 39548414209, job done-done):"
-        gh-axi run view 39548414209 --job 119051848588 --log 2>&1 | grep -o 'FAIL: receipt head[^\\]*'
+        echo "3. The same event condition, evaluated by GitHub on real runs of this workflow. The check job"
+        echo "   guards its two release lint steps by the event (.github/workflows/ci.yml, job check):"
+        grep -A 2 'name: Release lint' .github/workflows/ci.yml
+        echo "   the release lint steps that ran, read from each run's check job log:"
+        echo -n "   run 39548414209 (push to main): "
+        gh-axi run view 39548414209 --job 119051848705 --log 2>&1 | grep -oE 'Release lint \((main push|PR)\)' | sort -u | tr '\n' ' '
         echo
-        echo "3. The aggregate that decides whether CI is green (.github/workflows/ci.yml, job ci-ok):"
+        echo -n "   run 39549914720 (pull request): "
+        gh-axi run view 39549914720 --job 119056562572 --log 2>&1 | grep -oE 'Release lint \((main push|PR)\)' | sort -u | tr '\n' ' '
+        echo
+        echo "   So on a push to main github.event_name == 'pull_request' is false, and the done-done job is skipped."
+        echo
+        echo "4. The aggregate that decides whether CI is green (.github/workflows/ci.yml, job ci-ok):"
         awk '/^  # The one required check/{p=1} p' .github/workflows/ci.yml
-        echo
-        echo "4. What GitHub Actions really did, on real runs of this workflow:"
-        echo "   run 39548414209 (push to main, before this change):"
-        gh-axi run view 39548414209 2>&1 | grep -E 'done-done,completed|ci-ok,completed'
-        echo "   run 39549914720 (pull request):"
+        echo "   and what it did on a real run where 15 jobs were skipped by their own area (run 39549914720, a pull request):"
         gh-axi run view 39549914720 2>&1 | awk '/,skipped$/{n++} END{print "   jobs skipped by their own area: " n}'
         gh-axi run view 39549914720 2>&1 | grep -E 'done-done,completed|ci-ok,completed'
+        echo "   A skipped job is not a failure, so on a push to main, where the done-done job is skipped, ci-ok is green."
         echo
         echo "5. What publishes the release (.github/workflows/release.yml, job publish):"
         awk '/^  publish:$/{p=1} p&&/runs-on:/{print; exit} p' .github/workflows/release.yml
