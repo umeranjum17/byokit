@@ -309,7 +309,7 @@ test('run({ account }): each account agent bills its own key; a signed-out one e
   // The openai provider points at the stub with no config key: every request carries the calling profile's own key.
   const config = { plugins: { allow: ['openai'] }, models: { providers: { openai: { baseUrl: stub.url, api: 'openai-completions',
     models: [{ id: 'gpt-5.6-sol', name: 'Test', api: 'openai-completions', reasoning: false, input: ['text'],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 2048 }] } } } };
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 2048 }] } } } };
   let kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), config });
   try {
     await kit.start();
@@ -463,7 +463,7 @@ test('move: the transcript (user and tool rows) carries to the target agent and 
   const root = join(stateDir, 'openclaw');
   const config = { plugins: { allow: ['openai'] }, models: { providers: { openai: { baseUrl: stub.url, api: 'openai-completions',
     models: [{ id: 'gpt-5.6-sol', name: 'Test', api: 'openai-completions', reasoning: false, input: ['text'],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 2048 }] } } } };
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 2048 }] } } } };
   const tools = [{ name: 'report', description: 'record progress', parameters: { type: 'object' } }];
   const host = { gate: async () => ({ allow: true as const }),
     call: async (_run: unknown, _tool: string, input: Record<string, unknown>) => `Progress: ${String(input.text)}` };

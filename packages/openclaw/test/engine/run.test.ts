@@ -175,7 +175,7 @@ test('real tool calls cross the fail-closed gate; keyword memory stays free', { 
     // to the signed-in routes, here openai/*): the new provider must be allowed or m2 falls back to openai.
     await kit.patchConfig({ models: { providers: { 'byokit-stub-two': { baseUrl: stub.url, apiKey: 'stub-m2',
       api: 'openai-completions', models: [{ id: 'test', name: 'Test', reasoning: false, input: ['text'],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 2048 }] } } },
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 2048 }] } } },
       agents: { defaults: { modelPolicy: { allow: ['byokit-stub-two/*'] } },
         entries: { m2: { model: { primary: 'byokit-stub-two/test' } } } } });
     const stubCallsBefore = stub.calls.length;
@@ -294,7 +294,7 @@ test('API-key activation seals a sibling store; normal selection and stores rema
     config: { plugins: { allow: ['openai'] }, models: { providers: { openai: {
       baseUrl: stub.url, api: 'openai-completions',
       models: [{ id: 'gpt-5.6-sol', name: 'Test', api: 'openai-completions', reasoning: false, input: ['text'],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 2048 }],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 2048 }],
     } } } } });
   try {
     await kit.start();

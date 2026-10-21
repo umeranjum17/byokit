@@ -59,7 +59,7 @@ export function readEngineStarted(dir, live, params, read = readFileSync) {
       const safe = { v: 1, phase: row.phase, bootId: row.bootId, seq: row.seq, at: row.at, startedAt: row.startedAt,
         chargeId: row.chargeId, agentId: row.agentId, kind: row.kind, provider: row.provider, model: row.model };
       if (typeof row.authProfileId === 'string') safe.authProfileId = row.authProfileId;
-      if (['nothing', 'proposed', 'applied', 'failed'].includes(row.outcome)) safe.outcome = row.outcome;
+      if (['nothing', 'proposed', 'applied', 'completed', 'failed'].includes(row.outcome)) safe.outcome = row.outcome;
       else if (row.phase === 'ended') { result.unreadableLines++; continue; }
       if (object(row.usage)) {
         safe.usage = {};

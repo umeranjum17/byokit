@@ -107,6 +107,13 @@ test('cold boot: the first start() reaches ready without ECONNREFUSED', { timeou
     assert.equal(kit.state.phase, 'ready');
     assert.ok(kit.hello, 'no hello after cold boot');
     assert.equal(kit.hello.protocol, 4);
+    assert.equal(((await kit.call('config.get', {})) as { config: { tools: { toolSearch: unknown } } }).config.tools.toolSearch, false);
+    await kit.stop();
+    const optedIn = new OpenClawKit({ stateDir, engineDir, tools: [], config: { tools: { toolSearch: true } } });
+    try {
+      await optedIn.start();
+      assert.equal(((await optedIn.call('config.get', {})) as { config: { tools: { toolSearch: unknown } } }).config.tools.toolSearch, true, 'explicit app choice is preserved');
+    } finally { await optedIn.stop(); }
   } finally {
     await kit.stop().catch(() => {});
     rmSync(stateDir, { recursive: true, force: true });

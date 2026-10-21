@@ -316,8 +316,8 @@ console.log(JSON.stringify({ loggedIn: process.env.TEST_CLAUDE_LOGIN === 'yes', 
 `, { mode: 0o700 });
   const env = { PATH: process.env.PATH, HOME: install, CLAUDE_CONFIG_DIR: join(install, '.claude'),
     ANTHROPIC_API_KEY: 'fake-key', ANTHROPIC_OAUTH_TOKEN: 'fake-token', TEST_CLAUDE_LOGIN: 'yes' };
-  assert.deepEqual(probeClaudeCliAuthStatus({ command, env }), { status: 'available' });
-  assert.deepEqual(probeClaudeCliAuthStatus({ command, env: { ...env, TEST_CLAUDE_LOGIN: 'no' } }), { status: 'missing' });
+  assert.deepEqual(await probeClaudeCliAuthStatus({ command, env }), { status: 'available' });
+  assert.deepEqual(await probeClaudeCliAuthStatus({ command, env: { ...env, TEST_CLAUDE_LOGIN: 'no' } }), { status: 'missing' });
 });
 
 test('setup.detect rechecks a newly signed-in installed Claude and restarts the gateway itself', { timeout: 300_000 }, async () => {

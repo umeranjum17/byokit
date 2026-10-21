@@ -215,6 +215,8 @@ export default {
         name: spec.name,
         label: spec.name,
         description: spec.description,
+        // App-owned bridge tools remain directly callable on 9.33's compact/deferred tool surface.
+        catalogMode: 'direct-only',
         parameters: toTypeBox(spec.parameters),
         async execute(_toolCallId, params, signal) {
           const input = { ...(params ?? {}) };

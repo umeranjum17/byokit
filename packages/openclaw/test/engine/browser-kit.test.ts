@@ -78,7 +78,7 @@ test('W3/W7 stock engine: shipped plugin pins two member browsers, rejects unsaf
       tools: { allow: ['browser', 'request_sign_in', ...(matrixEnabled ? ['matrix_echo'] : [])] },
       agents: { entries: { ada: {}, bea: {} }, defaults: { model: { primary: 'byokit-stub/test' } } },
       models: { providers: { 'byokit-stub': { baseUrl: model.url, apiKey: 'synthetic-stub', api: 'openai-completions',
-        models: [{ id: 'test', name: 'Synthetic fixture', input: ['text'], contextWindow: 32000, maxTokens: 2048,
+        models: [{ id: 'test', name: 'Synthetic fixture', input: ['text'], contextWindow: 128000, maxTokens: 2048,
           cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } }] } } },
     },
     host: { gate: async () => ({ allow: true }), call: async (_run, tool) => tool === 'matrix_echo'

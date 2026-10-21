@@ -571,7 +571,7 @@ export class Engine {
     const usageDir = join(this.root, 'usage'), bootId = randomUUID();
     try {
       // The bundle hash in the Workshop file name changes per release; the stable prefix names the seam.
-      const accounted = this.wantedSet!.files.some(file => file.path.startsWith('dist/experience-review-default-') && file.path.endsWith('.js'));
+      const accounted = this.wantedSet!.files.some(file => file.path.startsWith('dist/experience-review-') && /\.m?js$/.test(file.path));
       if (accounted) {
         appendUsageBoot(usageDir, { bootId, startedAt: Date.now() });
         env.BYOKIT_ENGINE_USAGE_LEDGER = usageDir; env.BYOKIT_ENGINE_BOOT = bootId;

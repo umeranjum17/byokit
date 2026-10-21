@@ -65,11 +65,9 @@ export function generateRoutes(snapshot: PinSnapshot): Route[] {
     const keyEntry = via === 'key' || via === 'plan_key' || id === 'custom-api-key' || id === 'llama-cpp-existing-server';
     const scopes = choice.onboardingScopes;
     const services = !!scopes?.length && !scopes.includes('text-inference');
-    // The pin's Gateway sets a choice up only for text inference and only app-guided: a pasted key through
-    // `setup.activate` needs `appGuidedSecret`, a login through `setup.auth.start` needs `appGuidedAuth` or
-    // `appGuidedDiscovery`; anything else is refused ("That provider setup is not available on this Gateway.",
-    // "That key-based provider is not available on this Gateway."). Native CLI login is detected, not set up.
-    const guided = keyEntry ? choice.appGuidedSecret === true : !!choice.appGuidedAuth || choice.appGuidedDiscovery === true;
+    // 9.33 keeps manual-secret activation gated by appGuidedSecret, but auth.start also hosts the
+    // managed manual wizard (including setup-token and endpoints). Service-only scopes and aliases still refuse.
+    const guided = !keyEntry || choice.appGuidedSecret === true;
     const unguided = via !== 'cli' && (services || !guided);
     const absent = alias || unguided;
     const offerPolicy = billing === 'subscription' && !absent ? 'default' : 'explicit';

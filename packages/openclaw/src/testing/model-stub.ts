@@ -196,7 +196,8 @@ export async function useModelStub(kit: OpenClawKit, stub: ModelStub): Promise<v
     models: { providers: { 'byokit-stub': {
       baseUrl: stub.url, apiKey: 'byokit-stub', api: 'openai-completions',
       models: [{ id: 'test', name: 'Test', reasoning: true, input: ['text'],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 2048,
+        // 9.33's direct tool schemas + stock workspace exceed 40k estimated input tokens.
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 2048,
         compat: { supportsReasoningEffort: true, supportedReasoningEfforts: ['off', 'low', 'medium', 'high'] } }],
     } } },
     agents: { defaults: { model: { primary: 'byokit-stub/test' } } },

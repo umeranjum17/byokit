@@ -176,9 +176,9 @@
     "via": "setup_token",
     "auth": "token",
     "prerequisite": null,
-    "offer": false,
-    "offerPolicy": "explicit",
-    "reason": "The pinned Gateway has no app-guided setup for this choice.",
+    "offer": true,
+    "offerPolicy": "default",
+    "reason": "Anthropic setup-token: subscription sign-in.",
     "source": "extensions/anthropic/openclaw.plugin.json (2026.9.33)",
     "revision": "2026.9.33",
     "checked": "2026-10-21",
@@ -200,7 +200,7 @@
       "id": "anthropic",
       "method": "setup-token",
       "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
-      "flow": "absent"
+      "flow": "present"
     }
   },
   {
@@ -825,7 +825,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "The pinned Gateway has no app-guided setup for this choice.",
+    "reason": "Billing must be supplied by the host; a server address does not determine billing.",
     "source": "extensions/copilot-proxy/openclaw.plugin.json (2026.9.33)",
     "revision": "2026.9.33",
     "checked": "2026-10-21",
@@ -847,7 +847,7 @@
       "id": "copilot-proxy",
       "method": "local",
       "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
-      "flow": "absent"
+      "flow": "present"
     }
   },
   {
@@ -1754,7 +1754,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "The pinned Gateway has no app-guided setup for this choice.",
+    "reason": "Microsoft Foundry: Cloud credentials (billed per use).",
     "source": "extensions/microsoft-foundry/openclaw.plugin.json (2026.9.33)",
     "revision": "2026.9.33",
     "checked": "2026-10-21",
@@ -1776,7 +1776,7 @@
       "id": "microsoft-foundry",
       "method": "entra-id",
       "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
-      "flow": "absent"
+      "flow": "present"
     }
   },
   {
@@ -3075,7 +3075,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "The pinned Gateway has no app-guided setup for this choice.",
+    "reason": "Local runtime; explicitly select this route.",
     "source": "extensions/sglang/openclaw.plugin.json (2026.9.33)",
     "revision": "2026.9.33",
     "checked": "2026-10-21",
@@ -3097,7 +3097,7 @@
       "id": "sglang",
       "method": "custom",
       "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
-      "flow": "absent"
+      "flow": "present"
     }
   },
   {
@@ -3560,7 +3560,7 @@
     "prerequisite": null,
     "offer": false,
     "offerPolicy": "explicit",
-    "reason": "The pinned Gateway has no app-guided setup for this choice.",
+    "reason": "Local runtime; explicitly select this route.",
     "source": "extensions/vllm/openclaw.plugin.json (2026.9.33)",
     "revision": "2026.9.33",
     "checked": "2026-10-21",
@@ -3582,7 +3582,7 @@
       "id": "vllm",
       "method": "custom",
       "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
-      "flow": "absent"
+      "flow": "present"
     }
   },
   {

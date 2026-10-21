@@ -451,6 +451,9 @@ export type KitOptions = {
                                          // not bash or cron (the engine renames those before the gate hook)
   host?: ToolHost;                       // required when tools is non-empty
   permitted?: (tool: string) => boolean; // tools needing a one-use permit from their gate; default () => true
+  // On 9.33 the kit defaults tools.toolSearch to false (direct schemas); an app's explicit choice is preserved.
+  // App tools register catalogMode: 'direct-only'. Every builtin remains gated; no native wrapper bypass is added.
+  // Direct schemas can exceed 40k input tokens on a stock 9.33 home; small-context hosts should explicitly opt into toolSearch.
   gateBuiltins?: boolean;                // default true: engine builtins go through host.gate too (no host: blocked);
                                          // false gates only `tools` and lets builtins run ungated
   config?: object;                       // app OpenClaw config, deep-merged UNDER the invariants (5.6)
@@ -835,7 +838,7 @@ history. This is no task scheduler or global recovery disable. Installation/prov
 **Routes** (`src/routes.json`, O6): one entry per auth choice in the pinned tarball's provider contracts:
 `{ "choice": "openai-device-code", "provider": "openai", "plugin": "openai", "billing": "subscription", "via": "code",
 "prerequisite": null, "offer": true, "reason": "…", "source": "dist/provider-contract-api-*.js (2026.8.1)" }`.
-Subscription choices are offered by default, including native `anthropic-cli`; `setup-token` is listed, never offered, because the pinned Gateway refuses it (no app-guided sign-in). API-billed choices, including `openrouter-oauth`, stay off until the app or person opts in.
+Subscription choices are offered by default, including native `anthropic-cli`. In 9.33, `setup-token` also has a native managed-wizard flow; non-key text-inference choices no longer require an app-guided flag for `auth.start`. Manual-key activation still requires `appGuidedSecret`; service-only scopes and compatibility aliases remain unavailable. API-billed choices, including `openrouter-oauth`, stay off until the app or person opts in.
 Only proxy routes (`litellm-api-key`, `clawrouter-api-key`, `custom-api-key`), compatibility aliases,
 local runtimes, `copilot-proxy` stay off. Billing labels distinguish subscription from
 API key (billed per use); native `anthropic-cli` uses the person's installed Claude Code login (5.5). `routes()` returns the full table and
@@ -2293,7 +2296,7 @@ never fails a review).
 ```
 { v: 1, phase: 'started' | 'ended', chargeId /* engine run id */, agentId, kind: 'workshop-review',
   provider, model, authProfileId?, bootId, seq, at, startedAt, origin: { sessionKey, runId? },
-  outcome? /* ended: 'nothing' | 'proposed' | 'applied' | 'failed' */,
+  outcome? /* ended: 'nothing' | 'proposed' | 'applied' | 'completed' | 'failed' */,
   usage? /* ended, only when the engine reported it: input, output, cacheRead, cacheWrite, reasoningTokens, total */ }
 ```
 
@@ -2354,7 +2357,7 @@ export type EngineStartedKind = 'workshop-review';
 export type EngineStartedCharge = {
   chargeId: string; member: Member; kind: EngineStartedKind;
   state: 'counted' | 'reported-missing' | 'pending' | 'interrupted';
-  startedAt: number; endedAt?: number; outcome?: 'nothing' | 'proposed' | 'applied' | 'failed';
+  startedAt: number; endedAt?: number; outcome?: 'nothing' | 'proposed' | 'applied' | 'completed' | 'failed';
   provider: string; model: string; billing: 'subscription' | 'api' | 'local' | 'unknown'; authProfileId?: string;
   tokens?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; reasoningTokens?: number; total: number };
   tokenSource: 'engine-reported'; cost: { state: 'missing' }; bootId: string; seq: number;

@@ -43,7 +43,7 @@ if (process.argv[2] === 'worker') {
     ...(appOwned ? { appOwnedSessions: { keyPrefixes: ['agent:m1:crewhouse:'] } } : {}),
     config: {
       models: { providers: { 'byokit-stub': { baseUrl: url, apiKey: 'byokit-stub', api: 'openai-completions', models: [
-        { id: 'test', name: 'Test', input: ['text'], contextWindow: 32000, maxTokens: 2048, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
+        { id: 'test', name: 'Test', input: ['text'], contextWindow: 128000, maxTokens: 2048, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } },
       ] } } },
       agents: { defaults: { model: { primary: 'byokit-stub/test' }, heartbeat: { every: '0m' }, compaction: { memoryFlush: { enabled: false } } } },
     },
