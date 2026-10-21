@@ -23,7 +23,7 @@ After SKILL.md Launch and Doctor, from the worktree root:
 ```bash
 feature=openclaw-openrouter-key-model
 entry=.agents/skills/done-done-verify-byokit/capture/openclaw-openrouter-key-model.mjs
-drive=(node "$entry")
+drive=(node "$entry" "$evidence_dir")
 ```
 
 Use SKILL.md's Evidence capture block. Offline it drives `fakeGateway()` through the key path: the add registers the provider's live list beside the chosen model, the key lane lists the MiniMax models beside `openrouter/auto`, and the run answers on the chosen model. `drive=(node "$entry" --engine)` drives the real pinned engine (heavy job: hold the heavy-job lock; set `BYOKIT_SCRATCH` to a disk-backed dir or `BYOKIT_TEST_ENGINE_DIR` to an installed engine set): `byokit.catalog { provider: 'openrouter' }` answers ok with the chosen row, the raw list is refused (its preview pair collides, which is why the kit dedupes the rows by the id the engine keeps), and the chosen row registers; then a stand-in key under `openrouter-oauth` is probed and refused. It uses a dummy bearer because OpenRouter's `/models` is public; no real key and no inference.
