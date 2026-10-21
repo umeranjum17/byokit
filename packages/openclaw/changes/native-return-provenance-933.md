@@ -1,0 +1,1 @@
+- FIX: Admit an exact native `sessions_send` return on OpenClaw 2026.9.33 using the hook's structured input provenance, retaining the child receipt, actor, persona and tool-subset checks. Prompt text cannot confer admission, including a forged header naming the completed child.

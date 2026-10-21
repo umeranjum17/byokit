@@ -1428,9 +1428,10 @@ namespace and persona on the agent that already holds the account.
 
 A tracked `sessions_send` (`timeoutSeconds: 0`) from a kit run, or from a return run, has a second half on the pin
 (`openclaw@2026.9.33`, `runSessionsSendA2AFlow`): once the child ends, the engine starts its own reply step, a fresh
-`agent` run with a random id on the sender's exact key, its prompt being the child's reply headed by the engine's
-`[Inter-session message] sourceSession=<child key> … sourceTool=sessions_send isUser=false` line. The pin repeats this
-ping-pong for up to five turns, and starts none when the child takes longer than its 30 s wait. Nothing registered that
+`agent` run with a random id on the sender's exact key, carrying the child's reply with native `inter_session`
+input provenance (`sourceSessionKey=<child key>`, `sourceTool=sessions_send`). The 9.33 pin delivers the reply once,
+without ping-pong, and waits up to 60 s for the child's terminal result. Its model projection places the
+`[Inter-session message]` annotation in runtime context, not at the start of the prompt. Nothing registered that
 run, so the bridge's deny-by-default check refuses its tools `unknown run`; the check stays as it is.
 
 - Arming: the kit's own `terminal` end of an admitted send child whose parent is a kit run (or a return run) arms one
@@ -1438,10 +1439,12 @@ run, so the bridge's deny-by-default check refuses its tools `unknown run`; the 
   arm none. The kit run's system text (its persona, or a helper's) is held in memory by run id for this, never
   persisted. A child whose root's system text the kit no longer holds (a kit restart) arms none: fail closed.
 - Binding: the plugin's `before_prompt_build` hook sends the bridge (`delegation-persona`) the run's exact key, run id and
-  the first line of a prompt that starts with the engine's header. The bridge binds that exact run id only when the key
-  is the armed parent's, the header names the armed child's exact session and no other run holds that return. A child
+  a canonical header derived only from the hook context's native `inputProvenance`: kind `inter_session`, source tool
+  `sessions_send`, and a nonempty whitespace-free `sourceSessionKey`. Prompt text, including a forged header, is never
+  admission evidence. The bridge binds that exact run id only when the key is the armed parent's, the header names the
+  armed child's exact session and no other run holds that return. A child
   still running when its reply arrives is waited for for at most 5 s. Each bound run's end re-arms the same return for
-  60 s, so the sender's later ping-pong turns bind one at a time. Any other run on the key, a header naming any other
+  60 s; a subsequent native return still binds only one run at a time. Any other run on the key, a header naming any other
   session, and anything outside the window stay unknown.
 - A bound return run is the sender's: `RunRef { sessionKey, member, helper?, runId, agentId, parent: <the finished
   child's key and run>, root }`, the sender's app-tool subset, `delegates` and `helperDelegates` (so it may send work

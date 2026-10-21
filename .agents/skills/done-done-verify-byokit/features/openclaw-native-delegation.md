@@ -31,7 +31,8 @@ receipts readable by a fresh kit, active-call cancellation, and no revival of re
 Native tool and terminal events must reach `byokit.delegated`. Its return-run journey (5.8.4) asserts that the engine's
 own reply step after a finished send child is admitted as the sender: a host call on the sender's key with the root's
 member and agent, `parent` the finished child, `root` the sender, the root's system text in that run's model request,
-and a plain run plus one with a forged inter-session header on the same key still refused before the host. Run it alone
+and a plain run plus forged inter-session headers naming both another source and the exact completed child's source
+on the same key still refused before the host. Admission uses native hook `inputProvenance`, never prompt text. Run it alone
 with `--test-name-pattern='return run'` before `"$entry"`. Remove only the task-owned engine install after proof.
 
 Live return-run leg (only on a lane dispatched with an approved hosted-model route): a Crewhouse checkout whose
@@ -39,7 +40,7 @@ Live return-run leg (only on a lane dispatched with an approved hosted-model rou
 `package.json` and `tsconfig.json`, symlinking its other `node_modules`) runs Crewhouse's native-read pilot (Chief sends
 Scout to read `facts.txt` with `crew_read`; Chief's return reads it again) on the dedicated key file, passed by path,
 through the memory gate. Pass: exit 0, `childCalls: 1`, `returnCalls: 1`, the return's gated `RunRef` naming the root,
-and its reply starting with the root persona's marker. The pin starts no return when the child runs longer than 30 s:
+and its reply starting with the root persona's marker. The 9.33 pin waits at most 60 s for the child's terminal result:
 that run fails on the deadline with no return run, an engine limit, not the kit's.
 
 This is backend behavior: no screenshots. It does **not** qualify shared helper credentials, OAuth refresh ownership,
