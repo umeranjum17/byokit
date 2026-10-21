@@ -269,8 +269,9 @@ refresh it. The engine response cache lasts 30 seconds; pending/stale/unknown da
 An absent agent row is unavailable, not proof of zero usage. Reset/deletion/retention can reduce counters.
 
 **Coverage is always `retained-transcripts-only`.** Stock 2026.9.33's detached Skill Workshop reviews are omitted
-from its ledger; actual crash-recovery resumes and threshold memory flushes are counted through persisted
-transcripts, never through a second side total. This reader cannot enforce a complete all-turn budget. The app owns budget,
+from its ledger. Crash-recovery resumes count only where their usage is persisted. Unlike 8.35, 9.33 also runs
+threshold memory flushes detached: their provider tokens are absent from the observed transcript/day usage RPCs,
+even when the flush succeeds. No second side total is guessed. This reader cannot enforce a complete all-turn budget. The app owns budget,
 share and unavailable/partial-data policy. Do not add run results to these totals: they already overlap. Engine
 cost fields are price counters, not a bill or subscription quota; zero cost with `missingCostEntries > 0` is
 unknown cost, and tokens never establish subscription plan weights. No billing conversion is performed.
@@ -320,9 +321,10 @@ windows incomplete permanently. Reads open only requested UTC months plus boot r
 Device reads use the operator-read plugin RPC, never host files; the link adapter restricts it to the granted member.
 As with the existing transcript reader, the app must explicitly allow member-scoped `sessions.usage` pass-through.
 
-Uncovered: worker-bundle work, skill collection review, history scans, slug generation, active-memory recall,
-out-of-turn compaction and one-shot helper completions. Do not add `RunEnd.usage`, memory flush or recovery totals
-again: they already overlap retained transcripts. Offline scripted-provider tests verify seven Gateway accounting
+Uncovered: 9.33 detached memory flushes, worker-bundle work, skill collection review, history scans, slug generation,
+active-memory recall, out-of-turn compaction and one-shot helper completions. The previous memory-flush inclusion
+promise is not met on 9.33; `knownTotalTokens` can omit that spend. Do not add `RunEnd.usage` or recovery totals again:
+they already overlap retained transcripts, and do not invent a flush total from unrelated counters. Offline scripted-provider tests verify seven Gateway accounting
 cases; they do not establish live subscription quota, provider bills or universal coverage.
 
 For a validated JSON answer, pass a literal `schema`. The result's `data` is inferred from that schema:

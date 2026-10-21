@@ -165,8 +165,11 @@ export default {
     // nothing; the persona is a voice, never a grant.
     api.on('before_prompt_build', async (event, ctx) => {
       const key = ctx?.sessionKey;
-      const header = typeof event?.prompt === 'string' && event.prompt.startsWith('[Inter-session message] ')
-        ? event.prompt.slice(0, 1024).split('\n', 1)[0] : undefined;
+      // 9.33 projects the annotation into runtime context; only native provenance can attest its source.
+      const source = ctx?.inputProvenance;
+      const header = source?.kind === 'inter_session' && source.sourceTool === 'sessions_send'
+        && typeof source.sourceSessionKey === 'string' && /^\S{1,512}$/.test(source.sourceSessionKey)
+        ? `[Inter-session message] sourceSession=${source.sourceSessionKey} sourceTool=sessions_send isUser=false` : undefined;
       if (typeof key !== 'string' || (!header && !/^agent:[^:]+:h-[a-z][a-z0-9-]{0,15}:/.test(key))) return undefined;
       try {
         const reply = await bridgeRequest({ kind: 'delegation-persona', key, runId: ctx?.runId, ...(header ? { header } : {}) }, { timeoutMs: 10_000 });

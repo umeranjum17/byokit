@@ -11,6 +11,7 @@ import { dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../../src/engine.ts';
 import { OpenClawKit } from '../../src/kit.ts';
+import { createMembers } from '../../src/members.ts';
 import { gatewayTransport } from '../../src/transport.ts';
 import { providers, signIn, type SignInCtx } from '../../src/signin.ts';
 import { words } from '../../src/words.ts';
@@ -116,12 +117,7 @@ const signInCtx = () => {
   };
   return {
     request,
-    ensure: async (member: string) => {
-      const list = await request('agents.list') as { agents: { id: string }[] };
-      if (!list.agents.some((agent) => agent.id === member))
-        await request('agents.create', { name: member, workspace: join(stateDir, 'openclaw', 'workspaces', member) });
-      return { agentId: member };
-    },
+    ensure: createMembers({ request, root: join(stateDir, 'openclaw') }).ensure,
     callbackPort: 0,
     authConfig: () => '',
     restarted: async () => true,
@@ -147,10 +143,9 @@ async function withGateway<T>(plugins: string[], fn: (ctx: SignInCtx, request: G
     await probeTransport.start();
     const transport = probeTransport;
     const request: GatewayTransport['request'] = (method, params, options) => transport.request(method, params, options);
-    const list = await request('agents.list') as { agents: { id: string }[] };
-    if (!list.agents.some((agent) => agent.id === 'm1'))
-      await request('agents.create', { name: 'm1', workspace: join(state, 'openclaw', 'workspaces', 'm1') });
-    return await fn({ request, ensure: async (member: string) => ({ agentId: member }), callbackPort: 0, authConfig: () => '', restarted: async () => true }, request, state);
+    const { ensure } = createMembers({ request, root: join(state, 'openclaw') });
+    await ensure('m1');
+    return await fn({ request, ensure, callbackPort: 0, authConfig: () => '', restarted: async () => true }, request, state);
   } finally {
     await probeTransport?.stop().catch(() => {});
     await probe.stop().catch(() => {});
