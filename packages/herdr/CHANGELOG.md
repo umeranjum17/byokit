@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.16.3 (2026-10-21)
+
+FIX: Refreshing the pane list no longer waits forever when a pane has closed and Herdr answers its status watch with "pane not found"; the watch is dropped, the refresh finishes and the rejection is logged.
+
 ## 0.16.2 (2026-10-20)
 
 FIX: Moving a plan to another account no longer fails every time on Herdr 0.9.1 with "The new pane did not receive that sign-in"; the new pane's own shell now confirms the sign-in, and a pane that did not receive it is still refused.

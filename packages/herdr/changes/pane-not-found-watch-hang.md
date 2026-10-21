@@ -1,1 +1,0 @@
-FIX: Refreshing the pane list no longer waits forever when a pane has closed and Herdr answers its status watch with "pane not found"; the watch is dropped, the refresh finishes and the rejection is logged.
