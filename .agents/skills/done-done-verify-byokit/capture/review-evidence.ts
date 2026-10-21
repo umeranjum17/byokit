@@ -12,8 +12,11 @@
 // Output is one stable, predictable folder (default `.verify-artifacts/review/<slug>`), gitignored, never committed.
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { build } from 'esbuild';
 import { chromium, type Page } from 'playwright';
 import { mockDevice, mockOpenAI } from '@byokit/accounts/testing';
 import { serve } from '../../../../examples/pwa/serve.ts';
@@ -467,6 +470,128 @@ const SCREENS: Screen[] = [
   },
 ];
 
+// ---- The headless views, rendered in a real browser from the built package --------------------------
+// A kit that ships view state and no screen of its own (the ui package) still has a look a person can review:
+// the capture writes a small page that renders the built package's own output, in a real browser, in every theme
+// and form factor. The page is the capture's, not the product's: the words, the rows and the states are the
+// package's, and the page only draws them.
+type Render = {
+  /** File-name slug; the frames are written flat in the output folder, one per theme and form factor. */
+  id: string;
+  /** In the app's words, so a reviewer knows what the frames show. */
+  what: string;
+  /** The state the page shows. */
+  state: 'list' | 'search' | 'empty' | 'loading' | 'error' | 'waking' | 'asleep';
+  themes: Theme[];
+  formFactors: FormFactor[];
+};
+
+const RENDER_SCREENS: Render[] = [
+  { id: 'cloud-list', state: 'list', what: "Your cloud computers: each machine's name, what it is doing, its newest copy, what it costs and the one action it offers",
+    themes: [...themes], formFactors: ['phone', 'desktop'] },
+  { id: 'cloud-search', state: 'search', what: 'A search narrows the list to the one machine that matches, and the person can pick it',
+    themes: [...themes], formFactors: ['phone', 'desktop'] },
+  { id: 'cloud-empty', state: 'empty', what: 'No cloud computers yet',
+    themes: [...themes], formFactors: ['phone', 'desktop'] },
+  { id: 'cloud-loading', state: 'loading', what: 'The list is being read',
+    themes: [...themes], formFactors: ['phone', 'desktop'] },
+  { id: 'cloud-error', state: 'error', what: "The host could not answer: the plain line, then the host's own words",
+    themes: [...themes], formFactors: ['phone', 'desktop'] },
+  { id: 'cloud-waking', state: 'waking', what: 'The person asked the host to wake a machine: the row says so until the host answers',
+    themes: [...themes], formFactors: ['phone', 'desktop'] },
+  { id: 'cloud-asleep', state: 'asleep', what: 'An asleep machine offers the one action that helps: wake it',
+    themes: [...themes], formFactors: ['phone', 'desktop'] },
+];
+
+/** The page the capture serves for a headless view: the built package's output, drawn plainly. */
+const RENDER_PAGE = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your cloud computers</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f5f6f8; --fg: #15181c; --muted: #59616d; --card: #ffffff; --line: #e2e5ea; --accent: #1c5ad4; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0f1216; --fg: #eef1f5; --muted: #98a2b0; --card: #181c22; --line: #262c35; --accent: #7fa8ff; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 720px; margin: 0 auto; padding: 24px 16px 40px; }
+  h1 { font-size: 22px; margin: 0; }
+  .sub { color: var(--muted); margin: 2px 0 18px; }
+  .search { width: 100%; padding: 11px 13px; font-size: 16px; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+  .headline { color: var(--muted); margin: 16px 2px 10px; }
+  .error { color: #a8201a; margin: 4px 2px 0; }
+  @media (prefers-color-scheme: dark) { .error { color: #ffb4ab; } }
+  .rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+  .row { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+  .row.selected { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .row h2 { font-size: 17px; margin: 0; }
+  .account { margin-left: 8px; font-size: 13px; font-weight: 400; color: var(--muted); }
+  .state { margin: 2px 0 0; font-weight: 600; }
+  .line { margin: 4px 0 0; color: var(--muted); }
+  .ack { color: var(--fg); }
+  .action { display: inline-block; margin-top: 12px; padding: 9px 14px; font: inherit; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 10px; }
+  .action[disabled] { color: var(--muted); opacity: .6; }
+</style></head>
+<body><main id="app"></main><script type="module" src="./view.js"></script></body></html>
+`;
+
+/** The page's script: the built package's own view, drawn. */
+const RENDER_ENTRY = `
+import { cloudView, type CloudState } from '@byokit/ui/kits';
+
+const hoursAgo = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+const cost = { perMonth: 5, spent: 0.5, currency: 'USD' };
+const desk = { id: 'sb-1', name: 'desk', state: 'on' as const, account: 'Umer', snapshot: { id: 'byokit-desk-today', at: hoursAgo(2) }, cost };
+const lab = { id: 'sb-2', name: 'lab', state: 'asleep' as const, account: 'Umer', cost };
+const ready = { phase: 'ready' as const, actions: ['wake', 'sleep'], search: '' };
+const states: Record<string, CloudState> = {
+  list: { ...ready, machines: [desk, lab] },
+  search: { ...ready, machines: [desk, lab], search: 'lab', selected: 'sb-2' },
+  empty: { ...ready, machines: [] },
+  loading: { phase: 'loading', machines: [], actions: ['wake', 'sleep'], search: '' },
+  error: { phase: 'failed', machines: [], actions: [], search: '', error: "Test didn't accept your key. Make a new one and try again." },
+  waking: { ...ready, machines: [lab], pending: { id: 'sb-2', action: 'wake' } },
+  asleep: { ...ready, machines: [lab] },
+};
+const state = states[new URLSearchParams(location.search).get('state') ?? 'list'] ?? states.list;
+const view = cloudView(state, { now: Date.now() });
+const el = (tag: string, cls?: string, text?: string) => {
+  const node = document.createElement(tag);
+  if (cls) node.className = cls;
+  if (text !== undefined) node.textContent = text;
+  return node;
+};
+const app = document.getElementById('app');
+app.append(el('h1', undefined, 'Your cloud computers'));
+app.append(el('p', 'sub', 'The computers your app rents for you'));
+const search = el('input', 'search');
+search.setAttribute('type', 'search');
+search.setAttribute('placeholder', 'Search your cloud computers');
+search.setAttribute('aria-label', 'Search your cloud computers');
+search.value = state.search;
+app.append(search);
+if (view.headline) app.append(el('p', 'headline', view.headline));
+if (view.error) app.append(el('p', 'error', view.error));
+const rows = el('ul', 'rows');
+for (const row of view.rows) {
+  const li = el('li', row.selected ? 'row selected' : 'row');
+  const h2 = el('h2');
+  h2.append(document.createTextNode((row.selected ? '✓ ' : '') + row.title));
+  if (row.account) h2.append(el('span', 'account', row.account));
+  li.append(h2);
+  li.append(el('p', 'state', row.stateWords));
+  if (row.copy) li.append(el('p', 'line', row.copy));
+  if (row.cost) li.append(el('p', 'line', row.cost));
+  if (row.ack) li.append(el('p', 'line ack', row.ack));
+  if (row.actionWords) {
+    const button = el('button', 'action', row.actionWords);
+    button.setAttribute('type', 'button');
+    if (row.pending) button.setAttribute('disabled', '');
+    li.append(button);
+  }
+  rows.append(li);
+}
+app.append(rows);
+`;
+
 const arg = (name: string, fallback?: string) => {
   const i = process.argv.indexOf(`--${name}`);
   return i === -1 ? fallback : process.argv[i + 1];
@@ -478,11 +603,13 @@ const base = arg('base', 'origin/main')!;
 const slug = arg('slug', 'local')!;
 const out = arg('out', `.verify-artifacts/review/${slug}`)!;
 const fontScale = Number(arg('font-scale', '1'));
-const wanted = arg('screens', SCREENS.map((s) => s.id).join(','))!.split(',').map((s) => s.trim()).filter(Boolean);
+const wanted = arg('screens', [...SCREENS, ...RENDER_SCREENS].map((s) => s.id).join(','))!.split(',').map((s) => s.trim()).filter(Boolean);
 const screens = SCREENS.filter((s) => wanted.includes(s.id));
-if (!screens.length) throw new Error(`no screens matched --screens ${wanted.join(',')}`);
+const renderScreens = RENDER_SCREENS.filter((s) => wanted.includes(s.id));
+if (!screens.length && !renderScreens.length) throw new Error(`no screens matched --screens ${wanted.join(',')}`);
 
 mkdirSync(out, { recursive: true });
+mkdirSync('.verify-artifacts', { recursive: true });
 const scratch = mkdtempSync('.verify-artifacts/review-scratch.');
 const written: string[] = [];
 const skips: { screen: string; what: string; reason: string }[] = [];
@@ -507,6 +634,24 @@ const baseServe = existsSync(baseDir) ? await (async () => {
   return (module.serve as typeof serve)(0, openai.base);
 })() : undefined;
 console.log(`base ${base} -> ${baseServe?.url ?? '(not used)'}\nhead -> ${head.url}\nout  ${out}\n`);
+
+// The headless views: one page the capture writes, serving the built package's own output.
+const renderServe = renderScreens.length ? await (async () => {
+  const entry = join(scratch, 'view-entry.ts');
+  writeFileSync(entry, RENDER_ENTRY);
+  // The built package, bundled for the browser as any web build would; the scratch folder is inside the worktree,
+  // so the bare `@byokit/*` import resolves to this workspace.
+  const bundle = await build({ entryPoints: [entry], bundle: true, platform: 'browser', format: 'esm', write: false, logLevel: 'silent' });
+  const js = bundle.outputFiles[0].text;
+  const server = createServer((req, res) => {
+    const path = new URL(req.url ?? '/', 'http://x').pathname;
+    if (path === '/' || path === '/index.html') res.writeHead(200, { 'content-type': 'text/html' }).end(RENDER_PAGE);
+    else if (path === '/view.js') res.writeHead(200, { 'content-type': 'text/javascript' }).end(js);
+    else res.writeHead(404).end();
+  });
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  return { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/`, close: () => server.close() };
+})() : undefined;
 
 const executablePath = existsSync(chromium.executablePath()) ? undefined : process.env.BYOKIT_CHROME ?? '/usr/bin/chromium';
 const browser = await chromium.launch({ executablePath });
@@ -575,9 +720,35 @@ try {
       }
     }
   }
+
+  // The headless views: the built package's own output, drawn, in every theme and form factor.
+  for (const screen of renderScreens) {
+    note(screen.id, 'before frames', 'the view is new in this change: the base ref has no screen of it to compare with');
+    note(screen.id, 'motion', 'the change adds no interaction and no motion: the view is state, drawn');
+    for (const theme of themes) {
+      if (!screen.themes.includes(theme)) {
+        note(screen.id, `${theme} theme`, 'the view has no such theme');
+        continue;
+      }
+      for (const form of screen.formFactors) {
+        const size = formFactors[form];
+        const context = await browser.newContext({ colorScheme: theme, viewport: { width: size.width, height: size.height },
+          deviceScaleFactor: size.deviceScaleFactor, serviceWorkers: 'block' });
+        const page = await context.newPage();
+        page.on('pageerror', (e) => errors.push(`${screen.id} ${theme} ${form}: ${e}`));
+        await page.goto(`${renderServe!.url}?state=${screen.state}`, { waitUntil: 'load' });
+        await page.locator('#app h1').waitFor();
+        // Two frames: the page has painted before the browser is asked for its picture.
+        await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))));
+        await shot(page, `${screen.id}__${theme}__${form}.png`);
+        await context.close();
+      }
+    }
+  }
 } finally {
   await browser.close();
   baseServe?.close();
+  renderServe?.close();
   head.close();
   await openai.close();
   await device.close();
@@ -585,7 +756,8 @@ try {
 }
 
 if (errors.length) console.error(`page errors:\n${errors.join('\n')}`);
-const manifest = { base, head: 'worktree', out, fontScale, screens: screens.map((s) => ({ id: s.id, what: s.what, interaction: s.interaction, themes: s.themes, formFactors: s.formFactors })), files: written, skips, pageErrors: errors };
+const manifest = { base, head: 'worktree', out, fontScale, screens: [...screens.map((s) => ({ id: s.id, what: s.what, interaction: s.interaction, themes: s.themes, formFactors: s.formFactors })),
+  ...renderScreens.map((s) => ({ id: s.id, what: s.what, interaction: 'none', themes: s.themes, formFactors: s.formFactors }))], files: written, skips, pageErrors: errors };
 writeFileSync(join(out, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
 console.log(`\nEvidence: ${out}/manifest.json (${written.length} files, ${skips.length} skips, ${errors.length} page errors)`);
 if (errors.length) process.exitCode = 1;
