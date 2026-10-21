@@ -83,6 +83,7 @@
   "cloud.state.failed": "Not working",
   "cloud.state.gone": "No longer there",
   "cloud.state.host-key-changed": "Its address changed",
+  "cloud.copy.now": "Copy just now",
   "cloud.copy.at": "Copy from {when}",
   "cloud.age.now": "just now",
   "cloud.age.minute": "{n} minute ago",

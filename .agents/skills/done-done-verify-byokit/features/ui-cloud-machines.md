@@ -6,7 +6,7 @@ A person opens their app and sees the cloud computers they have: each one's name
 
 - `cloudSource(provider, { since, monthly, known, words })` builds the source from a cloud provider. The cloud kit's own `Provider` fits as it is (its `list`, `status`, `usage`, `snapshots`, `wake` and `sleep` are read structurally, D3), and so does one that lists more machines with their own address, state and newest copy. `since` is where the spend reading starts, `monthly` the month's figure for a machine, `known` the app's own record of a machine (the name it gave it, which its copies are named after) and `words` the host's plain sentence for a failure.
 - `cloudStore(source)` keeps the list live: it is read when the first listener arrives and again on `refresh()`, and the answer to an action lands in the row that asked for it. `search(text)`, `select(id)` and `act(id, action)` are what it offers; the newest read wins, so a slow read never overwrites a newer one.
-- `cloudView(state, { now, words })` gives the rows to draw. Each row carries its `title`, `state`, `stateWords` (`Awake`, `Asleep`, `Waking up…`, `Setting up`, `Going to sleep`, `Can't tell right now`, `Not working`, `No longer there`, `Its address changed`), its newest `copy` (`Copy from 2 hours ago`), what it `cost` (`$0.50 so far this month · about $5.00 a month`), the `action` the person can take (`wake` for an asleep machine, `sleep` for an awake one) with its `actionWords`, whether it is `pending`, and the host's `ack` for the last action.
+- `cloudView(state, { now, words })` gives the rows to draw. Each row carries its `title`, `state`, `stateWords` (`Awake`, `Asleep`, `Waking up…`, `Setting up`, `Going to sleep`, `Can't tell right now`, `Not working`, `No longer there`, `Its address changed`), its newest `copy` (`Copy just now`, `Copy from 2 hours ago`), what it `cost` (`$0.50 so far this month · about $5.00 a month`), the `action` the person can take (`wake` for an asleep machine, `sleep` for an awake one) with its `actionWords`, whether it is `pending`, and the host's `ack` for the last action.
 - The line above the list says how the read went: `Loading your cloud computers…`, `No cloud computers yet.`, `No cloud computer matches lab.` or `Can't read your cloud computers right now.`, with the host's own words under it (`view.error`). `empty` is true when the list is read and there is nothing in it to show.
 - The search keeps the machines whose name, address or account it matches; the pick is kept across refreshes, and only the row that was picked reads as selected.
 - `cloudStep(state, action)` is the reducer underneath, and `useCloud(source)` is the React hook over the same store. Every cloud sentence is plain words, checked against the repo's plain-words rule.
@@ -61,30 +61,39 @@ try {
   if (view.rows.length !== 2) fail(`two machines expected, got ${view.rows.length}`);
   const [first, second] = view.rows;
   if (first.title !== 'desk' || first.stateWords !== 'Awake' || first.action !== 'sleep') fail(`desk row: ${JSON.stringify(first)}`);
-  if (!first.copy || !first.copy.startsWith('Copy from ')) fail(`desk copy: ${first.copy}`);
+  if (first.copy !== 'Copy just now') fail(`desk copy: ${first.copy}`);
   if (first.cost !== '$0.50 so far this month · about $5.00 a month') fail(`desk cost: ${first.cost}`);
   if (second.title !== 'lab' || second.stateWords !== 'Asleep' || second.action !== 'wake') fail(`lab row: ${JSON.stringify(second)}`);
-  console.log(view.rows.map((r) => `${r.title} — ${r.stateWords}${r.copy ? ` · ${r.copy}` : ''}${r.cost ? ` · ${r.cost}` : ''}`).join('\n'));
+  const line = (r) => `${r.title} — ${r.stateWords}${r.copy ? ` · ${r.copy}` : ''}${r.cost ? ` · ${r.cost}` : ''}${r.actionWords ? ` · ${r.actionWords}` : ''}`;
+  console.log('the list:');
+  for (const r of view.rows) console.log(`  ${line(r)}`);
 
   // The search keeps one machine; the pick marks it.
   store.search('lab');
-  if (cloudView(store.get()).rows.length !== 1) fail('search kept the wrong machines');
+  const searched = cloudView(store.get());
+  if (searched.rows.length !== 1 || searched.rows[0].title !== 'lab') fail('search kept the wrong machines');
+  console.log(`search 'lab': ${searched.rows.map(line).join(' | ')}`);
   store.search('nothing here');
   if (cloudView(store.get()).headline !== 'No cloud computer matches nothing here.') fail('search words');
+  console.log(`search 'nothing here': ${cloudView(store.get()).headline}`);
   store.search('');
   store.select(lab.id);
   if (!cloudView(store.get()).rows.find((r) => r.id === lab.id)?.selected) fail('the pick is not marked');
+  console.log(`picked: ${cloudView(store.get()).selected}`);
 
   // The person asks the host to wake it: the row says so until the host answers.
   store.act(lab.id, 'wake');
   const waking = cloudView(store.get()).rows.find((r) => r.id === lab.id);
   if (waking.stateWords !== 'Waking it up…' || !waking.pending) fail(`waking row: ${JSON.stringify(waking)}`);
+  console.log(`asked the host to wake ${lab.id}: ${waking.stateWords}`);
   await until(() => store.get().ack !== undefined);
   const answered = cloudView(store.get()).rows.find((r) => r.id === lab.id);
   if (answered.ack !== "It's awake." || answered.pending) fail(`the host's answer: ${JSON.stringify(answered)}`);
+  console.log(`the host answered: ${answered.ack}`);
   store.refresh();
   await until(() => store.get().machines.find((m) => m.id === lab.id)?.state === 'on');
   if (cloudView(store.get()).rows.find((r) => r.id === lab.id)?.stateWords !== 'Awake') fail('the machine is still asleep');
+  console.log(`after the next read: ${line(cloudView(store.get()).rows.find((r) => r.id === lab.id))}`);
   off();
 } finally { await server.close(); }
 
@@ -106,7 +115,7 @@ try {
 console.log('DRIVE OK');
 ```
 
-Run it from a `$scratch_dir` **inside the worktree root** (`scratch_dir=$(mktemp -d ./scratch.verify-byokit.XXXXXX)`) so the bare imports resolve to the workspace; do not import the built files by absolute path. `node consumer.mjs` prints both resolved paths inside `packages/*/dist`, one line per machine (`desk — Awake · Copy from just now · $0.50 so far this month · about $5.00 a month` and `lab — Asleep · $0.50 so far this month · about $5.00 a month`), the failure line and its host words, and `DRIVE OK`. The resolved paths must be inside `packages/*/dist`, never a registry copy. The same run fails when the list, the copy, the cost, the search, the pick, the waking row, the host's answer or the failure words are wrong. Remove the scratch folder when the run ends.
+Run it from a `$scratch_dir` **inside the worktree root** (`scratch_dir=$(mktemp -d ./scratch.verify-byokit.XXXXXX)`) so the bare imports resolve to the workspace; do not import the built files by absolute path. `node consumer.mjs` prints both resolved paths inside `packages/*/dist`, the list (one line per machine: `desk — Awake · Copy just now · $0.50 so far this month · about $5.00 a month · Put it to sleep` and `lab — Asleep · $0.50 so far this month · about $5.00 a month · Wake it`), the search and its words, the pick, the waking row, the host's answer, the next read, the failure line with the host's own words, and `DRIVE OK`. The resolved paths must be inside `packages/*/dist`, never a registry copy. The same run fails when the list, the copy, the cost, the search, the pick, the waking row, the host's answer or the failure words are wrong. Remove the scratch folder when the run ends.
 
 ## Gotchas
 

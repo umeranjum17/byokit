@@ -165,6 +165,12 @@ export function agoWords(at: string | number, now: number): string {
   return `${d.toLocaleDateString([], { month: 'long' })} ${d.getDate()} ${d.getFullYear()}`;
 }
 
+/** The newest copy in plain words: `Copy just now` for a fresh one, `Copy from 2 hours ago` for an older one. */
+export const copyWords = (copy: CloudCopy, now: number): string => {
+  const when = agoWords(copy.at, now);
+  return when === WORDS['cloud.age.now'] ? WORDS['cloud.copy.now'] : fill(WORDS['cloud.copy.at'], { when });
+};
+
 /** What a machine costs, in plain words; nothing when the app knows no figure. */
 export const costWords = (cost: CloudCost | null | undefined): string | undefined => {
   if (!cost) return undefined;
@@ -211,7 +217,7 @@ const rowOf = (m: CloudMachine, s: CloudState, now: number): CloudRow => {
     ...(m.account ? { account: m.account } : {}),
     state: m.state,
     stateWords: pending === undefined ? STATE_WORDS[m.state] : PENDING_WORDS[pending],
-    ...(m.snapshot ? { copy: fill(WORDS['cloud.copy.at'], { when: agoWords(m.snapshot.at, now) }) } : {}),
+    ...(m.snapshot ? { copy: copyWords(m.snapshot, now) } : {}),
     ...(cost ? { cost } : {}),
     selected: s.selected === m.id,
     ...(action ? { action, actionWords: ACTION_WORDS[action] } : {}),
