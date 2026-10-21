@@ -11,6 +11,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { hostKeySeal, type SealingAdapter } from '@byokit/secrets';
 import { nonCredential } from '../../src/auth-store.ts';
 import { Engine } from '../../src/engine.ts';
+import { untilListed } from '../../src/members.ts';
 import { gatewayTransport } from '../../src/transport.ts';
 import { migrateRetainedLogin, confirmRetainedLogin } from '../../src/migrate.ts';
 import { providers, type SignInCtx } from '../../src/signin.ts';
@@ -60,8 +61,10 @@ async function start(house: House): Promise<SignInCtx> {
   const request: GatewayTransport['request'] = (method, params, options) => transport.request(method, params, options);
   return { request, ensure: async (member) => {
     const list = await request('agents.list') as { agents: { id: string }[] };
-    if (!list.agents.some((agent) => agent.id === member))
+    if (!list.agents.some((agent) => agent.id === member)) {
       await request('agents.create', { name: member, workspace: join(house.stateDir, 'openclaw', 'workspaces', member) });
+      await untilListed(request, member);
+    }
     return { agentId: member };
   }, callbackPort: 0, authConfig: () => '', restarted: async () => true };
 }
