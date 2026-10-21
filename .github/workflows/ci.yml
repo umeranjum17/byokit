@@ -171,14 +171,14 @@ jobs:
       - run: npx tsc -b packages/service
       - run: node --test packages/service/test/macos.journey.ts
 
-  # done-done gate: the standing proof primitives run through done-done itself, so CI
-  # speaks the same proof language as local runs (.done-done.yaml). Agent-free by
-  # construction: the journey drives, the judge is skipped, no model is started.
+  # done-done gate: passes only when a judged-pass receipt is committed under
+  # .done-done-receipts/ for this change (done-done gate --help). Reads git objects only,
+  # so CI starts no journey, judge, model or key.
   done-done:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -186,11 +186,8 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
-          cache: npm
-      - run: npm ci --no-audit --no-fund
-      - run: npm install -g done-done-axi@0.3.0
-      - run: done-done doctor
-      - run: done-done verify build --foreground --no-judge --claim-id "${{ github.head_ref || github.ref_name }}" --outcome "the byokit SDK builds and the built accounts entry resolves"
+      - run: npm install -g done-done-axi@0.4.7
+      - run: done-done gate
 
   # Pack consumers get their own budget; the isolated suite above can use most of check's fifteen minutes.
   pack:
