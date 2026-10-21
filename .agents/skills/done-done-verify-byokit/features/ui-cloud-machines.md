@@ -6,14 +6,14 @@ A person opens their app and sees the cloud computers they have: each one's name
 
 - `cloudSource(provider, { since, monthly, known, words })` builds the source from a cloud provider. The cloud kit's own `Provider` fits as it is (its `list`, `status`, `usage`, `snapshots`, `wake` and `sleep` are read structurally, D3), and so does one that lists more machines with their own address, state and newest copy. `since` is where the spend reading starts, `monthly` the month's figure for a machine, `known` the app's own record of a machine (the name it gave it, which its copies are named after) and `words` the host's plain sentence for a failure.
 - `cloudStore(source)` keeps the list live: it is read when the first listener arrives and again on `refresh()`, and the answer to an action lands in the row that asked for it. `search(text)`, `select(id)` and `act(id, action)` are what it offers; the newest read wins, so a slow read never overwrites a newer one.
-- `cloudView(state, { now, words })` gives the rows to draw. Each row carries its `title`, `state`, `stateWords` (`Awake`, `Asleep`, `Waking up…`, `Setting up`, `Going to sleep`, `Can't tell right now`, `Not working`, `No longer there`, `Its address changed`), its newest `copy` (`Copy just now`, `Copy from 2 hours ago`), what it `cost` (`$0.50 so far this month · about $5.00 a month`), the `action` the person can take (`wake` for an asleep machine, `sleep` for an awake one) with its `actionWords`, whether it is `pending`, and the host's `ack` for the last action.
+- `cloudView(state, { now, words })` gives the rows to draw. Each row carries its `title`, `state`, `stateWords` (`Awake`, `Asleep`, `Waking up…`, `Setting up`, `Going to sleep`, `Can't tell right now`, `Not working`, `No longer there`, `Its address changed`), its newest `copy` (`Saved copy just now`, `Saved copy 2 hours ago`), what it `cost` (`$0.50 so far this month · about $5.00 a month`), the `action` the person can take (`wake` for an asleep machine, `sleep` for an awake one) with its `actionWords`, whether it is `pending`, and the host's `ack` for the last action.
 - The line above the list says how the read went: `Loading your cloud computers…`, `No cloud computers yet.`, `No cloud computer matches lab.` or `Can't read your cloud computers right now.`, with the host's own words under it (`view.error`). `empty` is true when the list is read and there is nothing in it to show.
 - The search keeps the machines whose name, address or account it matches; the pick is kept across refreshes, and only the row that was picked reads as selected.
 - `cloudStep(state, action)` is the reducer underneath, and `useCloud(source)` is the React hook over the same store. Every cloud sentence is plain words, checked against the repo's plain-words rule.
 
 ## How to get to it (user POV)
 
-An app that rents cloud computers for a person shows them the list: what is running, what is asleep, what a reset would bring back, and what it is costing. This slice adds no screen to any app — an app draws the rows its own way — so on this host the surface is a Node consumer over the built entry, driven against the cloud kit's loopback bench.
+An app that rents cloud computers for a person shows them the list: what is running, what is asleep, what a reset would bring back, and what it is costing. This slice adds no screen to any app — an app draws the rows its own way — so on this host the surface is a Node consumer over the built entry, driven against the cloud kit's loopback bench, and its look is captured by the review-evidence capture (the built package's own output, drawn in a real browser).
 
 ## Driving it with node scratch consumers
 
@@ -77,7 +77,7 @@ try {
   if (view.rows.length !== 2) fail(`two machines expected, got ${view.rows.length}`);
   const [first, second] = view.rows;
   if (first.title !== 'desk' || first.stateWords !== 'Awake' || first.action !== 'sleep') fail(`desk row: ${JSON.stringify(first)}`);
-  if (first.copy !== 'Copy just now') fail(`desk copy: ${first.copy}`);
+  if (first.copy !== 'Saved copy just now') fail(`desk copy: ${first.copy}`);
   if (first.cost !== '$0.50 so far this month · about $5.00 a month') fail(`desk cost: ${first.cost}`);
   if (second.title !== 'lab' || second.stateWords !== 'Asleep' || second.action !== 'wake') fail(`lab row: ${JSON.stringify(second)}`);
   if (!second.copy) fail(`lab copy: ${second.copy}`);
@@ -118,11 +118,11 @@ try {
 console.log('DRIVE OK');
 ```
 
-Run it from a `$scratch_dir` **inside the worktree root** (`scratch_dir=$(mktemp -d ./scratch.verify-byokit.XXXXXX)`) so the bare imports resolve to the workspace; do not import the built files by absolute path. `node consumer.mjs` prints both resolved paths inside `packages/*/dist`, then the failure line with the host's own words, then the journey: the list (one line per machine: `desk — Awake · Copy just now · $0.50 so far this month · about $5.00 a month · Put it to sleep` and `lab — Asleep · Copy just now · $0.50 so far this month · about $5.00 a month · Wake it`), the search and its words, the pick, the waking row, the host's answer, the next read, and `DRIVE OK`. The resolved paths must be inside `packages/*/dist`, never a registry copy. The same run fails when the list, the copy, the cost, the search, the pick, the waking row, the host's answer or the failure words are wrong. Remove the scratch folder when the run ends.
+Run it from a `$scratch_dir` **inside the worktree root** (`scratch_dir=$(mktemp -d ./scratch.verify-byokit.XXXXXX)`) so the bare imports resolve to the workspace; do not import the built files by absolute path. `node consumer.mjs` prints both resolved paths inside `packages/*/dist`, then the failure line with the host's own words, then the journey: the list (one line per machine: `desk — Awake · Saved copy just now · $0.50 so far this month · about $5.00 a month · Put it to sleep` and `lab — Asleep · Saved copy just now · $0.50 so far this month · about $5.00 a month · Wake it`), the search and its words, the pick, the waking row, the host's answer, the next read, and `DRIVE OK`. The resolved paths must be inside `packages/*/dist`, never a registry copy. The same run fails when the list, the copy, the cost, the search, the pick, the waking row, the host's answer or the failure words are wrong. Remove the scratch folder when the run ends.
 
 ## Gotchas
 
-- The kit ships no screen of its own, so the drive is a consumer; a captured look of the rows follows in a separate change.
+- The kit ships no screen of its own, so the drive is a consumer and the look is captured by the review-evidence capture: `node .agents/skills/done-done-verify-byokit/capture/review-evidence.ts --screens cloud-list,cloud-search,cloud-empty,cloud-loading,cloud-error,cloud-waking,cloud-answered,cloud-asleep --out <folder>` renders the built package's own output in a real browser at 390 and 1280, light and dark, one frame per state. The page is the capture's; the words, the rows and the states are the package's.
 - `@byokit/ui/kits` is a portable entry: no Node and no React. The cloud view imports only `./words.json` and the store helper; `test/portable.test.ts` and the entry's own bundle check fail otherwise.
 - The view reads only the fields it names, so a credential on a machine object never reaches a row (D3); extra fields are ignored, not copied.
 - The type restatement is deliberate: a change to the cloud kit's `Provider` does not flow through automatically. The kit's own provider fits `CloudProvider` as it is, and a provider that lists more machines (a roster of accounts, a machine with its own subdomain, state and newest copy) fits too.

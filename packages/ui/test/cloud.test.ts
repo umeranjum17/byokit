@@ -49,7 +49,7 @@ test('your cloud computers: the list, what each is doing, the newest copy, what 
     assert.equal(view.rows.length, 2);
     const [first, second] = view.rows;
     assert.deepEqual([first.title, first.stateWords, first.action, first.actionWords], ['desk', 'Awake', 'sleep', 'Put it to sleep']);
-    assert.equal(first.copy, 'Copy just now');
+    assert.equal(first.copy, 'Saved copy just now');
     assert.equal(first.cost, '$0.50 so far this month · about $5.00 a month');
     assert.deepEqual([second.title, second.stateWords, second.action], ['lab', 'Asleep', 'wake']);
     assert.equal(second.copy, undefined, 'a machine with no copy says nothing about one');

@@ -364,7 +364,7 @@ with their own address, state and newest copy.
 
 `cloudStore(source)` keeps that list live: it is read when the first listener arrives and again on `refresh()`, and
 the answer to an action lands in the row that asked for it. `cloudView(state, { now, words })` gives the rows to
-draw — each with its title, its state in plain words (`Awake`, `Asleep`, `Waking up…`), its newest copy (`Copy from
+draw — each with its title, its state in plain words (`Awake`, `Asleep`, `Waking up…`), its newest saved copy (`Saved copy
 2 hours ago`), what it costs (`$0.50 so far this month · about $5.00 a month`), the action the person can take and
 what the host said about it. The line above the list says how the read went: `Loading your cloud computers…`,
 `No cloud computers yet.`, `No cloud computer matches lab.` or `Can't read your cloud computers right now.`, with
@@ -403,7 +403,7 @@ Output from running it with Node:
 
 ```text
 Your cloud computers
-  desk — Awake · Copy from 2 hours ago · $0.50 so far this month · about $5.00 a month · Put it to sleep
+  desk — Awake · Saved copy 2 hours ago · $0.50 so far this month · about $5.00 a month · Put it to sleep
   lab — Asleep · $0.50 so far this month · about $5.00 a month · Wake it
 ```
 

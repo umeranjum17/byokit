@@ -1,0 +1,119 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "96d417c3df666734ac00b8fcb6c8e97909f31cd6",
+  "tree": "219ee61eeb405d5a25f7018043e6e90bee364e0d",
+  "claim": "a person looking at their cloud computers can tell at a glance which are awake, asleep or waking, reads the account name as a quiet label, finds the search clearly apart from the list, and reads the newest saved copy as \"Saved copy\" with how long ago it was saved",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-21T06:59:56.472Z",
+  "files": [
+    {
+      "path": "<evidence root>/cloud-machines-drive.txt",
+      "sha256": "3ee1d7b515fd802e36bf495cf67f8147eb5c64a6a2a7ffdc30a493259a52c4f8"
+    },
+    {
+      "path": "<evidence root>/cloud-list__light__phone.png",
+      "sha256": "db09b0c9eb1b073c079b6918488a90f9793a0d513cf47433809551cc1140e734"
+    },
+    {
+      "path": "<evidence root>/cloud-list__dark__desktop.png",
+      "sha256": "2ec060f1af68519b2360b36f57024497f0a09a1ad9c2fd52c180f678fedff4b6"
+    },
+    {
+      "path": "<evidence root>/cloud-list__light__desktop.png",
+      "sha256": "6737c6d9e3f3c47a9d3e18668b3ba123571fbca3e116300aa6495f41f11788e9"
+    },
+    {
+      "path": "<evidence root>/cloud-waking__light__desktop.png",
+      "sha256": "9d1fbb02d9179a3379bc8f482c9a248b522332c8ab36f7e09edd3154e743f607"
+    },
+    {
+      "path": "<evidence root>/cloud-waking__dark__phone.png",
+      "sha256": "572dc23be08e2c4989d61484fda7d80a5a7e583990fa9523ab0a663fead85c47"
+    },
+    {
+      "path": "<evidence root>/cloud-asleep__light__phone.png",
+      "sha256": "4bab0c5afe7027307883a0ee7df0c4e6a572131a80be601c7ab7b66cff85f2ea"
+    },
+    {
+      "path": "<evidence root>/cloud-search__light__desktop.png",
+      "sha256": "b7fe702f2b9b23cd2afb5990e5e70d9d4e3d382c5a710e810fd56cc9aa80eb01"
+    },
+    {
+      "path": "<evidence root>/cloud-answered__dark__phone.png",
+      "sha256": "fd72eec7e0e19d998761ca5210afc64f63f5f8d244aac24f9a8bf61865be6faa"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261021T065731Z-96d417c3-8ba704",
+      "journey": null,
+      "command": "sh <evidence root>/run-drive.sh"
+    },
+    {
+      "run_id": "20261021T065752Z-96d417c3-45dbde",
+      "journey": null,
+      "command": "sh <evidence root>/run-cap.sh"
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/cloud-machines-drive.txt",
+        "sha256": "3ee1d7b515fd802e36bf495cf67f8147eb5c64a6a2a7ffdc30a493259a52c4f8",
+        "verdict": "pass"
+      },
+      {
+        "path": "<evidence root>/cloud-list__light__phone.png",
+        "sha256": "db09b0c9eb1b073c079b6918488a90f9793a0d513cf47433809551cc1140e734",
+        "verdict": "pass",
+        "seen": "The outcome names the cloud computers list. The capture shows it: the title \"Your cloud computers\" and a search field at the top, separated from the list. Each card shows a status (\"Awake\" with a green dot on desk, \"Asleep\" with a gray dot on lab), the owner \"Umer\" in small gray text, and \"Saved copy 2 hours ago\" / \"Saved copy 5 hours ago\". Nothing in the image is an error, overlay, or different screen, and the outcome names no part that a single capture would miss."
+      },
+      {
+        "path": "<evidence root>/cloud-list__dark__desktop.png",
+        "sha256": "2ec060f1af68519b2360b36f57024497f0a09a1ad9c2fd52c180f678fedff4b6",
+        "verdict": "pass"
+      },
+      {
+        "path": "<evidence root>/cloud-list__light__desktop.png",
+        "sha256": "6737c6d9e3f3c47a9d3e18668b3ba123571fbca3e116300aa6495f41f11788e9",
+        "verdict": "pass"
+      },
+      {
+        "path": "<evidence root>/cloud-waking__light__desktop.png",
+        "sha256": "9d1fbb02d9179a3379bc8f482c9a248b522332c8ab36f7e09edd3154e743f607",
+        "verdict": "pass"
+      },
+      {
+        "path": "<evidence root>/cloud-waking__dark__phone.png",
+        "sha256": "572dc23be08e2c4989d61484fda7d80a5a7e583990fa9523ab0a663fead85c47",
+        "verdict": "pass",
+        "seen": "The outcome names a cloud computers list with a status per machine, a quiet account name, a search separate from the list, and a 'Saved copy' timestamp. The capture shows the heading 'Your cloud computers', a search field reading 'Search your cloud computers' above the card, the card with 'lab' and the quiet 'Umer' label, a yellow dot with 'Waking it up...', and 'Saved copy 5 hours ago'. Only one machine is shown, so awake and asleep states cannot be seen, but the outcome's core elements are visible. The outcome names one screen, so no parts are listed."
+      },
+      {
+        "path": "<evidence root>/cloud-asleep__light__phone.png",
+        "sha256": "4bab0c5afe7027307883a0ee7df0c4e6a572131a80be601c7ab7b66cff85f2ea",
+        "verdict": "pass",
+        "seen": "The screenshot shows the \"Your cloud computers\" screen. The card for \"lab\" shows a status dot with \"Asleep\", so awake/asleep state is readable at a glance. The owner name \"Umer\" is small grey text beside \"lab\", which fits a quiet label. The search box \"Search your cloud computers\" sits in its own bordered field above the list, apart from it. The line \"Saved copy 5 hours ago\" shows the save text with its age. Nothing overlays or obstructs the content, so the outcome is visible here."
+      },
+      {
+        "path": "<evidence root>/cloud-search__light__desktop.png",
+        "sha256": "b7fe702f2b9b23cd2afb5990e5e70d9d4e3d382c5a710e810fd56cc9aa80eb01",
+        "verdict": "pass"
+      },
+      {
+        "path": "<evidence root>/cloud-answered__dark__phone.png",
+        "sha256": "fd72eec7e0e19d998761ca5210afc64f63f5f8d244aac24f9a8bf61865be6faa",
+        "verdict": "pass"
+      }
+    ]
+  }
+}
