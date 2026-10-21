@@ -1,0 +1,39 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "11429981347b47613927467959afd2e4f3b3f8f5",
+  "tree": "f4b7b907f105577407da6e4ae823d5ade4282692",
+  "claim": "A person with two cloud accounts and three managed computers can list them, pick the active account, sleep and wake one computer without touching the others, and remove one",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-21T05:27:50.184Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261021T052714Z-11429981-36629d/cloud-roster.txt",
+      "sha256": "87fa350af92da9f74ad2a2a4221280be022e558616180a67973b328ebddf069e"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261021T052714Z-11429981-36629d",
+      "journey": null,
+      "command": null
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261021T052714Z-11429981-36629d/cloud-roster.txt",
+        "sha256": "87fa350af92da9f74ad2a2a4221280be022e558616180a67973b328ebddf069e",
+        "verdict": "pass"
+      }
+    ]
+  }
+}

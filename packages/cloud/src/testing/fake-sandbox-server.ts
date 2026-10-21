@@ -42,6 +42,8 @@ export type SandboxRequest = {
 export type SandboxServerOptions = {
   key?: string;
   accountId?: string;
+  /** Machine ids read `<prefix>-<n>` (default `sb`); give two servers different prefixes to stand in for two accounts. */
+  idPrefix?: string;
   trial?: boolean;
   /** Remaining `creditBalanceSeconds`; null (default) means a funded account. */
   balance?: number | null;
@@ -145,7 +147,14 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
     res.end(text);
   };
 
-  const sandboxBody = (sb: Sandbox, name: string): Record<string, unknown> => ({ id: sb.id, name, state: sb.raw, snapshots: sb.snapshots === true });
+  const sandboxBody = (sb: Sandbox, name: string): Record<string, unknown> => {
+    const copies = [...snapshots.values()].filter((s) => s.sandboxId === sb.id).map((s) => s.createdAt).sort();
+    const newest = copies.at(-1) ?? null;
+    return {
+      id: sb.id, name, state: sb.raw, snapshots: sb.snapshots === true,
+      subdomain: `${sb.id}-box`, snapshotCompletedAt: newest, lastSnapshotStatus: newest === null ? null : 'completed',
+    };
+  };
 
   // The 6.4 stdin wrapper verbatim (`<command> < <path>; r=$?; rm -f <path>; exit $r`):
   // the shell keeps `;` glued to the path token, so this is recognised here and the
@@ -333,7 +342,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
         if (trial && b['ttlSeconds'] === null) {
           return send(res, 422, { error: 'trial_auto_stop_required', message: 'the trial caps auto-stop at 2 hours' });
         }
-        const id = `sb-${++seq}`;
+        const id = `${o.idPrefix ?? 'sb'}-${++seq}`;
         const saved = from === null ? undefined : snapshots.get(from);
         if (saved !== undefined) machine.files = new Map([...saved.files].map(([k, f]) => [k, { ...f, bytes: f.bytes.slice() }]));
         const slow = o.slowCreateReads ?? 0;

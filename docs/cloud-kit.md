@@ -128,6 +128,10 @@ export type MachineRef = {
   id: string                      // provider machine id
   name: string                    // ^[a-z][a-z0-9-]{0,31}$
   keepCopies: boolean             // provider snapshots on; false = no backups AND no sleep (section 11)
+  // list() only, where the wire returns them: a read at list time, never stored (5.14 keeps identity only).
+  subdomain?: string              // the provider's stable slug for this machine
+  state?: MachineState
+  latestSnapshot?: { at: string | null; status: string | null }  // newest completed copy, and the last attempt's status
 }
 
 export type MachineState =
@@ -669,6 +673,33 @@ An app that drives its own host's command line (for example `<app> self-host`, o
 - `run(r, argv, { timeoutMs?, input? })`: `r` passes the 8.1 checks and `r.name` equals `ref.name`; `argv` is non-empty and its first item is a command name (non-empty, no `=`), else `bad-recipe`. Read-only setup: the 8.3 step 2 probe, then step 4's lookup of the pinned node or a machine node in range, never its install (none found rejects `provider`, "install the host first"). Then one `exec` as the run user in workDir with the node bin dir first on PATH (8.2), and, when `r.run.env` is not empty, `env NAME=value ... <argv>` so the command sees the same variables as the unit (a `PATH` in `r.run.env` wins, as in the unit). `timeoutMs` defaults to 30 s. It resolves the provider's `ExecResult` unchanged: a non-zero exit, `stderr` and `timedOut` are the app's to read, not errors. `input` is the provider's stdin and carries 6.4's warning: never a credential. Names and argv are not checked for secrets (the command is the app's own).
 - `newest(r, prefix)`: `prefix` matches 5.8's file rule, else `bad-recipe`. One `exec` as the run user lists `<workDir>/.byokit/outbox/` files (not directories) whose name starts with `prefix`, newest by modification time, and prints that name then its bytes. It resolves `{ file, text }`, or `null` while none exists (or no outbox yet); a failing read rejects `provider`, a timed-out one `timeout`. The host writes with `writeOutbox`, so a file is never read half-written. Polling is the app's: call it again until the offer it expects appears.
 - `handoff(r, argv, { prefix, timeoutMs? })` -> `Handoff = { offer: AsyncIterable<{ file; text }>; deliver(file, bytes); done: Promise<ExecResult> }`, for a command that writes an offer under a name it picks and blocks until the phone answers. `r`, `prefix` and `argv` are checked as above, before anything runs. One `exec` as the run user removes the outbox files (not directories) whose name starts with `prefix` (a failing one rejects `provider`, a timed-out one `timeout`), so an offer an interrupted run left is never read as this run's. Then `run(r, argv, { timeoutMs })` starts, `timeoutMs` defaulting to 10 minutes; `done` is its promise, unchanged. `offer` reads `newest(r, prefix)` once a second and yields each `{ file, text }` that differs from the last one yielded, until `done` settles, after which it reads once more and ends; a failing read throws from the iterator. `deliver` is 5.8's `deliver(r, file, bytes)`. The setup() `pair` gate's `PairContext` carries `run(argv, o?)` and `handoff(argv, o)` bound to the setup recipe; setup() always passes them, and they are optional in the type so an app's own context for a gate still type-checks.
+
+### 5.14 Several accounts and machines (`src/roster.ts`)
+
+`machine()` stays one provider, one store, one ref. `roster({ store, keys, provider })` is the layer above it for an
+app whose person has more than one account or more than one managed computer. It is portable and does no I/O until
+first used.
+
+- **Accounts.** `RosterAccount = { id, provider, label }`; `id` is `Provider.account()`. The roster record is the
+  app's `RosterStore` (`load`/`save`, the same seam as `MachineStore`) and holds no secret: each key lives in the
+  app's `KeyStore` (`get`/`set`/`delete` by account id). `add({ key, label? })` asks the provider who the key is
+  (`unauthorized` for a bad key), keeps the key, lists the account; the first becomes active, and adding a known
+  account again replaces its key. `select(id)` changes the active account; `remove(id)` forgets the account, its
+  key and its managed machines (the computers stay on the provider). An id not on the roster rejects
+  `wrong-account`.
+- **Providers.** `provider(id?)` is that account's own `Provider`, built once by the app's factory with a `key()`
+  that reads the key store; two accounts never share an instance. Default: the active account.
+- **List.** `list(id?)` is that provider's `list()`; refs carry `subdomain`, `state` and `latestSnapshot` where the
+  wire has them (`subdomain`, `state`, `snapshotCompletedAt` and `lastSnapshotStatus` on Boat), and leave them out
+  where it has not.
+- **Managed machines.** `manage(ref)` keeps a listed computer's identity (never `state` or the snapshot summary);
+  its `ref.account` must be on the roster. `machines(id?)` lists them, each pinned to its account; `unmanage(id)`
+  stops managing. `machine(id)` is the ordinary `Machine` of section 5 over a view of the roster and that
+  account's Provider, so `wake`, `sleep`, `snapshot` or `remove` of one calls the provider about that machine only
+  and never changes another; `remove` also drops it from the roster. `fresh(id?)` is a `Machine` with no ref yet
+  for `create` and `adopt`; the ref it saves joins the roster, and a create whose answer was lost resumes with
+  the same idempotency key (5.2 step 3) from the roster record. An unmanaged id rejects `no-machine`.
+- An app with one account and one machine keeps using `machine()` with its own `MachineStore`; nothing there changed.
 
 ## 6. Boat adapter (`src/boat.ts`)
 
