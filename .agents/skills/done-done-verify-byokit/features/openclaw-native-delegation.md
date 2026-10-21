@@ -43,10 +43,12 @@ through the memory gate. Pass: exit 0, `childCalls: 1`, `returnCalls: 1`, the re
 and its reply starting with the root persona's marker. The 9.33 pin waits at most 60 s for the child's terminal result:
 that run fails on the deadline with no return run, an engine limit, not the kit's.
 
-9.33 qualification gap: the full native send/spawn journey still fails its unknown-run `agent.wait` assertion:
-stock returns a plain timeout without `timeoutPhase`/`providerStarted`. The kit retains the receipt conservatively;
-no safe lost-vs-live equivalent was found. A passing return-run leg is not a passing full delegation qualification.
-Do not skip that assertion or treat every timeout as lost.
+9.33 observation contract: the journey asserts the exact unknown-run plain timeout with absent
+`timeoutPhase`/`providerStarted`, and separately observes a real parked child without revoking its receipt or
+approval. The journal check retains unresolved replies and revokes only affirmative terminal/lost evidence or
+explicit cancellation. This does not restore 8.35 automatic unknown-run reclamation: unresolved receipts count
+toward the cap until explicit abort or an affirmative end. Never fabricate removed fields or label every timeout
+lost. A passing return-run leg alone is not a passing full delegation qualification.
 
 This is backend behavior: no screenshots. It does **not** qualify shared helper credentials, OAuth refresh ownership,
 ACP delegation, synchronous/label-based sends, resumption under a new engine run ID, or return runs across a kit restart. A receipt absent after a crash

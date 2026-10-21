@@ -75,6 +75,13 @@ test('native send/spawn receipts admit only exact child runs; approvals, events,
     assert.ok(child && child.parent.runId && child.runId !== child.parent.runId);
     assert.equal(new OpenClawKit(options).delegatedRuns().find(r => r.runId === child.runId)?.sessionKey, child.sessionKey,
       'fresh kit did not rehydrate the exact admitted receipt');
+    const heldApproval = kit.approvals()[0]!.id;
+    const liveWait = await kit.call('agent.wait', { runId: child.runId, timeoutMs: 1 }) as Record<string, unknown>;
+    assert.ok(liveWait.status === 'timeout' || liveWait.status === 'pending', 'the parked child has no terminal observation');
+    assert.equal(liveWait.status === 'timeout' && liveWait.timeoutPhase === 'queue' && liveWait.providerStarted === false,
+      false, 'a genuinely live child must not produce affirmative lost proof');
+    assert.ok(kit.delegatedRuns().some(r => r.runId === child.runId));
+    assert.equal(kit.approvals()[0]!.id, heldApproval, 'observing a wait must not revoke its parked approval');
     await kit.decide(kit.approvals()[0]!.id, { allow: true });
     await until(() => calls.length === before + 1, 'spawn app call missing');
     await kit.abort(spawnRoot);
@@ -104,9 +111,9 @@ test('native send/spawn receipts admit only exact child runs; approvals, events,
     await until(() => events.some(e => e.type === 'ended' && e.run.runId === self.runId), 'same-agent child never ended');
     assert.deepEqual([calls.at(-1)!.sessionKey, calls.at(-1)!.parent?.sessionKey], [self.sessionKey, selfRoot]);
     assert.equal(events.find(e => e.type === 'ended' && e.run.runId === self.runId)!.reason, 'terminal');
-    // The engine's answer for a run it does not know, which reconcile reads as `lost` (the kit's restart sweep).
+    // 9.33 no-snapshot is unresolved, not lost: the absent fields cannot establish no live/queued work.
     const forgotten = await kit.call('agent.wait', { runId: 'never-a-run', timeoutMs: 1 }) as Record<string, unknown>;
-    assert.deepEqual([forgotten.status, forgotten.timeoutPhase, forgotten.providerStarted], ['timeout', 'queue', false]);
+    assert.deepEqual([forgotten.status, forgotten.timeoutPhase, forgotten.providerStarted], ['timeout', undefined, undefined]);
     await kit.stop(); await kit.start();
     assert.equal(kit.delegatedRuns().length, 0, 'revoked child revived after engine restart');
     console.log('PASS native send/spawn: exact actors, same-agent spawn, parent settlement, deny/allow, narrowed tools, unknown refusal, durable receipt/revocation, cancellation/restart');

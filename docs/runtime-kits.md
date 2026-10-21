@@ -670,7 +670,10 @@ writing only if bytes change (0600):
   `plugin` id of every route the app offers by name in `KitOptions.offered` (the provider, auth choice or alias a route
   carries — e.g. `openrouter`; a route nobody offers stays out), and every external plugin `installPlugin` installed
   (B7, 5.7), and `telegram` while that channel is on (5.18); the kit adds no other id;
-  `plugins.entries[id].hooks.timeouts.before_tool_call = 200_000`. The pinned
+  `plugins.entries[id].hooks.timeouts.before_tool_call = 200_000`. On 9.33 the already-default-on, startup-loaded
+  `openai` provider is explicitly pinned enabled before boot unless the caller explicitly disabled it. This adds no
+  provider authority: it prevents setup promotion from introducing a plugin-enable change inside its secret
+  transaction, which native preflight correctly refuses. Other providers and caller disables are unchanged. The pinned
   engine treats a non-empty `plugins.allow` as a restrictive allowlist: a provider sign-in, and that provider's runs,
   need the bundled plugin that owns the route's auth choice (`Route.plugin`) in it, else the wizard ends
   `<label> is disabled (blocked by allowlist)`. Those plugins are always present (`anthropic` for `anthropic-cli` and `apiKey`); an app names the
@@ -1344,14 +1347,14 @@ surface. Native events are observations, never a completion/delivery guarantee.
 
 Pending dispatch receipts and admitted children are persisted under the app-owned engine root, without messages,
 credentials or approval answers. Parent settlement does not revoke children. Reconnect/start reconciles exact
-recorded run IDs with `agent.wait` (`timeoutMs: 1`): `ok`/`error` end `terminal`/`error`; the pin's answer for a run
-it does not know at all (`timeout` in the `queue` phase with `providerStarted: false`: no job, queued turn or live run,
-as after an engine restart) ends `lost` (outcome unknown, admission ended); a live run's `timeout` and a failed wait
-keep the child for the next reconcile. **9.33 qualification gap:** the no-snapshot branch now returns only
-`{ runId, status: 'timeout' }`; it omits both lost-proof fields and is also reachable for active work without a
-terminal snapshot. The kit conservatively retains such receipts; unknown-run reclamation is not qualified on
-this pin. Do not infer `lost` from a plain timeout or fabricate the removed fields. A dispatch that finds the journal full (1024 pending and admitted) reconciles
-first, so children whose end never reached the kit cannot block delegation.
+recorded run IDs with `agent.wait` (`timeoutMs: 1`): `ok`/`error` end `terminal`/`error`. An affirmative
+`timeout`/`queue`/`providerStarted: false` observation ends `lost` (outcome unknown, admission ended); a failed wait,
+queued/live result or plain timeout retains the receipt. **9.33 semantics:** its no-snapshot branch returns only
+`{ runId, status: 'timeout' }`, also possible for active work without a terminal snapshot. This is unresolved,
+not lost or proof of liveness. `delegatedRuns()` lists admitted receipts, not a live-job census. No missing
+fields are reconstructed. Automatic unknown-run reclamation from 8.35 is unavailable on this pin.
+A full journal (1024 pending and admitted) reconciles first but unresolved receipts still count: dispatch stays
+refused until affirmative terminal evidence or explicit `abort(rootSessionKey)`/`abort(childKey)` revokes them.
 No new run IDs are guessed on restart: an engine resume with a different ID needs fresh admission. A dispatch
 whose receipt never arrived stays fail-closed. `abort(rootSessionKey)` revokes the recorded subtree before native
 abort requests, closes its parked gates/active calls, and preserves original errors. Call `abort` with a child key
@@ -1420,7 +1423,8 @@ namespace and persona on the agent that already holds the account.
   `abort(rootSessionKey)`, `abort(childKey)` and ended admission), `error` is `error` with the engine's `message`, or
   `resting` when it classifies as the model's limit (5.8 rules) on a helper's run: the kit rests the helper's account
   `until` the stated reset (else five minutes), as a kit run's resting end does (5.15 Runs step 7), so its next Auto
-  pick skips it. A reconnect's `agent.wait` maps `ok` to `terminal`, `error` to `error`, and a run the engine does not know to `lost`. A gate approval on a
+  pick skips it. A reconnect's `agent.wait` maps `ok` to `terminal`, `error` to `error`, and only an affirmative
+  lost observation to `lost`; 9.33's plain timeout keeps the receipt unresolved (5.8). A gate approval on a
   helper's run and a native approval on a helper's key carry `Approval.helper`; `member` stays the member. The app
   projects these; it keeps no delegation supervisor of its own.
 - Known limit: helpers share the engine agent (id, workspace files, memory) of their account; separate engine agents
@@ -2227,7 +2231,7 @@ plus one reviewed edit. A fork, a republished tarball or a source build is never
   upstream excerpts; the repo `NOTICE` is not in the tarball).
 - Usage accounting and app-owned restart recovery patches do nothing unless the kit sets their own env
   variables at spawn (5.5); with those variables unset they behave as stock. The Claude Tooling patch below
-  is route-gated instead; native CLI detection and OAuth isolation fixes apply whenever reached. A patch adds
+  is route-gated instead; native CLI detection, OAuth isolation and key replacement-evidence fixes apply whenever reached. A patch adds
   no RPC, config key or schema to the engine.
 
 **Claude Tooling names.** On the Claude CLI route, after the backend system-prompt transform, the kit's
@@ -2249,6 +2253,17 @@ not sweep engine-owned state or restore missing receipts. Drop this patch when u
 boundary and requalify Doctor plus Gateway/other-agent controls. The only duplicate is in the sealed native
 package-publication recovery helper, explicitly outside D19 coverage; ordinary managed Gateway/Doctor commands
 load the patched module. No upstream report is filed without captain consent.
+
+**Key replacement evidence (9.33 compatibility, set `cbbfc493a7f6a893`).** The staged-credential replacement
+predicate requires an actual existing credential source for that provider: a non-setup agent-local profile or a
+configured global provider key. An inherited/effective model provider alone is not credential evidence. Stock
+9.33 introduced that extra heuristic; the 8.35 activation path did not require confirmation merely for a model
+preference. The audited edit removes only that heuristic, retaining both credential-source checks and all native
+replacement confirmation, realm, identity, freshness and owned-probe checks. Real-Gateway controls require a new
+OpenAI account to activate, while existing local and global-key replacements remain declined without confirmation.
+Drop this patch once upstream no longer treats bare model inheritance as a credential replacement. The duplicate
+sealed package-publication recovery bundle stays explicitly outside D19 coverage; no consent is injected and no
+upstream report is filed without captain consent.
 
 **Key setup plan.** The 8.35 starter-model normalization patch is retired in 9.33: upstream replaced that setup planner with staged owner-evidence route resolution and no longer contains `canonicalizeSetupModelRef`. The kit does not carry a stale patch into the replacement pipeline. `test/engine/accounts.test.ts` activates an OpenRouter key on the pinned engine and runs on a chosen model.
 

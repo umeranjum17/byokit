@@ -480,8 +480,10 @@ child's session, on the sender's exact key, within a minute of the child's (or t
 any other run there stays unknown. Return runs are not on `delegatedRuns()` or `byokit.delegated`; read them from the
 engine's `agent` events on the sender's key. The pinned engine starts no reply run for a child that took over 30 s.
 
-Admitted exact run IDs survive parent settlement and are reconciled on reconnect/start; a child the engine no longer
-knows (as after an engine restart) ends `lost`, and a dispatch that finds the journal full reconciles first. `abort(rootSessionKey)`
+Admitted exact run IDs survive parent settlement and are reconciled on reconnect/start. **On 9.33 a plain wait
+timeout is unresolved, not proof of lost or live work**: the receipt stays admitted until affirmative terminal
+information or explicit cancellation. `delegatedRuns()` is not a live-job census. A full journal reconciles first,
+but unresolved receipts still count toward its limit. `abort(rootSessionKey)`
 durably revokes its recorded subtree, closes parked gates/active calls, then asks the engine to abort; a child key
 revokes its subtree. An engine resume with a different run ID, or a dispatch with no retained receipt, is not
 silently granted authority. No prefix grants or `allowOnce` bypass are used.
@@ -542,7 +544,7 @@ both. A helper key, another member's key or a helper never ensured is a typed `H
 
 `kit.onEvent('byokit.delegated', fn)` follows each helper child start to finish: `admitted` (with `run.helper` and
 `run.tools`, its app-tool subset), the engine's events, then one `ended` whose `reason` is `terminal`, `cancelled` (an
-abort, or its admission ended), `error` (with `message`), `lost` (the engine no longer knows the run: outcome unknown)
+abort, or its admission ended), `error` (with `message`), `lost` (affirmative native lost observation: outcome unknown)
 or `resting`: the model's usage limit ended it, and the kit rests the helper's account `until` the stated reset, as a
 kit run's resting end does. An approval raised by a helper's
 run names it in `Approval.helper`.

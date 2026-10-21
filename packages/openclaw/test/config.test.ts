@@ -23,6 +23,9 @@ test('fresh and adversarial config force isolation and no paid memory fallback',
   assert.equal(c.update.auto.enabled, false);
   assert.equal(c.telemetry.enabled, false);
   assert.equal(c.models.catalogRefresh.enabled, false);
+  assert.equal(c.plugins.entries.openai.enabled, true);
+  assert.deepEqual((reconcileConfig(undefined, { ...opts(root), app: { plugins: { entries: { openai: { enabled: false, config: { kept: true } } } } } }) as any)
+    .plugins.entries.openai, { enabled: false, config: { kept: true } }, 'an explicit caller disable stays disabled');
   assert.equal(c.memory.search.provider, 'none');
   assert.equal(c.memory.search.fallback, 'none');
   assert.equal(c.agents.defaults.models['openai/*'].agentRuntime.id, 'openclaw');

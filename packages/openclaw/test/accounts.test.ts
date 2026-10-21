@@ -865,6 +865,8 @@ function activatingGateway(fake: ReturnType<typeof fakeGateway>, root: () => str
         const config = JSON.parse(readFileSync(path, 'utf8'));
         writeFileSync(path, JSON.stringify({ ...config, auth: { profiles: { 'opencode-go:default': { provider: 'opencode-go', mode: 'api_key' } } } }, null, 2));
         if (dropAfterMs !== undefined) setTimeout(() => fake.drop('gateway restart'), dropAfterMs);
+        // This fixture declares a required restart (including the never-starts/fails controls), not hot application.
+        return { ...(answer as object), gatewayRestartRequired: true };
       }
       return answer;
     } };

@@ -276,5 +276,7 @@ mock.method(globalThis, 'fetch', (input, options) => {
     assert.deepEqual((await kit.accounts('m1')).map((a) => a.id).sort(), rows.map(([id]) => id), 'no new sign-in');
     const files = readFileSync(join(root, 'helpers', 'm1', 'research.json'), 'utf8');
     assert.ok(!files.includes(accountKey) && !files.includes(planKey), 'a helper record holds no key');
+
+
   } finally { await kit.stop(); mock.restoreAll(); syncBuiltinESMExports(); }
 });

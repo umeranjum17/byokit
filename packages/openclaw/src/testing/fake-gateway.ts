@@ -657,13 +657,12 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       return { status: 'cancelled' };
     },
     agent: (p, bridgeSock) => startRun(p, bridgeSock),
-    // The pin: a run it never had (or forgot, as after a restart) waits out as a `timeout` in the `queue` phase that never
-    // reached a provider; a live run past `timeoutMs` is a `timeout` while it drains.
+    // 9.33 no-snapshot waits carry no lost-vs-live proof. A plain timeout must not revoke an admitted child.
     'agent.wait': (p) =>
       new Promise((resolve) => {
         const runId = String(p.runId);
         const run = runs.get(runId);
-        if (!run) return resolve({ runId, status: 'timeout', timeoutPhase: 'queue', providerStarted: false });
+        if (!run) return resolve({ runId, status: 'timeout' });
         if (run.result) return resolve(run.result);
         run.waiters.push(resolve);
         if (typeof p.timeoutMs === 'number') setTimeout(() => resolve({ runId, status: 'timeout', timeoutPhase: 'gateway_draining' }), p.timeoutMs).unref();

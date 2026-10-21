@@ -274,9 +274,9 @@ export class Delegations {
     this.o.revoke(grant.ref.sessionKey, grant.ref.runId);
     this.o.emit({ type: 'ended', run: structuredClone(grant.ref), ...end });
   }
-  // An exact recorded run the engine finished ends as it ended. One the engine no longer knows (no job, no queued turn,
-  // no live run, as after an engine restart: a plain `timeout` in the `queue` phase that never reached a provider) ends
-  // `lost`. A live or queued run stays admitted; a run whose wait fails stays for the next reconcile.
+  // Reconcile observations, not inferred liveness. Only affirmative queue/never-started proof ends `lost`.
+  // 9.33 no-snapshot waits omit that proof even for active work: plain timeout stays unresolved/admitted.
+  // Unresolved receipts count toward the cap until a terminal observation or explicit abort; never invent queue fields.
   async reconcile(): Promise<void> {
     for (const ref of this.list()) {
       let end: { status?: string; timeoutPhase?: string; providerStarted?: boolean };

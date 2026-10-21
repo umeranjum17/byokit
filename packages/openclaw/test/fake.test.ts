@@ -113,7 +113,7 @@ test('a plain run streams one assistant text and the wait resolves ok', async ()
   assert.deepEqual(mine.map((e) => e.payload.stream), ['assistant']);
   assert.equal(mine[0].payload.data.text, 'fake: hello there');
   off();
-  assert.deepEqual(await req(t, 'agent.wait', { runId: 'nope' }), { runId: 'nope', status: 'timeout', timeoutPhase: 'queue', providerStarted: false });
+  assert.deepEqual(await req(t, 'agent.wait', { runId: 'nope' }), { runId: 'nope', status: 'timeout' });
   await assert.rejects(req(t, 'agent', { agentId: 'ghost', sessionKey: 'agent:ghost:x', message: 'hi' }), /unknown agent: ghost/);
 });
 

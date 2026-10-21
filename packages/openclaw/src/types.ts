@@ -38,8 +38,8 @@ export type Helper = { member: Member; helper: string; account: AccountId; agent
 export type DelegatedRun = RunRef & Required<Pick<RunRef, 'runId' | 'agentId' | 'parent' | 'root'>> & { tools: string[] };
 /** A delegated child's lifecycle (5.8.3 S3): `admitted`, its engine `event`s, then one `ended` whose `reason` is
  * `terminal` (finished), `error` (`message`), `resting` (its helper's account hit its limit and rests `until`),
- * `cancelled` (aborted by the kit or the engine, or its admission ended) or `lost` (the engine no longer knows the run,
- * as after an engine restart: outcome unknown, admission ended). */
+ * `cancelled` (aborted by the kit or the engine, or its admission ended) or `lost` (affirmative native lost observation:
+ * outcome unknown, admission ended). A plain 9.33 wait timeout is unresolved and emits no ended event. */
 export type DelegatedEvent = { type: 'admitted' | 'event' | 'ended'; run: DelegatedRun;
   reason?: 'terminal' | 'error' | 'resting' | 'cancelled' | 'lost'; until?: number; message?: string;
   event?: { stream: string; data?: Record<string, unknown> } };
