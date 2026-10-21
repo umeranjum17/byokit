@@ -1,0 +1,32 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "0607d314270b87ae564738cdd95bef3dc26e45bb",
+  "tree": "6b952934c39ffa71957f866dedbaa6a444d066f6",
+  "claim": "A pane list refresh finishes when Herdr answers a closed pane's status watch with pane not found, so pane attach no longer hangs",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-21T04:08:36.815Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261021T040759Z-0607d314-6aa849/herdr-watch-pane-not-found.txt",
+      "sha256": "3d0000a6bd31ff9d84553ddc2a3e08b932a49124284d091228fb4e20aeb7b0d9"
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261021T040759Z-0607d314-6aa849/herdr-watch-pane-not-found.txt",
+        "sha256": "3d0000a6bd31ff9d84553ddc2a3e08b932a49124284d091228fb4e20aeb7b0d9",
+        "verdict": "pass"
+      }
+    ]
+  }
+}
