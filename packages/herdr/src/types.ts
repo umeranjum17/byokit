@@ -15,15 +15,18 @@ export type HerdrProtocolRange = { min?: number; max?: number };
 
 export type HerdrKitOptions =
   | { mode: 'adopt'; bin: string; socketPath: string; env?: Record<string, string>; path?: string[];
-      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; livenessTimeoutMs?: number; onState?: (s: HerdrState) => void;
+      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; livenessTimeoutMs?: number; ackTimeoutMs?: number;
+      onState?: (s: HerdrState) => void;
       onLog?: (message: string) => void }
   | { mode: 'own'; bin: string; stateDir: string; env?: Record<string, string>; path?: string[];
-      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; livenessTimeoutMs?: number; onState?: (s: HerdrState) => void;
+      transport?: HerdrTransport; protocolRange?: HerdrProtocolRange; livenessTimeoutMs?: number; ackTimeoutMs?: number;
+      onState?: (s: HerdrState) => void;
       onLog?: (message: string) => void };
 
 // A live subscription: call to unsubscribe. `ready` resolves true on the server ack and false on a
 // rejected batch (a rejection is reported via `onError` and never retried); the reconnect hooks
-// fire only on later drops of an acknowledged socket.
+// fire only on later drops of an acknowledged socket. A subscription that is stopped, refused or
+// never acknowledged also settles `ready` false, so no caller waits on it forever.
 export type HerdrSubscribeStop = (() => void) & {
   ready: Promise<boolean>;
   onReconnect(fn: () => void): void;
