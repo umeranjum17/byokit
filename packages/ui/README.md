@@ -119,6 +119,8 @@ export function useChatGptSheet() {
 | `runStore(oc)`, `runView(state, { words, name })` | One run: the reply streaming in, the tool at work, how it ended in the kit's words |
 | `approvalsStore(oc)`, `approvalWords(a, words, helper)` | The approvals waiting for a yes, live, each gone when answered or expired |
 | `herdrStore(hd)`, `herdrTreeView(tree)`, `blockedView(state)` | Herdr's agents by where they run, and the ones waiting for an answer, live |
+| `cloudSource(provider, o?)`, `cloudStore(source)`, `cloudView(state, { now, words })` | Your cloud computers: the list, each one's state, newest copy and cost in plain words, the search, the pick, and what the host answered when it woke one |
+| `useCloud(source)` | React hook over that store |
 | `signInsStore(oc)`, `signInSheetView(request, { name, holder })`, `livePanelView(state)` | The browser sign-in sheet (sentence, buttons, chat chip) and live panel for the OpenClaw kit's handoff |
 | `useRun`, `useApprovals`, `useHerdrTree`, `useBlocked` | React hooks over those stores |
 | `connectView(routes, step?)`, `connectStep(step, action)` | Every account route the kits list, grouped by how the person pays, with the picked row and its key card |
@@ -341,6 +343,9 @@ Runtime kits' state, from `@byokit/ui/kits` (no React), typed to fit `@byokit/op
 - Herdr: `herdrStore(hd)` keeps the tree and the agents waiting for an answer live from one stream;
   `herdrTreeView(tree)` groups the agents by where they run, with the status the kit's `agentWords` takes;
   `blockedView(state)` names each waiting agent.
+- Cloud computers: `cloudStore(source)` keeps the list live and `cloudView(state)` gives the rows — each machine's
+  state, its newest copy and what it costs, in plain words — with the host's answer to an action in the row that
+  asked for it.
 - Browser sign-in (`@byokit/openclaw` spec 5.17): `signInsStore(oc)` keeps the requests live from sign-in pings;
   `signInSheetView(request, { name, holder })` gives the sentence (a kit word key and its values), the buttons and the
   chat chip, which reads "entered" until a verified sign-in; `livePanelView(state)` says when to draw frames, take
@@ -350,6 +355,57 @@ Runtime kits' state, from `@byokit/ui/kits` (no React), typed to fit `@byokit/op
 
 In React or React Native: `useRun(oc, { words, name })`, `useApprovals(oc)`, `useHerdrTree(hd)` and `useBlocked(hd)`,
 with the device client made once (`useMemo(() => herdrDevice(link), [link])`).
+
+## Your cloud computers
+
+`cloudSource(provider, { since, monthly, known, words })` (also `@byokit/ui/kits`, no React) turns a cloud provider
+into the list a phone draws. The cloud kit's own `Provider` fits as it is, and so does one that lists more machines
+with their own address, state and newest copy.
+
+`cloudStore(source)` keeps that list live: it is read when the first listener arrives and again on `refresh()`, and
+the answer to an action lands in the row that asked for it. `cloudView(state, { now, words })` gives the rows to
+draw — each with its title, its state in plain words (`Awake`, `Asleep`, `Waking up…`), its newest copy (`Copy from
+2 hours ago`), what it costs (`$0.50 so far this month · about $5.00 a month`), the action the person can take and
+what the host said about it. The line above the list says how the read went: `Loading your cloud computers…`,
+`No cloud computers yet.`, `No cloud computer matches lab.` or `Can't read your cloud computers right now.`, with
+the host's own words under it.
+
+`cloudStep(state, action)` is the reducer underneath; `search(text)`, `select(id)` and `act(id, action)` are what
+the store offers. In React or React Native, `useCloud(source)` gives the same view with those three.
+
+```ts
+import { cloudSource, cloudStore, cloudView } from '@byokit/ui/kits';
+
+const provider = {
+  list: async () => [{ id: 'sb-1', name: 'desk' }, { id: 'sb-2', name: 'lab' }],
+  status: async (ref: { id: string }) => (ref.id === 'sb-1' ? 'on' as const : 'asleep' as const),
+  snapshots: async (ref: { id: string }) => (ref.id === 'sb-1' ? [{ id: 'byokit-desk-today', at: new Date(Date.now() - 7_200_000).toISOString() }] : []),
+  usage: async () => ({ from: '2026-10-01T00:00:00.000Z', to: new Date().toISOString(), hours: 24, amount: 0.5, currency: 'USD' }),
+  wake: async () => {},
+  sleep: async () => {},
+};
+
+const store = cloudStore(cloudSource(provider, {
+  since: '2026-10-01T00:00:00.000Z',
+  monthly: () => ({ perMonth: 5, currency: 'USD' }),
+}));
+
+const off = store.subscribe(() => {
+  const { rows, headline } = cloudView(store.get());
+  console.log(headline || 'Your cloud computers');
+  for (const r of rows) {
+    console.log(`  ${r.title} — ${r.stateWords}${r.copy ? ` · ${r.copy}` : ''}${r.cost ? ` · ${r.cost}` : ''}${r.actionWords ? ` · ${r.actionWords}` : ''}`);
+  }
+});
+```
+
+Output from running it with Node:
+
+```text
+Your cloud computers
+  desk — Awake · Copy from 2 hours ago · $0.50 so far this month · about $5.00 a month · Put it to sleep
+  lab — Asleep · $0.50 so far this month · about $5.00 a month · Wake it
+```
 
 ## Links
 

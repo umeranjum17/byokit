@@ -5,6 +5,7 @@ import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import { approvalsStore, type Approval, type ApprovalsSource, type FollowOptions } from './approvals.ts';
 import { agentIn, blockedView, herdrStore, herdrTreeView, type HerdrSource } from './herdr.ts';
 import { runStore, runView, type RunSource, type RunWordsOptions } from './run.ts';
+import { cloudStore, cloudView, type CloudSource } from './cloud.ts';
 import type { Store } from './follow.ts';
 
 const useStore = <T>(s: Store<T>) => useSyncExternalStore(s.subscribe, s.get, s.get);
@@ -34,4 +35,11 @@ export function useHerdrTree(source: HerdrSource) {
 export function useBlocked(source: HerdrSource & { answer(paneId: string, keys: string[], revision: number): Promise<void> }) {
   const state = useStore(herdrStore(source));
   return { blocked: useMemo(() => blockedView(state), [state]), answer: (paneId: string, keys: string[], revision: number) => source.answer(paneId, keys, revision) };
+}
+
+/** Your cloud computers, live: the rows, the search, the pick, and the action the host is doing. */
+export function useCloud(source: CloudSource) {
+  const store = useMemo(() => cloudStore(source), [source]);
+  const state = useStore(store);
+  return { ...cloudView(state), refresh: store.refresh, select: store.select, search: store.search, act: store.act };
 }
