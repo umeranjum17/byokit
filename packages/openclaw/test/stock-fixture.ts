@@ -7,7 +7,7 @@ import { editText, patchId, readPatchSet, sha256, type PatchFile } from '../src/
 
 const manifest = fileURLToPath(new URL('../engine/patches.json', import.meta.url));
 // Large bundles whose fake installs need only the shipped edit's input, not the entire upstream bundle.
-const synthetic = new Set(['dist/prepare.runtime--y1-AtS2.mjs', 'dist/setup-inference-ur2QGopt.mjs']);
+const synthetic = new Set(['dist/prepare.runtime--y1-AtS2.mjs', 'dist/setup-inference-ur2QGopt.mjs', 'dist/oauth-Dqmi6EU2.mjs']);
 
 export function stockBytes(file: PatchFile): Buffer {
   return synthetic.has(file.path)

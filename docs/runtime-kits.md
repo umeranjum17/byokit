@@ -1006,8 +1006,10 @@ the engine. External retained sources are touched only when explicitly passed to
 - `migrateRetainedLogin(member, source)` must run **before** `start()` (doctor refuses while a Gateway owns the
   state). Source path: use `path`, else `path + '.moved-to-engine'` when no `.canonicalized` marker exists; nothing →
   `'nothing'`. `prepare()` first (never import without the engine). Stage `state/agents/<member>/agent/auth-profiles.json`
-  (0600) as `{ version: 1, profiles: { '<provider>:default': credential } }` unless already staged; a `.moved-to-engine`
-  source without `openai-codex` → `'nothing'`. Run doctor `--fix --yes --non-interactive` (120 s). Non-zero → delete
+  (0600) as `{ version: 1, profiles: { '<provider>:default': credential } }` unless already staged, except legacy
+  ChatGPT uses `openai-codex:<member>` (Doctor maps it to `openai:<member>`). 9.33's alias receipts are global:
+  one member's retired archive must not block another member reusing a legacy id. Other provider ids stay unchanged.
+  A `.moved-to-engine` source without `openai-codex` → `'nothing'`. Run doctor `--fix --yes --non-interactive` (120 s). Non-zero → delete
   the staging, return `'failed'` (the original stays byte-identical). Zero → `'staged'`. With `authSeal`, the staging and imported store are resealed before returning.
 - `confirmRetainedLogin(member, source)` after `ready`: wanted providers = source keys mapped `openai-codex → openai`,
   else the provider map, else lower-case key; empty → `false`. Up to 3 × (`models.authStatus { agentId, refresh: true }`,
@@ -1812,7 +1814,11 @@ first agent the owner when the fleet grows past one, and every later agent (othe
 sign-ins. `models.authLogout` and sign-out always pass `profileIds` of the agent's own sealed profiles, because
 without them the pin removes the provider's profiles from every owner store. O14's engine job proves both; if the pin
 refuses the value, O14 stops and asks. (After 5.7's doctor moves a legacy store into `state/openclaw.sqlite`, that
-shared store is the base instead; the kit never writes it either.) This is a behavior change for installs with two or
+shared store is the base instead; the kit never writes it either.) The audited 9.33 OAuth settlement patch (5.16)
+prevents an agent-local refresh from creating a shared credential; it may still update an already-existing shared
+credential after the native identity/realm checks. Doctor and live Gateway refreshes use that same patched function.
+Real O14 journeys assert the shared base stays empty and another agent cannot use the first agent's login.
+This is a behavior change for installs with two or
 more members: the pin had pinned the owner to the first member, so later members read its sign-ins through; from
 O14 a member runs only on its own sign-ins, and one that never signed in reads `signed_out` (CHANGELOG entry).
 
@@ -2209,7 +2215,8 @@ plus one reviewed edit. A fork, a republished tarball or a source build is never
   upstream excerpts; the repo `NOTICE` is not in the tarball).
 - Usage accounting and app-owned restart recovery patches do nothing unless the kit sets their own env
   variables at spawn (5.5); with those variables unset they behave as stock. The Claude Tooling patch below
-  is route-gated instead, and the key setup plan patch is a fix that applies whenever it is reached. A patch adds no RPC, config key or schema to the engine.
+  is route-gated instead; native CLI detection and OAuth isolation fixes apply whenever reached. A patch adds
+  no RPC, config key or schema to the engine.
 
 **Claude Tooling names.** On the Claude CLI route, after the backend system-prompt transform, the kit's
 bundled prepare patch prints OpenClaw tool names as `mcp__openclaw__<name>` in the policy-filtered
@@ -2220,6 +2227,16 @@ skipped turn preparation and empty tool lists keep the stock prompt. No consumer
 input is unit coverage, not qualification against the complete pinned engine or a live Claude CLI.
 
 **Native CLI setup detection (9.33 compatibility).** The immutable setup-inference patch supplies the omitted native `detectClaudeLoginState` and `detectCodexLoginState` dependencies to `setup.detect`: Claude uses the shipped bounded JSON auth seam; Codex uses a bounded, cancellation-aware `login status` command with API-key/billing-route and engine-folder overrides removed. Only verified boolean state and Claude subscription-kind metadata return, never CLI output or credentials. Signed-out remains false; unreadable remains unknown. Real-Gateway positive and negative controls own qualification. Drop this patch when upstream supplies these dependencies; do not replace it with optimistic client status. The update-recovery bundle remains outside Gateway coverage.
+
+**OAuth shared-base isolation (9.33 security).** In `resolveAuthoritativeSharedOAuthCredentialUnderLock`, an
+agent-local refresh may update an existing shared credential, but returns without writing when no shared credential
+exists. Stock 9.33's Doctor could otherwise promote an agent's unexpired Anthropic login during a no-op forced
+refresh; other agents then inherited it and a later Doctor sweep removed the local copy as a shadow. The patch
+removes that cross-store creation without relaxing native realm, identity, freshness or settlement checks. It does
+not sweep engine-owned state or restore missing receipts. Drop this patch when upstream enforces that no-create
+boundary and requalify Doctor plus Gateway/other-agent controls. The only duplicate is in the sealed native
+package-publication recovery helper, explicitly outside D19 coverage; ordinary managed Gateway/Doctor commands
+load the patched module. No upstream report is filed without captain consent.
 
 **Key setup plan.** The 8.35 starter-model normalization patch is retired in 9.33: upstream replaced that setup planner with staged owner-evidence route resolution and no longer contains `canonicalizeSetupModelRef`. The kit does not carry a stale patch into the replacement pipeline. `test/engine/accounts.test.ts` activates an OpenRouter key on the pinned engine and runs on a chosen model.
 

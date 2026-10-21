@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "id": "f9908232ed0af34c",
+  "id": "cd577570d8f5f438",
   "upstream": {
     "name": "openclaw",
     "version": "2026.9.33",
@@ -76,6 +76,17 @@
       ],
       "before": "ac3585f5a463905bbffbab5032fd3104f0d46ea4bab955a8193fe62db38f7fe2",
       "after": "562842cf6c967eb828f12a91ae384af3e610c1dfc65788cbfb2f87837d383d7d"
+    },
+    {
+      "path": "dist/oauth-Dqmi6EU2.mjs",
+      "before": "938fce0facb326f57308970dde2d7fe15729b6197943bdbc86192394b8866032",
+      "after": "62a2b8fa3dc4cd58194a8d4fd27429c247e0d2fae149215e7d0969eb91f0c42e",
+      "edits": [
+        {
+          "find": "\tasync function resolveAuthoritativeSharedOAuthCredentialUnderLock(params) {\n\t\tlet validatedAuthoritative = false;\n\t\tconst acceptAuthoritative = (credential) => {\n\t\t\ttry {\n\t\t\t\tvalidateSettlementCredential(params.validateCredential, credential);\n\t\t\t\tvalidatedAuthoritative = true;\n\t\t\t\treturn true;\n\t\t\t} catch {\n\t\t\t\tauthProfilesLog.warn(\"refused shared OAuth credential during settlement: credential validation failed\", { profileId: params.profileId });\n\t\t\t\treturn false;\n\t\t\t}\n\t\t};\n\t\tconst updated = await updateAuthProfileStoreWithLock({\n\t\t\tagentDir: void 0,\n\t\t\tprofileId: params.profileId,\n\t\t\tsharedStoreWrite: true,\n\t\t\tupdater: (store) => {\n\t\t\t\tconst existing = store.profiles[params.profileId];\n",
+          "replace": "\tasync function resolveAuthoritativeSharedOAuthCredentialUnderLock(params) {\n\t\tlet validatedAuthoritative = false;\n\t\tconst acceptAuthoritative = (credential) => {\n\t\t\ttry {\n\t\t\t\tvalidateSettlementCredential(params.validateCredential, credential);\n\t\t\t\tvalidatedAuthoritative = true;\n\t\t\t\treturn true;\n\t\t\t} catch {\n\t\t\t\tauthProfilesLog.warn(\"refused shared OAuth credential during settlement: credential validation failed\", { profileId: params.profileId });\n\t\t\t\treturn false;\n\t\t\t}\n\t\t};\n\t\tconst updated = await updateAuthProfileStoreWithLock({\n\t\t\tagentDir: void 0,\n\t\t\tprofileId: params.profileId,\n\t\t\tsharedStoreWrite: true,\n\t\t\tupdater: (store) => {\n\t\t\t\tconst existing = store.profiles[params.profileId];\n\t\t\t\t// BYOKit D9: an agent-local refresh may update, never create, shared auth.\n\t\t\t\tif (!existing) return false;\n"
+        }
+      ]
     }
   ]
 }

@@ -84,7 +84,8 @@ export async function migrateRetainedLogin(
       // which looks signed in but cannot authenticate `openai/*` turns.
       mkdirSync(agentDir, { recursive: true, mode: 0o700 });
       const body = JSON.stringify({ version: 1, profiles: Object.fromEntries(
-        Object.entries(legacy).map(([provider, credential]) => [`${provider}:default`, credential])) });
+        // 9.33's alias receipts are global; retiring one agent's archive must not block another agent's import.
+        Object.entries(legacy).map(([provider, credential]) => [`${provider}:${provider === 'openai-codex' ? member : 'default'}`, credential])) });
       // Written beside its home and renamed into place, so a reader never sees half a profile store.
       const staging = `${staged}.staging-${process.pid}`;
       writeFileSync(staging, body, { mode: 0o600 });

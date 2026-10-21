@@ -86,9 +86,9 @@ test('a sealed preserved sign-in survives doctor, gateway, stop and restart with
     const db = new DatabaseSync(join(home.stateDir, 'openclaw', 'state', 'agents', 'm1', 'agent', 'openclaw-agent.sqlite'));
     const profiles = JSON.parse((db.prepare('SELECT store_json FROM auth_profile_store').get() as { store_json: string }).store_json).profiles;
     db.close();
-    assert.deepEqual(Object.keys(profiles), ['openai:default']);
-    assert.equal(profiles['openai:default'].provider, 'openai');
-    assert.equal(profiles['openai:default'].access, 'a-preserved');
+    assert.deepEqual(Object.keys(profiles), ['openai:m1']);
+    assert.equal(profiles['openai:m1'].provider, 'openai');
+    assert.equal(profiles['openai:m1'].access, 'a-preserved');
     assert.equal(await confirmRetainedLogin(ctx, 'm1', { path: home.legacy }), true, 'the gateway reports the preserved sign-in');
     assert.equal(existsSync(home.legacy), false, 'only a confirmed import retires the copy');
     assert.equal(existsSync(`${home.legacy}.moved-to-engine`), false, 'no plaintext retained archive is created');
