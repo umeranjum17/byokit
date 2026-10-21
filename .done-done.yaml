@@ -68,9 +68,14 @@ journeys:
         echo "5. What publishes the release (.github/workflows/release.yml, job publish):"
         awk '/^  publish:$/{p=1} p&&/runs-on:/{print; exit} p' .github/workflows/release.yml
       } > "$DONE_DONE_EVIDENCE_ROOT/ci-gate-event.log" 2>&1
-  node-tests:
-    command: npm test > "$DONE_DONE_EVIDENCE_ROOT/node-tests.log" 2>&1
-    timeout: 30m
-  browser-tests:
-    command: npm run test:browser > "$DONE_DONE_EVIDENCE_ROOT/browser-tests.log" 2>&1
-    timeout: 30m
+  # The core user journey and the release path, in .done-done.yaml: a consumer app
+  # links an account and gets an answer through the shipped package, and the same
+  # app upgrades that package in place over the previous shipped version.
+  core:
+    command: node .agents/skills/done-done-verify-byokit/capture/core-journey.mjs
+    core: true
+    timeout: 20m
+  upgrade:
+    command: node .agents/skills/done-done-verify-byokit/capture/upgrade-journey.mjs
+    upgrade: true
+    timeout: 20m

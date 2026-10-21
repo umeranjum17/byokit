@@ -13,9 +13,9 @@ test:
     Prove changes against the real built SDK through done-done, not summaries and
     never by hand: `done-done verify <journey> --foreground --outcome "<what a user
     can now do>"` with the one journey the change touches (`.done-done.yaml`: build,
-    node-tests, browser-tests), or `done-done verify --outcome "<claim>" --feature
-    <name>` for a user-visible change, driving the matching feature in the repo's
-    verify skill. `done-done doctor` must pass before any proof run.
+    gate, ci-gate-event, core, upgrade), or `done-done verify --outcome "<claim>"
+    --feature <name>` for a user-visible change, driving the matching feature in the
+    repo's verify skill. `done-done doctor` must pass before any proof run.
     A journey run builds the SDK from scratch (npm ci in a fresh worktree, then
     npm run build), doctors the built artifacts and drives the journey, keeping
     the command, stdout, stderr and exit code in the run's evidence folder
