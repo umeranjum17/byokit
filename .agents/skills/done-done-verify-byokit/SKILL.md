@@ -11,14 +11,18 @@ byokit is a TypeScript SDK monorepo: the user is a consumer app importing `@byok
 
 ## Prove it with done-done
 
-Proofs run through [done-done](https://www.npmjs.com/package/done-done-axi), not by hand: it seals the run, keeps the evidence outside the repo (`~/.done-done/evidence/byokit`), has a judge look at every capture and records the receipt. Config: `.done-done.yaml` (journeys at `.done-done.yaml:15`: `build`, `node-tests`, `browser-tests`). From a clean, committed tree:
+Proofs run through [done-done](https://www.npmjs.com/package/done-done-axi), not by hand: it seals the run, keeps the evidence outside the repo (`~/.done-done/evidence/byokit`), has a judge look at every capture and records the receipt. Config: `.done-done.yaml` (journeys at `.done-done.yaml:16`: `build`, `gate`, `ci-gate-event`, `core`, `upgrade`). From a clean, committed tree:
 
 ```sh
 done-done doctor                                  # git, config, evidence root, this skill, agent, judge
 done-done verify --outcome "<what a user can now do>" --feature <name>   # the author agent drives features/<name>.md, the judge checks its captures, a receipt records HEAD
-done-done run build                               # standing journey; also node-tests, browser-tests
+done-done run core                                # the core user journey: link an account, get an answer, through the shipped package
+done-done run upgrade                             # the release path: the previous shipped version, upgraded in place, then the core journey
+done-done run build                               # standing journey; also gate, ci-gate-event
 done-done maintain                                # keep this skill true against the source
 ```
+
+The test suites are CI's job (`npm test`, `npm run test:browser`), not journeys here: a run that only checks the code is never proof.
 
 `--feature` names a file in [the feature map](features/README.md); the default offline user surface is [realtime-voice-offline](features/realtime-voice-offline.md). If the judge or agent route is unavailable, report done-done's exact error; never launch a model of your own.
 
@@ -69,6 +73,12 @@ Write each consumer inside "$scratch_dir"; keep that variable in the same shell 
 - closes what it started (`await openai.close()`).
 
 Exact recipes: `features/README.md` is the index; one file per feature.
+
+### The shipped package (the core and upgrade journeys)
+
+The core journey is not a scratch consumer against the workspace: it is a consumer app outside the monorepo, with the package npm ships installed into it. `capture/core-journey.mjs` packs the workspace package (`npm pack` runs its `prepack`, so the tarball is the build of the current source), installs the tarball into a fresh app, and runs `capture/core-journey-consumer.mjs` there. The consumer checks that its import resolved inside that install, so a run against the workspace copy fails instead of passing quietly.
+
+`capture/upgrade-journey.mjs` is the release path: the previous shipped version from the npm registry, the built package installed over that same install, then the core journey again on the upgraded package. Both write their transcript and the step record (`steps.json`) into `$DONE_DONE_EVIDENCE_ROOT`; both need the registry for the install, the way a consumer's install does, and neither needs an account, a key or a model.
 
 ## Review evidence (a user-visible change)
 

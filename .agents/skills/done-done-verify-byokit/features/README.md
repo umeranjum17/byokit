@@ -21,6 +21,10 @@ The maintained source for verifying the user-facing behavior of the built byokit
 
 ## Available on this host
 
+- [Core journey: link an account and get an answer](./core-journey.md) (core journey) — a fresh consumer app outside the monorepo installs the packed `@byokit/accounts` tarball, links a ChatGPT account against the loopback stand-in provider and gets a streamed answer back through the installed package.
+
+- [Upgrade journey: upgrade the shipped package in place](./upgrade-journey.md) (upgrade journey) — the previous shipped version installs from the npm registry, the built package is installed over that same install, and the core journey runs again on the upgraded package.
+
 - [Connect endpoint overrides](./connect-endpoints.md) — built `@byokit/connect` against emulate 0.12.2 for Google OAuth and Gmail, a real local GitHub device-flow server, and an app-owned GitHub API call using the connection's resolved `apiBase`.
 
 - [Infer token probabilities](./infer-token-probabilities.md) — built `@byokit/infer` complete() journey requests `n_probs` and checks the read is the model's real next-token distribution (llama.rn-faithful `sampledReply`), greedy without it; native phone behavior remains unverified.

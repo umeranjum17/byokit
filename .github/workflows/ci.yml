@@ -179,19 +179,22 @@ jobs:
   # so the head is an ancestor and the gate passes. A merge squashes that head away, so on a push
   # to main the head is no ancestor of the squashed commit and the gate would fail every release.
   # A push to main therefore skips this job, and ci-ok passes a job skipped by design.
+  # done-done-axi 0.6.0 is the version that refuses a receipt whose capture runs only checked the
+  # code (a test, a build) or that carry no step record, so the gate holds the same bar the
+  # journeys in .done-done.yaml now set: the receipt must come from a run that drove the product.
   done-done:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42a5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24'
-      - run: npm install -g done-done-axi@0.4.7
+      - run: npm install -g done-done-axi@0.6.0
       - run: done-done gate
 
   # Pack consumers get their own budget; the isolated suite above can use most of check's fifteen minutes.
