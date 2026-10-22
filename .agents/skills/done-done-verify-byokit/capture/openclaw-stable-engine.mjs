@@ -41,16 +41,19 @@ try {
   record('native Workshop', { completeContent: true, otherAgentRefused: true, thirdPartyInstall: 'unsupported_plugin' });
   const route = kit.routes().find(r => r.choice === 'minimax-global-api');
   assert.ok(route?.provider, 'the pinned route is missing');
-  const catalog = await kit.call('models.list', { agentId: 'umer', view: 'all', refresh: true });
-  const flash = catalog.models.find(m => m.provider === route.provider && /m3[.-]1.*flash/i.test(m.id));
-  assert.ok(flash, 'booted 9.33 MiniMax catalog has no M3.1 Flash model');
-  record('catalog choice', { id: flash.id, name: flash.name, provider: flash.provider });
+  // Native MiniMax live catalog discovery requires stored auth; the uncredentialed bootstrap is not complete.
   apiKey = readFileSync(keyPath, 'utf8').trim();
   assert.ok(apiKey.length, 'sanctioned key file is empty');
-  const saved = await kit.call('models.authSetApiKey', { agentId: 'umer', provider: flash.provider, apiKey });
+  const saved = await kit.call('models.authSetApiKey', { agentId: 'umer', provider: route.provider, apiKey });
   assert.ok(saved.profileId, 'native credential setter returned no profile');
   assert.ok(!saved.warning, 'native credential update was not applied');
   record('credential stored', { profileId: saved.profileId, verified: false, path: 'public native setter; no activation/probe call' });
+  const catalog = await kit.call('models.list', { agentId: 'umer', view: 'all', refresh: true });
+  record('MiniMax catalog', catalog.models.filter(m => m.provider === route.provider));
+  const flash = catalog.models.find(m => m.provider === route.provider && /m3[.-]1.*flash/i.test(`${m.id} ${m.name}`));
+  assert.ok(flash, 'booted 9.33 MiniMax catalog has no M3.1 Flash model');
+  assert.ok(flash.available !== false && !flash.unavailableReason, 'native catalog refuses the selected model');
+  record('catalog choice', { id: flash.id, name: flash.name, provider: flash.provider });
   record('billing', 'MiniMax API key (billed per use); no claim of a free subscription or zero charge');
   const token = `stable-${run}`;
   const sessionKey = `agent:umer:stable:${run}`;
@@ -67,7 +70,7 @@ try {
   writeFileSync(join(evidence, 'steps.json'), JSON.stringify({ target: { version: `OpenClaw ${ENGINE_VERSION}` },
     start: 'Fresh isolated BYOKit app home; no imported login or environment key.',
     steps: ['Boot the built SDK Gateway', 'Read native agent Workshop instructions and refuse another agent/third-party install',
-      'Select the booted catalog Flash id', 'Store the app-passed key through the public native setter without a probe',
+      'Store the app-passed key through the public native setter without a probe', 'Select the authenticated booted catalog Flash id',
       'Send exactly one native chat and read its fresh assistant reply'],
     result: `Real MiniMax reply returned ${token}; this proves public native pass-through, not addKey activation.` }, null, 2));
 } finally {
