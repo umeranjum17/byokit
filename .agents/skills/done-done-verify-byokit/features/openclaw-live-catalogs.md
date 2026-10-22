@@ -8,6 +8,7 @@ A consumer app with an API key on any `@byokit/openclaw` key route asks `kit.mod
 - `vendor-join`: the plugin's `byokit.catalog` joins the vendor's own list to a fixed plugin catalog (MiniMax live: ids the pinned engine lacks, such as `MiniMax-M3.1-Flash`, appear).
 - `unlisted-warns`: `addKey` with a `provider/model` id the catalog lacks is `{ status: 'ok' }`, riding the richest row; an id without its provider, or a catalog with no rows, is `not_included`/`model`.
 - `openrouter-live-list`: an OpenRouter key add registers the provider's live list beside the chosen model, so the key lane lists every model the vendor lists (MiniMax M3.1 Flash and its free variant) beside `openrouter/auto`, and a run on the chosen model answers on it.
+- `config-lists-fixed`: an app config that already registers a shorter model list (MiniMax's fixed pair) does not stop the sync: the key lane lists every model the vendor lists, and a fixed list used because the vendor's list could not be read carries `offline: true`. Drive: `a key lane lists every model the vendor lists, though the config already registers a shorter list` in `sh scripts/test.sh packages/openclaw/test/kit.test.ts`.
 
 ## How to get to it (user POV)
 
