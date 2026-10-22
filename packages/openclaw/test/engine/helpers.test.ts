@@ -68,7 +68,9 @@ mock.method(globalThis, 'fetch', (input, options) => {
   // The openai provider points at the stub with no config key: every request carries the calling profile's own key.
   // Native sends between the helpers' agents are allowed by the app's own config, as Crewhouse would allow them.
   const agent = 'm1--aaaaaa';
-  const config = { plugins: { allow: ['openai'] }, models: { providers: { openai: { baseUrl: stub.url, api: 'openai-completions',
+  // This journey attributes every foreground helper request; native Activity recaps are separate background work.
+  // The stock empty utility-model setting disables that unrelated work without filtering any captured requests.
+  const config = { agents: { defaults: { utilityModel: '' } }, plugins: { allow: ['openai'] }, models: { providers: { openai: { baseUrl: stub.url, api: 'openai-completions',
     models: [{ id: 'gpt-5.6-sol', name: 'Test', api: 'openai-completions', reasoning: false, input: ['text'],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 2048 }] } } },
     tools: { allow: ['report', 'sessions_send'], agentToAgent: { enabled: true, allow: [agent, 'byokit-key-m1'] }, sessions: { visibility: 'all' } } };
