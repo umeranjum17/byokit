@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "0eda0bc287a3980cab186bb7d9524291d03084bb",
+  "tree": "05834959bdfc1f222bf4f1d8341fe6d1a849c57f",
+  "claim": "The SDK lists 102 routes with zero stale pin metadata and explicit needs_plugin and no_upstream_flow dependencies.",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-22T07:41:40.591Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261022T074057Z-0eda0bc2-8b5c7b/routes-discovery.log",
+      "sha256": "f75639dda0b88ea13143c8d82ea6956d8c4dc956952aaca90b0d71ff13f2fd42"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261022T074057Z-0eda0bc2-8b5c7b",
+      "journey": null,
+      "command": "sh -c '\nd=$(mktemp -d /var/tmp/byk933.XXXXXX) || exit 2\nmkdir -p \"$d/home\" \"$d/config\" \"$d/cache\" \"$d/data\" \"$d/state\"\nPATH=<supported Node bin>:/usr/bin:/bin HOME=\"$d/home\" XDG_CONFIG_HOME=\"$d/config\" XDG_CACHE_HOME=\"$d/cache\" XDG_DATA_HOME=\"$d/data\" XDG_STATE_HOME=\"$d/state\" TMPDIR=\"$d\" NODE_OPTIONS=\"--require <repo>/scripts/test-egress-guard.cjs --max-old-space-size=3072\" node --input-type=module < <private task evidence>/pr1-routes-consumer.mjs\nr=$?\nrm -rf -- \"$d\" || exit 3\nexit \"$r\"\n'",
+      "tool": "0.6.0",
+      "steps": {
+        "target": {
+          "version": "@byokit/openclaw engine 2026.9.33"
+        },
+        "start": "Fresh app state and public loopback fake; no credentials or provider.",
+        "steps": [
+          "Import the built public package",
+          "Start the consumer kit",
+          "Read every discovery row and verify pin metadata",
+          "Observe needs_plugin and no_upstream_flow dependencies"
+        ],
+        "result": "SDK lists 102 routes with zero stale pin metadata and explicit dependency outcomes."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261022T074057Z-0eda0bc2-8b5c7b/routes-discovery.log",
+        "sha256": "f75639dda0b88ea13143c8d82ea6956d8c4dc956952aaca90b0d71ff13f2fd42",
+        "verdict": "pass",
+        "seen": "I read the one capture record. It shows SDK discovery with \"rows\":102, \"staleRows\":0, and \"choices\":98. The dependency outcomes list needsPlugin with choice \"arceeai-api-key\" (\"Needs plugin arcee; discovery does not install it.\") and noUpstreamFlow with choice \"alibaba-model-studio-api-key\" (\"The pinned Gateway has no app-guided setup for this choice.\"). These match the outcome's 102 routes, zero stale pin metadata, and explicit needs_plugin and no_upstream_flow dependencies. The scope line says this is a loopback fake, not a real Gateway boot, but the outcome does not claim a real boot. The outcome names one part, so parts and covers are empty."
+      }
+    ]
+  }
+}
