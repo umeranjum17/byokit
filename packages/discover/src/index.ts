@@ -108,8 +108,11 @@ export type Via = 'auto' | 'tailscale' | 'tailscale-direct' | 'private' | 'lan';
 export type Reach = {
   /** The dial addresses, best first: pass to link's `offer({ urls })`. */
   urls: string[];
-  /** Where the server must listen: loopback behind Serve, the selected tailnet IP for direct, wildcard for LAN/private. */
-  bind: string;
+  /**
+   * Where the server must listen: one address per listener, never a wildcard. Loopback behind Serve, the selected
+   * tailnet IP for direct, the classified LAN (or overlay) addresses for those routes. Bind each one.
+   */
+  bind: string[];
   /** The Serve mapping made or verified against `previous`. Persist it; pass it back next time. */
   ingress?: ServeIngress;
   pendingCleanup?: ServeIngress;
@@ -147,14 +150,17 @@ export async function reach(o: { port: number; via?: Via; previous?: ServeIngres
     const served = await serve(port, ts, previous);
     if (served) {
       const pending = pendingCleanup ?? served.pendingCleanup;
-      return { urls: [served.url], bind: '127.0.0.1', ingress: served.ingress, ...(pending ? { pendingCleanup: pending } : {}) };
+      return { urls: [served.url], bind: ['127.0.0.1'], ingress: served.ingress, ...(pending ? { pendingCleanup: pending } : {}) };
     }
     if (via === 'tailscale') throw new Error('Tailscale is not installed');
     if (previous?.port === port) pendingCleanup ??= previous;
   }
   addresses ??= routes(o.interfaces).lan;
   if (addresses.length === 0) throw new Error('no LAN address; connect to a network or choose Tailscale');
-  return { urls: addresses.map((a) => `ws://${a}:${port}`), bind: via === 'tailscale-direct' ? addresses[0]! : '0.0.0.0', ...(pendingCleanup ? { pendingCleanup } : {}) };
+  // One listener per classified address, never a wildcard: a wildcard would open the port on every interface of
+  // this machine, so each dial URL below names an address the server actually listens on.
+  const bind = [...new Set(via === 'tailscale-direct' ? [addresses[0]!] : addresses)];
+  return { urls: bind.map((a) => `ws://${a}:${port}`), bind, ...(pendingCleanup ? { pendingCleanup } : {}) };
 }
 
 /** A concrete route the phone can take. `auto` is not a route: it picks the recommended entry. */

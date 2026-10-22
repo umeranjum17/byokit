@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { sealBox } from '@byokit/seal';
 import type { BrowserHost, LiveInput, LiveSource, TakeoverLease } from './browser.ts';
 import { readFileSync } from 'node:fs';
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { WebSocketServer, type WebSocket as WsSocket } from 'ws';
 import {
   PublicLinkError,
@@ -588,37 +588,54 @@ export type OpenClawServeOptions = {
 export type OpenClawServeHandle = { urls: string[]; ingress?: ServeIngress; close(): Promise<void> };
 export async function serve(o: OpenClawServeOptions): Promise<OpenClawServeHandle> {
   const r = await reach({ port: o.port, via: o.via, previous: o.previous });
-  const server = createServer(
-    o.http ??
-      ((_req, res) => {
-        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-        res.end('Not found');
-      }),
-  );
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(o.port, r.bind, () => {
-      server.off('error', reject);
-      resolve();
-    });
-  });
-  const wss = new WebSocketServer({ server });
   const sockets = new Set<WsSocket>();
-  wss.on('connection', (ws, req) => {
-    sockets.add(ws);
-    ws.on('close', () => {
-      sockets.delete(ws);
-    });
-    o.host.accept(ws, { peer: req.socket.remoteAddress });
-  });
+  // One listener per address reach names, never a wildcard, plus loopback so a client on this machine reaches
+  // the same server the phone does. Each listener answers on its own address only.
+  const opened: { server: Server; wss: WebSocketServer }[] = [];
+  try {
+    for (const address of [...new Set(['127.0.0.1', ...r.bind])]) {
+      const server = createServer(
+        o.http ??
+          ((_req, res) => {
+            res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+            res.end('Not found');
+          }),
+      );
+      const wss = new WebSocketServer({ server });
+      wss.on('connection', (ws, req) => {
+        sockets.add(ws);
+        ws.on('close', () => {
+          sockets.delete(ws);
+        });
+        o.host.accept(ws, { peer: req.socket.remoteAddress });
+      });
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(o.port, address, () => {
+          server.off('error', reject);
+          resolve();
+        });
+      });
+      opened.push({ server, wss });
+    }
+  } catch (error) {
+    for (const ws of sockets) ws.terminate();
+    for (const { server, wss } of opened) {
+      wss.close();
+      server.close();
+    }
+    throw error;
+  }
   return {
     urls: r.urls,
     ...(r.ingress ? { ingress: r.ingress } : {}),
     close: async (): Promise<void> => {
       // Ends device sockets first: the http close below waits for connections.
       for (const ws of sockets) ws.terminate();
-      await new Promise<void>((resolve) => wss.close(() => resolve()));
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      for (const { server, wss } of opened) {
+        await new Promise<void>((resolve) => wss.close(() => resolve()));
+        await new Promise<void>((resolve) => server.close(() => resolve()));
+      }
     },
   };
 }

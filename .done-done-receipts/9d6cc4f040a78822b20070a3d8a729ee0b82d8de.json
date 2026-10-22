@@ -1,0 +1,59 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "9d6cc4f040a78822b20070a3d8a729ee0b82d8de",
+  "tree": "af8a7c389cded3d0d623f498c79befc9a82395c1",
+  "claim": "A LAN pairing server now listens only on the addresses it offered the phone, not on every interface of the computer",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-22T02:19:17.329Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261022T021841Z-9d6cc4f0-c7a48e/discover-lan-bind.txt",
+      "sha256": "73423644e9bec03e3a700074b6fa89154b7e67bcc9f343a831bc87d56bbcd61c"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261022T021841Z-9d6cc4f0-c7a48e",
+      "journey": null,
+      "command": null,
+      "feature": "discover-lan-bind",
+      "tool": "0.6.0",
+      "steps": {
+        "target": {
+          "version": "@byokit/discover 0.8.4 (commit 9d6cc4f0)"
+        },
+        "start": "Worktree at the LAN bind fix commit with the packages built (packages/discover/dist newer than its source). This computer had one LAN address (192.168.1.144), one Tailscale address and Docker bridge addresses; no pairing server was running.",
+        "steps": [
+          "Read the verify skill and the discover-lan-bind feature recipe.",
+          "Wrote a Node consumer in a scratch directory outside the repository that imports reach and routes from @byokit/discover and reads this computer's addresses with routes().",
+          "Ran the consumer with node; it called reach({ port, via: 'lan' }) on a free port and printed the bind list and the dial URLs.",
+          "Started one node:http server on each address in the bind list on that port, and dialed each address (each answered HTTP 204).",
+          "Dialed 127.0.0.1 on the same port, an address the phone was not offered (connection refused).",
+          "Closed those servers and listened on 127.0.0.1 on the same port (accepted).",
+          "Called reach({ port, via: 'lan', interfaces: {} }) to exercise the no-address error case and printed the error it raised.",
+          "Saved the consumer output as discover-lan-bind.txt."
+        ],
+        "result": "The output shows reach via LAN returning bind ['192.168.1.144'] and the URL ws://192.168.1.144:41757, with no wildcard. The bind address answered HTTP 204, the unoffered 127.0.0.1 connect was refused (ECONNREFUSED), and the port could then be taken on loopback. The no-address case printed 'no LAN address; connect to a network or choose Tailscale'. The run exited 0."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261022T021841Z-9d6cc4f0-c7a48e/discover-lan-bind.txt",
+        "sha256": "73423644e9bec03e3a700074b6fa89154b7e67bcc9f343a831bc87d56bbcd61c",
+        "verdict": "pass",
+        "seen": "Read all 9 entries in the capture. The bind is 192.168.1.144:41757, which is the only LAN URL offered (ws://192.168.1.144:41757). Dialing that address returns HTTP 204, while dialing 127.0.0.1:41757 (not offered) returns ECONNREFUSED. The Tailscale address of this computer is not in the bind list, and the error case confirms the no-LAN path. The outcome names one part, so parts is empty. The capture shows the outcome, so the result is correct."
+      }
+    ]
+  }
+}
