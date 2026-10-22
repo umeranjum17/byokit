@@ -186,9 +186,16 @@ export function openclawContract(make: () => Promise<ContractFixture>, o?: { ski
     const { kit } = await make();
     try {
       await kit.ensureMember('m1');
+      // Temporary032 CI observation: metadata only, with the original dispatch/wait/denial unchanged.
+      const timing = (step: string, data = {}) => { if (process.env.CI) console.log('[builtin-timing]', JSON.stringify({ at: Date.now(), step, ...data })); };
+      kit.onEvent('agent', payload => {
+        const p = payload as { runId?: string; stream?: string; data?: { phase?: string; name?: string } };
+        if (p.stream === 'lifecycle' || p.stream === 'tool') timing('native-event', { runId: p.runId, stream: p.stream, phase: p.data?.phase, tool: p.data?.name });
+      });
+      timing('dispatch');
       const pending = kit.run({ member: 'm1', sessionKey: 'agent:m1:contract:5',
-        message: '[tool web_fetch {"mode":"ask","url":"https://example.invalid/"}]' });
-      await until(() => kit.approvals('m1').length > 0);
+        message: '[tool web_fetch {"mode":"ask","url":"https://example.invalid/"}]' }, e => timing('run-event', { type: e.type }));
+      await until(() => kit.approvals('m1').length > 0).finally(() => timing('wait-finished', { approvals: kit.approvals('m1').length }));
       const approval = kit.approvals('m1')[0];
       assert.equal(approval.source, 'gate');
       assert.equal(approval.tool, 'web_fetch');

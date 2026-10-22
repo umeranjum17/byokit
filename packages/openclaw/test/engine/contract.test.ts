@@ -24,7 +24,10 @@ before(async () => {
   const bootstrap = new Engine({ stateDir: join(install, 'bootstrap'), engineDir, pluginId: 'byokit',
     tools: [], spawnEngine: true, onState: () => {}, onExit: () => {} });
   await bootstrap.prepare();
-  stub = await startModelStub();
+  stub = await startModelStub([], { onCall: call => {
+    if (process.env.CI && JSON.stringify(call.body.messages ?? []).includes('[tool web_fetch '))
+      console.log('[builtin-timing]', JSON.stringify({ at: Date.now(), step: 'model-request', messages: call.body.messages?.length }));
+  } });
 }, { timeout: 600_000 });
 
 after(async () => {
@@ -41,6 +44,7 @@ async function make(): Promise<ContractFixture> {
     host: {
       gate: async (_run, _tool, input) => {
         const mode = (input as { mode?: string }).mode;
+        if (process.env.CI && _tool === 'web_fetch') console.log('[builtin-timing]', JSON.stringify({ at: Date.now(), step: 'host-gate', asks: mode === 'ask' }));
         if (mode === 'ask') return { ask: { summary: `note ${String((input as { text?: string }).text ?? '')}` } };
         if (mode === 'deny') return { allow: false, reason: 'denied by the test host' };
         return { allow: true };
