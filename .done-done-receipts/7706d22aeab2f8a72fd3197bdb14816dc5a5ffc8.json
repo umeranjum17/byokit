@@ -1,0 +1,63 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "7706d22aeab2f8a72fd3197bdb14816dc5a5ffc8",
+  "tree": "a175463546c58143bdbcdfea314e45a0fe2cdc78",
+  "claim": "A LAN pairing server now listens only on the addresses it offered the phone, not on every interface of the computer",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-22T01:48:45.330Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261022T014802Z-7706d22a-7a2e92/discover-lan-bind.txt",
+      "sha256": "18db8a5632799aa45e2be1b9491721974915813079e96ac9d3967c0abc9935a0"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261022T014802Z-7706d22a-7a2e92",
+      "journey": null,
+      "command": null,
+      "feature": "discover-lan-bind",
+      "tool": "0.6.0",
+      "steps": {
+        "target": {
+          "version": "@byokit/discover 0.8.4 (built from commit 7706d22a)"
+        },
+        "start": "Worktree on fm/byk-discover-lan-bind at 7706d22a with the workspace built (packages/discover/dist present). No scratch consumer existed; no servers were running.",
+        "steps": [
+          "Read the verify skill and the discover-lan-bind feature recipe.",
+          "Wrote a Node consumer in a scratch directory inside the worktree that imports reach and routes from @byokit/discover.",
+          "Read this computer's LAN addresses with routes(); it reported one LAN address, 192.168.1.144.",
+          "Called reach({ port, via: 'lan' }) on a free loopback-chosen port and printed the bind list and the dial URLs.",
+          "Checked that the bind list is non-empty, has no wildcard, and covers the host of every URL.",
+          "Started one HTTP server per bind address on that port and requested each one over HTTP; each answered 204.",
+          "Connected to 127.0.0.1 on the same port; the connection was refused (ECONNREFUSED).",
+          "Took the same port on 127.0.0.1 with a second server; it succeeded.",
+          "Closed every server the run started.",
+          "Called reach({ port, via: 'lan', interfaces: {} }) and printed the rejection it raised.",
+          "Ran the consumer and captured its stdout, stderr and exit code to discover-lan-bind.txt; the exit code was 0.",
+          "Removed the scratch directory; the evidence file remained."
+        ],
+        "result": "The output shows bind ['192.168.1.144'] and urls ['ws://192.168.1.144:<port>']. Port answers 204 on 192.168.1.144 and is refused on 127.0.0.1, and 127.0.0.1 can still take that port. With no interfaces the call rejects with 'no LAN address; connect to a network or choose Tailscale'. Exit code 0."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261022T014802Z-7706d22a-7a2e92/discover-lan-bind.txt",
+        "sha256": "18db8a5632799aa45e2be1b9491721974915813079e96ac9d3967c0abc9935a0",
+        "verdict": "pass",
+        "seen": "I read the one capture entry. It shows bind: [\"192.168.1.144\"], urls: [\"ws://192.168.1.144:44191\"], and 'listening on 192.168.1.144:44191'. A GET to the LAN address returned 204. A GET to 127.0.0.1:44191 was refused with ECONNREFUSED, and 'loopback 127.0.0.1:44191 taken by a second server: yes' shows the refusal is from the port being held elsewhere, not from our server listening there. The error case 'no LAN address; connect to a network or choose Tailscale' shows the offered-address check. The outcome names no separate parts, so parts is empty."
+      }
+    ]
+  }
+}

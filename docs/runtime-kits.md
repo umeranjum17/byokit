@@ -3291,9 +3291,10 @@ export declare function serve(o: { host: Host; port: number; via?: Via; previous
   http?: (req: IncomingMessage, res: ServerResponse) => void }): Promise<{ urls: string[]; ingress?: ServeIngress; close(): Promise<void> }>;
 ```
 
-`serve` = `reach({ port, via, previous })` → `node:http` server on `bind:port` (answering `http` when given, else
-404) with a `ws` `WebSocketServer({ server })` → `host.accept(ws, { peer: req.socket.remoteAddress })`; returns
-`urls` for `host.offer({ urls, role })` and the `ingress` to persist. `herdrLink(kit, { scopeOf: (grant) =>
+`serve` = `reach({ port, via, previous })` → one `node:http` server per `bind` address, plus loopback, each
+answering `http` when given, else 404, with a `ws` `WebSocketServer({ server })` →
+`host.accept(ws, { peer: req.socket.remoteAddress })`; returns `urls` for `host.offer({ urls, role })` and the
+`ingress` to persist. `herdrLink(kit, { scopeOf: (grant) =>
 { workspaces: 'all' | string[] }, passThrough?, relay? })` mirrors it.
 
 OpenClaw ops (`handle` unless marked stream; *view* = allowed for view-role grants; all others need `control`;

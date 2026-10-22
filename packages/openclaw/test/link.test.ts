@@ -503,7 +503,8 @@ test('serve binds per reach and pairs over its urls', async () => {
   closers.push(() => void served.close());
   assert.ok(served.urls.length > 0 && served.urls.every((u) => u.startsWith('ws://')));
   // The egress guard (scripts/test.sh, CI) blocks non-loopback dials, so pair over loopback: serve
-  // binds 0.0.0.0 for lan, which still answers 127.0.0.1. The LAN urls themselves are reach's job.
+  // binds each LAN address reach names and loopback, which still answers 127.0.0.1. The LAN urls
+  // themselves are reach's job.
   const loopback = served.urls.map((u) => {
     const url = new URL(u);
     url.hostname = '127.0.0.1';

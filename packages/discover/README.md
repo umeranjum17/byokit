@@ -52,10 +52,13 @@ Work out the addresses for a server on port 8792, listen where reach says, and p
 offer. Persist `ingress` and pass it back as `previous` next time.
 
 ```ts
+import { createServer } from 'node:http';
 import { reach } from '@byokit/discover';
 
 const { urls, bind, ingress, pendingCleanup } = await reach({ port: 8792, previous: saved.ingress });
-server.listen(8792, bind);        // loopback behind Serve, selected IP for direct Tailscale, wildcard for LAN/private
+// One listener per address reach names, never a wildcard: loopback behind Serve, the selected tailnet IP for
+// direct Tailscale, the classified LAN (or overlay) addresses for those routes.
+const servers = bind.map((address) => createServer(handler).listen(8792, address));
 saved.ingress = ingress;
 if (pendingCleanup) saved.pendingCleanup = pendingCleanup; // retry unserve() later
 const { text } = host.offer({ role: 'control', urls });     // show `text` as a QR
@@ -82,14 +85,14 @@ console.log(await reach({ port: 8792, via: 'lan', interfaces }));
   private: [ { address: '100.90.1.2', interface: 'wt0' } ],
   tailscale: []
 }
-{ urls: [ 'ws://192.168.1.20:8792' ], bind: '0.0.0.0' }
+{ urls: [ 'ws://192.168.1.20:8792' ], bind: [ '192.168.1.20' ] }
 ```
 
 ## API at a glance
 
 | Export | What it does |
 |---|---|
-| `reach({ port, via?, previous?, tailscale?, interfaces?, address? })` | The dial `urls`, the `bind` address, and the Serve `ingress` to persist (plus `pendingCleanup` when a removal failed) |
+| `reach({ port, via?, previous?, tailscale?, interfaces?, address? })` | The dial `urls`, the `bind` addresses to listen on (one per listener, never a wildcard), and the Serve `ingress` to persist (plus `pendingCleanup` when a removal failed) |
 | `directRoutes({ port, listen?, interfaces?, tailnetIPs?, hosts?, path? })` | Multiple direct listener `hosts` and pairing `urls`, with explicit loopback/tailnet/LAN scopes |
 | `phoneNetwork({ nativeModule? })` | Phone Wi-Fi/cellular transports and explicit VPN state (`yes`, `no`, `unknown`) |
 | `nativeAddresses({ nativeModule? })` | IPv4 interface evidence including actual prefix lengths; Node reads its interfaces by default |
@@ -118,8 +121,12 @@ console.log(await reach({ port: 8792, via: 'lan', interfaces }));
 | `auto` (default) | Tailscale Serve if Tailscale is installed, otherwise LAN | as below |
 | `tailscale` | `wss://<MagicDNS name>` through Tailscale Serve | `127.0.0.1` |
 | `tailscale-direct` | `ws://<tailnet IP>:<port>` | the selected tailnet IP |
-| `private` | another overlay network (NetBird, WireGuard, ZeroTier, …) | `0.0.0.0` |
-| `lan` | private IPv4 addresses on physical-looking interfaces (no known Docker, VM or VPN bridges) | `0.0.0.0` |
+| `private` | another overlay network (NetBird, WireGuard, ZeroTier, …) | each overlay address |
+| `lan` | private IPv4 addresses on physical-looking interfaces (no known Docker, VM or VPN bridges) | each LAN address |
+
+`bind` is a list: one address per listener, so the phone reaches the server on the address it was offered. A LAN
+or overlay route binds each classified address it names and never a wildcard — a wildcard would open the port on
+every interface of this computer, including the ones the phone was never offered.
 
 Direct Tailscale binds the first CGNAT IPv4 address in `Self.TailscaleIPs`, keeping the LAN closed.
 Pass `address` with `via: 'tailscale-direct'` to select another IPv4 address from that same list;
@@ -170,6 +177,8 @@ is recommended and every entry carries its `disabledReason`.
 `directRoutes` is synchronous and runs no CLI, Serve or listener. By default it selects loopback plus
 classified tailnet addresses. A supplied `listen` enables only its true scopes. LAN binds the individual
 LAN addresses, so enabling LAN does not implicitly open unrelated overlays or disabled scopes.
+`reach()` follows the same rule: its `bind` list names one address per listener, and a LAN or overlay
+route never asks for a wildcard.
 Pass `tailscaleState().ips` as `tailnetIPs` for unnamed interfaces. Addresses must exist in the interface
 snapshot; CLI evidence alone does not create a listener. Refresh the snapshot and reconcile listeners
 when the network or pairing-window policy changes.
@@ -304,7 +313,7 @@ These are the rules from muxr's decision 0004.
 - **Never Funnel.** Setup uses `tailscale serve --yes --bg --https=443 http://127.0.0.1:<port>`, which
   is visible only inside the tailnet. A root already enabled for Funnel is refused, including when its proxy matches
   the recorded mapping; turn Funnel off before changing routes or DNS names.
-- **The server stays on loopback** behind Serve (`bind: '127.0.0.1'`).
+- **The server stays on loopback** behind Serve (`bind: ['127.0.0.1']`).
 - **The machine's own `Self.DNSName` is used.** A missing or invalid MagicDNS name is an error. A logged-out or
   broken Tailscale is an error too. Neither one falls back to the LAN without being asked.
 - **An unrecorded root handler is refused.** If `/` on `<name>:443` already has any handler, `reach` throws unless
