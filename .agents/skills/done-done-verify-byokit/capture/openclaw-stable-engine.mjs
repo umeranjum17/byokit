@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { OpenClawKit, ENGINE_VERSION, PluginInstallError, routes } from '@byokit/openclaw';
+import { OpenClawKit, ENGINE_VERSION, PluginInstallError } from '@byokit/openclaw';
 
 const [evidence, engineDir, keyPath] = process.argv.slice(2);
 assert.ok(evidence && engineDir && keyPath, 'pass evidence directory, disk engine directory and sanctioned key file path');
@@ -39,7 +39,7 @@ try {
   await assert.rejects(kit.call('skills.workshop.read', { agentId: 'other', name: 'launch-check' }));
   await assert.rejects(kit.installPlugin('telnyx'), e => e instanceof PluginInstallError && e.code === 'unsupported_plugin');
   record('native Workshop', { completeContent: true, otherAgentRefused: true, thirdPartyInstall: 'unsupported_plugin' });
-  const route = routes().find(r => r.choice === 'minimax-global-api');
+  const route = kit.routes().find(r => r.choice === 'minimax-global-api');
   assert.ok(route?.provider, 'the pinned route is missing');
   const catalog = await kit.call('models.list', { agentId: 'umer', view: 'all', refresh: true });
   const flash = catalog.models.find(m => m.provider === route.provider && /m3[.-]1.*flash/i.test(m.id));
