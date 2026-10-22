@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { OpenClawKit } from '../../src/kit.ts';
 import { HelperError } from '../../src/helpers.ts';
+import { untilListed } from '../../src/members.ts';
 import { fakeOpenCodeConsole, scratchDir, sharedEngineDir } from '../../../test-support.ts';
 import { startModelStub, type ModelStub } from '../../src/testing/model-stub.ts';
 import type { DelegatedEvent, RunEvent, RunRef } from '../../src/types.ts';
@@ -67,11 +68,12 @@ mock.method(globalThis, 'fetch', (input, options) => {
   // The openai provider points at the stub with no config key: every request carries the calling profile's own key.
   // Native sends between the helpers' agents are allowed by the app's own config, as Crewhouse would allow them.
   const agent = 'm1--aaaaaa';
-  const config = { plugins: { allow: ['openai'] }, models: { providers: { openai: { baseUrl: stub.url, api: 'openai-completions',
+  // This journey attributes every foreground helper request; native Activity recaps are separate background work.
+  // The stock empty utility-model setting disables that unrelated work without filtering any captured requests.
+  const config = { agents: { defaults: { utilityModel: '' } }, plugins: { allow: ['openai'] }, models: { providers: { openai: { baseUrl: stub.url, api: 'openai-completions',
     models: [{ id: 'gpt-5.6-sol', name: 'Test', api: 'openai-completions', reasoning: false, input: ['text'],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 2048 }] } } },
-    tools: { allow: ['report', 'sessions_send'], agentToAgent: { enabled: true, allow: [agent, 'byokit-key-m1'] }, sessions: { visibility: 'all' } },
-    session: { agentToAgent: { maxPingPongTurns: 0 } } };
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 2048 }] } } },
+    tools: { allow: ['report', 'sessions_send'], agentToAgent: { enabled: true, allow: [agent, 'byokit-key-m1'] }, sessions: { visibility: 'all' } } };
   const gated: RunRef[] = [], called: RunRef[] = [];
   const host = {
     gate: async (run: RunRef, tool: string, input: Record<string, unknown>) => tool !== 'report' ? { allow: true as const }
@@ -92,6 +94,7 @@ mock.method(globalThis, 'fetch', (input, options) => {
     await kit.ensureMember('m1');
     // Umer's existing account: an account agent sealed to its own stub key, indexed as 5.15 writes it.
     await kit.call('agents.create', { name: agent, workspace: join(root, 'workspaces', 'm1') });
+    await untilListed(() => kit.call('agents.list', {}), agent);
     const activated = await kit.call('openclaw.setup.activate', { kind: 'api-key', agentId: agent, authChoice: 'openai-api-key',
       apiKey: accountKey }, { timeoutMs: 180_000 }) as { ok: boolean };
     assert.equal(activated.ok, true);
@@ -275,5 +278,7 @@ mock.method(globalThis, 'fetch', (input, options) => {
     assert.deepEqual((await kit.accounts('m1')).map((a) => a.id).sort(), rows.map(([id]) => id), 'no new sign-in');
     const files = readFileSync(join(root, 'helpers', 'm1', 'research.json'), 'utf8');
     assert.ok(!files.includes(accountKey) && !files.includes(planKey), 'a helper record holds no key');
+
+
   } finally { await kit.stop(); mock.restoreAll(); syncBuiltinESMExports(); }
 });

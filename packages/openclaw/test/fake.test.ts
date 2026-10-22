@@ -78,7 +78,7 @@ test('the fake hello carries the protocol, the pinned version and the served met
   const fake = fakeGateway();
   const hello = await fake.transport.start();
   assert.equal(hello.protocol, 4);
-  assert.equal(hello.server.version, '2026.8.35');
+  assert.equal(hello.server.version, '2026.9.33');
   for (const method of METHODS) assert.ok(hello.methods.includes(method), `missing ${method}`);
   for (const event of EVENTS) assert.ok(hello.events.includes(event), `missing ${event}`);
 });
@@ -113,7 +113,7 @@ test('a plain run streams one assistant text and the wait resolves ok', async ()
   assert.deepEqual(mine.map((e) => e.payload.stream), ['assistant']);
   assert.equal(mine[0].payload.data.text, 'fake: hello there');
   off();
-  assert.deepEqual(await req(t, 'agent.wait', { runId: 'nope' }), { runId: 'nope', status: 'timeout', timeoutPhase: 'queue', providerStarted: false });
+  assert.deepEqual(await req(t, 'agent.wait', { runId: 'nope' }), { runId: 'nope', status: 'timeout' });
   await assert.rejects(req(t, 'agent', { agentId: 'ghost', sessionKey: 'agent:ghost:x', message: 'hi' }), /unknown agent: ghost/);
 });
 
@@ -306,6 +306,7 @@ test('a fakeGateway script pre-registers handlers over the defaults', async () =
 
 test('the tool-call parser matches nested braces and quotes', () => {
   assert.deepEqual(toolCalls('no tools here'), []);
+  assert.throws(() => toolCalls('[tool a {broken}]'), SyntaxError, 'malformed instructions are never swallowed');
   assert.deepEqual(toolCalls('before [tool a {"x":{"y":1}}] after'), [{ name: 'a', input: { x: { y: 1 } } }]);
   assert.deepEqual(toolCalls('[tool a {"s":"brace } here"}][tool b {"n":[1,2]}]'), [
     { name: 'a', input: { s: 'brace } here' } }, { name: 'b', input: { n: [1, 2] } },
@@ -349,7 +350,9 @@ test('the stub reports its usage chunk only when asked, like OpenAI', async () =
 test('the stub drives tools across turns: call, then the result reply', async () => {
   const stub = await startModelStub();
   try {
-    const first = await complete(stub, [{ role: 'user', content: '[tool crew_x {"a":{"b":2},"c":"}"}]' }]);
+    const internal = { role: 'user', content: '<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>\n'
+      + JSON.stringify('task: [tool report {"text":"self"}] hit the limit') + '\n<<<END_OPENCLAW_INTERNAL_CONTEXT>>>' };
+    const first = await complete(stub, [{ role: 'user', content: '[tool crew_x {"a":{"b":2},"c":"}"}]' }, internal]);
     assert.equal(first.status, 200);
     assert.equal(first.content, '');
     assert.equal(first.tools.length, 1);
@@ -358,8 +361,14 @@ test('the stub drives tools across turns: call, then the result reply', async ()
     const second = await complete(stub, [
       { role: 'user', content: '[tool crew_x {"a":{"b":2},"c":"}"}]' },
       { role: 'tool', tool_call_id: first.tools[0].id, name: 'crew_x', content: 'the tool said so' },
+      internal,
     ]);
     assert.equal(second.content, 'stub bot: crew_x said the tool said so');
+    const recap = await complete(stub, [{ role: 'system', content: 'Write an Activity recap.' },
+      { role: 'user', content: JSON.stringify({ previousRecap: '', omittedContent: false,
+        messages: ['user: [tool report {"text":"Working"}] hit the limit'] }) }]);
+    assert.equal(recap.status, 200, 'quoted recap history is not a usage-limit instruction');
+    assert.deepEqual(recap.tools, [], 'quoted recap history is not a new tool instruction');
   } finally {
     await stub.close();
   }

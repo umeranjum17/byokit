@@ -7,7 +7,7 @@
 </p>
 
 <p align="center"><strong>The OpenClaw runtime kit: one object that runs the pinned engine for your app.</strong><br/>
-It drives the pinned OpenClaw engine (<code>openclaw@2026.8.35</code>, protocol 4) through one kit object. The
+It drives the pinned OpenClaw engine (<code>openclaw@2026.9.33</code>, protocol 4) through one kit object. The
 aggregator's full operator surface stays available as typed pass-through calls (<code>call</code> for every operator
 method, <code>callDynamic</code> for the rest), with plain-words helpers for members, sign-in, runs, approvals and
 config. For apps built on OpenClaw, where the engine holds the subscriptions.</p>
@@ -20,7 +20,7 @@ npm install @byokit/openclaw
 
 [![npm](https://img.shields.io/npm/v/@byokit/openclaw?style=flat&label=)](https://www.npmjs.com/package/@byokit/openclaw) · [Latest release](https://github.com/umeranjum17/byokit/releases?q=openclaw-v) · [All releases](https://github.com/umeranjum17/byokit/releases)
 
-Node 22.18 or later. The kit brings the engine with it: the first `start()` installs the pinned `openclaw@2026.8.35`
+Node 24.16+ on 24.x, or Node 26.1+ (recommended). Node 22 and 25 are unsupported. The kit brings the engine with it: the first `start()` installs the pinned `openclaw@2026.9.33`
 under your `stateDir` (a few minutes, needs the network once), and later starts run from there. For a whole app, a
 phone page that pairs, signs in to a plan (ChatGPT or a plan key), runs and answers approvals, see
 [`examples/openclaw-kit`](../../examples/openclaw-kit).
@@ -98,7 +98,7 @@ async function dispatch(kit: OpenClawKit, taskId: string, attempt: number, messa
 ```
 
 Omitting `idempotencyKey` preserves a fresh UUID per call. Supplied keys are non-empty strings passed unchanged.
-**Not exactly-once:** engine 2026.8.35 caches `agent` keys gateway-wide, across agents and sessions, without comparing
+**Not exactly-once:** engine 2026.9.33 caches `agent` keys gateway-wide, across agents and sessions, without comparing
 inputs. A collision silently returns the first run's result/error; a task id alone is not a safe key. Reconnects
 retain the in-memory cache; engine process restarts lose it. Inactive entries expire after five minutes (60-second
 cleanup tick), or earlier under the 1,000-entry cache limit; active and pending accepted runs are exempt.
@@ -268,9 +268,10 @@ RPC data is retained; existing typed `call` pass-through is unchanged. Windows a
 refresh it. The engine response cache lasts 30 seconds; pending/stale/unknown data leaves `totals` absent.
 An absent agent row is unavailable, not proof of zero usage. Reset/deletion/retention can reduce counters.
 
-**Coverage is always `retained-transcripts-only`.** Stock 2026.8.35's detached Skill Workshop reviews are omitted
-from its ledger; actual crash-recovery resumes and threshold memory flushes are counted through persisted
-transcripts, never through a second side total. This reader cannot enforce a complete all-turn budget. The app owns budget,
+**Coverage is always `retained-transcripts-only`.** Stock 2026.9.33's detached Skill Workshop reviews are omitted
+from its ledger. Crash-recovery resumes count only where their usage is persisted. Unlike 8.35, 9.33 also runs
+threshold memory flushes detached: their provider tokens are absent from the observed transcript/day usage RPCs,
+even when the flush succeeds. No second side total is guessed. This reader cannot enforce a complete all-turn budget. The app owns budget,
 share and unavailable/partial-data policy. Do not add run results to these totals: they already overlap. Engine
 cost fields are price counters, not a bill or subscription quota; zero cost with `missingCostEntries > 0` is
 unknown cost, and tokens never establish subscription plan weights. No billing conversion is performed.
@@ -309,9 +310,10 @@ windows incomplete permanently. Reads open only requested UTC months plus boot r
 Device reads use the operator-read plugin RPC, never host files; the link adapter restricts it to the granted member.
 As with the existing transcript reader, the app must explicitly allow member-scoped `sessions.usage` pass-through.
 
-Uncovered: worker-bundle work, skill collection review, history scans, slug generation, active-memory recall,
-out-of-turn compaction and one-shot helper completions. Do not add `RunEnd.usage`, memory flush or recovery totals
-again: they already overlap retained transcripts. Offline scripted-provider tests verify seven Gateway accounting
+Uncovered: 9.33 detached memory flushes, worker-bundle work, skill collection review, history scans, slug generation,
+active-memory recall, out-of-turn compaction and one-shot helper completions. The previous memory-flush inclusion
+promise is not met on 9.33; `knownTotalTokens` can omit that spend. Do not add `RunEnd.usage` or recovery totals again:
+they already overlap retained transcripts, and do not invent a flush total from unrelated counters. Offline scripted-provider tests verify seven Gateway accounting
 cases; they do not establish live subscription quota, provider bills or universal coverage.
 
 For a validated JSON answer, pass a literal `schema`. The result's `data` is inferred from that schema:
@@ -409,7 +411,7 @@ streams, [`examples/openclaw-kit`](../../examples/openclaw-kit) for a whole app,
 Subscription sign-ins are offered by default. API-billed routes remain in `kit.routes()` with `offer: false`;
 apps can offer them when the app or person opts in, labelled API key (billed per use). Each `Route` carries `billing` (`subscription`, `api` or
 `local`) so the app can label what is billed. Proxy routes, compatibility aliases, local runtimes stay off. Native Claude Code sign-in is offered by default. The kit re-checks the installed Claude login at each setup detection and, once it is signed in, restarts the engine onto it. A plan key (OpenCode Go: `kit.addAccount(member, { authChoice: 'opencode-go' }, on)`) asks for `Plan key`; `paste` it and the engine live-tests it before `done`. A paired device starts the same sign-in with either `via` and pastes the key over the sealed link, which keeps it on the host. A run reaches the pinned engine's static Go models (default `opencode-go/deepseek-v4-pro`); the kit keeps OpenCode Go's `x-opencode-session` header on every request, the setup probe included. A live-only Go model such as Muse needs no app config: the kit registers the plan's live catalog with each model's API, so `run({ model: 'opencode-go/muse-spark-1.3-contributor' })` runs on the account (or with `auth: 'apiKey'` on a Go key); an app that sets `config.models.providers['opencode-go'].models` keeps its own list. A choice the pinned Gateway cannot set up has readiness `no_upstream_flow` and is never offered. Pass the accounts the app offers in `KitOptions.offered` (the provider, auth choice or alias each route carries, e.g. `'openrouter'`); the kit allow-lists the plugin of every route those name, so an opted-in sign-in is not blocked. An app can still name a plugin directly in `config.plugins.allow`, and pass the route's `choice` explicitly to `kit.signIn()`.
-Offered provider plugins are allowed by default alongside the app's plugin ids. A route whose provider plugin ships outside the engine (Z.AI's GLM Coding Plan, for one) has readiness `needs_plugin` until the app calls `await kit.installPlugin(route.needs.plugin)`: it installs that plugin into the kit's own engine at exactly the engine's version and pinned npm integrity, keeps it allowed across restarts, and rejects `PluginInstallError` (`code` `version` or `integrity`) with nothing installed on a mismatch. Discovery never installs.
+Offered provider plugins are allowed by default alongside the app's plugin ids. A route whose provider plugin ships outside the engine (Z.AI's GLM Coding Plan, for one) has readiness `needs_plugin` until the app calls `await kit.installPlugin(route.needs.plugin)`: it installs that plugin into the kit's own engine at exactly the engine's version and pinned npm integrity, keeps it allowed across restarts, and rejects `PluginInstallError` (`code` `version` or `integrity`) with nothing installed on a mismatch. Discovery never installs. Catalog-only third-party plugins (Telnyx) are not installed: `installPlugin` rejects with typed `unsupported_plugin`.
 
 Composio uses its hosted MCP endpoint with the pinned OpenClaw engine's native OAuth client; BYOKit does not maintain a Composio app/tool list or install a separate plugin. `beginComposioSignIn()` configures `https://connect.composio.dev/mcp` for Streamable HTTP OAuth and returns `{ url }`; open it in the browser, then call `completeComposioSignIn()` to wait for OpenClaw's callback and token exchange. OpenClaw stores the OAuth credentials in its engine-owned SQLite state; when the app supplies `authSeal`, the kit seals that state at rest with other engine data. `signOutComposio()` invokes native MCP logout. Composio usage is billed under the person's own Composio plan.
 
@@ -440,8 +442,8 @@ Entries:
 
 Every method and event the pin publishes has a real type: `kit.call('sessions.list', params)` is checked in and
 returns the engine's declared result, with no cast. For the slots the pin itself leaves undeclared the table stays
-`unknown`, and `src/generated/report.json` names every one of them per release. On `openclaw@2026.8.35` that is 302
-of 394 methods' params and 193 of their results, plus 21 of 55 event payloads; the other slots are not missing from
+`unknown`, and `src/generated/report.json` names every one of them per release. On `openclaw@2026.9.33` that is 370
+of 487 methods' params and 241 of their results, plus 29 of 64 event payloads; the other slots are not missing from
 the kit, they are not published by the engine, and typing them here would be a guess that does not match the
 gateway. `callDynamic` stays the same shape for a method the pin never declared.
 
@@ -458,17 +460,19 @@ requires an explicit allowed `agentId` and native runtime (not ACP). A tracked s
 `kit.delegatedRuns()` lists admitted children. `kit.onEvent('byokit.delegated', fn)` reports admission, native streams
 and terminal observations with exact `runId`, `agentId`, `member`, `sessionKey`, `parent` and `root` identity.
 The same identity reaches `ToolHost`; each delegated action has its own gate/approval. Tool arguments/results
-are omitted from this event surface. An accepted native dispatch is not finished work or proof of delivery.
+are omitted from this event surface. A 9.33 dispatch receipt with `status: 'timeout'`, a nonempty run id and the exact authorized child key also admits the still-unsettled child; all pending-call, expiry, member and tool-scope checks still apply. Admission is not finished work or proof of delivery.
 
 When a sent child finishes, the engine starts its own reply run on the sender's session to bring the report back.
 The kit admits that exact run as the sender: same member and helper, same app-tool subset and delegates, the sender's
-`system` as its persona, `RunRef.parent` naming the finished child. Only a run whose prompt the engine headed with that
+`system` as its persona, `RunRef.parent` naming the finished child. Only a run whose native inter-session provenance names that
 child's session, on the sender's exact key, within a minute of the child's (or the previous return turn's) end, binds;
 any other run there stays unknown. Return runs are not on `delegatedRuns()` or `byokit.delegated`; read them from the
-engine's `agent` events on the sender's key. The pinned engine starts no reply run for a child that took over 30 s.
+engine's `agent` events on the sender's key. The 9.33 engine waits at most 60 s for the child's terminal result before starting its reply run.
 
-Admitted exact run IDs survive parent settlement and are reconciled on reconnect/start; a child the engine no longer
-knows (as after an engine restart) ends `lost`, and a dispatch that finds the journal full reconciles first. `abort(rootSessionKey)`
+Admitted exact run IDs survive parent settlement and are reconciled on reconnect/start. **On 9.33 a plain wait
+timeout is unresolved, not proof of lost or live work**: the receipt stays admitted until affirmative terminal
+information or explicit cancellation. `delegatedRuns()` is not a live-job census. A full journal reconciles first,
+but unresolved receipts still count toward its limit. `abort(rootSessionKey)`
 durably revokes its recorded subtree, closes parked gates/active calls, then asks the engine to abort; a child key
 revokes its subtree. An engine resume with a different run ID, or a dispatch with no retained receipt, is not
 silently granted authority. No prefix grants or `allowOnce` bypass are used.
@@ -529,7 +533,7 @@ both. A helper key, another member's key or a helper never ensured is a typed `H
 
 `kit.onEvent('byokit.delegated', fn)` follows each helper child start to finish: `admitted` (with `run.helper` and
 `run.tools`, its app-tool subset), the engine's events, then one `ended` whose `reason` is `terminal`, `cancelled` (an
-abort, or its admission ended), `error` (with `message`), `lost` (the engine no longer knows the run: outcome unknown)
+abort, or its admission ended), `error` (with `message`), `lost` (affirmative native lost observation: outcome unknown)
 or `resting`: the model's usage limit ended it, and the kit rests the helper's account `until` the stated reset, as a
 kit run's resting end does. An approval raised by a helper's
 run names it in `Approval.helper`.
@@ -847,7 +851,7 @@ retained-login cleanup and sealed approval limits.
 
 Linux and macOS x64/arm64 are supported; Windows is unsupported.
 
-Pinned to OpenClaw `2026.8.35` (protocol 4); `ENGINE_VERSION` and `PROTOCOL_VERSION` carry the pin. Signatures are
+Pinned to OpenClaw `2026.9.33` (protocol 4); `ENGINE_VERSION` and `PROTOCOL_VERSION` carry the pin. Signatures are
 frozen (docs/runtime-kits.md §5).
 
 ## Links

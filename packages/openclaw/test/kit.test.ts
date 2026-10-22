@@ -1075,7 +1075,7 @@ async function until(check: () => boolean, ms = 2000): Promise<void> {
 }
 
 // A stand-in for the engine's own `openclaw plugins install <spec>`: it puts the kit's configured install policy the
-// three requests the pinned engine sends for an npm plugin (verified live against 2026.8.35: the preflight with the
+// three requests the pinned engine sends for an npm plugin (verified live against 2026.9.33: the preflight with the
 // registry's resolution, the extracted package, its dependency tree), then records the install the way the engine
 // does. `registry.json` beside it is what the registry would serve for each spec.
 const FAKE_INSTALLER = `
@@ -1099,7 +1099,7 @@ for (const shape of [
   { sourcePath: here, sourcePathKind: 'directory', plugin: { contentType: 'package', pluginId: served.id, packageName: served.name, version: served.version } },
   { sourcePath: here, sourcePathKind: 'directory', plugin: { contentType: 'dependency-tree', pluginId: served.id } },
 ]) {
-  const input = JSON.stringify({ protocolVersion: 1, openclawVersion: '2026.8.35', targetName: served.id, targetType: 'plugin', source, request, ...shape });
+  const input = JSON.stringify({ protocolVersion: 1, openclawVersion: '2026.9.33', targetName: served.id, targetType: 'plugin', source, request, ...shape });
   const verdict = JSON.parse(spawnSync(exec.command, exec.args, { input, encoding: 'utf8', env: { ...process.env, ...exec.env } }).stdout);
   if (verdict.decision !== 'allow') { console.error('Install blocked by policy\\n  Reason: ' + verdict.reason); process.exit(1); }
 }
@@ -1115,9 +1115,9 @@ test('a key route waiting on an external plugin: the explicit install at its pin
   const cli = join(engineDir, 'node_modules', 'openclaw');
   mkdirSync(cli, { recursive: true });
   writeFileSync(join(cli, 'openclaw.mjs'), FAKE_INSTALLER);
-  const pinned = { id: 'zai', name: '@openclaw/zai-provider', version: '2026.8.35',
+  const pinned = { id: 'zai', name: '@openclaw/zai-provider', version: '2026.9.33',
     integrity: JSON.parse(readFileSync(new URL('../engine/plugins.json', import.meta.url), 'utf8')).zai.integrity };
-  const serve = (resolution: object) => writeFileSync(join(cli, 'registry.json'), JSON.stringify({ '@openclaw/zai-provider@2026.8.35': resolution }));
+  const serve = (resolution: object) => writeFileSync(join(cli, 'registry.json'), JSON.stringify({ '@openclaw/zai-provider@2026.9.33': resolution }));
   // Like the engine, a running gateway loads a newly installed plugin only at its next boot.
   let booted = false;
   const fake = fakeGateway({ 'gateway.restart.request': () => { booted = true; return { ok: true }; }, 'plugins.list': () => {

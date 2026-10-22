@@ -11,6 +11,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { hostKeySeal, type SealingAdapter } from '@byokit/secrets';
 import { nonCredential } from '../../src/auth-store.ts';
 import { Engine } from '../../src/engine.ts';
+import { untilListed } from '../../src/members.ts';
 import { gatewayTransport } from '../../src/transport.ts';
 import { migrateRetainedLogin, confirmRetainedLogin } from '../../src/migrate.ts';
 import { providers, type SignInCtx } from '../../src/signin.ts';
@@ -60,10 +61,12 @@ async function start(house: House): Promise<SignInCtx> {
   const request: GatewayTransport['request'] = (method, params, options) => transport.request(method, params, options);
   return { request, ensure: async (member) => {
     const list = await request('agents.list') as { agents: { id: string }[] };
-    if (!list.agents.some((agent) => agent.id === member))
+    if (!list.agents.some((agent) => agent.id === member)) {
       await request('agents.create', { name: member, workspace: join(house.stateDir, 'openclaw', 'workspaces', member) });
+      await untilListed(request, member);
+    }
     return { agentId: member };
-  }, callbackPort: 0, authConfig: () => '', restarted: async () => true };
+  }, callbackPort: 0, restarted: async () => true };
 }
 
 const stop = async (house: House) => { await house.transport?.stop(); await house.engine.stop(); };
@@ -86,9 +89,9 @@ test('a sealed preserved sign-in survives doctor, gateway, stop and restart with
     const db = new DatabaseSync(join(home.stateDir, 'openclaw', 'state', 'agents', 'm1', 'agent', 'openclaw-agent.sqlite'));
     const profiles = JSON.parse((db.prepare('SELECT store_json FROM auth_profile_store').get() as { store_json: string }).store_json).profiles;
     db.close();
-    assert.deepEqual(Object.keys(profiles), ['openai:default']);
-    assert.equal(profiles['openai:default'].provider, 'openai');
-    assert.equal(profiles['openai:default'].access, 'a-preserved');
+    assert.deepEqual(Object.keys(profiles), ['openai:m1']);
+    assert.equal(profiles['openai:m1'].provider, 'openai');
+    assert.equal(profiles['openai:m1'].access, 'a-preserved');
     assert.equal(await confirmRetainedLogin(ctx, 'm1', { path: home.legacy }), true, 'the gateway reports the preserved sign-in');
     assert.equal(existsSync(home.legacy), false, 'only a confirmed import retires the copy');
     assert.equal(existsSync(`${home.legacy}.moved-to-engine`), false, 'no plaintext retained archive is created');

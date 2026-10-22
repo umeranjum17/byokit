@@ -7,7 +7,7 @@ import { editText, patchId, readPatchSet, sha256, type PatchFile } from '../src/
 
 const manifest = fileURLToPath(new URL('../engine/patches.json', import.meta.url));
 // Large bundles whose fake installs need only the shipped edit's input, not the entire upstream bundle.
-const synthetic = new Set(['dist/prepare.runtime-BUjESFb4.js', 'dist/setup-inference-Dpvv_U7x.js']);
+const synthetic = new Set(['dist/prepare.runtime--y1-AtS2.mjs', 'dist/setup-inference-ur2QGopt.mjs', 'dist/oauth-Dqmi6EU2.mjs', 'dist/setup-inference-credentials-D4Y52_FC.mjs']);
 
 export function stockBytes(file: PatchFile): Buffer {
   return synthetic.has(file.path)
@@ -19,7 +19,7 @@ export function stockBytes(file: PatchFile): Buffer {
 export function useSyntheticStock(t: TestContext): void {
   syncBuiltinESMExports();
   const lock = JSON.parse(fs.readFileSync(new URL('../engine/package-lock.json', import.meta.url), 'utf8'));
-  const set = readPatchSet(manifest, '2026.8.35', lock.packages['node_modules/openclaw'].integrity);
+  const set = readPatchSet(manifest, '2026.9.33', lock.packages['node_modules/openclaw'].integrity);
   const files = set.files.map(file => {
     const bytes = stockBytes(file);
     if (!synthetic.has(file.path)) {

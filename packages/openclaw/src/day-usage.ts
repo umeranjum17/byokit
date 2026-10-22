@@ -6,7 +6,7 @@ export type EngineStartedKind = 'workshop-review';
 export type EngineStartedCharge = {
   chargeId: string; member: Member; kind: EngineStartedKind;
   state: 'counted' | 'reported-missing' | 'pending' | 'interrupted';
-  startedAt: number; endedAt?: number; outcome?: 'nothing' | 'proposed' | 'applied' | 'failed';
+  startedAt: number; endedAt?: number; outcome?: 'nothing' | 'proposed' | 'applied' | 'completed' | 'failed';
   provider: string; model: string; billing: 'subscription' | 'api' | 'local' | 'unknown'; authProfileId?: string;
   tokens?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; reasoningTokens?: number; total: number };
   tokenSource: 'engine-reported'; cost: { state: 'missing' }; bootId: string; seq: number;
@@ -46,7 +46,7 @@ export function engineStartedOf(raw: unknown, member: Member, window: AgentDayUs
       !['started', 'ended'].includes(String(fact.phase)) || !text(fact.chargeId) || !text(fact.bootId) ||
       !text(fact.provider) || !text(fact.model) || !integer(fact.seq) || fact.seq < 1 || !count(fact.at) || !count(fact.startedAt) ||
       (fact.authProfileId !== undefined && !text(fact.authProfileId)) ||
-      (fact.outcome !== undefined && !['nothing', 'proposed', 'applied', 'failed'].includes(String(fact.outcome)))) return unavailable;
+      (fact.outcome !== undefined && !['nothing', 'proposed', 'applied', 'completed', 'failed'].includes(String(fact.outcome)))) return unavailable;
     const key = `${fact.chargeId}\0${fact.phase}`;
     const previous = phases.get(key);
     if (previous && JSON.stringify(previous) !== JSON.stringify(fact)) return unavailable;

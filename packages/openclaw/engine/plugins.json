@@ -1,150 +1,154 @@
 {
   "amazon-bedrock": {
-    "spec": "@openclaw/amazon-bedrock-provider@2026.8.35",
-    "integrity": "sha512-wYOiY7RaRo0SFXxcBVcqWnfwBH4TNc921Vlz7adBS+T5DIhtbnyzcAsMS1XsS9KvrYU3n1yW5SDdexvxop04hA=="
+    "spec": "@openclaw/amazon-bedrock-provider@2026.9.33",
+    "integrity": "sha512-OTRfEBedp/qPoahIPynYrHfw3QEt7pLQjb9CN6dZCbysZndKmHxiA8/0BXu9mlUwUFnV0+EeElihsnEhjHYdzw=="
   },
   "amazon-bedrock-mantle": {
-    "spec": "@openclaw/amazon-bedrock-mantle-provider@2026.8.35",
-    "integrity": "sha512-bolUz+/osnBgarPBAko/+POthZ57JUXZ6T2nGMdQz+TfmdfnDhdZtXBRgy8JFjeDVgnNneWX4P1iuCgRRIsoJQ=="
+    "spec": "@openclaw/amazon-bedrock-mantle-provider@2026.9.33",
+    "integrity": "sha512-l5bJYfD5josiV2+1MJCWXNifSyN/PvXA8lxBy9KIILL+3RmaaI08nRsC9NFxS4Q75jeyqbJcA8l258OcSe/aXA=="
   },
   "anthropic-vertex": {
-    "spec": "@openclaw/anthropic-vertex-provider@2026.8.35",
-    "integrity": "sha512-zQ5OYT7WvCgbyUnInz3+al/jCrN3RE2yMlC2wopVgjP9IMg1jANK0wPXArXWecT1p+j8+i2/TvxPI55U10Vdeg=="
+    "spec": "@openclaw/anthropic-vertex-provider@2026.9.33",
+    "integrity": "sha512-5ApLI6XW8z4+fMfzXattN8ntdI2zLiY+nnwH7OMaYi9v/WZqLzsQ+jvZ5dV7halLUa6sxpmQDklQEijYCNAE9g=="
   },
   "arcee": {
-    "spec": "@openclaw/arcee-provider@2026.8.35",
-    "integrity": "sha512-ViygKglSVjq5hQGVkduqe39Iiw9OBht/kTxOctLsgRvUzOWOqZvA9NvLybUtj230xLFCb/AVs1f3iGFRoXMBCA=="
+    "spec": "@openclaw/arcee-provider@2026.9.33",
+    "integrity": "sha512-VCCpY3LV0cSeKFTOAgJ9MFFLm+lzeXEDQ7Jt+IERFv7jE49WMLlVJuyOFIsXHriV0vthySWus/uLRinwn5or4Q=="
   },
   "baseten": {
-    "spec": "@openclaw/baseten-provider@2026.8.35",
-    "integrity": "sha512-7zieofesRMB9fp41Ilh4VIFLIKJfRe1eT5ZYp3NKGwyON5rH0X11IcMXL1nRzIbIRyKnodfvl+H1EPO8NC4exA=="
+    "spec": "@openclaw/baseten-provider@2026.9.33",
+    "integrity": "sha512-1R5rbO4UDUdDka4Kb4i8l3oKcfUiToPQXJNo458Kmof+p6EOmyvKYpvRUph96cObdjawzcMeUJBcdI4UnD6LHw=="
   },
   "byteplus": {
-    "spec": "@openclaw/byteplus-provider@2026.8.35",
-    "integrity": "sha512-6Z9uHUxVSAt9TNNe5eiZfPhsExgInueEVCOeHxrZ6OybULJwDGx/cBJEY1LAy3MXzwCLX8ayENEtutcajxC0ew=="
+    "spec": "@openclaw/byteplus-provider@2026.9.33",
+    "integrity": "sha512-Cmze0K9VngZayPqdGBu+4MbsswIBbhtE3GukASxxxvJEKhJheiawQoc/MYxCmM7yC106kpzjc8UE8r000s0vDw=="
   },
   "cerebras": {
-    "spec": "@openclaw/cerebras-provider@2026.8.35",
-    "integrity": "sha512-rqe2RMXn2hea0IpZuC01KwknMBOoH2fD9spGAvmffL8sX8qai+wSXW0Cn0pSOz9T+i862N5N3RXQP/K35QOvdA=="
+    "spec": "@openclaw/cerebras-provider@2026.9.33",
+    "integrity": "sha512-0cFNsi1mh8683UfAU2XacbDsS9K8Kgcshk0B7vAa8cOS2vpTmAKaSvclL1lS4+kfkHOACq/5s1ALgqsD3Gl9mA=="
   },
   "chutes": {
-    "spec": "@openclaw/chutes-provider@2026.8.35",
-    "integrity": "sha512-76+x2QS3NEgml0YnxV7fNbS7wO93oRtjlIFwkw0aUBYBzg1744aE3wEXXWkLcGpjVxp9bvgcpJ18Hp+gaW8F0A=="
+    "spec": "@openclaw/chutes-provider@2026.9.33",
+    "integrity": "sha512-Ccg0r0alj5Oz7Tf4ZKIqmyAA2O2ozhbIpUTojYrV2oKlL47f/SSeH5hSAaaphebHNsjMJWEryCPzcxRBR5hjmQ=="
   },
   "cloudflare-ai-gateway": {
-    "spec": "@openclaw/cloudflare-ai-gateway-provider@2026.8.35",
-    "integrity": "sha512-TjJJHTRdIiTVAM75w1xOed6VR0hQbAe30gNOc2ighi9G7FWU5wb3VeSQ9CtcJsAHYS5kurQNCf45owJfzkWGTg=="
+    "spec": "@openclaw/cloudflare-ai-gateway-provider@2026.9.33",
+    "integrity": "sha512-Yq6OuDtJUQD8uFaukJIiBfKyWU4gxorE58aY0ZoGlJQe6HmRK0uyy0FrpSP15P+ne9C2VcR3bvaL+ohtJWKLng=="
   },
   "cohere": {
-    "spec": "@openclaw/cohere-provider@2026.8.35",
-    "integrity": "sha512-lA35F/ztGyYLAyRsrygogmL9WxU3M4X1lRSLCr1zZakXJDj0c6g46XtMmqxjtdQNCTo8TFni0gs4lqowZNq0OQ=="
+    "spec": "@openclaw/cohere-provider@2026.9.33",
+    "integrity": "sha512-3j9+BOtpHoHLXo7mNnRMFsa8f53TSmLdt+qeizbhG3MBbvZtwN8LgBVzlepF9OtHm1IOfLXxwXjIQm8cAu0zRQ=="
   },
   "comfy": {
-    "spec": "@openclaw/comfy-provider@2026.8.35",
-    "integrity": "sha512-KHnjNwTCoy5l8Quq5zu7CwPBfg8XdTlI1W3GLg2CcamR+jksjbLpPzvrIObN8MineWVwpwmPgsdP3PyfyKxIaQ=="
+    "spec": "@openclaw/comfy-provider@2026.9.33",
+    "integrity": "sha512-PJO5qI8C5PbRYCS3+e5KARHcTwR1Web7ii629DTVgC0QUVv7aAWOrfyBJUPlZOcIfiapBvOL1F+9pGvxJtb0Lw=="
   },
   "deepinfra": {
-    "spec": "@openclaw/deepinfra-provider@2026.8.35",
-    "integrity": "sha512-r4jktr88r3AFGmZRKtAjLkEOUQG5OAz+bXTwHpZxz4M28pbik3bJU2eBBaHAzahE7QdP9Xi3C3eIxoUl6/yi9w=="
+    "spec": "@openclaw/deepinfra-provider@2026.9.33",
+    "integrity": "sha512-+0cZDPaCO1QHfEuOMQFTBmLNYZ7PvJww3AquFctLnlTR2WETdp2c7RK88TXMy11pK1ve5R8uLoVciNZe4H/0OQ=="
   },
   "deepseek": {
-    "spec": "@openclaw/deepseek-provider@2026.8.35",
-    "integrity": "sha512-UVT+YusrPGSHLD7xd3YzJ45Hfe+ezFKEVBgaxPfYAUoXKvwN/OftG/kVga+bkjoxxSrp5Q+yI0Ec1kPBDhQ2RQ=="
+    "spec": "@openclaw/deepseek-provider@2026.9.33",
+    "integrity": "sha512-grwsNNRftB1jrZZR9TkdSDvSK4KdvP/kYVHtkQ8RQuiU3TwdMchQLRDGNyhsdm+vaNYkspNDWnRKqaQuaNWjYg=="
   },
   "featherless": {
-    "spec": "@openclaw/featherless-provider@2026.8.35",
-    "integrity": "sha512-3XzG0avloplS8NVcNtq57JN91Sq6YnFcNSVcwz9IN8Q0oKcyxt5pabWfS6jCvsaBfV3sFaRf1Amn2PNrQKgHgQ=="
+    "spec": "@openclaw/featherless-provider@2026.9.33",
+    "integrity": "sha512-yrmHtY5Us4mkVyfIOPiTg3A8YlcK1Pq5m8kEbCwtN/1ofygwjC7Tsb8tw9YjhvsLZ+1ad2dEo6kUetWPUkPypg=="
   },
   "fireworks": {
-    "spec": "@openclaw/fireworks-provider@2026.8.35",
-    "integrity": "sha512-CUms5nyK72D5VyNyXH5FZdy73gjlLMA3Vz6fpc6Z9ZtR6LxHjET7e91pM2cnjm6AkO4pUbh3sgiOeU/+lCYNPg=="
+    "spec": "@openclaw/fireworks-provider@2026.9.33",
+    "integrity": "sha512-wR73CwxXub51SuIfXf1NDflIGxIfAhdIZ3fa5BCc2XllD8aRUMXkDx27NQDxd7gwG+Lgp/WTEcEyLJuaZW/cRw=="
   },
   "gmi": {
-    "spec": "@openclaw/gmi-provider@2026.8.35",
-    "integrity": "sha512-OOLyjF58RdhwGgvaIyudhwpKzunSWbaOlyfUUr+oTFkOhb3ZzfLMx9Kqweql0ug04fh/aQ6s9IvX2jK2adAbBA=="
+    "spec": "@openclaw/gmi-provider@2026.9.33",
+    "integrity": "sha512-7tp5k+PSwfbX/2wWz/YJ2q6U4VhB+S8RgiPzdSSmV4t8AIiIcCuNCIbgxY2BEKc0Fcut5UrTojzt50XtOyqzXw=="
   },
   "groq": {
-    "spec": "@openclaw/groq-provider@2026.8.35",
-    "integrity": "sha512-/VmTp3GXaz1F06HfG0Xc83E8Ul/tsjQ6DRd6bscjmHOH8JtKv1U+AgQa8Uj5wMPmop9ttbqPXCqHuenMViankg=="
+    "spec": "@openclaw/groq-provider@2026.9.33",
+    "integrity": "sha512-4TEP1T5idSbX6plib1X4U93XpRpgGAdqh7zZbW9DmJAvZtRS+wq+aDTAGXYY9Tt9nqC9WYoBYJPhD5qCZcjb7A=="
   },
   "kilocode": {
-    "spec": "@openclaw/kilocode-provider@2026.8.35",
-    "integrity": "sha512-O8hp8BQqAVElY2UXdE5EBBwzba7xevStF7TIi9TE59NTADK2JojK9bStF6rX4y9Ctp5NeMpf+KyYFTiSfm/N1A=="
+    "spec": "@openclaw/kilocode-provider@2026.9.33",
+    "integrity": "sha512-N71wdrvpkc3h7cumpEC5Uuy3Y+fYr2BBY9dJE63pZFsjFlFn5vmrOQj1Lj7jQTeeENJrUj9QUsN+p+tylRxxZQ=="
   },
   "kimi": {
-    "spec": "@openclaw/kimi-provider@2026.8.35",
-    "integrity": "sha512-jeS3BmTXoa8A3OWXg6TB+vlKj1t+bvJFZQIvbXSGUNm2vIUSNXLYvgzNgmhF24MdwHwyBPdcUnJVZyMCklbEBw=="
+    "spec": "@openclaw/kimi-provider@2026.9.33",
+    "integrity": "sha512-/Q7gxKwVoEsXR3x3oTfhHteXzNbcU8mNo1+dFq41vkM8szaeFFuFSaw79rIRHU7vIO/n52HgD9qsk3Q0IvfBlA=="
   },
   "longcat": {
-    "spec": "@openclaw/longcat-provider@2026.8.35",
-    "integrity": "sha512-E4hHADSRpkHtiy6FfoHQpYD94usn+J0sVmY2fn94ftNNV4SjVvILqybjBiqfAlVy5FVOPRytL6P2y6hkdd52Cg=="
+    "spec": "@openclaw/longcat-provider@2026.9.33",
+    "integrity": "sha512-SHNGSoYLdJ8g7iKE1F7iHD+7VHlEkl5ySpBQO/MORwnCwtkG046fUS6X+kI86YbQFG+4p791OYMWbfDG1rbVng=="
   },
   "meta": {
-    "spec": "@openclaw/meta-provider@2026.8.35",
-    "integrity": "sha512-3cEwNKmJW1wIwQE40crK1O4X4eo6n4xzH1v/7raa79DeoTOJ8pc8PWa66stv51ESwWhYDcCFVHU7XtnrbXyUXA=="
+    "spec": "@openclaw/meta-provider@2026.9.33",
+    "integrity": "sha512-64cEw8O7KMeBrETbtMKISqlADR3/aC54FpR7vOpoKvAZwZ0rlpBojaSV2vTj7IRKsSZdPOya5tWTyquC7qQfuA=="
   },
   "mistral": {
-    "spec": "@openclaw/mistral-provider@2026.8.35",
-    "integrity": "sha512-TNULKvqsMMXz1ZNr89UPv9ucqcUYcw1hKLqoOo0yB/yRUazNErepds1qOzYJYA4lksylvhvvruDs9vIUMbfTjA=="
+    "spec": "@openclaw/mistral-provider@2026.9.33",
+    "integrity": "sha512-ccdazoi9MCvM2jUaZ5I4vQx3+4AH0Cj+u/JxoC5LzF4o3FAW0UUzp7nT/o3E2u2ClWeMi6UQq7P9DF2BEP+T6A=="
   },
   "moonshot": {
-    "spec": "@openclaw/moonshot-provider@2026.8.35",
-    "integrity": "sha512-gk9C4Hg/+K9taU/cRgNO77QzmPw46fo7klNB6y7qhefJQwoknbtCJLgnMpVEo97uiAxYxCTYRNvI+fOKF7Em5A=="
+    "spec": "@openclaw/moonshot-provider@2026.9.33",
+    "integrity": "sha512-NJAgMd1FBmitqBtnExaGd0z2vnrmsk3eUgsDgVSqMWUD87Aahk8gnC/7mybAxmJx561r5A+msvgszLReDr8iZw=="
   },
   "novita": {
-    "spec": "@openclaw/novita-provider@2026.8.35",
-    "integrity": "sha512-TNui/LbLCsakaj677E+Xw2D1hRztQMOJWLj86JcqOfS7QzfEM6rA+FRs996HnXUIpqXeaefHc0qdVghKEXhgOw=="
+    "spec": "@openclaw/novita-provider@2026.9.33",
+    "integrity": "sha512-CG9tAAqdhLXO1NsdiodwPh5PcdqzijBwCdnenUylqsHQqJqxZHEFQoOdJdxsJihz685wj5A+ip64UZjJP1zusw=="
   },
   "opencode": {
-    "spec": "@openclaw/opencode-provider@2026.8.35",
-    "integrity": "sha512-6wRKxfmgETuusys4K74cB0ixZVqQCgJBvD2g74cQAgx8w7BMr7+2965uYbU1sMjspreOigjgYLfePcMgV5conQ=="
+    "spec": "@openclaw/opencode-provider@2026.9.33",
+    "integrity": "sha512-3Nx8lz0lB53IxvJYns4LJ0VE2a88eb6y4o7SBUFvi2I/SEAXG0iI4oIgcZvpeo7b35kOpamloeJ2ty/RaTddBQ=="
   },
   "pixverse": {
-    "spec": "@openclaw/pixverse-provider@2026.8.35",
-    "integrity": "sha512-BbAp0Nfphem5LAytazWWAB5TJTM7L5zC7cWd+7r4iHU5iO7CyZYAGS5rjeLV3XEUwD2TAoWcHKBe8TiRXgsbaQ=="
+    "spec": "@openclaw/pixverse-provider@2026.9.33",
+    "integrity": "sha512-mt7YRTfuHW/ghZ2WkZVDwMJkZ5IrIy0ExtBASEDyiwL69ed/sQ2VafkU8d4Gsj4yl/roB5nuGfYIBp9LDCvG2g=="
   },
   "qianfan": {
-    "spec": "@openclaw/qianfan-provider@2026.8.35",
-    "integrity": "sha512-LSSz68Bv5/vRemKRrVNoDXA9zLx7yymMEY94fP5cgat9rsR83Fa6bA5hyEucutExz5wf2FJWmWqEJy2snm0k9A=="
+    "spec": "@openclaw/qianfan-provider@2026.9.33",
+    "integrity": "sha512-uc926rCgTcD5jRwSx3K5D6gkF3C8vM95Z3Qf25LUq/T3hTK4TT+2UuQOZBDIhVaHkpnCz0bV+wmBrOAAKl1mvA=="
   },
   "qwen": {
-    "spec": "@openclaw/qwen-provider@2026.8.35",
-    "integrity": "sha512-TaCx2LEOZgcXrWv0FLdBuFHoFvwDVNH+loGcO3MUIwhIBPoQTHD7Q+7DTOcLeK8qrQA/zGvWitT2WismCQJ7pw=="
+    "spec": "@openclaw/qwen-provider@2026.9.33",
+    "integrity": "sha512-IZbeXVLOe0TUhY9AGMFOmnisRHNLagSDrqTiNyf+H/8T5dGIGsew+2EHFhbPiHgnnmUrOrnh49wOcojVcujtXA=="
+  },
+  "radius": {
+    "spec": "@openclaw/radius-provider@2026.9.33",
+    "integrity": "sha512-uOhEcO16vtRioxTyoPx/rOtyWQ3ioyR0VtYm0mZu/nhAFEu5tMWVL0aYaeBTL/y9/53gF6j5rENW18GcRzhEXA=="
   },
   "stepfun": {
-    "spec": "@openclaw/stepfun-provider@2026.8.35",
-    "integrity": "sha512-JBUKhN36cjUsMea8AOfX8yROEb7Zp01YPLpjzI/jnosalq2mhfYJY4kJTLou2RGwblDXx1dj0vB2HWidA+e/yw=="
+    "spec": "@openclaw/stepfun-provider@2026.9.33",
+    "integrity": "sha512-CIO1YerTMAgV/qAOGEyAt8H8B8y7x66YsRppXQ9amzfKjzseLGOTQtxRg4mH3P+VwRLKush4shFqTtOdaut9SA=="
   },
   "synthetic": {
-    "spec": "@openclaw/synthetic-provider@2026.8.35",
-    "integrity": "sha512-Lfs2lFTvsMEDNqZG2myoX8n7sbmIEVXMYV/Roa4umnPLsLT2aeqLkvWyesQWl9XRneSnGNtWS6yhbKLaqXU0Ng=="
+    "spec": "@openclaw/synthetic-provider@2026.9.33",
+    "integrity": "sha512-5vAySJgRrjCDBsL/7WPIDIqMTd8DrYF3ycuW86wqt9z/yG/3A4jOng2GlJOVAi5RDppYBz2f2QqZCeXUeW/aWA=="
   },
   "tencent": {
-    "spec": "@openclaw/tencent-provider@2026.8.35",
-    "integrity": "sha512-8khAe7ZaR0o3KPxiWnnyGaLFwDTF1ft1Cr3v1YrBntL1Nr8OvFM1XP/Lyifn3MJ7SK4lajYxLVsfuq2E18Jxeg=="
+    "spec": "@openclaw/tencent-provider@2026.9.33",
+    "integrity": "sha512-pAQ09ic4D/HzRJNDDl3qrLmArnL0evNX3Yzsp893RaSCk8D242aBYFE78i+Z6EyuIKOU/4g8W2kvJZmDoWUX/Q=="
   },
   "venice": {
-    "spec": "@openclaw/venice-provider@2026.8.35",
-    "integrity": "sha512-c/Au2qkMeneJRKKm2o0/Fkf7dpcJR5RVJPmEPZhOsFaOUoq3zAk+Is/42khZ136Yj/UyQ09nFTUJsqmaeKoZVA=="
+    "spec": "@openclaw/venice-provider@2026.9.33",
+    "integrity": "sha512-0F6t/ftBcuVPqSYFR6hUFtBfUITdThFiRRmh5qH2knoXqzBeuFmLD/DGJam4FQEpIMIoeilq7XhWORrRjUaOfA=="
   },
   "vercel-ai-gateway": {
-    "spec": "@openclaw/vercel-ai-gateway-provider@2026.8.35",
-    "integrity": "sha512-gL9aGnfVGKVvB9mvMDRmIPOPTqQUqTr11DU60nn7BqDUCpLckoRUSXxzH3Rituxj+5dyoLI1LL5RiA9SPoImRA=="
+    "spec": "@openclaw/vercel-ai-gateway-provider@2026.9.33",
+    "integrity": "sha512-4PnkoYDMkM2yBhNtjlOjxiW77wxIrGiUPrQlGrmKO6MEl9tL6jR3XHIwedUZh6NhMkDHrPRrbnYaAU5WRmwRvQ=="
   },
   "volcengine": {
-    "spec": "@openclaw/volcengine-provider@2026.8.35",
-    "integrity": "sha512-7dqdTtFgJcEBiSdzt5gLLPop/y6rK5FuobjiAGDwKxbPVENo0hmWJ8HGWbLKzRXerhzK20pvzF/+rr3OGDkRPQ=="
+    "spec": "@openclaw/volcengine-provider@2026.9.33",
+    "integrity": "sha512-yHNWnL4PkIuPFZSvGY87C0/cr/KcTtv2cJ33fbTLniG+cV7f3IePcOS+FyK0iwx+ubaYdAzCO3mWCl+EeGKlbQ=="
   },
   "vydra": {
-    "spec": "@openclaw/vydra-provider@2026.8.35",
-    "integrity": "sha512-Z0xHR8t+0Ge2GCgVDIlH1WLq4XeI5WoOgvkMvDvb4CQkxW+c251L0gbg37R6CNPkdfDFn8mh5/yIQrkazNj7dQ=="
+    "spec": "@openclaw/vydra-provider@2026.9.33",
+    "integrity": "sha512-9qxADjEDaRHRNmiravBSPoMRpmQcmPqOrzcs2h6VIi1wmG3agKSr56w+ZQj0nbdaNprXl4DqDqtliiMShtr71A=="
   },
   "xiaomi": {
-    "spec": "@openclaw/xiaomi-provider@2026.8.35",
-    "integrity": "sha512-xtH3ESbMBcPQIciYiJCBP2ijd6MpP6tU/y27dJ3PGF8SluKZlbUfTUrqjT9U/NHo/bwafRISxL/HtAKYSm3Jkg=="
+    "spec": "@openclaw/xiaomi-provider@2026.9.33",
+    "integrity": "sha512-qtDc0r47s09aSprD57U6hM8MrGOfLJsc0dz7cQQRhWuYpz8zYc/wtCBPAVII8kC1OV7Epzc7we3e3OudIfChlg=="
   },
   "zai": {
-    "spec": "@openclaw/zai-provider@2026.8.35",
-    "integrity": "sha512-g3ceSnLS84lNW2KlHznrO9vPXhX4ul1nQ+Dc0K4ccHdLOVfQ0DjjgV1NbT4CQZiTlN7Z2UFtGzl5EQeD1oCPfQ=="
+    "spec": "@openclaw/zai-provider@2026.9.33",
+    "integrity": "sha512-rc9U+btxA9LU2r4W8musos1YArUTueLnB7RCqNWxRZAtOrShJyV3FGTFWDbZAIu2o2hof9WohgCaPfxp+7QLbg=="
   }
 }

@@ -11,10 +11,10 @@ into this folder's `.state`, a ChatGPT sign-in kept in the lab's retained test h
    (`npm pack -w packages/{openclaw,accounts,usage,secrets,pair,link,relay,discover,reach,seal,ui,ui-core}` — the same closure `e2e.test.ts` packs), copy this folder somewhere short (the kit's
    bridge socket lives under `.state/`), `npm i` the tarballs and `esbuild`.
 2. `npm start -- --via tailscale-direct` (or `tailscale` / `lan`, whichever the lab has). The first start installs
-   the pinned engine (`openclaw@2026.8.35`): see `Getting things ready on this computer…`, then `Ready.` Record the
+   the pinned engine (`openclaw@2026.9.33`): see `Getting things ready on this computer…`, then `Ready.` Record the
    address printed and the engine version in `.state/openclaw/engine/node_modules/openclaw/package.json`.
 3. On a phone on the lab tailnet: scan the QR code; check the two words match; answer `y` in the terminal.
-4. Under **Plans**, tap **ChatGPT Device Pairing — sign in with a code**; the phone shows a code and the ChatGPT page.
+4. Under **Plans**, tap **Codex login (device code) — sign in with a code**; the phone shows a code and the ChatGPT page.
    Sign in with the lab's test ChatGPT account and type the code; the phone moves to **Talk to it** by itself. (Already
    signed in from an earlier run: sign out from the phone first, so the sign-in itself is proven.)
 5. Send `Say hello in five words.`: the reply streams in and ends; no error line under it.

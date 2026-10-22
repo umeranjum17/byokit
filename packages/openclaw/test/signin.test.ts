@@ -34,7 +34,6 @@ const ctx = (fake: ReturnType<typeof scripted>, over: Partial<SignInCtx> = {}): 
   request: fake.request,
   ensure: async (member) => ({ agentId: member }),
   callbackPort: 0,
-  authConfig: () => '',
   restarted: async () => true,
   ...over,
 });
@@ -202,15 +201,20 @@ test('a caller signal cancels device approval through the kit facade', async (t)
 });
 
 test('sign-in: a step that asks for a note is acknowledged and its address is surfaced', async () => {
+  let progress = true;
   const fake = scripted({
     'openclaw.setup.auth.start': () => ({ sessionId: 'byokit-fake-note', done: false }),
-    'wizard.next': (params: any) => params.answer
-      ? { done: true, status: 'done' }
-      : { done: false, step: { id: 'step-note', type: 'confirm', externalUrl: 'https://example.test/please' } },
+    'wizard.next': (params: any) => {
+      if (progress) { progress = false; return { done: false, step: { id: 'step-progress', type: 'progress', externalUrl: 'https://example.test/loading' } }; }
+      return params.answer ? { done: true, status: 'done' }
+        : { done: false, step: { id: 'step-note', type: 'confirm', externalUrl: 'https://example.test/please' } };
+    },
   });
   const views: SignInView[] = [];
   const end = await signIn(ctx(fake), 'm1', { authChoice: 'xai-oauth' }, (view) => views.push(view)).done;
   assert.equal(end.state, 'done');
+  assert.ok(views.some((view) => view.url === 'https://example.test/loading'), 'progress carries the native browser link');
+  assert.ok(!fake.calls.some((call) => call.params?.answer?.stepId === 'step-progress'), 'progress is pulled, never acknowledged');
   assert.ok(views.some((view) => view.url === 'https://example.test/please'), JSON.stringify(views));
   assert.equal(fake.calls.find((call) => call.params?.answer)?.params.answer.stepId, 'step-note');
 });
@@ -405,10 +409,11 @@ test('sensitive setup-token wizard consumes an early or waiting paste once, with
       'wizard.next': (params) => {
         if (params.answer) {
           assert.deepEqual(params.answer, { stepId: 'secret', value: token });
-          return { step: { id: 'notice', type: 'note', externalUrl: `https://example.test/${token}` }, error: token };
+          return { step: { id: 'secret-progress', type: 'progress', externalUrl: `https://example.test/${token}` }, error: token };
         }
         if (++pulls === 1) return { step: { id: 'secret', type: 'text', sensitive: true,
           externalUrl: `https://example.test/${token}`, deviceCode: { code: token } } };
+        if (pulls === 2) return { step: { id: 'notice', type: 'note', externalUrl: `https://example.test/${token}` }, error: token };
         return { done: true };
       },
       'wizard.cancel': () => ({}),
@@ -604,7 +609,7 @@ test('explicit Anthropic key entry is API billed and never echoed in views or er
 test('a key activation is done only once the restart it causes has finished, however late the restart begins', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const secret = 'test-secret-not-a-real-key';
-  const fake = scripted({ 'openclaw.setup.activate': () => ({ ok: true }) });
+  const fake = scripted({ 'openclaw.setup.activate': () => ({ ok: true, gatewayRestartRequired: true }) });
   // The restart begins 12 s after activation answers and the kit is ready again a second later.
   const restarted = () => new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 13_000));
   const drive = signIn(ctx(fake, { restarted }), 'm1', { authChoice: 'apiKey' }, () => {});
@@ -621,7 +626,7 @@ test('a key activation is done only once the restart it causes has finished, how
 
 test('a key activation whose restart does not finish fails retryably and keeps its words off the key', async () => {
   const secret = 'test-secret-not-a-real-key';
-  const fake = scripted({ 'openclaw.setup.activate': () => ({ ok: true }) });
+  const fake = scripted({ 'openclaw.setup.activate': () => ({ ok: true, gatewayRestartRequired: true }) });
   const drive = signIn(ctx(fake, { restarted: async () => false }), 'm1', { authChoice: 'apiKey' }, () => {});
   drive.paste(secret);
   const view = await drive.done;
@@ -732,12 +737,12 @@ for (const action of ['shutdown-ready', 'stale-ready']) test(`native Claude reco
     'openclaw.setup.detect': async () => { if (missOnce) { missOnce = false; return { candidates: [] }; }
       if (action === 'shutdown-ready' && existsSync(claude.granted)) { seenReady(); await detection; }
       return { candidates: [{ kind: 'claude-cli', credentials: existsSync(claude.granted) && (action !== 'stale-ready' || logins() === 2) }] }; },
-    'openclaw.setup.activate': () => { assert.ok(existsSync(claude.granted)); return { ok: true }; } });
+    'openclaw.setup.activate': () => { assert.ok(existsSync(claude.granted)); return { ok: true, gatewayRestartRequired: true }; } });
   // The launch resolves with its view once the address shows, or with its end if the drive ends first.
   const launch = (context: SignInCtx) => { let shown!: (v: SignInView) => void; const waiting = new Promise<SignInView>((resolve) => { shown = resolve; });
     const handle = signIn(context, 'm1', { authChoice: 'anthropic-cli' }, (v) => { if (v.url) shown(v); }); return { handle, waiting: Promise.race([waiting, handle.done]) }; };
   try { await engine.prepare(); const context = ctx(fake, { nativeClaudeLogin: () => engine.nativeClaudeLogin(), resetNativeClaudeLogin: () => engine.resetNativeClaudeLogin(),
-      restarted: async (_, signal) => { assert.ok(signal); assert.equal(signal.aborted, false); return true; } });
+      restarted: async (signal) => { assert.ok(signal); assert.equal(signal.aborted, false); return true; } });
     const first = launch(context); assert.equal((await first.waiting).state, 'waiting'); first.handle.paste('synthetic-code');
     if (action === 'shutdown-ready') {
       await ready; // Native wait settled ready; only the independent engine detection is held.
@@ -762,7 +767,7 @@ test('a phone cancel before the commit point activates nothing; after it the eng
     const seen: { answerDetect?: (value: unknown) => void; detectSignal?: AbortSignal; finishRestart?: (ok: boolean) => void } = {};
     const fake = scripted({
       'openclaw.setup.detect': (_, o) => row === 'during detection' ? new Promise((resolve) => { seen.answerDetect = resolve; seen.detectSignal = o.signal; }) : { candidates: [{ kind: 'claude-cli', credentials: true }] },
-      'openclaw.setup.activate': () => ({ ok: true }) });
+      'openclaw.setup.activate': () => ({ ok: true, gatewayRestartRequired: true }) });
     const drive = signIn(ctx(fake, { restarted: () => new Promise<boolean>((resolve) => { seen.finishRestart = resolve; }) }), 'm1', { authChoice: 'anthropic-cli' }, () => {});
     const activating = row.startsWith('restart');
     if (row === 'during detection') { assert.ok(await poll(() => Boolean(seen.answerDetect)), 'detection is pending when the phone cancels');

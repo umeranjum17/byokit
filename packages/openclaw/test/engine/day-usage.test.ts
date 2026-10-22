@@ -3,7 +3,7 @@ import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, existsSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync, renameSync, rmSync, existsSync, watch } from 'node:fs';
 import { processStartTime } from '../../src/engine-patches.ts';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -28,7 +28,8 @@ test('O16 real Workshop, cold cache, failed writes, crash interruption and bound
   const server = createServer(async (req, res) => {
     const chunks: Buffer[] = []; for await (const c of req) chunks.push(c);
     const body = JSON.parse(Buffer.concat(chunks).toString());
-    const review = body.messages.some((m: any) => m.role === 'user' && String(m.content).includes('Skill review. The turn above has ended'));
+    const review = body.messages.some((m: any) => m.role === 'user' && (typeof m.content === 'string' ? m.content :
+      Array.isArray(m.content) ? m.content.map((part: any) => part.text ?? '').join('\n') : '').includes('Skill review. Distill new durable learning from the full retained conversation.'));
     if (review) reviews++; else foreground++;
     if (review && holdReviews) await new Promise<void>(resolve => { releaseReview = resolve; res.once('close', resolve); });
     const tool = !review && body.messages.filter((m: any) => m.role === 'tool').length < 9;
@@ -144,7 +145,7 @@ test('O16 real Workshop, cold cache, failed writes, crash interruption and bound
     releaseReview?.(); await kit.stop(); await new Promise<void>(resolve => server.close(() => resolve()));
     if (process.env.BYOKIT_O16_EVIDENCE_DIR) {
       mkdirSync(process.env.BYOKIT_O16_EVIDENCE_DIR, { recursive: true });
-      writeFileSync(join(process.env.BYOKIT_O16_EVIDENCE_DIR, 'workshop.json'), JSON.stringify({ stateDir, source: 'real kit; immutable patched openclaw 2026.8.35',
+      writeFileSync(join(process.env.BYOKIT_O16_EVIDENCE_DIR, 'workshop.json'), JSON.stringify({ stateDir, source: 'real kit; immutable patched openclaw 2026.9.33',
         foreground, reviews, cold, first, second, receipts, boots: existsSync(join(stateDir, 'openclaw/usage/boots.jsonl')) ? readFileSync(join(stateDir, 'openclaw/usage/boots.jsonl'), 'utf8') : undefined }, null, 2) + '\n');
     }
   }
@@ -157,7 +158,8 @@ test('O16 threshold memory flush is counted through transcripts only', { timeout
     const body = JSON.parse(Buffer.concat(chunks).toString());
     const flush = body.messages.some((m: any) => (typeof m.content === 'string' ? m.content :
       Array.isArray(m.content) ? m.content.map((p: any) => p.text ?? '').join('\n') : '').includes('Pre-compaction memory flush'));
-    const usage = flush ? STUB_USAGE : { prompt_tokens: 7000, completion_tokens: 7, total_tokens: 7007 };
+    // 9.33 caps reserve at 25%: 32k - 8k reserve - 6k soft = 18k; cross it without enlarging the window.
+    const usage = flush ? STUB_USAGE : { prompt_tokens: 19000, completion_tokens: 7, total_tokens: 19007 };
     calls.push({ flush, total: usage.total_tokens });
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     for (const [delta, finish] of [[{ role: 'assistant', content: flush ? 'NO_REPLY' : 'Done.' }, null], [{}, 'stop']])
@@ -171,27 +173,54 @@ test('O16 threshold memory flush is counted through transcripts only', { timeout
   const stub = { port: address.port, url: `http://127.0.0.1:${address.port}/v1`, calls: [], close: async () => new Promise<void>(resolve => server.close(() => resolve())) };
   const stateDir = process.env.BYOKIT_O16_STATE_DIR ? process.env.BYOKIT_O16_STATE_DIR + '-memory' : scratchDir('o16-memory');
   const kit = new OpenClawKit({ stateDir, engineDir: process.env.BYOKIT_O16_ENGINE_DIR ?? sharedEngineDir(),
-    config: { plugins: { allow: ['memory-core'], slots: { memory: 'memory-core' } }, agents: { defaults: { heartbeat: { every: '0m' },
-      compaction: { reserveTokens: 0, memoryFlush: { enabled: true, softThresholdTokens: 6000 } } } } } });
+    config: { plugins: { allow: ['memory-core'], slots: { memory: 'memory-core' } },
+      // Only memory file operations belong in this 32k threshold fixture, not every direct builtin schema.
+      tools: { allow: ['read', 'write'] }, agents: { defaults: { heartbeat: { every: '0m' },
+      compaction: { memoryFlush: { enabled: true, softThresholdTokens: 6000 } } } } } });
   const startMs = Date.parse(new Date().toISOString().slice(0, 10)), endMs = startMs + 86_400_000 - 1;
   const window = { startMs, endMs, mode: 'utc' as const };
   let reading;
   try {
-    await kit.start(); await useModelStub(kit, stub); await kit.ensureMember('m1');
+    // Keep this threshold fixture at its original 32k, not the ordinary direct-tool stub's 128k.
+    await kit.start(); await useModelStub(kit, stub, 32000); await kit.ensureMember('m1');
     const sessionKey = 'agent:m1:o16:memory';
     assert.equal((await kit.run({ member: 'm1', sessionKey, message: 'Cross the soft memory-flush threshold.' }, () => {})).ok, true);
-    assert.equal(calls.filter(c => c.flush).length, 1, 'soft threshold did not schedule the memory flush');
-    assert.equal(calls.length, 2, 'unexpected engine-started provider call; reassess accounting');
-    const db = new DatabaseSync(join(stateDir, 'openclaw/state/agents/m1/agent/openclaw-agent.sqlite'), { readOnly: true });
+    const agentDir = join(stateDir, 'openclaw/state/agents/m1/agent');
+    const db = new DatabaseSync(join(agentDir, 'openclaw-agent.sqlite'), { readOnly: true });
     try {
+      // 9.33 schedules maintenance after foreground settlement. Its persisted success marker, not a sleep or the
+      // foreground lifecycle end, proves completion. Watch commits before reading so a fast flush cannot be missed.
+      const signal = AbortSignal.timeout(70_000);
+      const watcher = watch(agentDir, { signal });
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const check = () => {
+            try {
+              const row = db.prepare('SELECT entry_json FROM session_nodes WHERE session_key=?').get(sessionKey) as { entry_json: string };
+              if (JSON.parse(row.entry_json).memoryFlush?.kind === 'succeeded') resolve();
+            } catch (error) { reject(error); }
+          };
+          watcher.on('change', check); watcher.once('error', reject);
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+          check();
+        });
+      } finally { watcher.close(); }
+      assert.equal(calls.filter(c => c.flush).length, 1, 'soft threshold did not schedule the memory flush');
+      assert.equal(calls.length, 2, 'unexpected engine-started provider call; reassess accounting');
       const row = db.prepare('SELECT entry_json FROM session_nodes WHERE session_key=?').get(sessionKey) as { entry_json: string };
       assert.equal(JSON.parse(row.entry_json).memoryFlush?.kind, 'succeeded', 'engine did not persist successful memory-flush metadata');
     } finally { db.close(); }
     const deadline = Date.now() + 70_000;
     do { reading = await readAgentDayUsage(kit, 'm1', window); if (reading.transcripts.state === 'available') break; await delay(1500); }
     while (Date.now() < deadline);
-    assert.equal(reading.transcripts.state, 'available'); assert.equal(reading.transcripts.totals?.totalTokens, 7025);
-    assert.deepEqual(reading.engineStarted.charges, []); assert.equal(reading.knownTotalTokens, 7025);
+    const foregroundTokens = calls.filter(call => !call.flush).reduce((sum, call) => sum + call.total, 0);
+    assert.equal(foregroundTokens, 19007);
+    assert.ok(foregroundTokens > 32000 - 32000 * 0.25 - 6000, 'foreground did not cross the native soft threshold');
+    assert.equal(calls.filter(call => call.flush).reduce((sum, call) => sum + call.total, 0), STUB_USAGE.total_tokens);
+    // 9.33 detaches the flush; its successful provider usage is NOT in the visible transcript/day counters.
+    // Pin qualification asserts that limitation explicitly, not the 8.35 full-spend promise or a side-total fudge.
+    assert.equal(reading.transcripts.state, 'available'); assert.equal(reading.transcripts.totals?.totalTokens, foregroundTokens);
+    assert.deepEqual(reading.engineStarted.charges, []); assert.equal(reading.knownTotalTokens, foregroundTokens);
   } finally {
     await kit.stop(); await stub.close();
     if (process.env.BYOKIT_O16_EVIDENCE_DIR) writeFileSync(join(process.env.BYOKIT_O16_EVIDENCE_DIR, 'memory.json'),

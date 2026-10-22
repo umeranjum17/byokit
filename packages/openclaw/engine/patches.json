@@ -1,53 +1,49 @@
 {
   "v": 1,
-  "id": "dcd1cf72add44075",
+  "id": "105c3274582a4ede",
   "upstream": {
     "name": "openclaw",
-    "version": "2026.8.35",
-    "integrity": "sha512-7Bk/IeHTk04gfR4rW2SEVwwmGiXg2CcRxL3K1U2JzTgwbSSSlbX/yoLEbkiiSMOLtOuAi1ZfVbgmSsSlOA/E6g==",
-    "commit": "713ba5785d72d6ed1cec971e21307f16cc4234a6",
+    "version": "2026.9.33",
+    "integrity": "sha512-gCwhh7Ej5/k4+/SzgHDi6HEHxw1ppDbIza3v6uSNa0JVB011m5YJ+AKmUbEFI0m4Au0pCRLK0ogL/GtUMDFMiw==",
+    "commit": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
     "license": "MIT"
   },
   "files": [
     {
-      "path": "dist/experience-review-default-Cs48zOMl.js",
-      "before": "7babe3e9a8553f935f81fd519b1c4a9673da6cdf92760373eb6245fe0a7ccf6d",
-      "after": "d4119d7bf85d1e9b3b37a8727852a722c839f0f48472b266051904c85f2347b4",
+      "path": "dist/experience-review-ClLYopea.mjs",
+      "before": "61abd547073af49bf5766c8e8679dd7e72089093edd4010cd5c4c50dde2ddd52",
+      "after": "5c55b02a320b5f06d78eaba6d670bed2557564b5c21c6dfac0bc65069b98b046",
       "edits": [
         {
-          "find": "import { n as getRuntimeConfig } from \"./io.runtime-CtTka6W_.js\";\n",
-          "replace": "import { n as getRuntimeConfig } from \"./io.runtime-CtTka6W_.js\";\nimport { openSync as byokitOpen, writeSync as byokitWrite, fsyncSync as byokitFsync, closeSync as byokitClose } from \"node:fs\";\nimport { join as byokitJoin } from \"node:path\";\n"
+          "find": "import { r as getRuntimeConfig } from \"./io.runtime-FunTy0y1.mjs\";\n",
+          "replace": "import { r as getRuntimeConfig } from \"./io.runtime-FunTy0y1.mjs\";\nimport { openSync as byokitOpen, writeSync as byokitWrite, fsyncSync as byokitFsync, closeSync as byokitClose } from \"node:fs\";\nimport { join as byokitJoin } from \"node:path\";\n"
         },
         {
-          "find": "async function runSkillExperienceReviewInner(candidate, deps) {\n",
-          "replace": "/** BYOKit R4-1: content-free durable Gateway Workshop facts, inert without kit env. */\nfunction byokitUsageFact(fact) {\n\tconst dir = process.env.BYOKIT_ENGINE_USAGE_LEDGER;\n\tconst bootId = process.env.BYOKIT_ENGINE_BOOT;\n\tif (!dir || !bootId) return;\n\tconst key = Symbol.for(\"byokit.engine-usage.v1\");\n\tconst live = globalThis[key] ??= { bootId, months: {}, inFlight: {} };\n\tconst month = new Date(fact.at).toISOString().slice(0, 7);\n\tconst counter = live.months[month] ??= { lastSeq: 0, failed: 0 };\n\tconst seq = ++counter.lastSeq;\n\tif (fact.phase === \"started\") live.inFlight[fact.chargeId] = { startedAt: fact.startedAt };\n\telse delete live.inFlight[fact.chargeId];\n\ttry {\n\t\tconst fd = byokitOpen(byokitJoin(dir, \"engine-started-\" + month + \".jsonl\"), \"a\", 0o600);\n\t\ttry {\n\t\t\tconst line = Buffer.from(JSON.stringify({ v: 1, ...fact, bootId, seq }) + \"\\n\");\n\t\t\tif (byokitWrite(fd, line) !== line.length) throw new Error(\"short accounting write\");\n\t\t\tbyokitFsync(fd);\n\t\t} finally { byokitClose(fd); }\n\t} catch { counter.failed++; }\n}\nasync function runSkillExperienceReviewInner(candidate, deps) {\n"
+          "find": "async function runSkillExperienceReviewInner(candidate) {\n",
+          "replace": "/** BYOKit R4-1: content-free durable Gateway Workshop facts, inert without kit env. */\nfunction byokitUsageFact(fact) {\n\tconst dir = process.env.BYOKIT_ENGINE_USAGE_LEDGER;\n\tconst bootId = process.env.BYOKIT_ENGINE_BOOT;\n\tif (!dir || !bootId) return;\n\tconst key = Symbol.for(\"byokit.engine-usage.v1\");\n\tconst live = globalThis[key] ??= { bootId, months: {}, inFlight: {} };\n\tconst month = new Date(fact.at).toISOString().slice(0, 7);\n\tconst counter = live.months[month] ??= { lastSeq: 0, failed: 0 };\n\tconst seq = ++counter.lastSeq;\n\tif (fact.phase === \"started\") live.inFlight[fact.chargeId] = { startedAt: fact.startedAt };\n\telse delete live.inFlight[fact.chargeId];\n\ttry {\n\t\tconst fd = byokitOpen(byokitJoin(dir, \"engine-started-\" + month + \".jsonl\"), \"a\", 0o600);\n\t\ttry {\n\t\t\tconst line = Buffer.from(JSON.stringify({ v: 1, ...fact, bootId, seq }) + \"\\n\");\n\t\t\tif (byokitWrite(fd, line) !== line.length) throw new Error(\"short accounting write\");\n\t\t\tbyokitFsync(fd);\n\t\t} finally { byokitClose(fd); }\n\t} catch { counter.failed++; }\n}\nasync function runSkillExperienceReviewInner(candidate) {\n"
         },
         {
           "find": "\tlet outcome;\n\tlet proposalId;\n\tlet usage;\n",
-          "replace": "\tlet outcome;\n\tlet proposalId;\n\tlet usage;\n\tlet byokitRunUsage;\n\tconst byokitFact = { chargeId: runId, agentId: foregroundPromptContext.agentId, kind: \"workshop-review\", provider: modelProviderId, model: modelId, ...candidate.ctx.authProfileId ? { authProfileId: candidate.ctx.authProfileId } : {}, startedAt: attemptedAtMs, origin: { sessionKey: foregroundSessionKey, ...candidate.ctx.runId ? { runId: candidate.ctx.runId } : {} } };\n"
+          "replace": "\tlet outcome;\n\tlet proposalId;\n\tlet usage;\n\tlet byokitRunUsage;\n\tconst byokitFact = { chargeId: runId, agentId: foregroundPromptContext.agentId, kind: \"workshop-review\", provider: candidate.ctx.modelProviderId, model: candidate.ctx.modelId, ...candidate.ctx.authProfileId ? { authProfileId: candidate.ctx.authProfileId } : {}, startedAt: attemptedAtMs, origin: { sessionKey, ...candidate.ctx.runId ? { runId: candidate.ctx.runId } : {} } };\n"
         },
         {
-          "find": "\t\tlet embeddedResult;\n\t\ttry {\n",
-          "replace": "\t\tbyokitUsageFact({ ...byokitFact, phase: \"started\", at: attemptedAtMs });\n\t\tlet embeddedResult;\n\t\ttry {\n"
+          "find": "\t\tconst embeddedResult = capability ? await runWithCronCreatorAuthorityCapability(capability, run) : await run();\n",
+          "replace": "\t\tbyokitUsageFact({ ...byokitFact, phase: \"started\", at: attemptedAtMs });\n\t\tconst embeddedResult = capability ? await runWithCronCreatorAuthorityCapability(capability, run) : await run();\n\t\tbyokitRunUsage = embeddedResult?.meta?.agentMeta?.usage;\n"
         },
         {
-          "find": "\t\t} finally {\n\t\t\tpreparedRunAdmission.close();\n\t\t}\n\t\tassertSkillReviewRunSucceeded(embeddedResult);\n",
-          "replace": "\t\t} finally {\n\t\t\tpreparedRunAdmission.close();\n\t\t}\n\t\tbyokitRunUsage = embeddedResult?.meta?.agentMeta?.usage;\n\t\tassertSkillReviewRunSucceeded(embeddedResult);\n"
+          "find": "\t} catch (error) {\n\t\tawait recordSkillExperienceReviewOutcome(foregroundPromptContext.agentId, workspaceDir, {\n",
+          "replace": "\t} catch (error) {\n\t\tbyokitUsageFact({ ...byokitFact, phase: \"ended\", at: Date.now(), outcome: \"failed\", ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\t\tawait recordSkillExperienceReviewOutcome(foregroundPromptContext.agentId, workspaceDir, {\n"
         },
         {
-          "find": "\t} catch (error) {\n\t\trecordSkillExperienceReviewOutcome(workspaceDir, {\n",
-          "replace": "\t} catch (error) {\n\t\tbyokitUsageFact({ ...byokitFact, phase: \"ended\", at: Date.now(), outcome: \"failed\", ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\t\trecordSkillExperienceReviewOutcome(workspaceDir, {\n"
-        },
-        {
-          "find": "\t} finally {\n\t\tclearAgentRunContext(runId);\n\t}\n\trecordSkillExperienceReviewOutcome(workspaceDir, {\n",
-          "replace": "\t} finally {\n\t\tclearAgentRunContext(runId);\n\t}\n\tbyokitUsageFact({ ...byokitFact, phase: \"ended\", at: Date.now(), outcome, ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\trecordSkillExperienceReviewOutcome(workspaceDir, {\n"
+          "find": "\t\tclearAgentRunContext(runId);\n\t}\n\tawait recordSkillExperienceReviewOutcome(foregroundPromptContext.agentId, workspaceDir, {\n",
+          "replace": "\t\tclearAgentRunContext(runId);\n\t}\n\tbyokitUsageFact({ ...byokitFact, phase: \"ended\", at: Date.now(), outcome, ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\tawait recordSkillExperienceReviewOutcome(foregroundPromptContext.agentId, workspaceDir, {\n"
         }
       ]
     },
     {
-      "path": "dist/main-session-recovery-state-BP_2EuhB.js",
-      "before": "87456f122a4b40fbff2ffa0b8c28befcc8a6cd0dd44d991ed30045282e7581aa",
-      "after": "fbae8840c2ebd76706f952c24592c1bd6f21648ebc84ce3cf062d1c47e587fce",
+      "path": "dist/main-session-recovery-state-BJukJiIA.mjs",
+      "before": "8c68ab121b8145f960ad401597b812c988368a86f4a9d66e161413a1bffa27b7",
+      "after": "c158b3f93bf73f262b1d2e4235904eaa76ef88ca6dcf82fc0cf556ce024d40e3",
       "edits": [
         {
           "find": "function isMainRestartRecoveryCandidate(entry, sessionKey) {",
@@ -56,24 +52,58 @@
       ]
     },
     {
-      "path": "dist/prepare.runtime-BUjESFb4.js",
-      "before": "0d625345179325e791ffa85ad25eeeddb52e55147abee1417f12459525c7a343",
-      "after": "c0ddee6fa3ac7794ea79c41e3b143a50545370d9b51fb8bb195435bb44039f9c",
+      "path": "dist/prepare.runtime--y1-AtS2.mjs",
       "edits": [
         {
-          "find": "let systemPrompt = !skipsTurnPreparation ? backendResolved.transformSystemPrompt?.({\n\t\t\tconfig: params.config,\n\t\t\tworkspaceDir,\n\t\t\tprovider: params.provider,\n\t\t\tmodelId,\n\t\t\tmodelDisplay,\n\t\t\tagentId: sessionAgentId,\n\t\t\tsystemPrompt: builtSystemPrompt\n\t\t}) ?? builtSystemPrompt : builtSystemPrompt;\n",
-          "replace": "let systemPrompt = !skipsTurnPreparation ? backendResolved.transformSystemPrompt?.({\n\t\t\tconfig: params.config,\n\t\t\tworkspaceDir,\n\t\t\tprovider: params.provider,\n\t\t\tmodelId,\n\t\t\tmodelDisplay,\n\t\t\tagentId: sessionAgentId,\n\t\t\tsystemPrompt: builtSystemPrompt\n\t\t}) ?? builtSystemPrompt : builtSystemPrompt;\n\t\t// BYOKit: Claude wire names for the Tooling list (ch-cli-tool-prefix). The Claude wire catalog\n\t\t// exposes OpenClaw tools as mcp__openclaw__<name>, so the printed Tooling list on that route must\n\t\t// use those exact names. Every other route keeps the stock prompt byte-identical; already-prefixed\n\t\t// names are never prefixed again. Order, summaries and error semantics are unchanged.\n\t\tif (!skipsTurnPreparation && isClaudeCli && promptTools.length > 0) {\n\t\t\tconst byokitBareNames = new Set(promptTools.map((tool) => tool?.name).filter((name) => typeof name === \"string\" && name.length > 0 && !name.startsWith(\"mcp__openclaw__\")));\n\t\t\tif (byokitBareNames.size > 0) {\n\t\t\t\tconst byokitLines = systemPrompt.split(\"\\n\");\n\t\t\t\tlet byokitInTooling = false;\n\t\t\t\tlet byokitToolingArmed = false;\n\t\t\t\tfor (let byokitI = 0; byokitI < byokitLines.length; byokitI++) {\n\t\t\t\t\tconst byokitLine = byokitLines[byokitI];\n\t\t\t\t\tif (byokitLine.startsWith(\"## \")) {\n\t\t\t\t\t\tbyokitInTooling = byokitLine === \"## Tooling\";\n\t\t\t\t\t\tbyokitToolingArmed = false;\n\t\t\t\t\t} else if (byokitInTooling && !byokitToolingArmed) {\n\t\t\t\t\t\tif (byokitLine === \"Tools policy-filtered. Names case-sensitive; call exact.\") byokitToolingArmed = true;\n\t\t\t\t\t} else if (byokitInTooling && byokitToolingArmed && byokitLine.startsWith(\"- \")) {\n\t\t\t\t\t\tconst byokitMatch = /^- (\\S+?)(:.*)?$/.exec(byokitLine);\n\t\t\t\t\t\tif (byokitMatch && byokitBareNames.has(byokitMatch[1])) byokitLines[byokitI] = `- mcp__openclaw__${byokitMatch[1]}${byokitMatch[2] ?? \"\"}`;\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\tsystemPrompt = byokitLines.join(\"\\n\");\n\t\t\t}\n\t\t}\n"
+          "find": "\t\tlet systemPrompt = turnRuntimeFacts?.remainingPrompt ?? transformedSystemPrompt;\n",
+          "replace": "\t\tlet systemPrompt = turnRuntimeFacts?.remainingPrompt ?? transformedSystemPrompt;\n\t\t// BYOKit: Claude wire names for the Tooling list (ch-cli-tool-prefix). The Claude wire catalog\n\t\t// exposes OpenClaw tools as mcp__openclaw__<name>, so the printed Tooling list on that route must\n\t\t// use those exact names. Every other route keeps the stock prompt byte-identical; already-prefixed\n\t\t// names are never prefixed again. Order, summaries and error semantics are unchanged.\n\t\tif (!skipsTurnPreparation && isClaudeCli && promptTools.length > 0) {\n\t\t\tconst byokitBareNames = new Set(promptTools.map((tool) => tool?.name).filter((name) => typeof name === \"string\" && name.length > 0 && !name.startsWith(\"mcp__openclaw__\")));\n\t\t\tif (byokitBareNames.size > 0) {\n\t\t\t\tconst byokitLines = systemPrompt.split(\"\\n\");\n\t\t\t\tlet byokitInTooling = false;\n\t\t\t\tlet byokitToolingArmed = false;\n\t\t\t\tfor (let byokitI = 0; byokitI < byokitLines.length; byokitI++) {\n\t\t\t\t\tconst byokitLine = byokitLines[byokitI];\n\t\t\t\t\tif (byokitLine.startsWith(\"## \")) {\n\t\t\t\t\t\tbyokitInTooling = byokitLine === \"## Tooling\";\n\t\t\t\t\t\tbyokitToolingArmed = false;\n\t\t\t\t\t} else if (byokitInTooling && !byokitToolingArmed) {\n\t\t\t\t\t\tif (byokitLine === \"Tools policy-filtered. Names case-sensitive; call exact.\") byokitToolingArmed = true;\n\t\t\t\t\t} else if (byokitInTooling && byokitToolingArmed && byokitLine.startsWith(\"- \")) {\n\t\t\t\t\t\tconst byokitMatch = /^- (\\S+?)(:.*)?$/.exec(byokitLine);\n\t\t\t\t\t\tif (byokitMatch && byokitBareNames.has(byokitMatch[1])) byokitLines[byokitI] = `- mcp__openclaw__${byokitMatch[1]}${byokitMatch[2] ?? \"\"}`;\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\tsystemPrompt = byokitLines.join(\"\\n\");\n\t\t\t}\n\t\t}\n"
+        }
+      ],
+      "before": "4ac1b35a78ce33207105c442b9008dc6866aef3c160366e37854b5b31549aa59",
+      "after": "849f73219cde6ecb290f21c0e059a7f1ef47ff4ea68e6c21b4826f1df1bb0ffd"
+    },
+    {
+      "path": "dist/setup-inference-ur2QGopt.mjs",
+      "edits": [
+        {
+          "find": "import { u as toErrorObject } from \"./error-coercion-1P2One0X.mjs\";\n",
+          "replace": "import { u as toErrorObject } from \"./error-coercion-1P2One0X.mjs\";\nimport { t as byokitProbeClaudeAuth } from \"./cli-auth-seam-CDPu8dne.mjs\";\nimport { a as byokitRunUtf8 } from \"./exec-DkOImFhW.mjs\";\n"
+        },
+        {
+          "find": "\t\tconfig: cfg,\n\t\tagentId: targetAgentId\n\t});\n\tsignal.throwIfAborted();\n\tconst configuredModel = detected.find",
+          "replace": "\t\tconfig: cfg,\n\t\tagentId: targetAgentId,\n\t\t// BYOKit: restore native verified login detection; never return CLI output or credentials.\n\t\tdeps: {\n\t\t\tdetectClaudeLoginState: async (_probe, command) => {\n\t\t\t\tconst auth = await byokitProbeClaudeAuth({ command, signal });\n\t\t\t\treturn { credentials: auth.status === \"available\" ? true : auth.status === \"missing\" ? false : void 0,\n\t\t\t\t\t...auth.authMethod === \"claude.ai\" ? { authKind: \"claude-subscription\" } : {} };\n\t\t\t},\n\t\t\tdetectCodexLoginState: async (_probe, command) => {\n\t\t\t\tconst env = { ...process.env };\n\t\t\t\tfor (const name of [\"CODEX_HOME\", \"OPENAI_API_KEY\", \"OPENAI_BASE_URL\", \"CODEX_OSS_BASE_URL\"]) delete env[name];\n\t\t\t\ttry {\n\t\t\t\t\tconst auth = await byokitRunUtf8([command, \"login\", \"status\"], { baseEnv: env, signal,\n\t\t\t\t\t\ttimeoutMs: 3000, maxOutputBytes: 65536, maxCombinedOutputBytes: 65536,\n\t\t\t\t\t\tterminateOnOutputLimit: true, killProcessTree: true });\n\t\t\t\t\tif (auth.termination !== \"exit\") return void 0;\n\t\t\t\t\tconst text = auth.stdout + \"\\n\" + auth.stderr;\n\t\t\t\t\tif (auth.code === 0 && /^Logged in using ChatGPT\\b/m.test(text)) return true;\n\t\t\t\t\tif (/Not logged in|signed out|Logged in using an API key/i.test(text)) return false;\n\t\t\t\t} catch { signal.throwIfAborted(); }\n\t\t\t\treturn void 0;\n\t\t\t}\n\t\t}\n\t});\n\tsignal.throwIfAborted();\n\tconst configuredModel = detected.find"
+        }
+      ],
+      "before": "ac3585f5a463905bbffbab5032fd3104f0d46ea4bab955a8193fe62db38f7fe2",
+      "after": "562842cf6c967eb828f12a91ae384af3e610c1dfc65788cbfb2f87837d383d7d"
+    },
+    {
+      "path": "dist/oauth-Dqmi6EU2.mjs",
+      "before": "938fce0facb326f57308970dde2d7fe15729b6197943bdbc86192394b8866032",
+      "after": "62a2b8fa3dc4cd58194a8d4fd27429c247e0d2fae149215e7d0969eb91f0c42e",
+      "edits": [
+        {
+          "find": "\tasync function resolveAuthoritativeSharedOAuthCredentialUnderLock(params) {\n\t\tlet validatedAuthoritative = false;\n\t\tconst acceptAuthoritative = (credential) => {\n\t\t\ttry {\n\t\t\t\tvalidateSettlementCredential(params.validateCredential, credential);\n\t\t\t\tvalidatedAuthoritative = true;\n\t\t\t\treturn true;\n\t\t\t} catch {\n\t\t\t\tauthProfilesLog.warn(\"refused shared OAuth credential during settlement: credential validation failed\", { profileId: params.profileId });\n\t\t\t\treturn false;\n\t\t\t}\n\t\t};\n\t\tconst updated = await updateAuthProfileStoreWithLock({\n\t\t\tagentDir: void 0,\n\t\t\tprofileId: params.profileId,\n\t\t\tsharedStoreWrite: true,\n\t\t\tupdater: (store) => {\n\t\t\t\tconst existing = store.profiles[params.profileId];\n",
+          "replace": "\tasync function resolveAuthoritativeSharedOAuthCredentialUnderLock(params) {\n\t\tlet validatedAuthoritative = false;\n\t\tconst acceptAuthoritative = (credential) => {\n\t\t\ttry {\n\t\t\t\tvalidateSettlementCredential(params.validateCredential, credential);\n\t\t\t\tvalidatedAuthoritative = true;\n\t\t\t\treturn true;\n\t\t\t} catch {\n\t\t\t\tauthProfilesLog.warn(\"refused shared OAuth credential during settlement: credential validation failed\", { profileId: params.profileId });\n\t\t\t\treturn false;\n\t\t\t}\n\t\t};\n\t\tconst updated = await updateAuthProfileStoreWithLock({\n\t\t\tagentDir: void 0,\n\t\t\tprofileId: params.profileId,\n\t\t\tsharedStoreWrite: true,\n\t\t\tupdater: (store) => {\n\t\t\t\tconst existing = store.profiles[params.profileId];\n\t\t\t\t// BYOKit D9: an agent-local refresh may update, never create, shared auth.\n\t\t\t\tif (!existing) return false;\n"
         }
       ]
     },
     {
-      "path": "dist/setup-inference-Dpvv_U7x.js",
-      "before": "e38ba4aa4a31376a03609b8732fcd69026df17149849d15caa6a8a59a865d6d7",
-      "after": "71f7103b5f88db7e3b98433a54b05a5a18557d6e83385d09cddaabe053254823",
+      "path": "dist/setup-inference-credentials-D4Y52_FC.mjs",
+      "before": "2e313b296d28ad28417e187926f17d99f3b37cad98688315d3309575928734b8",
+      "after": "bcf388ef12042195cb5621190b94eb19e22baba013d93a892691d1405b9f3d7e",
       "edits": [
         {
-          "find": "\t\t\treturn {\n\t\t\t\trunner: \"embedded\",\n\t\t\t\t...ref,\n\t\t\t\tmodelRef,\n\t\t\t\tagentDir: params.agentDir,\n\t\t\t\tconfig: preparedAuth.config,",
-          "replace": "\t\t\t// BYOKit: plan the route the engine stages. A provider-normalized starter (OpenRouter keeps its bare `auto` as\n\t\t\t// `openrouter/auto`) is planned as the staged route names it, so a key activation matches its staged route.\n\t\t\tconst byokitModelRef = canonicalizeSetupModelRef({\n\t\t\t\tcfg: preparedAuth.config,\n\t\t\t\traw: modelRef,\n\t\t\t\tdefaultProvider: ref.provider\n\t\t\t});\n\t\t\treturn {\n\t\t\t\trunner: \"embedded\",\n\t\t\t\t...parseRef(byokitModelRef),\n\t\t\t\tmodelRef: byokitModelRef,\n\t\t\t\tagentDir: params.agentDir,\n\t\t\t\tconfig: preparedAuth.config,"
+          "find": "function isSetupCredentialReplacement(params) {\n\tconst store = loadAuthProfileStoreWithoutExternalProfiles(params.agentDir);\n\tconst provider = resolveProviderIdForAuth(params.provider, {\n\t\tconfig: params.baseConfig,\n\t\tstoredCredential: true\n\t});\n\treturn Object.values(store.profiles).some((credential) => !credential.setup && resolveProviderIdForAuth(credential.provider, {\n\t\tconfig: params.baseConfig,\n\t\tstoredCredential: true\n\t}) === provider) || Boolean(params.baseConfig.models?.providers?.[provider]?.apiKey) || parseInferenceRef(resolveAgentEffectiveModelPrimary(params.baseConfig, resolveAmbientOwnerAgentId(params.baseConfig)) ?? \"\").provider === provider;\n}",
+          "replace": "function isSetupCredentialReplacement(params) {\n\tconst store = loadAuthProfileStoreWithoutExternalProfiles(params.agentDir);\n\tconst provider = resolveProviderIdForAuth(params.provider, {\n\t\tconfig: params.baseConfig,\n\t\tstoredCredential: true\n\t});\n\t// BYOKit: inherited model selection alone is not an existing credential source.\n\treturn Object.values(store.profiles).some((credential) => !credential.setup && resolveProviderIdForAuth(credential.provider, {\n\t\tconfig: params.baseConfig,\n\t\tstoredCredential: true\n\t}) === provider) || Boolean(params.baseConfig.models?.providers?.[provider]?.apiKey);\n}"
+        },
+        {
+          "find": "import { r as normalizeProviderId } from \"./provider-id-BIyeXQag.mjs\";\n",
+          "replace": "import { r as normalizeProviderId } from \"./provider-id-BIyeXQag.mjs\";\nimport { n as byokitParseSetupModelRef } from \"./model-selection-normalize-DVk7nZbI.mjs\";\nimport { u as byokitSetupMetadata } from \"./plugin-metadata-snapshot-D_ni58BI.mjs\";\n"
+        },
+        {
+          "find": "\tconst normalizedModel = params.provider?.normalizeModelId?.({\n\t\tprovider: ref.provider,\n\t\tmodelId: ref.model\n\t})?.trim();\n\tconst modelRef = normalizedModel ? `${ref.provider}/${normalizedModel}` : resolvedModel;\n",
+          "replace": "\t// BYOKit: use the same manifest policies as the exact configured-route witness; direct hooks still win.\n\tconst normalizedModel = params.provider?.normalizeModelId?.({\n\t\tprovider: ref.provider,\n\t\tmodelId: ref.model\n\t})?.trim() || byokitParseSetupModelRef(resolvedModel, ref.provider, {\n\t\tmanifestPlugins: byokitSetupMetadata({ config: params.config, workspaceDir: ctx.workspace, env: process.env }).plugins,\n\t\tallowPluginNormalization: false\n\t})?.model;\n\tconst modelRef = normalizedModel ? `${ref.provider}/${normalizedModel}` : resolvedModel;\n"
         }
       ]
     }

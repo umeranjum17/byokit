@@ -1,0 +1,5 @@
+		if (!route || route.modelLabel !== staged.modelRef || staged.authProfileId && route.authProfileId !== staged.authProfileId) return failure({
+			ok: false,
+			status: "unavailable",
+			error: "The candidate route does not match the selected provider, model, and credential. Review model runtime policy and retry."
+		});

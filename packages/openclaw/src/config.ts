@@ -60,6 +60,8 @@ export function reconcileConfig(saved: object | undefined, o: {
       groupPolicy: 'disabled', configWrites: false, commands: { native: false, nativeSkills: false },
       execApprovals: { enabled: false }, ...(telegram.apiRoot ? { apiRoot: telegram.apiRoot } : {}) } };
     c.commands = { ...object(c.commands) ? c.commands : {}, allowFrom: { ...c.commands?.allowFrom, telegram: [] } };
+    // Messages belong to the app; 9.33's 300ms Telegram default must not merge separate callbacks.
+    merge(c, { messages: { inbound: { byChannel: { telegram: 0 } } } });
   }
   c.agents ??= {};
   c.agents.defaults ??= {};
@@ -78,6 +80,9 @@ export function reconcileConfig(saved: object | undefined, o: {
   }
   const allow = c.agents.defaults.modelPolicy?.allow;
   if (Array.isArray(allow) && allow.length && !allow.includes('openai/*')) allow.push('openai/*');
+  // Preserve the kit's direct, individually gated builtin surface across 9.33's compact-tool default.
+  c.tools ??= {};
+  if (c.tools.toolSearch === undefined) c.tools.toolSearch = false;
   c.memory ??= {};
   c.memory.search ??= { provider: 'none' };
   safeMemory(c.memory);
@@ -96,10 +101,16 @@ export function reconcileConfig(saved: object | undefined, o: {
       .map(route => route.plugin),
     // Plus every explicitly offered route the app names, so an opted-in sign-in (OpenRouter) is not blocked.
     ...offeredPlugins(o.offered),
+    // 9.33 owns loopback embedding backends in provider plugins; safeMemory already refused remote/keyed URLs.
+    ...[c.memory, ...Object.values(c.agents.entries ?? {}).map(entry => (entry as Obj).memory)]
+      .flatMap(memory => ['ollama', 'lmstudio'].includes(memory?.search?.provider) ? [memory.search.provider] : []),
     // Plus every external plugin the kit installed (B7): an app's own allow list must not disable it at the next boot.
     ...o.plugins ?? [],
     ...telegram ? ['telegram'] : []])];
   c.plugins.entries ??= {};
+  // 9.33 defaults these providers on; pin before boot so key promotion needs no plugin-enable transaction.
+  for (const id of ['openai', 'opencode-go', 'openrouter']) if (c.plugins.entries[id]?.enabled === undefined)
+    c.plugins.entries[id] = { ...c.plugins.entries[id], enabled: true };
   // Conversation access lets the plugin's prompt hook give an admitted helper child its persona (5.8.3).
   c.plugins.entries[o.pluginId] = merge(c.plugins.entries[o.pluginId] ?? {}, { hooks: { timeouts: { before_tool_call: 200_000 },
     allowConversationAccess: true } });

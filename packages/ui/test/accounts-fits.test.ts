@@ -39,8 +39,8 @@ test('OpenClaw accounts fit UI rows without inventing an age, including bound an
     assert.deepEqual(rooms.get('openai'), { left: 20, span: 'week', resetsAt: resetAt });
     assert.ok([...rooms.values()].every((r) => !('at' in r)), 'OpenClaw gives no reading time');
     const expected = [
-      { id: 'openai', title: 'ChatGPT Login · Umer', detail: '20% left this week', state: 'ready', billing: 'subscription', low: true },
-      { id: work.id, title: 'ChatGPT Login · Work', detail: 'Room left unknown', state: 'ready', billing: 'subscription', low: false },
+      { id: 'openai', title: 'Codex login (browser) · Umer', detail: '20% left this week', state: 'ready', billing: 'subscription', low: true },
+      { id: work.id, title: 'Codex login (browser) · Work', detail: 'Room left unknown', state: 'ready', billing: 'subscription', low: false },
     ];
     const rows = accountRows(accounts, (a) => rooms.get(a.id)!, now);
     assert.deepEqual(rows, expected);
@@ -64,7 +64,7 @@ test('OpenClaw accounts fit UI rows without inventing an age, including bound an
     assert.ok(!paid.ok && paid.code === refusalCodes[1], JSON.stringify(paid));
     await kit.signOut('umer', 'openai');
     const signedOut = (await rowsOf(source, now)).find((r) => r.id === 'openai')!;
-    assert.deepEqual(signedOut, { id: 'openai', title: 'ChatGPT Login · Umer', detail: 'Not signed in', state: 'signed_out', billing: 'subscription', low: false, action: 'sign_in' });
+    assert.deepEqual(signedOut, { id: 'openai', title: 'Codex login (browser) · Umer', detail: 'Not signed in', state: 'signed_out', billing: 'subscription', low: false, action: 'sign_in' });
   } finally {
     await kit.stop();
   }

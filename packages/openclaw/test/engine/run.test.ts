@@ -175,7 +175,7 @@ test('real tool calls cross the fail-closed gate; keyword memory stays free', { 
     // to the signed-in routes, here openai/*): the new provider must be allowed or m2 falls back to openai.
     await kit.patchConfig({ models: { providers: { 'byokit-stub-two': { baseUrl: stub.url, apiKey: 'stub-m2',
       api: 'openai-completions', models: [{ id: 'test', name: 'Test', reasoning: false, input: ['text'],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 2048 }] } } },
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 2048 }] } } },
       agents: { defaults: { modelPolicy: { allow: ['byokit-stub-two/*'] } },
         entries: { m2: { model: { primary: 'byokit-stub-two/test' } } } } });
     const stubCallsBefore = stub.calls.length;
@@ -294,7 +294,7 @@ test('API-key activation seals a sibling store; normal selection and stores rema
     config: { plugins: { allow: ['openai'] }, models: { providers: { openai: {
       baseUrl: stub.url, api: 'openai-completions',
       models: [{ id: 'gpt-5.6-sol', name: 'Test', api: 'openai-completions', reasoning: false, input: ['text'],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 2048 }],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 2048 }],
     } } } } });
   try {
     await kit.start();
@@ -313,13 +313,17 @@ test('API-key activation seals a sibling store; normal selection and stores rema
     const { pathToFileURL } = await import('node:url');
     const sdk = pathToFileURL(join(dirname(kit.doctorContext().entry), 'dist/plugin-sdk/provider-auth.js')).href;
     // A read-only transaction on each exact agent store; report metadata only, never credential values.
-    const code = `const {updateAuthProfileStoreWithLock}=await import(${JSON.stringify(sdk)});
+    // Native SDK initialization may log to stdout; keep this fixture's metadata result on its own channel.
+    const report = join(stateDir, 'store-metadata.json');
+    const code = `const {writeFileSync}=await import('node:fs');
+      const {updateAuthProfileStoreWithLock}=await import(${JSON.stringify(sdk)});
       const result={};for(const id of ['m1','m2','byokit-key-m1']) {
         await updateAuthProfileStoreWithLock({agentDir:process.env.OPENCLAW_STATE_DIR+'/agents/'+id+'/agent',
           updater(store){result[id]={order:store.order,profiles:Object.entries(store.profiles).map(([id,p])=>({id,type:p.type,provider:p.provider,copyToAgents:p.copyToAgents}))};return false;}});
-      }process.stdout.write(JSON.stringify(result));`;
-    const stores = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', code],
-      { env: kit.doctorContext().env, encoding: 'utf8' }));
+      }writeFileSync(process.argv[1],JSON.stringify(result),{mode:0o600});`;
+    execFileSync(process.execPath, ['--input-type=module', '-e', code, report],
+      { env: kit.doctorContext().env, encoding: 'utf8' });
+    const stores = JSON.parse(readFileSync(report, 'utf8'));
     assert.equal(stores.m1.profiles.length, 0);
     assert.equal(stores.m2.profiles.length, 0);
     assert.deepEqual(stores.m1.order?.openai ?? [], [], "no normal-agent order admits a key");

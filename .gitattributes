@@ -1,0 +1,6 @@
+packages/openclaw/src/generated/events.ts linguist-generated=true
+packages/openclaw/src/generated/methods.ts linguist-generated=true
+packages/openclaw/src/generated/params.ts linguist-generated=true
+packages/openclaw/src/generated/report.json linguist-generated=true
+packages/openclaw/src/routes.json linguist-generated=true
+packages/openclaw/engine/plugins.json linguist-generated=true

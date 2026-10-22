@@ -23,8 +23,7 @@ export type SignInCtx = {
   // Where the gateway reads a Claude Code login; `signIn: false` when the fallback login's folder is not it (Engine.claudeLoginCause).
   claudeLogin?(): CliLoginCause;
   onDisconnect?(fn: () => void): () => void;
-  authConfig(): string;
-  restarted(authBefore: string | undefined, signal?: AbortSignal): Promise<boolean>;
+  restarted(signal?: AbortSignal): Promise<boolean>;
   // The engine's own shutdown signal (Engine.stop): a shutdown before the commit point declines this drive at once,
   // the key paste included, the same way a phone cancel does.
   stopSignal?: AbortSignal;
@@ -426,6 +425,7 @@ export function signIn(
         step = next.step;
         continue;
       }
+      if (current.externalUrl) say({ url: shown(current.externalUrl) }); // 9.33 also carries links on progress/text
       if (current.type !== 'progress') stopApproval();
       if (current.type === 'text') {
         // Every text step is a question the person must answer, so it is always asked. A non-sensitive one is not a
@@ -440,7 +440,6 @@ export function signIn(
         continue;
       }
       if (current.type === 'note' || current.type === 'confirm' || current.type === 'select' || current.type === 'action') {
-        if (current.externalUrl) say({ url: shown(current.externalUrl) });
         const next = await answer(current);
         if (next.done) { terminal = next; break; }
         step = next.step;

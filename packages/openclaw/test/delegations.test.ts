@@ -1,6 +1,6 @@
 // Delegated runs (5.8 native admission, 5.8.3 helpers) on the Delegations journal alone, its engine answers scripted:
-// a child the engine forgot ends `lost` and leaves the journal, a live or unreadable one stays; a full journal settles
-// such children before it refuses a new dispatch; an admitted helper child gets its helper's persona, nothing else does.
+// affirmative legacy lost proof ends admission; a 9.33 plain timeout, live or unreadable wait retains it. A full
+// journal can reclaim only affirmative terminal/lost observations, not ambiguous timeouts; an admitted helper child gets its helper's persona, nothing else does.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rmSync, writeFileSync } from 'node:fs';
@@ -11,7 +11,7 @@ import { HelperError } from '../src/helpers.ts';
 import type { DelegatedEvent } from '../src/types.ts';
 
 const ROOT = { member: 'm1', sessionKey: 'agent:m1:lead' };
-const FORGOTTEN = { status: 'timeout', timeoutPhase: 'queue', providerStarted: false };
+const FORGOTTEN = { status: 'timeout', timeoutPhase: 'queue', providerStarted: false }; // affirmative legacy observation, NOT 9.33 no-snapshot
 const LIVE = { status: 'timeout', timeoutPhase: 'gateway_draining' };
 
 function journal(wait: (runId: string) => object, seed?: object) {
@@ -30,42 +30,66 @@ function journal(wait: (runId: string) => object, seed?: object) {
       return wait(String((params as { runId: string }).runId));
     } });
   d.register(ROOT, 'root', ['note'], { scout: ['note'] }, ROOT.sessionKey, { writer: ['note'] });
-  const send = async (child: string, sessionKey: string) => {
+  const send = async (child: string, sessionKey: string, status = 'accepted') => {
     const ids = { key: ROOT.sessionKey, runId: 'root', callId: `call-${child}` };
     const tracked = await d.prepare({ ...ids, tool: 'sessions_send', input: { sessionKey, timeoutSeconds: 0 } });
-    d.receipt({ ...ids, result: { details: { status: 'accepted', runId: child, sessionKey } } });
+    d.receipt({ ...ids, result: { details: { status, runId: child, sessionKey } } });
     return tracked;
   };
   return { d, events, revoked, send, close: () => rmSync(dir, { recursive: true, force: true }) };
 }
 
-test('reconcile ends a child the engine forgot as lost, a finished one as it ended, and keeps live and unreadable ones', async () => {
-  const answers: Record<string, object> = { done: { status: 'ok' }, failed: { status: 'error' }, forgotten: FORGOTTEN, live: LIVE };
+test('reconcile ends affirmative lost/finished children and keeps unresolved, live and unreadable ones', async () => {
+  const answers: Record<string, object> = { done: { status: 'ok' }, failed: { status: 'error' }, forgotten: FORGOTTEN,
+    uncertain: { status: 'timeout' }, live: LIVE };
   const j = journal((runId) => { if (runId === 'unreadable') throw new Error('gateway closed'); return answers[runId]!; });
   try {
-    for (const child of ['done', 'failed', 'forgotten', 'live', 'unreadable']) assert.equal(await j.send(child, 'agent:scout:main'), true);
+    for (const child of ['done', 'failed', 'forgotten', 'uncertain', 'live', 'unreadable']) assert.equal(await j.send(child, 'agent:scout:main'), true);
     await j.d.reconcile();
-    assert.deepEqual(j.d.list().map((r) => r.runId).sort(), ['live', 'unreadable']);
+    assert.deepEqual(j.d.list().map((r) => r.runId).sort(), ['live', 'uncertain', 'unreadable']);
     assert.deepEqual(j.events.filter((e) => e.type === 'ended').map((e) => [e.run.runId, e.reason]),
       [['done', 'terminal'], ['failed', 'error'], ['forgotten', 'lost']]);
     assert.deepEqual(j.revoked, ['done', 'failed', 'forgotten']);
   } finally { j.close(); }
 });
 
+test('9.33 timeout receipts admit the exact child and retain it until an observed end', async () => {
+  const key = 'agent:scout:main';
+  const j = journal(runId => ({ runId, status: 'timeout' }));
+  try {
+    assert.equal(await j.send('still-running', key, 'timeout'), true);
+    assert.equal(j.d.has(key, 'still-running'), true);
+    assert.deepEqual(j.d.list().map(r => [r.runId, r.sessionKey, r.member, r.tools]), [['still-running', key, 'scout', ['note']]]);
+    assert.deepEqual((await j.d.resolve(key, 'still-running'))?.ref.parent, { sessionKey: ROOT.sessionKey, runId: 'root' });
+    await j.d.reconcile();
+    assert.deepEqual([j.d.list().length, j.events.map(e => e.type), j.revoked], [1, ['admitted'], []], 'a timeout is not terminal');
+    for (const details of [{ status: 'timeout', sessionKey: key }, { status: 'timeout', runId: 'no-key' },
+      { status: 'timeout', runId: 'wrong-key', sessionKey: 'agent:scout:other' }]) {
+      const ids = { key: ROOT.sessionKey, runId: 'root', callId: `bad-${JSON.stringify(details)}` };
+      await j.d.prepare({ ...ids, tool: 'sessions_send', input: { sessionKey: key, timeoutSeconds: 0 } });
+      j.d.receipt({ ...ids, result: { details } });
+      assert.equal(j.d.list().length, 1, 'timeout never bypasses run/key guards');
+    }
+    j.d.event({ runId: 'still-running', sessionKey: key, stream: 'lifecycle', data: { phase: 'end' } });
+    assert.deepEqual(j.d.list(), []);
+    assert.ok(j.events.some(e => e.type === 'ended' && e.reason === 'terminal'));
+  } finally { j.close(); }
+});
+
 test('a full journal settles forgotten children before it refuses a new dispatch', async () => {
-  let live = true;
+  let unresolved = true;
   const ref = (n: number) => ({ sessionKey: 'agent:scout:main', member: 'scout', runId: `old-${n}`, agentId: 'scout',
     parent: { sessionKey: ROOT.sessionKey, runId: 'gone' }, root: { sessionKey: ROOT.sessionKey, runId: 'gone' }, tools: ['note'] });
   const children = Array.from({ length: 1024 }, (_, n) => [`old-${n}`, { ref: ref(n), tools: ['note'], delegates: { scout: ['note'] }, sourceKey: ROOT.sessionKey }]);
-  const j = journal(() => live ? LIVE : FORGOTTEN, { version: 1, children, pending: [] });
+  const j = journal(() => unresolved ? { status: 'timeout' } : FORGOTTEN, { version: 1, children, pending: [] });
   const d = j.d;
   try {
     const input = { sessionKey: 'agent:scout:main', timeoutSeconds: 0 };
-    // Every old child still running on the engine: the journal is truly full.
+    // A 9.33 ambiguous wait is not proof of liveness or loss; unresolved receipts still fill the cap.
     await assert.rejects(d.prepare({ key: ROOT.sessionKey, runId: 'root', callId: 'c1', tool: 'sessions_send', input }), /journal is full/);
     assert.equal(d.list().length, 1024);
-    // The engine forgot them (a restart while their ends were lost): they end `lost` and the dispatch is tracked.
-    live = false;
+    // Only affirmative lost proof reclaims them; a 9.33 plain timeout cannot make space this way.
+    unresolved = false;
     assert.equal(await d.prepare({ key: ROOT.sessionKey, runId: 'root', callId: 'c2', tool: 'sessions_send', input }), true);
     assert.equal(d.list().length, 0);
     assert.equal(j.events.filter((e) => e.type === 'ended' && e.reason === 'lost').length, 1024);

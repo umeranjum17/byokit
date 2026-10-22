@@ -139,7 +139,7 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   assert.ok(groups.length > 2 && groups.slice(1).every(([, open]) => !open), JSON.stringify(groups));
   const row = (id: string) => page.locator(`#routes [data-route="${id}"]`);
   const chatgpt = row('openai:code:openai-device-code');
-  assert.deepEqual(await chatgpt.locator('span').allTextContents(), ['ChatGPT Device Pairing — sign in with a code', 'Uses your OpenAI plan', 'Ready']);
+  assert.deepEqual(await chatgpt.locator('span').allTextContents(), ['Codex login (device code) — sign in with a code', 'Uses your OpenAI plan', 'Ready']);
   assert.equal(await chatgpt.getAttribute('aria-disabled'), null);
   for (const [id, why] of [['openai:browser:openai', 'Ready, but this page has no form for it yet.'],
     ['github-copilot:code:github-copilot-enterprise', 'Ready. This computer starts only the first sign-in for this provider.'],
@@ -159,7 +159,7 @@ test('pair a phone, sign in with a code, and allow or deny what the helper asks,
   // seconds later.
   await chatgpt.click();
   await text(page, '#signin-code', 'CREW-2026');
-  await text(page, '#signin-title', 'On the ChatGPT Device Pairing page, type this code:');
+  await text(page, '#signin-title', 'On the Codex login (device code) page, type this code:');
   assert.equal(await page.locator('#routes').isHidden(), true);
   assert.equal(await page.getAttribute('#signin-url', 'href'), 'https://auth.openai.com/codex/device');
   await shot(page, '3-code');
@@ -360,7 +360,7 @@ async function ptyHost(dir: string, folder: string, name: string) {
     assert.ok(m, `pty host never said ${pattern}; it said:\n${said}`);
     return m;
   };
-  await heard(new RegExp(WORDS['engine.ready'].replace('.', '\\.')));
+  await heard(new RegExp(WORDS['engine.ready'].replace('.', '\\.'))).catch(error => { pty.kill('SIGTERM'); throw error; });
   return { pty, heard, said: () => said };
 }
 /** A pty host's exit code, or null when it is still running after `ms`. */
@@ -420,7 +420,7 @@ test('Ctrl-C after the plan key is pasted quits while the sign-in still settles'
   // The computer checks the pasted key for a few seconds (the fake's SETTLE_MS, as the engine's restart does) with
   // the terminal still hidden, so a Ctrl-C there arrives as a byte too: it must quit at once, not once the check
   // ends and the terminal is back.
-  const { pty, heard, said } = await ptyHost(dir, 'pty-quit-settling', 'PtySettle');
+  const { pty, heard, said } = await ptyHost(dir, 'pty-settle', 'PtySettle');
   try {
     const from = said().length;
     pty.stdin.write('add opencode-go\n');

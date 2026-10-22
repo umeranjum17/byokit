@@ -103,7 +103,17 @@ export function startModelStub(script: string[] = [], o: ModelStubOptions = {}):
     // last user message that carries a script marker, falling back to the last user message for plain replies.
     // Tool results count from that same message, or the first scripted call replays forever: each follow-up
     // request carries a fresh trailing runtime-context user message with zero tool results after it.
-    const users = messages.filter((m) => m.role === 'user');
+    // 9.33 internal completion context and Activity-recap JSON quote history as data, not new instructions.
+    const internal = (m: { content?: unknown }): boolean => {
+      const text = words(m);
+      if (text.startsWith('<<<BEGIN_OPENCLAW_INTERNAL_CONTEXT>>>')) return true;
+      try {
+        const recap = JSON.parse(text);
+        return typeof recap?.previousRecap === 'string' && typeof recap.omittedContent === 'boolean'
+          && Array.isArray(recap.messages) && recap.messages.every((line: unknown) => typeof line === 'string');
+      } catch { return false; } // Not a recap; genuine malformed tool scripts still reach the strict parser below.
+    };
+    const users = messages.filter((m) => m.role === 'user' && !internal(m));
     const structural = (text: string) => /\[tool \w+ \{|\[route [\w?-]+\]/.test(text) || text.startsWith(routingMarker);
     const phrased = (text: string) => /hit the limit|no helpers in plan|sign me out|ask permission/i.test(text);
     const lastUser = [...users].reverse().find((m) => structural(words(m)))
@@ -190,13 +200,15 @@ const plain = (res: import('node:http').ServerResponse, model: unknown, text: st
 };
 
 // provider id 'byokit-stub', model 'test': the stub becomes every agent's primary model.
-export async function useModelStub(kit: OpenClawKit, stub: ModelStub): Promise<void> {
+export async function useModelStub(kit: OpenClawKit, stub: ModelStub, contextWindow = 128000): Promise<void> {
   const current = await kit.call('config.get', {}) as { hash: string };
   await kit.call('config.patch', { baseHash: current.hash, raw: JSON.stringify({
     models: { providers: { 'byokit-stub': {
-      baseUrl: stub.url, apiKey: 'byokit-stub', api: 'openai-completions',
+      // The pin's non-secret local sentinel: Doctor must not import this unauthenticated fixture as a global key.
+      baseUrl: stub.url, apiKey: 'custom-local', api: 'openai-completions',
       models: [{ id: 'test', name: 'Test', reasoning: true, input: ['text'],
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 2048,
+        // 9.33's direct tool schemas + stock workspace exceed 40k estimated input tokens.
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow, maxTokens: 2048,
         compat: { supportsReasoningEffort: true, supportedReasoningEfforts: ['off', 'low', 'medium', 'high'] } }],
     } } },
     agents: { defaults: { model: { primary: 'byokit-stub/test' } } },

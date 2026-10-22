@@ -47,9 +47,9 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D1 | Package names `@byokit/openclaw` and `@byokit/herdr`, in `packages/openclaw` and `packages/herdr`, Apache-2.0, ESM, Node ≥ 22.18, same source rules as the rest of the repo (type-stripped TS, `.ts` imports, no enums/namespaces/parameter properties). |
 | D2 | Entries per kit: `.` (Node host side), `./device` (portable: browsers, React Native, Node; no `node:*` or Node-only imports), `./link` (Node host-side link/relay/seal adapter), `./testing` (fakes, contract suites, scripted model). No other entries. |
 | D3 | Connection adapters ship **inside each kit** (`./link`, `./device`). No new shared glue package; the ~40 lines of `serve()` wiring are deliberately duplicated per kit (`ponytail:` comment naming the upgrade path: extract when a third runtime kit appears). |
-| D4 | OpenClaw engine pin stays **`openclaw@2026.8.35`** with `@openclaw/gateway-client@2026.8.35` and `@openclaw/gateway-protocol@2026.8.35` pinned exactly (Crewhouse parity; protocol version 4). Upgrades follow [5.12](#512-version-pin-and-upgrades). |
+| D4 | OpenClaw engine pin stays **`openclaw@2026.9.33`** with `@openclaw/gateway-client@2026.9.33` and `@openclaw/gateway-protocol@2026.9.33` pinned exactly (Crewhouse parity; protocol version 4). Upgrades follow [5.12](#512-version-pin-and-upgrades). |
 | D5 | Herdr pin is **v0.9.1** (latest release on 2026-09-28). The kit bundles that release's `herdr api schema --json` snapshot; a server whose reported protocol differs from the snapshot's is state `needs-update`. muxr, which requires ≥ 0.8.0 today, must move to the kit's pin as a precondition of its later adoption. |
-| D6 | "Complete supported surface", OpenClaw: every Gateway method in the pinned engine's method table for the **operator** role (383 in 2026.8.35, including the 12 core methods whose scope is resolved `dynamic`), every Gateway event (55), plus a typed-`unknown` `callDynamic` for names **not** in the table (plugin/channel-registered methods). The 11 `node`-role methods are the other side of the node protocol and are excluded from `call` (listed in the generated table with `role: 'node'`). The kit connects with all seven operator scopes: `operator.read`, `operator.write`, `operator.admin`, `operator.approvals`, `operator.questions`, `operator.pairing`, `operator.talk`. |
+| D6 | "Complete supported surface", OpenClaw: every Gateway method in the pinned engine's method table for the **operator** role (476 in 2026.9.33, including the 13 core methods whose scope is resolved `dynamic`), every Gateway event (64), plus a typed-`unknown` `callDynamic` for names **not** in the table (plugin/channel-registered methods). The 11 `node`-role methods are the other side of the node protocol and are excluded from `call` (listed in the generated table with `role: 'node'`). The kit connects with all seven operator scopes: `operator.read`, `operator.write`, `operator.admin`, `operator.approvals`, `operator.questions`, `operator.pairing`, `operator.talk`. |
 | D7 | "Complete supported surface", Herdr: every request method and event in the pinned schema (typed `call`, typed `subscribe`), the raw CLI as `cli(argv)` (complete by construction), and a typed wrapper for the one CLI-only surface the socket lacks (`terminal session control|observe`). |
 | D8 | Host-side kit APIs are full-power. Over a link, the pass-through (`oc.call`, `hd.call`) is **denied by default**; an app opts in with a `passThrough(method, grant)` predicate. Typed link ops are always member/scope-checked. |
 | D9 | Members. OpenClaw: a member is an app-chosen id matching `/^[a-z](?!.*--)[a-z0-9-]{0,23}$/` (no `--`, at most 24 characters, so every account agent id `<member>--<6 hex>` stays within 32), never `main`, `openclaw`, `crestodian` or starting `byokit-`; an agent that already exists under the older `/^[a-z][a-z0-9-]{0,31}$/` rule and is no member's account agent keeps working with its member agent only (D17), and no new member is created under the old rule. The id is used verbatim as the OpenClaw `agentId` of the member agent; every session key must start `agent:<member>:`, `agent:<member>--<6 hex>:` for an account agent in the member's index (5.15), or (key lane) exactly `agent:byokit-key-<member>:`; each sign-in is granted once and shared across that member's agents as scoped views (D11, D17). Herdr: no member concept upstream; a link grant carries `meta.scope = { workspaces: 'all' \| string[] }`. |
@@ -280,7 +280,7 @@ the generated `report.json`.
 ```
 packages/openclaw/
   package.json  tsconfig.json  README.md  CHANGELOG.md  LICENSE
-  engine/package.json  engine/package-lock.json      # { "dependencies": { "openclaw": "2026.8.35" } }, integrity-locked
+  engine/package.json  engine/package-lock.json      # { "dependencies": { "openclaw": "2026.9.33" } }, integrity-locked
   engine/plugins.json                                # external provider plugin pins (B7): { "<id>": { spec, integrity } }
   plugin/index.js  plugin/accounts.js  plugin/package.json   # bridge plugin + account sealing (5.15); manifest at prepare
   policy/policy.mjs                                  # operator install policy (OpenClaw security.installPolicy, protocol 1)
@@ -303,7 +303,7 @@ packages/openclaw/
 `package.json`: `exports` `.` → `dist/index.js`, `./device` → `dist/device.js` (with `react-native` and `browser`
 conditions pointing at the same file), `./link` → `dist/link.js`, `./testing` → `dist/testing/index.js`; `files`:
 `dist`, `engine`, `plugin`, `policy`, `README.md`, `LICENSE`. Dependencies (exact pins in
-`packages/openclaw/package.json`): `@openclaw/gateway-client` and `@openclaw/gateway-protocol` (`2026.8.35`),
+`packages/openclaw/package.json`): `@openclaw/gateway-client` and `@openclaw/gateway-protocol` (`2026.9.33`),
 `@byokit/pair`, `@byokit/relay`, `@byokit/discover`, `@byokit/seal`, `@byokit/secrets`, `@byokit/accounts` (its
 `/cli` entry drives the native Claude login, 5.7), `ws`. Dev: `@byokit/ui` (assignability test only).
 
@@ -451,6 +451,9 @@ export type KitOptions = {
                                          // not bash or cron (the engine renames those before the gate hook)
   host?: ToolHost;                       // required when tools is non-empty
   permitted?: (tool: string) => boolean; // tools needing a one-use permit from their gate; default () => true
+  // On 9.33 the kit defaults tools.toolSearch to false (direct schemas); an app's explicit choice is preserved.
+  // App tools register catalogMode: 'direct-only'. Every builtin remains gated; no native wrapper bypass is added.
+  // Direct schemas can exceed 40k input tokens on a stock 9.33 home; small-context hosts should explicitly opt into toolSearch.
   gateBuiltins?: boolean;                // default true: engine builtins go through host.gate too (no host: blocked);
                                          // false gates only `tools` and lets builtins run ungated
   config?: object;                       // app OpenClaw config, deep-merged UNDER the invariants (5.6)
@@ -536,7 +539,7 @@ export declare class OpenClawKit {
   doctorContext(): { entry: string; env: Record<string, string> };
 }
 export type RetainedLogin = { path: string } | { record: Record<string, unknown> };
-export const ENGINE_VERSION = '2026.8.35';
+export const ENGINE_VERSION = '2026.9.33';
 export const PROTOCOL_VERSION = 4;
 ```
 
@@ -667,7 +670,8 @@ writing only if bytes change (0600):
   `plugin` id of every route the app offers by name in `KitOptions.offered` (the provider, auth choice or alias a route
   carries — e.g. `openrouter`; a route nobody offers stays out), and every external plugin `installPlugin` installed
   (B7, 5.7), and `telegram` while that channel is on (5.18); the kit adds no other id;
-  `plugins.entries[id].hooks.timeouts.before_tool_call = 200_000`. The pinned
+  `plugins.entries[id].hooks.timeouts.before_tool_call = 200_000`. On 9.33, preboot-pin native-default-enabled `openai`, `opencode-go` and `openrouter` unless caller-disabled;
+  this preserves native preflight by avoiding plugin-enable changes inside secret promotion. Other providers and caller disables stay unchanged. The pinned
   engine treats a non-empty `plugins.allow` as a restrictive allowlist: a provider sign-in, and that provider's runs,
   need the bundled plugin that owns the route's auth choice (`Route.plugin`) in it, else the wizard ends
   `<label> is disabled (blocked by allowlist)`. Those plugins are always present (`anthropic` for `anthropic-cli` and `apiKey`); an app names the
@@ -835,7 +839,7 @@ history. This is no task scheduler or global recovery disable. Installation/prov
 **Routes** (`src/routes.json`, O6): one entry per auth choice in the pinned tarball's provider contracts:
 `{ "choice": "openai-device-code", "provider": "openai", "plugin": "openai", "billing": "subscription", "via": "code",
 "prerequisite": null, "offer": true, "reason": "…", "source": "dist/provider-contract-api-*.js (2026.8.1)" }`.
-Subscription choices are offered by default, including native `anthropic-cli`; `setup-token` is listed, never offered, because the pinned Gateway refuses it (no app-guided sign-in). API-billed choices, including `openrouter-oauth`, stay off until the app or person opts in.
+Subscription choices are offered by default, including native `anthropic-cli`. In 9.33, `setup-token` also has a native managed-wizard flow; non-key text-inference choices no longer require an app-guided flag for `auth.start`. Manual-key activation still requires `appGuidedSecret`; service-only scopes and compatibility aliases remain unavailable. API-billed choices, including `openrouter-oauth`, stay off until the app or person opts in.
 Only proxy routes (`litellm-api-key`, `clawrouter-api-key`, `custom-api-key`), compatibility aliases,
 local runtimes, `copilot-proxy` stay off. Billing labels distinguish subscription from
 API key (billed per use); native `anthropic-cli` uses the person's installed Claude Code login (5.5). `routes()` returns the full table and
@@ -856,8 +860,10 @@ key (subscription); `microsoft-foundry-entra` is Entra cloud credentials, not an
 Until those packages merge, the table above is what ships.
 
 **External provider plugins (B7).** `installPlugin(pluginId)` is the one explicit install: discovery never runs it.
+Third-party catalog-only providers (9.33: Telnyx) remain visible but unavailable (`no_upstream_flow`). They are excluded from the B7 pin inventory: `installPlugin` rejects with `PluginInstallError.code = 'unsupported_plugin'` before any install. Only official `@openclaw/*` providers are installed at `ENGINE_VERSION`; no third-party package is installed.
+
 `pluginId` is a `needs.plugin` a route names; its pin in `engine/plugins.json` must be exactly the route's
-`install.npmSpec` at `ENGINE_VERSION` (`@openclaw/zai-provider@2026.8.35`), with the registry's `sha512` integrity
+`install.npmSpec` at `ENGINE_VERSION` (`@openclaw/zai-provider@2026.9.33`), with the registry's `sha512` integrity
 for that version. The kit adds the id to `plugins.allow` in `<root>/openclaw.json`, then runs the engine's own
 installer in the isolated engine env (5.5): `openclaw plugins install <spec> --force --accept-capabilities` (the
 explicit call is the consent; the policy, 5.6, holds the pin and integrity). The running gateway hot-reloads the
@@ -891,13 +897,15 @@ release only this session. Code expiry yields `why: 'expired'`, cancellation `wh
 Every `text` step → view `{ prompt }`, wait for `paste` (15 min), then answer `{ stepId, value }`. The rule
 is the engine's own `sensitive` flag: a non-sensitive step is not a secret, so its `message` is the prompt as
 written (`github-copilot-enterprise` asks for the Enterprise domain first); once any step is sensitive, or the
-choice is `setup-token`, the prompt is the fixed `Sign-in token` label and no gateway prose is shown; `note|confirm|select|action` → surface `externalUrl`, acknowledge; `progress` → pull again.
+choice is `setup-token`, the prompt is the fixed `Sign-in token` label and no gateway prose, link or code is shown.
+Before sensitive entry, surface the native `externalUrl` on any step (9.33 also attaches it to progress/text);
+never reconstruct one from gateway prose. `note|confirm|select|action` → acknowledge; `progress` → pull again.
 A `keyEntry` choice (a plan key such as `opencode-go`) never starts the wizard, which refuses it: the view asks
 `{ prompt: 'Plan key' }` (`'API key (billed per use)'` for `api` billing), waits for `paste` (15 min) and calls typed
 `openclaw.setup.activate { kind: 'api-key', agentId, authChoice, apiKey }`; the engine live-tests the key and saves
-the agent's model. A failed key-entry sign-in shows only the kit's words (`API key activation failed`, or `This key type is not available on this engine.` when the engine refuses the key type); the engine's text never reaches the view. Activation (this one and `anthropic-cli`'s) writes
-`auth`, which the pin applies by restarting the gateway once its requests drain; when the activation changed config
-`auth` and a spawned engine restarts for it, `done` waits for that restart to begin and the kit to be ready again,
+the agent's model. A failed key-entry sign-in shows only the kit's words (`API key activation failed`, or `This key type is not available on this engine.` when the engine refuses the key type); the engine's text never reaches the view. Activation (this one and `anthropic-cli`'s) may hot-apply its saved route. Only the native success result's
+`gatewayRestartRequired: true` makes `done` wait for a spawned engine's restart to begin and the kit to be ready again;
+a changed config `auth` is not a restart signal on 9.33. The shared activation callback observes that requested restart,
 within 60 s (event-driven, not polled). Past that the sign-in ends `why: 'failed'` with the words that the engine took too long and to try again (cancelled
 during the wait it ends `why: 'declined'`), and the add is cleaned up either way: a new agent is discarded, a member agent
 clears only this provider's profile and its index entry. The same wait and cleanup apply to `addKey` (below). A cancel during the activation request waits for the engine's answer before the cleanup, and ends `why: 'declined'`. Adds of one provider for one member take turns until each settles. Done means sealed.
@@ -1001,8 +1009,10 @@ the engine. External retained sources are touched only when explicitly passed to
 - `migrateRetainedLogin(member, source)` must run **before** `start()` (doctor refuses while a Gateway owns the
   state). Source path: use `path`, else `path + '.moved-to-engine'` when no `.canonicalized` marker exists; nothing →
   `'nothing'`. `prepare()` first (never import without the engine). Stage `state/agents/<member>/agent/auth-profiles.json`
-  (0600) as `{ version: 1, profiles: { '<provider>:default': credential } }` unless already staged; a `.moved-to-engine`
-  source without `openai-codex` → `'nothing'`. Run doctor `--fix --yes --non-interactive` (120 s). Non-zero → delete
+  (0600) as `{ version: 1, profiles: { '<provider>:default': credential } }` unless already staged, except legacy
+  ChatGPT uses `openai-codex:<member>` (Doctor maps it to `openai:<member>`). 9.33's alias receipts are global:
+  one member's retired archive must not block another member reusing a legacy id. Other provider ids stay unchanged.
+  A `.moved-to-engine` source without `openai-codex` → `'nothing'`. Run doctor `--fix --yes --non-interactive` (120 s). Non-zero → delete
   the staging, return `'failed'` (the original stays byte-identical). Zero → `'staged'`. With `authSeal`, the staging and imported store are resealed before returning.
 - `confirmRetainedLogin(member, source)` after `ready`: wanted providers = source keys mapped `openai-codex → openai`,
   else the provider map, else lower-case key; empty → `false`. Up to 3 × (`models.authStatus { agentId, refresh: true }`,
@@ -1238,7 +1248,7 @@ App-specific business checks belong in the app after the validated result.
 ### 5.8.2 Run artifacts (A5)
 
 A run's artifacts are what the pinned engine already lists: no engine patch, no kit-side store. Pin facts
-(`openclaw@2026.8.35`, `dist/artifacts-MAdHWzFI.js`): `artifacts.list`, `artifacts.get` and `artifacts.download`
+(`openclaw@2026.9.33`, `dist/artifacts-MAdHWzFI.js`): `artifacts.list`, `artifacts.get` and `artifacts.download`
 (`src/generated/methods.ts:21-23`, `operator.read`, which the kit holds) scan one session's transcript. Each
 image/audio/video/file content block of any message is an artifact with a stable id (`artifact_` + 18 base64url
 characters of sha256 over session key, message seq, block index, type and title; managed outgoing media keeps its
@@ -1327,7 +1337,7 @@ hook's exact parent run ID, session key and tool-call ID. Send requires an expli
 an explicit allowed `agentId`. A tracked spawn into the run's own agent (`delegates` naming it) reaches the engine
 without `agentId`, the pin's own-agent spawn, so an app's `subagents.allowAgents` list naming other agents never
 refuses it; the kit configures nothing else for it. The native after-tool receipt, not model arguments or a key prefix, supplies the
-exact child run ID/session key. Until that receipt arrives child gates wait briefly, then fail closed. Unknown
+exact child run ID/session key. A 9.33 `status: 'timeout'` dispatch receipt with that exact identity is also admitted, not discarded or treated as terminal; all pending-call/expiry/member/tool guards still apply. Until a valid receipt arrives child gates wait briefly, then fail closed. Unknown
 children never acquire authority. Approval denial creates no admitted action; every child action is gated again.
 
 `RunRef` adds optional `runId`, `agentId`, `parent` and `root` (the latter two exact `{sessionKey, runId}` pairs).
@@ -1337,11 +1347,14 @@ surface. Native events are observations, never a completion/delivery guarantee.
 
 Pending dispatch receipts and admitted children are persisted under the app-owned engine root, without messages,
 credentials or approval answers. Parent settlement does not revoke children. Reconnect/start reconciles exact
-recorded run IDs with `agent.wait` (`timeoutMs: 1`): `ok`/`error` end `terminal`/`error`; the pin's answer for a run
-it does not know at all (`timeout` in the `queue` phase with `providerStarted: false`: no job, queued turn or live run,
-as after an engine restart) ends `lost` (outcome unknown, admission ended); a live run's `timeout` and a failed wait
-keep the child for the next reconcile. A dispatch that finds the journal full (1024 pending and admitted) reconciles
-first, so children whose end never reached the kit cannot block delegation.
+recorded run IDs with `agent.wait` (`timeoutMs: 1`): `ok`/`error` end `terminal`/`error`. An affirmative
+`timeout`/`queue`/`providerStarted: false` observation ends `lost` (outcome unknown, admission ended); a failed wait,
+queued/live result or plain timeout retains the receipt. **9.33 semantics:** its no-snapshot branch returns only
+`{ runId, status: 'timeout' }`, also possible for active work without a terminal snapshot. This is unresolved,
+not lost or proof of liveness. `delegatedRuns()` lists admitted receipts, not a live-job census. No missing
+fields are reconstructed. This wait-observation policy is separate from accepting a valid timeout dispatch receipt above.
+A full journal (1024 pending and admitted) reconciles first but unresolved receipts still count: dispatch stays
+refused until affirmative terminal evidence or explicit `abort(rootSessionKey)`/`abort(childKey)` revokes them.
 No new run IDs are guessed on restart: an engine resume with a different ID needs fresh admission. A dispatch
 whose receipt never arrived stays fail-closed. `abort(rootSessionKey)` revokes the recorded subtree before native
 abort requests, closes its parked gates/active calls, and preserves original errors. Call `abort` with a child key
@@ -1355,7 +1368,7 @@ copies credentials.
 ### 5.8.3 Helpers
 
 A member can run several helpers (personas) on one account the member already signed in, with no copied credential and
-no new sign-in. Pin facts (`openclaw@2026.8.35`): a run reads only its own agent's auth store plus the one global
+no new sign-in. Pin facts (`openclaw@2026.9.33`): a run reads only its own agent's auth store plus the one global
 `agents.defaults.authInheritance` owner (5.15 forces it to the base), and a config write giving two agents one
 `agentDir` is refused (`Duplicate agentDir detected`). So a helper is not an engine agent: it is its own session
 namespace and persona on the agent that already holds the account.
@@ -1410,7 +1423,8 @@ namespace and persona on the agent that already holds the account.
   `abort(rootSessionKey)`, `abort(childKey)` and ended admission), `error` is `error` with the engine's `message`, or
   `resting` when it classifies as the model's limit (5.8 rules) on a helper's run: the kit rests the helper's account
   `until` the stated reset (else five minutes), as a kit run's resting end does (5.15 Runs step 7), so its next Auto
-  pick skips it. A reconnect's `agent.wait` maps `ok` to `terminal`, `error` to `error`, and a run the engine does not know to `lost`. A gate approval on a
+  pick skips it. A reconnect's `agent.wait` maps `ok` to `terminal`, `error` to `error`, and only an affirmative
+  lost observation to `lost`; 9.33's plain timeout keeps the receipt unresolved (5.8). A gate approval on a
   helper's run and a native approval on a helper's key carry `Approval.helper`; `member` stays the member. The app
   projects these; it keeps no delegation supervisor of its own.
 - Known limit: helpers share the engine agent (id, workspace files, memory) of their account; separate engine agents
@@ -1420,10 +1434,11 @@ namespace and persona on the agent that already holds the account.
 ### 5.8.4 Return runs
 
 A tracked `sessions_send` (`timeoutSeconds: 0`) from a kit run, or from a return run, has a second half on the pin
-(`openclaw@2026.8.35`, `runSessionsSendA2AFlow`): once the child ends, the engine starts its own reply step, a fresh
-`agent` run with a random id on the sender's exact key, its prompt being the child's reply headed by the engine's
-`[Inter-session message] sourceSession=<child key> … sourceTool=sessions_send isUser=false` line. The pin repeats this
-ping-pong for up to five turns, and starts none when the child takes longer than its 30 s wait. Nothing registered that
+(`openclaw@2026.9.33`, `runSessionsSendA2AFlow`): once the child ends, the engine starts its own reply step, a fresh
+`agent` run with a random id on the sender's exact key, carrying the child's reply with native `inter_session`
+input provenance (`sourceSessionKey=<child key>`, `sourceTool=sessions_send`). The 9.33 pin delivers the reply once,
+without ping-pong, and waits up to 60 s for the child's terminal result. Its model projection places the
+`[Inter-session message]` annotation in runtime context, not at the start of the prompt. Nothing registered that
 run, so the bridge's deny-by-default check refuses its tools `unknown run`; the check stays as it is.
 
 - Arming: the kit's own `terminal` end of an admitted send child whose parent is a kit run (or a return run) arms one
@@ -1431,10 +1446,12 @@ run, so the bridge's deny-by-default check refuses its tools `unknown run`; the 
   arm none. The kit run's system text (its persona, or a helper's) is held in memory by run id for this, never
   persisted. A child whose root's system text the kit no longer holds (a kit restart) arms none: fail closed.
 - Binding: the plugin's `before_prompt_build` hook sends the bridge (`delegation-persona`) the run's exact key, run id and
-  the first line of a prompt that starts with the engine's header. The bridge binds that exact run id only when the key
-  is the armed parent's, the header names the armed child's exact session and no other run holds that return. A child
+  a canonical header derived only from the hook context's native `inputProvenance`: kind `inter_session`, source tool
+  `sessions_send`, and a nonempty whitespace-free `sourceSessionKey`. Prompt text, including a forged header, is never
+  admission evidence. The bridge binds that exact run id only when the key is the armed parent's, the header names the
+  armed child's exact session and no other run holds that return. A child
   still running when its reply arrives is waited for for at most 5 s. Each bound run's end re-arms the same return for
-  60 s, so the sender's later ping-pong turns bind one at a time. Any other run on the key, a header naming any other
+  60 s; a subsequent native return still binds only one run at a time. Any other run on the key, a header naming any other
   session, and anything outside the window stay unknown.
 - A bound return run is the sender's: `RunRef { sessionKey, member, helper?, runId, agentId, parent: <the finished
   child's key and run>, root }`, the sender's app-tool subset, `delegates` and `helperDelegates` (so it may send work
@@ -1497,10 +1514,9 @@ always carry `source.authority 'third-party'`, so authority is not the check. An
 
 ### 5.10 Pass-through generation (`scripts/gen-methods.ts`, O2)
 
-Input: the pinned tarball installed under a temp dir (`npm pack openclaw@2026.8.35` + extract, network allowed at
+Input: the pinned tarball installed under a temp dir (`npm pack openclaw@2026.9.33` + extract, network allowed at
 generation time only) and the installed `@openclaw/gateway-protocol` types. Steps: locate the file containing
-`const CORE_GATEWAY_METHOD_SPEC_LIST = [` and evaluate only that array literal; locate `GATEWAY_AUX_METHODS` and
-`GATEWAY_EVENTS` the same way (constant entries only; non-literal entries such as `GATEWAY_EVENT_UPDATE_AVAILABLE`
+`const CORE_GATEWAY_METHOD_SPECS = [` in the `.mjs` core-descriptors chunk and evaluate only that array literal (substituting the literal `CONTROL_PLANE_WRITE` policy). This is the complete handler table, including dynamic, hidden and node methods; 9.33 has no separate `GATEWAY_AUX_METHODS`. Locate `GATEWAY_EVENTS` the same way (constant entries only; non-literal entries such as `GATEWAY_EVENT_UPDATE_AVAILABLE`
 are resolved from their `const X = "…"` definitions in the tarball). For each method try, in order: `scripts/method-types.json`
 override, `Pascal(method) + 'Params'|'Result'` (e.g. `models.authStatus` → `ModelsAuthStatusParams`),
 `Pascal(group) + Pascal(last segment)`; accept only names exported by `@openclaw/gateway-protocol` (checked by
@@ -1510,7 +1526,7 @@ published type declarations drop properties from anyOf/oneOf branches; every mat
 a top-level anyOf/oneOf is re-emitted into `src/generated/params.ts` under its own name, with each branch's
 full property set (branch properties plus the properties declared beside the union on the parent schema, and
 the union of the parent and branch required lists; presence-exclusions from `not` spell as `prop?: never`).
-The tables reference the local name instead of the protocol export. Output `src/generated/methods.ts`
+The tables reference the local name instead of the protocol export. `SkillsWorkshopReadParams` and `SkillsWorkshopReadResult` are also emitted from their shipped schemas because 9.33 omits their public TS aliases. Runtime method-name arrays are generated beside the types so the facade's pass-through guard cannot retain an older table. Output `src/generated/methods.ts`
 (`export interface GatewayMethods { 'agents.create': { params: AgentsCreateParams; result: unknown; scope:
 'operator.admin'; role: 'operator' }; … }`, `import type` only), `events.ts`, `params.ts`, and `report.json`
 (`{ engine, protocol, methods: n, matchedParams, matchedResults, patchedTypes: [...], unmatched: [...] }`). Output is committed and
@@ -1524,7 +1540,7 @@ differs from a fresh run against the pinned tarball in the engine job.
   spawnEngine: false, … })`. The factory captures `bridgeSock` so scripted tool calls reach the real bridge,
   split as the plugin splits them: it reads the kit's `plugin/tools.json` beside the socket, gates a builtin unless
   `gateBuiltins` is false and never calls one back (no table: every tool counts as the app's). `start()` resolves a hello with `protocol: 4`,
-  `server.version: '2026.8.35'`, and methods/events from the generated tables. Unknown method → rejects
+  `server.version: '2026.9.33'`, and methods/events from the generated tables. Unknown method → rejects
   `unknown method: <m>`.
 - Default handlers: `health`; `agents.list`/`agents.create` (in-memory); `models.authStatus`/`models.authLogout`
   (in-memory per agent); `openclaw.setup.auth.start` + `wizard.next` + `wizard.cancel` running the device-code script
@@ -1557,6 +1573,10 @@ differs from a fresh run against the pinned tarball in the engine job.
   `sent` lists every `sendMessage`, `calls` every call (never the token). Another token answers 401.
 
 ### 5.12 Version pin and upgrades
+
+Follow `extended-stable` only, one release line at a time; confirm with `npm view openclaw dist-tags` before bumping.
+
+Node support follows the pinned engine: `>=24.16.0 <25 || >=26.1.0` (Node 26 recommended); Node 22 and 25 are unsupported.
 
 The pin is `ENGINE_VERSION` + `engine/package-lock.json` + exact client/protocol deps. An upgrade is one PR in
 byokit: bump all four, re-run `npm run gen:openclaw`, review `report.json` and the method/event diff (listed in the
@@ -1802,7 +1822,9 @@ first agent the owner when the fleet grows past one, and every later agent (othe
 sign-ins. `models.authLogout` and sign-out always pass `profileIds` of the agent's own sealed profiles, because
 without them the pin removes the provider's profiles from every owner store. O14's engine job proves both; if the pin
 refuses the value, O14 stops and asks. (After 5.7's doctor moves a legacy store into `state/openclaw.sqlite`, that
-shared store is the base instead; the kit never writes it either.) This is a behavior change for installs with two or
+shared store is the base instead; the kit never writes it either.) The audited 9.33 OAuth settlement patch (5.16) applies to Doctor and Gateway refreshes:
+an agent-local refresh may update an existing shared credential only after native identity/realm checks; it never creates one.
+This is a behavior change for installs with two or
 more members: the pin had pinned the owner to the first member, so later members read its sign-ins through; from
 O14 a member runs only on its own sign-ins, and one that never signed in reads `signed_out` (CHANGELOG entry).
 
@@ -2094,12 +2116,18 @@ runs on the lane with its saved model, or a supplied model of the same provider 
   The same `gone` tombstones exclude a later refresh from every persisted snapshot and object; the next `prepare`
   also prunes previously sealed entries and objects of those removed agents before they can be restored.
   The account's sessions go with it; `move` first keeps one.
-- `models(member, id)`: `models.list { agentId, view: 'default' }` rows of the account's provider, mapped `id =
+- `models(member, id)`: `models.list { agentId, view: 'all' }` rows of the account's provider, mapped `id =
   'provider/model'`, `available`, `unavailableReason` `missing-auth`/`auth-failed` → `why: 'signed_out'`, `cooldown`
   → `why: 'resting'` with `until = unavailableUntil`. The pin reports no per-plan availability, so `why: 'plan'` only
   comes from a run ending `plan`. The rows the kit registered for that provider (the provider's live catalog, 5.6)
   join them, so a model the picker offered stays listed while the engine's own list still lags the registration; the
   engine's row wins where both name a model, so the join never removes a row or its availability.
+  9.33 starts with a bootstrap catalog that can omit CLI/provider rows. The account controller prepares a full
+  catalog with `refresh: true` once per agent and owned-config witness (concurrent readers join that preparation;
+  failures retry). A reconnect creates a new controller. Only the preparation marker is kept, never model/auth
+  answers: later picker and run-selection reads still ask the engine for current availability without forcing
+  full provider discovery on every turn. Existing model/availability projection is unchanged; native filtering
+  remains in force.
 - `move(ref, to)` moves a conversation (an app key binds as in Runs step 1; with no account agent, the member agent):
   `unsupported` when it is bound nowhere (no `sessions.list { agentId, search: <key> }` row); `busy` while a run is live
   on it (kit map, or that row's `hasActiveRun`); `start_failed` (words `move.notReady`) when the target is not `ready`.
@@ -2183,7 +2211,7 @@ plus one reviewed edit. A fork, a republished tarball or a source build is never
 
 ```json
 { "v": 1, "id": "<16 hex>",
-  "upstream": { "name": "openclaw", "version": "2026.8.35",
+  "upstream": { "name": "openclaw", "version": "2026.9.33",
     "integrity": "<the lock's sha512 for openclaw>", "commit": "<dist/build-info.json commit>", "license": "MIT" },
   "files": [ { "path": "dist/<file>.js", "before": "<sha256>", "after": "<sha256>",
                "edits": [ { "find": "<text occurring exactly once>", "replace": "<text>" } ] } ] }
@@ -2199,7 +2227,8 @@ plus one reviewed edit. A fork, a republished tarball or a source build is never
   upstream excerpts; the repo `NOTICE` is not in the tarball).
 - Usage accounting and app-owned restart recovery patches do nothing unless the kit sets their own env
   variables at spawn (5.5); with those variables unset they behave as stock. The Claude Tooling patch below
-  is route-gated instead, and the key setup plan patch is a fix that applies whenever it is reached. A patch adds no RPC, config key or schema to the engine.
+  is route-gated instead; native CLI detection, OAuth isolation and key replacement-evidence fixes apply whenever reached. A patch adds
+  no RPC, config key or schema to the engine.
 
 **Claude Tooling names.** On the Claude CLI route, after the backend system-prompt transform, the kit's
 bundled prepare patch prints OpenClaw tool names as `mcp__openclaw__<name>` in the policy-filtered
@@ -2209,13 +2238,39 @@ skipped turn preparation and empty tool lists keep the stock prompt. No consumer
 `packages/openclaw/test/engine-unit.test.ts` exercises the shipped edit's rendered output; its minimal stock
 input is unit coverage, not qualification against the complete pinned engine or a live Claude CLI.
 
-**Key setup plan.** Stock `setup.activate` with an API key plans its live test on the provider's starter model as
-written, while the route it stages for the default agent carries the provider-normalized ref: OpenRouter's bare
-`auto` is staged as `openrouter/auto`, so the plan never matches the staged route and every OpenRouter key is refused
-as `unavailable` before it is sent (the kit's `not_included`). The bundled patch plans the starter as the stage names
-it (`canonicalizeSetupModelRef`), so the live test runs on the route that was staged; the persisted model ref is
-unchanged, and a starter that needs no normalization plans as stock. `test/engine/accounts.test.ts` activates an
-OpenRouter key on the pinned engine and runs on a chosen model.
+**Native CLI setup detection (9.33 compatibility).** The immutable setup-inference patch supplies the omitted native `detectClaudeLoginState` and `detectCodexLoginState` dependencies to `setup.detect`: Claude uses the shipped bounded JSON auth seam; Codex uses a bounded, cancellation-aware `login status` command with API-key/billing-route and engine-folder overrides removed. Only verified boolean state and Claude subscription-kind metadata return, never CLI output or credentials. Signed-out remains false; unreadable remains unknown. Real-Gateway positive and negative controls own qualification. Drop this patch when upstream supplies these dependencies; do not replace it with optimistic client status. The update-recovery bundle remains outside Gateway coverage.
+
+**OAuth shared-base isolation (9.33 security).** In `resolveAuthoritativeSharedOAuthCredentialUnderLock`, an
+agent-local refresh may update an existing shared credential, but returns without writing when no shared credential
+exists. This prevents unintended cross-agent credential availability without relaxing native realm, identity,
+freshness or settlement checks; it does not sweep engine-owned state or restore missing receipts.
+Reported upstream privately, `GHSA-2g8x-r8f8-c89c`. Drop this patch when upstream enforces that no-create boundary
+and requalify Doctor plus Gateway/other-agent controls. Reproduction details remain private. The only duplicate is
+in the sealed native package-publication recovery helper, explicitly outside D19 coverage; ordinary managed
+Gateway/Doctor commands load the patched module.
+
+**Key replacement evidence (9.33 compatibility, set `105c3274582a4ede`).** The staged-credential replacement
+predicate requires an actual existing credential source for that provider: a non-setup agent-local profile or a
+configured global provider key. An inherited/effective model provider alone is not credential evidence. Stock
+9.33 introduced that extra heuristic; the 8.35 activation path did not require confirmation merely for a model
+preference. The audited edit removes only that heuristic, retaining both credential-source checks and all native
+replacement confirmation, realm, identity, freshness and owned-probe checks. Real-Gateway controls require a new
+OpenAI account to activate, while existing local and global-key replacements remain declined without confirmation.
+Drop this patch once upstream no longer treats bare model inheritance as a credential replacement. The duplicate
+sealed package-publication recovery bundle stays explicitly outside D19 coverage; no consent is injected and no
+upstream report is filed without captain consent.
+
+**Key setup plan (9.33 compatibility).** Restore the 8.35 audited canonicalization in the replacement pipeline:
+`stagePreparedCandidate` keeps its direct provider normalization hook first, then uses the native manifest-aware
+`parseModelRef` with the prepared config's metadata/workspace and no second runtime-hook invocation. This applies
+OpenRouter's `prefixWhenBare` to `auto` before constructing the staged ref, matching configured-route resolution.
+It never invents a model, availability, credential or consent, and leaves the exact requested-agent/provider/model/
+auth-profile witness guard and every ownership, replacement-confirmation, freshness and preflight check unchanged.
+A deterministic unit executes the shipped normalization delta and unchanged native tuple guard: manifest prefixing,
+direct-hook precedence, and mismatched provider/model/auth refusal. The unchanged real OpenRouter journey must
+reach its synthetic402 billing refusal, then activate and chat on a valid chosen model. Drop this edit when upstream
+staging applies the same manifest-aware canonicalization as route resolution; requalify both controls before removal.
+The sealed package-publication recovery bundle remains outside D19 coverage.
 
 **Engine sets.** A patched engine is never made by editing files in place: stock OpenClaw rewrites its process
 title (`/proc/<pid>/cmdline` is `openclaw-gateway`, `test/engine/boot.test.ts`) and a running Gateway holds no file or
@@ -2270,16 +2325,20 @@ network; only building the stock set runs `npm ci` (registry unless cached). A k
 deleted.
 
 **Coverage.** Only the Gateway process (`openclaw.mjs` and the chunks it loads) is patched. The worker bundle
-`dist/worker/worker.mjs` has its own copies of the review and recovery code and is **uncovered**: no guarantee of this
+`dist/worker/worker.mjs`, `dist/worker/sqlite-store.worker.mjs` and the standalone update-recovery bundle `dist/package-update-activation-recovery.mjs` have their own copies of the review and recovery code and are **uncovered**: no guarantee of this
 section holds for work run in a worker environment. Engine-started usage covered by the kit is exactly:
 
 | Kind (Gateway) | Counted through |
 |---|---|
-| Your turns, restart-recovery resumes, pre-compaction memory flush | `sessions.usage` transcript totals (stock; these runs persist in the session transcript) |
+| Your turns, restart-recovery resumes | `sessions.usage` transcript totals, only where persisted |
+| Pre-compaction memory flush (9.33) | **Uncovered**: detached internal-session-effects inference is not retained in the source transcript or exposed by the observed Gateway usage methods |
 | Skill Workshop review (`kind: 'workshop-review'`) | the engine-started ledger below (its detached clone is never persisted and internal-effects keys are excluded from usage discovery) |
 
 Every other engine-started kind is **uncovered** and named so: skill collection review, history scan, slug generator,
-active-memory recall, out-of-turn compaction, one-shot helper completions, and all worker-bundle work. A new kind is
+active-memory recall, out-of-turn compaction, one-shot helper completions, and all worker-bundle work. Unlike 8.35,
+9.33 also detaches pre-compaction memory flushes: a successful flush can report provider tokens without adding
+those tokens to visible day accounting. The prior memory-flush inclusion promise is not satisfied on this pin;
+observing its success is not proof of usage coverage. A new kind is
 covered only by a new patched seam and a widened `EngineStartedKind`, never by a side source.
 
 **Engine-started ledger (R4-1).** Env `BYOKIT_ENGINE_USAGE_LEDGER=<stateDir>/openclaw/usage` and
@@ -2292,7 +2351,7 @@ never fails a review).
 ```
 { v: 1, phase: 'started' | 'ended', chargeId /* engine run id */, agentId, kind: 'workshop-review',
   provider, model, authProfileId?, bootId, seq, at, startedAt, origin: { sessionKey, runId? },
-  outcome? /* ended: 'nothing' | 'proposed' | 'applied' | 'failed' */,
+  outcome? /* ended: 'nothing' | 'proposed' | 'applied' | 'completed' | 'failed' */,
   usage? /* ended, only when the engine reported it: input, output, cacheRead, cacheWrite, reasoningTokens, total */ }
 ```
 
@@ -2335,8 +2394,9 @@ reading old files. A month absent from a boot's counters means that boot attempt
 unproven yields `complete: false`.
 
 **Day total.** `transcripts (lane 19's sessions.usage term, fresh-or-unavailable rules unchanged) + Σ counted
-ended.usage.total for workshop-review`. Recovery resumes, memory flush and `RunEnd.usage` are never added from a side
-source (they are already in, or overlap, the transcript term). Time zones: `utc` or an IANA zone, applied the same way
+ended.usage.total for workshop-review`. Recovery resumes and `RunEnd.usage` are never added from a side source
+(they are already in, or overlap, the transcript term). Nor is a memory-flush total guessed: 9.33's detached flush
+usage is outside these two sources, so `knownTotalTokens` is not a full-spend total. Time zones: `utc` or an IANA zone, applied the same way
 to both terms; `gateway` (host-local) is refused. A review crossing midnight lands on its `ended.at` day. Cost is
 `{ state: 'missing' }` for every engine-started charge (no USD estimate); billing comes from `Route.billing` of the
 route that created `authProfileId`, else `'unknown'` (D18: never inferred from the provider name).
@@ -2353,7 +2413,7 @@ export type EngineStartedKind = 'workshop-review';
 export type EngineStartedCharge = {
   chargeId: string; member: Member; kind: EngineStartedKind;
   state: 'counted' | 'reported-missing' | 'pending' | 'interrupted';
-  startedAt: number; endedAt?: number; outcome?: 'nothing' | 'proposed' | 'applied' | 'failed';
+  startedAt: number; endedAt?: number; outcome?: 'nothing' | 'proposed' | 'applied' | 'completed' | 'failed';
   provider: string; model: string; billing: 'subscription' | 'api' | 'local' | 'unknown'; authProfileId?: string;
   tokens?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; reasoningTokens?: number; total: number };
   tokenSource: 'engine-reported'; cost: { state: 'missing' }; bootId: string; seq: number;
@@ -2585,6 +2645,9 @@ type TelegramChannel = {
   thread, then `kit.run`) and answers with `kit.reply(chat, text)`.
 - **Second wall** (5.6): DMs only, from `allowFrom` (an unlisted sender is dropped by the engine), groups off, chat
   commands and channel config writes off, Telegram exec approvals off; `channels` holds only `telegram`.
+  The kit forces `messages.inbound.byChannel.telegram = 0`: 9.33 otherwise defaults ordinary burst batching to
+  300 ms and merges distinct short messages before the app's hook. This keeps app-owned messages separate,
+  including when a caller sets a global debounce; other channel/global settings stay unchanged.
 - **Reply.** `reply` sends through the engine's `send` with `agentId` = `member`'s agent (the pin needs one owner
   once several agents exist; it mirrors the sent text into that agent's DM session). It refuses a channel that is
   not on (`channel is not turned on: <channel>`).
@@ -3546,7 +3609,7 @@ H1, and O12/H10 (README example rows); later merges rebase.
 **O1 — scaffold and stubs** · Flash · deps: none
 - Files: `packages/openclaw/{package.json,tsconfig.json,README.md,CHANGELOG.md,LICENSE}`, all `src/*.ts` stubs
   (5.1) with 5.2/5.3/5.13/7.1/7.2 signatures, `src/constants.ts` (`ENGINE_VERSION`, `PROTOCOL_VERSION`, `OPERATOR_SCOPES`
-  per D6), `engine/package.json` + `engine/package-lock.json` (`npm install --package-lock-only openclaw@2026.8.35`,
+  per D6), `engine/package.json` + `engine/package-lock.json` (`npm install --package-lock-only openclaw@2026.9.33`,
   scripts off), `plugin/package.json` (`{"name":"byokit-openclaw-bridge","version":"0.1.0","type":"module",
   "openclaw":{"extensions":["./index.js"]}}`), empty `plugin/index.js` and `policy/policy.mjs` placeholders
   exporting nothing; root `package.json` build list gains `packages/openclaw`; `release.yml` options gain `openclaw`;
@@ -3772,8 +3835,11 @@ its fixture; `@byokit/ui` `AccountsSource` (for `fits`) · version: openclaw nex
 - Acceptance (real kit, patched engine, scripted loopback provider, no account): (1) Skill Workshop review scheduled
   by the engine (never dispatched by the test) lands one counted charge; the day total equals transcripts plus that
   charge, a caller cap between the two trips only on the sum, and a second read is identical (no double count);
-  (2) memory flush: crossing the soft threshold, the flush's provider usage is in the day total through the
-  transcript term and the ledger is unchanged; (3) restart recovery: after a real crash the recovery turn's usage is in
+  (2) memory flush on 9.33 (explicit coverage limitation, not full-spend acceptance): cross the soft threshold at
+  the original 32k window, confirm exactly one flush and two provider calls, await its persisted native success
+  marker, and assert the visible transcript total equals the foreground's reported usage only; the ledger is
+  unchanged. The 8.35 promise of including the flush's tokens is a documented 9.33 regression, not repaired by
+  adding fixture counters or inventing an internal-session RPC result; (3) restart recovery: after a real crash the recovery turn's usage is in
   the day total through the transcript term, and the total equals the provider-reported usage of the turns that ran;
   (4) SIGKILL during a review reads `pending` before restart and `interrupted`, `complete: false` after;
   (5) failed write: make the month file unwritable while one review runs and restore it for the next; assert `failed`
@@ -4023,15 +4089,15 @@ OpenClaw (pinned 2026.8.1, verified in Crewhouse at `a9ca74e`):
 - `wizard.cancel` answers `cancelled` at once, but the admission frees only once the cancelled runner and its
   setup-target lock settle; `wizard.status` on that session answers only after that. A cancel that finds the runner
   already finished purges the session before the lock is released, and one after the commit starts answers `running`
-  (pin 2026.8.35).
+  (pin 2026.9.33).
 - The engine cannot bind ChatGPT's 1455 callback first; the host holds it and pastes the redirect.
 - Doctor refuses to run while a Gateway owns the state dir; it exits 0 even when it imports nothing, so only the
   Gateway's `models.authStatus` confirms an import. Staging `auth.json` instead of `auth-profiles.json` imports the
   old provider id as-is (looks signed in, cannot authenticate `openai/*`).
 - `openai/*` must use `agentRuntime: { id: 'openclaw' }`; an explicit `modelPolicy.allow` must include `openai/*`. No
   `modelPolicy` record makes the `agents.defaults.models` keys an allowlist (migrated to `modelPolicy.allow` on boot).
-- A config `auth` change (`setup.activate` writes one) restarts the gateway, deferred until in-flight requests drain; a
-  run admitted before it runs on the old config.
+- 9.33 setup activation can hot-apply a config `auth` change. Its native `gatewayRestartRequired: true` result,
+  not an auth-config diff, signals a required restart; that restart waits for in-flight requests to drain.
 - Unset/auto memory search defaults to API-billed OpenAI embeddings; force `none` (or local) and `fallback: 'none'`.
 - Exit code 78 at start is repaired by one doctor `--fix` run.
 - Plugin `before_tool_call` hook timeout must exceed the bridge relay timeout (200 s > 195 s).
@@ -4055,13 +4121,13 @@ OpenClaw (pinned 2026.8.1, verified in Crewhouse at `a9ca74e`):
   true`). `sessions.move` and `sessions.fork` stay in one agent; `sessions.create { agentId, key, fork: true,
   parentSessionKey, model }` copies the raw transcript across agents and refuses while the parent runs or when it
   exceeds the target model's context.
-- Live catalogs (2026.8.35, probed with a Go key): embedded runs use only static or configured models. A non-empty
+- Live catalogs (2026.9.33, probed with a Go key): embedded runs use only static or configured models. A non-empty
   `models.providers[p].models` fixes `p`'s catalog to exactly the listed ids in every `models.list` view and in the
   engine's catalog loader (unless a `modelPolicy.allow` wildcard `p/*` makes it dynamic), and `models.*` changes
   hot-reload with no restart. The provider plugin's `catalog.run` hook still answers the full live list with
   per-model `api`/`baseUrl` (the engine maps the upstream package: `@ai-sdk/openai` → `openai-responses`,
   `@ai-sdk/anthropic` → `anthropic-messages`, else `openai-completions`). An `openclaw.setup.activate` that writes
-  auth restarts the Gateway.
+  auth need not restart the Gateway; follow its explicit `gatewayRestartRequired` result.
 
 Herdr (muxr notes verified on 0.8.0; H2/H9 re-verify on 0.9.1):
 - One request per connection; the server closes after answering; only `events.subscribe` stays open.

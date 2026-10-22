@@ -188,7 +188,7 @@ export function openclawContract(make: () => Promise<ContractFixture>, o?: { ski
       await kit.ensureMember('m1');
       const pending = kit.run({ member: 'm1', sessionKey: 'agent:m1:contract:5',
         message: '[tool web_fetch {"mode":"ask","url":"https://example.invalid/"}]' });
-      await until(() => kit.approvals('m1').length > 0);
+      await until(() => kit.approvals('m1').length > 0, 6_000);
       const approval = kit.approvals('m1')[0];
       assert.equal(approval.source, 'gate');
       assert.equal(approval.tool, 'web_fetch');

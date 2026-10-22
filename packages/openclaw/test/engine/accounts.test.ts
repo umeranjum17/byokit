@@ -43,6 +43,15 @@ const stored = (stateDir: string, agent: string): string => {
   finally { db.close(); }
 };
 
+/** D9: a Doctor/Gateway refresh must never promote a local login into the shared base. */
+function assertSharedBaseEmpty(stateDir: string): void {
+  const db = new DatabaseSync(join(stateDir, 'openclaw', 'state', 'state', 'openclaw.sqlite'), { readOnly: true });
+  try {
+    assert.equal(db.prepare("SELECT COUNT(*) AS n FROM config_machine_state WHERE state_key = 'authProfiles.store'").get()?.n,
+      0, 'shared base stays empty');
+  } finally { db.close(); }
+}
+
 /** Hold the agent's auth-profile store under a write lock until `release()`, as a refresh during a run would. */
 const holdStoreLock = (stateDir: string, agent: string) => {
   const db = new DatabaseSync(join(stateDir, 'openclaw', 'state', 'agents', agent, 'agent', 'openclaw-agent.sqlite'));
@@ -68,6 +77,7 @@ test('a pre-O14 two-member state: m2 never runs on m1\'s sign-in, and m2\'s sign
     await kit.call('agents.create', { name: 'a--b', workspace: legacyWorkspace });
     await kit.stop();
     await seed(kit, dir, 'm1');
+    assertSharedBaseEmpty(stateDir);
     const saved = JSON.parse(readFileSync(config, 'utf8'));
     saved.agents.defaults.authInheritance = { agentId: 'm1' };
     writeFileSync(config, JSON.stringify(saved, null, 2));
@@ -76,7 +86,7 @@ test('a pre-O14 two-member state: m2 never runs on m1\'s sign-in, and m2\'s sign
     await kit.start();
     await useModelStub(kit, stub);
     assert.ok((await kit.providers('m1')).includes('openai'), 'm1 keeps its own sign-in');
-    // The stub's config-level key (`byokit-stub`) is every agent's; a sign-in is a profile.
+    // The stub's configured local auth marker is every agent's; a sign-in is a profile.
     assert.ok(!(await kit.providers('m2')).includes('openai'), 'm2 reads signed_out: it never signed in');
     assert.equal(await kit.signedIn('m2', 'openai'), false);
     assert.deepEqual(JSON.parse(readFileSync(config, 'utf8')).agents.defaults.authInheritance, { agentId: 'byokit-base' },
@@ -100,8 +110,10 @@ test('a pre-O14 two-member state: m2 never runs on m1\'s sign-in, and m2\'s sign
     // m2 signs in on its own, then signs out: only m2's profile goes; m1's store is byte for byte what it was.
     await kit.stop();
     await seed(kit, dir, 'm2');
+    assertSharedBaseEmpty(stateDir);
     kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir() });
     await kit.start();
+    assertSharedBaseEmpty(stateDir);
     assert.ok((await kit.providers('m2')).includes('openai'), 'm2 signed in to its own agent');
     const m1Store = stored(stateDir, 'm1');
     assert.match(m1Store, /a-m1/);
@@ -113,6 +125,7 @@ test('a pre-O14 two-member state: m2 never runs on m1\'s sign-in, and m2\'s sign
     // Nothing of its own left: a second sign-out sends no request, so it can never reach another store.
     await kit.signOut('m2', 'openai');
     assert.equal(stored(stateDir, 'm1'), m1Store);
+    assertSharedBaseEmpty(stateDir);
   } finally { await kit.stop(); }
 });
 
@@ -120,9 +133,10 @@ test('a pre-O14 two-member state: m2 never runs on m1\'s sign-in, and m2\'s sign
 // store. Synthetic sign-ins through the kit's own migration (the longest field set the pin keeps), the loopback
 // model stub, never an account, a provider sign-in or the network.
 const CANARY = 'sk-CANARY-0f3a9c2b7d4e5168';
-/** A synthetic retained login carrying every field the pin's store keeps for an OAuth credential. */
+/** A known canonical realm carrying every field the store keeps. 9.33 correctly refuses inferring a provider
+ * alias across enterpriseUrl/issuer metadata; the legacy profile-id key below still exercises id migration. */
 const longProfile = (account: string, access: string) => ({
-  type: 'oauth', provider: 'openai-codex', access, refresh: `${access}-refresh`, expires: Date.now() + 30 * 86_400_000,
+  type: 'oauth', provider: 'openai', access, refresh: `${access}-refresh`, expires: Date.now() + 30 * 86_400_000,
   accountId: account, email: `${account}@example.invalid`, displayName: 'A Long Display Name', clientId: 'client-1',
   enterpriseUrl: 'https://ghe.example.invalid', projectId: 'proj-1', chatgptPlanType: 'plus', subscriptionType: 'max',
   rateLimitTier: 'default_max_20x', idToken: 'id-token-1', copyToAgents: true,
@@ -143,6 +157,7 @@ test('byokit.accounts lists, seals, adopts and clears an agent\'s own profile st
     mkdirSync(join(legacyPath, '..'), { recursive: true });
     writeFileSync(legacyPath, JSON.stringify(legacy));
     assert.equal(await kit.migrateRetainedLogin(member, { path: legacyPath }), 'staged', member);
+    assertSharedBaseEmpty(stateDir);
   };
   const responses: unknown[] = [];
   const accounts = async (params: Record<string, unknown>) => {
@@ -167,8 +182,15 @@ test('byokit.accounts lists, seals, adopts and clears an agent\'s own profile st
     kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir() });
     await kit.start();
     await useModelStub(kit, stub);
-    // The pin canonicalizes a legacy `openai-codex` login to an `openai` profile; a second one in the same run is
-    // disambiguated (`openai:chatgpt-default`). Read each store's own id rather than assume its name.
+    // Doctor maps the per-agent legacy id to openai:<agent>; retired archives cannot block another agent.
+    // Read each store's own id rather than assume its name.
+    const aProviders = await kit.providerStatus(a), bProviders = await kit.providerStatus(b), mProviders = await kit.providerStatus('m');
+    assert.ok(aProviders?.includes('anthropic'), 'A can use its own Anthropic login');
+    assert.ok(bProviders?.includes('openai'), 'B can use its own migrated login');
+    assert.notEqual(mProviders, undefined, 'the unsigned member has an available native status, not an unknown fallback');
+    assert.ok(!mProviders?.includes('anthropic'), 'an unsigned member cannot inherit A');
+    assert.ok(!bProviders?.includes('anthropic'), 'B cannot inherit A during a Gateway read');
+    assertSharedBaseEmpty(stateDir);
     const stores = { [a]: profilesOf(stateDir, a), [b]: profilesOf(stateDir, b) };
     const openaiId = (profiles: Record<string, Record<string, unknown>>) =>
       Object.keys(profiles).find((id) => profiles[id].provider === 'openai');
@@ -251,6 +273,7 @@ test('byokit.accounts lists, seals, adopts and clears an agent\'s own profile st
 
     // No response ever carried a credential: the synthetic canary is absent from every answer.
     assert.ok(!JSON.stringify(responses).includes(CANARY), 'no secret in any byokit.accounts answer');
+    assertSharedBaseEmpty(stateDir);
   } finally { await kit.stop(); }
 });
 
@@ -307,9 +330,10 @@ test('run({ account }): each account agent bills its own key; a signed-out one e
   const stateDir = join(dir, 'state');
   const root = join(stateDir, 'openclaw');
   // The openai provider points at the stub with no config key: every request carries the calling profile's own key.
-  const config = { plugins: { allow: ['openai'] }, models: { providers: { openai: { baseUrl: stub.url, api: 'openai-completions',
+  // Foreground attribution only: native Activity recap would otherwise cross the next account's request window.
+  const config = { agents: { defaults: { utilityModel: '' } }, plugins: { allow: ['openai'] }, models: { providers: { openai: { baseUrl: stub.url, api: 'openai-completions',
     models: [{ id: 'gpt-5.6-sol', name: 'Test', api: 'openai-completions', reasoning: false, input: ['text'],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 2048 }] } } } };
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 2048 }] } } } };
   let kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), config });
   try {
     await kit.start();
@@ -425,7 +449,7 @@ mock.method(globalThis, 'fetch', (input, options) => {
     const probe = go(start, key);
     assert.ok(probe.length && probe.every((c) => c.session), `activation probe: ${JSON.stringify(probe.map((c) => c.session))}`);
 
-    // Straight after done, with no model named: the gateway already restarted onto the new sign-in, and the
+    // Straight after done, with no model named: the gateway already applied the new sign-in, and the
     // models map the kit writes is not an allowlist that would send the member back to openai.
     const turn = async (sessionKey: string, spec: { member: string; auth?: 'apiKey' }, bearer: string) => {
       const before = stub.calls.length;
@@ -463,7 +487,7 @@ test('move: the transcript (user and tool rows) carries to the target agent and 
   const root = join(stateDir, 'openclaw');
   const config = { plugins: { allow: ['openai'] }, models: { providers: { openai: { baseUrl: stub.url, api: 'openai-completions',
     models: [{ id: 'gpt-5.6-sol', name: 'Test', api: 'openai-completions', reasoning: false, input: ['text'],
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 32000, maxTokens: 2048 }] } } } };
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 2048 }] } } } };
   const tools = [{ name: 'report', description: 'record progress', parameters: { type: 'object' } }];
   const host = { gate: async () => ({ allow: true as const }),
     call: async (_run: unknown, _tool: string, input: Record<string, unknown>) => `Progress: ${String(input.text)}` };

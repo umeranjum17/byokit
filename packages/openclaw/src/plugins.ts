@@ -7,7 +7,7 @@ import { atomic } from './engine-patches.ts';
 import { ENGINE_VERSION } from './constants.ts';
 import { routes } from './routes.ts';
 
-export type PluginInstallFailure = 'unknown_plugin' | 'version' | 'integrity' | 'install';
+export type PluginInstallFailure = 'unknown_plugin' | 'unsupported_plugin' | 'version' | 'integrity' | 'install';
 export class PluginInstallError extends Error {
   readonly code: PluginInstallFailure;
   constructor(code: PluginInstallFailure, message: string) {
@@ -26,6 +26,8 @@ export const pluginPins = (): Record<string, Pin> =>
 export function pinnedSpec(pluginId: string): Pin {
   const npmSpec = routes().find(route => route.needs?.plugin === pluginId && route.install?.npmSpec)?.install?.npmSpec;
   if (!npmSpec) throw new PluginInstallError('unknown_plugin', `No route needs a plugin named ${pluginId}.`);
+  if (!npmSpec.startsWith('@openclaw/'))
+    throw new PluginInstallError('unsupported_plugin', `Third-party provider plugin ${pluginId} is not supported; nothing was installed.`);
   const pin = pluginPins()[pluginId];
   if (pin?.spec !== `${npmSpec}@${ENGINE_VERSION}`)
     throw new PluginInstallError('version', `${pluginId} has no pin for engine ${ENGINE_VERSION}.`);

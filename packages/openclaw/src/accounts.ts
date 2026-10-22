@@ -6,7 +6,7 @@
 // credential, token, email or engine line. Listing, rename, defaults, models, room, adding with its identity merge
 // (O14 steps S6, S7), the start-of-run pick (S10), session binding (S11), moving a conversation (S12) and removal
 // with its orphan sweep (S8) live here.
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -640,9 +640,35 @@ export function createAccounts(ctx: {
     for (const model of registered) if (!byId.has(model.id)) byId.set(model.id, model);
     return [...byId.values()];
   };
+  // 9.33's bootstrap catalog omits CLI/provider rows. Prepare once per agent/config, not once per pick.
+  // Keep only completion/pending work: every later read still gets fresh native availability. Reconnect recreates us.
+  // ponytail: whole-config witness; narrow it if unrelated hot config writes make discovery expensive.
+  const preparedModels = new Map<string, { stamp: string; pending?: Promise<unknown> }>();
   // The shared hold covers the read, so no kit read of the agent is in flight while it is removed.
-  const readModels = (row: Account, entry: IndexEntry): Promise<ModelInfo[]> => ctx.locks.shared(entry.agent, async () =>
-    withCatalog(row, modelsOfAccount(row, await ctx.request('models.list', { agentId: entry.agent, view: 'all' }))));
+  const readModels = (row: Account, entry: IndexEntry): Promise<ModelInfo[]> => ctx.locks.shared(entry.agent, async () => {
+    let stamp: string | undefined;
+    try {
+      const s = statSync(join(ctx.root, 'openclaw.json'), { bigint: true });
+      stamp = [s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs].join(':');
+    } catch { /* an unreadable witness never reuses preparation */ }
+    let prepared = stamp === undefined ? undefined : preparedModels.get(entry.agent);
+    let answer: unknown;
+    if (!prepared || prepared.stamp !== stamp) {
+      const pending = ctx.request('models.list', { agentId: entry.agent, view: 'all', refresh: true }, { timeoutMs: 120_000 });
+      prepared = { stamp: stamp ?? '', pending };
+      if (stamp !== undefined) preparedModels.set(entry.agent, prepared);
+      try {
+        answer = await pending;
+        if (!record(answer) || answer.refreshFailed === true) {
+          if (preparedModels.get(entry.agent) === prepared) preparedModels.delete(entry.agent);
+        } else delete prepared.pending;
+      } catch (error) {
+        if (preparedModels.get(entry.agent) === prepared) preparedModels.delete(entry.agent);
+        throw error;
+      }
+    } else answer = await (prepared.pending ?? ctx.request('models.list', { agentId: entry.agent, view: 'all' }));
+    return withCatalog(row, modelsOfAccount(row, answer));
+  });
 
   async function room(member: Member, id: AccountId, demand?: string[]): Promise<Room> {
     check(member);

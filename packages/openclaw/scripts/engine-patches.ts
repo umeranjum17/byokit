@@ -17,9 +17,14 @@ assert.equal(JSON.parse(readFileSync(join(stock, 'dist/build-info.json'), 'utf8'
 assert.equal(readFileSync(join(stock, 'LICENSE'), 'utf8'), readFileSync(join(engine, 'OPENCLAW-LICENSE'), 'utf8'));
 const markerPath = join(stock, '../../.byokit-patches');
 if (existsSync(markerPath)) assert.deepEqual(JSON.parse(readFileSync(markerPath, 'utf8')).files, [], 'derive against stock, never a patched set');
+const routeWitness = readFileSync(new URL('../test/fixtures/stock/activation-route-witness.txt', import.meta.url), 'utf8').trim();
 const functions = new Map<string, string>();
 const files = set.files.map(file => {
   const text = readFileSync(join(stock, file.path), 'utf8');
+  if (file.path === 'dist/setup-inference-ur2QGopt.mjs') {
+    assert.ok(text.includes(routeWitness), 'native route witness fixture drift');
+    assert.ok(editText(text, file).includes(routeWitness), 'exact native route witness must remain unchanged');
+  }
   for (const edit of file.edits) for (const match of edit.find.matchAll(/\bfunction\s+([A-Za-z_$][\w$]*)\s*\(/g)) functions.set(match[1]!, file.path);
   return { ...file, before: sha256(text), after: sha256(editText(text, file)) };
 });
@@ -27,7 +32,8 @@ if (functions.size) for (const entry of readdirSync(join(stock, 'dist'), { recur
   if (!entry.isFile() || !/\.m?js$/.test(entry.name)) continue;
   const absolute = join(entry.parentPath, entry.name);
   const relative = absolute.slice(stock.length + 1).replaceAll('\\', '/');
-  if (relative === 'dist/worker/worker.mjs') continue; // explicitly uncovered by D19
+  if (relative === 'dist/worker/worker.mjs' || relative === 'dist/worker/sqlite-store.worker.mjs'
+    || relative === 'dist/package-update-activation-recovery.mjs') continue; // explicitly uncovered by D19
   const text = readFileSync(absolute, 'utf8');
   for (const [name, source] of functions) if (relative !== source) assert.ok(!new RegExp(`\\bfunction\\s+${name.replaceAll('$', '\\$')}\\s*\\(`).test(text), `unpatched Gateway copy: ${name} in ${relative}`);
 }

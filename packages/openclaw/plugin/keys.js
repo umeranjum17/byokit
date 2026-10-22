@@ -13,7 +13,7 @@ export function registerKeys(api) {
     try {
       const { readFile, writeFile, rm } = await import('node:fs/promises');
       const { join } = await import('node:path');
-      const { resolveAgentDir } = await import('openclaw/plugin-sdk/agent-runtime');
+      const { resolveAgentDir } = await import('openclaw/plugin-sdk/agent-scope-runtime');
       const { updateAuthProfileStoreWithLock } = await import('openclaw/plugin-sdk/provider-auth');
       // Read the current config: activation changes the roster and selection during the same gateway lifetime.
       if (diagnostics) diagnostics.stage = 'config';

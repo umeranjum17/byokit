@@ -28,14 +28,16 @@ function byokitUsageFact(fact) {
 }
 `;
 export const workshopEdits: PatchFile['edits'] = [
-  { find: 'import { n as getRuntimeConfig } from "./io.runtime-CtTka6W_.js";\n',
-    replace: 'import { n as getRuntimeConfig } from "./io.runtime-CtTka6W_.js";\nimport { openSync as byokitOpen, writeSync as byokitWrite, fsyncSync as byokitFsync, closeSync as byokitClose } from "node:fs";\nimport { join as byokitJoin } from "node:path";\n' },
-  { find: 'async function runSkillExperienceReviewInner(candidate, deps) {\n', replace: helper + 'async function runSkillExperienceReviewInner(candidate, deps) {\n' },
-  { find: '\tlet outcome;\n\tlet proposalId;\n\tlet usage;\n', replace: '\tlet outcome;\n\tlet proposalId;\n\tlet usage;\n\tlet byokitRunUsage;\n\tconst byokitFact = { chargeId: runId, agentId: foregroundPromptContext.agentId, kind: "workshop-review", provider: modelProviderId, model: modelId, ...candidate.ctx.authProfileId ? { authProfileId: candidate.ctx.authProfileId } : {}, startedAt: attemptedAtMs, origin: { sessionKey: foregroundSessionKey, ...candidate.ctx.runId ? { runId: candidate.ctx.runId } : {} } };\n' },
-  { find: '\t\tlet embeddedResult;\n\t\ttry {\n', replace: '\t\tbyokitUsageFact({ ...byokitFact, phase: "started", at: attemptedAtMs });\n\t\tlet embeddedResult;\n\t\ttry {\n' },
-  { find: '\t\t} finally {\n\t\t\tpreparedRunAdmission.close();\n\t\t}\n\t\tassertSkillReviewRunSucceeded(embeddedResult);\n', replace: '\t\t} finally {\n\t\t\tpreparedRunAdmission.close();\n\t\t}\n\t\tbyokitRunUsage = embeddedResult?.meta?.agentMeta?.usage;\n\t\tassertSkillReviewRunSucceeded(embeddedResult);\n' },
-  { find: '\t} catch (error) {\n\t\trecordSkillExperienceReviewOutcome(workspaceDir, {\n', replace: '\t} catch (error) {\n\t\tbyokitUsageFact({ ...byokitFact, phase: "ended", at: Date.now(), outcome: "failed", ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\t\trecordSkillExperienceReviewOutcome(workspaceDir, {\n' },
-  { find: '\t} finally {\n\t\tclearAgentRunContext(runId);\n\t}\n\trecordSkillExperienceReviewOutcome(workspaceDir, {\n', replace: '\t} finally {\n\t\tclearAgentRunContext(runId);\n\t}\n\tbyokitUsageFact({ ...byokitFact, phase: "ended", at: Date.now(), outcome, ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\trecordSkillExperienceReviewOutcome(workspaceDir, {\n' },
+  { find: 'import { r as getRuntimeConfig } from "./io.runtime-FunTy0y1.mjs";\n',
+    replace: 'import { r as getRuntimeConfig } from "./io.runtime-FunTy0y1.mjs";\nimport { openSync as byokitOpen, writeSync as byokitWrite, fsyncSync as byokitFsync, closeSync as byokitClose } from "node:fs";\nimport { join as byokitJoin } from "node:path";\n' },
+  { find: 'async function runSkillExperienceReviewInner(candidate) {\n', replace: helper + 'async function runSkillExperienceReviewInner(candidate) {\n' },
+  { find: '\tlet outcome;\n\tlet proposalId;\n\tlet usage;\n', replace: '\tlet outcome;\n\tlet proposalId;\n\tlet usage;\n\tlet byokitRunUsage;\n\tconst byokitFact = { chargeId: runId, agentId: foregroundPromptContext.agentId, kind: "workshop-review", provider: candidate.ctx.modelProviderId, model: candidate.ctx.modelId, ...candidate.ctx.authProfileId ? { authProfileId: candidate.ctx.authProfileId } : {}, startedAt: attemptedAtMs, origin: { sessionKey, ...candidate.ctx.runId ? { runId: candidate.ctx.runId } : {} } };\n' },
+  { find: '\t\tconst embeddedResult = capability ? await runWithCronCreatorAuthorityCapability(capability, run) : await run();\n',
+    replace: '\t\tbyokitUsageFact({ ...byokitFact, phase: "started", at: attemptedAtMs });\n\t\tconst embeddedResult = capability ? await runWithCronCreatorAuthorityCapability(capability, run) : await run();\n\t\tbyokitRunUsage = embeddedResult?.meta?.agentMeta?.usage;\n' },
+  { find: '\t} catch (error) {\n\t\tawait recordSkillExperienceReviewOutcome(foregroundPromptContext.agentId, workspaceDir, {\n',
+    replace: '\t} catch (error) {\n\t\tbyokitUsageFact({ ...byokitFact, phase: "ended", at: Date.now(), outcome: "failed", ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\t\tawait recordSkillExperienceReviewOutcome(foregroundPromptContext.agentId, workspaceDir, {\n' },
+  { find: '\t\tclearAgentRunContext(runId);\n\t}\n\tawait recordSkillExperienceReviewOutcome(foregroundPromptContext.agentId, workspaceDir, {\n',
+    replace: '\t\tclearAgentRunContext(runId);\n\t}\n\tbyokitUsageFact({ ...byokitFact, phase: "ended", at: Date.now(), outcome, ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\tawait recordSkillExperienceReviewOutcome(foregroundPromptContext.agentId, workspaceDir, {\n' },
 ];
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
 const path = fileURLToPath(new URL('../engine/patches.json', import.meta.url));
@@ -45,12 +47,13 @@ if (!stock || stock.startsWith('--')) throw new Error('Pass stock package direct
 assert.equal(JSON.parse(readFileSync(join(stock, 'package.json'), 'utf8')).version, set.upstream.version);
 assert.equal(JSON.parse(readFileSync(join(stock, 'dist/build-info.json'), 'utf8')).commit, set.upstream.commit);
 assert.equal(readFileSync(join(stock, 'LICENSE'), 'utf8'), readFileSync(new URL('../engine/OPENCLAW-LICENSE', import.meta.url), 'utf8'));
-const file: PatchFile = { path: 'dist/experience-review-default-Cs48zOMl.js', before: '', after: '', edits: workshopEdits };
+const file: PatchFile = { path: 'dist/experience-review-ClLYopea.mjs', before: '', after: '', edits: workshopEdits };
 const text = readFileSync(join(stock, file.path), 'utf8');
 file.before = sha256(text);
-assert.equal(file.before, '7babe3e9a8553f935f81fd519b1c4a9673da6cdf92760373eb6245fe0a7ccf6d', 'Stock pinned Workshop source changed');
+assert.equal(file.before, '61abd547073af49bf5766c8e8679dd7e72089093edd4010cd5c4c50dde2ddd52', 'Stock pinned Workshop source changed');
 file.after = sha256(editText(text, file));
-const files = [...set.files.filter(f => f.path !== file.path), file].sort((a, b) => a.path.localeCompare(b.path));
+const files = set.files.map(f => f.path === file.path ? file : f);
+if (!files.some(f => f.path === file.path)) files.push(file);
 const result = JSON.stringify({ ...set, id: patchId(files), files }, null, 2) + '\n';
 if (process.argv.includes('--check')) assert.equal(readFileSync(path, 'utf8'), result);
 else writeFileSync(path, result);

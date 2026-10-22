@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "553c9669534b5e2770215d77d4975b6ce94dd650",
+  "tree": "ed18b66de084ea42311682a781003b8a527b7d2d",
+  "claim": "The SDK lists 102 routes with zero stale pin metadata and explicit needs_plugin and no_upstream_flow dependencies.",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-22T10:41:59.949Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261022T104139Z-553c9669-115a9a/routes-discovery.log",
+      "sha256": "888fe046d6b98c602615b7b3a4d7fe5d05988f57ba8ddcee20c178d0de7e96ae"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261022T104139Z-553c9669-115a9a",
+      "journey": null,
+      "command": "sh -c '\nd=$(mktemp -d /var/tmp/byk933.XXXXXX) || exit 2\nmkdir -p \"$d/home\" \"$d/config\" \"$d/cache\" \"$d/data\" \"$d/state\"\nPATH=<supported Node bin>:/usr/bin:/bin HOME=\"$d/home\" XDG_CONFIG_HOME=\"$d/config\" XDG_CACHE_HOME=\"$d/cache\" XDG_DATA_HOME=\"$d/data\" XDG_STATE_HOME=\"$d/state\" TMPDIR=\"$d\" NODE_OPTIONS=\"--require <repo>/scripts/test-egress-guard.cjs --max-old-space-size=3072\" node --input-type=module < <private task evidence>/pr1-routes-consumer.mjs\nr=$?\nrm -rf -- \"$d\" || exit 3\nexit \"$r\"\n'",
+      "tool": "0.6.0",
+      "steps": {
+        "target": {
+          "version": "@byokit/openclaw engine 2026.9.33"
+        },
+        "start": "Fresh app state and public loopback fake; no credentials or provider.",
+        "steps": [
+          "Import the built public package",
+          "Start the consumer kit",
+          "Read every discovery row and verify pin metadata",
+          "Observe needs_plugin and no_upstream_flow dependencies"
+        ],
+        "result": "SDK lists 102 routes with zero stale pin metadata and explicit dependency outcomes."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261022T104139Z-553c9669-115a9a/routes-discovery.log",
+        "sha256": "888fe046d6b98c602615b7b3a4d7fe5d05988f57ba8ddcee20c178d0de7e96ae",
+        "verdict": "pass",
+        "seen": "Read the single capture entry. It shows SDK discovery rows 102, choices 98, staleRows 0, matching the outcome's 102 routes and zero stale pin metadata. dependency outcomes show needsPlugin with choice arceeai-api-key and noUpstreamFlow with choice alibaba-model-studio-api-key, matching the explicit needs_plugin and no_upstream_flow dependencies. The outcome names one part, so parts and covers are empty."
+      }
+    ]
+  }
+}

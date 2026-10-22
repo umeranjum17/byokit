@@ -77,14 +77,14 @@ test('R2: accepted disconnect retries one run; cached inputs are not compared an
       sourceHashes[name] = createHash('sha256').update(text).digest('hex');
       return text;
     };
-    const maintenance = source('server-maintenance-CQkOtuce.js');
+    const maintenance = source('server-maintenance-Bmk0oNIl.mjs');
     assert.match(maintenance, /now - v\.ts > 3e5/);
     assert.match(maintenance, /params\.dedupe\.size > 1e3/);
     assert.match(maintenance, /isActiveRunDedupeKey\(k, v\) \|\| isPendingAcceptedRunDedupeKey\(k, v\)/);
-    assert.match(maintenance, /\}, 6e4\)/);
-    assert.match(source('server-constants-BW5URgqP.js'), /DEDUPE_MAX = 1e3/);
-    source('principal-8fSNHaEE.js');
-    source('primitives-TdbrOFJ1.js');
+    assert.match(maintenance, /schedulePeriodic\("dedupe", 6e4, /);
+    assert.match(source('server-constants-BH_EolwD.mjs'), /DEDUPE_MAX = 1e3/);
+    source('principal-w5hhnHxv.mjs');
+    source('primitives-CWzZQjw3.mjs');
     await useModelStub(kit, stub);
     await kit.ensureMember('m1');
     await kit.ensureMember('m2');
@@ -136,7 +136,7 @@ test('R2: accepted disconnect retries one run; cached inputs are not compared an
     releaseStub();
     await kit.stop();
     await stub.close();
-    const receipt = { engine: '2026.8.35', key, sourceHashes, trace, providerCalls: providerCounts() };
+    const receipt = { engine: '2026.9.33', key, sourceHashes, trace, providerCalls: providerCounts() };
     writeFileSync(join(stateDir, 'r2-trace.json'), JSON.stringify(receipt, null, 2));
     if (process.env.BYOKIT_R2_TRACE) writeFileSync(process.env.BYOKIT_R2_TRACE, JSON.stringify(receipt, null, 2));
   }

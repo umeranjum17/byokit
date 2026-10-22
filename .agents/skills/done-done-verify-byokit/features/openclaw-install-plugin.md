@@ -12,7 +12,7 @@ routes become ready and `addKey` reaches the engine's key test.
   registry serves rejects `integrity` (the kit's install policy blocks before the package is fetched). Both leave
   `plugins.list`, `plugins.allow` and the kit's installed record unchanged.
 - With the shipped pins, `installPlugin('zai')` resolves once the restarted gateway lists `zai` enabled at
-  `2026.8.35`; `zai-coding-global` is `ready`, `offer: true`; `addKey` with an invalid key is `invalid`/`auth` from the
+  `2026.9.33`; `zai-coding-global` is `ready`, `offer: true`; `addKey` with an invalid key is `invalid`/`auth` from the
   engine's key test; a restart keeps it.
 - The person's `~/.openclaw` is never read or written.
 

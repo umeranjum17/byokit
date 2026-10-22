@@ -73,11 +73,57 @@ test('immutable sets validate all bytes, clone offline, roll back by selection a
   } finally { t.mock.restoreAll(); syncBuiltinESMExports(); removeScratch(dir); }
 });
 
+test('staged canonicalization matches native route tuples without weakening the witness', () => {
+  const file = shippedSet().files.find(f => f.path === 'dist/setup-inference-credentials-D4Y52_FC.mjs')!;
+  const edit = file.edits.find(e => e.find.includes('const normalizedModel ='))!;
+  assert.ok(edit, 'shipped immutable patch carries the staged canonicalization');
+  const stage = new Function('params', 'ctx', 'ref', 'resolvedModel', 'byokitParseSetupModelRef', 'byokitSetupMetadata',
+    `${edit.replace}\nreturn modelRef;`);
+  const config = {}, workspace = 'fixture-workspace';
+  const plugins = [{ modelIdNormalization: { providers: { openrouter: { prefixWhenBare: 'openrouter' } } } }];
+  const parse = (raw: string) => { const slash = raw.indexOf('/'); return { provider: raw.slice(0, slash), model: raw.slice(slash + 1) }; };
+  // The native parser's injected manifest-policy contract; the delta must delegate, not hardcode a model.
+  const nativeParse = (raw: string, _provider: string, options: any) => {
+    assert.equal(options.manifestPlugins, plugins);
+    assert.equal(options.allowPluginNormalization, false, 'direct hook must never be invoked twice');
+    const ref = parse(raw);
+    const prefix = options.manifestPlugins[0].modelIdNormalization.providers[ref.provider].prefixWhenBare;
+    return { ...ref, model: ref.model.includes('/') ? ref.model : `${prefix}/${ref.model}` };
+  };
+  const metadata = (options: any) => {
+    assert.equal(options.config, config); assert.equal(options.workspaceDir, workspace);
+    assert.equal(options.env, process.env); return { plugins };
+  };
+  const staged = (raw: string, provider = {}) => stage({ config, provider }, { workspace }, parse(raw), raw, nativeParse, metadata);
+  assert.equal(staged('openrouter/auto'), 'openrouter/openrouter/auto', 'bare auto gets native prefixWhenBare');
+  assert.equal(staged('openrouter/deepseek/model'), 'openrouter/deepseek/model', 'qualified catalog ids remain literal');
+  const hook = stage({ config, provider: { normalizeModelId: () => '  vendor/hook  ' } }, { workspace }, parse('openrouter/auto'),
+    'openrouter/auto', () => assert.fail('direct provider hook wins'), () => assert.fail('no metadata discovery needed for direct hook'));
+  assert.equal(hook, 'openrouter/vendor/hook');
+  // Exact published guard, bound to both stock and patched bundle by engine-patches.ts --check.
+  const witness = readFileSync(new URL('./fixtures/stock/activation-route-witness.txt', import.meta.url), 'utf8');
+  const verify = new Function('route', 'staged', 'failure', `${witness}\nreturn {ok:true};`);
+  const expected = { modelRef: staged('openrouter/auto'), authProfileId: 'openrouter:fixture' };
+  const matching = { modelLabel: expected.modelRef, authProfileId: expected.authProfileId };
+  const check = (route: unknown, candidate = expected) => verify(route, candidate, (result: unknown) => result);
+  assert.deepEqual(check(matching), { ok: true });
+  const stockStage = new Function('params', 'ref', 'resolvedModel', `${edit.find}\nreturn modelRef;`);
+  const stockRef = stockStage({ provider: {} }, parse('openrouter/auto'), 'openrouter/auto');
+  assert.equal(stockRef, 'openrouter/auto');
+  assert.equal(check(matching, { ...expected, modelRef: stockRef }).ok, false, 'stock staged ref fails the same unchanged tuple guard');
+  for (const route of [null, { ...matching, modelLabel: 'other/openrouter/auto' },
+    { ...matching, modelLabel: 'openrouter/different' }, { ...matching, authProfileId: 'openrouter:other' }]) {
+    assert.equal(check(route).ok, false, 'missing/provider/model/auth mismatch still refused');
+    assert.equal(check(route).status, 'unavailable');
+  }
+  assert.deepEqual(check({ modelLabel: hook, authProfileId: expected.authProfileId }, { ...expected, modelRef: hook }), { ok: true });
+});
+
 // Claude wire names for the Tooling list (ch-cli-tool-prefix): the printed Tooling names on the
 // Claude route must equal the Claude wire catalog names (mcp__openclaw__-prefixed); every other
 // route stays byte-identical and already-prefixed names are never prefixed again.
 test('claude route prints wire names in Tooling; other routes keep the stock prompt', async () => {
-  const file = shippedSet().files.find((f) => f.path === 'dist/prepare.runtime-BUjESFb4.js');
+  const file = shippedSet().files.find((f) => f.path === 'dist/prepare.runtime--y1-AtS2.mjs');
   assert.ok(file, 'patches.json carries the Claude Tooling-names entry');
   const stock = stockBytes(file).toString();
   assert.equal(sha256(stock), file.before, 'stock byte fixture drift');
@@ -147,7 +193,7 @@ function seedInstall(engineDir: string) {
   }
   writeFileSync(join(engineDir, 'node_modules/openclaw/openclaw.mjs'), '');
   mkdirSync(join(engineDir, 'node_modules/openclaw/dist'), { recursive: true });
-  writeFileSync(join(engineDir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.8.35', commit: '713ba5785d72d6ed1cec971e21307f16cc4234a6' }));
+  writeFileSync(join(engineDir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.9.33', commit: '5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82' }));
   for (const file of shippedSet().files) {
     const bytes = stockBytes(file);
     assert.equal(sha256(bytes), file.before, `stock byte fixture drift: ${file.path}`);
@@ -158,7 +204,7 @@ function seedInstall(engineDir: string) {
 }
 
 function shippedSet(): PatchSet {
-  return readPatchSet(join(shippedEngine, 'patches.json'), '2026.8.35', JSON.parse(readFileSync(join(shippedEngine, 'package-lock.json'), 'utf8')).packages['node_modules/openclaw'].integrity);
+  return readPatchSet(join(shippedEngine, 'patches.json'), '2026.9.33', JSON.parse(readFileSync(join(shippedEngine, 'package-lock.json'), 'utf8')).packages['node_modules/openclaw'].integrity);
 }
 function seedSet(engineDir: string): Promise<string> {
   return prepareEngineSet(engineDir, shippedSet(), tmp => fs.cpSync(engineDir, tmp, { recursive: true }), () => true);
@@ -186,11 +232,11 @@ for (const [path, pkg] of Object.entries(lock.packages)) {
 }
 writeFileSync(join(dir, 'node_modules/openclaw/openclaw.mjs'), '');
 mkdirSync(join(dir, 'node_modules/openclaw/dist'), { recursive: true });
-writeFileSync(join(dir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.8.35', commit: ${JSON.stringify(build.commit)} }));
+writeFileSync(join(dir, 'node_modules/openclaw/dist/build-info.json'), JSON.stringify({ version: '2026.9.33', commit: ${JSON.stringify(build.commit)} }));
 console.error('npm warn fixture install noise');
 appendFileSync(${JSON.stringify(calls)}, '1');
 `;
-  writeFileSync(npmPath, npmScript({ commit: '713ba5785d72d6ed1cec971e21307f16cc4234a6' }), { mode: 0o700 });
+  writeFileSync(npmPath, npmScript({ commit: '5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82' }), { mode: 0o700 });
   const engine = new Engine({ stateDir: dir, engineDir, npmPath, pluginId: 'byokit', tools: [],
     spawnEngine: true, onState() {}, onExit() {} });
   try {
@@ -253,7 +299,7 @@ appendFileSync(${JSON.stringify(calls)}, '1');
     // The diagnosis is retained before the failed temp is deleted, naming the first failed package,
     // expected vs actual version, the npm path and version, and the capped npm stderr tail.
     const driftPackage = 'node_modules/@agentclientprotocol/sdk';
-    writeFileSync(npmPath, npmScript({ commit: '713ba5785d72d6ed1cec971e21307f16cc4234a6', driftPath: driftPackage }), { mode: 0o700 });
+    writeFileSync(npmPath, npmScript({ commit: '5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82', driftPath: driftPackage }), { mode: 0o700 });
     await assert.rejects(kit.prepare(), (e: unknown) => e instanceof EnginePatchError && e.cause === 'drift-after-build');
     const record = JSON.parse(readFileSync(diagnosticsPath, 'utf8')) as {
       at: string; failedDir: string; firstFailedCheck: { check: string; path: string; expected: string; actual: string; readError: string | null };
@@ -278,7 +324,7 @@ test('repair once after exit 78, leave unrelated stale pid alone', async () => {
   const engineDir = join(dir, 'engine');
   const entryDir = join(engineDir, 'node_modules', 'openclaw');
   seedInstall(engineDir);
-  writeFileSync(join(entryDir, 'package.json'), JSON.stringify({ version: '2026.8.35' }));
+  writeFileSync(join(entryDir, 'package.json'), JSON.stringify({ version: '2026.9.33' }));
   writeFileSync(join(entryDir, 'openclaw.mjs'), `import {existsSync,writeFileSync,appendFileSync} from 'node:fs';
 const marker = ${JSON.stringify(join(engineDir, 'marker'))};
 if (process.argv[2] === 'doctor') { appendFileSync(${JSON.stringify(join(engineDir, 'doctors'))}, '1'); process.exit(0); }
@@ -311,7 +357,7 @@ test('a refused seal during the exit-78 repair reports the seal-size state and s
   const engineDir = join(dir, 'engine');
   const entryDir = join(engineDir, 'node_modules', 'openclaw');
   seedInstall(engineDir);
-  writeFileSync(join(entryDir, 'package.json'), JSON.stringify({ version: '2026.8.35' }));
+  writeFileSync(join(entryDir, 'package.json'), JSON.stringify({ version: '2026.9.33' }));
   const marker = join(engineDir, 'marker');
   const grown = join(dir, 'openclaw', 'state', 'grown.json');
   writeFileSync(join(entryDir, 'openclaw.mjs'), `import {existsSync,writeFileSync,truncateSync} from 'node:fs';
@@ -821,7 +867,7 @@ test('prepare seals old auth archives and offline migration reseals even after a
   await engine.start();
   assert.match(readFileSync(join(agent, 'auth-profiles.json'), 'utf8'), /migration-access/);
   assert.equal(existsSync(join(agent, 'auth-profiles.json.migrated-old')), false, 'archives are never restored as live sources');
-  assert.equal(await confirmRetainedLogin({ seal, callbackPort: 0, authConfig: () => '', restarted: async () => true, ensure: async () => ({ agentId: 'm1' }),
+  assert.equal(await confirmRetainedLogin({ seal, callbackPort: 0, restarted: async () => true, ensure: async () => ({ agentId: 'm1' }),
     request: async () => ({ providers: ['openai'] }) }, 'm1', { path: source }), true);
   assert.equal(existsSync(moved + '.sealed'), false);
   assert.equal(existsSync(moved + '.canonicalized'), true);

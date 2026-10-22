@@ -11,6 +11,7 @@ import { dirname, join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Engine } from '../../src/engine.ts';
 import { OpenClawKit } from '../../src/kit.ts';
+import { createMembers } from '../../src/members.ts';
 import { gatewayTransport } from '../../src/transport.ts';
 import { providers, signIn, type SignInCtx } from '../../src/signin.ts';
 import { words } from '../../src/words.ts';
@@ -32,7 +33,7 @@ let openai: Awaited<ReturnType<typeof mockOpenAI>>;
 /** The pin's own inventory: every bundled manifest's `providerAuthChoices`, and the manifest id that owns each. */
 const pinnedChoices = (): { choices: Map<string, string>; guided: Set<string>; staticChoices: string } => {
   const pkg = dirname(engine.doctorContext().entry);
-  assert.equal(JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8')).version, '2026.8.35', 'the pinned tarball is installed');
+  assert.equal(JSON.parse(readFileSync(join(pkg, 'package.json'), 'utf8')).version, '2026.9.33', 'the pinned tarball is installed');
   const choices = new Map<string, string>();
   const guided = new Set<string>();
   const walk = (dir: string) => {
@@ -116,14 +117,8 @@ const signInCtx = () => {
   };
   return {
     request,
-    ensure: async (member: string) => {
-      const list = await request('agents.list') as { agents: { id: string }[] };
-      if (!list.agents.some((agent) => agent.id === member))
-        await request('agents.create', { name: member, workspace: join(stateDir, 'openclaw', 'workspaces', member) });
-      return { agentId: member };
-    },
+    ensure: createMembers({ request, root: join(stateDir, 'openclaw') }).ensure,
     callbackPort: 0,
-    authConfig: () => '',
     restarted: async () => true,
   };
 };
@@ -147,10 +142,9 @@ async function withGateway<T>(plugins: string[], fn: (ctx: SignInCtx, request: G
     await probeTransport.start();
     const transport = probeTransport;
     const request: GatewayTransport['request'] = (method, params, options) => transport.request(method, params, options);
-    const list = await request('agents.list') as { agents: { id: string }[] };
-    if (!list.agents.some((agent) => agent.id === 'm1'))
-      await request('agents.create', { name: 'm1', workspace: join(state, 'openclaw', 'workspaces', 'm1') });
-    return await fn({ request, ensure: async (member: string) => ({ agentId: member }), callbackPort: 0, authConfig: () => '', restarted: async () => true }, request, state);
+    const { ensure } = createMembers({ request, root: join(state, 'openclaw') });
+    await ensure('m1');
+    return await fn({ request, ensure, callbackPort: 0, restarted: async () => true }, request, state);
   } finally {
     await probeTransport?.stop().catch(() => {});
     await probe.stop().catch(() => {});
@@ -183,7 +177,12 @@ test('discovery matches the pinned gateway: every ready choice is set up, every 
     && (route.readiness === 'ready' || route.readiness === 'no_upstream_flow'));
   assert.ok(['opencode-go', 'fal-api-key', 'openai'].every((choice) => table.some((route) => route.choice === choice)));
   const refused = /not available on this Gateway/i;
-  await withGateway([...new Set(table.map((route) => route.plugin).filter((id): id is string => !!id))], async (_ctx, request) => {
+  await withGateway([...new Set(table.map((route) => route.plugin).filter((id): id is string => !!id))], async (_ctx, request, state) => {
+    // This offline inventory fixture needs the real first probe, not backoff against its deliberate egress denial.
+    // Native supported agent settings only: production verification/retry defaults and every timer stay unchanged.
+    const agentDir = join(state, 'openclaw', 'state', 'agents', 'm1', 'agent');
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ retry: { provider: { maxRetries: 0 } } }), { mode: 0o600 });
     // One setup admission at a time; a cancelled session frees it shortly after (N5): retry busy, bounded.
     const said = (failure: unknown) => String(failure instanceof Error ? failure.message : failure);
     const busy = /already in progress|SETUP_ADMISSION_BUSY/i;
@@ -316,8 +315,8 @@ console.log(JSON.stringify({ loggedIn: process.env.TEST_CLAUDE_LOGIN === 'yes', 
 `, { mode: 0o700 });
   const env = { PATH: process.env.PATH, HOME: install, CLAUDE_CONFIG_DIR: join(install, '.claude'),
     ANTHROPIC_API_KEY: 'fake-key', ANTHROPIC_OAUTH_TOKEN: 'fake-token', TEST_CLAUDE_LOGIN: 'yes' };
-  assert.deepEqual(probeClaudeCliAuthStatus({ command, env }), { status: 'available' });
-  assert.deepEqual(probeClaudeCliAuthStatus({ command, env: { ...env, TEST_CLAUDE_LOGIN: 'no' } }), { status: 'missing' });
+  assert.deepEqual(await probeClaudeCliAuthStatus({ command, env }), { status: 'available' });
+  assert.deepEqual(await probeClaudeCliAuthStatus({ command, env: { ...env, TEST_CLAUDE_LOGIN: 'no' } }), { status: 'missing' });
 });
 
 test('setup.detect rechecks a newly signed-in installed Claude and restarts the gateway itself', { timeout: 300_000 }, async () => {
@@ -349,9 +348,9 @@ else process.exit(2);
     const fallback = await detection();
     assert.ok(fallback.candidates?.some(row => row.kind === 'claude-cli' && row.credentials === false),
       `signed-out installed Claude remains a sign-in candidate: ${JSON.stringify(fallback.candidates)}`);
-    // The gateway's own detection runs `auth status --text`; the kit's probe runs `--json`.
+    // 9.33's shipped native auth seam and the kit both ask the CLI's bounded JSON status.
     const lastCliCall = () => readFileSync(calls, 'utf8').trim().split('\n').map(line => JSON.parse(line))
-      .filter(call => call.argv.join(' ') === 'auth status --text').at(-1);
+      .filter(call => call.argv.join(' ') === 'auth status --json').at(-1);
     assert.equal(lastCliCall().CLAUDE_CONFIG_DIR, join(stateDir, 'openclaw', 'home', '.claude'),
       'initial gateway setup detection reads the fallback login');
 
@@ -373,12 +372,14 @@ else process.exit(2);
 
 test('real gateway: a Claude Code login the engine detects is a signed-in claude-cli', { timeout: 300_000 }, async () => {
   // A task-owned `claude` on the engine's PATH, logged in on a plan; it prints no credential.
-  const bin = scratchDir('o6-claude-bin');
+  const bin = scratchDir('o6-claude-bin'), login = join(bin, 'login-state');
+  writeFileSync(login, 'signed-in');
   writeFileSync(join(bin, 'claude'), `#!${process.execPath}
+const signedIn = require('node:fs').readFileSync(${JSON.stringify(login)}, 'utf8') === 'signed-in';
 const a = process.argv.slice(2).join(' ');
 if (a === '--version') console.log('2.1.0 (Claude Code)');
 else if (a === 'auth status --text') console.log('Login method: Claude Max Account');
-else if (a === 'auth status --json') console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'max' }));
+else if (a === 'auth status --json') console.log(JSON.stringify({ loggedIn: signedIn, authMethod: signedIn ? 'claude.ai' : 'none', subscriptionType: 'max' }));
 else process.exit(2);
 `, { mode: 0o700 });
   try {
@@ -389,6 +390,11 @@ else process.exit(2);
       const status = await request('models.authStatus', { agentId: 'm1', refresh: true }, { timeoutMs: 20_000 });
       // Exactly claude-cli: a Claude Code login is plan-billed and never reads as 'anthropic', the API-billed provider.
       assert.deepEqual(await providers(ctx, 'm1'), ['claude-cli'], `engine status: ${JSON.stringify(status)}`);
+      writeFileSync(login, 'signed-out');
+      const signedOut = await request('openclaw.setup.detect', { agentId: 'm1' }, { timeoutMs: 20_000 }) as { candidates?: { kind?: string; credentials?: boolean }[] };
+      assert.ok(signedOut.candidates?.some(c => c.kind === 'claude-cli' && c.credentials === false),
+        `native negative control must stay signed out: ${JSON.stringify(signedOut.candidates)}`);
+      assert.deepEqual(await providers(ctx, 'm1'), [], 'a signed-out CLI must not gain kit readiness');
     }, [bin]);
   } finally { rmSync(bin, { recursive: true, force: true }); }
 });
