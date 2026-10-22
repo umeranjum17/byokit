@@ -2248,13 +2248,12 @@ input is unit coverage, not qualification against the complete pinned engine or 
 
 **OAuth shared-base isolation (9.33 security).** In `resolveAuthoritativeSharedOAuthCredentialUnderLock`, an
 agent-local refresh may update an existing shared credential, but returns without writing when no shared credential
-exists. Stock 9.33's Doctor could otherwise promote an agent's unexpired Anthropic login during a no-op forced
-refresh; other agents then inherited it and a later Doctor sweep removed the local copy as a shadow. The patch
-removes that cross-store creation without relaxing native realm, identity, freshness or settlement checks. It does
-not sweep engine-owned state or restore missing receipts. Drop this patch when upstream enforces that no-create
-boundary and requalify Doctor plus Gateway/other-agent controls. The only duplicate is in the sealed native
-package-publication recovery helper, explicitly outside D19 coverage; ordinary managed Gateway/Doctor commands
-load the patched module. No upstream report is filed without captain consent.
+exists. This prevents unintended cross-agent credential availability without relaxing native realm, identity,
+freshness or settlement checks; it does not sweep engine-owned state or restore missing receipts.
+Reported upstream privately, `GHSA-2g8x-r8f8-c89c`. Drop this patch when upstream enforces that no-create boundary
+and requalify Doctor plus Gateway/other-agent controls. Reproduction details remain private. The only duplicate is
+in the sealed native package-publication recovery helper, explicitly outside D19 coverage; ordinary managed
+Gateway/Doctor commands load the patched module.
 
 **Key replacement evidence (9.33 compatibility, set `105c3274582a4ede`).** The staged-credential replacement
 predicate requires an actual existing credential source for that provider: a non-setup agent-local profile or a
