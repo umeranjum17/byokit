@@ -43,7 +43,9 @@ through the memory gate. Pass: exit 0, `childCalls: 1`, `returnCalls: 1`, the re
 and its reply starting with the root persona's marker. The 9.33 pin waits at most 60 s for the child's terminal result:
 that run fails on the deadline with no return run, an engine limit, not the kit's.
 
-9.33 observation contract: the journey asserts the exact unknown-run plain timeout with absent
+9.33 dispatch receipts with `status: 'timeout'` and exact native child key/run id are admitted under the same pending-call, expiry, member and tool-scope guards; they are not terminal results. `test/delegations.test.ts` separately regresses that receipt shape, rejects missing/wrong identities and observes terminal retirement.
+
+9.33 wait-observation contract: the journey asserts the exact unknown-run plain timeout with absent
 `timeoutPhase`/`providerStarted`, and separately observes a real parked child without revoking its receipt or
 approval. The journal check retains unresolved replies and revokes only affirmative terminal/lost evidence or
 explicit cancellation. This does not restore 8.35 automatic unknown-run reclamation: unresolved receipts count

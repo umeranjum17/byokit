@@ -460,14 +460,14 @@ requires an explicit allowed `agentId` and native runtime (not ACP). A tracked s
 `kit.delegatedRuns()` lists admitted children. `kit.onEvent('byokit.delegated', fn)` reports admission, native streams
 and terminal observations with exact `runId`, `agentId`, `member`, `sessionKey`, `parent` and `root` identity.
 The same identity reaches `ToolHost`; each delegated action has its own gate/approval. Tool arguments/results
-are omitted from this event surface. An accepted native dispatch is not finished work or proof of delivery.
+are omitted from this event surface. A 9.33 dispatch receipt with `status: 'timeout'`, a nonempty run id and the exact authorized child key also admits the still-unsettled child; all pending-call, expiry, member and tool-scope checks still apply. Admission is not finished work or proof of delivery.
 
 When a sent child finishes, the engine starts its own reply run on the sender's session to bring the report back.
 The kit admits that exact run as the sender: same member and helper, same app-tool subset and delegates, the sender's
-`system` as its persona, `RunRef.parent` naming the finished child. Only a run whose prompt the engine headed with that
+`system` as its persona, `RunRef.parent` naming the finished child. Only a run whose native inter-session provenance names that
 child's session, on the sender's exact key, within a minute of the child's (or the previous return turn's) end, binds;
 any other run there stays unknown. Return runs are not on `delegatedRuns()` or `byokit.delegated`; read them from the
-engine's `agent` events on the sender's key. The pinned engine starts no reply run for a child that took over 30 s.
+engine's `agent` events on the sender's key. The 9.33 engine waits at most 60 s for the child's terminal result before starting its reply run.
 
 Admitted exact run IDs survive parent settlement and are reconciled on reconnect/start. **On 9.33 a plain wait
 timeout is unresolved, not proof of lost or live work**: the receipt stays admitted until affirmative terminal

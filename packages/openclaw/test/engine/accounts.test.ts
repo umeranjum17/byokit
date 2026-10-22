@@ -330,7 +330,8 @@ test('run({ account }): each account agent bills its own key; a signed-out one e
   const stateDir = join(dir, 'state');
   const root = join(stateDir, 'openclaw');
   // The openai provider points at the stub with no config key: every request carries the calling profile's own key.
-  const config = { plugins: { allow: ['openai'] }, models: { providers: { openai: { baseUrl: stub.url, api: 'openai-completions',
+  // Foreground attribution only: native Activity recap would otherwise cross the next account's request window.
+  const config = { agents: { defaults: { utilityModel: '' } }, plugins: { allow: ['openai'] }, models: { providers: { openai: { baseUrl: stub.url, api: 'openai-completions',
     models: [{ id: 'gpt-5.6-sol', name: 'Test', api: 'openai-completions', reasoning: false, input: ['text'],
       cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 2048 }] } } } };
   let kit = new OpenClawKit({ stateDir, engineDir: sharedEngineDir(), config });

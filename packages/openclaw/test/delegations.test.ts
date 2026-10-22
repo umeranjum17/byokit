@@ -30,10 +30,10 @@ function journal(wait: (runId: string) => object, seed?: object) {
       return wait(String((params as { runId: string }).runId));
     } });
   d.register(ROOT, 'root', ['note'], { scout: ['note'] }, ROOT.sessionKey, { writer: ['note'] });
-  const send = async (child: string, sessionKey: string) => {
+  const send = async (child: string, sessionKey: string, status = 'accepted') => {
     const ids = { key: ROOT.sessionKey, runId: 'root', callId: `call-${child}` };
     const tracked = await d.prepare({ ...ids, tool: 'sessions_send', input: { sessionKey, timeoutSeconds: 0 } });
-    d.receipt({ ...ids, result: { details: { status: 'accepted', runId: child, sessionKey } } });
+    d.receipt({ ...ids, result: { details: { status, runId: child, sessionKey } } });
     return tracked;
   };
   return { d, events, revoked, send, close: () => rmSync(dir, { recursive: true, force: true }) };
@@ -50,6 +50,29 @@ test('reconcile ends affirmative lost/finished children and keeps unresolved, li
     assert.deepEqual(j.events.filter((e) => e.type === 'ended').map((e) => [e.run.runId, e.reason]),
       [['done', 'terminal'], ['failed', 'error'], ['forgotten', 'lost']]);
     assert.deepEqual(j.revoked, ['done', 'failed', 'forgotten']);
+  } finally { j.close(); }
+});
+
+test('9.33 timeout receipts admit the exact child and retain it until an observed end', async () => {
+  const key = 'agent:scout:main';
+  const j = journal(runId => ({ runId, status: 'timeout' }));
+  try {
+    assert.equal(await j.send('still-running', key, 'timeout'), true);
+    assert.equal(j.d.has(key, 'still-running'), true);
+    assert.deepEqual(j.d.list().map(r => [r.runId, r.sessionKey, r.member, r.tools]), [['still-running', key, 'scout', ['note']]]);
+    assert.deepEqual((await j.d.resolve(key, 'still-running'))?.ref.parent, { sessionKey: ROOT.sessionKey, runId: 'root' });
+    await j.d.reconcile();
+    assert.deepEqual([j.d.list().length, j.events.map(e => e.type), j.revoked], [1, ['admitted'], []], 'a timeout is not terminal');
+    for (const details of [{ status: 'timeout', sessionKey: key }, { status: 'timeout', runId: 'no-key' },
+      { status: 'timeout', runId: 'wrong-key', sessionKey: 'agent:scout:other' }]) {
+      const ids = { key: ROOT.sessionKey, runId: 'root', callId: `bad-${JSON.stringify(details)}` };
+      await j.d.prepare({ ...ids, tool: 'sessions_send', input: { sessionKey: key, timeoutSeconds: 0 } });
+      j.d.receipt({ ...ids, result: { details } });
+      assert.equal(j.d.list().length, 1, 'timeout never bypasses run/key guards');
+    }
+    j.d.event({ runId: 'still-running', sessionKey: key, stream: 'lifecycle', data: { phase: 'end' } });
+    assert.deepEqual(j.d.list(), []);
+    assert.ok(j.events.some(e => e.type === 'ended' && e.reason === 'terminal'));
   } finally { j.close(); }
 });
 

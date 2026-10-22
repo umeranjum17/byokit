@@ -1,5 +1,4 @@
 // Executed OUTSIDE the workspace, from a packed kit with registry-only dependencies.
-// The production manifest is empty. Later comment-only entries are explicitly lab artifacts, not features.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, openSync, closeSync, readFileSync, readdirSync, readlinkSync, lstatSync, writeFileSync } from 'node:fs';
@@ -137,7 +136,7 @@ try {
   assert.equal(readFileSync(`/proc/${oldChild.pid}/cmdline`, 'utf8').replaceAll('\0', '').trim(), 'openclaw-gateway');
   writeFileSync(join(cwd, 'o/openclaw/gateway.pid'), String(oldChild.pid));
   writeFileSync(join(cwd, 'o/openclaw/gateway.identity'), JSON.stringify({ pid: oldChild.pid, startTime: processStartTime(oldChild.pid) }));
-  const path = 'dist/main-session-recovery-state-BP_2EuhB.js';
+  const path = 'dist/main-session-recovery-state-BJukJiIA.mjs';
   const before = readFileSync(join(emptyDir, 'node_modules/openclaw', path), 'utf8');
   const find = 'function isMainRestartRecoveryCandidate(entry, sessionKey) {';
   assert.equal(before.split(find).length, 2);

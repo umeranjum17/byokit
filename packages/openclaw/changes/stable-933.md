@@ -1,4 +1,5 @@
 - FIX: Upgrade the pinned OpenClaw engine to extended-stable 2026.9.33, regenerate routes and the full operator surface, and keep native Workshop skills scoped to each agent across workspaces. Breaking: requires Node 24.16+ on 24.x or Node 26.1+; Node 22 and 25 are no longer supported.
+- FIX: Admit native delegated dispatch receipts with `status: 'timeout'`, a run id and the exact authorized child key; retain admission until an observed end or explicit abort instead of dropping the child. Pending-call, expiry, member and tool-scope checks remain unchanged.
 - Preserve direct, individually gated builtin tools on the new engine: the kit defaults `tools.toolSearch` to `false`, but never overrides an app's explicit choice; app tools use native direct-only registration.
 - Keep app-owned Telegram messages separate instead of merging them under the engine's new 300 ms burst-batching default.
 - Prepare the full native model catalog once per agent/config generation so CLI rows are visible; later picker/run-selection reads recheck availability without repeating full discovery on every turn.

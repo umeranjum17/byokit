@@ -670,10 +670,8 @@ writing only if bytes change (0600):
   `plugin` id of every route the app offers by name in `KitOptions.offered` (the provider, auth choice or alias a route
   carries — e.g. `openrouter`; a route nobody offers stays out), and every external plugin `installPlugin` installed
   (B7, 5.7), and `telegram` while that channel is on (5.18); the kit adds no other id;
-  `plugins.entries[id].hooks.timeouts.before_tool_call = 200_000`. On 9.33 the native-default-enabled
-  `openai`, `opencode-go` and `openrouter` providers are explicitly pinned enabled before boot unless the caller disabled them. This adds no
-  provider authority: it prevents setup promotion from introducing a plugin-enable change inside its secret
-  transaction, which native preflight correctly refuses. Other providers and caller disables are unchanged. The pinned
+  `plugins.entries[id].hooks.timeouts.before_tool_call = 200_000`. On 9.33, preboot-pin native-default-enabled `openai`, `opencode-go` and `openrouter` unless caller-disabled;
+  this preserves native preflight by avoiding plugin-enable changes inside secret promotion. Other providers and caller disables stay unchanged. The pinned
   engine treats a non-empty `plugins.allow` as a restrictive allowlist: a provider sign-in, and that provider's runs,
   need the bundled plugin that owns the route's auth choice (`Route.plugin`) in it, else the wizard ends
   `<label> is disabled (blocked by allowlist)`. Those plugins are always present (`anthropic` for `anthropic-cli` and `apiKey`); an app names the
@@ -1339,7 +1337,7 @@ hook's exact parent run ID, session key and tool-call ID. Send requires an expli
 an explicit allowed `agentId`. A tracked spawn into the run's own agent (`delegates` naming it) reaches the engine
 without `agentId`, the pin's own-agent spawn, so an app's `subagents.allowAgents` list naming other agents never
 refuses it; the kit configures nothing else for it. The native after-tool receipt, not model arguments or a key prefix, supplies the
-exact child run ID/session key. Until that receipt arrives child gates wait briefly, then fail closed. Unknown
+exact child run ID/session key. A 9.33 `status: 'timeout'` dispatch receipt with that exact identity is also admitted, not discarded or treated as terminal; all pending-call/expiry/member/tool guards still apply. Until a valid receipt arrives child gates wait briefly, then fail closed. Unknown
 children never acquire authority. Approval denial creates no admitted action; every child action is gated again.
 
 `RunRef` adds optional `runId`, `agentId`, `parent` and `root` (the latter two exact `{sessionKey, runId}` pairs).
@@ -1354,7 +1352,7 @@ recorded run IDs with `agent.wait` (`timeoutMs: 1`): `ok`/`error` end `terminal`
 queued/live result or plain timeout retains the receipt. **9.33 semantics:** its no-snapshot branch returns only
 `{ runId, status: 'timeout' }`, also possible for active work without a terminal snapshot. This is unresolved,
 not lost or proof of liveness. `delegatedRuns()` lists admitted receipts, not a live-job census. No missing
-fields are reconstructed. Automatic unknown-run reclamation from 8.35 is unavailable on this pin.
+fields are reconstructed. This wait-observation policy is separate from accepting a valid timeout dispatch receipt above.
 A full journal (1024 pending and admitted) reconciles first but unresolved receipts still count: dispatch stays
 refused until affirmative terminal evidence or explicit `abort(rootSessionKey)`/`abort(childKey)` revokes them.
 No new run IDs are guessed on restart: an engine resume with a different ID needs fresh admission. A dispatch
@@ -1591,8 +1589,6 @@ change; a stale set fails `before` and blocks release), re-derives `engine/plugi
 5.7), re-checks that the Gateway-covered kinds of 5.16 still hold
 (the review stays out of `sessions.usage`, recovery and flush stay in it), and re-runs the O15–O17 engine tests.
 
-The native Workshop collection is agent-owned (`state/agents/<agentId>/agent/workshop-skills`), not tied to the current workspace. The complete generated `call` surface retains Workshop proposal, review, curator, library and skill methods for explicit member/account/helper agent ids, without translating storage or creating a parallel learning system. Native `skills.proposals.list` returns pending proposals and installed skills; `skills.workshop.read` returns complete instructions, with the caller's exact `agentId`.
-
 ### 5.13 Internal module seams (stub signatures for O1)
 
 ```ts
@@ -1826,10 +1822,8 @@ first agent the owner when the fleet grows past one, and every later agent (othe
 sign-ins. `models.authLogout` and sign-out always pass `profileIds` of the agent's own sealed profiles, because
 without them the pin removes the provider's profiles from every owner store. O14's engine job proves both; if the pin
 refuses the value, O14 stops and asks. (After 5.7's doctor moves a legacy store into `state/openclaw.sqlite`, that
-shared store is the base instead; the kit never writes it either.) The audited 9.33 OAuth settlement patch (5.16)
-prevents an agent-local refresh from creating a shared credential; it may still update an already-existing shared
-credential after the native identity/realm checks. Doctor and live Gateway refreshes use that same patched function.
-Real O14 journeys assert the shared base stays empty and another agent cannot use the first agent's login.
+shared store is the base instead; the kit never writes it either.) The audited 9.33 OAuth settlement patch (5.16) applies to Doctor and Gateway refreshes:
+an agent-local refresh may update an existing shared credential only after native identity/realm checks; it never creates one.
 This is a behavior change for installs with two or
 more members: the pin had pinned the owner to the first member, so later members read its sign-ins through; from
 O14 a member runs only on its own sign-ins, and one that never signed in reads `signed_out` (CHANGELOG entry).

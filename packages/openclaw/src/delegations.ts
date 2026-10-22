@@ -134,7 +134,7 @@ export class Delegations {
     this.pending.delete(id);
     const d = m.result?.details;
     const key = d?.childSessionKey ?? d?.sessionKey;
-    if (p.expires < Date.now() || !object(d) || !['accepted', 'ok', 'queued'].includes(d.status)
+    if (p.expires < Date.now() || !object(d) || !['accepted', 'ok', 'queued', 'timeout'].includes(d.status)
       || typeof d.runId !== 'string' || !d.runId || typeof key !== 'string' || agentOf(key) !== p.agent
       || (p.key !== undefined && p.key !== key)) { this.save(); return; }
     // A helper child is the parent member's, attributed to that helper (RunRef.helper), on the helper's own agent.

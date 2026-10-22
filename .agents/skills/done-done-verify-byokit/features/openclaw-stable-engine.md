@@ -13,9 +13,3 @@ node .agents/skills/done-done-verify-byokit/capture/openclaw-stable-engine.mjs <
 ```
 
 Run under a throwaway HOME/XDG, with supported Node/npm on PATH, through the host's memory gate and heavy-job lock. Engine installs live on disk, never tmpfs; the short temporary app home is deleted in `finally`. The recipe uses only public built package entries, records the actual engine version, native catalog id, typed unavailable outcome, unverified native storage result, unique assistant reply and run id, and scans its log/JSON captures for the exact key before returning. Only this fresh proof home disables utility inference and same-model provider retries, retaining the production defaults elsewhere. No screenshots are needed for this SDK-only change.
-
-Seal the run only after all validation and the single real turn finish. Judge `stable-engine.log` and `steps.json` and receipt the exact clean HEAD; do not reuse a prior run's media/logs. Failure or unavailable judge remains unproven.
-
-## Offline integration
-
-`sh scripts/test.sh packages/openclaw/test/engine/learning.test.ts` drives the real pinned Gateway without a provider: stopped-home learning mode, native Workshop read/list, typed native RPCs, cross-agent refusal, persisted instructions after restart, and typed `unsupported_plugin`. Full pin regressions run through `npm run test:engine`; they do not replace the live one-turn proof above.
