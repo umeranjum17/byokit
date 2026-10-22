@@ -5,10 +5,13 @@
 // out. Every security and correctness contract the old table/unit cases held survives as an assertion inside a
 // journey: Serve stays on loopback and never uses Funnel, a foreign root is never touched, a mapping is reused/removed
 // only by its recorded fingerprint, a broken Tailscale is an error rather than a silent LAN, only this machine's own
-// addresses are dialled, mDNS never advertises bridge/tailnet addresses, and the recommendation order and reasons hold.
+// addresses are dialled, a LAN route binds its own addresses and never a wildcard, mDNS never advertises bridge/tailnet
+// addresses, and the recommendation order and reasons hold.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import type { NetworkInterfaceInfo } from 'node:os';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
@@ -36,6 +39,22 @@ const missing = { bin: join(dir, 'not-installed') };
 const nic = (address: string, internal = false): NetworkInterfaceInfo =>
   ({ address, netmask: '255.255.255.0', family: 'IPv4', mac: '02:00:00:00:00:01', internal, cidr: `${address}/24` });
 
+// A real listener on one address, the way a host app follows the reach result: one server per named address.
+const listenOn = (address: string, port: number) => new Promise<Server>((resolve, reject) => {
+  const server = createServer((_req, res) => { res.statusCode = 204; res.end(); });
+  server.once('error', reject);
+  server.listen(port, address, () => { server.off('error', reject); resolve(server); });
+});
+const closeServer = (server: Server) => new Promise<void>((resolve) => { server.close(() => resolve()); });
+const freePort = () => new Promise<number>((resolve, reject) => {
+  const probe = createServer();
+  probe.once('error', reject);
+  probe.listen(0, '127.0.0.1', () => {
+    const port = (probe.address() as AddressInfo).port;
+    probe.close(() => resolve(port));
+  });
+});
+
 function fakeCli(status: unknown, { serveStatus = '{}', serveStatusExit = 0, apply = ':', afterApply = ours, afterOff = '{}' } = {}): void {
   writeFileSync(state, serveStatus);
   writeFileSync(bin, `#!/bin/sh
@@ -59,7 +78,7 @@ test('an app serves on loopback and never disturbs a root someone else owns or o
   // A free root: Serve publishes loopback at the MagicDNS name, the server binds loopback, and Funnel is never used.
   fakeCli(self);
   const at = mark();
-  assert.deepEqual(await reach({ port: 8792, tailscale }), { urls: ['wss://dev.tailnet.ts.net'], bind: '127.0.0.1', ingress: owned });
+  assert.deepEqual(await reach({ port: 8792, tailscale }), { urls: ['wss://dev.tailnet.ts.net'], bind: ['127.0.0.1'], ingress: owned });
   assert.match(since(at), /^serve --yes --bg --https=443 http:\/\/127\.0\.0\.1:8792$/m);
   assert.doesNotMatch(since(at), /funnel/i);
 
@@ -108,7 +127,7 @@ test('an app reuses only its own Serve mapping, removes exactly what it made, an
   const old = { ...owned, dnsName: 'old.tailnet.ts.net' };
   fakeCli(self, { serveStatus: JSON.stringify({ Web: { 'old.tailnet.ts.net:443': { Handlers: { '/': { Proxy: owned.proxy } } } } }) });
   const renamed = mark();
-  assert.deepEqual(await reach({ port: 8792, previous: old, tailscale }), { urls: ['wss://dev.tailnet.ts.net'], bind: '127.0.0.1', ingress: owned });
+  assert.deepEqual(await reach({ port: 8792, previous: old, tailscale }), { urls: ['wss://dev.tailnet.ts.net'], bind: ['127.0.0.1'], ingress: owned });
   assert.deepEqual(since(renamed).trim().split('\n'), [
     'status --json', 'serve status --json', 'serve --https=443 --set-path=/ off', 'serve status --json',
     'serve status --json', 'serve --yes --bg --https=443 http://127.0.0.1:8792', 'serve status --json',
@@ -147,13 +166,13 @@ test('an app falls back to direct Tailscale or LAN, and a broken Tailscale is an
   // Direct Tailscale is the fallback and the rollback: it removes only the mapping this package made.
   fakeCli(self, { serveStatus: ours });
   let at = mark();
-  assert.deepEqual(await reach({ port: 8792, via: 'tailscale-direct', previous: owned, tailscale }), { urls: ['ws://100.64.0.1:8792'], bind: '100.64.0.1' });
+  assert.deepEqual(await reach({ port: 8792, via: 'tailscale-direct', previous: owned, tailscale }), { urls: ['ws://100.64.0.1:8792'], bind: ['100.64.0.1'] });
   assert.match(since(at), /^serve --https=443 --set-path=\/ off$/m);
 
   // Only an address from this machine's own Self.TailscaleIPs may be bound; a foreign or wildcard one is refused first.
   fakeCli({ Self: { TailscaleIPs: ['100.64.0.1', '100.64.0.2'] } }, { serveStatus: ours });
   at = mark();
-  assert.deepEqual(await reach({ port: 8792, via: 'tailscale-direct', address: '100.64.0.2', tailscale }), { urls: ['ws://100.64.0.2:8792'], bind: '100.64.0.2' });
+  assert.deepEqual(await reach({ port: 8792, via: 'tailscale-direct', address: '100.64.0.2', tailscale }), { urls: ['ws://100.64.0.2:8792'], bind: ['100.64.0.2'] });
   for (const address of ['0.0.0.0', '192.168.1.8', '100.64.0.99', '']) {
     await assert.rejects(reach({ port: 8792, via: 'tailscale-direct', address, previous: owned, tailscale }), /no Tailscale address/);
   }
@@ -176,21 +195,21 @@ test('an app falls back to direct Tailscale or LAN, and a broken Tailscale is an
 
   // When Tailscale disappears, auto falls back to LAN and keeps the Serve fingerprint for a later retry.
   assert.deepEqual(await reach({ port: 8792, previous: owned, tailscale: missing, interfaces }), {
-    urls: ['ws://192.168.1.8:8792'], bind: '0.0.0.0', pendingCleanup: owned,
+    urls: ['ws://192.168.1.8:8792'], bind: ['192.168.1.8'], pendingCleanup: owned,
   });
 
   // Failed cleanup on a LAN/private route switch retains the fingerprint; a successful one omits it.
   fakeCli(self, { serveStatus: 'Serve is not enabled on your tailnet', serveStatusExit: 1 });
   const transitions = { eno1: [nic('192.168.1.8')], wt0: [nic('100.90.0.4')] };
   assert.deepEqual(await reach({ port: 8792, via: 'lan', previous: owned, tailscale, interfaces: transitions }), {
-    urls: ['ws://192.168.1.8:8792'], bind: '0.0.0.0', pendingCleanup: owned,
+    urls: ['ws://192.168.1.8:8792'], bind: ['192.168.1.8'], pendingCleanup: owned,
   });
   assert.deepEqual(await reach({ port: 8792, via: 'private', previous: owned, tailscale, interfaces: transitions }), {
-    urls: ['ws://100.90.0.4:8792'], bind: '0.0.0.0', pendingCleanup: owned,
+    urls: ['ws://100.90.0.4:8792'], bind: ['100.90.0.4'], pendingCleanup: owned,
   });
   fakeCli(self, { serveStatus: ours });
   assert.deepEqual(await reach({ port: 8793, via: 'lan', previous: owned, tailscale, interfaces }), {
-    urls: ['ws://192.168.1.8:8793'], bind: '0.0.0.0',
+    urls: ['ws://192.168.1.8:8793'], bind: ['192.168.1.8'],
   });
 });
 
@@ -223,11 +242,37 @@ test('an app picks dial addresses without exposing Docker, VM or VPN bridges', a
 
   // A private-overlay route never binds a Tailscale address, even on macOS utun interfaces.
   fakeCli(self);
-  assert.deepEqual(await reach({ port: 8792, via: 'private', tailscale, interfaces: { utun4: [nic('100.64.0.1')], utun5: [nic('100.90.0.4')] } }), { urls: ['ws://100.90.0.4:8792'], bind: '0.0.0.0' });
+  assert.deepEqual(await reach({ port: 8792, via: 'private', tailscale, interfaces: { utun4: [nic('100.64.0.1')], utun5: [nic('100.90.0.4')] } }), { urls: ['ws://100.90.0.4:8792'], bind: ['100.90.0.4'] });
   // Private routes stay available even when Tailscale cannot answer.
   for (const script of ['echo "logged out" >&2; exit 1', 'echo not-json']) {
     writeFileSync(bin, `#!/bin/sh\n${script}\n`); chmodSync(bin, 0o755);
-    assert.deepEqual(await reach({ port: 8792, via: 'private', tailscale: { bin, timeoutMs: 50 }, interfaces: { wt0: [nic('100.90.0.4')] } }), { urls: ['ws://100.90.0.4:8792'], bind: '0.0.0.0' });
+    assert.deepEqual(await reach({ port: 8792, via: 'private', tailscale: { bin, timeoutMs: 50 }, interfaces: { wt0: [nic('100.90.0.4')] } }), { urls: ['ws://100.90.0.4:8792'], bind: ['100.90.0.4'] });
+  }
+});
+
+test('a LAN route names one listener per address and no wildcard, and the port stays shut on the other interfaces', async () => {
+  // The reach result names the classified LAN addresses: the caller binds each one, and no wildcard is offered.
+  const interfaces = { en0: [nic('192.168.1.20')], wlan0: [nic('10.0.0.5')], docker0: [nic('172.17.0.1')] };
+  const lan = await reach({ port: 8792, via: 'lan', interfaces: interfaces as never });
+  assert.deepEqual(lan.bind, ['192.168.1.20', '10.0.0.5']);
+  assert.deepEqual(lan.urls, ['ws://192.168.1.20:8792', 'ws://10.0.0.5:8792']);
+  // Every dial URL has a listener, and the Docker bridge is neither bound nor offered.
+  assert.deepEqual(lan.urls.map((u) => new URL(u).hostname), lan.bind);
+  assert.ok(!lan.bind.includes('0.0.0.0'));
+  assert.ok(!lan.urls.some((u) => u.includes('172.17.0.1')));
+
+  // On this computer: bind what reach names for real, and the port opens nowhere else.
+  const port = await freePort();
+  const real = await reach({ port, via: 'lan' });
+  assert.ok(real.bind.length > 0, 'this computer has a LAN address to bind');
+  const servers: Server[] = [];
+  try {
+    for (const address of real.bind) servers.push(await listenOn(address, port));
+    // A wildcard listener would have taken this port on every interface; a per-address one leaves loopback free.
+    await closeServer(await listenOn('127.0.0.1', port));
+    await assert.rejects(fetch(`http://127.0.0.1:${port}/`), /fetch failed/);
+  } finally {
+    for (const server of servers) await closeServer(server);
   }
 });
 

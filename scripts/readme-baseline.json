@@ -98,8 +98,8 @@
   {
     "readme": "packages/discover/README.md",
     "block": 1,
-    "snapshot": "01bbe214d49a6b0b7ae4f84c300dbe46bbc72da279d96ecfbfb1b318f828b0df",
-    "reason": "Quickstart omits saved state, server and host setup; strength item 6 makes it runnable."
+    "snapshot": "42712fd780c440fe3a77346eff300462ed4dff60590514b3bc419e3d2d82ea06",
+    "reason": "Quickstart omits saved state, the http handler and host setup; strength item 6 makes it runnable."
   },
   {
     "readme": "packages/discover/README.md",

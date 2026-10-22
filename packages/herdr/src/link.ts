@@ -4,7 +4,7 @@
 // Permission shape: `allow` lets every request through and `handle`/`stream` refuse with the `link.notAllowed`
 // words sentence, so a refused device hears the kit's sentence (a bare `allow: false` would surface link's own
 // generic `view-only`/`not-allowed` words instead).
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { WebSocketServer } from 'ws';
 import type {
   Grant, Host, HostOptions, LinkRequest, LinkStream, Socket,
@@ -464,33 +464,49 @@ export function serve(o: { host: Host; port: number; via?: Via; previous?: Serve
       throw missingPeer('@byokit/discover', e);
     }
     const r = await reach({ port: o.port, via: o.via, previous: o.previous });
-    const server = createServer((req, res) => {
-      if (o.http) {
-        o.http(req, res);
-        return;
+    // One listener per address reach names, never a wildcard, plus loopback so a client on this machine reaches
+    // the same server the phone does. Each listener answers on its own address only.
+    const opened: { server: Server; wss: WebSocketServer }[] = [];
+    try {
+      for (const address of [...new Set(['127.0.0.1', ...r.bind])]) {
+        const server = createServer((req, res) => {
+          if (o.http) {
+            o.http(req, res);
+            return;
+          }
+          res.statusCode = 404;
+          res.end();
+        });
+        const wss = new WebSocketServer({ server });
+        wss.on('connection', (ws, req) => {
+          o.host.accept(ws as unknown as Socket, { peer: req.socket.remoteAddress });
+        });
+        await new Promise<void>((resolve, reject) => {
+          server.once('error', reject);
+          server.listen(o.port, address, () => {
+            server.off('error', reject);
+            resolve();
+          });
+        });
+        opened.push({ server, wss });
       }
-      res.statusCode = 404;
-      res.end();
-    });
-    const wss = new WebSocketServer({ server });
-    wss.on('connection', (ws, req) => {
-      o.host.accept(ws as unknown as Socket, { peer: req.socket.remoteAddress });
-    });
-    await new Promise<void>((resolve, reject) => {
-      server.once('error', reject);
-      server.listen(o.port, r.bind, () => {
-        server.off('error', reject);
-        resolve();
-      });
-    });
+    } catch (error) {
+      for (const { server, wss } of opened) {
+        wss.close();
+        server.close();
+      }
+      throw error;
+    }
     return {
       urls: r.urls,
       ...(r.ingress ? { ingress: r.ingress } : {}),
       close: async (): Promise<void> => {
-        wss.close();
-        await new Promise<void>((resolve, reject) => {
-          server.close((e) => (e ? reject(e) : resolve()));
-        });
+        for (const { server, wss } of opened) {
+          wss.close();
+          await new Promise<void>((resolve, reject) => {
+            server.close((e) => (e ? reject(e) : resolve()));
+          });
+        }
       },
     };
   })();
