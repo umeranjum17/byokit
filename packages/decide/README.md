@@ -101,10 +101,11 @@ if (intent.abstained) askThePerson(); else route(intent.answer);
 | `jev({ key, via?, fetch?, maxRetries?, retryBaseMs?, retryMaxMs? })` | Jev as a backend, over TypeSafe's API (default) or OpenRouter (`via: 'openrouter'`). API-billed; retries 429s with backoff |
 | `openai({ model, key, request?, ... })` / `openai({ model, auth: 'account', account, request?, ... })` | OpenAI general models used for decisions; explicit API key or consented ChatGPT plan session |
 | `anthropic({ model, key, maxTokens?, instructions?, ... })` | Anthropic general models used for decisions; explicit API key (billed per use), never a plan sign-in |
+| `minimax({ model, key, maxTokens?, instructions?, ... })` | MiniMax models used for decisions over the `minimax:key` route; explicit API key (billed per use), never a plan sign-in |
 | `opencodeGo({ model, key, request?, ... })` / `opencodeGo({ model, account, request?, ... })` | OpenCode Go plan models used for decisions; the member's Go plan key itself or its saved plan account, never an API-billed route |
 | `zai({ model, key, route?, request?, ... })` / `zai({ model, account, request?, ... })` | Z.AI (GLM) coding-plan models used for decisions; the plan key (`zai` or `zai-coding-cn` route) or its plan account, never an API-billed route |
 | `parseConfig(objectOrJSON)`, `createDecider(config, options)` | Validate portable config and set it once, with optional per-call overrides |
-| `ConfigError`, `UnsupportedAccountError`, `UnsupportedImagesError`, `InvalidImageError`, `OPENAI_ROUTES`, `ANTHROPIC_ROUTES`, `OPENCODE_GO_ROUTES`, `ZAI_ROUTES` | Typed config/account errors and billing labels (API keys are never offered by default; the Go plan key bills subscription) |
+| `ConfigError`, `UnsupportedAccountError`, `UnsupportedImagesError`, `InvalidImageError`, `OPENAI_ROUTES`, `ANTHROPIC_ROUTES`, `MINIMAX_ROUTES`, `OPENCODE_GO_ROUTES`, `ZAI_ROUTES` | Typed config/account errors and billing labels (API keys are never offered by default; the Go plan key bills subscription) |
 | `BackendRefusedError`, `RefusalCode`, `FailureCode` | The provider refused the key or account: `code` is `'key_refused'` (401/403), `'out_of_credit'` (402) or `'rate_limited'` (429 after retries), with its `status`; `decide()` abstains with `failure: { code, status }`. `FailureCode` adds `'bad_reply'`, a model that returned text in the wrong shape |
 | `RateLimitError` | A `BackendRefusedError` with `code: 'rate_limited'`: 429 retries exhausted (`status: 429`, `retries`) |
 | `MemoryCache`, `cacheKey(state, questions, images?)` | In-memory reference cache for `decide({ cache })`, and the stable request key it uses |
@@ -406,6 +407,15 @@ through its paired computer. Fixtures in
 `test/fixtures/anthropic-messages.json` are hand-authored saved API-shape responses, not live model
 recordings. Tests never call a real model.
 
+### MiniMax models used for decisions
+
+`minimax({ model, key })` is the Anthropic backend's Messages wire at the `minimax:key` route's base URL
+(`https://api.minimax.io/anthropic/v1/messages`, the key as `x-api-key`): one forced `decisions` tool, the same
+answer mapping and abstentions. `model` is required and there is no built-in model list: the host picks an id from
+MiniMax's own live list (the accounts layer reads it). `MINIMAX_ROUTES.apiKey` labels billing `'api'` with
+`offer: false`; there is no plan sign-in here. In a config it is `{ backend: 'minimax', model }` with the key in
+`host.keys.minimax`.
+
 ### The person's OpenCode Go plan
 
 For an app already using Accounts, bind the same person's OpenCode Go plan directly:
@@ -490,13 +500,13 @@ const viaGoKey = await decideForApp(state, questions,
 
 Or call `decide(state, questions, { config, host, privacy, images?, timeoutMs?, cache? })` directly.
 `parseConfig` accepts a plain object or JSON string and defaults to `{ backend: 'jev', auth: 'apiKey' }`, preserving
-Jev's `jev-latest` model and TypeSafe route. OpenAI, Anthropic and OpenCode Go require an explicit `model`.
-`backend` is `jev`, `openai`, `anthropic` or `opencode-go`; `auth` is `apiKey` or `account` (Jev and Anthropic
+Jev's `jev-latest` model and TypeSafe route. OpenAI, Anthropic, MiniMax and OpenCode Go require an explicit `model`.
+`backend` is `jev`, `openai`, `anthropic`, `minimax` or `opencode-go`; `auth` is `apiKey` or `account` (Jev, Anthropic and MiniMax
 take `apiKey` only). Fields are `backend`, `auth`, `model`,
-`via` (Jev only), `request` (OpenAI and OpenCode Go only), `supportsImages` (OpenAI and Anthropic only), `maxRetries`, `retryBaseMs`, `retryMaxMs`. Unknown fields, invalid JSON,
+`via` (Jev only), `request` (OpenAI and OpenCode Go only), `supportsImages` (OpenAI, Anthropic and MiniMax only), `maxRetries`, `retryBaseMs`, `retryMaxMs`. Unknown fields, invalid JSON,
 wrong types and invalid retry values throw `ConfigError` (`code: 'invalid_config'`); Jev or Anthropic
 account auth throws `UnsupportedAccountError`. API-key credentials must be explicitly supplied by the host:
-`host.keys.anthropic` for Anthropic, `host.keys['opencode-go']` for the Go plan key, and
+`host.keys.anthropic` for Anthropic, `host.keys.minimax` for MiniMax, `host.keys['opencode-go']` for the Go plan key, and
 `host.accounts['opencode-go']` for the Go plan account. Each account slot reaches only its own provider:
 an OpenAI account in `host.account` never reaches the Go endpoint, and a Go plan account in
 `host.accounts['opencode-go']` never reaches the OpenAI endpoint. Plan handles also carry a readonly provider

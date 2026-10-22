@@ -29,14 +29,19 @@ const VERSION = '2023-06-01';
 
 /** One explicitly supplied Anthropic API key. API-billed; never a plan sign-in. */
 export function anthropic(o: AnthropicOptions): Backend {
-  if (typeof o.model !== 'string' || !o.model.trim()) throw new Error('anthropic needs an explicit model');
-  if (typeof o.key !== 'string' || !o.key.trim()) throw new Error('anthropic needs a key');
+  return messagesBackend('anthropic', BASE, o);
+}
+
+/** The Messages wire shared by every provider that speaks it (MiniMax's key route does, at its own base URL). */
+export function messagesBackend(name: string, base: string, o: AnthropicOptions): Backend {
+  if (typeof o.model !== 'string' || !o.model.trim()) throw new Error(`${name} needs an explicit model`);
+  if (typeof o.key !== 'string' || !o.key.trim()) throw new Error(`${name} needs a key`);
   if (o.maxTokens !== undefined && (!Number.isSafeInteger(o.maxTokens) || o.maxTokens <= 0)) {
-    throw new Error('anthropic maxTokens must be a positive integer');
+    throw new Error(`${name} maxTokens must be a positive integer`);
   }
-  const send = retryFetch('anthropic', o.fetch ?? globalThis.fetch, o);
+  const send = retryFetch(name, o.fetch ?? globalThis.fetch, o);
   return {
-    name: 'anthropic', leaves: true, supportsImages: o.supportsImages === true,
+    name, leaves: true, supportsImages: o.supportsImages === true,
     async ask(state, questions, signal, inputImages = []) {
       const images = normalizeImages(inputImages);
       validateImageReferences(questions, images);
@@ -56,7 +61,7 @@ export function anthropic(o: AnthropicOptions): Backend {
         tools: [{ name: 'decisions', description: 'Return every decision answer.', input_schema: responsesSchema(questions) }],
         tool_choice: { type: 'tool' as const, name: 'decisions' },
       };
-      const res = await send(`${BASE}/messages`, { method: 'POST', signal,
+      const res = await send(`${base}/messages`, { method: 'POST', signal,
         headers: { 'content-type': 'application/json', 'x-api-key': o.key, 'anthropic-version': VERSION },
         body: JSON.stringify(body) });
       if (!res.ok) throw httpError(res.status);
