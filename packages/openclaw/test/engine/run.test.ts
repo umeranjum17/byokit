@@ -313,13 +313,17 @@ test('API-key activation seals a sibling store; normal selection and stores rema
     const { pathToFileURL } = await import('node:url');
     const sdk = pathToFileURL(join(dirname(kit.doctorContext().entry), 'dist/plugin-sdk/provider-auth.js')).href;
     // A read-only transaction on each exact agent store; report metadata only, never credential values.
-    const code = `const {updateAuthProfileStoreWithLock}=await import(${JSON.stringify(sdk)});
+    // Native SDK initialization may log to stdout; keep this fixture's metadata result on its own channel.
+    const report = join(stateDir, 'store-metadata.json');
+    const code = `const {writeFileSync}=await import('node:fs');
+      const {updateAuthProfileStoreWithLock}=await import(${JSON.stringify(sdk)});
       const result={};for(const id of ['m1','m2','byokit-key-m1']) {
         await updateAuthProfileStoreWithLock({agentDir:process.env.OPENCLAW_STATE_DIR+'/agents/'+id+'/agent',
           updater(store){result[id]={order:store.order,profiles:Object.entries(store.profiles).map(([id,p])=>({id,type:p.type,provider:p.provider,copyToAgents:p.copyToAgents}))};return false;}});
-      }process.stdout.write(JSON.stringify(result));`;
-    const stores = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', code],
-      { env: kit.doctorContext().env, encoding: 'utf8' }));
+      }writeFileSync(process.argv[1],JSON.stringify(result),{mode:0o600});`;
+    execFileSync(process.execPath, ['--input-type=module', '-e', code, report],
+      { env: kit.doctorContext().env, encoding: 'utf8' });
+    const stores = JSON.parse(readFileSync(report, 'utf8'));
     assert.equal(stores.m1.profiles.length, 0);
     assert.equal(stores.m2.profiles.length, 0);
     assert.deepEqual(stores.m1.order?.openai ?? [], [], "no normal-agent order admits a key");
