@@ -961,17 +961,16 @@ export class OpenClawKit {
 
   // Live provider catalogs (5.6): registers each live model with its api from the provider's catalog data, so
   // embedded runs resolve it. Serialized and in the background; a failure is logged and keeps the registered list.
+  // A provider whose config already lists models is synced too: that list may be the fixed one the vendor has outgrown.
   private syncCatalogs(): void {
-    type Providers = { models?: { providers?: Record<string, { models?: { id: string }[] }> } };
     for (const provider of REGISTERED_CATALOGS) {
-      if ((this.o.config as Providers | undefined)?.models?.providers?.[provider]?.models !== undefined) continue;
       this.catalogs = this.catalogs.then(async () => {
-        const answer = await this.request()('byokit.catalog', { provider }) as { ok?: boolean; reason?: string; models?: { id: string }[] };
+        const answer = await this.request()('byokit.catalog', { provider }) as { ok?: boolean; reason?: string; offline?: boolean; models?: { id: string }[] };
         if (!answer.ok) {
           if (answer.reason !== 'no-key') this.o.log?.(`catalog sync ${provider}: ${answer.reason ?? 'failed'}`);
           return;
         }
-        await this.registerModels(provider, answer.models ?? []);
+        await this.registerModels(provider, answer.models ?? [], answer.offline === true);
       }).catch(() => { if (this.current.phase === 'ready') this.o.log?.(`catalog sync ${provider}: failed`); });
     }
   }
@@ -979,7 +978,7 @@ export class OpenClawKit {
   // Merges catalog rows into the registered list by the id the engine keeps (it rewrites a Google preview id when it
   // writes the config, so two rows it would keep under one id are one row and never a refused write); an unchanged
   // list is never rewritten.
-  private async registerModels(provider: string, rows: { id: string }[]): Promise<void> {
+  private async registerModels(provider: string, rows: { id: string }[], offline = false): Promise<void> {
     type Providers = { models?: { providers?: Record<string, { models?: { id: string }[] }> } };
     const { config } = await this.request()('config.get') as { config?: Providers };
     const registered = config?.models?.providers?.[provider]?.models ?? [];
@@ -988,7 +987,8 @@ export class OpenClawKit {
     const models = [...byId.values()];
     // What the kit registered is what the engine can run for that provider: the account list joins it, so a model
     // the live catalog offers is pickable even while the engine's own list still lags the registration.
-    this.registered.set(provider, modelsOf(provider, { models: models.map((m) => ({ ...m, provider })) }));
+    const listed = modelsOf(provider, { models: models.map((m) => ({ ...m, provider })) });
+    this.registered.set(provider, offline ? listed.map((m) => ({ ...m, offline: true })) : listed);
     if (!isDeepStrictEqual(models, registered)) await this.patchConfig({ models: { providers: { [provider]: { models } } } });
   }
 

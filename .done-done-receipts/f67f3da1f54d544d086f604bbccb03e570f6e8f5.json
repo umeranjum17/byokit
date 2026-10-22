@@ -1,0 +1,62 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "f67f3da1f54d544d086f604bbccb03e570f6e8f5",
+  "tree": "396e444cce3709a48ba7f5618cafe0933613aa25",
+  "claim": "A key lane lists every model the vendor lists, even when the app's config already registers a shorter list",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-22T18:15:11.876Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261022T181152Z-f67f3da1-802df7/openclaw-live-catalogs-minimax.txt",
+      "sha256": "011fc32d4c7344fb609b1bbd06132f31a1687f70782178931e7e6ea7ce7650f7"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261022T181152Z-f67f3da1-802df7",
+      "journey": null,
+      "command": null,
+      "feature": "openclaw-live-catalogs",
+      "tool": "0.6.0",
+      "steps": {
+        "target": {
+          "version": "@byokit/openclaw 0.27.0 (commit f67f3da1, built from source)"
+        },
+        "start": "Worktree at branch fm/byk-accounts-live-models, dependencies installed and packages built; no OpenClaw kit running; no key saved for the scratch member; scratch state directory empty.",
+        "steps": [
+          "Read the verify skill and the openclaw-live-catalogs feature recipe.",
+          "Checked the sanctioned MiniMax key file exists and is non-empty, without printing its contents.",
+          "Wrote a scratch consumer outside the repository that imports OpenClawKit from packages/openclaw/src and reads the key path from its first argument.",
+          "Ran the consumer once under a throwaway HOME with PATH set to /usr/bin first, with a 90 second timeout; a first attempt stopped before any network call because the socket path was too long, so I shortened the scratch state path and reran.",
+          "Started the kit with a fresh state directory and engine directory under the run scratch folder.",
+          "Saved the MiniMax key with authChoice minimax-global-api; the add returned ok.",
+          "Asked the kit for the minimax-global-api model list; it returned 9 models, all available and none offline.",
+          "Added an unlisted id, minimax/not-yet-listed-model; the add returned ok.",
+          "Added minimax/MiniMax-M3.1-Flash; the add returned ok.",
+          "Ran one short prompt on minimax/MiniMax-M3.1-Flash with auth apiKey; the run returned ok with text 'Name?'.",
+          "Stopped the kit, then checked the text output for the key value and found none."
+        ],
+        "result": "The printed text lists nine MiniMax models (MiniMax-M2, M2.1, M2.1-highspeed, M2.5, M2.5-highspeed, M2.7, M2.7-highspeed, M3, M3.1-Flash), each available and not offline, followed by ok results for both adds and a run answer on MiniMax-M3.1-Flash. The app was not started with a config that registers a shorter model list, so this capture does not show that case."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261022T181152Z-f67f3da1-802df7/openclaw-live-catalogs-minimax.txt",
+        "sha256": "011fc32d4c7344fb609b1bbd06132f31a1687f70782178931e7e6ea7ce7650f7",
+        "verdict": "pass",
+        "seen": "Read all 15 capture entries. models() count is 9, and the nine model lines (M2 through M3.1-Flash) each show available=true and offline=false, so the lane lists every model the capture shows the vendor offering. The addUnlisted and addFlash calls returned status ok, and the run returned ok:true with text 'Name?'. Nothing in the capture contradicts the outcome. It does not show the app's shorter configured list or the vendor's full list independently, so the match is good but not fully confirmed."
+      }
+    ]
+  }
+}
