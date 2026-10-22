@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## 0.27.0 (2026-10-22)
+
+- Dependency update: pins @byokit/discover 0.8.5.
+
+- FIX: `serve()` starts one listener per address `reach` names, plus loopback, instead of one listener on
+  whatever `reach` returned: a LAN route's wildcard bind opened the pairing server on every interface of this
+  computer, and the kit now listens only where the phone was pointed, with loopback kept for a client on this
+  machine.
+- FIX: Admit an exact native `sessions_send` return on OpenClaw 2026.9.33 using the hook's structured input provenance, retaining the child receipt, actor, persona and tool-subset checks. Prompt text cannot confer admission, including a forged header naming the completed child.
+- Keep quoted task scripts in native boxed completion context as data in the offline model fixture, rather than parsing them as new user tool instructions.
+- Document a 9.33 coverage regression: detached pre-compaction memory flush tokens are absent from observed Gateway transcript/day accounting even when the flush succeeds. `knownTotalTokens` is not full spend; no synthetic side total is added. Native wait timeouts without lost-proof fields now explicitly retain unresolved delegation receipts: they are not a liveness claim and count toward the journal cap until terminal evidence or explicit abort. The 8.35 automatic unknown-run reclamation guarantee is not claimed.
+- FIX: Upgrade the pinned OpenClaw engine to extended-stable 2026.9.33, regenerate routes and the full operator surface, and keep native Workshop skills scoped to each agent across workspaces. Breaking: requires Node 24.16+ on 24.x or Node 26.1+; Node 22 and 25 are no longer supported.
+- FIX: Admit native delegated dispatch receipts with `status: 'timeout'`, a run id and the exact authorized child key; retain admission until an observed end or explicit abort instead of dropping the child. Pending-call, expiry, member and tool-scope checks remain unchanged.
+- Preserve direct, individually gated builtin tools on the new engine: the kit defaults `tools.toolSearch` to `false`, but never overrides an app's explicit choice; app tools use native direct-only registration.
+- Keep app-owned Telegram messages separate instead of merging them under the engine's new 300 ms burst-batching default.
+- Prepare the full native model catalog once per agent/config generation so CLI rows are visible; later picker/run-selection reads recheck availability without repeating full discovery on every turn.
+- Follow native activation's explicit `gatewayRestartRequired` flag: hot-applied sign-ins no longer wait for a restart that will never happen, while requested restarts retain their original deadline/cancellation checks.
+- Keep native replacement confirmation for real local/global credential sources, not bare model inheritance; a new OpenAI account can activate without weakening existing-login confirmation or native owned-probe guards.
+- Surface native browser links carried by progress steps while preserving sensitive-step redaction and pull-only progress sequencing.
+- Restore manifest-aware staged model canonicalization before native route verification, including OpenRouter's bare `auto`; preserve direct provider-hook precedence and all exact owner/model/auth-profile checks.
+- Stock 9.33 can make separate utility-model Activity-recap requests. Apps that do not want utility work can pass `config.agents.defaults.utilityModel: ''`; foreground-only helper fixtures use that native setting without filtering request ownership assertions.
+- SECURITY: Stop agent-local OAuth refreshes from creating shared credentials. On stock 9.33, Doctor copied one agent's Anthropic login into the shared store, making it available to other agents; the audited engine patch prevents that promotion while retaining native identity/realm checks. Newly staged retained ChatGPT logins also use per-agent profile ids so one member's retired migration archive cannot block another's import. Reported upstream privately, `GHSA-2g8x-r8f8-c89c`.
+
 ## 0.26.1 (2026-10-21)
 
 - FIX: a key sign-in through `@byokit/openclaw` no longer fires one slow `openclaw.setup.detect` per reader: the

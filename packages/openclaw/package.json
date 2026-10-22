@@ -1,6 +1,6 @@
 {
   "name": "@byokit/openclaw",
-  "version": "0.26.1",
+  "version": "0.27.0",
   "description": "The OpenClaw runtime kit: the pinned engine's full operator surface with plain-words helpers for members, sign-in, runs and approvals.",
   "license": "Apache-2.0",
   "type": "module",
@@ -63,7 +63,7 @@
     "@byokit/accounts": "0.30.0",
     "@byokit/pair": "0.10.4",
     "@byokit/relay": "0.8.2",
-    "@byokit/discover": "0.8.4",
+    "@byokit/discover": "0.8.5",
     "@byokit/seal": "0.3.1",
     "@byokit/secrets": "0.5.2",
     "@openclaw/gateway-client": "2026.9.33",

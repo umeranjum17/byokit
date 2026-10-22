@@ -14,9 +14,9 @@
     "test": "node --test e2e.test.ts"
   },
   "dependencies": {
-    "@byokit/herdr": "0.16.4",
+    "@byokit/herdr": "0.16.5",
     "@byokit/pair": "0.10.4",
-    "@byokit/discover": "0.8.4",
+    "@byokit/discover": "0.8.5",
     "@byokit/relay": "0.8.2",
     "@byokit/seal": "0.3.1",
     "@byokit/ui": "0.9.0"
