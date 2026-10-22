@@ -671,7 +671,7 @@ writing only if bytes change (0600):
   carries — e.g. `openrouter`; a route nobody offers stays out), and every external plugin `installPlugin` installed
   (B7, 5.7), and `telegram` while that channel is on (5.18); the kit adds no other id;
   `plugins.entries[id].hooks.timeouts.before_tool_call = 200_000`. On 9.33 the native-default-enabled
-  `openai` and `opencode-go` providers are explicitly pinned enabled before boot unless the caller disabled them. This adds no
+  `openai`, `opencode-go` and `openrouter` providers are explicitly pinned enabled before boot unless the caller disabled them. This adds no
   provider authority: it prevents setup promotion from introducing a plugin-enable change inside its secret
   transaction, which native preflight correctly refuses. Other providers and caller disables are unchanged. The pinned
   engine treats a non-empty `plugins.allow` as a restrictive allowlist: a provider sign-in, and that provider's runs,
@@ -2256,7 +2256,7 @@ boundary and requalify Doctor plus Gateway/other-agent controls. The only duplic
 package-publication recovery helper, explicitly outside D19 coverage; ordinary managed Gateway/Doctor commands
 load the patched module. No upstream report is filed without captain consent.
 
-**Key replacement evidence (9.33 compatibility, set `cbbfc493a7f6a893`).** The staged-credential replacement
+**Key replacement evidence (9.33 compatibility, set `105c3274582a4ede`).** The staged-credential replacement
 predicate requires an actual existing credential source for that provider: a non-setup agent-local profile or a
 configured global provider key. An inherited/effective model provider alone is not credential evidence. Stock
 9.33 introduced that extra heuristic; the 8.35 activation path did not require confirmation merely for a model
@@ -2267,7 +2267,17 @@ Drop this patch once upstream no longer treats bare model inheritance as a crede
 sealed package-publication recovery bundle stays explicitly outside D19 coverage; no consent is injected and no
 upstream report is filed without captain consent.
 
-**Key setup plan.** The 8.35 starter-model normalization patch is retired in 9.33: upstream replaced that setup planner with staged owner-evidence route resolution and no longer contains `canonicalizeSetupModelRef`. The kit does not carry a stale patch into the replacement pipeline. `test/engine/accounts.test.ts` activates an OpenRouter key on the pinned engine and runs on a chosen model.
+**Key setup plan (9.33 compatibility).** Restore the 8.35 audited canonicalization in the replacement pipeline:
+`stagePreparedCandidate` keeps its direct provider normalization hook first, then uses the native manifest-aware
+`parseModelRef` with the prepared config's metadata/workspace and no second runtime-hook invocation. This applies
+OpenRouter's `prefixWhenBare` to `auto` before constructing the staged ref, matching configured-route resolution.
+It never invents a model, availability, credential or consent, and leaves the exact requested-agent/provider/model/
+auth-profile witness guard and every ownership, replacement-confirmation, freshness and preflight check unchanged.
+A deterministic unit executes the shipped normalization delta and unchanged native tuple guard: manifest prefixing,
+direct-hook precedence, and mismatched provider/model/auth refusal. The unchanged real OpenRouter journey must
+reach its synthetic402 billing refusal, then activate and chat on a valid chosen model. Drop this edit when upstream
+staging applies the same manifest-aware canonicalization as route resolution; requalify both controls before removal.
+The sealed package-publication recovery bundle remains outside D19 coverage.
 
 **Engine sets.** A patched engine is never made by editing files in place: stock OpenClaw rewrites its process
 title (`/proc/<pid>/cmdline` is `openclaw-gateway`, `test/engine/boot.test.ts`) and a running Gateway holds no file or

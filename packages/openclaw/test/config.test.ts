@@ -23,7 +23,7 @@ test('fresh and adversarial config force isolation and no paid memory fallback',
   assert.equal(c.update.auto.enabled, false);
   assert.equal(c.telemetry.enabled, false);
   assert.equal(c.models.catalogRefresh.enabled, false);
-  for (const id of ['openai', 'opencode-go']) {
+  for (const id of ['openai', 'opencode-go', 'openrouter']) {
     assert.equal(c.plugins.entries[id].enabled, true);
     assert.deepEqual((reconcileConfig(undefined, { ...opts(root), app: { plugins: { entries: { [id]: { enabled: false, config: { kept: true } } } } } }) as any)
       .plugins.entries[id], { enabled: false, config: { kept: true } }, 'an explicit caller disable stays disabled');

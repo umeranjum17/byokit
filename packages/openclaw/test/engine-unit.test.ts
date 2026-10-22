@@ -73,6 +73,52 @@ test('immutable sets validate all bytes, clone offline, roll back by selection a
   } finally { t.mock.restoreAll(); syncBuiltinESMExports(); removeScratch(dir); }
 });
 
+test('staged canonicalization matches native route tuples without weakening the witness', () => {
+  const file = shippedSet().files.find(f => f.path === 'dist/setup-inference-credentials-D4Y52_FC.mjs')!;
+  const edit = file.edits.find(e => e.find.includes('const normalizedModel ='))!;
+  assert.ok(edit, 'shipped immutable patch carries the staged canonicalization');
+  const stage = new Function('params', 'ctx', 'ref', 'resolvedModel', 'byokitParseSetupModelRef', 'byokitSetupMetadata',
+    `${edit.replace}\nreturn modelRef;`);
+  const config = {}, workspace = 'fixture-workspace';
+  const plugins = [{ modelIdNormalization: { providers: { openrouter: { prefixWhenBare: 'openrouter' } } } }];
+  const parse = (raw: string) => { const slash = raw.indexOf('/'); return { provider: raw.slice(0, slash), model: raw.slice(slash + 1) }; };
+  // The native parser's injected manifest-policy contract; the delta must delegate, not hardcode a model.
+  const nativeParse = (raw: string, _provider: string, options: any) => {
+    assert.equal(options.manifestPlugins, plugins);
+    assert.equal(options.allowPluginNormalization, false, 'direct hook must never be invoked twice');
+    const ref = parse(raw);
+    const prefix = options.manifestPlugins[0].modelIdNormalization.providers[ref.provider].prefixWhenBare;
+    return { ...ref, model: ref.model.includes('/') ? ref.model : `${prefix}/${ref.model}` };
+  };
+  const metadata = (options: any) => {
+    assert.equal(options.config, config); assert.equal(options.workspaceDir, workspace);
+    assert.equal(options.env, process.env); return { plugins };
+  };
+  const staged = (raw: string, provider = {}) => stage({ config, provider }, { workspace }, parse(raw), raw, nativeParse, metadata);
+  assert.equal(staged('openrouter/auto'), 'openrouter/openrouter/auto', 'bare auto gets native prefixWhenBare');
+  assert.equal(staged('openrouter/deepseek/model'), 'openrouter/deepseek/model', 'qualified catalog ids remain literal');
+  const hook = stage({ config, provider: { normalizeModelId: () => '  vendor/hook  ' } }, { workspace }, parse('openrouter/auto'),
+    'openrouter/auto', () => assert.fail('direct provider hook wins'), () => assert.fail('no metadata discovery needed for direct hook'));
+  assert.equal(hook, 'openrouter/vendor/hook');
+  // Exact published guard, bound to both stock and patched bundle by engine-patches.ts --check.
+  const witness = readFileSync(new URL('./fixtures/stock/activation-route-witness.txt', import.meta.url), 'utf8');
+  const verify = new Function('route', 'staged', 'failure', `${witness}\nreturn {ok:true};`);
+  const expected = { modelRef: staged('openrouter/auto'), authProfileId: 'openrouter:fixture' };
+  const matching = { modelLabel: expected.modelRef, authProfileId: expected.authProfileId };
+  const check = (route: unknown, candidate = expected) => verify(route, candidate, (result: unknown) => result);
+  assert.deepEqual(check(matching), { ok: true });
+  const stockStage = new Function('params', 'ref', 'resolvedModel', `${edit.find}\nreturn modelRef;`);
+  const stockRef = stockStage({ provider: {} }, parse('openrouter/auto'), 'openrouter/auto');
+  assert.equal(stockRef, 'openrouter/auto');
+  assert.equal(check(matching, { ...expected, modelRef: stockRef }).ok, false, 'stock staged ref fails the same unchanged tuple guard');
+  for (const route of [null, { ...matching, modelLabel: 'other/openrouter/auto' },
+    { ...matching, modelLabel: 'openrouter/different' }, { ...matching, authProfileId: 'openrouter:other' }]) {
+    assert.equal(check(route).ok, false, 'missing/provider/model/auth mismatch still refused');
+    assert.equal(check(route).status, 'unavailable');
+  }
+  assert.deepEqual(check({ modelLabel: hook, authProfileId: expected.authProfileId }, { ...expected, modelRef: hook }), { ok: true });
+});
+
 // Claude wire names for the Tooling list (ch-cli-tool-prefix): the printed Tooling names on the
 // Claude route must equal the Claude wire catalog names (mcp__openclaw__-prefixed); every other
 // route stays byte-identical and already-prefixed names are never prefixed again.

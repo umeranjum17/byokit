@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "id": "cbbfc493a7f6a893",
+  "id": "105c3274582a4ede",
   "upstream": {
     "name": "openclaw",
     "version": "2026.9.33",
@@ -91,11 +91,19 @@
     {
       "path": "dist/setup-inference-credentials-D4Y52_FC.mjs",
       "before": "2e313b296d28ad28417e187926f17d99f3b37cad98688315d3309575928734b8",
-      "after": "64de4e6c8908310efb878ebb4e72550fe6b52ab8b75a98213433629259ec2d45",
+      "after": "bcf388ef12042195cb5621190b94eb19e22baba013d93a892691d1405b9f3d7e",
       "edits": [
         {
           "find": "function isSetupCredentialReplacement(params) {\n\tconst store = loadAuthProfileStoreWithoutExternalProfiles(params.agentDir);\n\tconst provider = resolveProviderIdForAuth(params.provider, {\n\t\tconfig: params.baseConfig,\n\t\tstoredCredential: true\n\t});\n\treturn Object.values(store.profiles).some((credential) => !credential.setup && resolveProviderIdForAuth(credential.provider, {\n\t\tconfig: params.baseConfig,\n\t\tstoredCredential: true\n\t}) === provider) || Boolean(params.baseConfig.models?.providers?.[provider]?.apiKey) || parseInferenceRef(resolveAgentEffectiveModelPrimary(params.baseConfig, resolveAmbientOwnerAgentId(params.baseConfig)) ?? \"\").provider === provider;\n}",
           "replace": "function isSetupCredentialReplacement(params) {\n\tconst store = loadAuthProfileStoreWithoutExternalProfiles(params.agentDir);\n\tconst provider = resolveProviderIdForAuth(params.provider, {\n\t\tconfig: params.baseConfig,\n\t\tstoredCredential: true\n\t});\n\t// BYOKit: inherited model selection alone is not an existing credential source.\n\treturn Object.values(store.profiles).some((credential) => !credential.setup && resolveProviderIdForAuth(credential.provider, {\n\t\tconfig: params.baseConfig,\n\t\tstoredCredential: true\n\t}) === provider) || Boolean(params.baseConfig.models?.providers?.[provider]?.apiKey);\n}"
+        },
+        {
+          "find": "import { r as normalizeProviderId } from \"./provider-id-BIyeXQag.mjs\";\n",
+          "replace": "import { r as normalizeProviderId } from \"./provider-id-BIyeXQag.mjs\";\nimport { n as byokitParseSetupModelRef } from \"./model-selection-normalize-DVk7nZbI.mjs\";\nimport { u as byokitSetupMetadata } from \"./plugin-metadata-snapshot-D_ni58BI.mjs\";\n"
+        },
+        {
+          "find": "\tconst normalizedModel = params.provider?.normalizeModelId?.({\n\t\tprovider: ref.provider,\n\t\tmodelId: ref.model\n\t})?.trim();\n\tconst modelRef = normalizedModel ? `${ref.provider}/${normalizedModel}` : resolvedModel;\n",
+          "replace": "\t// BYOKit: use the same manifest policies as the exact configured-route witness; direct hooks still win.\n\tconst normalizedModel = params.provider?.normalizeModelId?.({\n\t\tprovider: ref.provider,\n\t\tmodelId: ref.model\n\t})?.trim() || byokitParseSetupModelRef(resolvedModel, ref.provider, {\n\t\tmanifestPlugins: byokitSetupMetadata({ config: params.config, workspaceDir: ctx.workspace, env: process.env }).plugins,\n\t\tallowPluginNormalization: false\n\t})?.model;\n\tconst modelRef = normalizedModel ? `${ref.provider}/${normalizedModel}` : resolvedModel;\n"
         }
       ]
     }
