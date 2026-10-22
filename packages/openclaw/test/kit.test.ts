@@ -1615,3 +1615,22 @@ test('a failed Go add and a workspace-less Go add leave no stale workspace heade
     'the probe runs with no workspace header');
   assert.deepEqual(await headers(), undefined, 'a workspace-less add keeps no standing workspace');
 }));
+
+test('a key lane lists every model the vendor lists, though the config already registers a shorter list', async () => {
+  const stateDir = scratchDir('live');
+  const fake = fakeGateway();
+  const row = (id: string) => ({ id, name: id, api: 'anthropic-messages', baseUrl: 'https://api.minimax.io/anthropic', input: ['text', 'image'], contextWindow: 1_000_000 });
+  const fixed = ['MiniMax-M3', 'MiniMax-M3.1-Flash-Preview'];
+  const live = [...fixed, 'MiniMax-M2.7', 'MiniMax-M2.5', 'MiniMax-M2.1', 'MiniMax-M2', 'MiniMax-M1', 'MiniMax-Text-01', 'MiniMax-VL-01'];
+  const kit = new OpenClawKit({ stateDir, transport: fake.factory, spawnEngine: false,
+    config: { models: { providers: { minimax: { models: fixed.map(row) } } } } as never });
+  try {
+    await kit.start();
+    fake.handle('byokit.catalog', (p) => p.provider === 'minimax' && fake.calls.some((c) => c.method === 'openclaw.setup.activate')
+      ? { ok: true, models: live.map(row) } : { ok: false, reason: 'no-key' });
+    assert.deepEqual(await kit.addKey('m1', { authChoice: 'minimax-global-api', apiKey: 'CANARY-MINIMAX-LIVE-KEY' }), { status: 'ok' });
+    const listed = (await kit.models('m1', 'minimax.key')).map((m) => m.id);
+    assert.deepEqual(live.map((id) => `minimax/${id}`).filter((id) => !listed.includes(id)), [],
+      "the lane lists the vendor's whole live list, not the registered pair");
+  } finally { await kit.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+});

@@ -275,7 +275,8 @@ export type Room = { left: number; span: RoomSpan; resetsAt?: number; at?: numbe
                                      // left: percent of the tightest applying window left, 0-100; times epoch ms;
                                      // at: when the source read it; absent = age unknown, never a receipt time
 export type ModelInfo = { id: string; name: string; tier?: 'strong' | 'fast'; available: boolean;
-  why?: 'plan' | 'resting' | 'signed_out'; until?: number };                   // id = 'provider/model'
+  why?: 'plan' | 'resting' | 'signed_out'; until?: number;                  // id = 'provider/model'
+  offline?: true };                  // from the fixed fallback list: the vendor's live list could not be read
 export type RunSelection = { account: AccountRef | 'default' | 'auto'; model?: string;
   needs?: string[];                  // every other 'provider/model' the run may call (subagents, fallbacks)
   provider?: string };               // limits the choice to one provider; absent = the saved default's provider

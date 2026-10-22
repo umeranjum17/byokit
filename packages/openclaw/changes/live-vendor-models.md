@@ -1,0 +1,1 @@
+- FIX: A key lane lists the vendor's whole live model list even when the app's config already registers a shorter list (MiniMax's fixed pair); the catalog sync no longer skips a provider whose config lists models. Rows from the plugin's fixed list, used when the vendor's live list cannot be read, carry `offline: true`.

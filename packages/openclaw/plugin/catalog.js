@@ -42,6 +42,7 @@ export function registerCatalog(api) {
         // A plugin catalog can be a fixed list (MiniMax's): the vendor's own `/models` lists newer ids, which join it with
         // the richest row's api, base URL and capabilities (a vendor list carries ids only). Same rule as
         // @byokit/accounts' live lists; another api, or a failed fetch, keeps the plugin's rows.
+        let offline = false;
         const base = models.reduce((a, b) => (b.contextWindow ?? 0) > (a.contextWindow ?? 0) ? b : a);
         const openai = String(base.api).startsWith('openai-');
         if (base.baseUrl && (openai || base.api === 'anthropic-messages')) {
@@ -50,12 +51,13 @@ export function registerCatalog(api) {
           const listed = await fetch(`${String(base.baseUrl).replace(/\/$/, '')}${openai ? '/models' : '/v1/models'}`, { signal: AbortSignal.timeout(10_000),
             headers: bearer ? { authorization: `Bearer ${apiKey}`, 'anthropic-version': '2023-06-01' } : { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' } })
             .then((r) => r.ok ? r.json() : null, () => null);
+          offline = !Array.isArray(listed?.data);
           const have = new Set(models.map((m) => m.id));
           for (const m of Array.isArray(listed?.data) ? listed.data : [])
             if (typeof m?.id === 'string' && m.id && !have.has(m.id))
               models.push({ ...base, id: m.id, name: m.display_name || m.id, input, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } });
         }
-        return respond(true, { ok: true, models });
+        return respond(true, { ok: true, models, ...(offline ? { offline: true } : {}) });
       }
       respond(true, { ok: false, reason: unreadable ? 'failed' : 'no-key' });
     } catch {
