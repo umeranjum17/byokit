@@ -1,0 +1,58 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "b99f0fbd2f41d34a6bd54828cdd4133b0701d37e",
+  "tree": "75aaefa74f4ae2e0273c4b250119ab1d3211855e",
+  "claim": "the released @byokit/openclaw 0.27.0, @byokit/discover 0.8.5 and @byokit/herdr 0.16.5 install into a consumer app that gets the 2026.9.33 engine and a LAN route that binds only the address the phone was offered (never a wildcard), and on that engine a delegated child that timed out stays admitted while a sent child's report comes back as the sender's return run",
+  "result": "pass",
+  "at": "2026-10-22T14:11:08.866Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261022T140506Z-b99f0fbd-2f60c9/release-933.txt",
+      "sha256": "07ab97394ea4e1008e54d734288b329f7d3d040ee1e95989223529dbf2a04f66"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261022T140506Z-b99f0fbd-2f60c9",
+      "journey": null,
+      "command": "bash -c 'flock <firstmate state>/heavy-jobs.lock <firstmate config>/fm-mem-gate.sh bash <private task evidence>/capture-release-933.sh'",
+      "tool": "0.6.0",
+      "steps": {
+        "target": {
+          "version": "@byokit/openclaw 0.27.0, @byokit/discover 0.8.5, @byokit/herdr 0.16.5 (the released tarballs, installed into a consumer app outside the monorepo)"
+        },
+        "start": "A fresh consumer app outside the monorepo, with no package installed, no account and no key.",
+        "steps": [
+          "the app installs the released tarballs npm ships: @byokit/openclaw 0.27.0, @byokit/discover 0.8.5 and @byokit/herdr 0.16.5",
+          "each installed kit resolves inside the app's own node_modules, so the app drives the released packages",
+          "the app reads the openclaw kit's engine pin: the released kit ships the 2026.9.33 engine",
+          "the app asks the discover kit for the LAN route a phone can dial: the bind list holds the one LAN address, never a wildcard, and every dial url names an address in that list",
+          "the app starts one listener per bind address on a free port: the port answers on the address the phone was offered and is refused on 127.0.0.1, and the same port can still be taken on loopback",
+          "the app asks the discover kit for a LAN route on a computer with no LAN address: it refuses with its own no LAN address message",
+          "the kit's own delegation journey runs against the pinned 2026.9.33 engine: a 9.33 dispatch receipt with status timeout keeps the child admitted until an end is observed, and a receipt without the exact key or run id is refused",
+          "the journey reads a sent child's report: it comes back as the sender's return run, with the root's actor, persona and tools, while an unknown or forged run stays refused",
+          "the app reads the shipped CHANGELOG of each installed kit: the release ships the notes of each version"
+        ],
+        "result": "The app gets the released kits working: the openclaw kit ships the 2026.9.33 engine and keeps a delegated child that timed out admitted until an end is observed, a sent child's report comes back as the sender's return run, and the discover LAN route binds only the address the phone was offered, never a wildcard."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261022T140506Z-b99f0fbd-2f60c9/release-933.txt",
+        "sha256": "07ab97394ea4e1008e54d734288b329f7d3d040ee1e95989223529dbf2a04f66",
+        "verdict": "pass",
+        "seen": "I read the full capture. Install lines show @byokit/openclaw 0.27.0, @byokit/discover 0.8.5 and @byokit/herdr 0.16.5 in the consumer app, and the openclaw engine reports 2026.9.33. Reach() gives bind [\"192.168.1.144\"] with URL ws://192.168.1.144:37969, and the check states no wildcard. The port is open on 192.168.1.144 and refused on 127.0.0.1, so no wildcard held it. The delegated-child test '9.33 timeout receipts admit the exact child and retain it until an observed end' passed. The native test 'a sent child's report comes back as the sender's return run' passed, and its return run shows the sender's actor, persona and tools. The final tally is pass 6, fail 0. The capture supports each claim in the outcome. The main uncertainty is that the outcome's phrasing is broader than the single test summary."
+      }
+    ]
+  }
+}
