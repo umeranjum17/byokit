@@ -31,10 +31,10 @@ try {
   mkdirSync(skills, { recursive: true });
   const content = '---\nname: launch-check\ndescription: Check the launch for Umer.\n---\nCheck the launch before reporting ready.\n';
   writeFileSync(join(skills, 'SKILL.md'), content);
-  assert.ok((await kit.workshopSkills('umer')).installedSkills.some(s => s.name === 'launch-check'));
-  assert.equal((await kit.readWorkshopSkill('umer', 'launch-check')).content, content);
+  assert.ok((await kit.call('skills.proposals.list', { agentId: 'umer' })).installedSkills.some(s => s.name === 'launch-check'));
+  assert.equal((await kit.call('skills.workshop.read', { agentId: 'umer', name: 'launch-check' })).content, content);
   await kit.ensureMember('other');
-  await assert.rejects(kit.readWorkshopSkill('other', 'launch-check'));
+  await assert.rejects(kit.call('skills.workshop.read', { agentId: 'other', name: 'launch-check' }));
   await assert.rejects(kit.installPlugin('telnyx'), e => e instanceof PluginInstallError && e.code === 'unsupported_plugin');
   record('native Workshop', { completeContent: true, otherAgentRefused: true, thirdPartyInstall: 'unsupported_plugin' });
   const catalog = await kit.models('umer', { authChoice: 'minimax-global-api' });

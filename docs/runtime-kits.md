@@ -1591,7 +1591,7 @@ change; a stale set fails `before` and blocks release), re-derives `engine/plugi
 5.7), re-checks that the Gateway-covered kinds of 5.16 still hold
 (the review stays out of `sessions.usage`, recovery and flush stay in it), and re-runs the O15–O17 engine tests.
 
-The native Workshop collection is agent-owned (`state/agents/<agentId>/agent/workshop-skills`), not tied to the current workspace. `workshopSkills(member): Promise<GatewayResult<'skills.proposals.list'>>` lists pending proposals and installed skills; `readWorkshopSkill(member, name): Promise<GatewayResult<'skills.workshop.read'>>` reads complete instructions. Both ensure the member and pass its exact agent id to native RPCs. The complete generated `call` surface retains Workshop proposal, review, curator, library and skill methods for account/helper agent ids, without translating storage or creating a parallel learning system.
+The native Workshop collection is agent-owned (`state/agents/<agentId>/agent/workshop-skills`), not tied to the current workspace. The complete generated `call` surface retains Workshop proposal, review, curator, library and skill methods for explicit member/account/helper agent ids, without translating storage or creating a parallel learning system. Native `skills.proposals.list` returns pending proposals and installed skills; `skills.workshop.read` returns complete instructions, with the caller's exact `agentId`.
 
 ### 5.13 Internal module seams (stub signatures for O1)
 

@@ -689,17 +689,6 @@ export class OpenClawKit {
     return result;
   }
 
-  /** The agent-owned native Workshop collection and pending proposals, shared across its workspaces. */
-  async workshopSkills(member: Member): Promise<GatewayResult<'skills.proposals.list'>> {
-    const { agentId } = await this.ensureMember(member);
-    return this.call('skills.proposals.list', { agentId });
-  }
-  /** Read a native Workshop skill's complete instructions from this member's own collection. */
-  async readWorkshopSkill(member: Member, name: string): Promise<GatewayResult<'skills.workshop.read'>> {
-    const { agentId } = await this.ensureMember(member);
-    return this.call('skills.workshop.read', { agentId, name });
-  }
-
   /** One of the member's helpers (5.8.3): its own persona and sessions on the member's `account`, no new sign-in. */
   ensureHelper(member: Member, helper: string, o: { account: AccountId; persona: string }): Promise<Helper> {
     if (!this.helpersCtl) return Promise.reject(new Error('gateway not ready'));

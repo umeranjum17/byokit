@@ -177,7 +177,12 @@ test('discovery matches the pinned gateway: every ready choice is set up, every 
     && (route.readiness === 'ready' || route.readiness === 'no_upstream_flow'));
   assert.ok(['opencode-go', 'fal-api-key', 'openai'].every((choice) => table.some((route) => route.choice === choice)));
   const refused = /not available on this Gateway/i;
-  await withGateway([...new Set(table.map((route) => route.plugin).filter((id): id is string => !!id))], async (_ctx, request) => {
+  await withGateway([...new Set(table.map((route) => route.plugin).filter((id): id is string => !!id))], async (_ctx, request, state) => {
+    // This offline inventory fixture needs the real first probe, not backoff against its deliberate egress denial.
+    // Native supported agent settings only: production verification/retry defaults and every timer stay unchanged.
+    const agentDir = join(state, 'openclaw', 'state', 'agents', 'm1', 'agent');
+    mkdirSync(agentDir, { recursive: true });
+    writeFileSync(join(agentDir, 'settings.json'), JSON.stringify({ retry: { provider: { maxRetries: 0 } } }), { mode: 0o600 });
     // One setup admission at a time; a cancelled session frees it shortly after (N5): retry busy, bounded.
     const said = (failure: unknown) => String(failure instanceof Error ? failure.message : failure);
     const busy = /already in progress|SETUP_ADMISSION_BUSY/i;

@@ -45,12 +45,10 @@ test('learning is captured, applied by a real boot and restored exactly', { time
     mkdirSync(skillDir, { recursive: true });
     const content = '---\nname: weather-planner\ndescription: Plan the weather check for Umer.\n---\nCheck the weather before making plans.\n';
     writeFileSync(join(skillDir, 'SKILL.md'), content);
-    assert.ok((await kit.workshopSkills('m1')).installedSkills.some(skill => skill.name === 'weather-planner'));
-    assert.equal((await kit.readWorkshopSkill('m1', 'weather-planner')).content, content);
-    assert.deepEqual(await kit.readWorkshopSkill('m1', 'weather-planner'),
-      await kit.call('skills.workshop.read', { agentId: 'm1', name: 'weather-planner' }));
-    assert.equal((await kit.workshopSkills('m2')).installedSkills.length, 0, 'another agent must not inherit learned skills');
-    await assert.rejects(kit.readWorkshopSkill('m2', 'weather-planner'), /weather-planner|not found|does not exist/i);
+    assert.ok((await kit.call('skills.proposals.list', { agentId: 'm1' })).installedSkills.some(skill => skill.name === 'weather-planner'));
+    assert.equal((await kit.call('skills.workshop.read', { agentId: 'm1', name: 'weather-planner' })).content, content);
+    assert.equal((await kit.call('skills.proposals.list', { agentId: 'm2' })).installedSkills.length, 0, 'another agent must not inherit learned skills');
+    await assert.rejects(kit.call('skills.workshop.read', { agentId: 'm2', name: 'weather-planner' }), /weather-planner|not found|does not exist/i);
     await assert.rejects(kit.installPlugin('telnyx'), error => error instanceof PluginInstallError && error.code === 'unsupported_plugin');
     await kit.stop();
     const pristine = readFileSync(file, 'utf8'); // before any learning write
@@ -58,7 +56,7 @@ test('learning is captured, applied by a real boot and restored exactly', { time
     assert.deepEqual(kit.setLearning('off'), { present: false }, 'the set reports the state it replaced');
     await kit.start();
     assert.equal(await applied(), 'off', 'the real engine did not apply the mode written while stopped');
-    assert.equal((await kit.readWorkshopSkill('m1', 'weather-planner')).content, content, 'native collection survives a restart');
+    assert.equal((await kit.call('skills.workshop.read', { agentId: 'm1', name: 'weather-planner' })).content, content, 'native collection survives a restart');
     const disabled = await reviewJob();
     assert.ok(disabled, 'no collection-review job for m1 after boot');
     assert.equal(disabled.enabled, false, 'the collection review stayed enabled with learning off');
