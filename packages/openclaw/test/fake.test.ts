@@ -306,6 +306,7 @@ test('a fakeGateway script pre-registers handlers over the defaults', async () =
 
 test('the tool-call parser matches nested braces and quotes', () => {
   assert.deepEqual(toolCalls('no tools here'), []);
+  assert.throws(() => toolCalls('[tool a {broken}]'), SyntaxError, 'malformed instructions are never swallowed');
   assert.deepEqual(toolCalls('before [tool a {"x":{"y":1}}] after'), [{ name: 'a', input: { x: { y: 1 } } }]);
   assert.deepEqual(toolCalls('[tool a {"s":"brace } here"}][tool b {"n":[1,2]}]'), [
     { name: 'a', input: { s: 'brace } here' } }, { name: 'b', input: { n: [1, 2] } },
@@ -363,6 +364,11 @@ test('the stub drives tools across turns: call, then the result reply', async ()
       internal,
     ]);
     assert.equal(second.content, 'stub bot: crew_x said the tool said so');
+    const recap = await complete(stub, [{ role: 'system', content: 'Write an Activity recap.' },
+      { role: 'user', content: JSON.stringify({ previousRecap: '', omittedContent: false,
+        messages: ['user: [tool report {"text":"Working"}] hit the limit'] }) }]);
+    assert.equal(recap.status, 200, 'quoted recap history is not a usage-limit instruction');
+    assert.deepEqual(recap.tools, [], 'quoted recap history is not a new tool instruction');
   } finally {
     await stub.close();
   }
