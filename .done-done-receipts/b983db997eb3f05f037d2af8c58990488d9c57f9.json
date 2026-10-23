@@ -1,0 +1,70 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "b983db997eb3f05f037d2af8c58990488d9c57f9",
+  "tree": "c238703885b8788ef64bbe0594b17b3ef8adc275",
+  "claim": "The cloud kit spec now designs copies that keep being saved while the app is closed (a timer on a Boat machine with a key minted for that one machine; Hetzner servers and SSH boxes refuse as unsupported) and an undo for update() through a copy saved before it, with typed errors, plain words, the breaking changes and a six-step build order; the Boat and Hetzner facts it records match their public API documents; and the built kit today saves no copy on update, has no undo and no schedule on the machine, and refuses a save past the free copies with no credit as balance while deleting nothing",
+  "result": "pass",
+  "at": "2026-10-23T17:30:45.646Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261023T173021Z-b983db99-736a14/spec-check-summary.txt",
+      "sha256": "bc52d9d438b9e1c6a4baaa52caed27974caee2299da6c8d7d0249db0a644450e"
+    },
+    {
+      "path": "<evidence root>/20261023T173021Z-b983db99-736a14/cloud-gaps.txt",
+      "sha256": "281f54c5f7be15f4560b9e95aa186fd3b18004c17a0cf6d72dfa74c59dd5fa85"
+    },
+    {
+      "path": "<evidence root>/20261023T173021Z-b983db99-736a14/verify-cloud-gaps.mjs",
+      "sha256": "892524957d7f909bff67476e2d558587c19e04bdb692c492f8d01e4c473a7fcb"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261023T173021Z-b983db99-736a14",
+      "commit": "b983db997eb3f05f037d2af8c58990488d9c57f9",
+      "journey": null,
+      "command": "sh /tmp/claude-1000/-home-umer--treehouse-byokit-48ee6a-1-byokit/da49687f-ea7d-485e-a0b0-21748f53b226/scratchpad/drive/run.sh",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "@byokit/cloud 0.5.0 (built from b983db99)"
+        },
+        "start": "a consumer app with the built @byokit/cloud and the loopback Boat bench, no account or spend",
+        "steps": [
+          "create a Boat cloud computer with copies on and install a host",
+          "save copies, keep the newest few, reset from one, read disk space",
+          "run the in-app copy schedule",
+          "update the host and look for a copy saved before it, an undo, and a schedule or timer on the machine",
+          "fill the account's 10 free copies with no credit and save once more",
+          "try to save a copy of an SSH box"
+        ],
+        "result": "copies, reset and the in-app schedule work; update saves no copy and there is no undo and no schedule on the machine; a save past the free copies with no credit is refused as balance and deletes nothing, shown with the running-out sentence; an SSH box has no copies"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261023T173021Z-b983db99-736a14/spec-check-summary.txt",
+        "sha256": "bc52d9d438b9e1c6a4baaa52caed27974caee2299da6c8d7d0249db0a644450e",
+        "verdict": "pass",
+        "seen": "Read every entry (about 55 PASS lines plus the summary). The spec-check shows the 4.7, 5.15, 5.16 and 5.17 headings, the declared update undo, snapshot schedule and error methods, six build-order steps S1 to S6, the Boat and Hetzner facts, and plain words for each message. It ends with '0 failed check(s)' and EXIT=0. The check confirms the spec's own content, not the public API documents themselves, so it is not fully proof of the Boat and Hetzner claim."
+      },
+      {
+        "path": "<evidence root>/20261023T173021Z-b983db99-736a14/cloud-gaps.txt",
+        "sha256": "281f54c5f7be15f4560b9e95aa186fd3b18004c17a0cf6d72dfa74c59dd5fa85",
+        "verdict": "pass",
+        "seen": "Read all 15 lines. Built kit: gap-1 update() returns 'nothing: no undo point' with 0 copies saved, and undo methods are []. gap-2 schedule methods are [], scheduleJob is undefined, and timers are []. Billing: refused save is 'balance' and nothing deleted is true. The ssh box snapshot() is 'unsupported'. These match the outcome's built-kit claims. The Hetzner refusal is not shown in this capture."
+      }
+    ]
+  }
+}
