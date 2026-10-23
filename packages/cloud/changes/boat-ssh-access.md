@@ -1,0 +1,1 @@
+- FEATURE: `boat()` can let a device in over plain SSH: `provider.sshAccess(ref, publicKey)` adds one OpenSSH public key to the machine (Boat's `/sshkey`) and returns the host, port, user and host key to pin, so the SSH adapter and any SSH client reach a Boat computer like any other server.

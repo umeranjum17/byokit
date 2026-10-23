@@ -15,6 +15,7 @@ A consumer app rents and drives a Boat cloud computer through the built `@byokit
 - `boat-retry-deadline`: 429 and 5xx are retried at 1 s, 2 s and 4 s, and a transient answer never becomes a hard `provider` failure just because the provider's own answers are slow; one 10 s request deadline caps the waits and ends the retries on an answer that arrives past it. A wait the deadline capped still earns the retry it waited for.
 - `boat-tailnet`: keyless `joinTailnet` emits the phone login link then a validated MagicDNS name; status distinguishes joined/needs-login/off and refuses malformed answers. Boat join keys are rejected before exec or file writes.
 - `boat-private-bootstrap`: create + install + host + join make zero `/host` calls; `url()` is explicit public exposure, never bootstrap.
+- `boat-ssh-access`: `sshAccess(ref, publicKey)` posts one OpenSSH key to `/sandboxes/{id}/sshkey`, returns host, port, user and the `SHA256:` fingerprint of the answered `hostKey`, and refuses anything but one key line before any request; `setup()` then installs on that machine through `sshVm` with no REST exec (journey: `an app lets its device into an existing Boat computer over plain SSH`).
 
 ## How to get to it (user POV)
 

@@ -57,6 +57,7 @@ export interface Provider {
   snapshot?(m: MachineRef, name: string): Promise<{ name: string }>
   fork?(m: MachineRef, o: { name: string; size: string; idempotencyKey: string }): Promise<MachineRef>
   remove?(m: MachineRef, confirm: string): Promise<void>        // confirm must equal m.id; also removes the kit's named snapshots
+  sshAccess?(m: MachineRef, publicKey: string): Promise<{ host: string; port: number; user: string; fingerprint: string }>  // authorizes one OpenSSH public key; resolves where to connect and the host key to pin
   url?(m: MachineRef, port: number): Promise<string | null>     // provider HTTPS URL for a port bound on 0.0.0.0
   usage?(m: MachineRef, since: string): Promise<Usage>
   key?(): Promise<KeyInfo>                                      // provider key expiry and scopes

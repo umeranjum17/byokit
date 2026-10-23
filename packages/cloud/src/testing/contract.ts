@@ -236,6 +236,19 @@ export function machineContract(make: () => Promise<MachineBench>, o?: { test?: 
     void bench;
   });
 
+  runTest('11b: sshAccess authorizes one OpenSSH public key and names the target and host key to pin', async (t) => {
+    const bench = await make();
+    const access = bench.provider.sshAccess?.bind(bench.provider);
+    if (access === undefined || bench.provider.create === undefined) return t.skip('no sshAccess');
+    const m = await createMachine(bench);
+    const ref = await m.create({ name: 'web', size: 'small', keepCopies: keepCopiesFor(bench) });
+    const key = `ssh-ed25519 ${'A'.repeat(68)} phone`;
+    const target = await access(ref, key);
+    assert.ok(target.host.length > 0 && target.user.length > 0 && Number.isInteger(target.port));
+    assert.match(target.fingerprint, /^SHA256:[A-Za-z0-9+/]{43}$/);
+    for (const bad of ['', 'not a key', `${key}\nssh-ed25519 ${'B'.repeat(68)}`]) await rejectCode(access(ref, bad), 'bad-recipe');
+  });
+
   runTest('12: cost() returns the section 10 shape with filled label and amount', async () => {
     const bench = await make();
     const m = await createMachine(bench);
