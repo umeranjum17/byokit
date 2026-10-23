@@ -83,6 +83,7 @@ export type HostRecipe = {
 }
 
 export type Snapshot = { id: string; at: string; kind?: 'before-update' }   // K3: a copy the kit saved of this machine; `at` is ISO; `kind` marks the copy saved before an update (5.16), absent on ordinary copies
+export type UpdateResult = { undo: Snapshot | null; pruneError?: MachineError }  // K-UNDO (5.16): the before-update copy, null when none was saved
 export type Disk = { usedGb: number; totalGb: number }                     // K3: the root file system, decimal GB (bytes / 1e9) to one decimal
 
 export type AsleepWhy = 'you' | 'out-of-credit' | 'trial-limit' | 'provider' | 'idle'      // G3
@@ -110,7 +111,7 @@ export interface Machine {
   state(): Promise<MachineState>
   wake(): Promise<void>; sleep(): Promise<void>
   install(r: HostRecipe, onLine?: (line: string) => void): Promise<void>
-  update(r: HostRecipe): Promise<void>
+  update(r: HostRecipe, o?: { undo?: boolean }): Promise<UpdateResult>  // K-UNDO (5.16): undo defaults to whether the machine can undo
   host(): Promise<HostState>                             // systemctl is-active + NRestarts
   logs(lines: number): Promise<string[]>                 // journalctl, capped
   /** Explicit public exposure: opens this port at the provider and it stays open (Boat has no unhost route). Never part of bootstrap. */
@@ -127,5 +128,7 @@ export interface Machine {
   snapshot(o?: { keep?: number }): Promise<Snapshot & { pruneError?: MachineError }>  // K3: keep defaults to 3; a failed prune is reported, not thrown
   scheduleSnapshots(o: { everyMs: number; keep?: number; onResult?(result: Snapshot | null | Error): void }): Promise<{ stop(): void }>  // K3: saves when the newest copy is everyMs old, while the app runs
   restore(id: string): Promise<void>                     // K3: "Reset Computer"
+  undoPoint(): Promise<Snapshot | null>                  // K-UNDO: the copy from just before the last update; null when none or the machine can't
+  undoUpdate(r: HostRecipe): Promise<void>               // K-UNDO: reset to undoPoint() (5.16)
   disk(): Promise<Disk>                                  // K3
 }

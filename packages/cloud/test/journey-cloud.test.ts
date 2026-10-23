@@ -161,9 +161,13 @@ test('an app rents its own cloud computer, installs its host, and supervises it 
   assert.ok(installed !== undefined && installed.mode === 0o600);
   assert.deepEqual(JSON.parse(textOf(installed.bytes)), { id: ref.id });
 
-  // update keeps the same host running.
-  await m.update({ ...recipe('web'), update: [['npm', 'run', 'migrate']] });
+  // update keeps the same host running. This provider keeps no copies, so there is nothing to undo.
+  assert.deepEqual(await m.update({ ...recipe('web'), update: [['npm', 'run', 'migrate']] }, { undo: false }), { undo: null });
   assert.equal(await m.host(), 'running');
+  assert.deepEqual(await m.update(recipe('web')), { undo: null });
+  await rejects(m.update(recipe('web'), { undo: true }), 'unsupported');
+  assert.equal(await m.undoPoint(), null);
+  assert.ok(!provider.fake.calls.some((c) => c.op === 'snapshot'), 'no copy was asked for');
 
   // deliver lands the bytes at 0600 in the inbox, owned by the run user.
   const key = new TextEncoder().encode('phone-key');
@@ -881,6 +885,93 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
     const kept = await p.snapshots();
     assert.equal(kept.length, 11, 'a refused save deletes nothing');
     assert.equal(kept[0].id, eleventh.id);
+  } finally {
+    await paid.close();
+  }
+});
+
+test('a person undoes an update that broke their cloud computer and gets the old files and a running host back', async () => {
+  const server = await startFakeSandboxServer();
+  try {
+    const provider = boat({ baseUrl: server.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
+    const m = machine({ provider, store: memoryStore() });
+    const old = await m.create({ name: 'web', size: 'small', keepCopies: true });
+    await m.install(recipe('web'));
+    const version = '/home/user/app/version.txt';
+    await provider.write(old, version, new TextEncoder().encode('Umer v1'), 0o600);
+    assert.equal(await m.undoPoint(), null, 'nothing to undo before an update');
+    const none = await rejects(m.undoUpdate(recipe('web')), 'no-undo');
+    assert.equal(errorWords(none, { app: 'Umer', label: 'Test' }), 'There\'s no copy from before an update to go back to.');
+
+    // Each update saves a copy first by default; the next one replaces it, so a machine holds one.
+    const first = await m.update({ ...recipe('web'), update: [['npm', 'run', 'migrate']] });
+    assert.match(first.undo?.id ?? '', /^byokit-web-undo[0-9a-z]{12}$/);
+    assert.equal(first.undo?.kind, 'before-update');
+    const second = await m.update({ ...recipe('web'), update: [['npm', 'run', 'migrate']] });
+    assert.equal(second.pruneError, undefined);
+    assert.deepEqual((await m.snapshots()).filter((c) => c.kind === 'before-update'), [second.undo]);
+    assert.deepEqual(await m.undoPoint(), second.undo);
+    assert.equal(words('update.undoReady'), 'A copy from just before this update was saved, so you can undo it.');
+
+    // The new version breaks the host.
+    await provider.write(old, version, new TextEncoder().encode('Umer v2'), 0o600);
+    server.machine.units.get('web')!.show = { LoadState: 'loaded', ActiveState: 'failed', SubState: 'failed', NRestarts: 5 };
+    assert.equal(await m.host(), 'failed');
+
+    // Undo: a new machine from the copy, with the old files and a running host; the old one is gone.
+    const date = second.undo!.at.slice(0, 10);
+    assert.equal(
+      words('update.undo', { date }),
+      `Undoing brings your cloud computer back to how it was just before the update on ${date}. Everything changed on it since then is lost, not only the update.`,
+    );
+    await m.undoUpdate(recipe('web'));
+    const back = m.ref!;
+    assert.notEqual(back.id, old.id);
+    assert.equal(await provider.status(old), 'gone');
+    assert.equal(await m.state(), 'on');
+    assert.equal(textOf(server.machine.readFile(version)!), 'Umer v1');
+    assert.equal(await m.host(), 'running');
+    assert.deepEqual(JSON.parse(textOf(server.machine.readFile('/home/user/app/.byokit/installed.json')!)), { id: back.id });
+    assert.deepEqual(await m.undoPoint(), second.undo, 'the copy stays, so a second undo lands on the same point');
+
+    // One save or reset at a time: an update tapped while an undo runs is refused.
+    const undoing = m.undoUpdate(recipe('web'));
+    await rejects(m.update(recipe('web')), 'busy');
+    await undoing;
+
+    // An update step that fails after the copy names it, so the app can offer undo at once.
+    server.machine.script('npm', { code: 1, stdout: '', stderr: 'migrate failed', timedOut: false });
+    const failed = await rejects(m.update({ ...recipe('web'), update: [['npm', 'run', 'migrate']] }), 'provider');
+    assert.equal(failed.extra.undo, (await m.undoPoint())?.id);
+    assert.equal(failed.extra.tail, 'migrate failed');
+
+    // undo: false updates without a copy.
+    const copies = await m.snapshots();
+    server.machine.script('npm', { code: 0, stdout: '', stderr: '', timedOut: false });
+    assert.deepEqual(await m.update(recipe('web'), { undo: false }), { undo: null });
+    assert.deepEqual(await m.snapshots(), copies);
+    await m.remove(m.ref!.id);
+  } finally {
+    await server.close();
+  }
+
+  // Past Boat's free copies with no credit, the save is refused and the update changes nothing on the machine.
+  const paid = await startFakeSandboxServer();
+  try {
+    const provider = boat({ baseUrl: paid.url, label: 'Test', prices: prices(), key: async () => 'test-key' });
+    const m = machine({ provider, store: memoryStore() });
+    const ref = await m.create({ name: 'web', size: 'small', keepCopies: true });
+    await m.install(recipe('web'));
+    for (let i = 0; i < 10; i++) await provider.snapshot!(ref, `free${i}`);
+    paid.setBalance(0);
+    const runs = paid.machine.runs.length;
+    const refused = await rejects(m.update({ ...recipe('web'), update: [['npm', 'run', 'migrate']] }), 'balance');
+    assert.equal(refused.extra.why, 'copies');
+    assert.equal(errorWords(refused, { app: 'Umer', label: 'Test' }), 'Test needs credit to save another copy of your cloud computer, so nothing was saved and nothing was deleted. Add funds, then try again.');
+    assert.equal(paid.machine.runs.length, runs, 'no update step ran');
+    assert.equal(await m.undoPoint(), null);
+    assert.equal((await m.snapshots()).length, 10);
+    assert.deepEqual(await m.update(recipe('web'), { undo: false }), { undo: null });
   } finally {
     await paid.close();
   }

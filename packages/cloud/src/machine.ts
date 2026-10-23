@@ -10,7 +10,7 @@ import {
 } from './unit.ts';
 import type {
   AsleepWhy, Disk, ExecResult, Handoff, HostRecipe, HostState, Machine, MachineRecord, MachineRef, MachineStore, Plan, Provider,
-  Snapshot,
+  Snapshot, UpdateResult,
 } from './types.ts';
 
 const EXEC_TIMEOUT_MS = 30_000;
@@ -132,26 +132,45 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
     }
   };
 
-  // 5.10: save one copy, confirm it is listed ready, and only then prune past `keep`. A failed
+  // 5.10: save one copy, confirm it is listed ready, and only then delete the `stale` ones. A failed
   // prune does not fail the save: the made copy comes back with the error, and the next save prunes again.
-  const saveCopy = async (r: MachineRef, keep: number): Promise<Snapshot & { pruneError?: MachineError }> => {
+  const saveCopy = async (
+    r: MachineRef, word: string, stale: (copies: Snapshot[], made: Snapshot) => Snapshot[],
+  ): Promise<Snapshot & { pruneError?: MachineError }> => {
     const { snapshot, snapshots, deleteSnapshot } = o.provider;
     if (snapshot === undefined || snapshots === undefined || deleteSnapshot === undefined) {
       throw new MachineError('unsupported', 'this provider cannot save copies');
     }
-    const { name } = await snapshot(r, randomBase36(12));
+    const { name } = await snapshot(r, word);
     const copies = await listCopies(r);
     const made = copies.find((c) => c.id === name);
     if (made === undefined) throw new MachineError('provider', 'the saved copy is not listed as ready');
     let pruneError: MachineError | undefined;
     try {
-      // K-UNDO: `keep` counts ordinary copies only; the before-update copy is never counted or deleted here.
-      const ordinary = copies.filter((c) => c.kind === undefined && c.id !== made.id);
-      for (const old of ordinary.slice(keep - 1)) await deleteSnapshot(r, old.id);
+      for (const old of stale(copies, made)) await deleteSnapshot(r, old.id);
     } catch (e) {
       pruneError = e as MachineError;
     }
     return pruneError === undefined ? made : { ...made, pruneError };
+  };
+  // K-UNDO: `keep` counts ordinary copies only; the before-update copy is never counted or deleted here.
+  const saveOrdinary = (r: MachineRef, keep: number): Promise<Snapshot & { pruneError?: MachineError }> =>
+    saveCopy(r, randomBase36(12), (copies, made) => copies.filter((c) => c.kind === undefined && c.id !== made.id).slice(keep - 1));
+
+  // 5.16: undo needs every copy call and copies kept of this machine (Boat with copies on).
+  const canUndo = (r: MachineRef): boolean => {
+    const { snapshot, snapshots, deleteSnapshot, restore } = o.provider;
+    return r.keepCopies && snapshot !== undefined && snapshots !== undefined && deleteSnapshot !== undefined && restore !== undefined;
+  };
+  const undoCopy = async (r: MachineRef): Promise<Snapshot | null> =>
+    (await listCopies(r)).find((c) => c.kind === 'before-update') ?? null;
+
+  // 5.10: the reset itself. The app confirmed; the words say what is lost. The new ref is saved
+  // (through `replaced`) before the adapter deletes the old machine.
+  const resetTo = async (r: MachineRef, id: string): Promise<void> => {
+    const { restore } = o.provider;
+    if (restore === undefined) throw new MachineError('unsupported', 'this provider cannot reset a machine from a copy');
+    await withKey(newKey(r.name), (idempotencyKey) => restore(r, id, { idempotencyKey, replaced: save }));
   };
 
   // The check and claim run before the first await, so two calls in one tick cannot both pass.
@@ -171,7 +190,7 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
     needCopies(r);
     const [newest] = await listCopies(r);
     if (newest !== undefined && Date.now() - Date.parse(newest.at) < everyMs) return null;
-    return saveCopy(r, keep);
+    return saveOrdinary(r, keep);
   });
 
   // 8.2 without a recipe: probe for a system unit; exit 0 means a system unit.
@@ -605,11 +624,18 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       }
     },
 
-    async update(r: HostRecipe): Promise<void> {
+    async update(r: HostRecipe, uo?: { undo?: boolean }): Promise<UpdateResult> {
       installing = true;
+      let copy: (Snapshot & { pruneError?: MachineError }) | null = null;
       try {
         const ref = await need();
         checkRecipe(r, ref.name);
+        const undo = uo?.undo ?? canUndo(ref);
+        if (undo && !canUndo(ref)) throw new MachineError('unsupported', 'this machine keeps no copies, so an update cannot be undone');
+        // 5.16: the copy first, under the one-at-a-time guard; a save that fails changes nothing on the machine.
+        copy = undo
+          ? await exclusive('an update', () => saveCopy(ref, `undo${randomBase36(12)}`, (copies, made) => copies.filter((c) => c.kind === 'before-update' && c.id !== made.id)))
+          : null;
         const { machineUser, machineHome, node, nodeBinDir } = await prepare(ref, r);
         // A recipe with no `update` runs the same sequence with no update argv.
         await runSteps(ref, r, nodeBinDir, r.update ?? [], undefined, 'update');
@@ -647,6 +673,13 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
         if (restarted.code !== 0) {
           throw new MachineError('provider', `systemctl restart ${unit} failed with exit ${restarted.code}: ${restarted.stderr.slice(-200)}`);
         }
+        if (copy === null) return { undo: null };
+        const { pruneError, ...saved } = copy;
+        return pruneError === undefined ? { undo: saved } : { undo: saved, pruneError };
+      } catch (e) {
+        // The app can offer undo at once: the step's own error, naming the copy.
+        if (copy !== null && e instanceof MachineError) throw new MachineError(e.code, e.message, { ...e.extra, undo: copy.id });
+        throw e;
       } finally {
         installing = false;
       }
@@ -866,7 +899,7 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
         const keep = so?.keep ?? KEEP;
         checkCount('keep', keep, 1);
         needCopies(r);
-        return saveCopy(r, keep);
+        return saveOrdinary(r, keep);
       });
     },
 
@@ -912,15 +945,31 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
     restore(id: string): Promise<void> {
       return exclusive('a reset', async () => {
         const r = await need();
-        const { restore } = o.provider;
-        if (restore === undefined) throw new MachineError('unsupported', 'this provider cannot reset a machine from a copy');
+        if (o.provider.restore === undefined) throw new MachineError('unsupported', 'this provider cannot reset a machine from a copy');
         needCopies(r);
         if (!(await listCopies(r)).some((c) => c.id === id)) {
           throw new MachineError('no-snapshot', 'no ready copy of this machine has that id');
         }
-        // The app confirmed; the words say what is lost (`snapshot.restore`). The new ref is
-        // saved (through `replaced`) before the adapter deletes the old machine.
-        await withKey(newKey(r.name), (idempotencyKey) => restore(r, id, { idempotencyKey, replaced: save }));
+        await resetTo(r, id);
+      });
+    },
+
+    async undoPoint(): Promise<Snapshot | null> {
+      const r = await need();
+      return canUndo(r) ? undoCopy(r) : null;
+    },
+
+    undoUpdate(recipe: HostRecipe): Promise<void> {
+      return exclusive('a reset', async () => {
+        const r = await need();
+        checkRecipe(recipe, r.name);
+        if (!canUndo(r)) throw new MachineError('unsupported', 'this machine keeps no copies, so an update cannot be undone');
+        const point = await undoCopy(r);
+        if (point === null) throw new MachineError('no-undo', 'no copy of this machine was saved before an update');
+        // The app confirmed with `update.undo`. The before-update copy stays, so a second undo lands on the same point.
+        await resetTo(r, point.id);
+        const next = current();
+        if (next !== null) await writeInstalled(next, recipe);
       });
     },
 

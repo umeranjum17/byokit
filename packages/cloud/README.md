@@ -78,6 +78,30 @@ export async function reset(m: Machine, confirm: (s: string) => Promise<boolean>
 }
 ```
 
+## Undo an update
+
+On a machine that keeps copies (Boat with `keepCopies: true`), `update(recipe)` first saves a copy
+from just before the update and resolves `{ undo, pruneError? }`; the next update replaces that copy,
+and `snapshot()`'s pruning never counts or deletes it. The copy takes a few minutes and needs a spare
+free copy or credit: when Boat refuses, `update` rejects `balance` (`extra.why: 'copies'`, words
+`copies.noCredit`) and changes nothing. `update(recipe, { undo: false })` updates without a copy; a
+Hetzner server or an SSH box resolves `{ undo: null }` and rejects `unsupported` for `{ undo: true }`.
+An update step that fails after the copy rejects with `extra.undo` set to the copy's id.
+`undoPoint()` resolves that copy (or `null`), and `undoUpdate(recipe)` resets the machine to it, as
+`restore` does (on Boat a new machine with a new id), so everything changed since the copy is lost,
+not only the update. With no such copy it rejects `no-undo`. Undo is not yet proven on a real Boat
+computer.
+
+```ts
+import { words, type HostRecipe, type Machine } from '@byokit/cloud';
+
+export async function undo(m: Machine, recipe: HostRecipe, confirm: (s: string) => Promise<boolean>) {
+  const point = await m.undoPoint();
+  if (point === null || !(await confirm(words('update.undo', { date: point.at.slice(0, 10) })))) return;
+  await m.undoUpdate(recipe); // the old host version runs again; the app records which recipe that is
+}
+```
+
 ## Boat adapter
 
 `boat({ baseUrl, label, prices, key, fetch?, signal? })` returns the Boat `Provider`. The app
