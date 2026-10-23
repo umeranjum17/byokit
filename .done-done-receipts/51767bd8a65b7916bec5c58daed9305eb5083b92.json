@@ -1,0 +1,58 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "51767bd8a65b7916bec5c58daed9305eb5083b92",
+  "tree": "6b1627f744043bb4b5ea79f7b5e800a197ab4b67",
+  "claim": "A device can be let into an existing Boat computer over plain SSH: boat().sshAccess adds one key and returns the target and host key to pin",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-23T13:43:44.286Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261023T134258Z-51767bd8-6bd85c/sshaccess-output.txt",
+      "sha256": "fa1b1d5c18c31605027d0e739903d540bbba408b1097d22ceefa2be2a82e198e"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261023T134258Z-51767bd8-6bd85c",
+      "commit": "51767bd8a65b7916bec5c58daed9305eb5083b92",
+      "journey": null,
+      "command": null,
+      "feature": "cloud-boat-v1",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "@byokit/cloud 0.4.0 (built from commit 51767bd8)"
+        },
+        "start": "Built SDK in the worktree (dist present). A fake Boat sandbox server (loopback, startFakeSandboxServer) running with one existing computer created through boat().create. No real key, account or spend.",
+        "steps": [
+          "Started a fake Boat server on loopback and created an existing computer named existing-box through the boat() adapter.",
+          "Called sshAccess on that computer with one OpenSSH ed25519 public key line.",
+          "Read the returned target: host, port, user and the SHA256 fingerprint of the host key to pin.",
+          "Checked the public key was added to that computer on the server.",
+          "Called sshAccess again with the text 'not a key' and read the typed error and message.",
+          "Checked that the refused input added no second key, then closed the server."
+        ],
+        "result": "The output text shows sshAccess returning host 127.0.0.1, port 22, user 'user' and host key fingerprint SHA256:gNSIRW+2Iyiuvsdp/bgjy38bvWHw6wQm3tuoXrl3WjQ; the one ssh-ed25519 key is listed on the computer; a malformed key fails with code 'bad-recipe' and message 'publicKey: must be one OpenSSH public key line' and leaves the key list unchanged."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261023T134258Z-51767bd8-6bd85c/sshaccess-output.txt",
+        "sha256": "fa1b1d5c18c31605027d0e739903d540bbba408b1097d22ceefa2be2a82e198e",
+        "verdict": "pass",
+        "seen": "I read the whole capture: 1 target record, 1 sshAccess-target, 1 keys-added entry, and 1 keys-after-refusal entry. sshAccess-target returns host 127.0.0.1, port 22, user \"user\", and fingerprint SHA256:gNSIRW+2Iyiuvsdp/bgjy38bvWHw6wQm3tuoXrl3WjQ, which covers returning the host key to pin. keys-added-to-computer holds exactly one ed25519 key labeled \"phone\", which covers adding one key. The bad-key case returns code \"bad-recipe\" with a publicKey format error, and keys-after-refusal still holds only that one key, so the refusal left nothing extra. The outcome names one part, so parts is empty."
+      }
+    ]
+  }
+}
