@@ -1,0 +1,63 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "3e5582023cfff884540db66da5a733836ac0fe0a",
+  "tree": "de94d3a6d5dc08559d0bc97ca35becd1c306da93",
+  "claim": "A developer can upgrade to @byokit/cloud 0.5.0 and reach a cloud computer over SSH only: the app is carried through one SSH forward to the machine's loopback, nothing joins a tailnet.",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-23T16:14:00.327Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261023T160130Z-3e558202-41d521/cloud-ssh-forward-live.txt",
+      "sha256": "e5355d520d25fbf94d8b7a1ac3e9d278682750c023b0c1189bd2215c3636157e"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261023T160130Z-3e558202-41d521",
+      "commit": "3e5582023cfff884540db66da5a733836ac0fe0a",
+      "journey": null,
+      "command": null,
+      "feature": "cloud-ssh-transport",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "@byokit/cloud 0.5.0"
+        },
+        "start": "Repository worktree at commit 3e558202 (fm/byk-release-cloud-050), clean, npm workspace built with npm run build. No prior cloud VM running. The Ubuntu 24.04 cloud image was downloaded and its sha256 checked against Ubuntu's SHA256SUMS. A fresh ED25519 key was generated in a scratch folder.",
+        "steps": [
+          "Ran npm run build; it exited 0 and @byokit/cloud/ssh resolved to packages/cloud/dist.",
+          "Started the KVM VM from the Ubuntu 24.04 image with a cloud-init seed that creates user ada with the scratch key, inside the byokit qemu container, on a loopback-only SSH port.",
+          "Waited for cloud-init to finish and read the ED25519 host key printed on the serial console.",
+          "Connected with the system ssh binary through sshHostKey() and compared the fingerprint with the console key; they matched, and I confirmed it.",
+          "Ran setup() with @byokit/cloud/ssh and no address, with a recipe that installs Node 24.15.0 and a small host on 127.0.0.1:7300. The steps were checking-access, listing, inspecting, installing, ready.",
+          "Resolved the link address through sshResolve() over sshTransport(), which opened one ssh -N -L forward; the address was rewritten to a local port.",
+          "Sent a request through the forward and received the host's answer, 'runner up for Ada'.",
+          "Checked the box's listeners (only 127.0.0.1:7300) and tailscale (none, inactive).",
+          "Closed the forward and resolved again; a new local port was opened and the request succeeded.",
+          "Connected with a wrong pinned host key and got the host-key error: 'the pinned host key no longer matches'.",
+          "Stopped and removed the VM container; no byk containers remain."
+        ],
+        "result": "The terminal output ends with result: PASS. A user sees the cloud computer reached through a single SSH forward to its loopback port, with no tailnet step, a listener only on 127.0.0.1:7300, tailscale not running, and a changed host key refused with host-key. The upgrade from an older install to 0.5.0 was not driven; this run used the built 0.5.0 workspace package directly."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261023T160130Z-3e558202-41d521/cloud-ssh-forward-live.txt",
+        "sha256": "e5355d520d25fbf94d8b7a1ac3e9d278682750c023b0c1189bd2215c3636157e",
+        "verdict": "pass",
+        "seen": "I read all 12 capture records. host-key shows matchesConsole true. steps reach \"ready\". resolved is ws://127.0.0.1:42857 and host-answer-through-forward returns \"runner up for Ada\". listeners-7300 is 127.0.0.1:7300 only. tailscale-on-box is none, and the service is inactive. The wrong-pin record is a negative check and shows the mismatch is rejected. The result is PASS with EXIT=0. These support the loopback-forward, no-tailnet, working-app parts of the outcome. Nothing in the capture shows the version 0.5.0 being installed, so that part is unverified. I therefore rate correct as likely but not certain. The outcome names no separate parts, so parts and covers are empty."
+      }
+    ]
+  }
+}

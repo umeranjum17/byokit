@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.5.0 (2026-10-23)
+
+- FEATURE: `boat()` can let a device in over plain SSH: `provider.sshAccess(ref, publicKey)` adds one OpenSSH public key to the machine (Boat's `/sshkey`) and returns the host, port, user and host key to pin, so the SSH adapter and any SSH client reach a Boat computer like any other server.
+- FEATURE: The phone reaches the app on the cloud computer through SSH: `SshTransport.forward` (optional; the Node `./ssh` entry implements it with your `ssh` binary and key file, as `sshTransport({ ssh, keyPath, stateDir })`) carries one connection to the app's port on the machine's loopback, and `sshResolve()` is a `Dial.resolve` for `@byokit/pair` that opens it before each dial. The app port is never opened to the internet. `fakeSshTransport()` implements `forward` in-process.
+- SECURITY: A cloud computer never joins your tailnet any more. Up to 0.4.0, `setup()` with `address` installed Tailscale on the rented machine and signed it into your own private network, next to your own devices, and every saved copy of its disk made after that carried its network identity. Now the device reaches the app over SSH to the machine's loopback (a pinned host key and the device's own SSH key), and nothing joins a tailnet. If you set up a cloud computer with 0.2.x to 0.4.0, remove it on your Tailscale admin page and delete its saved copies made after it joined.
+- FIX: Installing or updating on a cloud computer that the kit had joined to your tailnet now signs it out of Tailscale and removes the kit's own Tailscale service, its drop-in and the node identity in `/etc/tailscale`. A Tailscale you installed yourself is left alone.
+- BREAKING: `Machine.joinTailnet()`, `Machine.tailnet()`, the `Tailnet` and `TailnetStep` types, and the `tailnet.*` words are removed. `setup()`'s `address` is now `{ port, transport, publicKey?, target?, pins? }`: securing finds the SSH target (Boat's `sshAccess` with `publicKey`, else `target` and `pins`), checks the pinned host key, that the app listens on the machine's loopback, and that one forward opens; the `securing` step carries `route` (`{ host, port, user, fingerprint, appPort }`, exported as `SshRoute`) instead of a tailnet `name`. `pairEnrol`'s receipt `urls` are `ws://127.0.0.1:<port>` on the machine and the receipt carries `ssh`: dial it through `sshResolve()`. `words('setup.securing')` now reads "Setting up a private connection to your cloud computer."
+
 ## 0.4.0 (2026-10-23)
 
 - `roster()` keeps several cloud accounts (a non-secret list in your store, each key in your secure key store, one Provider per account, an active selection) and several managed computers, each pinned to its account; waking, sleeping or removing one touches no other. `list()` refs now carry `subdomain`, `state` and `latestSnapshot` where Boat returns them.
