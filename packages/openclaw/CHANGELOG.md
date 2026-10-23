@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.27.2 (2026-10-23)
+
+- Dependency update: pins @byokit/ui 1.0.0.
+- Dependency update: pins @byokit/discover 0.8.6.
+
 ## 0.27.1 (2026-10-23)
 
 - FIX: A key lane lists the vendor's whole live model list even when the app's config already registers a shorter list (MiniMax's fixed pair); the catalog sync no longer skips a provider whose config lists models. Rows from the plugin's fixed list, used when the vendor's live list cannot be read, carry `offline: true`.
