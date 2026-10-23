@@ -27,6 +27,8 @@ The maintained source for verifying the user-facing behavior of the built byokit
 
 - [Connect endpoint overrides](./connect-endpoints.md) — built `@byokit/connect` against emulate 0.12.2 for Google OAuth and Gmail, a real local GitHub device-flow server, and an app-owned GitHub API call using the connection's resolved `apiBase`.
 
+- [PWA key form](./pwa-key-form.md) — the example PWA's Add sheet lists every ready key route as tappable, each opens one shared key form that keeps the key on the device and lists it with its billing; Claude's plan token stays unavailable under Anthropic's terms.
+
 - [Infer token probabilities](./infer-token-probabilities.md) — built `@byokit/infer` complete() journey requests `n_probs` and checks the read is the model's real next-token distribution (llama.rn-faithful `sampledReply`), greedy without it; native phone behavior remains unverified.
 
 - [Accounts sign-in and ask](./accounts-signin.md) — the README quickstart against the built `@byokit/accounts` with `mockOpenAI()`.

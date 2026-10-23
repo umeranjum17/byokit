@@ -155,20 +155,52 @@ test('Add an account: every route grouped, Plans first, unavailable ones say why
     await row('anthropic:paste').click({ force: true });
     assert.equal(await page.locator('#add-sheet').isVisible(), true, 'an unavailable row does nothing');
     assert.equal(await part(page, 'claude', 'sheet').isVisible(), false);
-    assert.equal(await row('openai:key').isDisabled(), true, 'a key this page has no form for is not offered');
-    assert.equal(await row('openai:key').getAttribute('data-unavailable'), null);
-    const soon = page.locator('[data-group="coming-soon"]');
-    await soon.waitFor();
-    assert.equal(groups.at(-1), 'coming-soon', 'the Coming soon group comes last');
-    assert.deepEqual((await page.locator('#add-groups [data-group]:not([data-group="coming-soon"]) .route-status').allTextContents())
-      .filter((s) => s === 'Ready, but this page has no form for it yet.'), [],
-      'no "no form for it yet" row outside the Coming soon group');
-    assert.equal(await soon.locator('[data-route]').first().isVisible(), false, 'the Coming soon group starts closed');
-    assert.equal(await soon.locator('[data-coming-toggle]').getAttribute('aria-expanded'), 'false');
+    assert.equal(await page.locator('[data-group="coming-soon"]').count(), 0, 'no route waits for a form: every ready key route starts');
+    assert.equal(await row('openai:key').isDisabled(), false, 'a key route with no card of its own can be tapped');
+    assert.equal(await row('openai:key').locator('.route-line').textContent(), 'Charged per use to your OpenAI account', 'a per-use key says so before it starts');
+    assert.equal(await row('anthropic:plan_key:oauth-token').isDisabled(), true, 'Claude plan tokens stay unavailable: their terms keep them to Anthropic apps');
+    assert.equal(await row('anthropic:plan_key:oauth-token').locator('.route-status').textContent(), 'Anthropic’s terms keep Claude plan sign-in to its own apps.');
+    const readyKeys = await page.locator('#add-groups [data-route]:not([aria-disabled])').evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.route));
+    assert.deepEqual(readyKeys.filter((id) => routes({ platform: 'browser' }).some((r) => r.id === id && r.readiness === 'ready' && ['key', 'plan_key'].includes(r.via)))
+      .length, routes({ platform: 'browser' }).filter((r) => r.readiness === 'ready' && ['key', 'plan_key'].includes(r.via) && r.id !== 'anthropic:plan_key:oauth-token').length, 'every ready key route but the refused one can start');
     await row('openai:code').click();
     await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).waitFor();
     assert.equal(await page.locator('#add-sheet').isVisible(), false, 'the sheet closes on the card it started');
     assert.equal(await page.evaluate(() => document.activeElement?.id), 'chatgpt', 'focus lands on that card');
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+test('Add a key route with no card of its own: its row opens the shared key form, the key is kept and listed with its billing, then removed', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext({ serviceWorkers: 'block' });
+  try {
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    await page.goto(site.url);
+    await part(page, 'chatgpt', 'signin').waitFor();
+    assert.equal(await page.locator('#keys').isVisible(), false, 'no keys listed before one is added');
+    await page.locator('#add-open').click();
+    await page.locator('[data-route="deepseek:key"]').click();
+    assert.equal(await page.locator('#add-sheet').isVisible(), false, 'the sheet closes on the key form');
+    assert.equal(await page.locator('#key-title').textContent(), 'DeepSeek — paste a key');
+    assert.equal(await page.locator('#key-billing').textContent(), 'Charged per use to your DeepSeek account', 'the form says how it is billed');
+    assert.equal(await page.locator('#key-pasted').getAttribute('type'), 'password', 'a key is collected with hidden typing');
+    await page.locator('#key-connect').click();
+    assert.equal(await page.locator('#keys').isVisible(), false, 'an empty box connects nothing');
+    await page.locator('#key-pasted').fill('fake-deepseek-key-canary');
+    await page.locator('#key-connect').click();
+    await page.locator('#key-words').filter({ hasText: 'Your key is ready' }).waitFor();
+    const row = page.locator('#keys-list [data-account]');
+    await row.waitFor();
+    assert.match((await row.textContent())!, /DeepSeek/);
+    assert.match((await row.textContent())!, /per use/i, 'a connected key keeps saying it is charged per use');
+    assert.doesNotMatch(await page.locator('body').innerText(), /fake-deepseek-key-canary/, 'the key is never shown back');
+    await page.locator('#key-cancel').click();
+    await page.reload();
+    await page.locator('#keys-list [data-account]').waitFor();
+    await page.locator('#keys-list').getByRole('button', { name: /^Remove/ }).click();
+    await page.locator('#keys').waitFor({ state: 'hidden' });
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });

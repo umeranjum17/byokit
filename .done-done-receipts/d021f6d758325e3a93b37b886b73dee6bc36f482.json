@@ -1,0 +1,65 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "d021f6d758325e3a93b37b886b73dee6bc36f482",
+  "tree": "33c4d5c2420822722abee85183522e660b4c0243",
+  "claim": "a person can open Add an account, tap DeepSeek and connect a pasted key on the shared key form, which says it is charged per use and then lists the key under Your keys",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-23T17:41:56.641Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261023T174136Z-d021f6d7-c93e44/key-connected-light.png",
+      "sha256": "40999e142605477baa4edc457f52c3767c3a5ee4d7014b4fd2dd4f91a1a1f449"
+    },
+    {
+      "path": "<evidence root>/20261023T174136Z-d021f6d7-c93e44/key-connected-dark.png",
+      "sha256": "a0e2992aae67cdaadfccf30da0d04cfb47dff136627a3fbd0a317ebf3e1db37f"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261023T174136Z-d021f6d7-c93e44",
+      "commit": "d021f6d758325e3a93b37b886b73dee6bc36f482",
+      "journey": null,
+      "command": "sh wrap.sh",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "examples/pwa at the PR head"
+        },
+        "start": "a fresh browser profile on the example PWA at 390 px, light then dark",
+        "steps": [
+          "open Add an account and see every ready key route tappable, per-use ones labelled as charged per use",
+          "tap DeepSeek, see the key form with its billing line and hidden typing",
+          "paste a made-up key and Connect",
+          "see the key under Your keys with its billing"
+        ],
+        "result": "the key is listed under Your keys as charged per use to the DeepSeek account; no route waits under Coming soon"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261023T174136Z-d021f6d7-c93e44/key-connected-light.png",
+        "sha256": "40999e142605477baa4edc457f52c3767c3a5ee4d7014b4fd2dd4f91a1a1f449",
+        "verdict": "pass",
+        "seen": "The outcome names the DeepSeek key form and the 'Your keys' list. The screenshot shows the DeepSeek — paste a key card with 'Your key is ready... used only when you choose this option' and a 'Done' button, plus 'Your keys' listing 'DeepSeek' with 'Charged per use to your DeepSeek account' and a Remove link. This matches the outcome."
+      },
+      {
+        "path": "<evidence root>/20261023T174136Z-d021f6d7-c93e44/key-connected-dark.png",
+        "sha256": "a0e2992aae67cdaadfccf30da0d04cfb47dff136627a3fbd0a317ebf3e1db37f",
+        "verdict": "pass",
+        "seen": "The same state appears in dark theme: 'DeepSeek — paste a key' with 'Your key is ready', and 'Your keys' listing 'DeepSeek' with 'Charged per use to your DeepSeek account'. This matches the outcome."
+      }
+    ]
+  }
+}

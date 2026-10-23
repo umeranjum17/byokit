@@ -136,6 +136,19 @@
   <p class="company">Plans you already pay for come first. Anything charged per use is listed, never chosen for you.</p>
   <div id="add-groups"></div>
 </section>
+<section class="card" id="key-sheet" aria-labelledby="key-title" hidden>
+  <div class="who-text"><h2 id="key-title" tabindex="-1"></h2><p class="company" id="key-billing"></p></div>
+  <p class="banner" id="key-note" role="alert" hidden></p>
+  <p class="steps" id="key-words"></p>
+  <input id="key-pasted" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <button class="primary" id="key-connect" type="button">Connect</button>
+  <button class="secondary" id="key-cancel" type="button">Cancel</button>
+</section>
+<section class="card" id="keys" aria-labelledby="keys-title" hidden>
+  <h2 id="keys-title">Your keys</h2>
+  <p class="company">Keys you pasted here. Each one is charged or covered as its line says, and is used only when you choose it.</p>
+  <div id="keys-list"></div>
+</section>
 <div id="cards"></div>
 <template id="card">
   <section class="card" data-state="signed_out">
