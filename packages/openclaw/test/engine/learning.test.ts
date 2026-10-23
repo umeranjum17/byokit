@@ -28,10 +28,20 @@ test('learning is captured, applied by a real boot and restored exactly', { time
   // What the real Gateway itself applied, straight from the engine, never from the kit's own file read.
   const applied = async () => ((await kit.call('config.get', {})) as { config?: Record<string, any> }).config
     ?.skills?.workshop?.autonomous?.mode;
-  // The system-owned job the engine projects per workspace agent: enabled only while the mode is auto.
-  const reviewJob = async () => {
-    const page = await kit.call('cron.list', { includeDisabled: true }) as { jobs?: { name?: string; enabled?: boolean }[] };
-    return page.jobs?.find(job => job.name === 'skill-collection-review-m1');
+  // The system-owned job the engine projects per workspace agent: enabled only while the mode is auto. The Gateway
+  // reconciles it after config.get already answers (an async pass queued at boot, retried every 30 s on failure), so
+  // wait for the job to reach the wanted state; a job that never does fails with what was last seen.
+  const reviewJob = async (enabled: boolean) => {
+    const deadline = Date.now() + 45_000;
+    for (;;) {
+      const page = await kit.call('cron.list', { includeDisabled: true }) as { jobs?: { name?: string; enabled?: boolean }[] };
+      const job = page.jobs?.find(j => j.name === 'skill-collection-review-m1');
+      if (job?.enabled === enabled) return job;
+      if (Date.now() > deadline) {
+        assert.fail(`the collection review for m1 never became ${enabled ? 'enabled' : 'disabled'}: ${job ? `enabled ${job.enabled}` : 'no job'}`);
+      }
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
   };
   const withoutSkills = (config: string) => { const c = JSON.parse(config); delete c.skills; return c; };
   try {
@@ -57,9 +67,7 @@ test('learning is captured, applied by a real boot and restored exactly', { time
     await kit.start();
     assert.equal(await applied(), 'off', 'the real engine did not apply the mode written while stopped');
     assert.equal((await kit.call('skills.workshop.read', { agentId: 'm1', name: 'weather-planner' })).content, content, 'native collection survives a restart');
-    const disabled = await reviewJob();
-    assert.ok(disabled, 'no collection-review job for m1 after boot');
-    assert.equal(disabled.enabled, false, 'the collection review stayed enabled with learning off');
+    await reviewJob(false); // with learning off the collection review never stays enabled
     await kit.stop();
 
     assert.deepEqual(kit.learning(), { present: true, mode: 'off' }, 'the read lost the mode a boot applied');
@@ -82,9 +90,7 @@ test('learning is captured, applied by a real boot and restored exactly', { time
 
     await kit.start();
     assert.equal(await applied(), undefined, 'the restored boot carried a mode where the file has none');
-    const enabled = await reviewJob();
-    assert.ok(enabled, 'no collection-review job for m1 after the restored boot');
-    assert.equal(enabled.enabled, true, 'the engine default (auto) did not re-enable the collection review');
+    await reviewJob(true); // the engine default (auto) re-enables the collection review
     await kit.stop();
 
     const colliding = new OpenClawKit({ stateDir, engineDir, tools: [], config: { skills: { workshop: { autonomous: { mode: 'auto' } } } } });
