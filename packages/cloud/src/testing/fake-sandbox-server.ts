@@ -351,7 +351,11 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
         }
         const id = `${o.idPrefix ?? 'sb'}-${++seq}`;
         const saved = from === null ? undefined : snapshots.get(from);
-        if (saved !== undefined) machine.files = new Map([...saved.files].map(([k, f]) => [k, { ...f, bytes: f.bytes.slice() }]));
+        if (saved !== undefined) {
+          machine.files = new Map([...saved.files].map(([k, f]) => [k, { ...f, bytes: f.bytes.slice() }]));
+          // A machine made from a copy boots: its enabled units start again.
+          machine.reboot();
+        }
         const slow = o.slowCreateReads ?? 0;
         const sb: Sandbox = { id, raw: nextCreateRaw ?? (slow > 0 ? 'provisioning' : 'ready'), wakeReads: slow, snapshots: b['snapshots'] === true, commands: new Map() };
         nextCreateRaw = null;

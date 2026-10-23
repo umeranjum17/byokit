@@ -51,5 +51,8 @@
   "snapshot.restore": "Resetting brings your cloud computer back to how it was on {date}. Everything changed on it since then is lost.",
   "copies.noCredit": "{label} needs credit to save another copy of your cloud computer, so nothing was saved and nothing was deleted. Add funds, then try again.",
   "disk.used": "{used} GB of {total} GB used on your cloud computer.",
-  "error.noSnapshot": "That saved copy of your cloud computer is gone. Choose another one."
+  "error.noSnapshot": "That saved copy of your cloud computer is gone. Choose another one.",
+  "update.undo": "Undoing brings your cloud computer back to how it was just before the update on {date}. Everything changed on it since then is lost, not only the update.",
+  "update.undoReady": "A copy from just before this update was saved, so you can undo it.",
+  "error.noUndo": "There's no copy from before an update to go back to."
 }

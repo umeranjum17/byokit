@@ -1,4 +1,4 @@
-// MachineError (docs/cloud-kit.md 4.2, plus the 4.3 'needs-root' and 4.4 'no-snapshot' codes).
+// MachineError (docs/cloud-kit.md 4.2, plus the 4.3 'needs-root', 4.4 'no-snapshot' and 4.7 'no-undo' codes).
 export type MachineErrorCode =
   | 'no-machine'          // a call that needs a ref, with none in the store
   | 'exists'              // create() while the store already holds a ref
@@ -17,6 +17,7 @@ export type MachineErrorCode =
   | 'timeout'
   | 'no-snapshot'         // K3: restore or delete of an id that is not one of this machine's ready copies
   | 'busy'                // K3: a save, reset or remove of this machine is already running; the second one changes nothing
+  | 'no-undo'             // K-UNDO: undoUpdate with no before-update copy of this machine
   | 'owner-enrolled'      // adopt(): this app is already installed there, so another phone owns it; replaceOwner takes it over (5.12)
 
 // Keep typed errors (including frozen provider errors) intact for direct adopt() callers.

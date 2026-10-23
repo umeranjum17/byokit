@@ -61,6 +61,7 @@ const ERROR_KEY: Record<MachineErrorCode, WordKey> = {
   'bad-recipe': 'error.app',
   'no-snapshot': 'error.noSnapshot',
   busy: 'error.app',
+  'no-undo': 'error.noUndo',
   'owner-enrolled': 'error.ownerEnrolled',
 };
 
