@@ -1,0 +1,58 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "d4563260222c9497b0db08c332697aef974a3690",
+  "tree": "11aea766ef5fa2fc17ea744ad16c3c1ee7b7fc62",
+  "claim": "A maintainer's CI run no longer hangs on a slow package mirror: the record-recorder and secrets-keyring apt steps retry up to three times with bounded timeouts, pass on a later attempt, and fail within minutes when every attempt fails.",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-23T22:54:12.840Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261023T225345Z-d4563260-dd2e86/ci-apt-retry.log",
+      "sha256": "7d21b4e67e6975e862dbcce6687bda0e1c298d8fe362ce09293b72bb87e5d7d4"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261023T225345Z-d4563260-dd2e86",
+      "commit": "d4563260222c9497b0db08c332697aef974a3690",
+      "journey": null,
+      "command": null,
+      "feature": "ci-apt-retry",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "commit d4563260 (fm/byk-ci-apt-retry worktree)"
+        },
+        "start": "Clean committed worktree at d4563260 with the CI apt retry change; no build, network or model. The record-recorder and secrets-keyring apt steps are read from .github/workflows/ci.yml.",
+        "steps": [
+          "Read the done-done verify skill and the ci-apt-retry feature recipe.",
+          "Ran the feature's capture script capture/ci-apt-retry.sh with DONE_DONE_EVIDENCE_ROOT set to this evidence folder.",
+          "The script pulled each apt step's run script out of .github/workflows/ci.yml for record-recorder and secrets-keyring.",
+          "For each job it ran the step with a fake sudo first on PATH, with 0, 2 and 100 apt calls failing.",
+          "Recorded each run's exit code and apt call count into ci-apt-retry.log.",
+          "Checked that the step script carries Acquire::Retries=3 and 30 second http/https timeouts."
+        ],
+        "result": "ci-apt-retry.log shows both apt steps exit 0 after 2 calls with no failures, exit 0 after 4 calls when the first two attempts fail, and exit 1 after exactly 3 calls when every attempt fails, ending with RESULT: PASS and flags present: True. The log does not show the 8 minute step timeout or the job timeouts; the script prints those to the terminal only. No wall-clock timing was measured, and the real mirror hang was not driven."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261023T225345Z-d4563260-dd2e86/ci-apt-retry.log",
+        "sha256": "7d21b4e67e6975e862dbcce6687bda0e1c298d8fe362ce09293b72bb87e5d7d4",
+        "verdict": "pass",
+        "seen": "I read all six entries: three for record-recorder and three for secrets-keyring. Each step's apt calls use Acquire::Retries=3 and 30s HTTP/HTTPS timeouts. With 0 failures, both exit 0 after 2 calls. With 2 failures, both exit 0 after 4 calls, so they pass on a later attempt. With 100 failures, both exit 1 after 3 apt calls, so they fail after the retry limit. RESULT: PASS and flags present: True. The capture shows no timestamps or durations, so 'fail within minutes' and 'no longer hangs' are not directly confirmed. The attempt counts and bounded timeouts do support the retry and bounded-timeout parts."
+      }
+    ]
+  }
+}
