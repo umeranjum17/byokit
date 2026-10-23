@@ -8,7 +8,7 @@
 import { Accounts, billingWords, browserStore, planLabel, resolveSelection, roomOf, say, signInError, PROVIDERS, type Account, type ModelInfo, type Room, type RouteView } from '@byokit/accounts';
 import { webStore } from '@byokit/secrets/web';
 import { accountRows, bestMoveTarget, modelPicker, moveWords, type AccountRow, type Pick, type PickerView } from '@byokit/ui/accounts';
-import { connectView, type ConnectRow } from '@byokit/ui/connect';
+import { connectStep, connectView, type ConnectAction, type ConnectRow, type ConnectStep } from '@byokit/ui/connect';
 import { phaseOf } from '@byokit/ui/phase';
 import type { Reading, Window } from '@byokit/usage';
 import { windowsView } from '@byokit/usage/view';
@@ -134,6 +134,11 @@ const keyCardFor = (row: ConnectRow, routes: RouteView[]) => {
  *  only when that card connects through a pasted key. Anything else stays listed and cannot be tapped. */
 const starterFor = (row: ConnectRow, routes: RouteView[]) =>
   row.does === 'signin' ? cardFor(row, routes) : row.does === 'key' ? keyCardFor(row, routes) : undefined;
+/** Claude's plan token is a subscription credential that Anthropic's terms keep to its own apps (the source the kit's
+ *  `claude` provider cites), so this page lists that row and never offers a place to paste one. */
+const TERMS_REFUSED: Record<string, string> = { 'anthropic:plan_key:oauth-token': 'Anthropic’s terms keep Claude plan sign-in to its own apps.' };
+/** A ready key route with no card of its own opens the shared key form instead. */
+const takesKeyForm = (row: ConnectRow, routes: RouteView[]) => row.does === 'key' && !starterFor(row, routes) && !TERMS_REFUSED[row.id];
 
 function card(key: string) {
   const { name, company } = PROVIDERS[key];
@@ -571,30 +576,122 @@ const cards: Record<string, ReturnType<typeof card>> = Object.fromEntries(accoun
 // An account being added reports under its own id, not its provider: redraw its card too, not only exact hits.
 accounts.onChange = (_member, key) => { const c = cards[key]; if (c) c.draw(); else Object.values(cards).forEach((c) => c.draw()); };
 Promise.all(accounts.providers.map((p) => accounts.signedIn(ME, p.key)))
-  .then(() => accounts.keepFresh([ME])).then(() => Object.values(cards).forEach((c) => c.draw()));
+  .then(() => accounts.keepFresh([ME])).then(() => { Object.values(cards).forEach((c) => c.draw()); void paintKeys(); });
 
-/** Every route, grouped. A row is a button only when this page can start it: a ready sign-in with its card here,
- *  or a ready key route whose card takes a pasted key.
- *  Anything else stays listed and cannot be tapped, saying why: its readiness words, or that this page has no form for it.
- *  Rows this page has no form for leave their group for one collapsed "Coming soon" group at the end. */
+/** The shared key form: one route's key pasted into the kit, with @byokit/ui's words for each step. The key goes
+ *  from the box straight to `accounts.add` and is never kept here; a refusal shows the kit's own words. */
+let keyRow: ConnectRow | undefined;
+let keyStep: ConnectStep = { at: 'list' };
+const keyDo = (action: ConnectAction) => { keyStep = connectStep(keyStep, action); };
+let keyFailed = '';
+function paintKeyForm() {
+  $('key-sheet').hidden = !keyRow;
+  if (!keyRow) return;
+  const v = connectView(accounts.routes(), keyStep).chosen?.key;
+  if (!v) return;
+  const input = $('key-pasted') as HTMLInputElement;
+  $('key-title').textContent = `${keyRow.name} — ${keyRow.method[0].toLowerCase()}${keyRow.method.slice(1)}`;
+  $('key-billing').textContent = keyRow.billingWords;
+  $('key-words').textContent = v.message;
+  input.placeholder = v.label;
+  input.setAttribute('aria-label', v.label);
+  input.hidden = v.state === 'ok';
+  input.disabled = !v.editable;
+  ($('key-connect') as HTMLButtonElement).hidden = v.state === 'ok';
+  ($('key-connect') as HTMLButtonElement).disabled = v.busy;
+  $('key-cancel').textContent = v.state === 'ok' ? 'Done' : 'Cancel';
+  const note = $('key-note');
+  note.hidden = !keyFailed;
+  note.textContent = keyFailed;
+  note.dataset.tone = 'error';
+}
+function openKeyForm(r: ConnectRow) {
+  keyRow = r; keyDo({ type: 'pick', key: r.key }); keyFailed = '';
+  ($('key-pasted') as HTMLInputElement).value = '';
+  paintKeyForm();
+  $('key-title').focus();
+  $('key-sheet').scrollIntoView({ block: 'start' });
+}
+$('key-connect').onclick = async () => {
+  const input = $('key-pasted') as HTMLInputElement;
+  if (!keyRow || keyStep.at !== 'route' || keyStep.entry === 'checking') return;
+  if (!input.value.trim()) return input.focus();
+  keyDo({ type: 'submit' });
+  keyFailed = '';
+  paintKeyForm();
+  try {
+    await accounts.add(ME, keyRow.id, { key: input.value.trim() });
+    input.value = '';
+    keyDo({ type: 'result', result: 'ok' });
+    void paintKeys();
+  } catch (e: any) {
+    keyDo({ type: 'result', result: 'invalid' });
+    keyFailed = e.message;
+  }
+  paintKeyForm();
+};
+$('key-cancel').onclick = () => { keyRow = undefined; keyFailed = ''; ($('key-pasted') as HTMLInputElement).value = ''; paintKeyForm(); $('add-open').focus(); };
+
+/** Keys connected on the shared form: every account no provider card owns, each with its billing and a Remove. */
+async function paintKeys() {
+  const rows = (await accounts.list(ME)).filter((a) => !cards[a.provider]);
+  const box = $('keys-list');
+  box.replaceChildren();
+  $('keys').hidden = !rows.length;
+  // A key has no plan room to read: each row says what its route's billing is, in the kit's words.
+  const routes = connectView(accounts.routes()).groups.flatMap((g) => g.rows);
+  for (const a of rows) {
+    const v = { id: a.id, state: a.state, title: a.name, detail: routes.find((r) => r.id === a.route)?.billingWords ?? '' };
+    const row = document.createElement('div');
+    row.className = 'acc';
+    row.dataset.account = v.id;
+    const head = document.createElement('div');
+    head.className = 'acc-row';
+    const dot = document.createElement('span');
+    dot.className = 'dot';
+    dot.dataset.state = v.state;
+    const title = document.createElement('span');
+    title.className = 'acc-email';
+    title.textContent = v.title;
+    head.append(dot, title);
+    const detail = document.createElement('p');
+    detail.className = 'acc-room';
+    detail.textContent = v.detail;
+    const out = document.createElement('button');
+    out.className = 'quiet';
+    out.type = 'button';
+    out.textContent = 'Remove';
+    out.setAttribute('aria-label', `Remove ${v.title}`);
+    out.onclick = async () => { await accounts.remove(ME, v.id); void paintKeys(); };
+    row.append(head, detail, out);
+    box.append(row);
+  }
+}
+
+/** Every route, grouped. A row is a button when this page can start it: a ready sign-in with its card here, a ready
+ *  key route whose card takes a pasted key, or any other ready key route on the shared key form.
+ *  Anything else stays listed and cannot be tapped, saying why: its readiness words, or the terms that rule it out. */
 function addSheet() {
   const box = $('add-groups');
   box.replaceChildren();
   const routes = accounts.routes();
   const paintRow = (r: ConnectRow, key: string | undefined) => {
+    const form = takesKeyForm(r, routes);
+    const refused = TERMS_REFUSED[r.id];
     const row = document.createElement('button');
     row.className = 'route';
     row.type = 'button';
     row.dataset.route = r.id;
     // aria-disabled, not disabled: the row stays focusable, so its reason is still read out.
-    if (!key) row.setAttribute('aria-disabled', 'true');
-    if (!r.ready) row.dataset.unavailable = '';
+    if (!key && !form) row.setAttribute('aria-disabled', 'true');
+    if (!r.ready || refused) row.dataset.unavailable = '';
     const line = (cls: string, words: string) => { const s = document.createElement('span'); s.className = cls; s.textContent = words; row.append(s); };
     // The way in names the card: one provider can have several (its page, a pasted code, a key).
     line('route-name', `${r.name} — ${r.method[0].toLowerCase()}${r.method.slice(1)}`);
     line('route-line', r.billingWords);
-    line('route-status', r.ready && !key ? 'Ready, but this page has no form for it yet.' : r.status);
+    line('route-status', refused ?? r.status);
     row.onclick = () => {
+      if (form) { $('add-sheet').hidden = true; openKeyForm(r); return; }
       if (!key) return;
       $('add-sheet').hidden = true;
       const el = $(key);
@@ -605,15 +702,7 @@ function addSheet() {
     };
     return row;
   };
-  // Rows this page cannot start leave their group: they gather in the Coming soon group at the end.
-  const soon: ConnectRow[] = [];
   for (const g of connectView(routes).groups) {
-    const keep = g.rows.filter((r) => {
-      const key = starterFor(r, routes);
-      if (r.ready && !key) { soon.push(r); return false; }
-      return true;
-    });
-    if (!keep.length) continue;
     const group = document.createElement('section');
     group.className = 'group';
     group.dataset.group = g.id;
@@ -624,40 +713,9 @@ function addSheet() {
     note.textContent = g.note;
     group.append(title, note);
     // Ready ways in first, then the ones that cannot be used here; each keeps the kit's order within its kind.
-    for (const r of [...keep].sort((a, b) => Number(b.ready) - Number(a.ready))) {
+    for (const r of [...g.rows].sort((a, b) => Number(b.ready && !TERMS_REFUSED[b.id]) - Number(a.ready && !TERMS_REFUSED[a.id]))) {
       group.append(paintRow(r, starterFor(r, routes)));
     }
-    box.append(group);
-  }
-  if (soon.length) {
-    const group = document.createElement('section');
-    group.className = 'group';
-    group.dataset.group = 'coming-soon';
-    const title = document.createElement('h3');
-    title.textContent = 'Coming soon';
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'quiet';
-    toggle.setAttribute('data-coming-toggle', '');
-    toggle.setAttribute('aria-expanded', 'false');
-    toggle.setAttribute('aria-controls', 'coming-soon-rows');
-    toggle.textContent = `Show ${soon.length} more ways in`;
-    const body = document.createElement('div');
-    body.id = 'coming-soon-rows';
-    body.hidden = true;
-    const note = document.createElement('p');
-    note.className = 'company';
-    note.textContent = 'These ways in work in the kit, but this page has no form for them yet.';
-    body.append(note);
-    // The kit's order, as they were gathered group by group.
-    for (const r of soon) body.append(paintRow(r, undefined));
-    toggle.onclick = () => {
-      const open = body.hidden;
-      body.hidden = !open;
-      toggle.setAttribute('aria-expanded', String(open));
-      toggle.textContent = open ? 'Hide' : `Show ${soon.length} more ways in`;
-    };
-    group.append(title, toggle, body);
     box.append(group);
   }
 }

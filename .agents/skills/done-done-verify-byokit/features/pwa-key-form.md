@@ -1,0 +1,5 @@
+# PWA: every ready key route starts on the shared key form
+
+Run `npm run build`, then `sh scripts/test.sh 'examples/pwa/pwa.test.ts'` while holding the environment's required heavy-job lock. The browser tests drive the Add sheet (`Add an account: every route grouped…`: no Coming soon group, `openai:key` tappable and labelled "Charged per use to your OpenAI account", the Claude plan token row kept unavailable with its terms reason) and the shared key form (`Add a key route with no card of its own…`: `deepseek:key` opens it, hidden typing, an empty box connects nothing, a pasted key is kept and listed under Your keys with its billing, never shown back, survives a reload and is removed).
+
+For pictures, start a loopback server from `mockOpenAI()`, `mockDevice()` and `serve(0, openai.base, device.base)` (`examples/pwa/serve.ts`), open it at 390x844 in each of `light` and `dark`, tap Add an account, then `[data-route="deepseek:key"]`, paste a made-up key and Connect. Capture the add sheet, the form, the connected form and Your keys. Use only demo values; stop the server when done.
