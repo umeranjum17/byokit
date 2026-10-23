@@ -1,0 +1,65 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "488046f92446b95ae5e41d56eb9252c8a8f5b868",
+  "tree": "f963e5a74e807548109f9e7546d23f380fb7bc68",
+  "claim": "a person opens the browser example, sees each agent with \"N of M enabled\", signs an agent in from its own row, picks the one account it uses and its default model, and finds pay-per-use keys listed apart, never chosen",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-23T16:59:39.312Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261023T165849Z-488046f9-af0842/review/agents-codex/after__light__phone.png",
+      "sha256": "f2f887879b6bec55166bafd178f47486aabed9a9accdcc4444b243cf577fde9e"
+    },
+    {
+      "path": "<evidence root>/20261023T165849Z-488046f9-af0842/review/agents-codex/after__dark__phone.png",
+      "sha256": "df34a911fd56bc7e5076586584a664bbbbed5a210d39bc5734a1f74cd40cf102"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261023T165849Z-488046f9-af0842",
+      "commit": "488046f92446b95ae5e41d56eb9252c8a8f5b868",
+      "journey": null,
+      "command": "sh .verify-artifacts/agents-drive.sh",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "byokit browser example (examples/pwa) with @byokit/ui agentView, commit 488046f92446b95ae5e41d56eb9252c8a8f5b868"
+        },
+        "start": "The example PWA served by examples/pwa/serve.ts on loopback against the mockOpenAI stand-in, a fresh browser profile with no accounts, headless Chromium at 390x844 (2x) and 1280x800, light and dark.",
+        "steps": [
+          "Open the home page and read the Agents list: Codex, Claude Code, Pi, OpenCode, Kimi Code and Mistral Vibe, each with its plan count (agents-list).",
+          "Open Codex and tap Sign in on its ChatGPT plan; the page moves to the ChatGPT card's device code, which is typed on the stand-in's OpenAI page.",
+          "Back on Agents, Codex shows the account umer@example.com In use; pick GPT-6 Sol under Default model, open Pay per use, reload, and open Codex again (agents-codex).",
+          "Close Codex and open Pi: the same account is listed Signed in but not chosen, with the other plans to sign in (agents-pi)."
+        ],
+        "result": "Before anything is connected every agent reads 0 of N enabled and Mistral Vibe reads No plan sign-in. After the sign-in from Codex's row, Codex reads 1 of 1 enabled with umer@example.com In use, the note Codex uses umer@example.com., GPT-6 Sol kept across the reload, and Pay per use listing OpenAI API key with Charged per use to your OpenAI account, not startable. Pi reads 1 of 6 enabled, its radio unchecked and the note Pick the account Pi uses. The before frames are the base home with provider cards only. Exit 0, 0 page errors per the manifest."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261023T165849Z-488046f9-af0842/review/agents-codex/after__light__phone.png",
+        "sha256": "f2f887879b6bec55166bafd178f47486aabed9a9accdcc4444b243cf577fde9e",
+        "verdict": "pass",
+        "seen": "The Agents page shows each agent with a count: Codex \"1 of 1 enabled\", Claude Code \"0 of 1 enabled\", Pi \"1 of 6 enabled\", OpenCode \"1 of 3 enabled\". Codex has a ChatGPT sign-in row with one account, \"umer@example.com\" marked \"In use\", and a \"Default model\" set to \"GPT-6 Sol\". Pay-per-use is a separate collapsed section listing the \"OpenAI API key\" apart from the chosen sign-in. The screenshot does not show the act of signing in, so that step is inferred from the static state."
+      },
+      {
+        "path": "<evidence root>/20261023T165849Z-488046f9-af0842/review/agents-codex/after__dark__phone.png",
+        "sha256": "df34a911fd56bc7e5076586584a664bbbbed5a210d39bc5734a1f74cd40cf102",
+        "verdict": "pass",
+        "seen": "This is the dark-theme version of the same Agents page. It shows \"Codex 1 of 1 enabled\", \"Claude Code 0 of 1 enabled\", \"Pi 1 of 6 enabled\" and \"OpenCode 1 of 3 enabled\". Codex lists \"umer@example.com\" as \"In use\" under ChatGPT, the default model is \"GPT-6 Sol\", and \"Pay per use (1)\" lists the \"OpenAI API key\" separately. The sign-in action itself is not visible."
+      }
+    ]
+  }
+}
