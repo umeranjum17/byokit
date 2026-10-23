@@ -1,13 +1,12 @@
 // machine() (docs/cloud-kit.md section 5). M1 builds the 5.1 checks of every method
 // and 5.2-5.5 and 5.7; M3 builds install, update, host, logs and deliver (section 8).
 import { MachineError, markAdoptionInstallFailure } from './errors.ts';
-import { joinTailnet, tailnet } from './tailnet.ts';
 import { balanceCost, dateOf, enteredCost, monthStartIso, usageCost } from './cost.ts';
 import { archOf, nodeInstallArgv, nodePath } from './node.ts';
 import { checkRecipe, defaultRange, markerPath, satisfiesRange } from './recipe.ts';
 import {
-  CLEAR_SHELL, DELIVER_SHELL, FILE_NAME, NEWEST_SHELL, PROBE_SHELL, WORKDIR_SHELL, WRITE_SHELL, renderUnit, systemUnitPath,
-  userUnitPath, writeUnitFile, writeUserUnit,
+  CLEAR_SHELL, DELIVER_SHELL, FILE_NAME, NEWEST_SHELL, PROBE_SHELL, TAILSCALE_CLEANUP_SHELL, TAILSCALE_DROP_IN, WORKDIR_SHELL,
+  WRITE_SHELL, renderUnit, systemUnitPath, userUnitPath, writeUnitFile, writeUserUnit,
 } from './unit.ts';
 import type {
   AsleepWhy, Disk, ExecResult, Handoff, HostRecipe, HostState, Machine, MachineRecord, MachineRef, MachineStore, Plan, Provider,
@@ -382,12 +381,28 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
     }
   };
 
+  // 9.3: a machine 0.2.x to 0.4.0 joined to the person's tailnet leaves it once; only the kit's own drop-in starts this.
+  const leaveTailnet = async (r: MachineRef, onLine: ((line: string) => void) | undefined): Promise<void> => {
+    const joined = await o.provider.exec(r, ['test', '-e', TAILSCALE_DROP_IN], { timeoutMs: EXEC_TIMEOUT_MS });
+    if (joined.code !== 0) return;
+    const left = await o.provider.exec(r, ['sh', '-c', TAILSCALE_CLEANUP_SHELL], { timeoutMs: 2 * EXEC_TIMEOUT_MS, root: true });
+    if (onLine !== undefined) {
+      feedLines(left.stdout, onLine);
+      feedLines(left.stderr, onLine);
+    }
+    if (left.timedOut) throw new MachineError('timeout', 'removing the old private-network service took too long');
+    if (left.code !== 0) {
+      throw new MachineError('provider', `removing the old private-network service failed with exit ${left.code}: ${left.stderr.slice(-200)}`);
+    }
+  };
+
   // 8.3 steps 1-5 shared by install and update (update reruns the root steps only
   // when the marker is missing, 8.5), plus the step 5 mkdirs.
-  const prepare = async (r: MachineRef, recipe: HostRecipe): Promise<{
+  const prepare = async (r: MachineRef, recipe: HostRecipe, onLine?: (line: string) => void): Promise<{
     machineUser: string; machineHome: string; node: string; nodeBinDir: string;
   }> => {
     const { arch, machineUser, machineHome, runHome } = await probeMachine(r, recipe);
+    await leaveTailnet(r, onLine);
     await rootSteps(r, recipe, r.name, machineHome);
     const node = await resolveNode(r, recipe, runHome, arch);
     const nodeBinDir = node.slice(0, node.lastIndexOf('/'));
@@ -571,7 +586,7 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       try {
         const ref = await need();
         checkRecipe(r, ref.name);
-        const { machineUser, machineHome, node } = await prepare(ref, r);
+        const { machineUser, machineHome, node } = await prepare(ref, r, onLine);
         await runSteps(ref, r, node.slice(0, node.lastIndexOf('/')), r.install, onLine, 'install');
         await writeInstalled(ref, r);
         const { kind, bytes } = renderFor(r, machineUser, node);
@@ -697,14 +712,6 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
       const r = await need();
       checkPort(port);
       return o.provider.url?.(r, port) ?? null;
-    },
-
-    async joinTailnet(options, onStep) {
-      return joinTailnet(o.provider, await need(), options, onStep);
-    },
-
-    async tailnet() {
-      return tailnet(o.provider, await need());
     },
 
     async cost() {

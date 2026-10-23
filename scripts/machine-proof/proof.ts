@@ -30,14 +30,17 @@ export type ProofHooks = {
   // Destructive experiment on a separate disposable sandbox; never the app machine.
   noEnvScrub(provider: Provider, ref: MachineRef): Promise<Observation>;
 };
-// Tailnet ingress is plain HTTP inside the tailnet's WireGuard tunnel, on the app's own exposed port.
-export const tailnetRoute = (name: string, port: number): string => `http://${name}:${port}`;
+// The SSH forward's local end: plain HTTP to this computer's loopback, carried inside SSH to the app port on the
+// machine's loopback (docs/cloud-kit.md 9.1). No tailnet and no public app port.
+export const forwardRoute = (localPort: number): string => `http://127.0.0.1:${localPort}`;
 export type ProofTarget = {
   provider: Provider;
   app: AppRecipe;
   // Called before install: upload a clean release archive and lab-owned files only. Returns the
-  // private https route (the MagicDNS origin) the probes dial, or null when the adapter has none.
+  // private route (the SSH forward's local end) the probes dial, or null when the adapter has none.
   prepare(session: Session): Promise<string | null>;
+  // Called after a sleep and wake or a power cycle: the route again, read fresh (a Boat wake can move the machine).
+  reopen?(session: Session): Promise<string | null>;
   contractRecipe(name: string): HostRecipe;
   // Called with the install duration in seconds once `installApp` returns (live timings).
   onInstall?(seconds: number): void;
@@ -104,7 +107,7 @@ export async function runProof(o: {
       await installApp(provider, ref, target.app);
       target.onInstall?.((Date.now() - installStarted) / 1000);
       assert.equal(await m.host(), 'running');
-      // prepare() supplies the app's private tailnet route. Never expose a port here.
+      // prepare() supplies the app's private SSH forward route. Never expose a port here.
       const s = session;
       await add(adapter, 'host-doctor', async () => {
         await exec(s, target.app.doctor);
@@ -127,16 +130,7 @@ export async function runProof(o: {
       } else {
         await o.hooks.cycleVm(s);
       }
-      if (provider.id === 'sandbox-api') {
-        const settles = Date.now() + 300_000;
-        let tailnet = await m.tailnet();
-        while (tailnet.state === 'starting') {
-          assert.ok(Date.now() < settles, 'tailnet daemon did not settle after wake');
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          tailnet = await m.tailnet();
-        }
-        s.url = tailnet.name === null ? null : tailnetRoute(tailnet.name, s.app.exposure.port);
-      }
+      if (target.reopen !== undefined) s.url = await target.reopen(s);
       await add(adapter, 'unit-resume', async () => {
         assert.equal(await m.host(), 'running');
         return { status: 'pass', detail: 'enabled app unit running after power cycle' };
@@ -148,7 +142,7 @@ export async function runProof(o: {
         const v4 = /(?:\d{1,3}\.){3}\d{1,3}/.test(afterIp);
         return { status: 'observed', detail: `address changed: ${beforeIp !== afterIp}; IPv6-only: ${!v4 && afterIp.includes(':')}` };
       });
-      // MagicDNS is stable; private ingress is configured by the app, not provider hosting.
+      // The forward is the app's own SSH route, reopened after the wake; the provider never hosts it.
       await add(adapter, 'route-rehost', async () => {
         const observed = await o.hooks.observe('route-rehost', s);
         return { ...observed, detail: `route changed: ${oldUrl !== s.url}; ${observed.detail}` };

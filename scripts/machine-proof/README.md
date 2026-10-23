@@ -34,6 +34,12 @@ The scanner must match that fingerprint before confirmation. The VM user must ha
 passwordless sudo for recipes using root dependencies or a dedicated run user. Its home
 is passed explicitly; it need not be `/home/user`.
 
+The sandbox is reached over SSH, never a tailnet (docs/cloud-kit.md 9.1): `reach` is the absolute `ssh`
+binary, a lab-only login key by path, its OpenSSH public line, and a state directory. The runner adds that
+key with the provider's `sshAccess`, pins the host key the provider names (the scanned key must match), and
+opens one SSH forward to the app port on the machine's loopback; the probes dial its local end. After a wake
+it reads `sshAccess` again and opens a new forward, since the machine can move.
+
 `prepare(session)` uploads only the app's clean, checksum-pinned release archive and
 lab-owned setup files using `provider.write`. The archive is readable by the dedicated
 run user (0644); it must contain no `.env`, sign-ins, recovery keys or owner state.
@@ -45,7 +51,7 @@ writes contract and app resource ids to `resourcesFile` immediately after creati
 
 The built-in `probes()` in `probes.ts` supplies WebSocket handshakes, health reachability,
 plan fields, raw public-port reachability (closed means refused or dropped; see docs/cloud-kit.md 9.2),
-disk and cgroup peak-memory observations, a forged-header probe (`unavailable` on the tailnet route, which
+disk and cgroup peak-memory observations, a forged-header probe (`unavailable` on the SSH forward route, which
 has no provider proxy), a second provider-only shutdown to check SIGTERM, and
 an isolated `noEnv` canary experiment. It asks the operator to complete real phone
 pairing, the engine device-code sign-in, a representative workload, the provider's

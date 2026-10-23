@@ -4,9 +4,10 @@ import { isAdoptionInstallFailure, MachineError } from './errors.ts';
 import { machine } from './machine.ts';
 import { readOutbox, type PairContext, type PairReceipt } from './enrol.ts';
 import { checkRecipe } from './recipe.ts';
-import { checkPort, servePort } from './tailnet.ts';
+import { LISTEN_SHELL } from './unit.ts';
 import { errorKey } from './words.ts';
-import type { HostRecipe, MachineRef, MachineStore, Provider, TailnetStep } from './types.ts';
+import { via, type SshPins, type SshRoute, type SshTarget, type SshTransport } from './ssh-vm.ts';
+import type { HostRecipe, MachineRef, MachineStore, Provider } from './types.ts';
 import type { WordKey } from './words.ts';
 
 export type SetupStepName = 'checking-access' | 'listing' | 'creating' | 'inspecting' | 'installing' | 'securing' | 'pairing';
@@ -17,7 +18,7 @@ export type SetupStep =
   | { step: 'creating'; ref: MachineRef }
   | { step: 'inspecting'; ref: MachineRef }
   | { step: 'installing'; ref: MachineRef }
-  | { step: 'securing'; name: string }
+  | { step: 'securing'; route: SshRoute }
   | { step: 'pairing'; receipt?: PairReceipt }
   | { step: 'ready'; ref: MachineRef }
   | { step: 'failed'; at: SetupStepName; cause: WordKey; retryable: boolean };
@@ -39,7 +40,12 @@ export async function* setup(o: Target & {
   store: MachineStore;
   recipe: HostRecipe;
   onLine?: (line: string) => void;
-  address?: { hostname: string; port: number; onStep?: (s: TailnetStep) => void };  // the secure address; absent skips securing
+  // The SSH route to the app port on the machine's loopback (9.1); absent skips securing. `publicKey` is the device's
+  // login key for `provider.sshAccess`; without it, `target` and the fingerprint `pins` holds.
+  address?: {
+    port: number; transport: SshTransport; publicKey?: string;
+    target?: { host: string; port?: number; user: string }; pins?: Pick<SshPins, 'load'>;
+  };
   pair?: (ref: MachineRef, ctx: PairContext) => Promise<PairReceipt | void>;  // the app's Pair-ready gate; absent skips pairing
   replaceOwner?: boolean;                          // 5.12: only after the person confirms an `error.ownerEnrolled` failure
 }): AsyncGenerator<SetupStep> {
@@ -154,29 +160,56 @@ export async function* setup(o: Target & {
   }
   yield* secureAndPair(ref);
 
+  // 5.11 securing: the SSH target, its pinned host key, a listener on the machine's loopback, and one forward that
+  // opens. Nothing is installed and no port is opened.
+  async function secure(ref: MachineRef, a: NonNullable<typeof o.address>): Promise<SshRoute> {
+    if (!Number.isInteger(a.port) || a.port < 1 || a.port > 65535) {
+      throw new MachineError('bad-recipe', 'address.port: use a whole number from 1 to 65535.');
+    }
+    if (typeof a.transport?.hostKey !== 'function') throw new MachineError('bad-recipe', 'address.transport: pass the app SSH transport');
+    const { transport } = a;
+    const { forward } = transport;
+    let target: SshTarget;
+    if (o.provider.sshAccess !== undefined) {
+      if (typeof a.publicKey !== 'string') throw new MachineError('bad-recipe', 'address.publicKey: pass the device\'s SSH public key');
+      target = await o.provider.sshAccess(ref, a.publicKey);
+    } else if (a.target !== undefined && a.pins !== undefined) {
+      const fingerprint = await a.pins.load();
+      if (fingerprint === null) throw new MachineError('host-key', 'no host key is pinned yet; confirm it with sshHostKey() first');
+      target = { host: a.target.host, port: a.target.port ?? 22, user: a.target.user, fingerprint };
+    } else {
+      throw new MachineError('bad-recipe', 'address: pass target and pins for a provider without sshAccess');
+    }
+    const seen = await via(() => transport.hostKey({ host: target.host, port: target.port }));
+    if (seen.fingerprint !== target.fingerprint) throw new MachineError('host-key', 'the server host key does not match the pinned one');
+    const listening = await o.provider.exec(ref, ['sh', '-c', LISTEN_SHELL, 'sh', String(a.port)], { timeoutMs: 30_000 });
+    if (listening.timedOut) throw new MachineError('timeout', 'checking the app port took too long');
+    if (listening.code !== 0) throw new MachineError('provider', `nothing listens on 127.0.0.1:${a.port} on the cloud computer`);
+    if (forward === undefined) throw new MachineError('unsupported', 'address.transport: this SSH transport cannot forward to the app port');
+    const opened = await via(() => forward(target, { host: '127.0.0.1', port: a.port }));
+    await opened.close();
+    return { ...target, appPort: a.port };
+  }
+
   // The steps after install, shared by both paths: securing, the pair gate, then ready.
   async function* secureAndPair(ref: MachineRef): AsyncGenerator<SetupStep> {
     let urls: string[] = [];
+    let ssh: SshRoute | undefined;
     if (o.address !== undefined) {
-      const { hostname, port, onStep } = o.address;
-      let name: string;
       try {
-        checkPort(port);
-        const t = await m.tailnet();
-        name = t.state === 'joined' && t.name !== null ? t.name : (await m.joinTailnet({ hostname }, onStep)).name;
-        await servePort(o.provider, ref, port);
+        ssh = await secure(ref, o.address);
       } catch (e) {
         yield fail('securing', e);
         return;
       }
-      urls = [`ws://${name}:${port}`];
-      yield { step: 'securing', name };
+      urls = [`ws://127.0.0.1:${ssh.appPort}`];
+      yield { step: 'securing', route: ssh };
     }
     if (o.pair !== undefined) {
       let receipt: PairReceipt | void;
       try {
         receipt = await o.pair(ref, {
-          urls, read: (file) => readOutbox(o.provider, ref, o.recipe, file), replaceOwner,
+          urls, ...(ssh !== undefined ? { ssh } : {}), read: (file) => readOutbox(o.provider, ref, o.recipe, file), replaceOwner,
           run: (argv, ro) => m.run(o.recipe, argv, ro), handoff: (argv, ho) => m.handoff(o.recipe, argv, ho),
         });
       } catch (e) {

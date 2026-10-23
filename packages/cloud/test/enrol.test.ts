@@ -14,7 +14,8 @@ import { CLEAR_SHELL, DELIVER_SHELL, NEWEST_SHELL, WORKDIR_SHELL, takeInbox, wri
 import { checkRecipe } from '../src/recipe.ts';
 import { MachineError } from '../src/errors.ts';
 import type { ExecResult, HostRecipe, Machine, MachineRef, Provider } from '../src/types.ts';
-import { fakeProvider, memoryStore } from '../src/testing/index.ts';
+import { fakeProvider, fakeSshTransport, memoryStore } from '../src/testing/index.ts';
+import { sshResolve } from '../src/ssh-vm.ts';
 
 const sha = (c: string): Record<'linux-x64' | 'linux-arm64', string> => ({ 'linux-x64': c.repeat(64), 'linux-arm64': c.repeat(64) });
 const recipe = (name = 'web'): HostRecipe => ({
@@ -124,21 +125,14 @@ test('only the enrolled phone pairs over the link; a wrong phone is refused', as
   assert.deepEqual(host.devices().map((g) => g.id), [id]);
 });
 
-test('setup secures the address, the host answers with a receipt, and the phone links with only that receipt', async (t) => {
+test('setup secures the SSH route, the host answers with a receipt, and the phone links with only that receipt', async (t) => {
   const provider = fakeProvider();
   const listed: MachineRef = { provider: 'sandbox-api', account: 'acct-test', id: 'sb-1', name: 'computer', keepCopies: true };
   const store = memoryStore();
-  const ok = (stdout: string): ExecResult => ({ code: 0, stdout, stderr: '', timedOut: false });
-  // The machine's private network (already joined) and its host process, which binds the delivered key with a real Host.
+  // The machine's host process binds the delivered key with a real Host, listening on the machine's loopback.
   const backing = grantsBacking();
   const host = await openHost(backing);
-  const served = new Map<string, string>();
-  let serveStatus = (): string => JSON.stringify({ TCP: Object.fromEntries([...served].map(([p, to]) => [p, { TCPForward: to }])) });
-  const net = (provider: ReturnType<typeof fakeProvider>): Provider => ({ ...provider, list: async () => [listed], exec: async (ref, argv, o) => {
-    if (argv[0] === 'systemctl' && argv[1] === 'is-active') return ok('');
-    if (argv[0] === 'tailscale' && argv[1] === 'status') return ok(JSON.stringify({ BackendState: 'Running', Self: { DNSName: 'computer.tail-test.ts.net.' } }));
-    if (argv[0] === 'tailscale' && argv[1] === 'serve' && argv[2] === '--bg') { served.set(argv[3].slice('--tcp='.length), argv[4].slice('tcp://'.length)); return ok(''); }
-    if (argv[0] === 'tailscale' && argv[1] === 'serve' && argv[2] === 'status') return ok(serveStatus());
+  const withHost: Provider = { ...provider, list: async () => [listed], exec: async (ref, argv, o) => {
     const r = await provider.exec(ref, argv, o);
     if (argv[5] === PHONE_KEY_FILE) {
       const landed = provider.fake.machine.readFile(`/home/user/app/.byokit/inbox/${PHONE_KEY_FILE}`)!;
@@ -146,53 +140,55 @@ test('setup secures the address, the host answers with a receipt, and the phone 
       provider.fake.machine.writeFile(`/home/user/app/.byokit/outbox/${RECEIPT_FILE}`, new TextEncoder().encode(phoneReceipt(host, landed)), 0o600);
     }
     return r;
-  } });
-  const withNet = net(provider);
+  } };
   const server = createServer();
   const wss = new WebSocketServer({ server });
   const sockets: WsSocket[] = [];
   wss.on('connection', (ws) => { sockets.push(ws); host.accept(ws); });
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-  const loopback = `ws://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  // The app's SSH transport reaches the same machine; its forward carries the app port to the host above.
+  const transport = fakeSshTransport({ machine: provider.fake.machine });
+  transport.loopback.set(7300, (server.address() as AddressInfo).port);
+  const pins = { load: async () => transport.fingerprint };
+  const address = { port: 7300, transport, target: { host: 'computer.example', user: 'user' }, pins };
   t.after(() => { host.close(); for (const s of sockets) s.terminate(); wss.close(); server.close(); });
 
+  // Nothing listens on the app port yet: securing fails before any pairing, and a retry may pass it.
   const phone = keyPair();
-  const m = machine({ provider: withNet, store });
-  const steps: SetupStep[] = [];
-  for await (const s of setup({
-    provider: withNet, store, recipe: recipe('web'), pick: (all) => all[0], confirmId: 'sb-1',
-    address: { hostname: 'computer', port: 7300 }, pair: pairEnrol(m, recipe('web'), phone.publicKey),
-  })) steps.push(s);
+  const m = machine({ provider: withHost, store });
+  const gate = pairEnrol(m, recipe('web'), phone.publicKey);
+  const run = async () => {
+    const steps: SetupStep[] = [];
+    for await (const s of setup({ provider: withHost, store, recipe: recipe('web'), pick: (all) => all[0], confirmId: 'sb-1', address, pair: gate })) steps.push(s);
+    return steps;
+  };
+  assert.deepEqual((await run()).at(-1), { step: 'failed', at: 'securing', cause: 'state.failed', retryable: true });
+  assert.equal(host.devices().length, 0);
+
+  provider.fake.machine.listening.add(7300);
+  const steps = await run();
   assert.deepEqual(steps.map((s) => s.step), ['checking-access', 'listing', 'inspecting', 'installing', 'securing', 'pairing', 'ready']);
-  assert.deepEqual(steps[4], { step: 'securing', name: 'computer.tail-test.ts.net' });
-  assert.deepEqual([...served], [['7300', '127.0.0.1:7300']]);
+  const route = { host: 'computer.example', port: 22, user: 'user', fingerprint: transport.fingerprint, appPort: 7300 };
+  assert.deepEqual(steps[4], { step: 'securing', route });
   const pairing = steps[5];
   assert.ok(pairing.step === 'pairing' && pairing.receipt !== undefined);
   const receipt = pairing.receipt;
   const [grant] = host.devices();
-  assert.deepEqual(receipt, { host: b64url(host.keys.publicKey), device: { id: grant.id, name: 'Phone', role: 'control' }, urls: ['ws://computer.tail-test.ts.net:7300'] });
+  assert.deepEqual(receipt, {
+    host: b64url(host.keys.publicKey), device: { id: grant.id, name: 'Phone', role: 'control' }, urls: ['ws://127.0.0.1:7300'], ssh: route,
+  });
   assert.equal(grant.key, b64url(phone.publicKey));
 
-  // The phone holds only its own secret and the receipt; the resolver stands in for the tailnet name and serve.
+  // The phone holds only its own secret, its SSH transport and the receipt: the link dials the machine's loopback
+  // through the receipt's SSH route.
+  const resolve = sshResolve({ transport, pins, target: receipt.ssh!, port: receipt.ssh!.appPort });
   const seen: LinkStatus[] = [];
   const link = new DeviceLink({ v: 1, secretKey: b64url(phone.secretKey), hostName: 'Cloud computer', ...receipt }, {
-    store: { save() {}, clear() {} }, onStatus: (s) => seen.push(s),
-    resolve: (url) => url.replace('ws://computer.tail-test.ts.net:7300', loopback),
+    store: { save() {}, clear() {} }, onStatus: (s) => seen.push(s), resolve,
   });
-  t.after(() => link.stop());
+  t.after(async () => { link.stop(); await resolve.close(); });
   await waitStatus(seen, 'online');
   assert.equal(host.devices().find((g) => g.id === grant.id)?.online, true);
-
-  // A private route that does not read back fails at securing, before any pairing.
-  serveStatus = () => '{}';
-  const store2 = memoryStore();
-  const fresh = net(fakeProvider());
-  const again: string[] = [];
-  for await (const s of setup({
-    provider: fresh, store: store2, recipe: recipe('web'), pick: (all) => all[0], confirmId: 'sb-1',
-    address: { hostname: 'computer', port: 7300 }, pair: pairEnrol(machine({ provider: fresh, store: store2 }), recipe('web'), phone.publicKey),
-  })) again.push(s.step === 'failed' ? `failed:${s.at}:${s.cause}:${s.retryable}` : s.step);
-  assert.deepEqual(again, ['checking-access', 'listing', 'inspecting', 'installing', 'failed:securing:state.failed:true']);
 });
 
 test('on its own disk the host takes the delivered key from its inbox and answers through its outbox', async (t) => {
@@ -219,12 +215,12 @@ test('on its own disk the host takes the delivered key from its inbox and answer
   // An app whose link route has a path builds it from each address root and the host's key.
   const gate = pairEnrol(m, { ...recipe(), workDir }, phone.publicKey, { url: (root, hostKey) => `${root}/link/${hostKey}` });
   const receipt = await gate({} as MachineRef, {
-    urls: ['ws://computer.tail-test.ts.net:7300'],
+    urls: ['ws://127.0.0.1:7300'],
     read: async (file) => sh(OUTBOX_SHELL, [`${workDir}/.byokit/outbox/${file}`]) || null,
   });
   await answered;
   const hostKey = b64url(host.keys.publicKey);
-  assert.deepEqual(receipt.urls, [`ws://computer.tail-test.ts.net:7300/link/${hostKey}`]);
+  assert.deepEqual(receipt.urls, [`ws://127.0.0.1:7300/link/${hostKey}`]);
   assert.equal(receipt.host, hostKey);
   assert.equal(statSync(`${workDir}/.byokit/outbox/${RECEIPT_FILE}`).mode & 0o777, 0o600);
   assert.equal(statSync(`${workDir}/.byokit/outbox`).mode & 0o777, 0o700);

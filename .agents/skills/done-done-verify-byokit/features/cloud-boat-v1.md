@@ -13,9 +13,9 @@ A consumer app rents and drives a Boat cloud computer through the built `@byokit
 - `boat-existing`: list, consent-gated adoption, collision refusal, and failed-install retry without another rental.
 - `boat-error`: a wrong key is a typed `unauthorized` and the key never appears in the message.
 - `boat-retry-deadline`: 429 and 5xx are retried at 1 s, 2 s and 4 s, and a transient answer never becomes a hard `provider` failure just because the provider's own answers are slow; one 10 s request deadline caps the waits and ends the retries on an answer that arrives past it. A wait the deadline capped still earns the retry it waited for.
-- `boat-tailnet`: keyless `joinTailnet` emits the phone login link then a validated MagicDNS name; status distinguishes joined/needs-login/off and refuses malformed answers. Boat join keys are rejected before exec or file writes.
-- `boat-private-bootstrap`: create + install + host + join make zero `/host` calls; `url()` is explicit public exposure, never bootstrap.
-- `boat-ssh-access`: `sshAccess(ref, publicKey)` posts one OpenSSH key to `/sandboxes/{id}/sshkey`, returns host, port, user and the `SHA256:` fingerprint of the answered `hostKey`, and refuses anything but one key line before any request; `setup()` then installs on that machine through `sshVm` with no REST exec (journey: `an app lets its device into an existing Boat computer over plain SSH`).
+- `boat-no-tailnet`: a Boat computer never joins the person's tailnet; one that an older kit joined leaves it once on its next install (sign-out, the kit's drop-in, its own `tailscaled` unit and `/etc/tailscale` gone), while a Tailscale the person installed is untouched (journey: `an app lets its device into a Boat computer over plain SSH, secures setup over it, and leaves an old tailnet once`).
+- `boat-private-bootstrap`: create + install + host + securing make zero `/host` calls; `url()` is explicit public exposure, never bootstrap.
+- `boat-ssh-access`: `sshAccess(ref, publicKey)` posts one OpenSSH key to `/sandboxes/{id}/sshkey`, returns host, port, user and the `SHA256:` fingerprint of the answered `hostKey`, and refuses anything but one key line before any request; `setup()` then installs on that machine through `sshVm` with no REST exec, and `setup()` on `boat()` itself secures over that SSH (`address: { port, transport, publicKey }`; no `publicKey` fails `securing` as `error.app`) and its step carries the route (same journey).
 
 ## How to get to it (user POV)
 
@@ -125,21 +125,19 @@ first and saved-computer install failures (including an app callback throwing a 
 A second app adopts successfully on a fresh directory and unit. Capture command/output outside the checkout in `test-own.txt`.
 No paid Boat run or real key is authorized or proved.
 
-### Tailnet journey
+### SSH reach journey
 
-The maintained journey imports the built public entries, drives the real Boat adapter over the existing
-loopback HTTP bench, installs an app to running, relays a synthetic phone approval, and asserts no public hosting
-request and no join-key transmission. The remote Tailscale daemon/installer are stand-ins; this proves the SDK
-contract, not real Tailscale, TUN selection, provider ingress or phone login.
+The maintained journey imports the built public entries and drives the real Boat adapter over the loopback HTTP
+bench: `sshAccess` adds the device key, `setup()` secures over SSH (pinned host key, a listener on the machine's
+loopback, one forward through `fakeSshTransport()`), and no `/host` request is made. The old-tailnet cleanup runs
+once against the fake machine's files. This proves the SDK contract, not Boat's sshd.
 
-Live qualification belongs to the authorized Boat lab: root installation, actual absence of `/dev/net/tun`,
-userspace daemon, owner phone approval, MagicDNS, and an app served privately through `tailscale serve` (not Funnel).
-Probe the disposable app listener locally and on the provider public address from outside; require no response
-and no hosted app URL. Keep refusal vs timeout distinct. Delete after each run; follow the supervising shared
-spend ledger (USD 10 warning, USD 15 stop; two machines maximum). Do not read ambient keys or stage a join key.
-The phone must already be on the same tailnet. Until this is recorded, report live qualification as pending.
-The Expo M6 lab now uses a direct encrypted pair socket on loopback plus private Serve, not a public relay URL;
-its physical capture remains pending owner sign-in, never qualified by the loopback journey.
+Live qualification is `cloud-phone-enrol.md`'s `pair-receipt-live` run: one Boat machine, the lab key let in with
+`/sshkey`, the host key Boat names pinned, securing and pairing over SSH, one request through the forward, a
+closed public app port, then the machine deleted. Delete after each run; follow the supervising shared spend ledger
+(USD 10 warning, USD 15 stop; two machines maximum). Do not read ambient keys.
+The Expo M6 lab reaches its pair host over the app's SSH module the same way; its physical capture remains pending
+a native SSH module in that example, never qualified by the loopback journey.
 
 ## Gotchas
 

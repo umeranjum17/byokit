@@ -31,20 +31,17 @@ const host = await Host.open({ keys: keyPair(), name: "Umer's cloud computer",
 const server = new WebSocketServer({ host: '127.0.0.1', port: 7300 });
 server.on('connection', ws => host.accept(ws));
 server.on('listening', () => writeFileSync('offer.json', JSON.stringify(host.offer({ role: 'control',
- urls: [process.argv[2].replace('http:', 'ws:')] })), { mode: 384 }));
+ urls: ['ws://127.0.0.1:7300'] })), { mode: 384 }));
 process.on('SIGTERM', () => { writeFileSync('stopped.json', JSON.stringify({ turns }), { mode: 384 }); process.exit(0); });
 `;
-export function cloudRecipe(url: string, name: string): HostRecipe {
-  const address = new URL(url);
-  if (address.protocol !== 'http:' || !address.hostname.endsWith('.ts.net') || address.port !== '7300' || address.username || address.password)
-    throw new Error('A private cloud computer name on your own network is required.');
+/** The lab host on the machine's loopback only: the phone reaches it through an SSH forward, never a tailnet or a public port. */
+export function cloudRecipe(name: string): HostRecipe {
   return { name, workDir: '/home/user/byokit-m6', node: { version: '22.22.3', sha256: {
     'linux-x64': '2e5d13569282d016861fae7c8f935e741693c269101a5bebcf761a5376d1f99f',
     'linux-arm64': '1c4a9933a5e45bc88f54f70b5f91232c127ec49f1a5989d23fb85824c7adf9b7' } },
-    installRoot: [['tailscale', 'serve', '--bg', '--tcp=7300', 'tcp://127.0.0.1:7300']],
     install: [['npm', 'install', '--no-audit', '--no-fund', '--save-exact', '@byokit/pair@0.9.0', 'ws@8.22.0'],
       ['node', '-e', `require('node:fs').writeFileSync('host.mjs', ${JSON.stringify(M6_HOST)}, {mode:384})`]],
-    run: { argv: ['node', '/home/user/byokit-m6/host.mjs', url.replace(/\/$/, '')], env: {} } };
+    run: { argv: ['node', '/home/user/byokit-m6/host.mjs'], env: {} } };
 }
 const prompt = 'Use get_machine to check my cloud computer, then greet Umer and summarize its operating system in one sentence.';
 const schema = { type: 'object' as const, properties: { input: { type: 'string', maxLength: 512 } }, required: ['input'], additionalProperties: false };

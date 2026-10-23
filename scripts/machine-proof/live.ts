@@ -2,16 +2,19 @@
 import assert from 'node:assert/strict';
 import { readFile, writeFile } from 'node:fs/promises';
 import { boat } from '../../packages/cloud/src/boat.ts';
-import { sshVm, sshHostKey, type SshVmOptions } from '../../packages/cloud/src/ssh.ts';
-import { joinTailnet } from '../../packages/cloud/src/tailnet.ts';
+import { sshVm, sshHostKey, sshTransport, type SshVmOptions } from '../../packages/cloud/src/ssh.ts';
+import type { SshForward } from '../../packages/cloud/src/ssh-vm.ts';
 import { memoryStore } from '../../packages/cloud/src/testing/fake-provider.ts';
 import type { HostRecipe, MachineRef, Price, Provider } from '../../packages/cloud/src/types.ts';
 import type { AppRecipe } from './recipes.ts';
-import { runProof, tailnetRoute, type ProofHooks, type ProofTarget, type Report, type Session, type Timing } from './proof.ts';
+import { forwardRoute, runProof, type ProofHooks, type ProofTarget, type Report, type Session, type Timing } from './proof.ts';
 
 export type LiveConfig = {
   providerUrl: string; providerLabel: string; apiKeyFile: string; prices: readonly Price[];
   vm: SshVmOptions & { fingerprint: string; home: string };
+  // The sandbox's SSH route (docs/cloud-kit.md 9.1): this computer's `ssh` binary, a lab login key by path and its
+  // public half for Boat's /sshkey, and a state directory for the pinned host key. Never the owner's own keys.
+  reach: { ssh: string; keyPath: string; publicKey: string; stateDir: string };
   sandboxHome: string; node: HostRecipe['node'];
   sandboxApp: AppRecipe; vmApp: AppRecipe;
   // App release files only, staged on these two dedicated disposable lab machines.
@@ -66,6 +69,19 @@ export async function liveRun(config: LiveConfig, record: (r: Report) => Promise
     resources.push({ adapter: s.provider.id, id: s.ref.id, name: s.ref.name });
     await writeFile(config.resourcesFile, JSON.stringify(resources, null, 2), { mode: 0o600 });
   };
+  // One SSH forward to the sandbox app port at a time; a wake re-reads where to connect, since the machine can move.
+  const transport = sshTransport(config.reach);
+  const open: { forward: SshForward | null } = { forward: null };
+  const reach = async (s: Session): Promise<string> => {
+    await open.forward?.close();
+    open.forward = null;
+    const target = await rawSandbox.sshAccess!(s.ref, config.reach.publicKey);
+    const scanned = await sshHostKey({ ssh: config.reach.ssh, host: target.host, port: target.port, stateDir: config.reach.stateDir });
+    assert.equal(scanned.fingerprint, target.fingerprint, 'the SSH host key differs from the one Boat named');
+    await scanned.confirm();
+    open.forward = await transport.forward!(target, { host: '127.0.0.1', port: s.app.exposure.port });
+    return forwardRoute(open.forward.localPort);
+  };
   const targets: ProofTarget[] = [];
   for (const [provider, home, app] of [[sandbox, config.sandboxHome, config.sandboxApp], [vm, config.vm.home, config.vmApp]] as const) {
     const refs: MachineRef[] = [];
@@ -112,12 +128,9 @@ export async function liveRun(config: LiveConfig, record: (r: Report) => Promise
           appCreateStarted = undefined;
         }
         await config.prepare(s);
-        if (provider.id !== 'sandbox-api') return null;
-        const joined = await joinTailnet(provider, s.ref, { hostname: s.app.host.name }, step => {
-          if (step.step === 'open-page') console.error(`Sign in ${s.app.host.name} on your phone: ${step.url}`);
-        });
-        return tailnetRoute(joined.name, s.app.exposure.port);
+        return provider.id === 'sandbox-api' ? reach(s) : null;
       },
+      reopen: async s => provider.id === 'sandbox-api' ? reach(s) : null,
       onInstall: seconds => at(provider.id, 'install', seconds),
       contractRecipe: name => ({ ...fixture, name }),
       bench: async () => ({ provider: contractProvider, store: memoryStore(), installs: true }),
@@ -137,9 +150,13 @@ export async function liveRun(config: LiveConfig, record: (r: Report) => Promise
     });
   }
   // Never print provider errors, transport addresses, keys or model credentials.
-  return runProof({ targets, hooks: config.hooks, mode: 'live', record: async report => {
-    for (const result of report.results) result.detail = result.detail.split(key).join('[redacted]');
-    report.timings = [...timings].sort((a, b) => a.adapter.localeCompare(b.adapter) || a.phase.localeCompare(b.phase));
-    await record(report);
-  } });
+  try {
+    return await runProof({ targets, hooks: config.hooks, mode: 'live', record: async report => {
+      for (const result of report.results) result.detail = result.detail.split(key).join('[redacted]');
+      report.timings = [...timings].sort((a, b) => a.adapter.localeCompare(b.adapter) || a.phase.localeCompare(b.phase));
+      await record(report);
+    } });
+  } finally {
+    await open.forward?.close();
+  }
 }

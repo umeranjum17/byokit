@@ -16,5 +16,5 @@ The driver's `fetch` drops Boat's first four successful create answers after Boa
 
 ## Gotchas
 
-- The tailnet `securing` step is not in this run: it needs a person to sign the machine in. That leg is `cloud-phone-enrol.md`'s receipt capture.
+- The `securing` step (SSH) is not in this run. That leg is `cloud-phone-enrol.md`'s receipt capture, live on Boat.
 - Print only key fingerprints; the driver throws before printing any line that holds the Boat key.

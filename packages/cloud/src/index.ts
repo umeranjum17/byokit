@@ -13,7 +13,7 @@ export { status } from './status.ts';
 export type { Status } from './status.ts';
 export { boat } from './boat.ts';
 export { sshVm, sshHostKey, sshResolve } from './ssh-vm.ts';
-export type { SshForward, SshPins, SshResolveOptions, SshResolver, SshTarget, SshTransport, SshTransportHostKeyOptions, SshTransportOptions } from './ssh-vm.ts';
+export type { SshForward, SshPins, SshRoute, SshResolveOptions, SshResolver, SshTarget, SshTransport, SshTransportHostKeyOptions, SshTransportOptions } from './ssh-vm.ts';
 /** @deprecated Use boat(). */
 export { boat as sandboxApi } from './boat.ts';
 export { claim, revokeClaim } from './claim.ts';
@@ -30,5 +30,5 @@ export { words, stateWords, hostWords, keyWords, errorWords, errorKey, WORDS } f
 export type { WordKey } from './words.ts';
 export type {
   AsleepWhy, Cost, Disk, ExecResult, Handoff, HostRecipe, HostState, KeyInfo, Machine, MachineRecord, MachineRef,
-  MachineState, MachineStore, Plan, Price, Provider, Size, Snapshot, Tailnet, TailnetStep, Usage,
+  MachineState, MachineStore, Plan, Price, Provider, Size, Snapshot, Usage,
 } from './types.ts';

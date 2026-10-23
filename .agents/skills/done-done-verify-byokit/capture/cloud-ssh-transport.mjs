@@ -10,19 +10,20 @@
 // 1. sshHostKey() reads the server key over the transport; it must equal the ED25519 fingerprint cloud-init printed
 //    on the serial console (the person's provider-console check), and confirm() pins it.
 // 2. setup({ pick, confirmId, address }) lists the box, adopts it, installs the pinned Node and the recipe's host as a
-//    user unit, then secures it: the kit installs the pinned Tailscale on the box and runs the keyless join until the
-//    sign-in link shows (`open-page`). The driver never opens that link, so `joined` and the serve are not reached here.
-// 3. While the join waits, the host answers on the box's loopback and the tailnet reads needs-login.
-// 4. Refusals: a join key never reaches the transport, a wrong pin reads host-key-changed and exec rejects host-key.
+//    user unit, then secures it over SSH: the pinned key, a listener on the box's loopback and one forward through the
+//    transport (ssh2 forwardOut, as a phone SSH module does). No Tailscale is installed or run.
+// 3. The host answers on the box's loopback through the transport's forward, and the box has no Tailscale.
+// 4. Refusals: a wrong pin reads host-key-changed, exec rejects host-key, and securing refuses it too.
 // 5. The Node default (`@byokit/cloud/ssh` with the system `ssh` binary) pins the same key and reads the box on.
 // The VM and its container are task-owned and always removed. Exit 0 = PASS, 1 = FAIL.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:net';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { machine, MachineError, setup, sshHostKey, sshVm } from '@byokit/cloud';
+import { MachineError, setup, sshHostKey, sshVm } from '@byokit/cloud';
 import { sshHostKey as binHostKey, sshVm as binVm } from '@byokit/cloud/ssh';
 import { memoryStore } from '@byokit/cloud/testing';
 
@@ -62,6 +63,27 @@ const transport = {
       stream.on('close', (code) => finish(() => resolve({ code: code ?? 255, stdout: Buffer.concat(out).toString(), stderr: Buffer.concat(err).toString() })));
       stream.end(input?.length ? Buffer.from(input) : undefined);
     }));
+    c.connect({
+      host: to.host, port: to.port, username: to.user, privateKey, readyTimeout: 20_000,
+      hostVerifier: (key) => { mismatch = fp(key) !== to.fingerprint; return !mismatch; },
+    });
+  }),
+  // A local forward over the same login: each connection to 127.0.0.1:<localPort> here becomes one direct-tcpip channel.
+  forward: (to, remote) => new Promise((resolve, reject) => {
+    const c = new Client(); let mismatch = false; let ready = false;
+    c.on('error', (e) => { if (!ready) reject(mismatch ? new MachineError('host-key', 'the server host key changed') : e); });
+    c.on('ready', () => {
+      ready = true;
+      const server = createServer((local) => c.forwardOut('127.0.0.1', 0, remote.host, remote.port, (e, channel) => {
+        if (e) { local.destroy(); return; }
+        local.pipe(channel).pipe(local);
+        channel.on('close', () => local.destroy());
+        local.on('close', () => channel.close());
+      }));
+      const closed = new Promise((r) => server.once('close', r));
+      c.on('close', () => server.close());
+      server.listen(0, '127.0.0.1', () => resolve({ localPort: server.address().port, closed, close: async () => { c.end(); server.close(); await closed; } }));
+    });
     c.connect({
       host: to.host, port: to.port, username: to.user, privateKey, readyTimeout: 20_000,
       hostVerifier: (key) => { mismatch = fp(key) !== to.fingerprint; return !mismatch; },
@@ -108,50 +130,51 @@ try {
   await key.confirm();
   diag = async () => {
     const r = (await store.load())?.ref ?? { provider: 'ssh-vm', account: '', id: key.fingerprint, name: 'runner', keepCopies: false };
-    for (const argv of [['systemctl', 'status', '--no-pager', 'tailscaled'], ['tailscale', 'status', '--json'], ['journalctl', '-u', 'tailscaled', '-n', '40', '--no-pager'], ['ls', '-la', '/var/run/tailscale', '/dev/net']]) {
-      const d = await provider.exec(r, argv, { root: true, timeoutMs: 30_000 }).catch((e) => ({ code: e.code, stdout: '', stderr: e.message }));
-      const mask = (t) => t.replace(/https:\/\/login\.tailscale\.com\/\S+/g, 'https://login.tailscale.com/<masked>').replace(/https:\/\/login\.tailsc\.\.\./g, '<masked>');
-      log(`diag ${argv.join(' ')}`, { code: d.code, out: mask(d.stdout.slice(-1500)), err: mask(d.stderr.slice(-600)) });
+    for (const argv of [['systemctl', '--user', 'status', '--no-pager', 'byokit-runner'], ['ss', '-ltn'], ['journalctl', '--user', '-u', 'byokit-runner', '-n', '40', '--no-pager']]) {
+      const d = await provider.exec(r, argv, { timeoutMs: 30_000 }).catch((e) => ({ code: e.code, stdout: '', stderr: e.message }));
+      log(`diag ${argv.join(' ')}`, { code: d.code, out: d.stdout.slice(-1500), err: d.stderr.slice(-600) });
     }
   };
 
-  // 2. setup() on the box until the sign-in link (never opened).
-  const steps = []; const lines = [];
-  let openPage = null;
-  const linked = new Promise((resolve) => { openPage = resolve; });
-  const stream = (async () => {
-    for await (const s of setup({
-      provider, store, recipe, pick: (listed) => listed[0], confirmId: key.fingerprint, onLine: (l) => lines.push(l),
-      address: { hostname: 'ada-box', port: 7300, onStep: (t) => { if (t.step === 'open-page') openPage(t.url); } },
-    })) { steps.push(s.step); log('step', s.step === 'failed' ? s : s.step); }
-  })();
-  const url = await Promise.race([linked, stream.then(() => null)]);
-  log('steps-before-sign-in', steps);
-  assert.deepEqual(steps, ['checking-access', 'listing', 'inspecting', 'installing']);
-  assert.ok(typeof url === 'string' && url.startsWith('https://login.tailscale.com/'), 'the keyless join shows the sign-in link');
-  log('open-page', `${new URL(url).origin}/<one-time link, not opened>`);
+  // 2. setup() on the box, secured over SSH. The host may still be starting when securing first checks its port.
+  const address = { port: 7300, transport, target: { host: '127.0.0.1', port, user: 'ada' }, pins: box.pins };
+  const lines = [];
+  let steps = [];
+  for (let round = 1; round <= 10; round++) {
+    steps = [];
+    for await (const s of setup({ provider, store, recipe, pick: (listed) => listed[0], confirmId: key.fingerprint, onLine: (l) => lines.push(l), address })) {
+      steps.push(s.step === 'failed' ? `failed:${s.at}:${s.cause}:${s.retryable}` : s.step);
+      if (s.step === 'securing') log('securing-route', { port: s.route.port, user: s.route.user, appPort: s.route.appPort, pinned: s.route.fingerprint === key.fingerprint });
+    }
+    log(`steps-round-${round}`, steps);
+    if (steps.at(-1) !== 'failed:securing:state.failed:true') break;
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  assert.deepEqual(steps, ['checking-access', 'listing', 'inspecting', 'installing', 'securing', 'ready']);
 
-  // 3. While the person would sign in: the host runs and the box waits for that sign-in.
-  const m = machine({ provider, store });
-  const answer = await provider.exec((await store.load()).ref, ['curl', '-fsS', 'http://127.0.0.1:7300'], { timeoutMs: 30_000 });
-  log('host-answer', answer.stdout.trim());
-  assert.equal(answer.stdout, 'runner up for Ada\n');
-  const tailnet = await m.tailnet();
-  log('tailnet', tailnet);
-  assert.equal(tailnet.state, 'needs-login');
-  const ts = await provider.exec((await store.load()).ref, ['tailscale', 'version'], { timeoutMs: 30_000 });
-  log('tailscale-version', ts.stdout.split('\n')[0]);
-  assert.equal(ts.stdout.split('\n')[0], '1.104.1');
+  // 3. The host answers through the phone transport's forward; the box has no Tailscale.
+  const ref = (await store.load()).ref;
+  const f = await transport.forward({ host: '127.0.0.1', port, user: 'ada', fingerprint: key.fingerprint }, { host: '127.0.0.1', port: 7300 });
+  const answer = await (await fetch(`http://127.0.0.1:${f.localPort}/`)).text();
+  await f.close();
+  log('host-answer-through-forward', answer.trim());
+  assert.equal(answer, 'runner up for Ada\n');
+  const none = await provider.exec(ref, ['sh', '-c', 'command -v tailscale tailscaled || echo none'], { timeoutMs: 30_000 });
+  log('tailscale-on-box', none.stdout.trim());
+  assert.equal(none.stdout.trim(), 'none');
 
   // 4. Refusals.
-  const canary = ['tskey', 'canary'].join('-');
-  await assert.rejects(m.joinTailnet({ hostname: 'ada-box', authKey: canary }), (e) => { log('join-key', `${e.code}: ${e.message}`); return e.code === 'unsupported'; });
-  assert.ok(!sent.some((c) => c.includes(canary)), 'a join key never reaches the transport');
-  const wrong = sshVm({ ...box, pins: { load: async () => `SHA256:${'B'.repeat(43)}`, save: async () => {} } });
-  const ref = (await store.load()).ref;
+  const wrongPins = { load: async () => `SHA256:${'B'.repeat(43)}`, save: async () => {} };
+  const wrong = sshVm({ ...box, pins: wrongPins });
   log('wrong-pin-status', await wrong.status(ref));
   assert.equal(await wrong.status(ref), 'host-key-changed');
   await assert.rejects(wrong.exec(ref, ['true'], { timeoutMs: 10_000 }), (e) => { log('wrong-pin-exec', `${e.code}: ${e.message}`); return e.code === 'host-key'; });
+  const refused = [];
+  for await (const s of setup({ provider, store, recipe, pick: (listed) => listed[0], confirmId: key.fingerprint, address: { ...address, pins: wrongPins } })) {
+    refused.push(s.step === 'failed' ? `failed:${s.at}:${s.cause}` : s.step);
+  }
+  log('wrong-pin-securing', refused.at(-1));
+  assert.equal(refused.at(-1), 'failed:securing:state.host-key-changed');
 
   // 5. The Node default, unchanged: the system ssh binary pins the same key.
   const stateDir = join(dir, 'ssh-state');

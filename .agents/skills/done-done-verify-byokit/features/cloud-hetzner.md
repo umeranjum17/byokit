@@ -77,7 +77,7 @@ then run a minimal real HostRecipe and verify `host() === 'running'`. The live l
 host deliberately listens on `0.0.0.0` at its app port: verify a local request through
 SSH succeeds, then TCP-connect from this computer to the public IP/app port and
 require refusal or timeout. Record that negative with the actual SSH-22-only firewall
-rules/applied status; this is provider-firewall proof, not tailnet-only SSH proof.
+rules/applied status; this is provider-firewall proof; SSH 22 stays open (key-only) as the reach channel.
 Always delete in `finally`; independently GET the server, original primary-IP ids
 and dedicated firewall id and require 404 for each. Record elapsed time, API hourly rate/currency and the provider's billing
 rounding/minimum; that is a bounded list-price estimate, not an invoice or proof of

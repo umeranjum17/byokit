@@ -28,10 +28,10 @@ async function socket(url: string): Promise<void> {
   });
 }
 function relayUrl(s: Session, options: ProbeOptions): URL {
-  assert.ok(s.url !== null || s.provider.id === 'ssh-vm', 'sandbox probes need the private tailnet route from prepare');
+  assert.ok(s.url !== null || s.provider.id === 'ssh-vm', 'sandbox probes need the SSH forward route from prepare');
   const url = new URL(s.url ?? options.vmRelayUrl);
   assert.ok(!url.username && !url.password && !url.search && !url.hash, 'relay URL must not carry a credential');
-  assert.equal(url.protocol, s.url === null ? 'https:' : 'http:', 'the VM relay requires TLS; the tailnet route is plain HTTP inside WireGuard');
+  assert.equal(url.protocol, s.url === null ? 'https:' : 'http:', 'the VM relay requires TLS; the SSH forward is plain HTTP to this computer\'s loopback, carried inside SSH');
   return url;
 }
 async function observation(s: Session, argv: readonly string[]): Promise<Observation> {
@@ -97,7 +97,7 @@ export function probes(o: ProbeOptions): ProofHooks {
         return { status: check === 'disk-12gb' ? enough ? 'pass' : 'fail' : 'observed', detail: `disk total=${total} used=${used} free=${free} bytes; unit peak=${peak} bytes; recommended size=${enough ? 'small' : 'default'}` };
       }
       if (check === 'forwarded-for') {
-        return { status: 'unavailable', detail: 'Private tailnet bootstrap has no provider HTTP proxy; no app port is exposed.' };
+        return { status: 'unavailable', detail: 'The SSH forward has no provider HTTP proxy; no app port is exposed.' };
       }
       if (check === 'trial-cap') {
         if (s.provider.id === 'ssh-vm') return { status: 'unavailable', detail: 'SSH VM has no trial TTL API' };
