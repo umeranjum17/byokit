@@ -31,7 +31,7 @@
     "@byokit/pair": "0.10.4",
     "@byokit/secrets": "0.5.2",
     "@modelcontextprotocol/sdk": "1.32.1",
-    "zod": "3.25.76"
+    "zod": "4.6.7"
   },
   "publishConfig": {
     "access": "public"

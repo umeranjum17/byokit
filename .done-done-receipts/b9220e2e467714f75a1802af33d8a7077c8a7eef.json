@@ -1,0 +1,84 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "b9220e2e467714f75a1802af33d8a7077c8a7eef",
+  "tree": "16b58eeaa5d1603bc7d5a331d120e629698045d5",
+  "claim": "The repository's CI dependency audit passes at the root and in the Expo example with the audit script and its existing exceptions unchanged: the zod and body-parser high advisories are cleared by dependency updates, and the packed @byokit/mcp still serves tools over HTTP.",
+  "result": "pass",
+  "at": "2026-10-23T22:36:54.210Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261023T223622Z-b9220e2e-29b062/summary.txt",
+      "sha256": "e7eb118f677c50baebf8756f8d2d2c70a2276ca746d2c639fb6b054c03b5dbfa"
+    },
+    {
+      "path": "<evidence root>/20261023T223622Z-b9220e2e-29b062/audit-root.txt",
+      "sha256": "740cfa8d30bf722556e72b03fcdb55502e971b6040791a4e6c5ad1211789d4b5"
+    },
+    {
+      "path": "<evidence root>/20261023T223622Z-b9220e2e-29b062/audit-expo.txt",
+      "sha256": "a587dd4da16588beda2d12bf20b615588a010961df26a5de9880b3aee2d7d026"
+    },
+    {
+      "path": "<evidence root>/20261023T223622Z-b9220e2e-29b062/pack-smoke.txt",
+      "sha256": "6a704cfa7ae6529a375f8ae73dc134b727ca161a9a8071a8b37023f6a7504571"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261023T223622Z-b9220e2e-29b062",
+      "commit": "b9220e2e467714f75a1802af33d8a7077c8a7eef",
+      "journey": null,
+      "command": "sh /tmp/claude-1000/-home-umer--treehouse-byokit-48ee6a-1-byokit/4ea892ba-6f6d-4c15-a7ff-43dd112c6c4c/scratchpad/drive2.sh",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "byokit b9220e2e (@byokit/mcp 0.1.8 with zod 4.6.7)"
+        },
+        "start": "A checkout of the repository with the zod 4.6.7 and body-parser 2.4.0 dependency updates committed and both lockfiles installed",
+        "steps": [
+          "Ran the repository's CI audit script at the repository root",
+          "Ran the same audit script from examples/expo",
+          "Checked that the audit script, its test and CONTRIBUTING.md are unchanged against main",
+          "Packed all 35 kits and ran the packed-consumer smoke, which includes the packed @byokit/mcp serving a tool over HTTP"
+        ],
+        "result": "Both audits blocked no package (exit 0, no high advisory left, audit script unchanged) and all 35 packed kits passed, @byokit/mcp over HTTP included"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261023T223622Z-b9220e2e-29b062/summary.txt",
+        "sha256": "e7eb118f677c50baebf8756f8d2d2c70a2276ca746d2c639fb6b054c03b5dbfa",
+        "verdict": "pass",
+        "seen": "Read the whole proof summary. It states root audit exit 0, high 0, critical 0, blocked [] and examples/expo audit exit 0, high 0, critical 0, blocked []. It reports 0 changed audit files against origin/main, and pack smoke 35/35 with '@byokit/mcp [hosted HTTP] pass'. These match the outcome. Earlier local checks are noted as not re-run here, so they are not counted as proof of this head."
+      },
+      {
+        "path": "<evidence root>/20261023T223622Z-b9220e2e-29b062/audit-root.txt",
+        "sha256": "740cfa8d30bf722556e72b03fcdb55502e971b6040791a4e6c5ad1211789d4b5",
+        "verdict": "pass",
+        "seen": "One JSON audit report, read in full. Fields: remaining {info 0, low 0, moderate 4, high 0, critical 0}, blocked []. High and critical are zero and nothing is blocked, which matches the root audit outcome. The exit code is not in this text, so it is not counted. The exception entries are unchanged from the listed main exceptions."
+      },
+      {
+        "path": "<evidence root>/20261023T223622Z-b9220e2e-29b062/audit-expo.txt",
+        "sha256": "a587dd4da16588beda2d12bf20b615588a010961df26a5de9880b3aee2d7d026",
+        "verdict": "pass",
+        "seen": "One JSON audit report, read in full. Fields: remaining {info 0, low 0, moderate 3, high 0, critical 0}, blocked []. This matches the Expo example audit outcome. The exit code is not in this text, so it is not counted."
+      },
+      {
+        "path": "<evidence root>/20261023T223622Z-b9220e2e-29b062/pack-smoke.txt",
+        "sha256": "6a704cfa7ae6529a375f8ae73dc134b727ca161a9a8071a8b37023f6a7504571",
+        "verdict": "pass",
+        "seen": "Read all 45 result lines. Every package row is 'pass', including '@byokit/mcp\\tpass' and '@byokit/mcp [hosted HTTP]\\tpass'. The total line reads 'pack smoke: 35/35 packages pass'. This shows the packed mcp HTTP serving check passed."
+      }
+    ]
+  }
+}

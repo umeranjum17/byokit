@@ -26,7 +26,10 @@
     "gen:openclaw": "node packages/openclaw/scripts/gen-methods.ts"
   },
   "overrides": {
-    "shell-quote": "1.12.0"
+    "shell-quote": "1.12.0",
+    "@expo/cli": {
+      "zod": "^4.6.6"
+    }
   },
   "devDependencies": {
     "@types/node": "^26.6.5",

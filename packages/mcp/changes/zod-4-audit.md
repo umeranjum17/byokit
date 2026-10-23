@@ -1,0 +1,1 @@
+- BREAKING: depends on zod 4.6.7 (was 3.25.76), the first release without GHSA-mrhx-c7xc-m3w5 (a validator can be made to exhaust memory on oversized constrained collections); no zod 3 release carries the fix. Tool input schemas passed to `tool()` are now zod 4 schemas, so import `z` from zod 4 (`npm install zod@4`); zod 3 schemas no longer type-check.

@@ -1,0 +1,83 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "a7657bec55535c4b46de40b4e6b21b8c125d9065",
+  "tree": "4c90ce6d7981ba25fbf7db6ff08e08e273d09e92",
+  "claim": "The repository's CI dependency audit passes at the root and in the Expo example: the zod high-severity advisory (GHSA-mrhx-c7xc-m3w5) is gone because every zod in both locks is 4.6.7, and the packed @byokit/mcp still serves tools over HTTP with zod 4.",
+  "result": "pass",
+  "at": "2026-10-23T21:55:05.973Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261023T215436Z-a7657bec-84d577/summary.txt",
+      "sha256": "47d591b4e90c2b4ab78cde849892d28de0cc0a4519478628d59d8fb4b213ca62"
+    },
+    {
+      "path": "<evidence root>/20261023T215436Z-a7657bec-84d577/audit-root.txt",
+      "sha256": "740cfa8d30bf722556e72b03fcdb55502e971b6040791a4e6c5ad1211789d4b5"
+    },
+    {
+      "path": "<evidence root>/20261023T215436Z-a7657bec-84d577/audit-expo.txt",
+      "sha256": "a587dd4da16588beda2d12bf20b615588a010961df26a5de9880b3aee2d7d026"
+    },
+    {
+      "path": "<evidence root>/20261023T215436Z-a7657bec-84d577/pack-smoke.txt",
+      "sha256": "6a704cfa7ae6529a375f8ae73dc134b727ca161a9a8071a8b37023f6a7504571"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261023T215436Z-a7657bec-84d577",
+      "commit": "a7657bec55535c4b46de40b4e6b21b8c125d9065",
+      "journey": null,
+      "command": "sh /tmp/claude-1000/-home-umer--treehouse-byokit-48ee6a-1-byokit/4ea892ba-6f6d-4c15-a7ff-43dd112c6c4c/scratchpad/drive.sh",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "byokit a7657bec (@byokit/mcp 0.1.8 with zod 4.6.7)"
+        },
+        "start": "A checkout of the repository with the zod 4.6.7 dependency change committed and both lockfiles installed",
+        "steps": [
+          "Ran the repository's CI audit script at the repository root",
+          "Ran the same audit script from examples/expo",
+          "Packed all 35 kits and ran the packed-consumer smoke, which includes the packed @byokit/mcp serving a tool over HTTP"
+        ],
+        "result": "Both audits blocked no package (exit 0, no high advisory left, no exception added) and all 35 packed kits passed, @byokit/mcp over HTTP included"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261023T215436Z-a7657bec-84d577/summary.txt",
+        "sha256": "47d591b4e90c2b4ab78cde849892d28de0cc0a4519478628d59d8fb4b213ca62",
+        "verdict": "pass",
+        "seen": "Read 3 lines of summary text. It shows zod 4.6.7 in the lock and the mcp dep, 'root audit exit=0 (blocked: [])', 'expo audit exit=0 (blocked: [])', and '@byokit/mcp [hosted HTTP] pass'. Nothing contradicts the outcome. Covers all three parts."
+      },
+      {
+        "path": "<evidence root>/20261023T215436Z-a7657bec-84d577/audit-root.txt",
+        "sha256": "740cfa8d30bf722556e72b03fcdb55502e971b6040791a4e6c5ad1211789d4b5",
+        "verdict": "pass",
+        "seen": "Read one audit JSON object. It shows 'high': 0, 'critical': 0, 'blocked': [], and 'remaining' moderate 4. This supports the root audit passing with no high advisories. It does not name zod, so the zod detail is not shown directly. Covers the root audit part."
+      },
+      {
+        "path": "<evidence root>/20261023T215436Z-a7657bec-84d577/audit-expo.txt",
+        "sha256": "a587dd4da16588beda2d12bf20b615588a010961df26a5de9880b3aee2d7d026",
+        "verdict": "pass",
+        "seen": "Read one audit JSON object, identical in structure to capture_1 except 'moderate': 3. It shows 'high': 0, 'critical': 0, 'blocked': []. The file does not state which project it came from, so mapping it to the Expo audit is an inference. Covers the expo audit part."
+      },
+      {
+        "path": "<evidence root>/20261023T215436Z-a7657bec-84d577/pack-smoke.txt",
+        "sha256": "6a704cfa7ae6529a375f8ae73dc134b727ca161a9a8071a8b37023f6a7504571",
+        "verdict": "pass",
+        "seen": "Read 36 result lines. '@byokit/mcp [hosted HTTP]\\tpass' is present, and the summary reads 'pack smoke: 35/35 packages pass'. No failures are listed. Covers the packed mcp hosted HTTP part."
+      }
+    ]
+  }
+}

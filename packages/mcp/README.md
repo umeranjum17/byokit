@@ -8,7 +8,7 @@ It runs on Node 22.18 or later; it is a server kit, with no browser or phone ent
 ## Install snippets
 
 ```sh
-npm install @byokit/mcp zod
+npm install @byokit/mcp zod@4
 ```
 
 After device approval, set `MCP_URL` to your hosted HTTPS endpoint and `MCP_TOKEN` to
