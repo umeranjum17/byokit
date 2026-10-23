@@ -1,0 +1,56 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "c07a418a4c805681644c4307b847e816e48467a8",
+  "tree": "84e7197e4349e2d1005a7d2534e9de94c0f21ebe",
+  "claim": "A key lane lists the vendor's current models, and the app can pick the model it chose.",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-23T00:43:18.598Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261023T004241Z-c07a418a-9822aa/openclaw-signin-detect-drive.txt",
+      "sha256": "08fb12981ff600e8f747fc502fd202627ceaa13030e7aa182b864d8abd53512b"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261023T004241Z-c07a418a-9822aa",
+      "journey": null,
+      "command": null,
+      "feature": "openclaw-signin-detect",
+      "tool": "0.6.0",
+      "steps": {
+        "target": {
+          "version": "@byokit/openclaw 0.27.1"
+        },
+        "start": "The app has just signed in with a MiniMax API key through the built @byokit/openclaw kit: the engine holds the key and the provider's live catalog is registered.",
+        "steps": [
+          "Built the SDK with npm run build and checked that @byokit/openclaw resolves inside packages/openclaw/dist",
+          "Started the OpenClaw kit against the fake gateway and signed in with the MiniMax global API key",
+          "Ran the app's poll after the sign-in three times: read the providers, the account list and the signed-in check for minimax",
+          "Read the key lane's models (minimax.key) and picked minimax/MiniMax-M3.1-Flash",
+          "Removed the key and read the providers again"
+        ],
+        "result": "The three poll rounds made one setup detection. The key lane lists minimax/default, minimax/MiniMax-M3 and minimax/MiniMax-M3.1-Flash, and the pick returns minimax/MiniMax-M3.1-Flash. After the key was removed, the next read made one more detection. The drive printed DRIVE OK."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261023T004241Z-c07a418a-9822aa/openclaw-signin-detect-drive.txt",
+        "sha256": "08fb12981ff600e8f747fc502fd202627ceaa13030e7aa182b864d8abd53512b",
+        "verdict": "pass",
+        "seen": "Read 3 capture entries. Entry 1 shows pollRounds 3 and detections 1. Entry 2 shows a lane listing minimax/default, minimax/MiniMax-M3, and minimax/MiniMax-M3.1-Flash, with pick set to minimax/MiniMax-M3.1-Flash, which is one of the listed lane models. Entry 3 shows detectionsAfterAccountChange 1. The text shows a key lane listing the vendor's models and the app selecting one of them, matching the outcome. It does not independently confirm these are the vendor's current models, so unclear keeps some weight."
+      }
+    ]
+  }
+}
