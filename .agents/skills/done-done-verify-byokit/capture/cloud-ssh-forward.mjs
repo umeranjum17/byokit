@@ -112,7 +112,7 @@ try {
   const [type, other] = readFileSync(join(dir, 'other.pub'), 'utf8').split(' ');
   writeFileSync(join(stateDir, 'known_hosts'), `127.0.0.1 ${type} ${other}\n[127.0.0.1]:${port} ${type} ${other}\n`);
   const wrong = sshResolve({ transport, pins: { load: async () => key.fingerprint }, target, port: 7300 });
-  await assert.rejects(wrong('ws://127.0.0.1:7300/link'), (e) => { log('wrong-key', `${e.code}: ${e.message}`); return e.code === 'host-key'; });
+  await assert.rejects(wrong('ws://127.0.0.1:7300/link'), (e) => { log('wrong-pin', `${e.code}: ${e.message}`); return e.code === 'host-key'; });
   log('result', 'PASS');
 } catch (e) {
   failed = true;

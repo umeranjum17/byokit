@@ -20,7 +20,7 @@ Pass: `console-ed25519` equals the `sshHostKey` fingerprint; `steps` reach `inst
 
 Same VM setup, without `ssh2` (the system `ssh` binary and a key file). `feature=cloud-ssh-transport; entry=@byokit/cloud/ssh; drive=(env WORK=<scratch with noble.img> IMAGE=<qemu image> NODE_SHA_X64=<sha> node .agents/skills/done-done-verify-byokit/capture/cloud-ssh-forward.mjs)`, then SKILL.md Evidence's capture block.
 
-Pass: `host-key` matches `console-ed25519`; `steps` are `checking-access, listing, inspecting, installing, ready` (no tailnet); `resolved` rewrites the loopback address to a local port; `host-answer-through-forward` is the recipe's reply; `listeners-7300` is `127.0.0.1:7300` only; `tailscale-on-box` is `none` and `inactive`; `reopened` is a new port after `close()`; `wrong-key` reads `host-key`; `result: PASS`. First passed 2026-10-23.
+Pass: `host-key` matches `console-ed25519`; `steps` are `checking-access, listing, inspecting, installing, ready` (no tailnet); `resolved` rewrites the loopback address to a local port; `host-answer-through-forward` is the recipe's reply; `listeners-7300` is `127.0.0.1:7300` only; `tailscale-on-box` is `none` and `inactive`; `reopened` is a new port after `close()`; `wrong-pin` reads `host-key`; `result: PASS`. First passed 2026-10-23.
 
 ## Gotchas
 
