@@ -206,6 +206,11 @@ for another provider's user-data box.
 
 ## Your own tailnet
 
+Tailscale is for your own devices only, such as your computer and phone; a cloud or sandbox computer
+should not join your tailnet. A coming release removes this join and reaches the app over plain SSH to
+the machine's loopback instead, with a pinned host key and your own SSH key
+([spec §9](../../docs/cloud-kit.md#9-reach-from-phone-and-web)). Until then, the kit does what follows.
+
 `await m.joinTailnet({ hostname: 'byokit-cloud' }, showStep)` installs the pinned, SHA256-checked Tailscale release as root and starts it.
 `showStep` receives `open-page` with the sign-in link (approve it on your phone), or `approve` when the
 tailnet must approve the machine (with or without a sign-in link), then `joined` with the MagicDNS name. `await m.tailnet()` reads `joined`, `needs-login`, `needs-approval`, `starting` or `off` without joining.
@@ -217,7 +222,7 @@ ever carries a join key.
 When there is no TUN device, the daemon uses userspace networking. The app binds its host to
 loopback and its root recipe configures `tailscale serve --bg --tcp=<port> tcp://127.0.0.1:<port>`;
 joining alone does not expose a service. Advertise the tailnet name, never a provider URL.
-Tailscale state stays under `/etc/tailscale` across Boat wakes and is included in disk copies, so a copy currently carries the source's node identity. Clearing it before a copy's first start is planned follow-up ([copy policy](../../docs/cloud-kit.md#91-join-and-status)).
+Tailscale state stays under `/etc/tailscale` across Boat wakes and is included in disk copies, so a copy currently carries the source's node identity. The coming release signs the machine out and removes the kit's own Tailscale service and that state ([cleanup](../../docs/cloud-kit.md#93-moving-off-the-tailnet-build-order)).
 The phone must be on the same tailnet; encrypted pairing is still required.
 
 **SECURITY: No public app port is opened by default.** Create, install, host and join never call
