@@ -1,0 +1,71 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "72a88a22b1615c2badbdd3c9ba4a57867607cc01",
+  "tree": "2a73be77d9d91f87302072414acb3384e5ee2584",
+  "claim": "The cloud kit spec now designs an undo for update() through a copy saved before it (typed no-undo error, plain words, the breaking changes, change notes for cloud 0.6.0, and a build order of copy kinds, undo and a live Boat proof of undo), and defers copies saved on the machine while the app is closed to one short section that says why (a key held on the machine could overwrite or delete that machine's copies) and records the options; the Boat and Hetzner facts it records match their public API documents; and the built kit today saves no copy on update, has no undo, and refuses a save past the free copies with no credit as balance while deleting nothing",
+  "result": "pass",
+  "at": "2026-10-23T18:03:52.261Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261023T180322Z-72a88a22-7dfdef/spec-check-summary.txt",
+      "sha256": "2d05ddaf8bc5db736878d188acfa0b9dea0f9fc8ff3c4fc7d718904cc53fec61"
+    },
+    {
+      "path": "<evidence root>/20261023T180322Z-72a88a22-7dfdef/cloud-gaps.txt",
+      "sha256": "54734afc2fd0082123a65105afb61db4d9ef21a3127411a4aaeb90108e02a562"
+    },
+    {
+      "path": "<evidence root>/20261023T180322Z-72a88a22-7dfdef/verify-cloud-gaps.mjs",
+      "sha256": "892524957d7f909bff67476e2d558587c19e04bdb692c492f8d01e4c473a7fcb"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261023T180322Z-72a88a22-7dfdef",
+      "commit": "72a88a22b1615c2badbdd3c9ba4a57867607cc01",
+      "journey": null,
+      "command": "sh /tmp/claude-1000/-home-umer--treehouse-byokit-48ee6a-1-byokit/da49687f-ea7d-485e-a0b0-21748f53b226/scratchpad/drive/run.sh",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "@byokit/cloud 0.5.0 (built from 72a88a22)"
+        },
+        "start": "a consumer app with the built @byokit/cloud and the loopback Boat bench, no account or spend",
+        "steps": [
+          "check the undo spec, its deferred schedule section and its Boat and Hetzner facts against their live API documents",
+          "create a Boat cloud computer with copies on and install a host",
+          "save copies, keep the newest few, reset from one, read disk space",
+          "run the in-app copy schedule",
+          "update the host and look for a copy saved before it, an undo, and a schedule or timer on the machine",
+          "fill the account's 10 free copies with no credit and save once more",
+          "try to save a copy of an SSH box"
+        ],
+        "result": "the spec check passes against the spec and both providers' API documents; copies, reset and the in-app schedule work; update saves no copy and there is no undo and no schedule on the machine; a save past the free copies with no credit is refused as balance and deletes nothing, shown with the running-out sentence; an SSH box has no copies"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261023T180322Z-72a88a22-7dfdef/spec-check-summary.txt",
+        "sha256": "2d05ddaf8bc5db736878d188acfa0b9dea0f9fc8ff3c4fc7d718904cc53fec61",
+        "verdict": "pass",
+        "seen": "I read all 53 PASS lines and the summary (0 failed, EXIT=0). They show the spec has the undo section 4.7 with update(r, o?: { undo? }), undoPoint, undoUpdate, kind 'before-update' and the 'no-undo' error, plus the build order S1 to S4 with the live Boat proof and the cloud 0.6.0 change notes. They also show the 5.15 deferral with its reason and options (a), (b) and (c). The Boat and Hetzner fact lines are present. The check only confirms that the spec text contains these facts, not that they were compared against the live public docs, so that part is slightly less certain. Nothing in the capture describes the built kit, so it covers only the first two parts."
+      },
+      {
+        "path": "<evidence root>/20261023T180322Z-72a88a22-7dfdef/cloud-gaps.txt",
+        "sha256": "54734afc2fd0082123a65105afb61db4d9ef21a3127411a4aaeb90108e02a562",
+        "verdict": "pass",
+        "seen": "I read all 12 entries. gap-1 shows update() result \"nothing: no undo point\", 0 copies saved by update(), and no undo methods on the machine. The billing entries show 10 copies before, a refused save with reason \"balance\", and nothing deleted (true). The words shown are \"Your Boat balance ran out\". Together these match the built-kit part of the outcome: no copy on update, no undo, and a refusal with no credit as balance that deletes nothing. The capture does not show the spec parts, so it covers only the third part."
+      }
+    ]
+  }
+}
