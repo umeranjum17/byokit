@@ -5,6 +5,7 @@ A person's cloud computer keeps saved copies of itself. The app lists them, save
 ## Sub-features
 
 - `snapshot-save-prune`: `snapshot()` returns a `byokit-<name>-<12 base36>` copy; past `keep` (default 3) the oldest of this machine's copies are deleted, and only after the new copy is listed ready. Another machine's copy is never listed or deleted.
+- `snapshot-before-update`: a copy named `byokit-<name>-undo<12 base36>` lists with `kind: 'before-update'`, is not counted in `keep`, and survives every prune; ordinary copies have no `kind`. A save Boat refuses for credit rejects `balance` with `extra.why: 'copies'` and the `copies.noCredit` words, deleting nothing.
 - `snapshot-schedule`: `scheduleSnapshots({ everyMs, keep, onResult })` reports each check's copy, `null` or error, saves again one `everyMs` after the previous check, and `stop()` ends it; it resolves its handle, so the consumer awaits it.
 - `snapshot-restore`: `restore(id)` brings back the files as they were in the copy, as a new machine (new id, same name) that is on; the old machine is gone. A missing copy rejects `no-snapshot` with `error.noSnapshot` words; `words('snapshot.restore', { date })` says what a reset loses.
 - `disk`: `disk()` resolves `{ usedGb, totalGb }` from `df` on the machine.
@@ -20,7 +21,7 @@ Preconditions: baseline (features/README.md).
 
 - **Write the consumer.** `"$scratch_dir/verify-cloud-snapshots.mjs"` (below). Import public entries only.
 - **Run and capture.** `feature=cloud-snapshots; entry=@byokit/cloud; drive=(node "$scratch_dir/verify-cloud-snapshots.mjs")`, then run SKILL.md Evidence's capture block. Exit code `0`.
-- **What it proves.** `marker-after-restore: "saved"`, `new-id: true`, `old-gone: "gone"`, `state: "on"`, `kept` has 3 ids newest first then 1 after `keep: 1`, `other-copy-kept: true`, `scheduled: true`, `missing: "no-snapshot"` with its words, and `disk` `{"usedGb":3.3,"totalGb":12.9}` with its words.
+- **What it proves.** `marker-after-restore: "saved"`, `new-id: true`, `old-gone: "gone"`, `state: "on"`, `kept` has 3 ids newest first then 1 after `keep: 1`, `other-copy-kept: true`, `before-update-kept: true` with `before-update-kind: "before-update"`, `scheduled: true`, `missing: "no-snapshot"` with its words, and `disk` `{"usedGb":3.3,"totalGb":12.9}` with its words.
 
 ```js
 import { boat, machine, words, errorWords } from '@byokit/cloud';
@@ -52,6 +53,14 @@ try {
   out('kept-after-keep-1', (await m.snapshots()).map((s) => s.id));
   const names = (await (await fetch(`${server.url}/named-snapshots`, { headers: { Authorization: 'Bearer test-key' } })).json()).snapshots.map((x) => x.name);
   out('other-copy-kept', names.includes('byokit-web-two-x'));
+  // The copy saved before an update: listed with its kind and never pruned.
+  const undoCopy = await provider.snapshot(m.ref, 'undo0123456789ab');
+  await m.snapshot({ keep: 1 });
+  await m.snapshot({ keep: 1 });
+  const listed = await m.snapshots();
+  out('before-update-kept', listed.some((s) => s.id === undoCopy.name));
+  out('before-update-kind', listed.find((s) => s.id === undoCopy.name)?.kind);
+  await provider.deleteSnapshot(m.ref, undoCopy.name);
   const first = await new Promise((resolve, reject) => {
     let handle;
     m.scheduleSnapshots({ everyMs: 300, keep: 1, onResult: (r) => {

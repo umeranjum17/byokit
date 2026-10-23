@@ -49,6 +49,7 @@
   "key.expiring": "Your {label} key expires on {date}. Make a new one to keep your cloud computer working.",
   "copies.on": "{label} keeps copies of your cloud computer's disk, including your sign-ins, so it can wake where it left off. Your {label} account details may be handled in the United States.",
   "snapshot.restore": "Resetting brings your cloud computer back to how it was on {date}. Everything changed on it since then is lost.",
+  "copies.noCredit": "{label} needs credit to save another copy of your cloud computer, so nothing was saved and nothing was deleted. Add funds, then try again.",
   "disk.used": "{used} GB of {total} GB used on your cloud computer.",
   "error.noSnapshot": "That saved copy of your cloud computer is gone. Choose another one."
 }

@@ -82,7 +82,7 @@ export type HostRecipe = {
   user?: string                                          // G7: run as this no-sudo user, created by the kit, home inside the machine user's home
 }
 
-export type Snapshot = { id: string; at: string }   // K3: a copy the kit saved of this machine; `at` is ISO
+export type Snapshot = { id: string; at: string; kind?: 'before-update' }   // K3: a copy the kit saved of this machine; `at` is ISO; `kind` marks the copy saved before an update (5.16), absent on ordinary copies
 export type Disk = { usedGb: number; totalGb: number }                     // K3: the root file system, decimal GB (bytes / 1e9) to one decimal
 
 export type AsleepWhy = 'you' | 'out-of-credit' | 'trial-limit' | 'provider' | 'idle'      // G3

@@ -1,0 +1,60 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "6e4be86902742aef4f9b488143d8693db858e1b9",
+  "tree": "f96f1dc18525d9ce36a48676b3ad9e1a0ecaf9a6",
+  "claim": "A cloud app that saves copies of a Boat computer sees the copy from before an update listed as before-update and still there after pruning, while ordinary copies are pruned to the newest few",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-23T19:49:52.205Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261023T194913Z-6e4be869-d67f84/cloud-snapshots-output.txt",
+      "sha256": "d28c28bb556e93e256634563f28024e187d4d9fe53bb50031ce69c5536b7a5a8"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261023T194913Z-6e4be869-d67f84",
+      "commit": "6e4be86902742aef4f9b488143d8693db858e1b9",
+      "journey": null,
+      "command": null,
+      "feature": "cloud-snapshots",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "@byokit/cloud 0.5.0 (commit 6e4be869)"
+        },
+        "start": "Clean worktree on fm/byk-cloud-undo-2 with dependencies installed; no cloud machine, copy or account existed. The consumer started from an empty loopback Boat bench (startFakeSandboxServer) with an in-memory store.",
+        "steps": [
+          "Built the workspace SDK with npm run build (exit 0).",
+          "Wrote a Node consumer in a scratch folder that imports only @byokit/cloud and @byokit/cloud/testing, and ran it.",
+          "Created a machine named web with keepCopies, and a second machine named web-two whose copy must not be touched; saved a copy of web for web-two.",
+          "Wrote a marker file, saved a copy, changed the marker, and restored the copy; read the marker back and checked the new machine id, that the old machine was gone, and that the machine was on.",
+          "Took three more ordinary copies, then saved one more with keep 1; listed the copies after each step.",
+          "Saved a copy named as before an update (undo prefix) on web, then saved two more ordinary copies with keep 1; listed the copies with their kind.",
+          "Deleted the before-update copy and ran the scheduled copy with keep 1 until its first check reported a copy.",
+          "Restored a copy id that does not exist to see the error, and printed its words; ran disk() with a scripted df output and printed the usage words.",
+          "Closed the loopback bench."
+        ],
+        "result": "The printed output shows the copy saved before the update with kind before-update, still listed after pruning with keep 1 (the other copy listed with no kind is the single newest ordinary copy kept); ordinary copies were pruned to the newest one at keep 1 and to three before that; the other machine's copy was kept; the missing copy error read 'That saved copy of your cloud computer is gone. Choose another one.'; disk showed 3.3 GB of 12.9 GB used."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261023T194913Z-6e4be869-d67f84/cloud-snapshots-output.txt",
+        "sha256": "d28c28bb556e93e256634563f28024e187d4d9fe53bb50031ce69c5536b7a5a8",
+        "verdict": "pass"
+      }
+    ]
+  }
+}

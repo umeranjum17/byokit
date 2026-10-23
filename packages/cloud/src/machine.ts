@@ -145,7 +145,9 @@ export function machine(o: { provider: Provider; store: MachineStore }): Machine
     if (made === undefined) throw new MachineError('provider', 'the saved copy is not listed as ready');
     let pruneError: MachineError | undefined;
     try {
-      for (const old of copies.filter((c) => c.id !== made.id).slice(keep - 1)) await deleteSnapshot(r, old.id);
+      // K-UNDO: `keep` counts ordinary copies only; the before-update copy is never counted or deleted here.
+      const ordinary = copies.filter((c) => c.kind === undefined && c.id !== made.id);
+      for (const old of ordinary.slice(keep - 1)) await deleteSnapshot(r, old.id);
     } catch (e) {
       pruneError = e as MachineError;
     }

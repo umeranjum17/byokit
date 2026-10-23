@@ -428,6 +428,22 @@ export function machineContract(make: () => Promise<MachineBench>, o?: { test?: 
     assert.deepEqual(JSON.parse(Buffer.from(raw.bytes).toString('utf8')), { id: ref.id });
   });
 
+  runTest('21: a saved copy is listed as an ordinary copy, and only a before-update name has a kind', async (t) => {
+    const bench = await make();
+    const { snapshot, snapshots, deleteSnapshot } = bench.provider;
+    if (snapshot === undefined || snapshots === undefined || deleteSnapshot === undefined) return t.skip('no copies');
+    if (bench.provider.create === undefined) return t.skip('no create');
+    const m = await createMachine(bench);
+    const ref = await m.create({ name: 'web', size: 'small', keepCopies: true });
+    const ordinary = await snapshot(ref, 'a1b2c3d4e5f6');
+    const before = await snapshot(ref, 'undoa1b2c3d4e5f6');
+    const kinds = new Map((await snapshots(ref)).map((c) => [c.id, c.kind]));
+    assert.equal(kinds.get(ordinary.name), undefined);
+    assert.equal(kinds.get(before.name), 'before-update');
+    await deleteSnapshot(ref, ordinary.name);
+    await deleteSnapshot(ref, before.name);
+  });
+
   runTest('20 (fake): sleep stops the unit before provider.sleep, and succeeds when the unit is missing', async (t) => {
     const bench = await make();
     if (bench.fake === undefined) return t.skip('fake only');

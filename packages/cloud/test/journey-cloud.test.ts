@@ -731,6 +731,18 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
     assert.deepEqual((await m.snapshots()).map((c) => c.id), [pruned.id]);
     await rejects(m.snapshot({ keep: 0 }), 'bad-recipe');
 
+    // The copy from before an update is listed with its kind, is not counted in `keep`, and survives every prune.
+    const undoName = (await provider.snapshot!(m.ref!, 'undo0123456789ab')).name;
+    assert.equal(undoName, 'byokit-web-undo0123456789ab');
+    await m.snapshot({ keep: 1 });
+    const mixed = await m.snapshots();
+    assert.equal(mixed.length, 2, 'one ordinary copy kept besides the before-update copy');
+    assert.deepEqual(mixed.filter((c) => c.kind === 'before-update').map((c) => c.id), [undoName]);
+    assert.ok(mixed.some((c) => c.kind === undefined), 'an ordinary copy has no kind');
+    assert.equal((await m.snapshot({ keep: 1 })).pruneError, undefined);
+    assert.ok((await m.snapshots()).some((c) => c.id === undoName), 'a prune never deletes the before-update copy');
+    await provider.deleteSnapshot!(m.ref!, undoName);
+
     // The kit's own timer: a copy made while it waits is reported null; each later due tick saves one, in a row.
     await rejects(m.scheduleSnapshots({ everyMs: 0, onResult: () => {} }), 'bad-recipe');
     await rejects(m.scheduleSnapshots({ everyMs: 2_147_483_648, onResult: () => {} }), 'bad-recipe');
@@ -864,7 +876,8 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
     assert.equal((await p.snapshots()).length, 11);
     paid.setBalance(0);
     const noCredit = await rejects(p.snapshot({ keep: 20 }), 'balance');
-    assert.equal(errorWords(noCredit, { app: 'Umer', label: 'Test' }), 'Your Test balance ran out. Your cloud computer stops in a day unless you add funds.');
+    assert.equal(noCredit.extra.why, 'copies');
+    assert.equal(errorWords(noCredit, { app: 'Umer', label: 'Test' }), 'Test needs credit to save another copy of your cloud computer, so nothing was saved and nothing was deleted. Add funds, then try again.');
     const kept = await p.snapshots();
     assert.equal(kept.length, 11, 'a refused save deletes nothing');
     assert.equal(kept[0].id, eleventh.id);
