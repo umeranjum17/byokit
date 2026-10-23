@@ -91,7 +91,6 @@ packages/cloud/
     errors.ts         # MachineError (4.2)
     machine.ts        # machine() (5)
     enrol.ts          # phone-key enrol (5.12), portable
-    reach.ts          # sshResolve(), the SSH forward route (9.1), portable; replaces tailnet.ts (9.3 step 4)
     status.ts         # status(), the one read a phone polls (5.9)
     unit.ts           # renderUnit(), quoting (8.4), pure
     recipe.ts         # recipe checks (8.1), range compare, FNV-1a marker hash, pure
@@ -99,7 +98,7 @@ packages/cloud/
     cost.ts           # estimate(), cost rules (10)
     boat.ts           # boat() (6)
     sandbox-api.ts    # deprecated compatibility re-export of boat()
-    ssh-vm.ts         # '.': the portable SSH VM core over the app's transport (7.3)
+    ssh-vm.ts         # '.': the portable SSH VM core over the app's transport (7.3), and sshResolve(), the SSH forward route (9.1)
     ssh.ts            # './ssh': sshVm(), sshHostKey() over the ssh binary (7)
     hetzner.ts        # './hetzner': hetzner(), first slice with SSH (6, Hetzner first slice)
     hetzner-api.ts    # hetznerApi(), the same adapter over HTTPS only, portable (G8)
@@ -415,7 +414,7 @@ export type SshTransport = { /* 7.3 members */
   forward?(to: SshTarget, remote: { host: '127.0.0.1'; port: number }): Promise<{ localPort: number; close(): Promise<void> }>
 }
 export type SshRoute = SshTarget & { appPort: number }               // what securing proved and the receipt carries
-// reach.ts, exported from '.'
+// ssh-vm.ts, exported from '.'
 export function sshResolve(o: { transport: SshTransport; target: SshTarget | (() => Promise<SshTarget>); port: number }):
   ((url: string) => Promise<string>) & { close(): Promise<void> }    // a Dial.resolve for @byokit/pair (9.1)
 // enrol.ts
@@ -1200,9 +1199,11 @@ Four steps, each shippable alone; apps adopt in their own homes after step 4 pub
    and that a machine set up with them should be removed from the person's Tailscale admin page, along with its copies
    made after it joined.
 
-One-time cleanup (step 4): `install` and `update` check, as root, for the kit's own drop-in
-`/etc/systemd/system/tailscaled.service.d/byokit.conf`. Only when it exists they run `tailscale logout`,
-`systemctl disable --now tailscaled`, and remove the kit-owned unit, the drop-in and `/etc/tailscale`. A Tailscale the
+One-time cleanup (step 4): `install` and `update` check for the kit's own drop-in
+`/etc/systemd/system/tailscaled.service.d/byokit.conf`. Only when it exists they run, as root, `tailscale logout`
+(a failed sign-out is reported in the install lines, not fatal), `systemctl disable --now tailscaled` (a daemon
+still running rejects `provider`), and remove the kit-owned unit (only when its bytes are the ones 0.2.x to 0.4.0
+wrote), the drop-in and `/etc/tailscale`. A Tailscale the
 person installed themselves (no kit drop-in) is never touched. The node identity in `/etc/tailscale` was a credential
 and is in copies made while it existed; the `SECURITY:` note says so.
 

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { DeviceEventEmitter, Linking, Pressable, SafeAreaView, ScrollView, StatusBar, Text, TextInput } from 'react-native';
+import { DeviceEventEmitter, Pressable, SafeAreaView, ScrollView, StatusBar, Text, TextInput } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { useKeepAwake } from 'expo-keep-awake';
-import { boat, machine, type MachineRecord, words } from '@byokit/cloud';
+import { boat, machine, sshResolve, type MachineRecord, type SshTransport } from '@byokit/cloud';
 import { DeviceLink, pairWithOffer, secureDeviceStore } from '@byokit/pair';
 import { ClaudePlanExpiredError, ResponseError, type Accounts } from '@byokit/accounts';
 import { claudeToolCall, cloudRecipe, diagnostic, stopAndRemove, M6_API, M6_KEY, pairedTurn, trialBudget } from './cloud-m6.ts';
@@ -11,7 +11,8 @@ const run = process.env.EXPO_PUBLIC_M6_RUN ? '.' + process.env.EXPO_PUBLIC_M6_RU
 const recordKey = 'byokit.m6.machine' + run, identityKey = 'byokit.m6.identity' + run, turnKey = 'byokit.m6.turn' + run;
 const store = secureDeviceStore(SecureStore, 'byokit.m6.link');
 const readKey = async () => { const key = await SecureStore.getItemAsync(M6_KEY); if (!key) throw new Error('The lab provider key is missing.'); return key; };
-export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
+// `ssh` is the app's own SSH module (7.3) and the public half of its login key; a build without one cannot pair.
+export function CloudM6Demo({ accounts, ssh }: { accounts: Accounts<any, number>; ssh?: { transport: SshTransport; publicKey: string } }) {
   useKeepAwake();
   const [note, say] = useState('Checking the lab sign-ins…'), [id, setId] = useState(''), [ready, setReady] = useState(false);
   const [model, setModel] = useState(false), [signins, setSignins] = useState('Reading sign-ins…'), [busy, setBusy] = useState(false), [attempted, setAttempted] = useState(false);
@@ -99,22 +100,19 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
   const install = async () => {
     say('Installing the cloud host…'); const until = Date.now() + 300000;
     while (await computer.state() !== 'on') { if (Date.now() > until) throw new Error('Cloud creation did not finish within five minutes.'); await new Promise(r => setTimeout(r, 2000)); }
-    say(words('tailnet.joining'));
-    let approvalShown = false;
-    const joined = await computer.joinTailnet({ hostname: 'byokit-cloud' }, s => {
-      if ((s.step === 'open-page' || s.step === 'approve') && !approvalShown) {
-        approvalShown = true; say(words('tailnet.approvalNeeded'));
-      }
-      if (s.step === 'open-page') void Linking.openURL(s.url);
-    });
-    await computer.install(cloudRecipe(`http://${joined.name}:7300`, computer.ref!.name));
+    await computer.install(cloudRecipe(computer.ref!.name));
     if (await computer.host() !== 'running') throw new Error('The installed cloud host is not running.'); say('Host installed and running. Ready to pair.');
   };
+  // The phone reaches the host on the machine's loopback through one SSH forward: Boat lets this phone's key in and
+  // names the host key to pin.
   const pair = async () => {
+    if (!ssh) throw new Error('This build has no SSH module, so it cannot reach the cloud computer.');
+    const target = await provider.sshAccess!(computer.ref!, ssh.publicKey);
+    const resolve = sshResolve({ transport: ssh.transport, pins: { load: async () => target.fingerprint }, target, port: 7300 });
     const result = await provider.exec(computer.ref!, ['cat', '/home/user/byokit-m6/offer.json'], { timeoutMs: 30000 });
     if (result.code) throw new Error('The cloud host has not published its pairing offer.');
-    const grant = await pairWithOffer(JSON.parse(result.stdout).text, { name: 'Umer lab phone', onWords: w => say(`Pairing words: ${w}`) });
-    await store.save(grant); link.current = new DeviceLink(grant, { store, onStatus: s => { if (s === 'online') say("Paired with Umer's cloud computer."); } });
+    const grant = await pairWithOffer(JSON.parse(result.stdout).text, { name: 'Umer lab phone', onWords: w => say(`Pairing words: ${w}`), resolve });
+    await store.save(grant); link.current = new DeviceLink(grant, { store, resolve, onStatus: s => { if (s === 'online') say("Paired with Umer's cloud computer."); } });
     say("Paired with Umer's cloud computer.");
   };
   // No machine, no Boat key: one Claude call shows whether the phone's plan answers, and why not.
@@ -138,7 +136,7 @@ export function CloudM6Demo({ accounts }: { accounts: Accounts<any, number> }) {
       <TextInput testID="m6-claude-code" value={code} onChangeText={setCode} secureTextEntry autoCorrect={false} autoCapitalize="none" placeholder="Paste the Claude code" placeholderTextColor="#555" style={{ color: '#111', borderWidth: 1, borderColor: '#888', padding: 12 }} />
       {button('m6-claude-finish', 'Finish sign-in', finish, !!code)}</>}
     {button('m6-create', 'Create', create, ready && model && !attempted)}{button('m6-install', 'Install', install, !!id && ready)}
-    {button('m6-pair', 'Pair', pair, !!id && ready)}{button('m6-turn', 'One agent turn', turn, !!id && ready)}
+    {button('m6-pair', 'Pair', pair, !!id && ready && !!ssh)}{button('m6-turn', 'One agent turn', turn, !!id && ready)}
     {button('m6-stop', 'Stop and remove', stop, !!id && ready)}{button('m6-purge', 'Remove lab key', async () => { await purge(); say('Lab key removed.'); })}
   </ScrollView></SafeAreaView>;
 }

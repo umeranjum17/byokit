@@ -9,6 +9,9 @@ import type { ExecResult, MachineRef, Price, Provider } from './types.ts';
 /** Where one call goes: the transport must refuse a server whose host key is not `fingerprint`. */
 export type SshTarget = { host: string; port: number; user: string; fingerprint: string };
 
+/** The SSH route securing proved (9.1), and the pair receipt carries: where to log in, the pinned host key, and the app port on the machine's loopback. */
+export type SshRoute = SshTarget & { appPort: number };
+
 /** One local port that carries connections to a port on the machine's loopback, until `close()` or the connection drops. */
 export type SshForward = { localPort: number; close(): Promise<void>; closed: Promise<void> };
 
@@ -87,7 +90,7 @@ function remoteCommand(user: string, argv: readonly string[], o: { timeoutMs: nu
 }
 
 /** A transport's own failure keeps its real cause; only a `MachineError` keeps its code. */
-async function via<T>(call: () => Promise<T>): Promise<T> {
+export async function via<T>(call: () => Promise<T>): Promise<T> {
   try {
     return await call();
   } catch (e) {

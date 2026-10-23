@@ -4,6 +4,7 @@
 // travels only as delivery bytes, never in run.env, run.argv, logs or error text. The host answers with a
 // receipt of public values in its outbox, which the setup device reads back as the run user.
 import { MachineError } from './errors.ts';
+import type { SshRoute } from './ssh-vm.ts';
 import type { ExecResult, Handoff, HostRecipe, Machine, MachineRef, Provider } from './types.ts';
 
 /** The one inbox file holding the owner's phone public key (5.8 delivery). */
@@ -15,15 +16,15 @@ export const OWNER_KEY_FILE = 'owner.bin';
 /** The host's answer in `<workDir>/.byokit/outbox/`, written after `bindPhoneKey`. */
 export const RECEIPT_FILE = 'receipt.json';
 
-/** What the phone pairs with: the host's public key, its grant on that host, and the secure address. */
-export type PairReceipt = { host: string; device: { id: string; name: string; role: 'control' }; urls: string[] };
+/** What the phone pairs with: the host's public key, its grant on that host, the address on the machine, and the SSH route to it. */
+export type PairReceipt = { host: string; device: { id: string; name: string; role: 'control' }; urls: string[]; ssh?: SshRoute };
 
 /**
- * What setup() hands its `pair` gate: the secured address, a read of the host's outbox, the person's
- * re-enrol consent, and the setup recipe's `Machine.run` and `Machine.handoff` (5.13).
+ * What setup() hands its `pair` gate: the secured address and its SSH route, a read of the host's outbox, the
+ * person's re-enrol consent, and the setup recipe's `Machine.run` and `Machine.handoff` (5.13).
  */
 export type PairContext = {
-  urls: string[]; read(file: string): Promise<string | null>; replaceOwner?: boolean;
+  urls: string[]; ssh?: SshRoute; read(file: string): Promise<string | null>; replaceOwner?: boolean;
   // setup() always passes these; optional so a gate an app calls with its own context still type-checks.
   run?(argv: readonly string[], o?: { timeoutMs?: number; input?: Uint8Array }): Promise<ExecResult>;
   handoff?(argv: readonly string[], o: { prefix: string; timeoutMs?: number }): Promise<Handoff>;
@@ -155,8 +156,9 @@ const parseReceipt = (text: string | null): { key: string; host: string; device:
 /**
  * The setup() `pair` gate: deliver the phone key, then wait for the host's receipt for that
  * same key, so the `pairing` step carries what the phone pairs with. The receipt's `urls` are
- * the secured address's root, `ws://<tailnet name>:<port>`; an app whose link route has a path
- * passes `url(root, host)` to build it from each root and the host's public key.
+ * the machine's loopback root, `ws://127.0.0.1:<port>`, dialled through `sshResolve` over its `ssh`
+ * route; an app whose link route has a path passes `url(root, host)` to build it from each root
+ * and the host's public key.
  */
 export function pairEnrol(
   m: Machine, r: HostRecipe, key: Uint8Array, o: { url?: (root: string, host: string) => string } = {},
@@ -169,7 +171,8 @@ export function pairEnrol(
       const got = parseReceipt(await ctx.read(RECEIPT_FILE));
       if (got?.key === want) {
         const { url } = o;
-        return { host: got.host, device: got.device, urls: url === undefined ? ctx.urls : ctx.urls.map((root) => url(root, got.host)) };
+        const urls = url === undefined ? ctx.urls : ctx.urls.map((root) => url(root, got.host));
+        return { host: got.host, device: got.device, urls, ...(ctx.ssh !== undefined ? { ssh: ctx.ssh } : {}) };
       }
       if (Date.now() >= until) {
         // A receipt for another phone means the host refused this one (bindPhoneKey `owner-enrolled`).

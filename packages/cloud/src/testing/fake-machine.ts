@@ -3,7 +3,9 @@
 // a Node version. M2's fake `ssh` and M4's fake server delegate `exec` to it through
 // parseCommand(s), so all three benches run the same machine.
 import type { ExecResult } from '../types.ts';
-import { CLEAR_SHELL, DELIVER_SHELL, NEWEST_SHELL, PROBE_SHELL, WORKDIR_SHELL, WRITE_SHELL } from '../unit.ts';
+import {
+  CLEAR_SHELL, DELIVER_SHELL, LISTEN_SHELL, NEWEST_SHELL, PROBE_SHELL, TAILSCALE_CLEANUP_SHELL, TAILSCALE_DROP_IN, WORKDIR_SHELL, WRITE_SHELL,
+} from '../unit.ts';
 import { OUTBOX_SHELL } from '../enrol.ts';
 
 export type RunOptions = { root?: boolean; input?: Uint8Array; asUser?: string };
@@ -15,6 +17,10 @@ export type RunRecord = { argv: readonly string[]; root: boolean; asUser: string
 export type FakeDir = { owner: string; mode: number };
 
 const SYSTEMD_SYSTEM = '/etc/systemd/system';
+/** The tailscaled unit 0.2.x to 0.4.0 wrote when Tailscale was not installed yet (9.3). */
+const KIT_TAILSCALED_UNIT = '[Unit]\nDescription=Tailscale node agent\nAfter=network.target\n[Service]\n'
+  + 'ExecStart=/usr/sbin/tailscaled --state=/etc/tailscale/tailscaled.state\nRuntimeDirectory=tailscale\nRestart=on-failure\n'
+  + '[Install]\nWantedBy=multi-user.target\n';
 const SYSTEM_NODE_ARGV = ['sh', '-c', 'command -v node && node --version'];
 
 export class FakeMachine {
@@ -39,6 +45,8 @@ export class FakeMachine {
   symlinks = new Map<string, string>();
   /** Directories made by `mkdir -p` and `install -d`, with owners and modes. */
   dirs = new Map<string, FakeDir>();
+  /** Ports something listens on at the machine's loopback (the 9.1 securing check). */
+  listening = new Set<number>();
   runs: RunRecord[] = [];
   private scripts = new Map<string, RunResult>();
 
@@ -278,6 +286,19 @@ export class FakeMachine {
         if (f.owner !== writer) return { code: 1, stdout: '', stderr: 'rm: permission denied', timedOut: false };
         this.files.delete(p);
       }
+      return { code: 0, stdout: '', stderr: '', timedOut: false };
+    }
+    if (cmd === 'sh' && rest[0] === '-c' && rest[1] === LISTEN_SHELL && rest[2] === 'sh' && args.length === 5) {
+      return { code: this.listening.has(Number(args[4])) ? 0 : 1, stdout: '', stderr: '', timedOut: false };
+    }
+    // 9.3's cleanup, as root: the kit's drop-in, its own tailscaled unit (by bytes) and the node identity go.
+    if (cmd === 'sh' && rest[0] === '-c' && rest[1] === TAILSCALE_CLEANUP_SHELL && args.length === 3) {
+      if (o.root !== true) return { code: 1, stdout: '', stderr: 'rm: permission denied', timedOut: false };
+      if (!this.files.has(TAILSCALE_DROP_IN)) return { code: 0, stdout: '', stderr: '', timedOut: false };
+      const unit = this.files.get(`${SYSTEMD_SYSTEM}/tailscaled.service`);
+      if (unit !== undefined && new TextDecoder().decode(unit.bytes) === KIT_TAILSCALED_UNIT) this.files.delete(`${SYSTEMD_SYSTEM}/tailscaled.service`);
+      this.files.delete(TAILSCALE_DROP_IN);
+      for (const p of [...this.files.keys()]) if (p.startsWith('/etc/tailscale/')) this.files.delete(p);
       return { code: 0, stdout: '', stderr: '', timedOut: false };
     }
     // The 8.2 in-workDir wrapper: answer the inner argv, consulting `script`

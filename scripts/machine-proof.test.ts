@@ -93,7 +93,7 @@ test('raw-port probe accepts refusal or a timeout and rejects a connection (loop
   }
 });
 
-test('websocket probe dials the private tailnet route on the app port over plain ws (checks the probe; the live proof checks the tailnet)', async () => {
+test('websocket probe dials the SSH forward route on the app port over plain ws (checks the probe; the live proof checks the forward)', async () => {
   const http = createServer();
   const wss = new WebSocketServer({ server: http, path: '/relay/v1/host' });
   const paths: string[] = [];

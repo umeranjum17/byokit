@@ -8,7 +8,7 @@
 // half-installed, a rejected key never appears in an error, a delete removes only the kit's own
 // snapshots, and a reset brings back a saved copy while pruning only the kit's own copies. The provider is the kit's own bench (in-memory fake, loopback fake server); no network,
 // key or real machine is used.
-import { mock, test } from 'node:test';
+import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -18,9 +18,10 @@ import {
   machine, boat, estimate, status, setup, sshHostKey, sshResolve, sshVm, words, stateWords, hostWords, errorWords, errorKey, keyWords, WORDS, MachineError,
 } from '@byokit/cloud';
 import type {
-  HostRecipe, Status, SetupStep, MachineErrorCode, MachineRef, MachineState, HostState, Price, KeyInfo, Snapshot, Provider, ExecResult,
+  HostRecipe, Status, SetupStep, MachineErrorCode, MachineRef, MachineState, HostState, Price, KeyInfo, Snapshot, Provider, ExecResult, SshTransport,
 } from '@byokit/cloud';
 import { fakeProvider, fakeSshTransport, memoryStore, startFakeSandboxServer } from '@byokit/cloud/testing';
+import { TAILSCALE_CLEANUP_SHELL, TAILSCALE_DROP_IN } from '@byokit/cloud/unit';
 
 const sha = (c: string): Record<'linux-x64' | 'linux-arm64', string> => ({ 'linux-x64': c.repeat(64), 'linux-arm64': c.repeat(64) });
 
@@ -530,233 +531,6 @@ test('an app rents on Boat and drives the real HTTP machine: no-env, status, exe
   }
 });
 
-test('a Boat bootstrap joins the private network without opening a public app port or carrying a join key', async () => {
-  const server = await startFakeSandboxServer();
-  try {
-    const provider = boat({ baseUrl: server.url, label: 'Boat', prices: prices(), key: async () => 'test-key' });
-    const m = machine({ provider, store: memoryStore() });
-    await rejects(m.tailnet(), 'no-machine');
-    await rejects(m.joinTailnet({ hostname: 'byokit-cloud' }), 'no-machine');
-    const ref = await m.create({ name: 'web', size: 'small', keepCopies: false });
-    assert.deepEqual(await m.tailnet(), { state: 'off', name: null });
-    server.machine.script('npm', { code: 0, stdout: '', stderr: '', timedOut: false });
-    await m.install(recipe('web'));
-    assert.equal(await m.host(), 'running');
-
-    const before = server.machine.runs.length;
-    const canary = ['tskey', 'canary', 'not', 'real'].join('-');
-    const refused = await rejects(m.joinTailnet({ hostname: 'byokit-cloud', authKey: canary }), 'unsupported');
-    assert.match(refused.message, /sign-in on your phone/);
-    await rejects(m.joinTailnet({ hostname: 'byokit-cloud', authKey: '' }), 'unsupported');
-    await rejects(m.joinTailnet({ hostname: 'bad;name' }), 'bad-recipe');
-    assert.equal(server.machine.runs.length, before, 'a refused key or hostname runs nothing');
-    assert.ok(!JSON.stringify(server.requests).includes(canary));
-
-    // The HTTP bench carries the real argv; only the remote bootstrap and daemon are stand-ins.
-    server.machine.script('sh', { code: 0, stdout: '', stderr: '', timedOut: false });
-    const daemon = (BackendState: string, DNSName?: string, stderr = '') => server.machine.script('tailscale', {
-      code: BackendState === 'Running' ? 0 : 1, stdout: JSON.stringify({ BackendState, Self: { DNSName } }), stderr, timedOut: false,
-    });
-    daemon('NeedsLogin', undefined, 'To authenticate, visit: https://login.tailscale.com/a/test-login\n');
-    assert.deepEqual(await m.tailnet(), { state: 'needs-login', name: null });
-    const steps: string[] = [];
-    assert.deepEqual(await m.joinTailnet({ hostname: 'byokit-cloud' }, (s) => {
-      steps.push(s.step);
-      if (s.step === 'open-page') {
-        assert.equal(s.url, 'https://login.tailscale.com/a/test-login');
-        daemon('Running', 'cloud.lab.ts.net.'); // the person approved it on their phone
-      }
-    }), { name: 'cloud.lab.ts.net' });
-    assert.deepEqual(steps, ['open-page', 'joined']);
-    assert.deepEqual(await m.tailnet(), { state: 'joined', name: 'cloud.lab.ts.net' });
-    const bootstrap = server.machine.runs.slice(before).find(r => r.argv[0] === 'sh' && r.argv[1] === '-c');
-    assert.ok(bootstrap?.root && bootstrap.inputBytes === 0);
-    assert.equal(server.requests.filter(r => r.path.endsWith('/host')).length, 0, 'bootstrap plus host makes no public hosting call');
-    daemon('NeedsMachineAuth');
-    const approvals: string[] = [];
-    assert.deepEqual(await m.joinTailnet({ hostname: 'byokit-cloud' }, (s) => {
-      approvals.push(s.step);
-      if (s.step === 'approve') {
-        assert.equal(s.name, 'byokit-cloud');
-        daemon('Running', 'cloud.lab.ts.net.'); // the tailnet admin approved the machine
-      }
-    }), { name: 'cloud.lab.ts.net' });
-    assert.deepEqual(approvals, ['approve', 'joined']);
-    daemon('NeedsLogin', undefined, 'To authenticate, visit: https://login.tailscale.com/a/test-approve\n');
-    const afterLink: string[] = [];
-    assert.deepEqual(await m.joinTailnet({ hostname: 'byokit-cloud' }, (s) => {
-      afterLink.push(s.step);
-      if (s.step === 'open-page') daemon('NeedsMachineAuth', 'cloud.lab.ts.net.'); // signed in; the admin still must approve
-      if (s.step === 'approve') daemon('Running', 'cloud.lab.ts.net.');
-    }), { name: 'cloud.lab.ts.net' });
-    assert.deepEqual(afterLink, ['open-page', 'approve', 'joined']);
-    daemon('NeedsMachineAuth', 'cloud.lab.ts.net.');
-    assert.equal((await m.tailnet()).state, 'needs-approval');
-    daemon('Stopped');
-    assert.equal((await m.tailnet()).state, 'off');
-    daemon('Starting');
-    assert.deepEqual(await m.tailnet(), { state: 'starting', name: null });
-    server.machine.script('tailscale', { code: 1, stdout: '', stderr: 'failed to connect to local tailscaled', timedOut: false });
-    assert.deepEqual(await m.tailnet(), { state: 'starting', name: null });
-    daemon('Unexpected');
-    await rejects(m.tailnet(), 'provider');
-    daemon('Running', 'not-a-tailnet-name');
-    await rejects(m.tailnet(), 'provider');
-    await m.remove(ref.id);
-  } finally { await server.close(); }
-});
-
-test('a sign-in link shown late in the startup wait keeps a full five minutes to sign in', async () => {
-  mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 0 });
-  try {
-    const base = fakeProvider();
-    const signInAfter = 2 * 60_000;
-    let upAt: number | null = null;
-    const provider: Provider = {
-      ...base,
-      exec: async (ref, argv, opts) => {
-        const now = Date.now();
-        if (argv[0] === 'true' || argv[0] === 'sh' || argv[0] === 'systemctl') return { code: 0, stdout: '', stderr: '', timedOut: false };
-        if (argv[0] === 'tailscale' && argv[1] === 'up') {
-          upAt = now;
-          return { code: 1, stdout: '', stderr: 'To authenticate, visit: https://login.tailscale.com/a/fake-clock\n', timedOut: false };
-        }
-        if (argv[0] === 'tailscale' && argv[1] === 'status') {
-          const signedIn = upAt !== null && now >= upAt + signInAfter;
-          const status = now < 299_000 ? { BackendState: 'Starting' }
-            : signedIn ? { BackendState: 'Running', Self: { DNSName: 'cloud.lab.ts.net.' } }
-              : { BackendState: 'NeedsLogin' };
-          return { code: 0, stdout: JSON.stringify(status), stderr: '', timedOut: false };
-        }
-        return base.exec(ref, argv, opts);
-      },
-    };
-    const m = machine({ provider, store: memoryStore() });
-    await m.create({ name: 'web', size: 'small', keepCopies: false });
-    const steps: string[] = [];
-    let outcome: { name: string } | MachineError | undefined;
-    const joined = m.joinTailnet({ hostname: 'byokit-cloud' }, (s) => { steps.push(s.step); }).then(
-      (v) => { outcome = v; },
-      (e: MachineError) => { outcome = e; },
-    );
-    for (let ticks = 0; outcome === undefined; ticks += 1) {
-      assert.ok(ticks < 1000, 'the join settles inside the fake clock');
-      await new Promise((resolve) => setImmediate(resolve));
-      if (outcome === undefined) mock.timers.tick(1000);
-    }
-    await joined;
-    assert.deepEqual(outcome, { name: 'cloud.lab.ts.net' });
-    assert.deepEqual(steps, ['open-page', 'joined']);
-    assert.ok(upAt !== null && upAt >= 299_000, 'the link shows only after the startup wait');
-    assert.ok(Date.now() >= upAt + signInAfter, 'the person signed in two minutes after the link');
-  } finally { mock.timers.reset(); }
-});
-
-for (const forever of [false, true]) test(forever
-  ? 'hung sign-in status checks end at the window deadline, not the first check timeout'
-  : 'a hung status check mid-sign-in is retried and a ready machine joins', async () => {
-  mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 0 });
-  try {
-    const base = fakeProvider();
-    let upAt: number | null = null, hung = 0;
-    const provider: Provider = { ...base, exec: async (ref, argv, opts) => {
-      if (argv[0] === 'tailscale' && argv[1] === 'up') {
-        upAt = Date.now();
-        return { code: 1, stdout: 'https://login.tailscale.com/a/hung-check', stderr: '', timedOut: false };
-      }
-      if (argv[0] === 'tailscale' && argv[1] === 'status') {
-        if (upAt !== null && Date.now() >= upAt + 60_000 && (forever || hung === 0)) {
-          hung++;
-          assert.equal(opts.timeoutMs, 30_000);
-          return new Promise<ExecResult>(resolve => setTimeout(() => resolve({ code: 124, stdout: '', stderr: '', timedOut: true }), 30_000));
-        }
-        return { code: 0, stdout: JSON.stringify(hung
-          ? { BackendState: 'Running', Self: { DNSName: 'hung-check.tail.ts.net.' } }
-          : { BackendState: 'NeedsLogin' }), stderr: '', timedOut: false };
-      }
-      if (['true', 'sh', 'systemctl'].includes(argv[0])) return { code: 0, stdout: '', stderr: '', timedOut: false };
-      return base.exec(ref, argv, opts);
-    } };
-    const m = machine({ provider, store: memoryStore() });
-    await m.create({ name: 'hung-check', size: 'small', keepCopies: false });
-    const steps: string[] = [];
-    let settled = false, outcome: unknown;
-    const joined = m.joinTailnet({ hostname: 'hung-check' }, s => steps.push(s.step)).then(
-      v => { outcome = v; settled = true; }, e => { outcome = e; settled = true; },
-    );
-    for (let ticks = 0; !settled; ticks++) {
-      assert.ok(ticks < 340, 'status timeouts never restart the sign-in window');
-      await new Promise(resolve => setImmediate(resolve));
-      if (!settled) mock.timers.tick(1000);
-    }
-    await joined;
-    assert.ok(upAt !== null);
-    if (forever) {
-      assert.ok(outcome instanceof MachineError);
-      assert.equal(outcome.code, 'timeout');
-      assert.equal(outcome.message, 'Starting your private network took too long.');
-      assert.ok(Date.now() >= upAt + 300_000 && Date.now() < upAt + 330_000);
-      assert.ok(hung > 1);
-      assert.deepEqual(steps, ['open-page']);
-    } else {
-      assert.deepEqual(outcome, { name: 'hung-check.tail.ts.net' });
-      assert.equal(hung, 1);
-      assert.ok(Date.now() >= upAt + 90_000 && Date.now() < upAt + 300_000);
-      assert.deepEqual(steps, ['open-page', 'joined']);
-    }
-  } finally { mock.timers.reset(); }
-});
-
-test('private-network deadlines distinguish startup, approval, an unused link and no link', async () => {
-  for (const [state, link, message, expectedSteps] of [
-    ['Starting', false, 'Starting your private network took too long.', []],
-    ['NeedsMachineAuth', true, words('tailnet.approvalNeeded'), ['open-page', 'approve']],
-    ['NeedsLogin', true, words('tailnet.loginExpired'), ['open-page']],
-    ['NeedsLogin', false, 'Starting your private network took too long.', []],
-    // A real control server can hand out the link after `up` returned: the daemon's status carries it.
-    ['NeedsLogin', 'status', words('tailnet.loginExpired'), ['open-page']],
-  ] as const) {
-    mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 0 });
-    try {
-      const base = fakeProvider();
-      let upCalls = 0;
-      const provider: Provider = { ...base, exec: async (ref, argv, opts) => {
-        if (argv[0] === 'tailscale' && argv[1] === 'up') {
-          upCalls++;
-          return { code: 0, stdout: link === true ? 'https://login.tailscale.com/a/deadline' : '', stderr: '', timedOut: false };
-        }
-        if (argv[0] === 'tailscale' && argv[1] === 'status') {
-          const late = link === 'status' && upCalls > 0 ? { AuthURL: 'https://login.tailscale.com/a/late' } : {};
-          return { code: 0, stdout: JSON.stringify({ BackendState: state, ...late }), stderr: '', timedOut: false };
-        }
-        if (['true', 'sh', 'systemctl'].includes(argv[0])) return { code: 0, stdout: '', stderr: '', timedOut: false };
-        return base.exec(ref, argv, opts);
-      } };
-      const m = machine({ provider, store: memoryStore() });
-      await m.create({ name: 'deadline', size: 'small', keepCopies: false });
-      const steps: string[] = [];
-      const urls: string[] = [];
-      let error: unknown;
-      const joined = m.joinTailnet({ hostname: 'deadline' }, s => { steps.push(s.step); if (s.step === 'open-page') urls.push(s.url); }).then(
-        () => { error = new Error('join unexpectedly succeeded'); }, e => { error = e; },
-      );
-      for (let ticks = 0; error === undefined; ticks++) {
-        assert.ok(ticks < 310, 'deadline must settle in five fake minutes');
-        await new Promise(resolve => setImmediate(resolve));
-        if (error === undefined) mock.timers.tick(1000);
-      }
-      await joined;
-      assert.ok(error instanceof MachineError);
-      assert.equal(error.code, 'timeout');
-      assert.equal(error.message, message);
-      assert.deepEqual(steps, expectedSteps);
-      assert.equal(upCalls, state === 'Starting' ? 0 : 1, 'startup timeout must never run up');
-      if (link === 'status') assert.deepEqual(urls, ['https://login.tailscale.com/a/late'], 'shown once, with a fresh five minutes');
-      assert.ok(Date.now() >= 300_000 && Date.now() <= (link === 'status' ? 302_000 : 301_000));
-    } finally { mock.timers.reset(); }
-  }
-});
-
 test('an app cleans up on Boat and every failure stays honest: no key leak, no lying state', async () => {
   const server = await startFakeSandboxServer();
   try {
@@ -889,20 +663,17 @@ test('a person saves copies of their cloud computer, resets it from one, and onl
     await provider.snapshot!(other, 'x');
 
     const marker = '/home/user/marker.txt';
-    const tailnet = '/etc/tailscale/tailscaled.state';
     await provider.write(old, marker, new TextEncoder().encode('Umer v1'), 0o600);
-    server.machine.writeFile(tailnet, new TextEncoder().encode('node-key-1'), 0o600, 'root');
     const saved = await m.snapshot();
     assert.match(saved.id, /^byokit-web-[0-9a-z]{12}$/);
     assert.deepEqual((await m.snapshots()).map((c) => c.id), [saved.id], 'only this machine\'s ready copies are listed');
 
     // Reset: the old machine stops before the new one starts from the copy, the marker is back,
-    // the tailnet identity is kept (same machine), and the old machine is deleted with its copies kept.
+    // and the old machine is deleted with its copies kept.
     await provider.write(old, marker, new TextEncoder().encode('Umer v2'), 0o600);
     const before = server.requests.length;
     await m.restore(saved.id);
     assert.equal(textOf(server.machine.readFile(marker)!), 'Umer v1');
-    assert.equal(textOf(server.machine.readFile(tailnet)!), 'node-key-1');
     assert.notEqual(m.ref?.id, old.id);
     assert.equal(await m.state(), 'on');
     assert.equal(await provider.status(old), 'gone');
@@ -1405,7 +1176,7 @@ test('a phone with no computer yet rents one through setup, and a retry resumes 
   } finally { await server.close(); }
 });
 
-test('an app lets its device into an existing Boat computer over plain SSH and sets it up like any SSH box', async () => {
+test('an app lets its device into a Boat computer over plain SSH, secures setup over it, and leaves an old tailnet once', async () => {
   const server = await startFakeSandboxServer();
   try {
     const provider = boat({ baseUrl: server.url, label: 'Boat', prices: prices(), key: async () => 'test-key' });
@@ -1432,6 +1203,44 @@ test('an app lets its device into an existing Boat computer over plain SSH and s
     assert.ok(transport.commands.length > 0, 'the install went over SSH');
     assert.equal(server.requests.filter((r) => r.path.endsWith('/commands')).length, 0, 'no command used the REST exec');
 
+    // Setting up on Boat itself secures over that same SSH: Boat lets the device key in and names the host key to pin.
+    // Without the device's public key securing refuses, after the install, and opens nothing.
+    const store = memoryStore();
+    const own = { unit: '/etc/systemd/system/tailscaled.service', state: '/var/lib/tailscale/tailscaled.state' };
+    const bytes = (text: string) => new TextEncoder().encode(text);
+    server.machine.writeFile(own.unit, bytes('[Unit]\nDescription=Tailscale the person installed\n'), 0o644, 'root');
+    server.machine.writeFile(own.state, bytes('their own node'), 0o600, 'root');
+    server.machine.listening.add(7300);
+    const onBoat = (address: { port: number; transport: SshTransport; publicKey?: string }) => collectSteps(setup({
+      provider, store, recipe: recipe(), create: { size: 'small', keepCopies: true }, address,
+    }));
+    assert.deepEqual((await onBoat({ port: 7300, transport })).at(-1), { step: 'failed', at: 'securing', cause: 'error.app', retryable: false });
+    const cleanups = () => server.machine.runs.filter((r) => r.argv[2] === TAILSCALE_CLEANUP_SHELL);
+    assert.equal(cleanups().length, 0, 'a Tailscale the person installed is never touched');
+
+    // A computer an older kit joined to the person's tailnet leaves it on the next install, once: it signs out, and
+    // the kit's drop-in, its own tailscaled unit and the node identity go. The person's own Tailscale files stay.
+    server.machine.writeFile(TAILSCALE_DROP_IN, bytes('[Service]\n'), 0o644, 'root');
+    server.machine.writeFile('/etc/tailscale/tailscaled.state', bytes('node-key-1'), 0o600, 'root');
+    const lines: string[] = [];
+    const secured = await collectSteps(setup({
+      provider, store, recipe: recipe(), create: { size: 'small', keepCopies: true }, onLine: (l) => lines.push(l),
+      address: { port: 7300, transport, publicKey },
+    }));
+    assert.deepEqual(secured.map((s) => s.step), ['checking-access', 'creating', 'installing', 'securing', 'ready'], JSON.stringify(secured.at(-1)));
+    const ref = (secured[1] as { ref: MachineRef }).ref;
+    assert.deepEqual(secured[3], { step: 'securing', route: { ...target, appPort: 7300 } });
+    assert.deepEqual([cleanups().length, cleanups()[0].root], [1, true]);
+    assert.equal(server.machine.readFile(TAILSCALE_DROP_IN), null);
+    assert.equal(server.machine.readFile('/etc/tailscale/tailscaled.state'), null);
+    assert.equal(textOf(server.machine.readFile(own.state)!), 'their own node');
+    assert.ok(server.machine.readFile(own.unit) !== null, 'a tailscaled unit the kit did not write stays');
+    assert.equal(await machine({ provider, store }).host(), 'running');
+    await machine({ provider, store }).update(recipe());
+    assert.equal(cleanups().length, 1, 'the cleanup runs once');
+    assert.deepEqual(server.sshKeys.get(ref.id), [publicKey]);
+    assert.equal(server.requests.filter((r) => r.path.endsWith('/host')).length, 0, 'no app port was made public');
+
     // A key that is not one OpenSSH line never reaches Boat.
     const sent = server.requests.length;
     await rejects(provider.sshAccess!(existing, 'not a key'), 'bad-recipe');
@@ -1439,7 +1248,7 @@ test('an app lets its device into an existing Boat computer over plain SSH and s
   } finally { await server.close(); }
 });
 
-test('a phone with only its own SSH module deploys onto any SSH box and gives it a private address', async () => {
+test('a phone with only its own SSH module deploys onto any SSH box and reaches its app over SSH, never a tailnet', async () => {
   // The app's transport stands in for a React Native SSH module: the kit sends it quoted command lines only.
   const transport = fakeSshTransport();
   let pin: string | null = null;
@@ -1458,20 +1267,27 @@ test('a phone with only its own SSH module deploys onto any SSH box and gives it
   await first.confirm();
   assert.equal((await sshHostKey(box)).pinned, true);
 
-  // Tailscale on the box: already signed in, then serving the app port privately.
+  // Securing proves the SSH route: the pinned server, a listener on the box's loopback, and one forward that opens.
+  // Until the app's host listens, it fails there and says so; nothing is installed for it and no port is opened.
   transport.machine.script('npm', ok(''));
-  transport.machine.script('tailscale', ok(JSON.stringify({
-    BackendState: 'Running', Self: { DNSName: 'box.tail-test.ts.net.' }, TCP: { 7300: { TCPForward: '127.0.0.1:7300' } },
-  })));
-  const steps = await collectSteps(setup({
-    provider, store, recipe: recipe(), pick: (listed) => listed[0], confirmId: first.fingerprint,
-    address: { hostname: 'box', port: 7300 },
+  const address = { port: 7300, transport, target: { host: 'box.example', user: 'user' }, pins };
+  const connect = (via: SshTransport) => collectSteps(setup({
+    provider, store, recipe: recipe(), pick: (listed) => listed[0], confirmId: first.fingerprint, address: { ...address, transport: via },
   }));
+  assert.deepEqual((await connect(transport)).at(-1), { step: 'failed', at: 'securing', cause: 'state.failed', retryable: true });
+  transport.machine.listening.add(7300);
+  const { forward: _cannot, ...noForward } = transport;
+  assert.deepEqual((await connect(noForward)).at(-1), { step: 'failed', at: 'securing', cause: 'error.app', retryable: false });
+  assert.equal(transport.forwards.length, 0);
+  const steps = await connect(transport);
   assert.deepEqual(steps.map((s) => s.step), ['checking-access', 'listing', 'inspecting', 'installing', 'securing', 'ready'], JSON.stringify(steps.at(-1)));
   assert.deepEqual(steps[0], { step: 'checking-access', account: 'user@box.example:22' });
-  assert.deepEqual(steps[4], { step: 'securing', name: 'box.tail-test.ts.net' });
-  const runs = transport.machine.runs.map((r) => r.argv.join(' '));
-  assert.ok(runs.includes('tailscale serve --bg --tcp=7300 tcp://127.0.0.1:7300'), 'the app port is served on the tailnet only');
+  const route = { host: 'box.example', port: 22, user: 'user', fingerprint: first.fingerprint, appPort: 7300 };
+  assert.deepEqual(steps[4], { step: 'securing', route });
+  assert.deepEqual(transport.forwards, [{ remotePort: 7300, open: false }], 'securing opened one forward to the app port and closed it');
+  // Only the check for an old kit's drop-in names Tailscale; with none there, nothing Tailscale runs.
+  const tailscale = transport.machine.runs.filter((r) => r.argv.some((a) => a.includes('tailscale')));
+  assert.ok(tailscale.length > 0 && tailscale.every((r) => r.argv.join(' ') === `test -e ${TAILSCALE_DROP_IN}`), 'no Tailscale command ran');
   assert.ok(transport.commands.every((c) => c.startsWith('timeout -k 10 ') || c.startsWith('sudo -n timeout -k 10 ')));
 
   // The phone reaches the app on the box's loopback through one SSH forward, never a public port: a real pair
@@ -1486,15 +1302,15 @@ test('a phone with only its own SSH module deploys onto any SSH box and gives it
   sockets.on('connection', (ws) => appHost.accept(ws));
   await new Promise<void>((resolve) => appServer.listen(0, '127.0.0.1', resolve));
   transport.loopback.set(7300, (appServer.address() as AddressInfo).port);
-  const resolver = sshResolve({ transport, pins, target: { host: 'box.example', user: 'user' }, port: 7300 });
+  const resolver = sshResolve({ transport, pins, target: route, port: route.appPort });
   const offer = appHost.offer({ role: 'control', urls: ['ws://127.0.0.1:7300/link'] }).text;
   const grant = await pairWithOffer(offer, { name: 'Phone', onWords: () => {}, resolve: resolver });
   const link = new DeviceLink(grant, { store: { save: () => {}, clear: () => {} }, resolve: resolver });
   try {
     assert.deepEqual(await link.request('get.state', { n: 1 }), { op: 'get.state', args: { n: 1 } });
     assert.deepEqual(grant.urls, ['ws://127.0.0.1:7300/link'], 'the grant keeps the address on the box');
-    assert.equal(transport.forwards.length, 1, 'pairing and the link share one forward');
-    assert.ok(transport.forwards.every((f) => f.remotePort === 7300 && f.open));
+    assert.equal(transport.forwards.length, 2, 'pairing and the link share one forward after the securing check');
+    assert.ok(transport.forwards.every((f) => f.remotePort === 7300) && transport.forwards[1].open);
     // A replaced server is refused before the forward opens.
     const wrongPin = sshResolve({ transport, pins: { load: async () => `SHA256:${'B'.repeat(43)}` }, target: { host: 'box.example', user: 'user' }, port: 7300 });
     await rejects(wrongPin('ws://127.0.0.1:7300/link'), 'host-key');
@@ -1504,7 +1320,7 @@ test('a phone with only its own SSH module deploys onto any SSH box and gives it
     await resolver.close();
     assert.ok(transport.forwards.every((f) => !f.open));
     assert.notEqual(await resolver('ws://127.0.0.1:7300/link'), before);
-    assert.equal(transport.forwards.length, 2);
+    assert.equal(transport.forwards.length, 3);
   } finally {
     link.stop();
     await resolver.close();
@@ -1514,12 +1330,8 @@ test('a phone with only its own SSH module deploys onto any SSH box and gives it
     appServer.close();
   }
 
-  // A join key never reaches the app's transport.
   const m = machine({ provider, store });
   const sent = transport.commands.length;
-  const canary = ['tskey', 'canary', 'not', 'real'].join('-');
-  await rejects(m.joinTailnet({ hostname: 'box', authKey: canary }), 'unsupported');
-  assert.equal(transport.commands.length, sent);
 
   // A replaced server is refused, never repinned.
   transport.fingerprint = `SHA256:${'B'.repeat(43)}`;

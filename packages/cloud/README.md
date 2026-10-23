@@ -44,7 +44,7 @@ the one-line console install and `sshVm()` over the app's own SSH transport; `./
 frozen types, words, pure parts (`renderUnit`, recipe checks, node argv, cost), `machine()`
 for §5.1–5.5 and §5.7 plus install and supervise (§8: `install`, `update`, `host`,
 `logs`, `deliver`), `status()` (§5.9), the fake provider and the contract suite, the Boat adapter
-(M4), the keyless tailnet join on every adapter (§9.1), the SSH VM adapter (M2) over the `ssh` binary or the app's own transport, the Hetzner first slice,
+(M4), reach over plain SSH to the machine's loopback (§9.1), the SSH VM adapter (M2) over the `ssh` binary or the app's own transport, the Hetzner first slice,
 and account link (`claim()`, §11.5). Idle sleep and wake-on-open land in M7 (manual `sleep()` and
 `wake()` are already here).
 `claim()` passed a recorded live sign-in against Boat on 2026-10-18 (discover, register, link
@@ -74,7 +74,7 @@ import { words, type Machine } from '@byokit/cloud';
 export async function reset(m: Machine, confirm: (s: string) => Promise<boolean>) {
   const [last] = await m.snapshots();
   if (last === undefined || !(await confirm(words('snapshot.restore', { date: last.at.slice(0, 10) })))) return null;
-  return m.restore(last.id); // the machine is new: the app checks tailnet() before it dials it
+  return m.restore(last.id); // the machine is new: the app reads its SSH route again before it dials it
 }
 ```
 
@@ -143,7 +143,8 @@ Hetzner Cloud Firewall **before** the server and attaches it in the server-creat
 inbound rule is **SSH 22/tcp on IPv4**. Every app port stays closed publicly; recipe
 installation never adds a rule. Exec/write/hostKey require the attached, applied
 SSH-only app firewall; a typed `provider` refusal says to re-attach it or remove the
-machine. Tailnet-only SSH is a later step; public SSH 22 remains for bootstrap.
+machine. Public SSH 22 is key-only with the pinned host key, and it is also how the phone reaches the app
+(an SSH forward to the machine's loopback, below).
 
 If attachment or subsequent setup fails, the adapter deletes the allocated server,
 its primary IPs and firewall, then returns a typed failure. If cleanup itself fails,
@@ -181,9 +182,11 @@ export async function rentFromPhone(options: HetznerApiOptions, recipe: HostReci
 }
 ```
 
-Without `publicKey` the server's firewall lets **nothing** in; the host reaches the phone outbound
-(its own relay or tailnet, which the recipe sets up). With `publicKey`, SSH 22/tcp opens as in the
-Node slice. The phone cannot see the install: `status()` reads `on` while it still runs, and the
+Pass the phone's own SSH public key (the login key its SSH module holds) as `publicKey`: SSH 22/tcp
+opens as in the Node slice and cloud-init authorizes that key, so once `status()` reads `on` the app
+confirms the host key with `sshHostKey({ transport, pins, host: provider.address(ref) })` and reaches the
+app through an SSH forward. Without `publicKey` the firewall lets **nothing** in, and the computer has no
+reach until the person adds a key. The phone cannot see the install: `status()` reads `on` while it still runs, and the
 host's first answer on its own link is the ready signal. Full Hetzner power stays typed:
 `server` adds `POST /servers` fields (`ssh_keys`, `volumes`, `networks`, `labels`, IPv6 and others;
 the kit's own fields win), `cloudConfig` adds cloud-config keys (its `users` follow the kit's `user`; its `write_files` and
@@ -204,31 +207,24 @@ with exit 1. Pasting it again repairs in place. `script` is the readable text th
 for the app to show; a truncated paste runs nothing. `installScript(recipe, o)` is that text alone,
 for another provider's user-data box.
 
-## Your own tailnet
+## Reach is SSH, never your tailnet
 
-Tailscale is for your own devices only, such as your computer and phone; a cloud or sandbox computer
-should not join your tailnet. A coming release removes this join and reaches the app over plain SSH to
-the machine's loopback instead, with a pinned host key and your own SSH key
-([spec §9](../../docs/cloud-kit.md#9-reach-from-phone-and-web)). Until then, the kit does what follows.
+Tailscale is for your own devices only, such as your computer and phone. A cloud or sandbox computer
+never joins your tailnet: the app's host listens on the machine's loopback, and the device reaches it
+through one SSH forward, with a pinned host key and the device's own SSH key
+([spec §9](../../docs/cloud-kit.md#9-reach-from-phone-and-web)). Encrypted pairing still runs inside it.
+`setup()`'s `securing` step proves that route (below); `sshResolve()` dials it.
 
-`await m.joinTailnet({ hostname: 'byokit-cloud' }, showStep)` installs the pinned, SHA256-checked Tailscale release as root and starts it.
-`showStep` receives `open-page` with the sign-in link (approve it on your phone), or `approve` when the
-tailnet must approve the machine (with or without a sign-in link), then `joined` with the MagicDNS name. `await m.tailnet()` reads `joined`, `needs-login`, `needs-approval`, `starting` or `off` without joining.
-Every adapter joins keylessly: Boat, an SSH VM (over the `ssh` binary or the app's own transport) and a
-Hetzner server (over its SSH). Passing `authKey` is a typed `unsupported` refusal everywhere: Boat's
-emulated stdin writes a temporary file, and an app's SSH transport is the app's own code, so neither
-ever carries a join key.
+A computer that 0.2.x to 0.4.0 joined to your tailnet leaves it on its next `install()` or `update()`:
+the kit signs it out of Tailscale and removes its own `tailscaled` service, its drop-in and the node
+identity in `/etc/tailscale`. A Tailscale you installed yourself (no kit drop-in) is never touched. Remove
+such a computer on your Tailscale admin page as well, and delete its saved copies made after it joined:
+they hold that identity.
 
-When there is no TUN device, the daemon uses userspace networking. The app binds its host to
-loopback and its root recipe configures `tailscale serve --bg --tcp=<port> tcp://127.0.0.1:<port>`;
-joining alone does not expose a service. Advertise the tailnet name, never a provider URL.
-Tailscale state stays under `/etc/tailscale` across Boat wakes and is included in disk copies, so a copy currently carries the source's node identity. The coming release signs the machine out and removes the kit's own Tailscale service and that state ([cleanup](../../docs/cloud-kit.md#93-moving-off-the-tailnet-build-order)).
-The phone must be on the same tailnet; encrypted pairing is still required.
-
-**SECURITY: No public app port is opened by default.** Create, install, host and join never call
+**SECURITY: No public app port is opened by default.** Create, install, host and securing never call
 `url()` or `/host`. Explicit `m.url(port)` makes that port public, including opening the provider
 firewall. Do not reuse a previously exposed sandbox as a fresh private-only machine: the public
-API has no unhost route. Private tailnet reachability and public-port refusal still need live proof.
+API has no unhost route.
 
 ## Any SSH box from a phone
 
@@ -239,11 +235,12 @@ app's transport and never reaches the kit.
 
 ```ts
 import { machine, pairEnrol, setup, sshHostKey, sshVm } from '@byokit/cloud';
-import type { HostRecipe, MachineStore, SetupStep, SshTarget, SshTransport } from '@byokit/cloud';
+import type { HostRecipe, MachineStore, SetupStep, SshForward, SshTarget, SshTransport } from '@byokit/cloud';
 // The app's own parts: its SSH module, its secure store, recipe and screen.
 declare const mySsh: {
   run(to: SshTarget, command: string, input: Uint8Array | undefined, timeoutMs: number): Promise<{ code: number; stdout: string; stderr: string }>;
   serverKey(host: string, port: number): Promise<{ fingerprint: string }>;
+  localForward(to: SshTarget, remotePort: number): Promise<SshForward>;
 };
 declare const secure: { get(k: string): Promise<string | null>; set(k: string, v: string): Promise<void> };
 declare const store: MachineStore, recipe: HostRecipe, phoneKey: Uint8Array, show: (s: SetupStep) => void;
@@ -253,6 +250,7 @@ const transport: SshTransport = {
   // throw new MachineError('host-key', …). Give up at timeoutMs + 15 s with timedOut: true.
   exec: (to, command, { input, timeoutMs }) => mySsh.run(to, command, input, timeoutMs), // { code, stdout, stderr }
   hostKey: ({ host, port }) => mySsh.serverKey(host, port),  // { fingerprint: 'SHA256:…' }
+  forward: (to, remote) => mySsh.localForward(to, remote.port), // 127.0.0.1:<localPort> here to remote.port on the box
   // write: optional (e.g. SFTP); without it the kit writes through exec's stdin.
 };
 const pins = { load: () => secure.get('box-key'), save: (f: string) => secure.set('box-key', f) };
@@ -264,14 +262,15 @@ const provider = sshVm(box);
 const m = machine({ provider, store });
 for await (const step of setup({
   provider, store, recipe, pick: (listed) => listed[0], confirmId: key.fingerprint,
-  address: { hostname: 'my-server', port: 7300 }, pair: pairEnrol(m, recipe, phoneKey),
+  address: { port: 7300, transport, target: { host: '203.0.113.7', user: 'ada' }, pins },
+  pair: pairEnrol(m, recipe, phoneKey),
 })) show(step);                              // checking-access, listing, inspecting, installing, securing, pairing, ready
 ```
 
 `sshVm()` lists the one box it points at, so the existing-computer checks (`adopt.confirm` consent, no
-takeover of existing files) apply. The `securing` step gives the box a private address on the person's
-own tailnet: nothing public is opened, the phone needs the Tailscale app on the same tailnet, and
-pairing stays encrypted. A changed host key is refused, never repinned. On Node, `@byokit/cloud/ssh`
+takeover of existing files) apply. The `securing` step proves the SSH route to the app port on the
+box's loopback (it needs the transport's `forward`, below): nothing is installed for it, nothing public
+is opened, and pairing stays encrypted. A changed host key is refused, never repinned. On Node, `@byokit/cloud/ssh`
 accepts the same options and defaults to the `ssh` binary. `fakeSshTransport()` from `./testing` stands
 in for the app's SSH module in its tests.
 
@@ -356,12 +355,22 @@ calling `machine()` as before.
 `setup({ provider, store, recipe, pick, confirmId, onLine, address, pair })` drives one existing-computer
 connect as steps for the connect screen: `checking-access`, `listing`, `inspecting` (the picked machine
 passed the adoption guards and is saved), `installing` (`onLine` carries its lines), `securing` (the
-secure address: with `address: { hostname, port, onStep? }` the kit confirms or joins the person's
-tailnet, `onStep` carrying the sign-in link, then privately serves the app's loopback `port` on it;
-skipped without `address`), `pairing` (the app's Pair-ready gate; skipped without `pair`), then `ready`. Each step is emitted after its real result, shown
+SSH route to the app, with `address: { port, transport, publicKey?, target?, pins? }`; skipped without
+`address`), `pairing` (the app's Pair-ready gate; skipped without `pair`), then `ready`. Each step is emitted after its real result, shown
 with `words('setup.<step>', { app, label })`. A rejection ends the stream with one `failed` step (`at` the
 phase, `cause` a words key via `errorKey`, `retryable` whether a repeat may pass): re-run `setup()` with
 the same arguments and it resumes at install on the saved machine instead of renting another.
+
+Securing finds where to log in, then proves the route without installing or opening anything. On Boat,
+`provider.sshAccess(ref, address.publicKey)` lets the device's public key in and names the host key to pin;
+elsewhere (an SSH box, Hetzner) the app passes `address.target` and the `pins` it confirmed with
+`sshHostKey`. The transport's `hostKey()` must match that pin (else `host-key`), something must listen on
+`127.0.0.1:<port>` on the machine (else `provider`, retryable: the host is still starting), and one
+`forward` must open (`unreachable` when refused; a transport without `forward` is `unsupported`). The step
+carries `route`, `{ host, port, user, fingerprint, appPort }`, and the pair gate gets the machine's loopback
+root `ws://127.0.0.1:<port>` as `ctx.urls` and the route as `ctx.ssh`. The recipe binds its host to
+`127.0.0.1:<port>`, never `0.0.0.0`. On Node with Boat, `sshTransport()` pins through its `known_hosts`, so
+confirm `sshHostKey({ ssh, host, port, stateDir })` against the fingerprint `sshAccess` names first.
 
 For a person with no computer yet, pass `create: { size, keepCopies }` instead of `pick` and
 `confirmId`: after `checking-access` the kit rents one named after the recipe, waits until it is on
@@ -399,9 +408,10 @@ other key is refused. Shown with the existing `setup.pairing` words.
 
 After binding, the host writes `phoneReceipt(host, key)` to `<workDir>/.byokit/outbox/receipt.json`.
 `pairEnrol` waits up to a minute for that receipt for the same key and the `pairing` step carries it:
-the host's public key, the phone's device on it, and the secured address. The phone opens a real
-`@byokit/pair` link with that receipt and its own secret key alone. Every value in it is public.
-The receipt's `urls` are the address root, `ws://<tailnet name>:<port>`; an app whose link route has a
+the host's public key, the phone's device on it, the address on the machine, and the SSH route to it.
+The phone opens a real `@byokit/pair` link with that receipt, its own secret key and its SSH transport
+alone. Every value in it is public. The receipt's `urls` are the machine's loopback root,
+`ws://127.0.0.1:<port>`, dialled through `sshResolve` over `receipt.ssh`; an app whose link route has a
 path passes `pairEnrol(m, recipe, key, { url: (root, host) => ... })` to build it from each root and the
 host's public key.
 
@@ -410,22 +420,25 @@ app's own device store that keeps the authority itself, as long as it answers `d
 (and `revoke()`, `keys`) the same way.
 
 ```ts
-import { machine, pairEnrol, setup, type HostRecipe, type MachineRef, type MachineStore, type Provider } from '@byokit/cloud';
+import { machine, pairEnrol, setup, sshResolve, type HostRecipe, type MachineRef, type MachineStore, type Provider, type SshTransport } from '@byokit/cloud';
 import { DeviceLink, b64url, type KeyPair } from '@byokit/pair';
 
+// On Boat: `sshPublicKey` is the OpenSSH public line of the login key `ssh` (the app's SSH module) holds.
 export async function connectPhone(
   provider: Provider, store: MachineStore, recipe: HostRecipe,
-  pick: (listed: MachineRef[]) => MachineRef, confirmId: string, phone: KeyPair, openPage: (url: string) => void,
+  pick: (listed: MachineRef[]) => MachineRef, confirmId: string, phone: KeyPair, ssh: SshTransport, sshPublicKey: string,
 ) {
   const m = machine({ provider, store });
   let link: DeviceLink | undefined;
   for await (const s of setup({
     provider, store, recipe, pick, confirmId, pair: pairEnrol(m, recipe, phone.publicKey),
-    address: { hostname: 'tracker', port: 7300, onStep: (t) => { if (t.step === 'open-page') openPage(t.url); } },
+    address: { port: 7300, transport: ssh, publicKey: sshPublicKey },
   })) {
-    if (s.step === 'pairing' && s.receipt) {
+    if (s.step === 'pairing' && s.receipt?.ssh) {
+      const route = s.receipt.ssh;
+      const resolve = sshResolve({ transport: ssh, pins: { load: async () => route.fingerprint }, target: route, port: route.appPort });
       link = new DeviceLink({ v: 1, secretKey: b64url(phone.secretKey), hostName: 'Your cloud computer', ...s.receipt },
-        { store: { save() {}, clear() {} } });
+        { store: { save() {}, clear() {} }, resolve });
     }
     if (s.step === 'ready') return link;
     if (s.step === 'failed') throw new Error(s.at);
@@ -533,8 +546,7 @@ export async function link(baseUrl: string, email: string, open: (url: string) =
 ## Recipes
 
 The app supplies its host program and installer as a `HostRecipe`, and the kit writes
-and owns exactly one systemd unit per app (`byokit-<name>.service`, `Restart=always`). Joining a
-tailnet adds the machine's own `tailscaled` unit, which is not an app unit:
+and owns exactly one systemd unit per app (`byokit-<name>.service`, `Restart=always`):
 a system unit on Boat (only the home and `/etc` survive sleep), a user unit
 plus `loginctl enable-linger` on an SSH VM (so the kit needs no root there unless the
 recipe asks for it), and a system unit with `User=` when the recipe sets `user`.

@@ -1,1 +1,0 @@
-- The README now says Tailscale is for your own devices only: a coming release stops a cloud computer joining your tailnet and reaches the app over plain SSH to the machine's loopback, with a pinned host key and your own SSH key. Nothing changes in this version's code.

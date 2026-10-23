@@ -696,7 +696,7 @@ export function boat(o: {
         throw new MachineError('bad-recipe', 'publicKey: must be one OpenSSH public key line');
       }
       const { status: st, json } = await checked('POST', `/sandboxes/${encodeURIComponent(m.id)}/sshkey`, {
-        body: { publicKey },
+        body: { key: publicKey }, // boat-v1 SshKeyRequest: `key`, the OpenSSH public line
       });
       if (st === 404) throw new MachineError('no-machine', 'the provider has no such machine');
       const user = field(json, 'sshUser');

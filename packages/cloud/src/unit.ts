@@ -70,6 +70,26 @@ export const NEWEST_SHELL = 'cd "$1" 2>/dev/null || exit 0; f=$(ls -tp -- "$2"* 
 /** Removes the outbox files (not directories) in `$1` whose name starts with `$2`; nothing while there is no outbox. */
 export const CLEAR_SHELL = 'cd "$1" 2>/dev/null || exit 0; for f in "$2"*; do if [ -f "$f" ]; then rm -f -- "$f" || exit 1; fi; done'
 
+/** Exit 0 when something listens on the machine's loopback at port `$1`, read from /proc so no `ss` is needed (9.1). */
+export const LISTEN_SHELL = 'p=$(printf "%04X" "$1") && grep -Eqs "^ *[0-9]+: (0100007F|00000000|00000000000000000000000001000000|0000000000000000FFFF00000100007F|00000000000000000000000000000000):$p [0-9A-F]+:[0-9A-F]{4} 0A " /proc/net/tcp /proc/net/tcp6';
+
+/** The drop-in 0.2.x to 0.4.0 wrote when they joined the machine to the person's tailnet (9.3). */
+export const TAILSCALE_DROP_IN = '/etc/systemd/system/tailscaled.service.d/byokit.conf';
+
+/**
+ * 9.3's one-time cleanup, as root, only while `TAILSCALE_DROP_IN` exists: sign the machine out, stop tailscaled, and
+ * remove the drop-in, the unit the kit wrote (only when its bytes are the kit's) and the node identity in /etc/tailscale.
+ * A Tailscale the person installed themselves has no kit drop-in and is never touched.
+ */
+export const TAILSCALE_CLEANUP_SHELL = `d=/etc/systemd/system/tailscaled.service.d
+test -e "$d/byokit.conf" || exit 0
+timeout 30 tailscale logout || echo 'Signing this cloud computer out of Tailscale failed: remove it on your Tailscale admin page.' >&2
+systemctl disable --now tailscaled 2>/dev/null
+if systemctl is-active --quiet tailscaled; then echo 'tailscaled is still running' >&2; exit 1; fi
+u=/etc/systemd/system/tailscaled.service
+if printf '[Unit]\\nDescription=Tailscale node agent\\nAfter=network.target\\n[Service]\\nExecStart=/usr/sbin/tailscaled --state=/etc/tailscale/tailscaled.state\\nRuntimeDirectory=tailscale\\nRestart=on-failure\\n[Install]\\nWantedBy=multi-user.target\\n' | cmp -s - "$u"; then rm -f "$u" || exit 1; fi
+rm -f "$d/byokit.conf" && { rmdir "$d" 2>/dev/null || true; } && rm -rf /etc/tailscale && systemctl daemon-reload`;
+
 /** A system unit's path for an app name. */
 export const systemUnitPath = (name: string): string => `/etc/systemd/system/byokit-${name}.service`;
 
