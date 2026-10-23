@@ -121,6 +121,7 @@ Sign-ins live in your app's chosen storage, not someone else's installed tools. 
 
 ## Keep exploring
 
+- [Vision](VISION.md): who byokit is for, where it is going and what it is not
 - [Web example](examples/pwa) · [Mobile example](examples/expo) · [Voice example](examples/realtime-voice)
 - [Runtime kits](docs/runtime-kits.md) · [Capability kits](docs/capability-kits.md) (bubble/overlay → `@platform-kits/overlay`; status bar → `@platform-kits/statusbar`; record → `@platform-kits/record`) · [Cloud kit](docs/cloud-kit.md)
 - [Package conventions](docs/kit-conventions.md) · [Contributing and platform checks](CONTRIBUTING.md)
