@@ -111,5 +111,25 @@
   "picker.out.model": "Doesn't include this run's model",
   "picker.out.provider": "A different service",
   "move.to": "Move to {name}",
-  "move.failed": "Couldn't move to {name}"
+  "move.failed": "Couldn't move to {name}",
+
+  "agent.count": "{enabled} of {total} enabled",
+  "agent.count.none": "No plan sign-in",
+  "agent.rule": "one at a time",
+  "agent.inUse": "In use",
+  "agent.ready": "Signed in",
+  "agent.way.key": "{name} API key",
+  "agent.using": "{name} uses {account}.",
+  "agent.pick": "Pick the account {name} uses.",
+  "agent.saved.notReady": "{account} isn't ready. Sign in again or pick another account.",
+  "agent.signIn.first": "Sign in with a plan you already pay for.",
+  "agent.perUseOnly": "No plan you pay for signs this agent in here.",
+  "agent.perUse.note": "Charged each time you use it. Listed only, never chosen for you.",
+  "agent.model": "Default model",
+  "agent.model.noAccount": "Pick an account first",
+  "agent.model.reading": "Reading this account's models…",
+  "agent.model.none": "This account lists no models",
+  "agent.model.pick": "Pick a model",
+  "agent.model.chosen": "New runs use {name}.",
+  "agent.model.gone": "The saved model isn't offered any more. Pick another."
 }

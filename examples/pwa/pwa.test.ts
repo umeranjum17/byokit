@@ -647,6 +647,71 @@ test('two tabs serialize sign-out and a queued refresh through Web Locks', { tim
   await context.close();
 });
 
+test('agents: each counts its plan sign-ins, signs in from its own row, runs on one account at a time with a default model kept across a reload', { timeout: 120_000 }, async () => {
+  const context = await browser.newContext({ serviceWorkers: 'block' });
+  try {
+    const page = await context.newPage();
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(String(e)));
+    // ChatGPT's model list rides the page's own proxy; answer it from the stand-in's list.
+    await page.route('**/fwd/chatgpt/backend-api/codex/models', async (route) => {
+      const h = route.request().headers();
+      const up = await fetch(`${openai.base}/codex/models`, { headers: { authorization: h['authorization'] ?? '', 'chatgpt-account-id': h['chatgpt-account-id'] ?? '' } });
+      return route.fulfill({ status: up.status, contentType: 'application/json', body: await up.text() });
+    });
+    Object.assign(openai.state, { accountId: 'umer-personal', email: 'umer@example.com', plan: 'plus' });
+    await page.goto(site.url);
+    const agent = (kind: string, sel = '') => page.locator(`[data-agent="${kind}"] ${sel}`.trim());
+    await agent('codex', '[data-count]').filter({ hasText: '0 of 1 enabled' }).waitFor();
+    assert.equal(await agent('pi', '[data-count]').textContent(), '0 of 6 enabled');
+    // A pay-per-use key is listed apart, labelled, never counted and never startable from here.
+    assert.equal(await agent('vibe', '[data-count]').textContent(), 'No plan sign-in');
+    await agent('vibe', '> summary').click();
+    await agent('vibe', '.per-use > summary').click();
+    assert.match((await agent('vibe', '[data-way="mistral:key"]').textContent())!, /Mistral API key.*Charged per use to your Mistral account/);
+    assert.equal(await agent('vibe', '[data-signin]').count(), 0);
+    assert.equal(await agent('vibe', '[data-model]').count(), 0);
+
+    await agent('codex', '> summary').click();
+    assert.equal(await agent('codex', '[data-model]').isDisabled(), true, 'no model to pick before an account');
+    await agent('codex', '[data-way="chatgpt"] [data-signin]').click();
+    const code = (await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).textContent())!;
+    const [provider] = await Promise.all([context.waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
+    await provider.fill('#code', code.trim());
+    await provider.click('#continue');
+    await provider.locator('#words').filter({ hasText: /Signed in/ }).waitFor();
+    await provider.close();
+    // Signed in from Codex's row, the account becomes Codex's; Pi sees it signed in but chooses nothing by itself.
+    await agent('codex', '[data-account][data-in-use]').filter({ hasText: 'umer@example.com' }).waitFor();
+    assert.equal(await agent('codex', '[data-note]').textContent(), 'Codex uses umer@example.com.');
+    assert.equal(await agent('codex', '[data-count]').textContent(), '1 of 1 enabled');
+    assert.equal(await agent('pi', '[data-count]').textContent(), '1 of 6 enabled');
+    assert.equal(await agent('pi', '[data-note]').textContent(), 'Pick the account Pi uses.');
+    assert.equal(await agent('pi', '[data-account] input').isChecked(), false);
+
+    await agent('codex', '[data-model]').selectOption('gpt-6-luna');
+    await agent('codex', '[data-model-words]').filter({ hasText: 'New runs use GPT-6 Luna.' }).waitFor();
+    await page.reload();
+    await agent('codex', '[data-model-words]').filter({ hasText: 'New runs use GPT-6 Luna.' }).waitFor({ state: 'attached' });
+    assert.equal(await agent('codex', '[data-model]').inputValue(), 'gpt-6-luna');
+    assert.equal(await agent('pi', '[data-note]').textContent(), 'Pick the account Pi uses.', 'each agent keeps its own choice');
+
+    // One at a time: Pi takes the account by its radio; Codex keeps its own.
+    await agent('pi', '> summary').click();
+    await agent('pi', '[data-account] input').check();
+    await agent('pi', '[data-note]').filter({ hasText: 'Pi uses umer@example.com.' }).waitFor();
+    assert.equal(await agent('pi', '[data-model-words]').textContent(), 'Pick a model');
+    assert.equal(await agent('codex', '[data-model]').inputValue(), 'gpt-6-luna');
+
+    // Signed out, the saved account is never swapped for another: the agent says so and runs nothing.
+    await part(page, 'chatgpt', 'signout').click();
+    await agent('codex', '[data-count]').filter({ hasText: '0 of 1 enabled' }).waitFor();
+    assert.equal(await agent('codex', '[data-account]').count(), 0);
+    assert.equal(await agent('codex', '[data-model]').isDisabled(), true);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
 test('an installable PWA: its manifest and a service worker that keeps the page working offline', { timeout: 120_000 }, async () => {
   const context = await browser.newContext();
   const page = await context.newPage();

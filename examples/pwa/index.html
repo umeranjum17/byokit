@@ -81,12 +81,55 @@
   .route:not([aria-disabled]) .route-line, .route:not([aria-disabled]) .route-status { color: var(--ink); }
   .route:not([aria-disabled]) .route-status { font-weight: 600; }
   .route[data-unavailable] .route-name { color: var(--soft); }
+  .section { font-size: 1.15em; margin: 1.6em 0 .2em; }
+  #agents { display: grid; gap: 10px; margin-top: .8em; }
+  .agent { background: var(--card); border: 1px solid var(--line); border-radius: 18px; min-width: 0; }
+  .agent > summary { display: flex; align-items: center; gap: .6em; padding: 14px 16px; cursor: pointer; list-style: none; border-radius: 18px; }
+  .agent > summary::-webkit-details-marker { display: none; }
+  .agent > summary::before { content: ""; flex: none; width: 7px; height: 7px; border: solid var(--soft); border-width: 0 2px 2px 0; transform: rotate(-45deg); margin: 0 .3em 0 .1em; }
+  .agent[open] > summary::before { transform: rotate(45deg); }
+  .agent-name { font-weight: 600; }
+  .agent-count { color: var(--soft); font-size: .85em; display: flex; align-items: center; gap: .5em; font-variant-numeric: tabular-nums; }
+  .agent-count::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--soft); opacity: .6; }
+  .agent[data-enabled] .agent-count::before { background: var(--ok); opacity: 1; }
+  .agent-body { padding: 0 16px 16px; }
+  .agent-head { display: flex; justify-content: space-between; gap: 1em; color: var(--soft); font-size: .8em; margin: .2em 0 .45em; }
+  .ways { border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+  .way { border-top: 1px solid var(--line); }
+  .way:first-child { border-top: 0; }
+  .way-row { display: flex; align-items: center; gap: .8em; padding: .65em .8em .65em .9em; min-height: 3.3em; }
+  .way-text { flex: 1; min-width: 0; display: grid; }
+  .way-name { font-weight: 500; }
+  .way-line { color: var(--soft); font-size: .8em; }
+  .way-do { flex: none; font: inherit; font-size: .85em; font-weight: 600; background: var(--fill); color: var(--accent); border: 0; border-radius: 10px; padding: .45em .9em; cursor: pointer; }
+  .way[data-state="unavailable"] .way-name { color: var(--soft); }
+  .way-acc { display: flex; align-items: center; gap: .7em; padding: .55em .8em .55em .9em; border-top: 1px dashed var(--line); cursor: pointer; }
+  .way-acc input { flex: none; width: 1.15em; height: 1.15em; margin: 0; accent-color: var(--accent); }
+  .way-acc-text { flex: 1; min-width: 0; display: grid; }
+  .way-acc-name { font-size: .9em; overflow-wrap: anywhere; }
+  .way-acc-state { color: var(--soft); font-size: .8em; }
+  .way-acc[data-in-use] .way-acc-state { color: var(--ok); font-weight: 600; }
+  .agent-note { color: var(--soft); font-size: .85em; margin: .55em 0 0; }
+  .per-use { margin-top: .6em; }
+  .per-use > summary { display: inline-flex; align-items: center; gap: .5em; color: var(--accent); font-size: .85em; cursor: pointer; padding: .4em 0; list-style: none; }
+  .per-use > summary::-webkit-details-marker { display: none; }
+  .per-use > summary::after { content: ""; width: 5px; height: 5px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: rotate(45deg); margin-top: -3px; }
+  .per-use[open] > summary::after { transform: rotate(-135deg); margin-top: 3px; }
+  .per-use .ways { margin-top: .4em; }
+  .agent-model { display: block; color: var(--soft); font-size: .8em; margin: 1em 0 0; }
+  .agent-model select { font-size: 1.2em; color: var(--ink); margin-top: .35em; }
+  .agent-model select:disabled { color: var(--soft); }
+  .agent-model-words { color: var(--soft); font-size: .8em; margin: .35em 0 0; }
   [hidden] { display: none !important; }
   @media (min-width: 900px) { body { max-width: 62em; } #cards { grid-template-columns: 1fr 1fr; align-items: start; } }
 </style>
 <h1>Umer&rsquo;s AI plans</h1>
 <p class="lede">Sign in with a plan you already pay for. Your sign-ins stay in this browser.</p>
 <p class="usage-link"><a href="usage.html">See plan usage</a></p>
+<h2 class="section" id="agents-title">Agents</h2>
+<p class="company">Each agent runs on one of your accounts at a time. Pick which one, and the model new runs start with.</p>
+<div id="agents" aria-labelledby="agents-title"></div>
+<h2 class="section">Accounts</h2>
 <button class="secondary" id="add-open" type="button">Add an account</button>
 <section class="card add" id="add-sheet" aria-labelledby="add-title" hidden>
   <div class="add-head"><h2 id="add-title" tabindex="-1">Add an account</h2><button class="quiet" id="add-close" type="button">Close</button></div>
