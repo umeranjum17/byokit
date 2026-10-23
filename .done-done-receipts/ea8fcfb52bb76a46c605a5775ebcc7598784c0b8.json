@@ -1,0 +1,61 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "ea8fcfb52bb76a46c605a5775ebcc7598784c0b8",
+  "tree": "6fe4fed1df3b9df9937550dedb0e6d99f721c366",
+  "claim": "A fresh app outside the monorepo installs the packed @byokit/accounts from the release commit and links, asks and refuses through the shipped package",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-22T18:47:12.456Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261022T184625Z-ea8fcfb5-b1bf07/core-journey.txt",
+      "sha256": "2cfee9fb77fe9cffcfc923a2dbbc338719d281e3845954e247d1aa35438e14e6"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261022T184625Z-ea8fcfb5-b1bf07",
+      "journey": null,
+      "command": null,
+      "feature": "core-journey",
+      "tool": "0.6.0",
+      "steps": {
+        "target": {
+          "version": "0.30.0"
+        },
+        "start": "A fresh consumer app outside the monorepo, with no @byokit/accounts installed and no ChatGPT account linked. The provider is the kit's loopback stand-in on 127.0.0.1 (no key, no network).",
+        "steps": [
+          "Packed @byokit/accounts from packages/accounts with npm pack (the prepack build runs first).",
+          "Installed the packed tarball into the fresh app with npm install.",
+          "Ran the consumer app with node consumer.mjs; it confirmed its import resolved inside the installed package.",
+          "The app started a ChatGPT sign-in with login(1, 'chatgpt') and printed the waiting device code MOCK-10001.",
+          "Approved the waiting code on the stand-in provider's page.",
+          "The app called status(1, 'chatgpt') and printed the status.",
+          "The app asked a question with respond and printed the streamed answer and the final answer.",
+          "The app asked for a provider it does not offer and printed the refusal.",
+          "The app asked with no account linked and printed the ResponseError.",
+          "Read the transcript written to core-journey.txt."
+        ],
+        "result": "The transcript shows: 'sign-in: waiting code MOCK-10001', 'status: ChatGPT is connected.', 'streamed: You said: Plan my day', 'answer: You said: Plan my day', 'not offered: Error: AI account not offered here', and 'no account: ResponseError: ChatGPT isn't signed in yet.' The run exited 0."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261022T184625Z-ea8fcfb5-b1bf07/core-journey.txt",
+        "sha256": "2cfee9fb77fe9cffcfc923a2dbbc338719d281e3845954e247d1aa35438e14e6",
+        "verdict": "pass",
+        "seen": "I read the six result lines in the capture. The package is the packed tarball byokit-accounts-0.30.0.tgz, installed into a separate app directory, and the run exited 0. 'sign-in: waiting code MOCK-10001' and 'status: ChatGPT is connected.' show the account being linked. 'streamed: You said: Plan my day' and 'answer: You said: Plan my day' show the app asking and getting an answer. 'not offered: Error: AI account not offered here' and 'no account: ResponseError: ChatGPT isn't signed in yet.' show the refusals. The capture does not name the release commit, so that part of the outcome is only loosely covered. The outcome names no separate parts, so parts and covers stay empty."
+      }
+    ]
+  }
+}
