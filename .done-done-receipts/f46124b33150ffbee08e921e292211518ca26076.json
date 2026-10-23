@@ -1,0 +1,52 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "f46124b33150ffbee08e921e292211518ca26076",
+  "tree": "13fcfbd099a803eb090aac16f03e2887af6c707a",
+  "claim": "the real engine boot test for learning (generated-learning-migrate path) passes 20 consecutive runs at the fixed head",
+  "result": "pass",
+  "at": "2026-10-23T05:18:11.515Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261023T043930Z-f46124b3-7a2708/learning-loop-summary.txt",
+      "sha256": "8e6e01b6e662141c70e8cf4370c25ae633316523af3699d51b1011b793b95e90"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261023T043930Z-f46124b3-7a2708",
+      "journey": null,
+      "command": "sh /tmp/claude-1000/-home-umer--treehouse-byokit-48ee6a-1-byokit/6c5f4191-13f6-42b3-8f0d-7531bfc9ced5/scratchpad/loop.sh",
+      "tool": "0.6.0",
+      "steps": {
+        "target": {
+          "version": "@byokit/openclaw 0.27.2"
+        },
+        "start": "a fresh checkout at the fixed head with the built packages",
+        "steps": [
+          "boot the real OpenClaw engine with learning captured",
+          "restart it with learning off and read the collection-review job",
+          "restore the learning file and boot again, reading the collection-review job",
+          "repeat the whole test 20 times in a row"
+        ],
+        "result": "20 of 20 consecutive runs passed; the collection-review job reached its wanted state each time (learning-loop-summary.txt)"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261023T043930Z-f46124b3-7a2708/learning-loop-summary.txt",
+        "sha256": "8e6e01b6e662141c70e8cf4370c25ae633316523af3699d51b1011b793b95e90",
+        "verdict": "pass"
+      }
+    ]
+  }
+}
