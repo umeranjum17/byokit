@@ -1,0 +1,78 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "94f66ef91c89b8fd5eaf91eac8befa26e703d936",
+  "tree": "50cac1c99b6278c9e31d14991c73900700a39d18",
+  "claim": "A person can view their cloud computers, search and select a machine, and see its state and the host's response.",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-23T02:08:38.400Z",
+  "files": [
+    {
+      "path": "evidence/ui-cloud-answered__light__desktop.png",
+      "sha256": "5ceab3a14897ca27354ab65630b2ef00dd0743fb3e81b39c1563425f295f4b1f"
+    },
+    {
+      "path": "evidence/ui-cloud-answered__light__phone.png",
+      "sha256": "c9e582db8245b30a5bddeae2990a4e7da15c706fbd50fb9f860fd9e3f17fc9ec"
+    },
+    {
+      "path": "evidence/ui-cloud-search__light__desktop.png",
+      "sha256": "b7fe702f2b9b23cd2afb5990e5e70d9d4e3d382c5a710e810fd56cc9aa80eb01"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261023T020427Z-94f66ef9-58018e",
+      "journey": null,
+      "command": null,
+      "feature": "ui-cloud-machines",
+      "tool": "0.6.0",
+      "steps": {
+        "target": {
+          "version": "94f66ef9"
+        },
+        "start": "Worktree at commit 94f66ef9 with the SDK already built (packages/accounts, packages/cloud and packages/ui dist present). No cloud account, key or network; the cloud provider is the kit's loopback fake sandbox server.",
+        "steps": [
+          "Launched the cloud machines view as a Node consumer importing the built @byokit/ui/kits and @byokit/cloud entries from a scratch folder in the worktree.",
+          "Pointed the view at a provider that does not accept the key, and read the failure line and the host's own words.",
+          "Pointed the view at a loopback cloud provider holding two machines, desk (awake) and lab (asleep), each with a saved copy, and read the list of rows with their state, copy and cost.",
+          "Typed 'lab' into the search, and then a search with no match, and read the result line.",
+          "Picked the lab machine.",
+          "Asked the host to wake lab, and read the row while the request was pending.",
+          "Read the host's answer to the wake request, then refreshed the list and read lab's row after the next read.",
+          "Rendered the built view in headless Chromium at phone and desktop widths in light and dark, and saved the search frame and the answered frame (light desktop, light phone)."
+        ],
+        "result": "A user sees the cloud computers list with each machine's name, state, saved copy and cost. Searching 'lab' narrows the list to that one machine, which is marked as picked. After the wake request, its row shows the host's answer \"It's awake.\" and now reads Awake with the action to put it to sleep."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "evidence/ui-cloud-answered__light__desktop.png",
+        "sha256": "5ceab3a14897ca27354ab65630b2ef00dd0743fb3e81b39c1563425f295f4b1f",
+        "verdict": "pass",
+        "seen": "The screen is the 'Your cloud computers' list, matching the outcome. It shows the search field ('Search your cloud computers') and one machine card 'lab' with state 'Awake' (green dot) and host response 'It's awake.' Viewing the list and seeing state and response are visible. Search use and selecting a machine are not shown, only the search box and a single card, so those parts are inferred rather than captured. No error or overlay is present."
+      },
+      {
+        "path": "evidence/ui-cloud-answered__light__phone.png",
+        "sha256": "c9e582db8245b30a5bddeae2990a4e7da15c706fbd50fb9f860fd9e3f17fc9ec",
+        "verdict": "pass"
+      },
+      {
+        "path": "evidence/ui-cloud-search__light__desktop.png",
+        "sha256": "b7fe702f2b9b23cd2afb5990e5e70d9d4e3d382c5a710e810fd56cc9aa80eb01",
+        "verdict": "pass",
+        "seen": "The screen shows the header \"Your cloud computers\" with the search box containing \"lab\" and a selected card titled \"lab\" showing status \"Asleep\", \"Saved copy 5 hours ago\", and a \"Wake it\" button. This matches the outcome: the person can view, search, select a machine, and see its state."
+      }
+    ]
+  }
+}
