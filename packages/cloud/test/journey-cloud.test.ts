@@ -10,8 +10,12 @@
 // key or real machine is used.
 import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { WebSocketServer } from 'ws';
+import { DeviceLink, Host, keyPair, pairWithOffer, type Grant } from '@byokit/pair';
 import {
-  machine, boat, estimate, status, setup, sshHostKey, sshVm, words, stateWords, hostWords, errorWords, errorKey, keyWords, WORDS, MachineError,
+  machine, boat, estimate, status, setup, sshHostKey, sshResolve, sshVm, words, stateWords, hostWords, errorWords, errorKey, keyWords, WORDS, MachineError,
 } from '@byokit/cloud';
 import type {
   HostRecipe, Status, SetupStep, MachineErrorCode, MachineRef, MachineState, HostState, Price, KeyInfo, Snapshot, Provider, ExecResult,
@@ -1435,6 +1439,46 @@ test('a phone with only its own SSH module deploys onto any SSH box and gives it
   const runs = transport.machine.runs.map((r) => r.argv.join(' '));
   assert.ok(runs.includes('tailscale serve --bg --tcp=7300 tcp://127.0.0.1:7300'), 'the app port is served on the tailnet only');
   assert.ok(transport.commands.every((c) => c.startsWith('timeout -k 10 ') || c.startsWith('sudo -n timeout -k 10 ')));
+
+  // The phone reaches the app on the box's loopback through one SSH forward, never a public port: a real pair
+  // host listens on this machine's side, the link dials the box's address, and `sshResolve` carries it there.
+  let saved: Grant[] = [];
+  const appHost = await Host.open({
+    keys: keyPair(), name: 'Kitchen computer', grants: { load: () => saved, save: (g) => { saved = g; } },
+    confirm: () => true, handle: async (r) => ({ op: r.op, args: r.args }),
+  });
+  const appServer = createServer();
+  const sockets = new WebSocketServer({ server: appServer });
+  sockets.on('connection', (ws) => appHost.accept(ws));
+  await new Promise<void>((resolve) => appServer.listen(0, '127.0.0.1', resolve));
+  transport.loopback.set(7300, (appServer.address() as AddressInfo).port);
+  const resolver = sshResolve({ transport, pins, target: { host: 'box.example', user: 'user' }, port: 7300 });
+  const offer = appHost.offer({ role: 'control', urls: ['ws://127.0.0.1:7300/link'] }).text;
+  const grant = await pairWithOffer(offer, { name: 'Phone', onWords: () => {}, resolve: resolver });
+  const link = new DeviceLink(grant, { store: { save: () => {}, clear: () => {} }, resolve: resolver });
+  try {
+    assert.deepEqual(await link.request('get.state', { n: 1 }), { op: 'get.state', args: { n: 1 } });
+    assert.deepEqual(grant.urls, ['ws://127.0.0.1:7300/link'], 'the grant keeps the address on the box');
+    assert.equal(transport.forwards.length, 1, 'pairing and the link share one forward');
+    assert.ok(transport.forwards.every((f) => f.remotePort === 7300 && f.open));
+    // A replaced server is refused before the forward opens.
+    const wrongPin = sshResolve({ transport, pins: { load: async () => `SHA256:${'B'.repeat(43)}` }, target: { host: 'box.example', user: 'user' }, port: 7300 });
+    await rejects(wrongPin('ws://127.0.0.1:7300/link'), 'host-key');
+    // Other addresses pass through; a forward that drops is opened again.
+    assert.equal(await resolver('ws://192.0.2.1:7300/link'), 'ws://192.0.2.1:7300/link');
+    const before = await resolver('ws://127.0.0.1:7300/link');
+    await resolver.close();
+    assert.ok(transport.forwards.every((f) => !f.open));
+    assert.notEqual(await resolver('ws://127.0.0.1:7300/link'), before);
+    assert.equal(transport.forwards.length, 2);
+  } finally {
+    link.stop();
+    await resolver.close();
+    appHost.close();
+    for (const ws of sockets.clients) ws.terminate();
+    sockets.close();
+    appServer.close();
+  }
 
   // A join key never reaches the app's transport.
   const m = machine({ provider, store });
