@@ -126,8 +126,9 @@ export function useChatGptSheet() {
 | `connectView(routes, step?)`, `connectStep(step, action)` | Every account route the kits list, grouped by how the person pays, with the picked row and its key card |
 | `signInFor(view, { read, start?, cancel })`, `useConnect({ routes, read, start?, cancel })` | `useSignIn`'s options for the picked sign-in row; the hook holds the step |
 | `accountRows(accounts, room, now, windows?)`, `rowsOf(source, now)`, `nameSuggestions(email, taken, provider?)` | One plain-words row per account (`ChatGPT · Work` / `Plus · 72% left this week`), the honest words for every sign-in state, and untaken account-name suggestions |
+| `agentView(agent, accounts, defaults?, models?)` | One agent's sign-in methods (an Agent tab): its plans counted as `1 of 3 enabled`, the one account in use, its default model, pay-per-use keys listed apart and never chosen |
 | `useAccounts(source)`, `useModelPicker(source, initial?)` | React hooks: the rows live with `refresh()` and `remove()` (a failing room leaves only its row unknown; a mid-refresh remove still drops it), and the run picker with `select()` keeping the caller's selection across refreshes; `accountsSource(accounts, member, room?)` and `cliSource(cli, room?)` fill the source with one line per member (the openclaw adapter stays pending O14) |
-| Types | `Phase`, `SignInView`, `AccountView`, `UseSignIn`, `Route`, `RouteChoice`, `RouteCode`, `PairPhase`, `Role`, `DeviceKind`, `LinkStatus`; `RouteKind` from `@byokit/ui/route`; `Account`, `AccountRow`, `AccountAction`, `AccountsSource`, `AsOf`, `Billing`, `Room`, `RoomSpan`, `SignInState`, `UsageWindow`, `UsageWindows` from `@byokit/ui/accounts` |
+| Types | `Phase`, `SignInView`, `AccountView`, `UseSignIn`, `Route`, `RouteChoice`, `RouteCode`, `PairPhase`, `Role`, `DeviceKind`, `LinkStatus`; `RouteKind` from `@byokit/ui/route`; `Account`, `AccountRow`, `AccountAction`, `AccountsSource`, `AgentSpec`, `AgentView`, `AgentWay`, `AsOf`, `Billing`, `Room`, `RoomSpan`, `SignInState`, `UsageWindow`, `UsageWindows` from `@byokit/ui/accounts` |
 
 Entry points: `@byokit/ui` (everything, including the React hooks), `@byokit/ui/phase`,
 `@byokit/ui/route`, `@byokit/ui/link`, `@byokit/ui/kits`, `@byokit/ui/steps`,
@@ -271,6 +272,38 @@ export function useAccountList() {
 export function useRunPicker() {
   return useModelPicker(fromMember); // { rows, picker, selection, ready, error, select, refresh, remove }
 }
+```
+
+## Agent sign-ins
+
+`agentView(agent, accounts, defaults?, models?)` (also `@byokit/ui/accounts`, no React) draws one agent the way an
+Agent tab does. The app names the agent and the ways it can run (`{ kind, name, ways }`, each way a route as
+`connectView` takes it, the routes it also passes `@byokit/accounts` as `AgentCapabilities`). `accounts` is `list()`,
+`defaults` is `defaults(member, kind)` and `models` is the in-use account's `models()`. The view carries:
+
+- `ways`: the agent's plans, each with the accounts connected on it (same provider and billing) and a `state`:
+  `in_use`, `connected`, `sign_in`, or `unavailable` with the route's own words.
+- `count`: `1 of 3 enabled`, the plans with a ready account. A pay-per-use way is never counted.
+- `perUse`: pay-per-use and other ways, listed apart with their billing words (`OpenAI API key`, `Charged per use to
+  your OpenAI account`). They are never offered or chosen for the person.
+- `rule` (`one at a time`), `inUse` and `note`. A saved account that is signed out or resting is never swapped for
+  another one: `note` says so and the agent stays unset, as the kit's `pick` refuses it.
+- `model`: the in-use account's own live models with the saved one selected. A saved model the list no longer offers
+  selects nothing and says so.
+
+The app saves a choice with `setDefaults(member, { account, model }, kind)`; choosing another account replaces the
+last one.
+
+```ts
+import { agentView, type Account, type AgentSpec } from '@byokit/ui/accounts';
+
+declare const list: () => readonly Account[];
+const codex: AgentSpec = { kind: 'codex', name: 'Codex', ways: [
+  { id: 'chatgpt', provider: 'chatgpt', name: 'ChatGPT', company: 'OpenAI', via: 'code', billing: 'subscription', offer: 'default', readiness: 'ready' },
+  { id: 'openai:key', provider: 'openai', name: 'OpenAI', company: 'OpenAI', via: 'key', billing: 'api', offer: 'explicit', readiness: 'ready' },
+] };
+const view = agentView(codex, list(), { account: 'chatgpt' });
+// view.count → '1 of 1 enabled', view.note → 'Codex uses umer@example.com.', view.perUse.ways[0].title → 'OpenAI API key'
 ```
 
 ## Pairing words

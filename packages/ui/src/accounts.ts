@@ -13,6 +13,8 @@ export type Room = { left: number; span: RoomSpan; resetsAt?: number; at?: numbe
 export type Account = {
   id: string; provider: string; name: string; label?: string;
   state: SignInState; billing: Billing; plan?: string; until?: number;
+  /** Read only by `agentView`, to tell two accounts on one plan apart; never used as a row's title. */
+  email?: string;
 };
 
 /** What an app supplies: the accounts it lists and one room reading per account. `AccountsSource` is the seam between
@@ -302,3 +304,5 @@ export function bestMoveTarget(accounts: readonly Account[], room: Record<string
   if (!pick || pick.account.id === current || pick.tier === 'exhausted') return undefined;
   return pick.account.id;
 }
+
+export { agentView, type AgentAccount, type AgentDefaults, type AgentModel, type AgentSpec, type AgentView, type AgentWay, type AgentWayState } from './agents.ts';

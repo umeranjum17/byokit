@@ -119,7 +119,75 @@ async function askAuto(page: Page, question: string, answer: string | RegExp = `
   await part(page, 'chatgpt', 'answer').filter({ hasText: answer }).waitFor();
 }
 
+/** ChatGPT's model list goes through the page's own `/fwd/chatgpt/` proxy; answer it from the stand-in's list. */
+async function withModels(page: Page) {
+  await page.route('**/fwd/chatgpt/backend-api/codex/models', async (route) => {
+    const h = route.request().headers();
+    const up = await fetch(`${openai.base}/codex/models`, { headers: { authorization: h['authorization'] ?? '', 'chatgpt-account-id': h['chatgpt-account-id'] ?? '' } });
+    return route.fulfill({ status: up.status, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: await up.text() });
+  });
+}
+
+/** Codex signed in from its own row: the ChatGPT card's code typed on the stand-in's page, then back on the agents. */
+async function codexInUse(page: Page) {
+  Object.assign(openai.state, { accountId: 'umer-personal', email: 'umer@example.com', plan: 'plus' });
+  await withModels(page);
+  await page.locator('[data-agent="codex"] > summary').click();
+  await page.locator('[data-agent="codex"] [data-signin]').click();
+  const codeAt = part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ });
+  await codeAt.waitFor();
+  const code = (await codeAt.textContent())!;
+  const [provider] = await Promise.all([page.context().waitForEvent('page'), part(page, 'chatgpt', 'open').click()]);
+  await provider.fill('#code', code.trim());
+  await provider.click('#continue');
+  await provider.locator('#words').filter({ hasText: /Signed in/ }).waitFor();
+  await provider.close();
+  await page.locator('[data-agent="codex"] [data-account][data-in-use]').waitFor();
+}
+/** Back to the agents list, its heading at the top, so the frame shows what a person scrolls back to. */
+const toAgents = (page: Page) => page.evaluate(() => window.scrollTo(0, document.getElementById('agents-title')!.offsetTop - 16));
+
 const SCREENS: Screen[] = [
+  {
+    id: 'agents-list', path: '',
+    what: 'Agents: each agent with its plan sign-ins counted as "N of M enabled", before anything is connected',
+    themes: [...themes], formFactors: ['phone', 'desktop'], interaction: 'agents-open',
+    before: { via: 'ref' }, // the base home: provider cards only, no agents
+    async drive(page) {
+      await page.locator('[data-agent="codex"] [data-count]').filter({ hasText: '0 of 1 enabled' }).waitFor();
+    },
+  },
+  {
+    id: 'agents-codex', path: '',
+    what: 'Codex signed in from its own row: the account in use (one at a time), its default model, pay-per-use listed apart',
+    themes: [...themes], formFactors: ['phone', 'desktop'], interaction: 'agents-codex-signin',
+    before: { via: 'ref' }, // the base home has no agent rows to drive
+    async drive(page) {
+      await codexInUse(page);
+      await page.locator('[data-agent="codex"] [data-model]').selectOption('gpt-6-sol');
+      await page.locator('[data-agent="codex"] [data-model-words]').filter({ hasText: 'New runs use GPT-6 Sol.' }).waitFor();
+      await page.locator('[data-agent="codex"] .per-use > summary').click();
+      await page.reload(); // the choice is the kit's, kept per agent kind: it survives a reload
+      await page.locator('[data-agent="codex"] > summary').click();
+      await page.locator('[data-agent="codex"] [data-model]').and(page.locator(':enabled')).waitFor();
+      await page.locator('[data-agent="codex"] [data-model-words]').filter({ hasText: 'New runs use GPT-6 Sol.' }).waitFor();
+      await page.locator('[data-agent="codex"] .per-use > summary').click();
+      await toAgents(page);
+    },
+  },
+  {
+    id: 'agents-pi', path: '',
+    what: 'Pi on the same ChatGPT account: signed in but not yet chosen, the other plans to sign in, nothing picked for the person',
+    themes: [...themes], formFactors: ['phone', 'desktop'], interaction: 'agents-pi-use',
+    before: { via: 'ref' },
+    async drive(page) {
+      await codexInUse(page);
+      await page.locator('[data-agent="codex"] > summary').click(); // closed again
+      await page.locator('[data-agent="pi"] > summary').click();
+      await page.locator('[data-agent="pi"] [data-note]').filter({ hasText: 'Pick the account Pi uses.' }).waitFor();
+      await toAgents(page);
+    },
+  },
   {
     id: 'account-windows',
     path: '',
