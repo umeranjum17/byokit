@@ -23,7 +23,7 @@
 //   GET /sandboxes/{id}/commands/{processId} -> { ok, type, processId, running, status, exitCode, stdout, stderr }
 //   PUT /sandboxes/{id}/files { path, content, encoding } -> { ok, type, path, encoding, size } (content base64 when encoding=base64)
 //   POST /sandboxes/{id}/host { port, public } -> { ok, type, port, url }
-//   POST /sandboxes/{id}/sshkey { publicKey } -> { ok, type, success, machineIp, sshUser, hostKey }
+//   POST /sandboxes/{id}/sshkey { key } -> { ok, type, success, machineIp, sshUser, hostKey }
 //   GET /sandboxes/{id}/usage?since=<since> -> { ok, type, seconds, dollars, running }
 //   GET /limits -> { ok, type, canStart, activeSandboxes, maxActiveSandboxes, billingStatus, creditBalanceSeconds, packBalanceSeconds, packBalanceDollars, unlimited, sandboxPlanKey, subscriptionTrialEndsAt }
 // Sandbox states are the document's enum; there is no stop-reason field, so `why` is absent.
@@ -460,8 +460,8 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
           return send(res, 200, { ok: true, type: 'port.hosted', success: true, port, url: `https://${id}-${port}.boat.test`, isProtected: false, access: 'public' });
         }
         if (rest === '/sshkey' && req.method === 'POST') {
-          const publicKey = str(b['publicKey']);
-          if (publicKey === null) return send(res, 400, { error: 'publicKey is required' });
+          const publicKey = str(b['key']);
+          if (publicKey === null) return send(res, 400, { ok: false, type: 'sandbox.error', status: 400, code: 'invalid_ssh_key', message: 'Missing or invalid SSH public key.' });
           sshKeys.set(id, [...(sshKeys.get(id) ?? []), publicKey]);
           return send(res, 200, { ok: true, type: 'sandbox.sshkey', success: true, machineIp: '127.0.0.1', sshUser: 'user', hostKey: sshHostKey });
         }

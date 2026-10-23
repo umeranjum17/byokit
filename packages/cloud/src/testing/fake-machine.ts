@@ -18,7 +18,7 @@ export type FakeDir = { owner: string; mode: number };
 
 const SYSTEMD_SYSTEM = '/etc/systemd/system';
 /** The tailscaled unit 0.2.x to 0.4.0 wrote when Tailscale was not installed yet (9.3). */
-export const KIT_TAILSCALED_UNIT = '[Unit]\nDescription=Tailscale node agent\nAfter=network.target\n[Service]\n'
+const KIT_TAILSCALED_UNIT = '[Unit]\nDescription=Tailscale node agent\nAfter=network.target\n[Service]\n'
   + 'ExecStart=/usr/sbin/tailscaled --state=/etc/tailscale/tailscaled.state\nRuntimeDirectory=tailscale\nRestart=on-failure\n'
   + '[Install]\nWantedBy=multi-user.target\n';
 const SYSTEM_NODE_ARGV = ['sh', '-c', 'command -v node && node --version'];
