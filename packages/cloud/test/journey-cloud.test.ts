@@ -1401,6 +1401,40 @@ test('a phone with no computer yet rents one through setup, and a retry resumes 
   } finally { await server.close(); }
 });
 
+test('an app lets its device into an existing Boat computer over plain SSH and sets it up like any SSH box', async () => {
+  const server = await startFakeSandboxServer();
+  try {
+    const provider = boat({ baseUrl: server.url, label: 'Boat', prices: prices(), key: async () => 'test-key' });
+    const existing = await provider.create!({ name: 'old', size: 'small', keepCopies: true, idempotencyKey: 'seed-ssh' });
+    const publicKey = `ssh-ed25519 ${Buffer.from('phone key').toString('base64')} phone`;
+    const target = await provider.sshAccess!(existing, publicKey);
+    assert.deepEqual(server.sshKeys.get(existing.id), [publicKey]);
+    assert.deepEqual([target.host, target.port, target.user], ['127.0.0.1', 22, 'user']);
+
+    // The app's SSH transport reaches the same machine; the pin is the host key Boat answered with.
+    const transport = fakeSshTransport({ machine: server.machine, fingerprint: target.fingerprint });
+    let pin: string | null = null;
+    const pins = { load: async () => pin, save: async (f: string) => { pin = f; } };
+    const box = { transport, pins, host: target.host, port: target.port, user: target.user, label: 'Boat' };
+    const first = await sshHostKey(box);
+    assert.equal(first.fingerprint, target.fingerprint);
+    await first.confirm();
+
+    server.machine.script('npm', { code: 0, stdout: '', stderr: '', timedOut: false });
+    const steps = await collectSteps(setup({
+      provider: sshVm(box), store: memoryStore(), recipe: recipe('ssh'), pick: (l) => l[0], confirmId: first.fingerprint,
+    }));
+    assert.deepEqual(steps.map((s) => s.step), ['checking-access', 'listing', 'inspecting', 'installing', 'ready'], JSON.stringify(steps.at(-1)));
+    assert.ok(transport.commands.length > 0, 'the install went over SSH');
+    assert.equal(server.requests.filter((r) => r.path.endsWith('/commands')).length, 0, 'no command used the REST exec');
+
+    // A key that is not one OpenSSH line never reaches Boat.
+    const sent = server.requests.length;
+    await rejects(provider.sshAccess!(existing, 'not a key'), 'bad-recipe');
+    assert.equal(server.requests.length, sent);
+  } finally { await server.close(); }
+});
+
 test('a phone with only its own SSH module deploys onto any SSH box and gives it a private address', async () => {
   // The app's transport stands in for a React Native SSH module: the kit sends it quoted command lines only.
   const transport = fakeSshTransport();

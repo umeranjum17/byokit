@@ -77,6 +77,60 @@ const toBase64 = (bytes: Uint8Array): string => {
   return btoa(s);
 };
 
+/** Portable SHA-256 (no `node:*` import; Hermes has no `crypto.subtle`). */
+const sha256 = (data: Uint8Array): Uint8Array => {
+  const K = new Uint32Array(64);
+  for (let i = 0, n = 2; i < 64; n++) {
+    let prime = true;
+    for (let d = 2; d * d <= n; d++) if (n % d === 0) { prime = false; break; }
+    if (prime) K[i++] = Math.floor((n ** (1 / 3) % 1) * 2 ** 32);
+  }
+  const h = new Uint32Array(8);
+  for (let i = 0, n = 2; i < 8; n++) {
+    let prime = true;
+    for (let d = 2; d * d <= n; d++) if (n % d === 0) { prime = false; break; }
+    if (prime) h[i++] = Math.floor((n ** 0.5 % 1) * 2 ** 32);
+  }
+  const padded = new Uint8Array(((data.length + 9 + 63) >> 6) << 6);
+  padded.set(data);
+  padded[data.length] = 0x80;
+  const view = new DataView(padded.buffer);
+  view.setUint32(padded.length - 8, Math.floor(data.length / 2 ** 29));
+  view.setUint32(padded.length - 4, (data.length << 3) >>> 0);
+  const w = new Uint32Array(64);
+  const rotr = (x: number, n: number): number => (x >>> n) | (x << (32 - n));
+  for (let off = 0; off < padded.length; off += 64) {
+    for (let i = 0; i < 16; i++) w[i] = view.getUint32(off + i * 4);
+    for (let i = 16; i < 64; i++) {
+      const s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >>> 3);
+      const s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) | 0;
+    }
+    let [a, b, c, d, e, f, g, hh] = h;
+    for (let i = 0; i < 64; i++) {
+      const t1 = (hh + (rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25)) + ((e & f) ^ (~e & g)) + K[i] + w[i]) | 0;
+      const t2 = ((rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22)) + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+      hh = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+    }
+    h[0] += a; h[1] += b; h[2] += c; h[3] += d; h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+  }
+  const out = new Uint8Array(32);
+  const outView = new DataView(out.buffer);
+  for (let i = 0; i < 8; i++) outView.setUint32(i * 4, h[i]);
+  return out;
+};
+
+/** The `SHA256:<base64, no padding>` fingerprint of an OpenSSH public key line (or its bare base64 field). */
+const fingerprintOf = (hostKey: string): string | null => {
+  const parts = hostKey.trim().split(/\s+/);
+  const b64 = parts.length > 1 ? parts[1] : parts[0];
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(b64)) return null;
+  let raw: string;
+  try { raw = atob(b64); } catch { return null; }
+  const digest = sha256(Uint8Array.from(raw, (ch) => ch.charCodeAt(0)));
+  return `SHA256:${toBase64(digest).replace(/=+$/, '')}`;
+};
+
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve, reject) => {
     // Only the 429/5xx retry backoff passes a signal; the poll loops wait out
@@ -633,6 +687,35 @@ export function boat(o: {
         throw new MachineError('provider', `the replacement is saved, but the old machine ${m.id} could not be deleted and may still bill`, { sandbox: m.id });
       }
       return next;
+    },
+
+    // 15.1: `POST /sandboxes/{id}/sshkey` adds one OpenSSH public key for the login user and answers where to
+    // connect: `sshEndpoint` (host:port) when the machine has no public IPv4 of its own, else `machineIp` on 22.
+    sshAccess: async (m: MachineRef, publicKey: string) => {
+      if (!/^(ssh-|ecdsa-|sk-)[^\s]+ [A-Za-z0-9+/]+={0,2}( [^\r\n]*)?$/.test(publicKey)) {
+        throw new MachineError('bad-recipe', 'publicKey: must be one OpenSSH public key line');
+      }
+      const { status: st, json } = await checked('POST', `/sandboxes/${encodeURIComponent(m.id)}/sshkey`, {
+        body: { publicKey },
+      });
+      if (st === 404) throw new MachineError('no-machine', 'the provider has no such machine');
+      const user = field(json, 'sshUser');
+      const hostKey = field(json, 'hostKey');
+      const fingerprint = typeof hostKey === 'string' ? fingerprintOf(hostKey) : null;
+      if (typeof user !== 'string' || fingerprint === null) {
+        throw new MachineError('provider', 'the provider answered sshkey without a user and a host key');
+      }
+      const endpoint = field(json, 'sshEndpoint');
+      const ip = field(json, 'machineIp');
+      if (typeof endpoint === 'string' && endpoint.length > 0) {
+        const at = endpoint.lastIndexOf(':');
+        const port = Number(endpoint.slice(at + 1));
+        if (at > 0 && Number.isInteger(port) && port > 0 && port < 65536) return { host: endpoint.slice(0, at), port, user, fingerprint };
+      }
+      if (typeof ip !== 'string' || ip.length === 0) {
+        throw new MachineError('provider', 'the provider answered sshkey without a machine address');
+      }
+      return { host: ip, port: 22, user, fingerprint };
     },
 
     url: async (m: MachineRef, port: number) => {

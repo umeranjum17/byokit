@@ -23,6 +23,7 @@
 //   GET /sandboxes/{id}/commands/{processId} -> { ok, type, processId, running, status, exitCode, stdout, stderr }
 //   PUT /sandboxes/{id}/files { path, content, encoding } -> { ok, type, path, encoding, size } (content base64 when encoding=base64)
 //   POST /sandboxes/{id}/host { port, public } -> { ok, type, port, url }
+//   POST /sandboxes/{id}/sshkey { publicKey } -> { ok, type, success, machineIp, sshUser, hostKey }
 //   GET /sandboxes/{id}/usage?since=<since> -> { ok, type, seconds, dollars, running }
 //   GET /limits -> { ok, type, canStart, activeSandboxes, maxActiveSandboxes, billingStatus, creditBalanceSeconds, packBalanceSeconds, packBalanceDollars, unlimited, sandboxPlanKey, subscriptionTrialEndsAt }
 // Sandbox states are the document's enum; there is no stop-reason field, so `why` is absent.
@@ -55,6 +56,8 @@ export type SandboxServerOptions = {
   slowWakeReads?: number;
   /** Create leaves the machine provisioning for this many status reads less one: the read that counts it down to zero already answers ready (default 0). */
   slowCreateReads?: number;
+  /** The sandbox SSH server's public host key line `sshkey` answers (default a fixed ed25519 key). */
+  sshHostKey?: string;
   /** The email `POST /api/boat/agent/identity` accepts (default `umer@example.com`); any other address is refused. */
   claimEmail?: string;
   /** The `interval` the sign-in ceremony advertises (default 0, so tests never wait). */
@@ -89,6 +92,8 @@ export type SandboxServer = {
   scriptClaimPoll(script: readonly ClaimPollStep[]): void;
   /** Tokens `POST /api/boat/oauth2/revoke` ended (RFC 7009): a revoked key answers 401, a revoked assertion `invalid_grant`. */
   revoked: Set<string>;
+  /** Every public key `POST /sandboxes/{id}/sshkey` added, per machine id. */
+  sshKeys: Map<string, string[]>;
   close(): Promise<void>;
 };
 
@@ -140,6 +145,8 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
   const claimScript: ClaimPollStep[] = [];
   const CLAIM_KEY = 'boat-claimed-key';
   const revoked = new Set<string>();
+  const sshKeys = new Map<string, string[]>();
+  const sshHostKey = o.sshHostKey ?? `ssh-ed25519 ${Buffer.concat([Buffer.from([0, 0, 0, 11]), Buffer.from('ssh-ed25519'), Buffer.from([0, 0, 0, 32]), Buffer.alloc(32, 7)]).toString('base64')} root@sandbox`;
 
   const send = (res: http.ServerResponse, status: number, body: unknown): void => {
     const text = JSON.stringify(body);
@@ -452,6 +459,12 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
           if (port === null) return send(res, 400, { error: 'port is required' });
           return send(res, 200, { ok: true, type: 'port.hosted', success: true, port, url: `https://${id}-${port}.boat.test`, isProtected: false, access: 'public' });
         }
+        if (rest === '/sshkey' && req.method === 'POST') {
+          const publicKey = str(b['publicKey']);
+          if (publicKey === null) return send(res, 400, { error: 'publicKey is required' });
+          sshKeys.set(id, [...(sshKeys.get(id) ?? []), publicKey]);
+          return send(res, 200, { ok: true, type: 'sandbox.sshkey', success: true, machineIp: '127.0.0.1', sshUser: 'user', hostKey: sshHostKey });
+        }
         if (rest === '/usage' && req.method === 'GET') {
           return send(res, 200, { ok: true, type: 'sandbox.usage', sandboxId: id, sandboxType: 'small', billingMultiplier: 0.5, since: u.searchParams.get('since'), until: new Date().toISOString(), seconds: 86400, dollars: 0.5, secondsPerDollar: 100000, running: true });
         }
@@ -560,6 +573,7 @@ export async function startFakeSandboxServer(o: SandboxServerOptions = {}): Prom
       nextCreateRaw = raw;
     },
     revoked,
+    sshKeys,
     scriptClaimPoll: (script) => {
       claimScript.push(...script);
     },
