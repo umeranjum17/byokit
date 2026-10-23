@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "a6e79d584e31496f7d975a2af057e3e8bf6d776e",
+  "tree": "35688ae3083a1ed8e1f1292e0f4e1f8158f9c926",
+  "claim": "The cloud kit spec now says a cloud or sandbox computer is reached over key-only SSH to the app port on its loopback and never joins the person's tailnet, the cloud README says Tailscale is for the person's own devices only, and the Boat /sshkey route the spec records matches Boat's public API document",
+  "result": "pass",
+  "at": "2026-10-23T13:28:20.912Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261023T132802Z-a6e79d58-c722fb/ssh-reach-spec-summary.txt",
+      "sha256": "17816f05e29669ec4e2a0d888c252f58f604f3a7c4bf0b7384bb8cfc2eb8da1f"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261023T132802Z-a6e79d58-c722fb",
+      "commit": "a6e79d584e31496f7d975a2af057e3e8bf6d776e",
+      "journey": null,
+      "command": "sh /tmp/claude-1000/-home-umer--treehouse-byokit-48ee6a-9-byokit/879a7e88-1d49-4aab-8588-2d9f32361b24/scratchpad/spec-proof.sh",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "@byokit/cloud 0.4.0 docs (docs/cloud-kit.md, packages/cloud/README.md)"
+        },
+        "start": "a clean checkout at head a6e79d584e31496f7d975a2af057e3e8bf6d776e",
+        "steps": [
+          "read the cloud kit spec a builder follows: D-5, D-9, sections 4.5, 4.6, 5.11, 7.3, 9, 12, 13.1, the Hetzner first slice, M7 and 15.1",
+          "check that no tailnet join, Tailscale serve, MagicDNS or .ts.net instruction is left for a cloud machine, and that the SSH route types and words are there",
+          "read the cloud README a developer sees on npm and open each link from it into the spec",
+          "fetch Boat's public API document and compare the /sshkey route and its fields with what the spec records"
+        ],
+        "result": "0 failed check(s); each check's line is in ssh-reach-spec-summary.txt"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261023T132802Z-a6e79d58-c722fb/ssh-reach-spec-summary.txt",
+        "sha256": "17816f05e29669ec4e2a0d888c252f58f604f3a7c4bf0b7384bb8cfc2eb8da1f",
+        "verdict": "pass"
+      }
+    ]
+  }
+}
