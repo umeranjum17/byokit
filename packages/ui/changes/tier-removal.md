@@ -1,1 +1,0 @@
-- BREAKING: `ModelInfo.tier` is removed; the vendor's own live list applies. For ChatGPT, pick from `accounts.models(account)` to get the live list.

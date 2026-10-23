@@ -1,1 +1,0 @@
-- `roster()` keeps several cloud accounts (a non-secret list in your store, each key in your secure key store, one Provider per account, an active selection) and several managed computers, each pinned to its account; waking, sleeping or removing one touches no other. `list()` refs now carry `subdomain`, `state` and `latestSnapshot` where Boat returns them.

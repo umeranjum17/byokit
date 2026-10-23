@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.8.6 (2026-10-23)
+
+- Dependency update: pins @byokit/ui 1.0.0.
+
 ## 0.8.5 (2026-10-22)
 
 - FIX: `reach()` no longer asks for a wildcard bind on the LAN and overlay routes: the wildcard bind exposed the

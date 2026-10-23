@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Dependency update: pins @byokit/ui 1.0.0.
+
 - Dependency update: pins @byokit/ui 0.9.0.
 
 - Dependency update: pins @byokit/ui 0.8.0.

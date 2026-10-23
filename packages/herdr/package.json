@@ -1,6 +1,6 @@
 {
   "name": "@byokit/herdr",
-  "version": "0.16.5",
+  "version": "0.16.6",
   "description": "Drive the Herdr on this computer — workspaces, tabs, panes, agents and blocked-approval answers — from an app, or hand it to a phone over @byokit/pair.",
   "license": "Apache-2.0",
   "type": "module",
@@ -52,7 +52,7 @@
     "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"
   },
   "peerDependencies": {
-    "@byokit/discover": "0.8.5",
+    "@byokit/discover": "0.8.6",
     "@byokit/pair": "0.10.4",
     "@byokit/relay": "0.8.2"
   },

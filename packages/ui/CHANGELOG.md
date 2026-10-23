@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 1.0.0 (2026-10-23)
+
+- FEAT: `@byokit/ui` — your cloud computers as a headless view, in the same style as the run and Herdr projections: `cloudSource(provider, { since, monthly, known, words })` (the cloud kit's own `Provider` fits as it is), `cloudStore(source)` and `cloudView(state, { now, words })` give the list with a search, each machine's state, its newest copy and what it costs in plain words, the pick, and the host's answer to an action in the row that asked for it; `useCloud(source)` is the React hook. No kit is imported and no DOM is touched.
+- NOTE: `@byokit/ui` — a machine's newest copy reads `Saved copy 2 hours ago` (and `Saved copy just now`), which says what the line is; it was `Copy from 2 hours ago`.
+- BREAKING: `ModelInfo.tier` is removed; the vendor's own live list applies. For ChatGPT, pick from `accounts.models(account)` to get the live list.
+
 - Dependency update: pins @byokit/accounts 0.30.0.
 
 - Dependency update: pins @byokit/accounts 0.29.0.

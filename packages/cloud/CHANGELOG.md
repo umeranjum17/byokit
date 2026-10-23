@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.4.0 (2026-10-23)
+
+- `roster()` keeps several cloud accounts (a non-secret list in your store, each key in your secure key store, one Provider per account, an active selection) and several managed computers, each pinned to its account; waking, sleeping or removing one touches no other. `list()` refs now carry `subdomain`, `state` and `latestSnapshot` where Boat returns them.
+
 ## 0.3.0 (2026-10-20)
 
 - FIX: A lost answer from a cloud computer create no longer bills a second computer. `machine().create` saves the
