@@ -5,10 +5,12 @@
 // picker: Auto takes the most room and says which one and why, and suggests the roomier account when yours is low.
 // Add an account lists every route the kit has, grouped by @byokit/ui's connectView: Plans first, then Pay per use
 // and the rest, each with how it is paid for, how you sign in and whether it works here.
+// Agents comes first: each agent's plans through @byokit/ui's agentView, one account in use at a time and its default
+// model, kept per agent kind by the kit; a plan signs in on its own card below, and pay-per-use keys are only listed.
 import { Accounts, billingWords, browserStore, planLabel, resolveSelection, roomOf, say, signInError, PROVIDERS, type Account, type ModelInfo, type Room, type RouteView } from '@byokit/accounts';
 import { webStore } from '@byokit/secrets/web';
-import { accountRows, bestMoveTarget, modelPicker, moveWords, type AccountRow, type Pick, type PickerView } from '@byokit/ui/accounts';
-import { connectStep, connectView, type ConnectAction, type ConnectRow, type ConnectStep } from '@byokit/ui/connect';
+import { accountRows, agentView, bestMoveTarget, modelPicker, moveWords, type AccountRow, type AgentSpec, type AgentWay, type Pick, type PickerView } from '@byokit/ui/accounts';
+import { connectStep, connectView, type ConnectAction, type ConnectRoute, type ConnectRow, type ConnectStep } from '@byokit/ui/connect';
 import { phaseOf } from '@byokit/ui/phase';
 import type { Reading, Window } from '@byokit/usage';
 import { windowsView } from '@byokit/usage/view';
@@ -574,9 +576,152 @@ const $ = (id: string) => document.getElementById(id)!;
 // The picker is the catalogue's: every provider this platform can sign in to, in the order the kit offers them.
 const cards: Record<string, ReturnType<typeof card>> = Object.fromEntries(accounts.providers.map((p) => [p.key, card(p.key)]));
 // An account being added reports under its own id, not its provider: redraw its card too, not only exact hits.
-accounts.onChange = (_member, key) => { const c = cards[key]; if (c) c.draw(); else Object.values(cards).forEach((c) => c.draw()); };
+accounts.onChange = (_member, key) => { const c = cards[key]; if (c) c.draw(); else Object.values(cards).forEach((c) => c.draw()); void drawAgents(); };
 Promise.all(accounts.providers.map((p) => accounts.signedIn(ME, p.key)))
-  .then(() => accounts.keepFresh([ME])).then(() => { Object.values(cards).forEach((c) => c.draw()); void paintKeys(); });
+  .then(() => accounts.keepFresh([ME])).then(() => { Object.values(cards).forEach((c) => c.draw()); void drawAgents(); void paintKeys(); });
+
+/** The agents this page sets up and the ways each runs on: the plans this page signs in to (each its own card here),
+ *  then the pay-per-use keys the agent also takes, listed only. The app knows its agents; the kit keeps each one's
+ *  choice under its kind (`setDefaults(member, defaults, kind)`). */
+const AGENTS: { kind: string; name: string; plans: string[]; perUse: string[] }[] = [
+  { kind: 'codex', name: 'Codex', plans: ['chatgpt'], perUse: ['openai:key'] },
+  { kind: 'claude', name: 'Claude Code', plans: ['claude'], perUse: ['anthropic:key'] },
+  { kind: 'pi', name: 'Pi', plans: ['chatgpt', 'claude', 'copilot', 'grok', 'kimi', 'opencode'], perUse: ['openai:key', 'anthropic:key', 'deepseek:key', 'openrouter:key'] },
+  { kind: 'opencode', name: 'OpenCode', plans: ['opencode', 'chatgpt', 'copilot'], perUse: ['opencode:key', 'openai:key', 'anthropic:key'] },
+  { kind: 'kimi', name: 'Kimi Code', plans: ['kimi'], perUse: ['moonshot:key'] },
+  { kind: 'vibe', name: 'Mistral Vibe', plans: [], perUse: ['mistral:key'] },
+];
+/** A card's plan as a way in: the provider and billing its accounts list under, and how its card signs in. */
+const planWay = (key: string, routes: RouteView[]): ConnectRoute => {
+  const p = PROVIDERS[key];
+  return { id: key, provider: key, name: p.name, company: p.company, billing: p.billing, offer: 'default', readiness: 'ready',
+    via: isKeyCard(p.pi, routes) ? 'plan_key' : key === 'claude' ? 'paste' : 'code' };
+};
+const specs = (): AgentSpec[] => {
+  const routes = accounts.routes();
+  const here = new Set(accounts.providers.map((p) => p.key));
+  return AGENTS.map((a) => ({ kind: a.kind, name: a.name, ways: [...a.plans.filter((k) => here.has(k)).map((k) => planWay(k, routes)),
+    ...a.perUse.flatMap((id) => routes.filter((r) => r.id === id))] }));
+};
+/** Each in-use account's live models, read once; the agents' pickers share them. */
+const agentModels = new Map<string, Promise<ModelInfo[]>>();
+const modelsOf = (id: string) => {
+  if (!agentModels.has(id)) agentModels.set(id, accounts.models(ME, id).catch(() => { agentModels.delete(id); return []; }));
+  return agentModels.get(id)!;
+};
+/** A plan signed in from an agent's row becomes that agent's account once it connects, unless one is already chosen. */
+let signingFor: { kind: string; provider: string } | undefined;
+const opened = new Set<string>();
+let agentsDrawing = 0;
+
+async function drawAgents() {
+  const mine = ++agentsDrawing;
+  const list = await accounts.list(ME);
+  const views = await Promise.all(specs().map(async (spec) => {
+    let defaults = await accounts.defaults(ME, spec.kind);
+    let view = agentView(spec, list, defaults);
+    if (!view.inUse && !defaults.account && signingFor?.kind === spec.kind) {
+      const landed = list.find((a) => a.provider === signingFor!.provider && a.state === 'ready');
+      if (landed) {
+        signingFor = undefined;
+        defaults = { account: landed.id };
+        await accounts.setDefaults(ME, defaults, spec.kind);
+        view = agentView(spec, list, defaults);
+      }
+    }
+    return view.inUse ? agentView(spec, list, defaults, await modelsOf(view.inUse)) : view;
+  }));
+  if (mine !== agentsDrawing) return; // a later draw already painted
+  const box = $('agents');
+  const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string) => {
+    const n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+  const wayRows = (kind: string, ways: AgentWay[], inUse: string | undefined) => {
+    const rows = el('div', 'ways');
+    for (const w of ways) {
+      const way = el('div', 'way');
+      way.dataset.way = w.row.id; way.dataset.state = w.state;
+      const head = el('div', 'way-row');
+      const text = el('div', 'way-text');
+      text.append(el('span', 'way-name', w.title), el('span', 'way-line', w.state === 'unavailable' ? w.row.status
+        : cards[w.row.id] ? w.row.billingWords : `${w.row.billingWords}. No form on this page for it yet.`));
+      head.append(text);
+      // A plan with nothing connected signs in on its own card, then comes back here as this agent's account.
+      if (w.state === 'sign_in' && cards[w.row.id]) {
+        const go = el('button', 'way-do', 'Sign in');
+        go.type = 'button';
+        go.dataset.signin = '';
+        go.onclick = () => {
+          signingFor = inUse ? undefined : { kind, provider: w.row.provider };
+          const card = $(w.row.id);
+          card.tabIndex = -1; card.focus(); card.scrollIntoView({ block: 'start' });
+          void cards[w.row.id].start();
+        };
+        head.append(go);
+      }
+      way.append(head);
+      for (const a of w.accounts) {
+        const row = el('label', 'way-acc');
+        row.dataset.account = a.id;
+        if (a.inUse) row.dataset.inUse = '';
+        const pick = el('input');
+        pick.type = 'radio'; pick.name = `use-${kind}`; pick.value = a.id; pick.checked = a.inUse; pick.disabled = !a.ready;
+        // One at a time: choosing an account replaces the agent's last one; its model belonged to that account.
+        pick.onchange = () => { void accounts.setDefaults(ME, { account: a.id }, kind).then(drawAgents); };
+        const t = el('span', 'way-acc-text');
+        t.append(el('span', 'way-acc-name', a.name), el('span', 'way-acc-state', a.detail));
+        row.append(pick, t);
+        way.append(row);
+      }
+      rows.append(way);
+    }
+    return rows;
+  };
+  box.replaceChildren(...views.map((v) => {
+    const d = el('details', 'agent');
+    d.dataset.agent = v.kind;
+    if (v.enabled) d.dataset.enabled = '';
+    d.open = opened.has(v.kind);
+    d.ontoggle = () => { if (d.open) opened.add(v.kind); else opened.delete(v.kind); };
+    const s = el('summary');
+    s.append(el('span', 'agent-name', v.name), el('span', 'agent-count', v.count));
+    s.lastElementChild!.setAttribute('data-count', '');
+    const body = el('div', 'agent-body');
+    if (v.ways.length) {
+      const head = el('div', 'agent-head');
+      head.append(el('span', '', 'Sign-in method'), el('span', '', v.rule));
+      body.append(head, wayRows(v.kind, v.ways, v.inUse));
+    }
+    const note = el('p', 'agent-note', v.note);
+    note.dataset.note = '';
+    body.append(note);
+    if (v.perUse.ways.length) {
+      const more = el('details', 'per-use');
+      more.append(el('summary', '', `${v.perUse.title} (${v.perUse.ways.length})`), el('p', 'agent-note', v.perUse.note), wayRows(v.kind, v.perUse.ways, v.inUse));
+      body.append(more);
+    }
+    if (v.ways.length) {
+      const label = el('label', 'agent-model', v.model.label);
+      const select = el('select');
+      select.dataset.model = '';
+      select.disabled = v.model.disabled;
+      select.append(...(v.model.value ? [] : [Object.assign(el('option', '', v.inUse && v.model.options.length ? 'Choose a model' : v.model.words), { value: '' })]),
+        ...v.model.options.map((m) => Object.assign(el('option', '', m.available ? m.name : `${m.name} (not in your plan)`), { value: m.id, disabled: !m.available })));
+      select.value = v.model.value ?? '';
+      select.onchange = () => { if (v.inUse && select.value) void accounts.setDefaults(ME, { account: v.inUse, model: select.value }, v.kind).then(drawAgents); };
+      label.append(select);
+      const words = el('p', 'agent-model-words', v.model.words);
+      words.dataset.modelWords = '';
+      words.hidden = !v.inUse; // the picker itself already says to pick an account first
+      body.append(label, words);
+    }
+    d.append(s, body);
+    return d;
+  }));
+}
 
 /** The shared key form: one route's key pasted into the kit, with @byokit/ui's words for each step. The key goes
  *  from the box straight to `accounts.add` and is never kept here; a refusal shows the kit's own words. */
