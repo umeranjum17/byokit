@@ -1,0 +1,62 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "f26443af839550c167cbedacaccd646b051048e8",
+  "tree": "8ea5e31a18a6b7137ee9f5941aa6f4459ada621f",
+  "claim": "A cloud app updates the host on a Boat computer with a copy saved first, undoes the update after the new version breaks the host, and finds the old files and a running host on the new machine; a save refused for credit changes nothing, and undo: false saves no copy",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-23T20:21:29.269Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261023T202043Z-f26443af-ccdcaa/update-undo-drive.txt",
+      "sha256": "d2e1f443648b704b1495a8ed76bf63b308f83100ef5e62390060502210b29486"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261023T202043Z-f26443af-ccdcaa",
+      "commit": "f26443af839550c167cbedacaccd646b051048e8",
+      "journey": null,
+      "command": null,
+      "feature": "update-undo",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "@byokit/cloud 0.5.0"
+        },
+        "start": "Built SDK from the fm/byk-cloud-undo-3 worktree at commit f26443af (npm run build exit 0); loopback Boat bench (startFakeSandboxServer) with no account, key or spend; a fresh machine with keepCopies on.",
+        "steps": [
+          "Ran the build and confirmed @byokit/cloud resolves to the built dist.",
+          "Wrote a Node consumer importing boat, machine, words and errorWords from @byokit/cloud and the test bench from @byokit/cloud/testing.",
+          "Created a machine, installed the web recipe and wrote version.txt as Umer v1.",
+          "Tried to undo before any update; read the no-undo error and its words.",
+          "Ran two updates, the second saving a before-update copy; read the undo-point words.",
+          "Changed version.txt to Umer v2 and made the host unit fail; checked host status.",
+          "Asked for the undo point and its words, then ran undoUpdate.",
+          "Read version.txt, the new machine id, the old machine's status, host status and installed.json.",
+          "Ran an update with undo false and compared the copy list before and after.",
+          "On a second bench, added 10 free copies, set balance to zero, and ran an update; read the balance refusal and its words and checked no run happened."
+        ],
+        "result": "The cloud computer shows the old file Umer v1 and a running host on a new machine id; the old machine is gone; the undo point is kept. The update with undo false returned null undo and left the copies unchanged. The refused update reports balance with the copies reason and the 'Boat needs credit' words, and no run happened on the machine."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261023T202043Z-f26443af-ccdcaa/update-undo-drive.txt",
+        "sha256": "d2e1f443648b704b1495a8ed76bf63b308f83100ef5e62390060502210b29486",
+        "verdict": "pass",
+        "seen": "I read the single capture entry. The update path shows undo-kind \"before-update\", one copy, and ready-words saying the copy was saved for undo. The host-broken field is \"failed\", the new-id is true, old-gone is \"gone\", host is \"running\", and installed-id-matches is true. The undo-false case shows undo:null, copies-unchanged true, and runs-unchanged true. The refused save shows refused \"balance\" with refused-why \"copies\", and nothing was saved or deleted. Every field matches the outcome, so the capture supports it. The outcome names one flow rather than several widths or frames, so parts and covers are empty."
+      }
+    ]
+  }
+}
