@@ -6,17 +6,20 @@
 // An app's own transport (`transport` + `pins`) goes straight to the core.
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { connect, createServer } from 'node:net';
 import { constants } from 'node:fs';
 import { access, chmod, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join } from 'node:path';
 import { MachineError } from './errors.ts';
 import {
   badOption, checkHost, checkPort, checkUser, sshCore, sshHostKey as transportHostKey, sshVm as transportVm,
-  type SshTransport, type SshTransportHostKeyOptions, type SshTransportOptions,
+  type SshForward, type SshTransport, type SshTransportHostKeyOptions, type SshTransportOptions,
 } from './ssh-vm.ts';
 import type { Price, Provider } from './types.ts';
 
-export type { SshPins, SshTarget, SshTransport, SshTransportHostKeyOptions, SshTransportOptions } from './ssh-vm.ts';
+export type { SshForward, SshPins, SshTarget, SshTransport, SshTransportHostKeyOptions, SshTransportOptions } from './ssh-vm.ts';
+export { sshResolve } from './ssh-vm.ts';
+export type { SshResolveOptions, SshResolver } from './ssh-vm.ts';
 
 export type SshVmOptions = {
   ssh: string /* absolute */;
@@ -225,19 +228,89 @@ function runKeyscan(keyscanBin: string, args: readonly string[]): Promise<{ code
   return runSsh(keyscanBin, args, { timeoutMs: KEYSCAN_TIMEOUT_MS });
 }
 
-const sshArgv = (o: SshVmOptions, configPath: string, command: string): string[] => [
+const sshArgv = (to: { host: string; port: number; user: string }, configPath: string, command: string): string[] => [
   '-F', configPath,
-  '-p', String(o.port ?? 22),
-  '--', `${o.user}@${o.host}`,
+  '-p', String(to.port),
+  '--', `${to.user}@${to.host}`,
   command,
 ];
 
+/** Local backstop for a forward to come up, and how often it is probed meanwhile. */
+const FORWARD_READY_MS = 30_000;
+const FORWARD_PROBE_MS = 100;
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function freeLoopbackPort(): Promise<number> {
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => server.once('error', reject).listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as { port: number };
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  return port;
+}
+
+const accepts = (port: number): Promise<boolean> => new Promise((resolve) => {
+  const probe = connect({ host: '127.0.0.1', port });
+  probe.once('connect', () => { probe.destroy(); resolve(true); });
+  probe.once('error', () => resolve(false));
+});
+
+/** `ssh -N -L`: one local port to `remote` on the machine, ended by `close()` or when ssh exits (7.3). */
+async function runForward(
+  o: { ssh: string; keyPath: string; stateDir: string }, to: { host: string; port: number; user: string },
+  remote: { host: '127.0.0.1'; port: number },
+): Promise<SshForward> {
+  await checkSshBin(o.ssh);
+  checkFsPath('keyPath', o.keyPath);
+  checkFsPath('stateDir', o.stateDir);
+  checkHost(to.host);
+  checkUser(to.user);
+  checkPort(to.port);
+  checkPort(remote.port);
+  const configPath = await ensureState(o);
+  const localPort = await freeLoopbackPort();
+  const child = spawn(o.ssh, [
+    '-F', configPath, '-N',
+    '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=3',
+    '-L', `127.0.0.1:${localPort}:${remote.host}:${remote.port}`,
+    '-p', String(to.port), '--', `${to.user}@${to.host}`,
+  ], { env: { LANG: 'C.UTF-8' }, stdio: ['ignore', 'ignore', 'pipe'] });
+  const err: Buffer[] = [];
+  child.stderr.on('data', (chunk: Buffer) => err.push(chunk));
+  let exit: number | null | undefined;
+  const closed = new Promise<void>((resolve) => {
+    child.on('error', () => { exit = null; resolve(); });
+    child.on('close', (code) => { exit = code; resolve(); });
+  });
+  const close = async (): Promise<void> => {
+    if (exit !== undefined) return;
+    child.kill('SIGTERM');
+    const killer = setTimeout(() => child.kill('SIGKILL'), KILL_WAIT_MS);
+    await closed;
+    clearTimeout(killer);
+  };
+  for (const end = Date.now() + FORWARD_READY_MS; ; await sleep(FORWARD_PROBE_MS)) {
+    if (exit !== undefined) {
+      const stderr = tail(Buffer.concat(err));
+      if (isHostKeyMismatch(stderr)) throw new MachineError('host-key', 'the pinned host key no longer matches');
+      throw new MachineError('unreachable', exit === null ? 'ssh did not start' : `ssh exited ${exit}: ${stderr.slice(-200)}`);
+    }
+    if (await accepts(localPort) && exit === undefined) break;
+    if (Date.now() > end) {
+      await close();
+      throw new MachineError('timeout', 'ssh took too long to open the forward');
+    }
+  }
+  return { localPort, close, closed };
+}
+
 /** The Node transport: the app's `ssh` binary, its kit-owned config and `known_hosts` (7.1). */
-function binTransport(o: SshVmOptions): Omit<SshTransport, 'hostKey'> {
+function binTransport(o: { ssh: string; keyPath: string; stateDir: string }): Omit<SshTransport, 'hostKey'> {
   return {
-    exec: async (_to, command, x) => {
+    forward: (to, remote) => runForward(o, to, remote),
+    exec: async (to, command, x) => {
       const configPath = await ensureState(o);
-      const r = await runSsh(o.ssh, sshArgv(o, configPath, command), x);
+      const r = await runSsh(o.ssh, sshArgv(to, configPath, command), x);
       if (r.timedOut) return { code: r.code ?? 124, stdout: r.stdout, stderr: r.stderr, timedOut: true };
       if (r.code === 255 && isHostKeyMismatch(r.stderr)) {
         throw new MachineError('host-key', 'the pinned host key no longer matches');
@@ -278,25 +351,39 @@ function pickScannedKey(stdout: string): { type: string; key: string } | null {
   return null;
 }
 
+/** The server's preferred host key, read with `ssh-keyscan` from the directory of `ssh` (7.2). */
+async function scanHostKey(o: SshHostKeyOptions): Promise<{ type: string; key: string; fingerprint: string }> {
+  await checkSshHostKeyOptions(o);
+  const keyscanBin = join(dirname(o.ssh), 'ssh-keyscan');
+  const args = ['-p', String(o.port ?? 22), '-t', 'ed25519,ecdsa,rsa', '--', o.host];
+  let r: { code: number | null; stdout: string; stderr: string; timedOut: boolean };
+  try {
+    r = await runKeyscan(keyscanBin, args);
+  } catch {
+    throw new MachineError('unreachable', `ssh-keyscan did not start: ${JSON.stringify(keyscanBin)}`);
+  }
+  if (r.timedOut) throw new MachineError('timeout', 'ssh-keyscan took too long to answer');
+  if (r.code !== 0) throw new MachineError('unreachable', `ssh-keyscan exited ${String(r.code)}: ${r.stderr.slice(-200)}`);
+  const scanned = pickScannedKey(r.stdout);
+  if (scanned === null) throw new MachineError('unreachable', 'ssh-keyscan returned no host key');
+  return { ...scanned, fingerprint: fingerprintOfKey(scanned.key) };
+}
+
+/** The Node transport as one object: `exec` and `forward` over the `ssh` binary and the key at `keyPath`, `hostKey` over `ssh-keyscan`. */
+export function sshTransport(o: { ssh: string; keyPath: string; stateDir: string }): SshTransport {
+  return {
+    ...binTransport(o),
+    hostKey: async ({ host, port }) => ({ fingerprint: (await scanHostKey({ ssh: o.ssh, stateDir: o.stateDir, host, port })).fingerprint }),
+  };
+}
+
 export function sshHostKey(o: SshHostKeyOptions | SshTransportHostKeyOptions):
   Promise<{ fingerprint: string; pinned: boolean; confirm(): Promise<void> }> {
   if ('transport' in o) return transportHostKey(o);
   const run = async (): Promise<{ fingerprint: string; pinned: boolean; confirm(): Promise<void> }> => {
-    await checkSshHostKeyOptions(o);
+    const scanned = await scanHostKey(o);
     await mkdir(o.stateDir, { recursive: true, mode: 0o700 });
-    const keyscanBin = join(dirname(o.ssh), 'ssh-keyscan');
-    const args = ['-p', String(o.port ?? 22), '-t', 'ed25519,ecdsa,rsa', '--', o.host];
-    let r: { code: number | null; stdout: string; stderr: string; timedOut: boolean };
-    try {
-      r = await runKeyscan(keyscanBin, args);
-    } catch {
-      throw new MachineError('unreachable', `ssh-keyscan did not start: ${JSON.stringify(keyscanBin)}`);
-    }
-    if (r.timedOut) throw new MachineError('timeout', 'ssh-keyscan took too long to answer');
-    if (r.code !== 0) throw new MachineError('unreachable', `ssh-keyscan exited ${String(r.code)}: ${r.stderr.slice(-200)}`);
-    const scanned = pickScannedKey(r.stdout);
-    if (scanned === null) throw new MachineError('unreachable', 'ssh-keyscan returned no host key');
-    const fingerprint = fingerprintOfKey(scanned.key);
+    const { fingerprint } = scanned;
     const known = await readKnownHosts(o.stateDir);
     const pinned = known !== null && holdsKey(known, scanned.key);
     return {

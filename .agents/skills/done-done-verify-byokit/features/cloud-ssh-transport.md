@@ -7,6 +7,7 @@ A person with only the phone app deploys onto any SSH box: the app passes its ow
 - `transport-bench`: `sh scripts/test.sh packages/cloud/test/journey-cloud.test.ts` (`a phone with only its own SSH module deploys onto any SSH box…`): unpinned setup fails at listing with no command sent; confirm pins; steps run to ready with the private serve; a join key is never sent; a changed key reads host-key-changed and exec rejects host-key.
 - `transport-contract`: `sh scripts/test.sh packages/cloud/test/contract.test.ts`: the machine contract over `fakeSshTransport` from `@byokit/cloud/testing`.
 - `late-link`: the deadlines table in `journey-cloud.test.ts` (`NeedsLogin` / `status`): a sign-in link that shows only in status after `up` returns is still shown once, with a fresh 5-minute window.
+- `transport-forward`: the same journey, after `securing`: a real `@byokit/pair` host listens on the fake machine's loopback port, and a `DeviceLink` pairs and requests through `sshResolve()` over `fakeSshTransport().forward`; one forward is shared, reused, reopened after `close()`, and a wrong pin reads `host-key`.
 - `transport-live`: `capture/cloud-ssh-transport.mjs` on a real VM, below.
 
 ## Live run (KVM VM)
@@ -14,6 +15,12 @@ A person with only the phone app deploys onto any SSH box: the app passes its ow
 Needs `/dev/kvm`, docker with a qemu image, the Ubuntu 24.04 cloud image checked against Ubuntu's SHA256SUMS, `ssh2` installed in a scratch folder, and the sha256 of the pinned Node x64 tarball from nodejs.org SHASUMS256.txt. `feature=cloud-ssh-transport; entry=@byokit/cloud; drive=(env WORK=<scratch with noble.img> IMAGE=<qemu image> SSH2_DIR=<scratch> NODE_SHA_X64=<sha> node .agents/skills/done-done-verify-byokit/capture/cloud-ssh-transport.mjs)`, then SKILL.md Evidence's capture block. The VM and its container are always removed.
 
 Pass: `console-ed25519` equals the `sshHostKey` fingerprint; `steps` reach `installing` then `open-page` (link masked); `host-answer` is the recipe's reply; `tailnet: needs-login`; `tailscale-version` is the pinned one; `join-key: unsupported` with no command sent; `wrong-pin` reads `host-key-changed` and `host-key`; `node-default` pins the same key and reads `on`; `result: PASS`. First passed 2026-10-19.
+
+## Live forward run (KVM VM, no Tailscale)
+
+Same VM setup, without `ssh2` (the system `ssh` binary and a key file). `feature=cloud-ssh-transport; entry=@byokit/cloud/ssh; drive=(env WORK=<scratch with noble.img> IMAGE=<qemu image> NODE_SHA_X64=<sha> node .agents/skills/done-done-verify-byokit/capture/cloud-ssh-forward.mjs)`, then SKILL.md Evidence's capture block.
+
+Pass: `host-key` matches `console-ed25519`; `steps` are `checking-access, listing, inspecting, installing, ready` (no tailnet); `resolved` rewrites the loopback address to a local port; `host-answer-through-forward` is the recipe's reply; `listeners-7300` is `127.0.0.1:7300` only; `tailscale-on-box` is `none` and `inactive`; `reopened` is a new port after `close()`; `wrong-pin` reads `host-key`; `result: PASS`. First passed 2026-10-23.
 
 ## Gotchas
 

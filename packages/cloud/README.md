@@ -275,6 +275,29 @@ pairing stays encrypted. A changed host key is refused, never repinned. On Node,
 accepts the same options and defaults to the `ssh` binary. `fakeSshTransport()` from `./testing` stands
 in for the app's SSH module in its tests.
 
+### Reaching the app over SSH
+
+The app port can stay on the machine's loopback: a transport with the optional `forward(to, { host: '127.0.0.1', port })`
+carries each connection there (an SSH local forward; the same host-key rule as `exec`) and resolves
+`{ localPort, close(), closed }`. `sshResolve({ transport, pins, target: { host, port?, user }, port })` turns it into a
+`Dial.resolve` for `@byokit/pair`: it opens one forward before the first dial, reuses it while it is up, opens a new one
+after it drops, and rewrites `ws://127.0.0.1:<port>…` to the forward's local port (other addresses pass through).
+`close()` on the result ends the forward.
+
+```ts
+import { sshResolve } from '@byokit/cloud';
+import type { SshPins } from '@byokit/cloud';
+import { sshTransport } from '@byokit/cloud/ssh'; // Node: your `ssh` binary and key file; `forward` is `ssh -N -L`
+import { DeviceLink, type DeviceGrant, type DeviceStore } from '@byokit/pair';
+declare const keyPath: string, stateDir: string, pins: SshPins, grant: DeviceGrant, store: DeviceStore;
+const transport = sshTransport({ ssh: '/usr/bin/ssh', keyPath, stateDir });
+const resolve = sshResolve({ transport, pins, target: { host: '203.0.113.7', user: 'ada' }, port: 7300 });
+const link = new DeviceLink(grant, { store, resolve }); // grant.urls: ['ws://127.0.0.1:7300']
+```
+
+On a phone the app's own SSH module supplies `forward`. `fakeSshTransport()` implements it in-process: put the machine
+port and a real local port in its `loopback` map.
+
 Billing: the kit adds nothing. The person pays their server provider as before; a model sign-in on the
 machine is still the runtime kit's, with subscription and API-key routes labelled as such there.
 

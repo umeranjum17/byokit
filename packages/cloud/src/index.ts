@@ -12,8 +12,8 @@ export type { KeyStore, Roster, RosterAccount, RosterRecord, RosterStore } from 
 export { status } from './status.ts';
 export type { Status } from './status.ts';
 export { boat } from './boat.ts';
-export { sshVm, sshHostKey } from './ssh-vm.ts';
-export type { SshPins, SshTarget, SshTransport, SshTransportHostKeyOptions, SshTransportOptions } from './ssh-vm.ts';
+export { sshVm, sshHostKey, sshResolve } from './ssh-vm.ts';
+export type { SshForward, SshPins, SshResolveOptions, SshResolver, SshTarget, SshTransport, SshTransportHostKeyOptions, SshTransportOptions } from './ssh-vm.ts';
 /** @deprecated Use boat(). */
 export { boat as sandboxApi } from './boat.ts';
 export { claim, revokeClaim } from './claim.ts';

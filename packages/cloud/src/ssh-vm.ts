@@ -9,6 +9,9 @@ import type { ExecResult, MachineRef, Price, Provider } from './types.ts';
 /** Where one call goes: the transport must refuse a server whose host key is not `fingerprint`. */
 export type SshTarget = { host: string; port: number; user: string; fingerprint: string };
 
+/** One local port that carries connections to a port on the machine's loopback, until `close()` or the connection drops. */
+export type SshForward = { localPort: number; close(): Promise<void>; closed: Promise<void> };
+
 /**
  * The SSH connection the app supplies (7.3). A transport throws `MachineError('host-key')` when the server's
  * key differs from `to.fingerprint`, before it authenticates; any other throw reads as `unreachable` with its
@@ -21,6 +24,12 @@ export type SshTransport = {
   hostKey(to: { host: string; port: number }): Promise<{ fingerprint: string }>;
   /** Optional, e.g. over SFTP: replace `path` with `bytes` at `mode` atomically. Absent: the kit's 7.1 shell over `exec`. */
   write?(to: SshTarget, path: string, bytes: Uint8Array, mode: number): Promise<void>;
+  /**
+   * Optional: listen on `127.0.0.1:<localPort>` on this device and carry each connection to `remote` on the machine
+   * (an SSH local forward, so the app port stays on the machine's loopback). The same host-key rule as `exec`.
+   * `closed` settles when the forward ends, however it ends.
+   */
+  forward?(to: SshTarget, remote: { host: '127.0.0.1'; port: number }): Promise<SshForward>;
 };
 
 /** Where the app keeps the one confirmed host key fingerprint (its own secure store on a phone). */
@@ -168,4 +177,56 @@ export async function sshHostKey(o: SshTransportHostKeyOptions): Promise<{ finge
     throw new MachineError('unreachable', 'the SSH transport returned no SHA256 host key fingerprint');
   }
   return { fingerprint, pinned: (await o.pins.load()) === fingerprint, confirm: () => o.pins.save(fingerprint) };
+}
+
+export type SshResolveOptions = {
+  transport: Pick<SshTransport, 'forward'>; pins: Pick<SshPins, 'load'>;
+  /** The machine's SSH login, and the app port that listens on its loopback. */
+  target: { host: string; port?: number; user: string }; port: number;
+};
+/** A `Dial.resolve` for `@byokit/pair`; `close()` ends the forward it holds. */
+export type SshResolver = ((url: string) => Promise<string>) & { close(): Promise<void> };
+
+const LOOPBACK_URL = /^(wss?:\/\/)(?:127\.0\.0\.1|localhost):(\d+)(?=[/?#]|$)/;
+
+/**
+ * A `Dial.resolve` that reaches the app on the machine's loopback through one SSH forward (7.3): it opens the
+ * forward before the first dial, reuses it while it is up, opens a new one after it drops, and rewrites
+ * `ws://127.0.0.1:<port>…` to the forward's local port. Any other address passes through untouched.
+ */
+export function sshResolve(o: SshResolveOptions): SshResolver {
+  if (typeof o.transport?.forward !== 'function') throw badOption('transport', 'transport: pass an SSH transport that implements forward');
+  checkHost(o.target.host);
+  checkUser(o.target.user);
+  checkPort(o.target.port);
+  checkPort(o.port);
+  const { forward } = o.transport;
+  let open: Promise<SshForward> | null = null;
+  const opened = (): Promise<SshForward> => {
+    if (open !== null) return open;
+    const next = (async () => {
+      const fingerprint = await o.pins.load();
+      if (fingerprint === null) throw new MachineError('host-key', NO_PIN);
+      const to: SshTarget = { host: o.target.host, port: o.target.port ?? 22, user: o.target.user, fingerprint };
+      const f = await via(() => forward(to, { host: '127.0.0.1', port: o.port }));
+      void f.closed.then(() => { if (open === next) open = null; });
+      return f;
+    })();
+    open = next;
+    next.catch(() => { if (open === next) open = null; });
+    return next;
+  };
+  const resolve = async (url: string): Promise<string> => {
+    const m = LOOPBACK_URL.exec(url);
+    if (m === null || Number(m[2]) !== o.port) return url;
+    const { localPort } = await opened();
+    return `${m[1]}127.0.0.1:${localPort}${url.slice(m[0].length)}`;
+  };
+  return Object.assign(resolve, {
+    close: async () => {
+      const current = open;
+      open = null;
+      if (current !== null) await (await current.catch(() => null))?.close();
+    },
+  });
 }

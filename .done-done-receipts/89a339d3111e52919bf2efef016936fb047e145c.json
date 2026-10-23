@@ -1,0 +1,60 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "89a339d3111e52919bf2efef016936fb047e145c",
+  "tree": "100652f11ab65d1cc855186d67227f729ff5b64c",
+  "claim": "An app on Node reaches its host on a cloud computer over plain SSH to the machine's loopback (ssh -N -L through sshResolve and sshTransport), with no Tailscale and the app port listening on 127.0.0.1 only; a changed host key is refused with host-key",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-23T14:02:51.500Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261023T135752Z-89a339d3-89e051/cloud-ssh-forward-drive.txt",
+      "sha256": "bfe257e9ece35e1561915fd44333cff89089a5368d6c4f8c59e8a72f5a9785ab"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261023T135752Z-89a339d3-89e051",
+      "commit": "89a339d3111e52919bf2efef016936fb047e145c",
+      "journey": null,
+      "command": null,
+      "feature": "cloud-ssh-transport",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "@byokit/cloud 0.4.0 (commit 89a339d3)"
+        },
+        "start": "Built workspace SDK (npm run build exit 0; @byokit/cloud 0.4.0 resolves to packages/cloud/dist). A fresh Ubuntu 24.04 KVM VM booted from the Ubuntu cloud image (SHA256 checked against Ubuntu SHA256SUMS) with an ada user, no Tailscale, sshd on a loopback-only port. Nothing pre-configured on the box.",
+        "steps": [
+          "Ran the forward drive capture/cloud-ssh-forward.mjs with the Ubuntu image, the pinned Node 24.15.0 x64 sha256 and the KVM image in docker.",
+          "Waited for cloud-init to finish on the VM and read the ED25519 host key printed on its console.",
+          "Read the server's host key over the system ssh binary through sshHostKey and compared it with the console fingerprint; confirmed it.",
+          "Ran setup with no address: checking access, listing, inspecting, installing Node and the host app, ready.",
+          "Opened an ssh -N -L forward with sshResolve over sshTransport and requested the host through the rewritten loopback address; got 'runner up for Ada'.",
+          "Checked the listeners on the box: only 127.0.0.1:7300; checked tailscale on the box: none, inactive.",
+          "Closed the forward and requested again so it was reopened on a new local port.",
+          "Pinned a wrong host key and tried to connect; the connection was refused with host-key: the pinned host key no longer matches.",
+          "Let the driver remove the VM and its container."
+        ],
+        "result": "The app on Node reached its host through a plain SSH local forward to the box's loopback: 'runner up for Ada' came back. The app port 7300 listens on 127.0.0.1 only, tailscale is none and inactive, the forward reopened after close, and a changed host key was refused with host-key. Log: cloud-ssh-forward-drive.txt ends with result: PASS."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261023T135752Z-89a339d3-89e051/cloud-ssh-forward-drive.txt",
+        "sha256": "bfe257e9ece35e1561915fd44333cff89089a5368d6c4f8c59e8a72f5a9785ab",
+        "verdict": "pass"
+      }
+    ]
+  }
+}
