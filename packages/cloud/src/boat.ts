@@ -578,7 +578,7 @@ export function boat(o: {
       const posted = await send('POST', '/named-snapshots', { body: { sandboxId: m.id, name: full } });
       const { text } = await read(posted);
       // A copy past the free ones with no credit is refused (15.1): the person adds funds.
-      if (posted.status === 402) throw new MachineError('balance', 'the provider needs credit to save another copy');
+      if (posted.status === 402) throw new MachineError('balance', 'the provider needs credit to save another copy; nothing was saved and nothing was deleted', { why: 'copies' });
       if (posted.status === 401 || posted.status === 403) throw new MachineError('unauthorized', 'the provider did not accept the key');
       if (posted.status < 200 || posted.status >= 300) fail(posted.status, text);
       const started = Date.now();
@@ -646,7 +646,8 @@ export function boat(o: {
         const name = field(snap, 'name');
         const at = field(snap, 'createdAt');
         if (typeof name !== 'string' || !ownCopy(m, name) || field(snap, 'status') !== 'ready' || typeof at !== 'string') continue;
-        copies.push({ id: name, at });
+        // K-UNDO (6.1): the word `undo` plus 12 base36 characters is the before-update copy.
+        copies.push(/^undo[a-z0-9]{12}$/.test(name.slice(`byokit-${m.name}-`.length)) ? { id: name, at, kind: 'before-update' } : { id: name, at });
       }
       return copies;
     },
