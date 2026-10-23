@@ -46,7 +46,7 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 | D-2 | Third-party adapters keep the provider's name: `boat()` is the Boat adapter; `sshVm()` describes the provider-independent SSH transport. Docs name Boat and fixtures use `boat.test`, mapped to loopback. The provider's label still comes from the app at run time. `sandboxApi()` remains a deprecated alias with the same signature; the persisted provider id remains `sandbox-api` for existing records and install behavior. No default provider or URL is added. |
 | D-3 | A capability kit, not a third aggregator. It sits beside `@byokit/openclaw` and `@byokit/herdr`: the app still picks one runtime kit, and that kit runs inside the app's host process on the machine exactly as it does at home. `@byokit/cloud` only decides where that process runs. It imports no other kit and no kit imports it. `@byokit/accounts` is untouched. |
 | D-4 | Adapters behind one `Provider` type (4). **Boat**: create, sleep, wake, snapshot, fork, remove, exec, write and an HTTPS URL per port, over `fetch` with no vendor SDK. **SSH VM**: any rented Linux machine the person already created; exec, write, install and supervise only, through the `ssh` binary the app passes by absolute path. **Hetzner** (first slice, below): create, status and confirmed delete over the Hetzner Cloud API with the app's own token, portable as `hetznerApi()` (first boot, G8) and Node only with SSH as `hetzner()`; no sleep, wake or copies yet. Optional `Provider` methods an adapter cannot do are absent, and the UI hides that action. |
-| D-5 | Types in section 4 are frozen at M1. A change is a spec change first: stop and ask. The SSH-reach amendment (K-SSH-REACH: 4.5, 4.6, 7.3, 9; 2026-10-23) replaces the 2026-10-13 tailnet amendment: it adds the optional `Provider.sshAccess` and `SshTransport.forward` and the portable `sshResolve()`, changes `setup()`'s `address` and `securing` step and the pair receipt, and removes `joinTailnet`, `tailnet`, `Tailnet` and `TailnetStep`. It is built in 9.3's order; until step 4 ships, the released kit still has the tailnet join. |
+| D-5 | Types in section 4 are frozen at M1. A change is a spec change first: stop and ask. The SSH-reach amendment (K-SSH-REACH: 4.5, 4.6, 7.3, 9; 2026-10-23) replaces the 2026-10-13 tailnet amendment: it adds the optional `Provider.sshAccess` and `SshTransport.forward` and the portable `sshResolve()`, changes `setup()`'s `address` and `securing` step and the pair receipt, and removes `joinTailnet`, `tailnet`, `Tailnet` and `TailnetStep`. It is built in 9.3's order; until step 4 ships, the released kit still has the tailnet join. The undo amendment (K-UNDO: 4.7, 5.10, 5.16, 5.17; 2026-10-23) adds `Snapshot.kind`, `Machine.undoPoint` and `undoUpdate`, changes `Machine.update`'s options, result and default (a copy first), and adds the error code `no-undo`. It is built in 5.17's order; nothing in it is built yet. Copies saved on the machine while the app is closed are deferred until a decision on a key held on the machine (5.15). |
 | D-6 | Entries. `.` is portable (Node, Electron, React Native): everything 3.1's `index.ts` re-exports (types, `machine()`, `boat()` (and deprecated `sandboxApi()`), `claim()` and `revokeClaim()` (M8), `MachineError`, `estimate()`, the words helpers, M7's `wakeResolve()`, and G8's `hetznerApi()`, `installScript()` and `setupCommand()`); no `node:*` import. `./ssh` is Node only (`sshVm()`, `sshHostKey()` over the `ssh` binary, and K-SSH-REACH's `sshTransport()`, 7.3). Amended 2026-10-19 (K-PHONE-SSH): `.` also exports `sshVm()` and `sshHostKey()` taking the app's own `transport` and `pins` (7.3), so a React Native app reaches any SSH box with its own SSH module; `./ssh`'s two accept the same options and keep the `ssh` binary as the default. `./hetzner` is Node only (`hetzner()`, first slice below). `./idle` (M7: `idle()`, `stopSelf()`) runs on the machine inside the host process and is portable. `./testing` is Node only: the fake providers and the contract suite. No other entries. The Boat adapter does not run from a web page (15.1), so browsers and PWAs set up from the phone app or a desktop app. |
 | D-7 | One person, one provider account, one machine per app install. The kit refuses a `MachineRef` whose `account` differs from `provider.account()`. An app operator provisioning on its own account for users is pooling and is not supported. |
 | D-8 | Model credentials are signed in on the machine, inside the aggregator (11). They are never copied from the person's computer and never pass through the provider's own credential features. Sandboxes are created with nothing of the person's passed in (`noEnv: true`). |
@@ -434,6 +434,27 @@ export type PairContext = { /* 5.12 and 5.13 members */ ssh?: SshRoute }
   `address.onStep`, and the `tailnet.*` words (12). The step name `securing` stays, so an app's table keyed by
   `SetupStepName` keeps compiling.
 
+### 4.7 Undo an update (K-UNDO, 2026-10-23)
+
+A bad update has no way back. Behaviour is 5.16. `update`'s new result and default are breaking (5.17); everything
+else is optional or new. Copies saved while the app is closed are deferred (5.15).
+
+```ts
+// types.ts
+export type Snapshot = { id: string; at: string
+  kind?: 'before-update' }                                // K-UNDO: the copy update() saved first; absent on every other copy
+export type UpdateResult = { undo: Snapshot | null; pruneError?: MachineError }  // null: no copy was saved (5.16)
+export interface Machine { /* 4.1, 4.3 and 4.4 members; update's signature changes */
+  update(r: HostRecipe, o?: { undo?: boolean }): Promise<UpdateResult>   // was Promise<void>; 5.16
+  undoPoint(): Promise<Snapshot | null>                    // the copy from just before the last update; null when none or the machine can't
+  undoUpdate(r: HostRecipe): Promise<void>                 // reset to undoPoint() (5.16)
+}
+```
+
+`MachineErrorCode` (4.2) gains `'no-undo'`: `undoUpdate` with no before-update copy of this machine. A save the
+provider refuses for lack of credit stays `balance` and gains `extra.why: 'copies'` (12 shows `copies.noCredit` for
+it, not the running-out sentence).
+
 ## 5. `Machine` (`src/machine.ts`)
 
 ### 5.1 Store and refs
@@ -579,13 +600,18 @@ lacks `snapshots` or `restore`. `snapshot`, `scheduleSnapshots` and `restore` al
 provider keeps no copy of such a machine. The SSH VM has none of these members. A VM provider's server snapshots
 land with that provider's adapter, behind the same members (follow-up).
 
-- `snapshots()`: `provider.snapshots(ref)`, sorted newest first by `at`.
+- `snapshots()`: `provider.snapshots(ref)`, sorted newest first by `at`. It lists both kinds: ordinary copies and the
+  before-update copy (`kind: 'before-update'`, K-UNDO, 5.16).
 - `snapshot({ keep = 3 })`: `keep` is an integer of at least 1, else `bad-recipe`. `provider.snapshot(ref, <12
   random base36>)` resolves once the copy is ready; `snapshots()` must then list it (else reject `provider`). Only
-  after that, every listed copy past the newest `keep` is deleted with `provider.deleteSnapshot`, never the new one.
+  after that, every listed ordinary copy past the newest `keep` is deleted with `provider.deleteSnapshot`, never the
+  new one and never a before-update copy (K-UNDO: `keep` counts ordinary copies only, so a machine holds at most
+  `keep` + 1 of the kit's copies).
   Pruning touches only what `provider.snapshots` lists, the kit's own copies of this machine (6.1 names them), so a
   copy the kit did not make is never deleted. Resolves the new copy. A prune that fails does not fail the save: the
-  copy is still resolved, with `pruneError` set to the provider's error, and the next save prunes again.
+  copy is still resolved, with `pruneError` set to the provider's error, and the next save prunes again. A save the
+  provider refuses for lack of credit rejects `balance` with `extra.why: 'copies'` and deletes nothing: the kit never
+  deletes an older copy to make room for a refused one.
 - `scheduleSnapshots({ everyMs, keep = 3, onResult })`: `everyMs` is an integer from 1 to 2147483647 (the timer's
   limit, about 24.8 days), else `bad-recipe`; `keep` is an integer of at least 1. It rejects at creation, before any
   timer starts: `bad-recipe`, `no-machine`, and `unsupported` (as `snapshot`). It resolves `{ stop() }` and runs a
@@ -596,12 +622,12 @@ land with that provider's adapter, behind the same members (follow-up).
   overlap, the timer never throws or rejects out of itself, and it is unref'd where the platform has `unref`. A check
   that finds no machine (it was removed) reports its `no-machine` error once and the schedule stops itself. A device
   clock behind the provider's delays copies until it catches up and never makes an extra one. **Still
-  no hosted scheduler:** the kit runs only while the app runs, nothing runs on the machine (a timer there would need
-  a provider key on the machine, inside the very copies it makes; M7's scoped keys are not built), and a machine
-  nobody opens gets no new copies and keeps its last ones.
-- One save, reset or remove runs at a time per machine store: `snapshot`, a scheduled save, `restore` or `remove`
-  called while another of these runs rejects `busy` and changes nothing (a scheduled check reports it and tries
-  again next time).
+  no hosted scheduler:** this schedule runs only while the app runs, and a machine nobody opens gets no new copies
+  from it and keeps its last ones. Copies saved on the machine while the app is closed are deferred until a decision
+  on a key held on the machine (5.15).
+- One save, reset or remove runs at a time per machine store: `snapshot`, a scheduled save, `restore`, `remove`, and
+  (K-UNDO) `update` while it saves its before-update copy and `undoUpdate`, called while another of these runs, reject
+  `busy` and change nothing (a scheduled check reports it and tries again next time).
 - `restore(id)`: `id` must be one of `snapshots()`, else reject `no-snapshot`. The kit asks no question: the app
   confirms first, showing `snapshot.restore` with the copy's date, which says that everything changed since then is
   lost. Then `provider.restore(ref, id, { idempotencyKey, replaced })` with a new `byokit-<name>-<16 base36>` key,
@@ -621,7 +647,9 @@ land with that provider's adapter, behind the same members (follow-up).
 - `disk()`: one `exec` of `df -P -k /`; `usedGb` and `totalGb` are the second line's used and total 1024-blocks in
   decimal GB (bytes / 1e9), rounded to one decimal. A non-zero exit or an unreadable line rejects `provider`. Like
   every command it needs the machine on. Words: `disk.used`.
-- The bill: the free copies and their price are 15.1's. `keep` defaults to 3 so the kit stays inside the free ones.
+- The bill: the free copies and their price are 15.1's. `keep` defaults to 3 so the kit stays inside the free ones;
+  with the before-update copy (5.16) a machine holds at most 4 of the kit's copies, and a save briefly needs one more
+  (it saves first, then prunes), so each save needs a spare free copy on the account or credit.
 
 ### 5.11 Setup step stream (K-PROGRESS)
 
@@ -712,6 +740,111 @@ first used.
   the same idempotency key (5.2 step 3) from the roster record. An unmanaged id rejects `no-machine`.
 - An app with one account and one machine keeps using `machine()` with its own `MachineStore`; nothing there changed.
 
+### 5.15 Later: needs a machine-held key decision
+
+Saving copies while the app is closed (a timer on the machine itself, with no hosted scheduler and no new port) is
+**deferred**. Nothing in this spec designs it: no type, error code, word or 13.1 rule exists for it, and 5.10's
+in-app `scheduleSnapshots` stays the only schedule.
+
+Why it waits: saving a copy is a provider call, so a timer on the machine needs a provider key on the machine. That
+key sits under the run user's home, so it is in every copy and fork of the machine, and anything running there can
+use it, including every agent tool the host runs, which already has root (13.1 rule 11). With it, such a process can
+save copies, which bills past the free ones, and overwrite or delete that machine's copies, and possibly any saved
+copy on the account: Boat's document does not say whether a key's `sandboxIds` limits saved copies (15.1). A key
+expires (365 days at most), and only Boat's site can revoke one.
+
+What each provider would allow (15.1, read 2026-10-23):
+- **Boat** could: it mints scoped, expiring keys (`POST /api-keys/scoped` with `snapshot.read`, `snapshot.write` and
+  `sandboxIds: [ref.id]`), but minting needs an admin-scoped key or a site session and answers 503 until scoped keys
+  are switched on for the account.
+- **Hetzner** never would: a token is project-wide, read or read-write, with no per-server scope. Its keyless answer
+  is its own paid daily backups (`enable_backup`: seven slots, the server price goes up 20%).
+- **An SSH box** cannot: there is no provider API to save a copy through.
+
+Options recorded for the decision:
+- **(a)** Accept, as an opt-in: the app states the risk to the person and installs only on their yes; Boat only.
+- **(b)** Decide after a live Boat answer on whether a key's machine scope limits which saved copies it may write or
+  delete.
+- **(c)** Decline: Boat keeps the in-app schedule only.
+
+A design, if one is chosen, is a spec change first (D-5).
+
+### 5.16 Undo an update (K-UNDO, 2026-10-23)
+
+`update(r, { undo })` saves a copy of the machine before it changes anything, and `undoUpdate(r)` resets the machine to
+that copy. The undo is 5.10's reset: on Boat a new machine made from the copy, with a new id, the old one stopped
+first and then deleted.
+
+- **Can undo** means the provider has `snapshot`, `snapshots`, `deleteSnapshot` and `restore`, and `ref.keepCopies` is
+  true: Boat with copies on. A Hetzner server and an SSH box cannot: the kit keeps no copies of either (Hetzner's own
+  server snapshots and in-place `rebuild` are the follow-up there).
+- `undo` defaults to whether the machine can undo. `undo: true` on a machine that cannot rejects `unsupported` before
+  anything runs. `undo: false`, or a machine that cannot, runs 8.5's update unchanged and resolves `{ undo: null }`.
+- With `undo`, in this order: 5.1 checks and the 8.1 checks; the update joins 5.10's one-at-a-time set (`busy`) until
+  the copy is saved; `provider.snapshot(ref, 'undo' + <12 random base36>)` (the copy `byokit-<name>-undo<12>`), which
+  must then be listed ready (else `provider`); delete every older before-update copy of this machine (a failed delete
+  sets `pruneError` and does not stop the update); then 8.5's update. The lock is released before 8.5's steps run.
+- A save that fails rejects with its own error and runs no update step: the machine is unchanged. A refusal for credit
+  is `balance` with `extra.why: 'copies'` (`copies.noCredit`); the app may offer `undo: false`.
+- An update step that fails after the copy is saved rejects with that step's error and `extra.undo` set to the copy's
+  id, so the app can offer undo at once. Resolves `{ undo: <the copy>, pruneError? }`.
+- One before-update copy per machine: the next update with `undo` replaces it. 5.10's pruning never counts or deletes
+  it, and `remove` deletes it with the machine's other copies. `kind` is read from the name (6.1).
+- `undoPoint()`: 5.1 checks; the newest copy with `kind: 'before-update'` in `snapshots()`, or `null` when there is none
+  or the machine cannot undo (the app hides the action, as for an absent method).
+- `undoUpdate(r)`: 5.1 checks; `r` passes the 8.1 checks and `r.name === ref.name` (only `name`, `workDir` and `user`
+  are used, so the recipe before or after the update both do); no before-update copy rejects `no-undo`. The app
+  confirms first with `update.undo` and the copy's date: everything changed since the copy is lost, not only the
+  update. Then exactly `restore(<that id>)` (5.10: idempotency key, retries, `replaced`, the old machine deleted),
+  then, as the run user, rewrite `<workDir>/.byokit/installed.json` with the new id (8.3 step 6). The before-update
+  copy stays, so undoing twice lands on the same point.
+- After an undo the machine runs the host version from before the update. Which recipe version runs is the app's to
+  record: calling `update(newRecipe)` again repeats the update. On Boat the app reads the SSH route again with
+  `sshAccess` for the new id (5.10, 9.1).
+
+### 5.17 Breaking changes, change notes and build order (K-UNDO)
+
+**Release target:** `@byokit/cloud` 0.6.0 (a 0.x minor), carrying S2 and S3 together.
+
+**Breaking surface:**
+- `Machine.update` resolves `UpdateResult`, not `void`. A caller that ignores the result still compiles; an app's own
+  object that implements `Machine` must return it.
+- `update()` on Boat with copies on now saves a copy first: it takes minutes longer, needs a spare free copy or credit,
+  and rejects `balance` (`extra.why: 'copies'`) before changing anything when Boat refuses. `{ undo: false }` keeps the
+  old behaviour.
+- `MachineErrorCode` gains `no-undo`: an exhaustive `switch` over it stops compiling until it handles it. `errorWords`
+  for a save refused for credit reads `copies.noCredit` instead of `cost.balance`.
+- 5.10's pruning counts ordinary copies only, and `snapshots()` lists the before-update copy with `kind`. A device on
+  0.5.x saving copies of the same machine counts that copy in its `keep` and may delete it.
+
+**Change notes.** Each slice adds its own `packages/cloud/changes/<slug>.md`, released in cloud 0.6.0; the wording to
+start from:
+- `copy-kinds.md` (S2, cloud 0.6.0):
+  - `- FIX: Saving copies keeps the newest keep ordinary copies and never counts or deletes the copy from before an update; snapshots() marks it kind: 'before-update'. A save Boat refuses for lack of credit now says that nothing was saved and nothing was deleted (copies.noCredit), not that the balance ran out.`
+- `update-undo.md` (S3, cloud 0.6.0):
+  - `- BREAKING: machine().update(recipe) now saves a copy of the cloud computer before it changes anything, when it can (Boat, a computer made with keepCopies: true), and resolves { undo, pruneError? } instead of nothing. The copy can take a few minutes and needs one spare free copy on the Boat account or credit; when Boat refuses, update rejects balance and changes nothing. Pass { undo: false } to update without a copy. A Hetzner server or an SSH box resolves undo: null, and { undo: true } rejects unsupported there.`
+  - `- FEATURE: machine().undoPoint() and machine().undoUpdate(recipe) undo the last update: the cloud computer goes back to the copy saved just before it (on Boat a new computer with a new id, as restore does), and everything changed since that copy is lost (words update.undo). With no such copy it rejects no-undo.`
+
+**Build order.** Each step is one direct PR, shippable alone, and at most about 300 changed lines; a step that grows
+past that splits along the line given.
+1. **S1** This amendment (docs only).
+2. **S2** Copy kinds, prune and words: `Snapshot.kind` read from the 6.1 name; 5.10's prune over ordinary copies only;
+   `extra.why: 'copies'` on a refused save and `copies.noCredit`; the fakes list `kind`. Additive and a fix. Tests:
+   extend the snapshot journey in `test/journey-cloud.test.ts` and the contract; the verify skill's `cloud-snapshots`
+   feature gains the before-update copy surviving a prune.
+3. **S3** Undo an update (5.16) and `no-undo`: `update`'s options and result, `undoPoint`, `undoUpdate`, words. Breaking;
+   released with S2 as cloud 0.6.0. Tests: a journey that updates, breaks the host, undoes and finds the old files and
+   a running host on the new machine; a refused save that changed nothing; the update journey with `undo: false`. The
+   verify skill's feature map gains `update-undo`. Splits into the update half and the undo half if over budget.
+4. **S4** Live Boat proof of undo (the owner's approved spend, 9.2's limits): on one real machine with copies on,
+   update with a copy first, break the host, undo, and find the old files and a running host on the new machine; the
+   refused-credit path only if it can be reached without spend past the free copies; remove the machine and its
+   copies after the run. The README says undo is not proven on a real Boat computer until it passes.
+
+Not in this plan: copies while the app is closed (deferred, 5.15), Hetzner copies through its own backups and server
+snapshots, and moving the Boat adapter from the deprecated `/named-snapshots` routes to `/saved-snapshots` (15.1),
+which changes 6.1 for every copy call at once.
+
 ## 6. Boat adapter (`src/boat.ts`)
 
 `boat()` speaks one public REST shape (15.1) over `o.fetch ?? globalThis.fetch`. Every request sends
@@ -727,10 +860,10 @@ first used.
 | `status` | `GET /sandboxes/{id}` | `sandbox.info` nests the sandbox; the state is `sandbox.state`. Mapping in 6.2. |
 | `wake` | `POST /sandboxes/{id}/resume` `{ttlSeconds: null}` | **No `noEnv` field** (6.3). Then polls `status` every 2 s until `on` (resolve), `failed` or `gone` (reject `provider`), or 5 minutes (reject `timeout`). |
 | `sleep` | `POST /sandboxes/{id}/stop` | The provider takes a final snapshot; if that fails the stop aborts and the machine keeps running, which the kit reports as the `provider` error it returns. The stop is asynchronous, so it then polls `status` every 2 s until `asleep` or `gone` (`failed` rejects `provider`), or 5 minutes (reject `timeout`). |
-| `snapshot` | `POST /named-snapshots` `{sandboxId, name}`, then poll `GET /named-snapshots/{name}` every 2 s until `snapshot.status` is `ready` (`failed` rejects `provider`), or 5 minutes (reject `timeout`) | The kit names copies `byokit-<ref.name>-<name>`. Past the free copies (15.1) a save needs credit; without it the provider answers 402 `credit_required`, which rejects `balance` and deletes nothing. |
+| `snapshot` | `POST /named-snapshots` `{sandboxId, name}`, then poll `GET /named-snapshots/{name}` every 2 s until `snapshot.status` is `ready` (`failed` rejects `provider`), or 5 minutes (reject `timeout`) | The kit names copies `byokit-<ref.name>-<name>`. Past the free copies (15.1) a save needs credit; without it the provider answers 402 `credit_required`, which rejects `balance` with `extra.why: 'copies'` and deletes nothing. |
 | `fork` | `POST /sandboxes/{id}/fork` `{ttlSeconds: null}` + `Idempotency-Key` | The public `sandbox.forking` response carries the new id at the top level. A fork does not inherit the source's TTL: without `ttlSeconds: null` it stops after 1 h. A fork of a no-env source is always no-env, so no `noEnv` field. |
 | `remove` | `DELETE /sandboxes/{id}` + header `X-Ascii-Confirm-Delete: <id>`; poll `GET /deletion-operations/{op}` every 2 s until `operation.status` is `completed` or `blocked`, or 5 minutes (reject `timeout`); then `GET /named-snapshots` and `DELETE /named-snapshots/{name}` for every name the `snapshots` rule keeps for this machine (`byokit-<ref.name>-` plus one dashless word, so `web` never deletes `web-two`'s copies) | Named snapshots survive a sandbox delete; without the second step the sign-ins inside them outlive it. A 404 on the sandbox counts as already deleted and the snapshot step still runs. `blocked` is terminal for the adapter: the operation is accepted and the sandbox is gone from every list, while a blocked stage can persist by design. |
-| `snapshots` (K3) | `GET /named-snapshots` | Keeps the entries with `status: 'ready'` whose name is `byokit-<ref.name>-` followed by `[a-z0-9]+` with no further dash, so a machine never lists another machine's copies when one name starts with the other (`web` never lists `web-two`'s). `id` is the name and `at` is `createdAt`. |
+| `snapshots` (K3) | `GET /named-snapshots` | Keeps the entries with `status: 'ready'` whose name is `byokit-<ref.name>-` followed by `[a-z0-9]+` with no further dash, so a machine never lists another machine's copies when one name starts with the other (`web` never lists `web-two`'s). `id` is the name and `at` is `createdAt`. K-UNDO: a name whose word is `undo` followed by exactly 12 base36 characters is `kind: 'before-update'`; every other kit copy (a 12-character word) has no `kind`. No copy saved before K-UNDO reads as before-update. |
 | `deleteSnapshot` (K3) | `DELETE /named-snapshots/{id}` | An id that fails the `snapshots` name rule rejects `no-snapshot` before any request; a 404 counts as deleted. |
 | `restore` (K3) | stop the old machine as `sleep` does unless it is already `asleep`, `gone` or `failed` (5.10); `POST /sandboxes` `{from: id, ttlSeconds: null, snapshots: ref.keepCopies}` + `Idempotency-Key`; poll `status` until `on` as `wake` does; `replaced(next)`; then `DELETE /sandboxes/{old id}` and its deletion poll as `remove` does (retried 3 times on any error, after the 1, 2 and 4 s waits; a final failure rejects `provider` with the old id in `extra.sandbox`), **without** the named-snapshot step | Boat has no in-place restore (a resume always uses the latest capture), so a restore is a new machine made from the named snapshot, and the copies stay with the machine's name. The body has no `noEnv` and no `type`: both inherit from the snapshot's source, which the kit created no-env, and an explicit `noEnv` could scrub sign-ins as a resume conversion does (6.3). Stopping first means the old and new machines never run at once, and the old one is still there, asleep, if the new one fails to start. Trial retry as `create`. |
 | `exec` | `POST /sandboxes/{id}/commands` `{command, timeoutSeconds, detached}`, and for a detached command poll `GET /sandboxes/{id}/commands/{processId}` every 1 s until `running` is false; a non-detached POST's `command.finished` response carries `stdout`, `stderr` and `exitCode` | 6.4. |
@@ -833,12 +966,12 @@ With `firstBoot: { recipe, phoneKey?, returnFile? }`, create refuses `bad-recipe
 
 Amended 2026-10-23 (K-SSH-REACH): reach from the phone is SSH too. The phone app passes its own SSH public key (the login key its transport holds, 7.3) as `publicKey`, so the firewall has the one SSH 22/tcp rule and cloud-init authorizes that key; once `status()` reads `on`, the app confirms the host key with `sshHostKey({ transport, pins, host: address(ref) })` and links through 9.1's forward. Without `publicKey` nothing is let in, and the machine has no reach until the person adds a key.
 
-This slice rejects `keepCopies: true`: it enables neither paid backups nor snapshots. Start/stop and full copy semantics are follow-up work. A stopped Hetzner server still bills; its disk retention is not a backup. The shared contract uses the API's first size and `keepCopies: false`, exercising every applicable method without inventing unsupported capabilities. No `Provider` signature change.
+This slice rejects `keepCopies: true`: it enables neither paid backups nor snapshots. Start/stop and full copy semantics are follow-up work. A stopped Hetzner server still bills; its disk retention is not a backup. Amended 2026-10-23 (K-UNDO): so `update` resolves `undo: null` and `update(r, { undo: true })` rejects `unsupported`. Hetzner's own server snapshots with an in-place `rebuild` (same server and address, powered off first) are the follow-up for undo, and its daily backups (`enable_backup`, 20% more on the server price, seven slots) for copies. The shared contract uses the API's first size and `keepCopies: false`, exercising every applicable method without inventing unsupported capabilities. No `Provider` signature change.
 
 ## 7. SSH VM adapter (`src/ssh.ts`, `./ssh`)
 
 `sshVm()` drives one Linux machine the person already rents. `id` is `'ssh-vm'`. It has no `create`, `wake`, `sleep`,
-`snapshot`, `fork`, `remove`, `url`, `usage` or `key`. `sizes()` is `[]`. `prices()` is `o.monthly ? [o.monthly] : []`.
+`snapshot`, `fork`, `remove`, `url`, `usage` or `key` (so no undo, 5.16). `sizes()` is `[]`. `prices()` is `o.monthly ? [o.monthly] : []`.
 
 ### 7.1 Every call
 
@@ -1088,6 +1221,8 @@ WantedBy=multi-user.target
   idempotent: on Boat `/var` does not survive sleep); the two `mkdir`s of 8.3 step 5, then each `update`
   argv in workDir; 8.3 steps 6 and 7; re-render the unit and rewrite it only if its bytes changed (then `daemon-reload`); then
   `systemctl [--user] restart byokit-<name>.service`. A recipe with no `update` runs the same sequence with no update argv, then restarts.
+  K-UNDO: when the machine can undo, a copy is saved after the 8.1 checks and before any other machine call, and
+  the result names it (5.16).
 - `host()`: `systemctl [--user] show byokit-<ref.name>.service -p LoadState,ActiveState,SubState,NRestarts`:
 
   | Reading | `HostState` |
@@ -1354,6 +1489,10 @@ key })` ends a claimed key (RFC 7009 at the metadata's `revocation_endpoint`, th
 | `snapshot.restore` | Resetting brings your cloud computer back to how it was on {date}. Everything changed on it since then is lost. |
 | `disk.used` | {used} GB of {total} GB used on your cloud computer. |
 | `error.noSnapshot` | That saved copy of your cloud computer is gone. Choose another one. |
+| `copies.noCredit` | {label} needs credit to keep another copy of your cloud computer, so nothing was saved and nothing was deleted. Add funds or delete a copy, then try again. |
+| `update.undo` | Undoing brings your cloud computer back to how it was just before the update on {date}. Everything changed on it since then is lost, not only the update. |
+| `update.undoReady` | A copy from just before this update was saved, so you can undo it. |
+| `error.noUndo` | There's no copy from before an update to go back to. |
 | `claim.refused` | {label} didn't accept that address. Check it and try again. |
 | `claim.expired` | That sign-in expired. Try again. |
 
@@ -1370,7 +1509,7 @@ key })` ends a claimed key (RFC 7009 at the metadata's `revocation_endpoint`, th
   | Code | Key |
   |---|---|
   | `unauthorized` | `error.key` |
-  | `balance` | `cost.balance` |
+  | `balance` | `copies.noCredit` with `extra.why: 'copies'`, else `cost.balance` |
   | `unreachable` | `state.unknown` |
   | `timeout` | `error.slow` |
   | `provider` | `state.failed` |
@@ -1379,6 +1518,7 @@ key })` ends a claimed key (RFC 7009 at the metadata's `revocation_endpoint`, th
   | `linger` | `host.linger` |
   | `needs-root` | `host.needsRoot` with `extra.command`, else `host.needsAdmin` |
   | `no-snapshot` | `error.noSnapshot` |
+  | `no-undo` | `error.noUndo` |
   | `wrong-account` | `error.wrongAccount` |
   | `owner-enrolled` | `error.ownerEnrolled` |
   | `no-machine`, `exists`, `unsupported`, `confirm`, `bad-recipe`, `busy` | `error.app` (these are the app's own mistakes) |
@@ -1808,6 +1948,25 @@ BYOKit waits on it.
   public host key, "pin it in `known_hosts`"). Stock OpenSSH reaches it; the document shows `-N -R` and says nothing
   of `-L`. It states no key delete route, and nothing on whether an added key survives stop and resume (M6 and 9.2
   record both). `noEnv` sandboxes keep SSH.
+- Copies and keys (public API document, read 2026-10-23, for K-UNDO and 5.15's deferred schedule):
+  - `/named-snapshots` is marked deprecated and hidden; `/saved-snapshots` documents the same save, poll, list and
+    delete with the same name rule. Reusing an existing name replaces that copy once the new save is ready. Whether the
+    two routes are one store is not stated; the adapter stays on the named routes until a slice moves every copy call
+    at once (5.17).
+  - A save past the free copies with no credit answers 402 `credit_required`: the saved-snapshot route says "above the
+    plan's included count", the named one 10. Each copy past them is $1.70 a month, charged daily.
+  - `snapshots: true` (the kit's `keepCopies`) makes Boat capture the sandbox in the background
+    (`GET /sandboxes/{id}/snapshots` lists them); a resume uses the latest, and no route deploys an earlier one, so
+    these protect against a lost machine, not a bad update. A sandbox created with `snapshots: false` can't be
+    resumed, forked or saved.
+  - `POST /api-keys/scoped` `{name, ttl, preset?, actions?, sandboxIds?, environmentIds?}` makes a scoped key with an
+    expiry (`ttl` default `90d`, at most `365d`, or `never`); it needs a dashboard or CLI session or an admin-scoped
+    key, answers 503 `scoped_api_key_creation_disabled` until scoped creation is switched on, and returns the secret
+    once as `secret`, with `apiKey.id` and `apiKey.expiresAt`. A key's scope is `actions`, `sandboxes` and
+    `environments`; documented actions include `snapshot.read` and `snapshot.write` (on the copy share routes).
+    Nothing says whether `sandboxes` limits saved copies: a saved copy carries `sourceSandboxId`, marked display only.
+  - Revoking (`DELETE /api-keys/{id}`) and rotating a key need a dashboard or CLI session: an API key cannot revoke a
+    key. This bears on M7's `revokeKey` as well.
 
 ### 15.2 Machine facts
 
