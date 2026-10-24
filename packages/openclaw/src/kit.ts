@@ -72,6 +72,8 @@ import type {
   RunSpec,
   OutputSchema,
   SchemaOutput,
+  AccountAction,
+  AccountContext,
   SignInOptions,
   SignInView,
   ChannelChat,
@@ -903,13 +905,24 @@ export class OpenClawKit {
     return this.accountsCtl.move(ref.member, ref.sessionKey, to);
   }
 
-  /** Sign in one more account: on the member agent while it holds none of the provider, else on a new sealed agent. */
-  addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId },
+  /** Sign in one more account: on the member agent while it holds none of the provider, else on a new sealed agent.
+   * `credentialPolicy: 'in-place'` writes only the sign-in's final store: a principal an account already holds answers
+   * `why: 'duplicate'` with that id (nothing moved or rebound), and `again` signs in on that account's own store, marking
+   * it `needs_again` / `unavailable: 'identity_mismatch'` when another principal signs in. One in-place sign-in per
+   * member and provider at a time; a second answers `why: 'busy'`. */
+  addAccount(member: Member, o: { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId;
+    credentialPolicy?: 'in-place' },
     on: (v: SignInView) => void): Promise<{ id: AccountId; paste(text: string): void; cancel(): void;
       done: Promise<{ view: SignInView; id: AccountId }> }> {
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
     return this.accountsCtl.add(member, o, on).then((added) => ({ ...added,
       done: added.done.then((r) => { if (r.view.state === 'done') this.syncCatalogs(); return r; }) }));
+  }
+
+  /** The account's row and the engine agent that holds its sign-in, for a host that prepares its own sessions. No credential path. */
+  accountContext(member: Member, id: AccountId): Promise<AccountContext> {
+    if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
+    return this.accountsCtl.context(member, id);
   }
 
   renameAccount(member: Member, id: AccountId, name: string): Promise<Account> {

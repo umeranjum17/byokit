@@ -54,6 +54,8 @@ export type {
   ThinkingAsked,
   ThinkingReport,
   ThinkingUsed,
+  AccountAction,
+  AccountContext,
   SignInOptions,
   SignInView,
   TelegramChannel,

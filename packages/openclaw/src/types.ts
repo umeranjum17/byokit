@@ -156,7 +156,8 @@ export type SignInView = {
   message?: string; // the engine's instructions shown with `code`
   prompt?: string; // what a waiting text step asks, answered through paste: the engine's question, or a fixed label once sensitive; never a value
   error?: string;
-  why?: 'busy' | 'declined' | 'expired' | 'failed';
+  why?: 'busy' | 'declined' | 'expired' | 'failed' | 'duplicate' | 'identity_mismatch';
+  existing?: AccountId; // why 'duplicate': the account already signed in as this principal; why 'identity_mismatch': the re-signed-in account
   cause?: CliLoginCause; // an `anthropic-cli` sign-in the kit cannot run (`signIn: false`)
 };
 
@@ -275,7 +276,13 @@ export type Account = { id: AccountId; provider: string; route: string;        /
   label: string;                     // the provider's display name ("ChatGPT")
   email?: string; plan?: string;     // live from models.authStatus usage when reported; never stored by the kit
   billing: 'subscription' | 'api'; state: SignInState; until?: number; addedAt: number;
-  reason?: UnknownReason; retryAfterMs?: number }; // reason, retryAfterMs: only while state is 'unknown'
+  reason?: UnknownReason; retryAfterMs?: number; // reason, retryAfterMs: only while state is 'unknown'
+  unavailable?: 'identity_mismatch'; // state 'needs_again': the re-sign-in was another principal; sign in as the recorded one
+  origin?: 'managed' | 'installed';  // managed: the kit's own sign-in; installed: the person's own Claude Code login
+  capabilities?: AccountAction[] };  // what the kit does for this row; an installed login is only renamed
+export type AccountAction = 'rename' | 'remove' | 'reauth';
+/** Safe routing metadata for one account of a member: the row and the engine agent that holds its sign-in. No credential path. */
+export type AccountContext = { account: Account; agentId: string };
 export type RoomSpan = 'session' | 'week' | 'month' | 'tightest';
 export type Room = { left: number; span: RoomSpan; resetsAt?: number; at?: number } | { left: 'unknown'; at?: number };
                                      // left: percent of the tightest applying window left, 0-100; times epoch ms;
