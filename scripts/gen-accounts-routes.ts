@@ -123,8 +123,10 @@ export function generateRoutes(): Route[] {
   });
   // MiniMax's own user-code device sign-in, from its catalogue device data: the pinned pi-ai provider has no OAuth
   // module, so the kit's portable engine signs it in. Both regions share a client; `:cn` picks the China host.
-  add('minimax', 'MiniMax', 'code', 'subscription', 'device', undefined, { offer: 'explicit', platforms: { node: 'yes', browser: 'host', rn: 'host' } });
-  add('minimax-cn', 'MiniMax CN', 'code', 'subscription', 'device', 'cn', { offer: 'explicit', platforms: { node: 'yes', browser: 'host', rn: 'host' } });
+  // A phone calls MiniMax directly, with PKCE from the app's Web Crypto (`AccountsOptions.crypto`); a web page still
+  // needs the app's host side.
+  add('minimax', 'MiniMax', 'code', 'subscription', 'device', undefined, { offer: 'explicit', platforms: { node: 'yes', browser: 'host', rn: 'yes' } });
+  add('minimax-cn', 'MiniMax CN', 'code', 'subscription', 'device', 'cn', { offer: 'explicit', platforms: { node: 'yes', browser: 'host', rn: 'yes' } });
   // The Google Code Assist clients are not pi-ai providers; their flows live in packages/accounts/src/flows/google.ts.
   for (const [id, name] of [['google-gemini-cli', 'Gemini Code Assist'], ['google-antigravity', 'Antigravity']] as const)
     for (const via of ['browser', 'paste'] as const)

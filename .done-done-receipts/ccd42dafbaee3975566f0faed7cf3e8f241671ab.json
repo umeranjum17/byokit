@@ -1,0 +1,88 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "ccd42dafbaee3975566f0faed7cf3e8f241671ab",
+  "tree": "c75cdae79accf4cebf09ef71c2b670e09947ca95",
+  "claim": "a phone app that names minimax in its offer and passes its Web Crypto signs in to a MiniMax plan by user code: the code shows, the account is kept across restarts, and it answers a question through the plan",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-24T07:10:40.645Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261024T070948Z-ccd42daf-87d0d7/drive.txt",
+      "sha256": "89df3dac90efc487af63742f221b70db8e72d799068429f734cfe0dc5d2b91c9"
+    },
+    {
+      "path": "<evidence root>/20261024T070948Z-ccd42daf-87d0d7/expo-minimax.txt",
+      "sha256": "ffce40678217cfde52b8ac3bfcb5389e56626f946c082a0b67a15be570f3f9cf"
+    },
+    {
+      "path": "<evidence root>/20261024T070948Z-ccd42daf-87d0d7/after__light__minimax-code.png",
+      "sha256": "591ef5513497b5872dbf6f27c4da96817dc4ff113dfad16668a6eff874d549cb"
+    },
+    {
+      "path": "<evidence root>/20261024T070948Z-ccd42daf-87d0d7/after__dark__minimax-code.png",
+      "sha256": "a4b9ad3cdfde07f7bb5d9d17488cfca69103e7f5210656115363140031de9a47"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261024T070948Z-ccd42daf-87d0d7",
+      "commit": "ccd42dafbaee3975566f0faed7cf3e8f241671ab",
+      "journey": null,
+      "command": "sh <task data>/drive.sh",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "@byokit/accounts 0.30.0 at ccd42daf, examples/expo release APK"
+        },
+        "start": "a phone app with no MiniMax account; React Native's crypto has getRandomValues but no subtle",
+        "steps": [
+          "the app names minimax in its offer and passes expo-crypto as crypto",
+          "the plan list shows a MiniMax row: Uses your MiniMax plan, Sign in with a code (the base app has none)",
+          "the person taps Sign in with MiniMax and the phone shows the code FIXTURE-MINIMAX-CODE",
+          "the person approves the code on the MiniMax page (the loopback stand-in)",
+          "the card says MiniMax is connected and lists the account Ready, also after each restart",
+          "the kit test signs in through the app's Web Crypto and answers one question with the plan's bearer; with no crypto it refuses before sending anything",
+          "Sign out ends it"
+        ],
+        "result": "MiniMax is connected on the phone, kept across restarts; minimax:code reads ready on React Native as a subscription route, not in the default offer"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261024T070948Z-ccd42daf-87d0d7/drive.txt",
+        "sha256": "89df3dac90efc487af63742f221b70db8e72d799068429f734cfe0dc5d2b91c9",
+        "verdict": "pass",
+        "seen": "Read all 14 test entries and the route check. Quoted: 'ℹ pass 14', 'ℹ fail 0', 'a phone app signs in to its MiniMax plan with the Web Crypto it passes, and asks it one question' passed, 'a China MiniMax account signs in on the China host after a restart' passed, and 'rn minimax:code ready subscription explicit Uses your MiniMax plan' names MiniMax in the offer. The 'Sign-in failed' lines are expected decline/expiry path output, not failures. 'rn default offer has minimax: false' refers to the base offer, not the phone app. Matches the outcome."
+      },
+      {
+        "path": "<evidence root>/20261024T070948Z-ccd42daf-87d0d7/expo-minimax.txt",
+        "sha256": "ffce40678217cfde52b8ac3bfcb5389e56626f946c082a0b67a15be570f3f9cf",
+        "verdict": "pass",
+        "seen": "Read all entries. Quoted: 'ok: type this code the app shows FIXTURE-MINIMAX-CODE' shows the code; 'ok: MiniMax is connected.' appears in several frames; the stand-in saw 'POST /oauth2/device/code' and repeated 'POST /oauth2/token urn:ietf:params:oauth:grant-type:user_code' polls. 'the base app lists no MiniMax plan' is the base app, not the phone app. Supports the outcome, though restart persistence and the question-answering are not shown here."
+      },
+      {
+        "path": "<evidence root>/20261024T070948Z-ccd42daf-87d0d7/after__light__minimax-code.png",
+        "sha256": "591ef5513497b5872dbf6f27c4da96817dc4ff113dfad16668a6eff874d549cb",
+        "verdict": "pass",
+        "seen": "Light-theme screenshot. Quoted: 'Other ways to connect', 'Uses your MiniMax plan · Sign in with a code', 'MiniMax', and 'On the MiniMax page, type this code:' followed by 'FIXTURE-MINIMAX-CODE'. The code is shown and MiniMax is named in the offer. Persistence and answering a question are not visible here."
+      },
+      {
+        "path": "<evidence root>/20261024T070948Z-ccd42daf-87d0d7/after__dark__minimax-code.png",
+        "sha256": "a4b9ad3cdfde07f7bb5d9d17488cfca69103e7f5210656115363140031de9a47",
+        "verdict": "pass",
+        "seen": "Dark-theme screenshot. Quoted: 'Other ways to connect', 'Uses your MiniMax plan · Sign in with a code', and 'On the MiniMax page, type this code:' followed by 'FIXTURE-MINIMAX-CODE'. The code is shown and MiniMax is named in the offer. Persistence and answering a question are not visible here."
+      }
+    ]
+  }
+}

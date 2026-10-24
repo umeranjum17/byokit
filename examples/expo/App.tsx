@@ -18,7 +18,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SecureStore from 'expo-secure-store';
 import { CryptoDigestAlgorithm, digest, getRandomValues } from 'expo-crypto';
 import { fetch as streamingFetch } from 'expo/fetch';
-import { Accounts, PROVIDERS, planLabel, routeReadiness, say, secureStore, type OpenCodeGoWorkspace, type Status } from '@byokit/accounts';
+import { Accounts, PROVIDERS, offered, planLabel, portable, routeReadiness, say, secureStore, type OpenCodeGoWorkspace, type Status } from '@byokit/accounts';
 import { nativeStore } from '@byokit/secrets';
 import { answerer, decide } from '@byokit/decide';
 import { DeviceLink, secureDeviceStore, type LinkStatus } from '@byokit/pair';
@@ -33,18 +33,22 @@ import { focusedField } from '@byokit/bubble/focused-field';
 
 const ME = 1;
 const claudeBase = process.env.EXPO_PUBLIC_CLAUDE_BASE;
+// Claude's and MiniMax's sign-ins need SHA-256, which React Native doesn't have; expo-crypto supplies it.
+const webCrypto = { getRandomValues, subtle: { digest: (_: unknown, data: BufferSource) => digest(CryptoDigestAlgorithm.SHA256, data) } } as unknown as Crypto;
 const accounts = new Accounts<any, number>({
   app: 'byokit example',
+  // Every plan this phone signs in to, plus MiniMax's, which an app offers by naming it.
+  offer: [...offered().filter((p) => portable.signsIn(p.pi)).map((p) => p.key), 'minimax'],
+  crypto: webCrypto,
   store: (member) => secureStore(SecureStore, `byokit.${member}`),
   keyStore: (member) => nativeStore({ secureStore: SecureStore, prefix: `byokit.keys.${member}` }), // pasted plan keys
   authBase: process.env.EXPO_PUBLIC_OPENAI_BASE, // unset: the real OpenAI
   apiBase: process.env.EXPO_PUBLIC_OPENAI_BASE,
   deviceBase: process.env.EXPO_PUBLIC_DEVICE_BASE,
   fetch: streamingFetch as unknown as typeof fetch, // streams; React Native's own fetch answers all at once
-  // Claude's sign-in needs SHA-256, which React Native doesn't have; expo-crypto supplies it.
   claudePlan: { ...(claudeBase ? {
     authorizeUrl: `${claudeBase}/oauth/authorize`, tokenUrl: `${claudeBase}/v1/oauth/token`, profileUrl: `${claudeBase}/api/oauth/profile`,
-  } : {}), crypto: { getRandomValues, subtle: { digest: (_: unknown, data: BufferSource) => digest(CryptoDigestAlgorithm.SHA256, data) } } as unknown as Crypto },
+  } : {}), crypto: webCrypto },
 });
 /** Phone sign-ins use the offered provider identities; route metadata supplies the method and billing. A provider
  *  with no phone sign-in connects through its plan key route, if it has one. */

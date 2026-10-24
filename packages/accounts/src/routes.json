@@ -1087,7 +1087,7 @@
     "platforms": {
       "node": "yes",
       "browser": "host",
-      "rn": "host"
+      "rn": "yes"
     },
     "upstream": {
       "surface": "accounts",
@@ -1117,7 +1117,7 @@
     "platforms": {
       "node": "yes",
       "browser": "host",
-      "rn": "host"
+      "rn": "yes"
     },
     "upstream": {
       "surface": "accounts",
