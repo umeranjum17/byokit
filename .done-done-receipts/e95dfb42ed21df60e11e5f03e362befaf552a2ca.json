@@ -1,0 +1,56 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "e95dfb42ed21df60e11e5f03e362befaf552a2ca",
+  "tree": "d82b42ce34241d48e611144f15f99a50551d22ad",
+  "claim": "A phone app that installs the released @byokit/accounts 0.31.0 can sign in to a MiniMax plan by user code with its own Web Crypto: the code shows, the account is kept as a ready plan and a question is answered through it; with no crypto the sign-in is refused before anything is sent.",
+  "result": "pass",
+  "at": "2026-10-24T08:14:02.127Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261024T081343Z-e95dfb42-12f6e2/minimax-release.txt",
+      "sha256": "521e3b811b05eb30c731c5df8870f12c7649205703521ebc74376fb20d9d2f4f"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261024T081343Z-e95dfb42-12f6e2",
+      "commit": "e95dfb42ed21df60e11e5f03e362befaf552a2ca",
+      "journey": null,
+      "command": "node <task folder>/scratch/minimax-release-drive.mjs <worktree>",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "@byokit/accounts 0.31.0 (packed at the release head)"
+        },
+        "start": "a fresh phone-shaped consumer app with no package and no account; the device has getRandomValues but no crypto.subtle, like React Native",
+        "steps": [
+          "install the packed @byokit/accounts release tarball into the app",
+          "before: the published 0.30.0, installed the same way, reads both MiniMax plan routes as not ready on React Native",
+          "read minimax:code and minimax:code:cn on React Native: both ready, billed as the plan",
+          "start a MiniMax sign-in with no crypto passed: refused before anything is sent, naming the missing crypto",
+          "start it again with the app's own Web Crypto: the phone shows the code, the person approves it at the stand-in",
+          "the account is kept as a ready MiniMax plan and one question is answered through the plan token"
+        ],
+        "result": "the released package signs a phone in to a MiniMax plan: code shown, account ready, answer \"Hello Umer\"; with no crypto it refuses before any request"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261024T081343Z-e95dfb42-12f6e2/minimax-release.txt",
+        "sha256": "521e3b811b05eb30c731c5df8870f12c7649205703521ebc74376fb20d9d2f4f",
+        "verdict": "pass",
+        "seen": "I read all 11 capture lines plus the before-run lines. The installed package is @byokit/accounts@0.31.0. Both MiniMax routes (minimax:code and minimax:code:cn) show readiness ready and billing subscription. With no crypto, the sign-in is refused and requests sent 0 and accounts kept 0. With crypto, the phone shows code FIXTURE-MINIMAX-CODE, approve at the stand-in is true, PKCE uses SHA-256, the account is provider minimax, billing subscription, state ready, and the answer is 'Hello Umer (stop stop)' with 1 request to the plan API. The 0.30.0 before-run shows needs_host, which is the contrast. The outcome is shown. The outcome names no separate widths or frames, so parts and covers are empty."
+      }
+    ]
+  }
+}
