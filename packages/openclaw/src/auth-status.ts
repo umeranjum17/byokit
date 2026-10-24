@@ -6,11 +6,32 @@ import type { GatewayTransport } from './types.ts';
 
 export type AuthStatus = { providers?: (string | {
   provider?: unknown; status?: unknown; profiles?: { profileId?: unknown; status?: unknown; expiresAt?: unknown }[]; usage?: unknown;
-})[]; unavailable?: { message?: unknown } };
+})[]; unavailable?: { message?: unknown };
+  /** Providers whose sign-in the kit could not check (the native Claude Code probe failed or timed out). They are neither
+   *  signed in nor signed out: nothing is listed for them, and a reader must not read that absence as a sign-out. */
+  unknown?: string[] };
+
+/** How long a failed native probe is retried: past the engine's own 10 s probe window, so a slow `claude auth status`
+ *  gets a second full chance before the answer is given up as unknown. */
+export const PROBE_WINDOW_MS = 12_000;
+const PROBE_GAP_MS = 1_000;
+
+/** The native Claude Code probe, retried (fresh, never the cached failure) until the window has passed and at least two
+ *  attempts ran. Undefined is unknown: a thrown or timed-out probe is never an answer about the login. */
+export async function probe(
+  request: GatewayTransport['request'], agentId: string, detect?: Detector, o?: { windowMs?: number; gapMs?: number },
+): Promise<Detection | undefined> {
+  const start = Date.now();
+  for (let attempt = 1; ; attempt++) {
+    try { return await detection(request, agentId, detect, { fresh: attempt > 1 }); } catch { /* retried below */ }
+    if (attempt >= 2 && Date.now() - start >= (o?.windowMs ?? PROBE_WINDOW_MS)) return undefined;
+    await new Promise((resolve) => setTimeout(resolve, o?.gapMs ?? PROBE_GAP_MS));
+  }
+}
 
 /** The engine's setup detection, through the shared detector when the caller has one: one probe per agent, reused
  * briefly, so a poll that reads readiness and the account list does not pay for the probe twice. A failed probe reads
- * as no detection: the caller decides what an unknown answer means. */
+ * as no detection: the caller decides what an unknown answer means (admission: unknown, never signed out). */
 export const detection = async (
   request: GatewayTransport['request'], agentId: string, detect?: Detector,
   o?: { fresh?: boolean; signal?: AbortSignal; timeoutMs?: number },
@@ -28,12 +49,14 @@ export async function authStatus(
 ): Promise<AuthStatus> {
   const [status, detected] = await Promise.all([
     request('models.authStatus', { agentId, ...(refresh ? { refresh: true } : {}) }, { timeoutMs: 20_000 }) as Promise<AuthStatus>,
-    native ? detection(request, agentId, detect).catch(() => ({})) : undefined,
+    native ? probe(request, agentId, detect) : undefined,
   ]);
   return native ? nativeStatus(status, detected) : status;
 }
 
 function nativeStatus(status: AuthStatus, detected: Detection | undefined): AuthStatus {
+  if (detected === undefined) return { ...status, providers: (status.providers ?? []).filter((row) => (typeof row === 'string' ? row : row.provider) !== 'claude-cli'),
+    unknown: [...status.unknown ?? [], 'claude-cli'] };
   const rows = (status.providers ?? []).filter((row) => (typeof row === 'string' ? row : row.provider) !== 'claude-cli');
   if (detected?.candidates?.some((candidate) => candidate.kind === 'claude-cli' && candidate.credentials === true)) {
     return { providers: [...rows, { provider: 'claude-cli', status: 'ok' }] };
@@ -82,14 +105,15 @@ export function createAuthStatus(root: string, request: GatewayTransport['reques
     // The pin's own status and the setup detection are independent reads: they run together, not one after the other.
     const [profiles, detected] = await Promise.all([
       authStatus(request, agentId, refresh),
-      native ? detection(request, agentId, detect).catch(() => undefined) : undefined,
+      native ? probe(request, agentId, detect) : undefined,
     ]);
     if (codex) {
       profiles.providers = (profiles.providers ?? []).filter(row => (typeof row === 'string' ? row : row.provider) !== 'openai-codex');
       if (await codex()) profiles.providers.push({ provider: 'openai-codex', status: 'ok' });
     }
     const status = native ? nativeStatus(profiles, detected) : profiles;
-    if (before !== undefined && epoch === generation && witness(agentId) === before) {
+    // An unknown answer is never kept: the next reader asks again.
+    if (before !== undefined && epoch === generation && witness(agentId) === before && !status.unknown?.length) {
       for (const [route, answer] of (native ? [[false, profiles], [true, status]] : [[false, profiles]]) as [boolean, AuthStatus][]) {
         const usable = signedInProviders(answer);
         if (!usable?.length || (route && !usable.includes('claude-cli'))) continue;

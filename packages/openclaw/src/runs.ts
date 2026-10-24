@@ -32,7 +32,7 @@ type AgentPayload = { runId: string; stream: string; data?: {
 // `models.authStatus` provider rows (a bare string on older shapes). A provider is usable while any of its profiles
 // is: the row's own status is its worst profile's.
 type Row = { provider?: unknown; status?: unknown; profiles?: { status?: unknown }[]; usage?: unknown };
-type AuthStatus = { providers?: (string | Row)[]; unavailable?: { message?: unknown } };
+type AuthStatus = { providers?: (string | Row)[]; unavailable?: { message?: unknown }; unknown?: string[] };
 export const USABLE = new Set(['ok', 'expiring', 'static']);
 const usable = (row: string | Row): boolean => typeof row === 'string'
   || (Array.isArray(row.profiles) && row.profiles.length > 0 ? row.profiles.some((p) => USABLE.has(String(p?.status)))
@@ -43,6 +43,12 @@ const usable = (row: string | Row): boolean => typeof row === 'string'
  * unique; undefined while the engine has no prepared status (unknown, not none).
  */
 export function signedInProviders(status: unknown): string[] | undefined {
+  const auth = (status ?? {}) as AuthStatus;
+  return auth.unknown?.length ? undefined : usableProviders(auth);
+}
+
+/** The usable providers an answer does list, even when another provider's sign-in could not be checked (`unknown`). */
+export function usableProviders(status: unknown): string[] | undefined {
   const auth = (status ?? {}) as AuthStatus;
   if (auth.unavailable || !Array.isArray(auth.providers)) return undefined;
   const names = auth.providers.filter((row) => row && usable(row))
@@ -360,6 +366,10 @@ export function createRuns(ctx: {
         if (auth.unavailable)
           return { ok: false, kind: 'other', message: String(auth.unavailable.message ?? 'account status unavailable') };
         const row = (auth.providers ?? []).find((e) => (typeof e === 'string' ? e : e?.provider) === picked.provider);
+        // A sign-in the kit could not check (a slow or failed probe) is unknown: the run ends `network` (retry), never
+        // `signed-out`, so no app signs the person out over it.
+        if (!row && auth.unknown?.includes(picked.provider))
+          return { ok: false, kind: 'network', message: `${picked.provider} could not be checked for ${spec.member}; try again` };
         if (!row || !usable(row))
           return signedOut(picked.provider, `${picked.provider} is not signed in for ${spec.member}`);
       }
