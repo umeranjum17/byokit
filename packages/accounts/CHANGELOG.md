@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.31.0 (2026-10-24)
+
+- Sign in to a MiniMax plan on a phone: `minimax:code` and `minimax:code:cn` are ready on React Native (`route(id, { platform: 'rn' })`), so a phone app that names `minimax` in its `offer` list and passes its own Web Crypto as `crypto` (React Native has no `crypto.subtle`) shows the code, keeps the account and asks it through the plan. A PKCE sign-in started with no SHA-256 on the device is now refused before it starts, naming the missing `crypto`, instead of failing as an unfinished sign-in. The MiniMax API key route is unchanged.
+
 ## 0.30.0 (2026-10-20)
 
 - FEAT: `Accounts.models(member, id)` lists a ready account's models from its vendor's live `GET /models` (OpenAI-style routes with a bearer, Anthropic Messages at `/v1/models`), read with that account's own key, or for a Grok, Copilot, Kimi, Meta or MiniMax sign-in its token, so a model the vendor adds shows without a kit release; each route in `routes.json` now names that list as `models: { api, baseUrl }`, generated from the installed Pi pin. A route with no single list (Bedrock, Azure, Vertex, Cloudflare, Google AI Studio, Mistral, Radius, Typesafe, custom) or a list that cannot be read keeps the catalogue's rows. Without host `capabilities`, `pick` no longer refuses a model id only because no account lists it: the pick goes ahead and names it in `unlisted` for the app to warn (`resolveSelection` takes the same as a new `open` argument, off by default); a listed model the account cannot use, or one a host's `capabilities` omit, still refuses.
