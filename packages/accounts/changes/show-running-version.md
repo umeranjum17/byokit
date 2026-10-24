@@ -1,1 +1,0 @@
-- FEAT: `byokit-accounts --version` prints the running version, and `--help` starts with it; a build with unreleased changes says `+dev (dev build)`.

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.32.0 (2026-10-24)
+
+- Dependency update: pins @byokit/usage 0.10.0.
+
+- FEAT: `byokit-accounts --version` prints the running version, and `--help` starts with it; a build with unreleased changes says `+dev (dev build)`.
+
 ## 0.31.0 (2026-10-24)
 
 - Sign in to a MiniMax plan on a phone: `minimax:code` and `minimax:code:cn` are ready on React Native (`route(id, { platform: 'rn' })`), so a phone app that names `minimax` in its `offer` list and passes its own Web Crypto as `crypto` (React Native has no `crypto.subtle`) shows the code, keeps the account and asks it through the plan. A PKCE sign-in started with no SHA-256 on the device is now refused before it starts, naming the missing `crypto`, instead of failing as an unfinished sign-in. The MiniMax API key route is unchanged.
