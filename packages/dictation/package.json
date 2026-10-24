@@ -14,7 +14,7 @@
   "files": ["dist", "fixtures/wer", "scripts/generate-wer.py", "scripts/bench", "README.md", "LICENSE", "CHANGELOG.md"],
   "bin": {"byokit-dictation-wer":"./dist/wer-cli.js"},
   "scripts": {"prepack":"tsc -b"},
-  "dependencies": {"@byokit/audio": "0.3.0"},
+  "dependencies": {"@byokit/audio": "0.3.0", "@byokit/usage": "0.9.1"},
   "peerDependencies": {"whisper.rn":"0.7.2"},
   "peerDependenciesMeta": {"whisper.rn":{"optional":true}}
 }

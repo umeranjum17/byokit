@@ -26,7 +26,7 @@ import { scratchDir, trackChild } from '../../packages/test-support.ts';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const root = join(here, '../..');
-const PACKAGES = ['herdr', 'pair', 'link', 'relay', 'discover', 'reach', 'seal', 'ui', 'ui-core'];
+const PACKAGES = ['herdr', 'pair', 'link', 'relay', 'discover', 'reach', 'seal', 'ui', 'ui-core', 'usage'];
 
 // A clean copy of the example with the packed packages installed the way npm lays them out.
 const dir = scratchDir('herdr-kit');
@@ -136,11 +136,20 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
   const pairMs = performance.now() - enteredAt;
   assert.ok(pairMs < 10_000, `first code-entry-to-connected took ${pairMs} ms (limit 10000)`);
   console.log(`First code-entry-to-connected: ${Math.round(pairMs)} ms`);
+  // The page says its own version beside the computer's: both from the Herdr kit this example installed.
+  const kitManifest = join(modules, '@byokit/herdr/package.json');
+  const kitVersion = (JSON.parse(readFileSync(kitManifest, 'utf8')) as { version: string }).version;
+  await text(page, '#build', `App ${kitVersion} · Host ${kitVersion}`);
+  assert.equal(await page.locator('#build-mismatch').isHidden(), true, 'no mismatch hint when both match');
   assert.equal(await page.locator('#herdr').count(), 0, 'one connection line, not two');
   await text(page, '#tree .agent .who', 'project');
   assert.match((await page.locator('#tree .agent .sub').first().textContent()) ?? '',
     new RegExp(`^Pi · ${NAME}$`), 'agent and computer in plain words');
   await text(page, '#agent-name', 'project · Pi');
+  if (process.env.BYOKIT_EXAMPLE_RESTART_PROOF) {
+    mkdirSync(process.env.BYOKIT_EXAMPLE_RESTART_PROOF, { recursive: true });
+    await page.screenshot({ path: join(process.env.BYOKIT_EXAMPLE_RESTART_PROOF, 'versions-match.png'), fullPage: true });
+  }
 
   // Start a new agent in its own workspace; it becomes the one selected.
   await page.selectOption('#kind', 'pi');
@@ -198,11 +207,18 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
   await page.waitForFunction((connected) => document.getElementById('link')?.textContent !== connected,
     `Connected to ${NAME} - same Wi-Fi.`);
   said = '';
+  // The computer comes back updated while this page stays open: the page says the two versions differ.
+  const manifestBefore = readFileSync(kitManifest);
+  writeFileSync(kitManifest, JSON.stringify({ ...JSON.parse(manifestBefore.toString()), version: '99.0.0' }));
   host = startHost(); // no --enrol: the original host identity and ingress are on disk
+  await heard(/Herdr kit 99\.0\.0/);
+  writeFileSync(kitManifest, manifestBefore);
   await heard(/Connected to Herdr\./);
   await heard(/Away from home: online/);
   await text(page, '#link', `Connected to ${NAME} - same Wi-Fi.`);
   assert.equal(await page.locator('#pair').isHidden(), true, 'no new pairing screen');
+  await text(page, '#build', `App ${kitVersion} · Host 99.0.0`);
+  await text(page, '#build-mismatch', 'The app and the host run different versions: update the older one, then reload.');
   const pairScreens = await page.evaluate(() =>
     (window as unknown as { restartPairScreens: boolean[] }).restartPairScreens);
   assert.deepEqual(pairScreens, [], 'pairing screen never reappeared during restart');

@@ -30,6 +30,9 @@ import { accountsSource, linkWords, pairingView, useAccounts, useConnect, useMod
 import { overlay, stateWords, type OverlayState } from '@byokit/bubble';
 import { stateWords as chipWords, status as chip } from '@byokit/statusbar';
 import { focusedField } from '@byokit/bubble/focused-field';
+import { buildVersion, versionLabel } from '@byokit/usage/version';
+import appManifest from './app.json';
+import accountsManifest from '../../packages/accounts/package.json'; // the same folder the file: dependency links
 
 const ME = 1;
 const claudeBase = process.env.EXPO_PUBLIC_CLAUDE_BASE;
@@ -570,9 +573,14 @@ function KitDemo() {
       <Chip />
       <Button id="seal" label="Try sealing" onPress={trySeal} />
       {!!sealed && <Text testID="sealed" style={s.small}>{sealed}</Text>}
+      <Text testID="build" style={s.build}>{BUILD}</Text>
     </ScrollView></SafeAreaView>
   );
 }
+
+// Which app build this is (a Metro dev bundle says so) and the kit it runs, both read from their manifests at build time.
+const BUILD = `byokit example ${versionLabel(buildVersion(appManifest.expo.version, { unreleased: __DEV__ }))}` +
+  ` · @byokit/accounts ${versionLabel(buildVersion(accountsManifest.version))}`;
 
 const s = StyleSheet.create({
   screen: { backgroundColor: '#fff', padding: 24, paddingTop: 64, gap: 12 },
@@ -586,6 +594,7 @@ const s = StyleSheet.create({
   quiet: { fontSize: 15, color: '#6b6a66', textDecorationLine: 'underline', paddingVertical: 6 },
   words: { fontSize: 18 },
   small: { fontSize: 14, color: '#555' },
+  build: { fontSize: 12, color: '#6b6a66', textAlign: 'center', marginTop: 24 },
   code: { fontSize: 32, fontWeight: '700', letterSpacing: 2 },
   sheet: { gap: 12, padding: 16, borderRadius: 12, backgroundColor: '#f2f2f2' },
   panel: { flex: 1, justifyContent: 'flex-end', padding: 16 },

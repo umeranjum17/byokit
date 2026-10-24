@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
-  "references": [{ "path": "../audio" }],
+  "references": [{ "path": "../usage" }, { "path": "../audio" }],
   "compilerOptions": { "rootDir": "src", "outDir": "dist" },
   "include": ["src", "src/**/*.json"]
 }

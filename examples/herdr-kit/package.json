@@ -10,7 +10,7 @@
   "scripts": {
     "prestart": "npm run build:web",
     "start": "node host.ts",
-    "build:web": "esbuild web/app.ts --bundle --format=esm --platform=browser --target=es2022 --outfile=web/app.js --log-level=warning",
+    "build:web": "node build-web.ts",
     "test": "node --test e2e.test.ts"
   },
   "dependencies": {
@@ -19,7 +19,8 @@
     "@byokit/discover": "0.8.6",
     "@byokit/relay": "0.8.2",
     "@byokit/seal": "0.3.1",
-    "@byokit/ui": "1.0.0"
+    "@byokit/ui": "1.0.0",
+    "@byokit/usage": "0.9.1"
   },
   "devDependencies": {
     "esbuild": "0.28.2"

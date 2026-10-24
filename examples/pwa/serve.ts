@@ -7,6 +7,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
+import { packageVersion } from '@byokit/usage/version/node';
 
 const here = (f: string) => fileURLToPath(new URL(f, import.meta.url));
 const TYPES: Record<string, string> = { html: 'text/html', js: 'text/javascript', webmanifest: 'application/manifest+json', png: 'image/png', ico: 'image/x-icon', svg: 'image/svg+xml' };
@@ -22,7 +23,8 @@ const headers = (h: IncomingHttpHeaders) => Object.entries(h).filter(([k, v]) =>
 
 export async function serve(port = 0, authBase?: string, deviceBase?: string) {
   const bundle = await build({ entryPoints: [here('app.ts'), here('pair.ts'), here('usage.ts')], outdir: 'out', bundle: true, platform: 'browser', format: 'esm', write: false, logLevel: 'silent',
-    define: { __BYOKIT_AUTH_BASE__: JSON.stringify(authBase) ?? 'undefined', __BYOKIT_DEVICE_BASE__: JSON.stringify(deviceBase) ?? 'undefined' } });
+    define: { __BYOKIT_AUTH_BASE__: JSON.stringify(authBase) ?? 'undefined', __BYOKIT_DEVICE_BASE__: JSON.stringify(deviceBase) ?? 'undefined',
+      __BYOKIT_VERSION__: JSON.stringify(packageVersion(new URL('../package.json', import.meta.resolve('@byokit/accounts')))) } });
   const apps = new Map(bundle.outputFiles.map((f) => [f.path.split('/').pop()!, f.text]));
   const server = createServer(async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://x');

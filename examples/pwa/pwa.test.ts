@@ -34,6 +34,8 @@ test('sign in with ChatGPT in a browser: device code, the plan named, kept acros
   await page.goto(`${site.url}?openai=https://attacker.example`);
   await part(page, 'chatgpt', 'signin').waitFor();
   assert.equal(await part(page, 'chatgpt', 'sheet').isVisible(), false, 'no sign-in sheet before the person starts');
+  const { version } = JSON.parse(readFileSync(new URL('../../packages/accounts/package.json', import.meta.url), 'utf8'));
+  assert.ok((await page.locator('#build').textContent())!.startsWith(`byokit accounts ${version}`), 'the footer names the kit version it runs');
 
   await part(page, 'chatgpt', 'signin').click();
   const code = (await part(page, 'chatgpt', 'code').filter({ hasText: /^MOCK-/ }).textContent())!;

@@ -64,6 +64,7 @@
   pre:empty { display: none; }
 
   .empty { color: var(--soft); }
+  .build { color: var(--soft); font-size: .8rem; text-align: center; margin-top: 2.5rem; font-variant-numeric: tabular-nums; }
   [hidden] { display: none !important; }
   @media (prefers-reduced-motion: no-preference) { button { transition: background-color .15s, border-color .15s; } }
 </style>
@@ -128,6 +129,7 @@
       <p id="start-error" class="error" role="alert"></p>
     </section>
   </section>
+  <footer class="build"><p id="build"></p><p id="build-mismatch" class="error" role="status" hidden></p></footer>
 </main>
 <script type="module" src="app.js"></script>
 </html>

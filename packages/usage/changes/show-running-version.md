@@ -1,0 +1,1 @@
+- FEAT: `@byokit/usage/version` labels the running version (release, pre-release, or `+dev (dev build)` when unreleased change fragments are present), and `pairLabel` shows an app beside its host (`App 0.2.13 · Host 0.2.10`) with a hint when they differ. `@byokit/usage/version/node` reads it from a `package.json`.

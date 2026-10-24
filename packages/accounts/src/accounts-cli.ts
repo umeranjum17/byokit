@@ -10,6 +10,8 @@ import { existsSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSy
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Room, Window } from '@byokit/usage';
+import { versionLabel } from '@byokit/usage/version';
+import { packageVersion } from '@byokit/usage/version/node';
 import { CliAccountError, cliAccounts, type CliAccount, type CliPickRow, type CliProvider } from './cli.ts';
 import { REST_MS } from './limits.ts';
 import { poolPrepare } from './prepare.ts';
@@ -21,6 +23,9 @@ const PROVIDERS: CliProvider[] = ['claude', 'codex', 'pi', 'opencode', 'kimi', '
 const USAGE = 'byokit-accounts <list|add|status|pick|use|env|rest|unrest> [--state <dir>] [--json] [--cached] ...';
 /** The command's own two Claude headers; a pool row's room and its Windows need a client that says who it is. */
 const CLAUDE_HEADERS = { 'anthropic-beta': 'oauth-2025-04-20', 'User-Agent': 'byokit-accounts' };
+
+/** `byokit-accounts 0.31.0`: the command's own package, read from its package.json beside `dist/` and `src/`. */
+const VERSION = `byokit-accounts ${versionLabel(packageVersion(new URL('../package.json', import.meta.url)))}`;
 
 class UsageError extends Error {}
 
@@ -186,7 +191,8 @@ export function table(rows: ListedRow[]): string {
 }
 
 export async function main(argv: string[], io: CliIo): Promise<number> {
-  if (argv.length === 1 && argv[0] === '--help') { io.stdout(`${USAGE}\n`); return 0; }
+  if (argv.length === 1 && argv[0] === '--help') { io.stdout(`${VERSION}\n${USAGE}\n`); return 0; }
+  if (argv.length === 1 && argv[0] === '--version') { io.stdout(`${VERSION}\n`); return 0; }
   const emit = (value: unknown) => io.stdout(`${JSON.stringify(value, null, 2)}\n`);
   try {
     const args = parse(argv);

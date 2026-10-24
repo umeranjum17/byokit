@@ -83,11 +83,17 @@ function ready(f: Fixture, tool: 'claude' | 'codex') {
   return { id: answer.account.id, folder, signIn: answer.signIn };
 }
 
-test('--help works before any pool exists, while unknown flags still fail', () => {
+test('--help and --version work before any pool exists, while unknown flags still fail', () => {
   const help = spawnSync(process.execPath, [BIN, '--help'], { encoding: 'utf8' });
   assert.equal(help.status, 0, help.stderr);
-  assert.match(help.stdout, /^byokit-accounts <list\|add\|status\|pick\|use\|env\|rest\|unrest>/);
+  // The help header and `--version` name the running version, and say when it is a dev build.
+  const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
+  const shown = `byokit-accounts ${version.replaceAll('.', '\\.')}(\\+dev \\(dev build\\))?\n`;
+  assert.match(help.stdout, new RegExp(`^${shown}byokit-accounts <list\\|add\\|status\\|pick\\|use\\|env\\|rest\\|unrest>`));
   assert.equal(help.stderr, '');
+  const shownVersion = spawnSync(process.execPath, [BIN, '--version'], { encoding: 'utf8' });
+  assert.equal(shownVersion.status, 0, shownVersion.stderr);
+  assert.match(shownVersion.stdout, new RegExp(`^${shown}$`));
   const unknown = spawnSync(process.execPath, [BIN, '--unknown'], { encoding: 'utf8' });
   assert.equal(unknown.status, 2);
   assert.match(unknown.stderr, /unknown flag/);

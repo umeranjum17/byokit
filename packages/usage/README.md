@@ -604,3 +604,19 @@ console.log(windows.ageText, windows.stale);
 Run `node examples/pwa/serve.ts` and open `/usage.html` for the shared Umer
 fixture ledger. In Expo, set `EXPO_PUBLIC_USAGE_DEMO=1`. These examples are
 explicitly labelled sample activity and never read a real sign-in.
+
+### Which version is running
+
+`@byokit/usage/version` (portable, no dependencies) labels a build: the release itself, a semver pre-release, or a
+dev build of source with unreleased changes. `pairLabel` puts an app beside the host it talks to and adds a hint
+when they differ. `@byokit/usage/version/node` reads a `package.json` from disk; pending `changes/*.md` fragments
+beside it make it a dev build, and a published install (which ships no `changes/`) reads as its release.
+
+```ts
+import { buildVersion, pairLabel, versionLabel } from '@byokit/usage/version';
+import { packageVersion } from '@byokit/usage/version/node';
+const cli = packageVersion(new URL('../package.json', import.meta.url));
+console.log(`my-cli ${versionLabel(cli)}`); // my-cli 0.31.0, or 0.31.0+dev (dev build)
+const { text, mismatch } = pairLabel(buildVersion('0.2.13'), buildVersion('0.2.10'));
+console.log(text, mismatch ?? ''); // App 0.2.13 · Host 0.2.10, then the update hint
+```
