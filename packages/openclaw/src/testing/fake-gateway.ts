@@ -616,6 +616,8 @@ export function fakeGateway(script?: FakeScript, o?: { rosterApplyMs?: number })
       }
       return { ok: false };
     },
+    // The engine always answers its setup detection; no installed Claude Code login unless a test says otherwise.
+    'openclaw.setup.detect': () => ({ candidates: [] }),
     'openclaw.setup.activate': (p) => {
       if (p.kind !== 'api-key') throw new Error('only the API-key setup path is simulated');
       // The pin takes a pasted key only for a choice whose manifest allows one (`appGuidedSecret`).

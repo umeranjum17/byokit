@@ -237,7 +237,11 @@ without a new accepted frame emit no `started`. Handle these frames explicitly r
 non-text/tool frame as an end.
 Live readiness reads (`providers`, `signedIn`, or device `state()`) prepare admission for the next run, avoiding
 redundant checks while authority remains reusable. `providerStatus(member)` returns `undefined` for unknown
-status rather than `[]`; `providers` maps unknown to `[]`, and `signedIn` to `false`. `signedIn(member, provider)`
+status rather than `[]`; `providers` maps unknown to `[]`, and `signedIn` to `false`. A Claude Code sign-in check
+that fails or times out (the engine's `claude auth status` probe has a hard 3 s limit) is retried past the engine's 10 s
+window and then reads unknown, never signed out: `signInState(member, provider)` returns `'signed-in'`, `'signed-out'`
+or `'unknown'` (use it, not `signedIn`, to decide on a sign-out; on `'unknown'` keep the session and ask again), and a
+run's admission check ends `kind: 'network'` (retry), not `'signed-out'`. `signedIn(member, provider)`
 is also true when the member holds a ready API key for that provider (`addKey`), including after an engine restart
 that retains the key profile on `byokit-key-<member>`, while `providers` lists only the member's own sign-ins, the
 ones a run without `auth: 'apiKey'` uses; a key run passes `auth: 'apiKey'`.
@@ -426,7 +430,7 @@ Entries:
 
 | Export | What it does |
 | --- | --- |
-| `OpenClawKit` (`.`) | Prepares, starts, supervises and stops the engine. `call` / `callDynamic` pass through to the Gateway, `onEvent` listens. Helpers: `ensureMember`, `ensureHelper`, `adoptHelperSession`, `routes`, `providers`, `signedIn`, `signIn`, `signOut`, `removeKey`, `migrateRetainedLogin`, `confirmRetainedLogin`, `toolNames`, `run`, `steer`, `abort`, `approvals`, `onApproval`, `decide`, `allowOnce`, `disallowOnce`, `patchConfig`, `getConfigKey`, `setConfigKey`, `memoryLimited`, `doctorContext` |
+| `OpenClawKit` (`.`) | Prepares, starts, supervises and stops the engine. `call` / `callDynamic` pass through to the Gateway, `onEvent` listens. Helpers: `ensureMember`, `ensureHelper`, `adoptHelperSession`, `routes`, `providers`, `signedIn`, `signInState`, `signIn`, `signOut`, `removeKey`, `migrateRetainedLogin`, `confirmRetainedLogin`, `toolNames`, `run`, `steer`, `abort`, `approvals`, `onApproval`, `decide`, `allowOnce`, `disallowOnce`, `patchConfig`, `getConfigKey`, `setConfigKey`, `memoryLimited`, `doctorContext` |
 | `ENGINE_VERSION`, `PROTOCOL_VERSION`, `OPERATOR_SCOPES` (`.`) | The pinned engine version, its protocol and the operator scopes the kit connects with |
 | `KitOptions`, `RunSpec`, `RunEvent`, `RunEnd`, `RunUsage`, `PlanWindow`, `Route`, `Approval`, `Decision`, `ToolSpec`, `ToolHost`, `KitState`, ... (`.`) | Public types (docs/runtime-kits.md §5.2) |
 | `GatewayMethods`, `GatewayMethod`, `GatewayParams`, `GatewayResult`, `GatewayEventName`, `GatewayEventPayload` (`.`) | The generated pass-through tables, so an app can write its own generic wrapper over `call` / `onEvent` once |

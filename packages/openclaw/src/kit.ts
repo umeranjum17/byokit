@@ -22,7 +22,7 @@ import { createAccounts, memberOfAccount, modelsOf, engineModelId } from './acco
 import { createLocks } from './locks.ts';
 import { keyAgentId, KEY_PREFIX, MEMBER_ID } from './members.ts';
 import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLogin } from './migrate.ts';
-import { createRuns, RunReplay, signedInProviders } from './runs.ts';
+import { createRuns, RunReplay, signedInProviders, usableProviders } from './runs.ts';
 import { authStatus, createAuthStatus } from './auth-status.ts';
 import { createDetect, type Detector } from './detect.ts';
 import { outputSchema } from './output.ts';
@@ -811,18 +811,29 @@ export class OpenClawKit {
     return this.providerStatus(member).then((names) => names ?? []);
   }
 
-  /** A member sign-in to `provider`, or a ready key (5.8) whose saved model is that provider's. */
-  async signedIn(member: Member, provider: string): Promise<boolean> {
+  /** Whether `provider` is signed in, signed out or could not be checked (a slow or failed Claude Code probe, retried
+   *  past the engine's 10 s window first). Unknown is never a sign-out: keep the person's session and ask again. */
+  async signInState(member: Member, provider: string): Promise<'signed-in' | 'signed-out' | 'unknown'> {
     // The key probe stands alone: a member-agent admission failure after an engine restart must not hide a sealed key.
     const keyReady = async (): Promise<boolean> => {
       try {
         return providerOf((await this.keys.ready(member, { once: true }))?.model ?? '') === provider;
       } catch { return false; }
     };
+    let unknown = false;
     try {
-      if ((await this.providers(member)).includes(provider)) return true;
-    } catch { /* key probe below */ }
-    return keyReady();
+      const { agentId } = await this.ensureMember(member);
+      const status = await this.admission.read(agentId, false, true, false);
+      if (usableProviders(status)?.includes(provider)) return 'signed-in';
+      unknown = status.unknown?.includes(provider) === true;
+    } catch { unknown = true; }
+    return await keyReady() ? 'signed-in' : unknown ? 'unknown' : 'signed-out';
+  }
+
+  /** A member sign-in to `provider`, or a ready key (5.8) whose saved model is that provider's. False also covers an
+   *  unchecked sign-in; use `signInState` to tell a sign-out from an unknown. */
+  async signedIn(member: Member, provider: string): Promise<boolean> {
+    return await this.signInState(member, provider) === 'signed-in';
   }
 
   signIn(

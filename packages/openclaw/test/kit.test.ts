@@ -980,6 +980,37 @@ test('readiness warms profile admission with or without native auth despite unus
   });
 });
 
+// The engine probes the installed Claude Code (`claude auth status`) with a hard 3 s limit and answers inside a 10 s
+// window; a probe that takes longer is an error, which admission once read as "not signed in".
+for (const [name, probe, state, run] of [
+  ['stays slow past the 3 s limit and the 10 s window', 'slow', 'unknown', 'network'],
+  ['is slow twice, then answers signed in', 'recovers', 'signed-in', 'ok'],
+  ['answers signed out', 'out', 'signed-out', 'signed-out'],
+] as const) test(`a Claude Code probe that ${name} reads ${state}, and a run reads ${run}`, async (t) => withKit(async (kit, fake) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+  let probes = 0, pumping = true;
+  const pump = (async () => { while (pumping) { await new Promise((resolve) => setImmediate(resolve)); t.mock.timers.tick(250); } })();
+  fake.handle('openclaw.setup.detect', async () => {
+    if (probe === 'out') return { candidates: [{ kind: 'claude-cli', credentials: false }] };
+    probes++;
+    if (probe === 'recovers' && probes > 2) return { candidates: [{ kind: 'claude-cli', credentials: true }] };
+    await new Promise((resolve) => setTimeout(resolve, 3_500));
+    throw new Error('claude auth status timed out');
+  });
+  const started = Date.now();
+  try {
+    assert.equal(await kit.signInState('umer', 'claude-cli'), state);
+    if (probe === 'slow') {
+      assert.ok(Date.now() - started >= 12_000, 'the probe is retried past the engine\'s 10 s window');
+      assert.ok(probes >= 2);
+      assert.equal(await kit.providerStatus('umer'), undefined, 'unknown, not an empty list');
+      assert.equal(await kit.signedIn('umer', 'claude-cli'), false);
+    }
+    const end = await kit.run({ member: 'umer', sessionKey: 'agent:umer:chat', message: 'Hello', model: 'claude-cli/claude-sonnet-5' });
+    assert.equal(end.ok ? 'ok' : 'kind' in end ? end.kind : 'aborted', run);
+  } finally { pumping = false; await pump; }
+}));
+
 test('key entry refuses unavailable routes and choices that take no key, and hides even an engine error that echoes the secret', async () => withKit(async (kit, fake) => {
   const key = 'CANARY-ERROR-KEY-12345';
   // A choice that takes no key is refused with its cause, never as a plan: a subscription is never turned per-use.

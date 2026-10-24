@@ -21,6 +21,6 @@ Preconditions: baseline (features/README.md).
 ## Gotchas
 
 - The detection is reused for a short window only: the answer is a CLI probe the kit cannot witness (the login lives in the person's own home), so a sign-in outside the kit is seen within that window. Every sign-in, sign-out, key change and account change the kit sees drops it at once, and a changed engine file (the witness) drops it too. A sign-in drive reads the engine every time and drops the shared answer when it starts and when it ends.
-- A detection that fails is never cached: the next reader tries again, and an unknown answer means no Claude Code login (the account is not listed), never a crash.
+- A detection that fails is never cached: the next reader tries again. The account list reads it as no Claude Code login (the account is not listed), never a crash; admission reads it as unknown, never signed out (see [openclaw-slow-probe-unknown](./openclaw-slow-probe-unknown.md)).
 - The lane's list is the engine's own rows joined with the catalog rows the kit registered for that provider; the engine's row wins where both name a model, so the join never removes a row or its availability.
 - The kit does not set thinking on its own: the asked level is sent as asked, unless the registered catalog row names the levels, in which case an unsupported level is mapped to the nearest still-reasoning one and never to `off` (see [openclaw-thinking-clamp](./openclaw-thinking-clamp.md)). A vendor that refuses a request without thinking is the vendor's rule, not the kit's.
