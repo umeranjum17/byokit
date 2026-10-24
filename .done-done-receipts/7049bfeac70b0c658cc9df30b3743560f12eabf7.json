@@ -3,7 +3,7 @@
   "repo": "byokit",
   "head": "7049bfeac70b0c658cc9df30b3743560f12eabf7",
   "tree": "4ed0bc44520e87eddfb82e8b534bdd44cf5f257b",
-  "claim": "A cloud app updates the host on a Boat computer with a copy saved first, undoes the update after the new version breaks the host, and finds the old files and a running host on the new machine; a save refused for credit changes nothing, and undo: false saves no copy. Drive the bench consumer as the feature says (no key, no spend; do not run the live driver). Also copy, unchanged, into the evidence folder as update-undo-live-boat.log, the capture of the finished real Boat run of capture/cloud-update-undo-live.mjs: /tmp/claude-1000/-home-umer--treehouse-byokit-48ee6a-1-byokit/6b8a4870-1b49-44a5-9fcf-5d369dead45c/scratchpad/live-boat-run.txt",
+  "claim": "A cloud app updates the host on a Boat computer with a copy saved first, undoes the update after the new version breaks the host, and finds the old files and a running host on the new machine; a save refused for credit changes nothing, and undo: false saves no copy. Drive the bench consumer as the feature says (no key, no spend; do not run the live driver). Also copy, unchanged, into the evidence folder as update-undo-live-boat.log, the capture of the finished real Boat run of capture/cloud-update-undo-live.mjs: <scratch>/live-boat-run.txt",
   "skill": "done-done-verify-byokit",
   "result": "pass",
   "at": "2026-10-24T03:36:11.155Z",
