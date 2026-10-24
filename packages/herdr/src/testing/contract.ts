@@ -305,7 +305,7 @@ export function herdrContract(
       await kit.start();
       const taken = new Set(['w1:p1', 'w1:p2']);
       const start = (place: Parameters<HerdrKit['startAgent']>[0]['place'], extra: Partial<Parameters<HerdrKit['startAgent']>[0]> = {}) =>
-        kit.startAgent({ kind: 'pi', cwd: '/tmp/h6', place, ...extra } as Parameters<HerdrKit['startAgent']>[0]);
+        kit.startAgent({ kind: 'codex', cwd: '/tmp/h6', place, ...extra } as Parameters<HerdrKit['startAgent']>[0]);
 
       const ws = await start({ workspace: 'new' });
       const tab = await start({ tab: 'new', workspaceId: 'w1' });
@@ -344,7 +344,7 @@ export function herdrContract(
       assert.equal(typeof wid, 'string');
       await until(() => kit.snapshot().workspaces.find((w) => w.id === wid), (w) => w !== undefined);
 
-      const first = await kit.startAgent({ kind: 'pi', cwd: '/tmp/h6', place: { workspace: 'byokit-reuse', label: 'agent-tab' } });
+      const first = await kit.startAgent({ kind: 'codex', cwd: '/tmp/h6', place: { workspace: 'byokit-reuse', label: 'agent-tab' } });
       assert.equal(first.created, false, 'landing in an existing workspace reports reuse');
       assert.match(first.paneId, /^w\d+:p\d+$/);
       const tree = await until(() => {
@@ -355,7 +355,7 @@ export function herdrContract(
       assert.equal(tree.owner.workspace.id, wid, 'the agent lands in the workspace with that label');
       assert.equal(tree.owner.tab.label, 'agent-tab', 'the tab label rides the reuse');
 
-      const second = await kit.startAgent({ kind: 'pi', cwd: '/tmp/h6', place: { workspace: 'byokit-reuse' } });
+      const second = await kit.startAgent({ kind: 'codex', cwd: '/tmp/h6', place: { workspace: 'byokit-reuse' } });
       assert.equal(second.created, false);
       assert.notEqual(second.paneId, first.paneId, 'the second start gets its own tab pane');
       const again = await until(() => {
@@ -370,7 +370,7 @@ export function herdrContract(
     await bench(async ({ kit }) => {
       await kit.start();
       const before = kit.snapshot().workspaces.length;
-      const ref = await kit.startAgent({ kind: 'pi', cwd: '/tmp/h6', place: { workspace: 'byokit-fresh' } });
+      const ref = await kit.startAgent({ kind: 'codex', cwd: '/tmp/h6', place: { workspace: 'byokit-fresh' } });
       assert.equal(ref.created, true, 'no match creates the workspace');
       assert.match(ref.paneId, /^w\d+:p\d+$/);
       const snap = await until(() => {
@@ -407,7 +407,7 @@ export function herdrContract(
       const panesBefore = agentStatusOf(kit.snapshot(), 'none').panes;
       fake.agentStartFaults.push({ code: 'agent_failed', message: 'boom' });
       await assert.rejects(
-        kit.startAgent({ kind: 'pi', cwd: '/tmp/h6', place: { workspace: 'byokit-keep' } }), /boom/);
+        kit.startAgent({ kind: 'codex', cwd: '/tmp/h6', place: { workspace: 'byokit-keep' } }), /boom/);
       await until(() => agentStatusOf(kit.snapshot(), 'none').panes, (n) => n === panesBefore);
       assert.ok(kit.snapshot().workspaces.some((w) => w.id === wid && w.label === 'byokit-keep'),
         'the reused workspace is never closed by a failed start');
@@ -426,7 +426,7 @@ export function herdrContract(
       const workspacesBefore = settled.workspaces.length;
       const panesBefore = agentStatusOf(settled, 'none').panes;
       await assert.rejects(
-        kit.startAgent({ kind: 'pi', cwd: '/tmp/h6', place: { workspace: 'byokit-dup' } }),
+        kit.startAgent({ kind: 'codex', cwd: '/tmp/h6', place: { workspace: 'byokit-dup' } }),
         (e: { code?: string }) => e.code === 'workspace-ambiguous',
         'two matching labels refuse with the named ambiguous error');
       assert.equal(kit.snapshot().workspaces.filter((w) => w.label === 'byokit-dup').length, 2);
@@ -438,7 +438,7 @@ export function herdrContract(
   test('contract: a started agent joins snapshot() and its status stays current there', async () => {
     await bench(async ({ kit }) => {
       await kit.start();
-      const { paneId } = await kit.startAgent({ kind: 'pi', cwd: '/tmp/h6', place: { workspace: 'new' } });
+      const { paneId } = await kit.startAgent({ kind: 'codex', cwd: '/tmp/h6', place: { workspace: 'new' } });
       await until(() => agentStatusOf(kit.snapshot(), paneId).status, (status) => status === 'idle');
       await kit.prompt({ paneId }, 'ask permission');
       await until(() => agentStatusOf(kit.snapshot(), paneId).status, (status) => status === 'blocked');
@@ -552,7 +552,7 @@ export function herdrContract(
         { scope: 'workspace', id: w2, label: 'other', code: 'tab-close-would-widen' },
         'closing the only tab widens to its workspace');
       // worktree.create links a checkout into w1's group: the root now widens on close.
-      await kit.startAgent({ kind: 'pi', cwd: '/tmp/h6', place: { workspace: 'new' }, worktree: { branch: 'h6' } });
+      await kit.startAgent({ kind: 'codex', cwd: '/tmp/h6', place: { workspace: 'new' }, worktree: { branch: 'h6' } });
       assert.deepEqual(await widen(kit.closeWorkspace('w1')),
         { scope: 'worktreeGroup', id: 'w1', label: 'fake-herdr', size: 2, code: 'workspace-close-would-widen' },
         'closing a worktree group root names the group: repo name plus member count');

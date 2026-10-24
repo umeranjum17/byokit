@@ -29,10 +29,10 @@ serves a real Unix socket under the scratch directory and answers the pinned pro
   from `@byokit/herdr` and `startFakeHerdr` from `@byokit/herdr/testing`. It starts the fake and kit,
   then asserts each leg:
   - `overlay-keeps-rest`: seed the `w1:p1` pane env with `{ PATH: '/usr/bin:/bin', KEEP: 'yes', REMOVE: 'yes' }`;
-    `kit.startAgent({ kind: 'pi', cwd: '/tmp/verify-overlay', place: { pane: 'w1:p1' },
+    `kit.startAgent({ kind: 'codex', cwd: '/tmp/verify-overlay', place: { pane: 'w1:p1' },
     env: { overlay: { ADDED: 'one' }, unset: ['REMOVE'] } })` resolves; the pane env gains `ADDED: 'one'`,
     loses `REMOVE`, and keeps `KEEP: 'yes'`.
-  - `mismatch-no-start`: `kit.startAgent({ kind: 'pi', cwd: '/tmp/verify-overlay', place: { workspace: 'new' },
+  - `mismatch-no-start`: `kit.startAgent({ kind: 'codex', cwd: '/tmp/verify-overlay', place: { workspace: 'new' },
     env: { overlay: { 'bad;name': 'x' } }, timeoutMs: 5000 })` rejects with `code: 'env_mismatch'`; the
     `placed` event fired first, no agent record exists on the placed pane, and the pane count is back to
     before (the created pane rolled back).

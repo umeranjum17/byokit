@@ -1,5 +1,5 @@
 // For the README pictures only (e2e.test.ts with BYOKIT_EXAMPLE_SHOTS): the kit's fake Herdr behind a socket that
-// makes its agent's screen read like a real session. The fake answers a prompt with `fake pi: <prompt>` and asks
+// makes its agent's screen read like a real session. The fake answers a prompt with `fake codex: <prompt>` and asks
 // its question on `ask permission`; this maps the pictured prompts onto those and the fake's lines onto a plausible
 // transcript. Nothing else changes: every other request and answer passes through untouched.
 import { chmodSync, writeFileSync } from 'node:fs';
@@ -12,12 +12,12 @@ export const QUESTION_PROMPT = 'Run the tests';
 const ASKS: Record<string, string> = { [QUESTION_PROMPT]: 'ask permission' };
 const SCREEN: Record<string, string[]> = {
   'ready.': [],
-  [`fake pi: ${PROMPT}`]: [`> ${PROMPT}`, 'Read src/cli/export.ts', 'Edited src/cli/export.ts +18 -3',
+  [`fake codex: ${PROMPT}`]: [`> ${PROMPT}`, 'Read src/cli/export.ts', 'Edited src/cli/export.ts +18 -3',
     'export --json now prints JSON.'],
   'Allow this? (y/n)': [`> ${QUESTION_PROMPT}`, 'Run npm test in ~/code/shop?', 'Allow this? (y/n)'],
   y: ['y', 'npm test: 42 passing'],
 };
-export const REPLY = SCREEN[`fake pi: ${PROMPT}`][3];
+export const REPLY = SCREEN[`fake codex: ${PROMPT}`][3];
 
 /** A Herdr program for the kit: this file, run by the current Node. */
 export function writeCaptureShim(dir: string): string {

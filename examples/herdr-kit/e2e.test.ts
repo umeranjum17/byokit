@@ -58,7 +58,7 @@ const fakeHerdr = capture ? (mkdirSync(join(dir, 'fake')), capture.writeCaptureS
   : writeBinShim({ dir: join(dir, 'fake'), socketPath: join(app, '.state/herdr/herdr.sock') });
 const NAME = capture ? 'Kitchen computer' : 'Test computer';
 const PROMPT = capture?.PROMPT ?? 'hello';
-const REPLY = capture?.REPLY ?? 'fake pi: hello';
+const REPLY = capture?.REPLY ?? 'fake codex: hello';
 const QUESTION_PROMPT = capture?.QUESTION_PROMPT ?? 'ask permission';
 
 // Playwright's own Chromium (CI installs it); else the system's, for a machine without Playwright's download.
@@ -90,6 +90,8 @@ const startHost = (enrol = false) => {
   child.stdout.on('data', (b: Buffer) => { said += b.toString(); });
   return child;
 };
+mkdirSync(join(app, '.state/herdr'), { recursive: true, mode: 0o700 });
+writeFileSync(join(app, '.state/herdr/kinds'), 'pi,codex'); // the fake Herdr lists a second agent beside the first
 let host = startHost(true);
 after(async () => { await browser.close(); host.kill('SIGTERM'); relay.close(); relayServer.closeAllConnections(); relayServer.close(); });
 /** The host's first line matching `pattern` after `from` characters of what it said. */
@@ -152,7 +154,9 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
   }
 
   // Start a new agent in its own workspace; it becomes the one selected.
-  await page.selectOption('#kind', 'pi');
+  // Pi needs a model and a selected account this form cannot give, so the form does not offer it.
+  assert.deepEqual(await page.locator('#kind option').allTextContents(), ['Codex']);
+  await page.selectOption('#kind', 'codex');
   assert.equal(await page.inputValue('#folder'), dir);
   await page.click('#start-go');
   await page.locator('#tree .agent').nth(1).waitFor();
@@ -179,7 +183,7 @@ test('pair a phone, start an agent, prompt it, answer its question, all in plain
   await text(page, '#blocked .question p.status', WORDS['agent.blocked']);
   await text(page, '#blocked .question pre', 'Allow this? (y/n)');
   assert.match((await page.locator('#blocked .question h3').textContent()) ?? '',
-    /^\S+ · Pi$/, 'the question names its folder and agent in plain words');
+    /^\S+ · Codex$/, 'the question names its folder and agent in plain words');
   assert.deepEqual(await question.getByRole('button').allTextContents(), ['Allow', 'Deny', 'Skip']);
   await text(page, '#agent-status', WORDS['agent.blocked'].replace(/\.$/, ''));
   await shot(page, '4-question');

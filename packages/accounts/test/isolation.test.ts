@@ -53,7 +53,7 @@ if(process.argv[2]==='auth') console.log(JSON.stringify({status:'ready',provider
   const r = spawnSync(process.execPath, ['--import', traceFs, '--input-type=module', '-e', `
     const {cliAccounts}=await import(${JSON.stringify(module)});
     const kit=cliAccounts(${JSON.stringify({ stateDir, bins: { pi: bin }, env: passed })});
-    const {account,signIn}=await kit.adopt('found-pi',{piProvider:'openai-codex'});
+    const {account,signIn}=await kit.adopt('found-pi',{piProvider:'openai-codex',model:'chosen-model'});
     const {spawnSync}=await import('node:child_process');
     const login=spawnSync('/bin/sh',['-c',signIn.shell],{env:process.env,encoding:'utf8'});
     if(login.status!==0) throw new Error('fake TUI failed');
@@ -69,12 +69,12 @@ if(process.argv[2]==='auth') console.log(JSON.stringify({status:'ready',provider
   assert.ok(touches.every(p => !/\/(auth|settings|models)\.json$/.test(p)), 'kit never opens Pi credential/settings files');
   assert.deepEqual(d.changed(), []); assert.deepEqual(d.ran(), []); assert.deepEqual(d.leaks(stateDir), []);
   const calls = fs.readFileSync(log, 'utf8').trim().split('\n').map(line => JSON.parse(line));
-  assert.deepEqual(calls[0].argv, []);
+  assert.deepEqual(calls[0].argv, ['--provider', 'openai-codex', '--model', 'chosen-model']);
   for (const call of calls) {
     assert.deepEqual(Object.keys(call.env).sort(), ['HOME', 'PATH', 'PI_CODING_AGENT_DIR']);
     assert.ok(call.env.PI_CODING_AGENT_DIR.startsWith(stateDir + '/pi/'));
     assert.doesNotMatch(JSON.stringify(call), new RegExp(canary));
-    if (call.argv.length) assert.deepEqual(call.argv, ['auth', 'check', '--provider', 'openai-codex', '--json', '--no-refresh']);
+    if (call.argv[0] === 'auth') assert.deepEqual(call.argv, ['auth', 'check', '--provider', 'openai-codex', '--json', '--no-refresh']);
   }
 });
 

@@ -24,7 +24,7 @@ test('close guards refuse widening and close exact', async () => {
     await assert.rejects(kit.closeTab(`${w2}:t1`),
       (e: { code?: string }) => e.code === 'tab-close-would-widen', 'closing the only tab would close the workspace');
     // worktree.create links a checkout into w1's group: the root now widens on close.
-    await kit.startAgent({ kind: 'pi', cwd: '/tmp/h5', place: { workspace: 'new' }, worktree: { branch: 'h5' } });
+    await kit.startAgent({ kind: 'codex', cwd: '/tmp/h5', place: { workspace: 'new' }, worktree: { branch: 'h5' } });
     await assert.rejects(kit.closeWorkspace('w1'),
       (e: { code?: string }) => e.code === 'workspace-close-would-widen',
       'closing a worktree group parent would close the group');
@@ -40,7 +40,7 @@ test('close guards refuse widening and close exact', async () => {
 test('a worktree-group root refusal names the group; a confirmed close sends close_group', async () => {
   await withKit(async (kit, fake) => {
     // worktree.create links a checkout into w1's group: the root refusal names the group.
-    await kit.startAgent({ kind: 'pi', cwd: '/tmp/p7', place: { workspace: 'new' }, worktree: { branch: 'p7' } });
+    await kit.startAgent({ kind: 'codex', cwd: '/tmp/p7', place: { workspace: 'new' }, worktree: { branch: 'p7' } });
     const linked = fake.world.workspaces.find((w) => w.workspace_id !== 'w1')!.workspace_id;
     let refusal: Record<string, unknown> | undefined;
     try { await kit.closeWorkspace('w1'); } catch (e) {
@@ -70,7 +70,7 @@ test('closePlan answers the close sentence from live reads and fails like a sock
   await withKit(async (kit, fake) => {
     // worktree.create links a checkout into w1's group: w1 is the root of a two-member group.
     await kit.rename({ workspace: 'w1', label: 'Umer' });
-    const linked = await kit.startAgent({ kind: 'pi', cwd: '/tmp/plan', place: { workspace: 'new' }, worktree: { branch: 'plan' } });
+    const linked = await kit.startAgent({ kind: 'codex', cwd: '/tmp/plan', place: { workspace: 'new' }, worktree: { branch: 'plan' } });
     assert.deepEqual(await kit.closePlan('w1:p1'),
       { paneId: 'w1:p1', tabId: 'w1:t1', workspaceId: 'w1', workspaceLabel: 'Umer', group: { label: 'fake-herdr', size: 2 } },
       'the root names its group as the would-widen refusal does: repo name plus member count');

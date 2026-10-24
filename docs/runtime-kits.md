@@ -2971,6 +2971,7 @@ no new link/device operation; apps forward the result through their authorized j
 
 ### 6.4 Helpers (`src/agents.ts`, `src/close.ts`, `src/approvals.ts`)
 
+- Pi admission: before probes or placement, `startAgent` requires exactly one nonempty `--model` argument (`model_required`) and a complete replacement `env` with absolute `HOME` and `PI_CODING_AGENT_DIR` (`account_required`). No pane/daemon environment inheritance or additive overlay is accepted for Pi. `openSignInTab`, moves and device starts route through this guard; raw `call`/`cli` pass-throughs are caller-owned and need separate qualification.
 - `startAgent`: `worktree` → `worktree.create { cwd, focus: false, env?, branch?, base? }` and use its
   checkout as `cwd` (`branch` optional; absent fields are omitted, never sent null). Placement:
   `workspace.create { cwd, label, focus: false }` → `result.root_pane.pane_id`, then `tab.rename` carries a
