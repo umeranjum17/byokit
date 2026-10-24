@@ -29,32 +29,32 @@ const steps = [];
 const note = (name, value) => { steps.push({ name, value }); console.log(name, JSON.stringify(value)); };
 try {
   await kit.start();
-  await kit.signIn('umer', { authChoice: 'openai' }, () => {}).done;
+  await kit.signIn('m1', { authChoice: 'openai' }, () => {}).done;
   claude(true);
-  const rows = async () => Object.fromEntries((await kit.accounts('umer')).map((a) => [a.id, a.state]));
+  const rows = async () => Object.fromEntries((await kit.accounts('m1')).map((a) => [a.id, a.state]));
   expect('both signed in', await rows(), { 'claude-cli': 'ready', openai: 'ready' });
 
   fake.handle('openclaw.setup.detect', () => { throw new Error('claude auth status timed out'); });
-  const slow = await kit.accountStatus('umer', 'claude-cli', { fresh: true });
-  note('slow probe on A', { a: { state: slow.state, reason: slow.reason, retryAfterMs: slow.retryAfterMs }, b: (await kit.accountStatus('umer', 'openai')).state, rows: await rows() });
+  const slow = await kit.accountStatus('m1', 'claude-cli', { fresh: true });
+  note('slow probe on A', { a: { state: slow.state, reason: slow.reason, retryAfterMs: slow.retryAfterMs }, b: (await kit.accountStatus('m1', 'openai')).state, rows: await rows() });
   expect('slow probe', [slow.state, slow.reason, await rows()], ['unknown', 'timeout', { 'claude-cli': 'unknown', openai: 'ready' }]);
 
   claude(undefined);
-  const unreadable = await kit.accountStatus('umer', 'claude-cli', { fresh: true });
+  const unreadable = await kit.accountStatus('m1', 'claude-cli', { fresh: true });
   claude(true);
-  const back = await kit.accountStatus('umer', 'claude-cli');
+  const back = await kit.accountStatus('m1', 'claude-cli');
   note('unreadable answer, then a real one', { unreadable: unreadable.reason, next: back.state });
   expect('not sticky', [unreadable.state, unreadable.reason, back.state], ['unknown', 'unreadable', 'ready']);
 
   claude(false);
-  const revoked = await kit.accountStatus('umer', 'claude-cli', { fresh: true });
+  const revoked = await kit.accountStatus('m1', 'claude-cli', { fresh: true });
   note('A revoked', { a: revoked.state, rows: await rows() });
   expect('revocation', [revoked.state, await rows()], ['signed_out', { 'claude-cli': 'signed_out', openai: 'ready' }]);
 
   claude(true);
   fake.handle('byokit.accounts', (p) => { if (p.action === 'list') throw new Error('gateway reply lost'); return { ok: false }; });
   const before = fake.calls.filter((c) => c.method === 'agent').length;
-  const end = await kit.run({ member: 'umer', sessionKey: 'agent:umer:chat', message: 'Hello', account: 'openai' });
+  const end = await kit.run({ member: 'm1', sessionKey: 'agent:m1:chat', message: 'Hello', account: 'openai' });
   const agentRequests = fake.calls.filter((c) => c.method === 'agent').length - before;
   note('run on an account that could not be checked', { end, agentRequests });
   if (end.ok || end.kind !== 'network' || !/^I couldn't check .* yet$/.test(end.message) || agentRequests !== 0) throw new Error(`run read ${JSON.stringify(end)}`);
