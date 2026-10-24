@@ -1,0 +1,67 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "3ed375db3c8430c3ada4cbb56f5d2a0c7a207da1",
+  "tree": "842a4edc4eeeefda378e18fd007d5d6a7632edd2",
+  "claim": "A member with a Claude Code account and a ChatGPT account no longer sees a sign-in check that gave no answer as signed out: a timed-out Claude Code probe reads unknown for that account only while ChatGPT stays ready, an unreadable answer is not kept, a real revocation signs out that account only, and a run on an account that could not be checked ends network with I couldn't check it yet and admits nothing",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-24T16:49:46.543Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261024T164859Z-3ed375db-245f2c/openclaw-account-status-drive.txt",
+      "sha256": "d494b65becdba8a765979c857af23c5b816a8899692b5ee4704fefbd7119d32f"
+    },
+    {
+      "path": "<evidence root>/20261024T164859Z-3ed375db-245f2c/openclaw-account-status-result.json",
+      "sha256": "d65355cdce6536c106ebee397e92d334fd5400626856e8969bcf8b1a6be84755"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261024T164859Z-3ed375db-245f2c",
+      "commit": "3ed375db3c8430c3ada4cbb56f5d2a0c7a207da1",
+      "journey": null,
+      "command": null,
+      "feature": "openclaw-account-status",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "@byokit/openclaw 0.27.6"
+        },
+        "start": "The SDK was built from the worktree (npm run build exited 0; the built @byokit/openclaw entry resolved from packages/openclaw/dist). A fresh kit with a fake gateway held one member, m1, with two accounts: Claude Code (claude-cli) and ChatGPT (openai), both signed in and reading ready.",
+        "steps": [
+          "Ran the public-entry drive script openclaw-account-status.mjs against the built package with the fake gateway.",
+          "Made Claude Code's probe time out and read the status of the Claude Code account with a fresh check, then read the ChatGPT account and the account list.",
+          "Made Claude Code's answer come back with no credentials, read it fresh, then made it answer normally and read it again.",
+          "Made Claude Code report it is not logged in and read its status fresh.",
+          "Made the account list call fail, then started a run on the ChatGPT account and counted the agent requests the gateway received."
+        ],
+        "result": "The Claude Code account read unknown with reason timeout and a retry delay of 5000 ms, while the ChatGPT account and both account-list rows stayed ready (Claude Code unknown, ChatGPT ready). The unreadable answer read unknown with reason unreadable, and the next normal answer read ready at once. After Claude Code reported not logged in, the Claude Code account read signed_out while ChatGPT stayed ready. The run ended with ok false, kind network, message \"I couldn't check Codex login (browser) 2 yet\" with retryAfterMs 5000, and zero agent requests. The script printed DRIVE OK and exited 0."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261024T164859Z-3ed375db-245f2c/openclaw-account-status-drive.txt",
+        "sha256": "d494b65becdba8a765979c857af23c5b816a8899692b5ee4704fefbd7119d32f",
+        "verdict": "pass",
+        "seen": "Read all 4 records plus the resolved path, DRIVE OK and EXIT=0 lines. Timeout: \"a\":{\"state\":\"unknown\",\"reason\":\"timeout\"} with \"b\":\"ready\" and rows claude-cli unknown, openai ready. Unreadable: \"unreadable\":\"unreadable\" followed by \"next\":\"ready\". Revocation: \"a\":\"signed_out\" with claude-cli signed_out and openai ready. Unchecked run: \"ok\":false, \"kind\":\"network\", \"message\":\"I couldn't check Codex login (browser) 2 yet\", \"agentRequests\":0. Each named part is shown, and the fields match the outcome."
+      },
+      {
+        "path": "<evidence root>/20261024T164859Z-3ed375db-245f2c/openclaw-account-status-result.json",
+        "sha256": "d65355cdce6536c106ebee397e92d334fd5400626856e8969bcf8b1a6be84755",
+        "verdict": "pass",
+        "seen": "Read all 4 steps in the JSON. The same values appear: timeout gives a unknown with reason timeout while b is ready (openai ready); unreadable then next ready; A revoked gives a signed_out with openai ready; the unchecked run gives end ok false, kind network, the message \"I couldn't check Codex login (browser) 2 yet\", and agentRequests 0. This capture shows all four named parts."
+      }
+    ]
+  }
+}
