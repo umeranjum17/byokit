@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.15.1 (2026-10-24)
+
+- Dependency update: pins @byokit/accounts 0.31.0.
+
 ## 0.15.0 (2026-10-22)
 
 - NEW: `minimax({ model, key })` and `{ backend: 'minimax', model }` (key in `host.keys.minimax`) decide on a MiniMax API key over the same `minimax:key` route the accounts layer offers, billed per use by MiniMax. The model is always the host's explicit choice from MiniMax's live list; the kit holds no model list.
