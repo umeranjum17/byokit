@@ -22,6 +22,7 @@ if (process.argv.includes('--gates')) {
 const root = mkdtempSync(join(tmpdir(), 'byk-native-binding-'));
 const log = [];
 const note = text => { log.push(text); console.log(text); };
+const steps = ['Add two anthropic-cli accounts in place, each signed in at its own native folder', 'List both through their bindings; the engine seals and activates nothing', 'Cancel a re-auth of B; B keeps its binding and folder', 'Sign B out in its own folder; B reads signed out, A stays ready', 'Remove B; only B folder is logged out and dropped'];
 let kit;
 try {
   const bin = join(root, 'bin'); mkdirSync(bin);
@@ -68,6 +69,7 @@ process.stdin.setEncoding('utf8'); process.stdin.once('data', (code) => { fs.wri
     ...(process.argv.includes('--gates') ? ['PASS: npm run build; npm run check; node scripts/readme-check.ts; npm run release -- lint --base origin/main; sh scripts/test.sh "packages/openclaw/test/*.test.ts".'] : []),
     ...log,
   ].join('\n') + '\n');
+  writeFileSync(join(evidence, 'steps.json'), JSON.stringify({ target: { version: require(join(process.cwd(), 'packages/openclaw/package.json')).version }, start: 'Fake gateway, empty account index; deterministic native subprocess fixtures; no real credentials', steps, result: log.at(-1) }, null, 2));
 } finally {
   await kit?.stop();
   rmSync(root, { recursive: true, force: true });
