@@ -82,7 +82,8 @@ test('account index: sign in, list, rename, defaults, restart, list again', asyn
     // A pre-O14 sign-in with no index entry is synthesized on first list.
     const listed = await kit.accounts('m1');
     assert.deepEqual(listed, [{ id: 'openai', provider: 'openai', route: 'openai', name: 'Codex login (browser) 1',
-      label: 'Codex login (browser)', billing: 'subscription', state: 'ready', addedAt: 0 }]);
+      label: 'Codex login (browser)', billing: 'subscription', state: 'ready', addedAt: 0,
+      origin: 'managed', capabilities: ['rename', 'remove', 'reauth'] }]);
 
     // An unindexed `<member>--<hex6>` agent is never listed.
     await kit.call('agents.create', { name: 'm1--abc123', workspace: join(stateDir, 'openclaw', 'workspaces', 'm1') });
@@ -106,7 +107,8 @@ test('account index: sign in, list, rename, defaults, restart, list again', asyn
     try {
       await again.start();
       assert.deepEqual(await again.accounts('m1'), [{ id: 'openai', provider: 'openai', route: 'openai',
-        name: 'Work', label: 'Codex login (browser)', billing: 'subscription', state: 'ready', addedAt: 0 }]);
+        name: 'Work', label: 'Codex login (browser)', billing: 'subscription', state: 'ready', addedAt: 0,
+        origin: 'managed', capabilities: ['rename', 'remove', 'reauth'] }]);
       assert.deepEqual(await again.defaults('m1'), { account: 'openai' });
     } finally { await again.stop(); }
 

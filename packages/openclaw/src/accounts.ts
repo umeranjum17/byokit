@@ -18,7 +18,7 @@ import { agentOf, memberOf as baseMemberOf } from './attribution.ts';
 import { KEY_PREFIX, MEMBER_ID, NEW_MEMBER_ID, keyAgentId, untilListed, untilUnlisted } from './members.ts';
 import { routes, routeFor, type RouteView } from './routes.ts';
 import { words } from './words.ts';
-import type { Account, AccountId, AccountPick, AccountStatus, Defaults, GatewayTransport, Member, ModelInfo, MoveResult, Room, RoomSpan, RunSelection, SignInOptions, SignInState, SignInView, UnknownReason } from './types.ts';
+import type { Account, AccountContext, AccountId, AccountPick, AccountStatus, Defaults, GatewayTransport, Member, ModelInfo, MoveResult, Room, RoomSpan, RunSelection, SignInOptions, SignInState, SignInView, UnknownReason } from './types.ts';
 
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 // A provider-local engine model id as the kit's `provider/model` reference; an id already prefixed with its own
@@ -102,7 +102,7 @@ export const modelsOfAccount = (row: Pick<Account, 'provider' | 'state'>, answer
 };
 
 type IndexEntry = { agent: string; name: string; route: string; addedAt: number; until?: number; model?: string; who?: string;
-  priorModel?: string };
+  priorModel?: string; unavailable?: 'identity_mismatch' };
 type IndexFile = { v: 1; accounts: Record<string, IndexEntry>; defaults: Defaults; gone?: string[]; dropped?: string[] };
 
 type LiveProfile = { provider?: string; profileId?: string; type?: string; status?: string; who?: string };
@@ -112,7 +112,8 @@ const IDENTITY = 'IDENTITY.md';
 
 /** The agent a session lives on (5.15 Runs step 1); `id` absent: the member agent, which may hold several accounts. */
 export type Binding = { agentId: string; id?: AccountId };
-type AddOptions = { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId };
+type AddOptions = { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId;
+  credentialPolicy?: 'in-place' };
 type AccountSignIn = { id: AccountId; paste(text: string): void; cancel(): void; done: Promise<{ view: SignInView; id: AccountId }> };
 type StartSignIn = (agentId: string, o: SignInOptions, on: (v: SignInView) => void, fresh: boolean) =>
   { paste(text: string): void; cancel(): void; done: Promise<SignInView> };
@@ -129,7 +130,8 @@ const validEntry = (v: unknown): v is IndexEntry => !!v && typeof v === 'object'
   && ((v as IndexEntry).until === undefined || Number.isFinite((v as IndexEntry).until))
   && ((v as IndexEntry).model === undefined || typeof (v as IndexEntry).model === 'string')
   && ((v as IndexEntry).who === undefined || typeof (v as IndexEntry).who === 'string')
-  && ((v as IndexEntry).priorModel === undefined || typeof (v as IndexEntry).priorModel === 'string');
+  && ((v as IndexEntry).priorModel === undefined || typeof (v as IndexEntry).priorModel === 'string')
+  && ((v as IndexEntry).unavailable === undefined || (v as IndexEntry).unavailable === 'identity_mismatch');
 /** The member agent's primary as a durable index string; empty when there was none (or it is not a string primary). */
 const priorOf = (model: unknown): string => {
   if (typeof model === 'string') return model;
@@ -362,6 +364,7 @@ export function createAccounts(ctx: {
   list(member: Member): Promise<Account[]>;
   status(member: Member, id: AccountId, o?: { fresh?: boolean }): Promise<AccountStatus>;
   add(member: Member, o: AddOptions, on: (v: SignInView) => void): Promise<AccountSignIn>;
+  context(member: Member, id: AccountId): Promise<AccountContext>;
   rename(member: Member, id: AccountId, name: string): Promise<Account>;
   defaults(member: Member): Promise<Defaults>;
   setDefaults(member: Member, d: Defaults): Promise<void>;
@@ -439,6 +442,15 @@ export function createAccounts(ctx: {
     if (!status) return unread ? 'unknown' : 'signed_out';
     return usable(status) ? 'ready' : status === 'expired' ? 'needs_again' : 'signed_out';
   };
+  // One list row. A row whose re-sign-in was another principal reads needs_again whatever its store holds (never run as the new one).
+  const rowOf = (id: AccountId, provider: string, entry: IndexEntry, status: string | undefined, origin: 'managed' | 'installed', unread?: UnknownReason): Account => {
+    const meta = metaOf(entry.route);
+    return { id, provider, route: entry.route, name: entry.name, label: meta.label, billing: meta.billing,
+      state: entry.unavailable ? 'needs_again' : stateOf(entry.route, status, entry.until, unread),
+      ...(entry.until !== undefined ? { until: entry.until } : {}), addedAt: entry.addedAt,
+      ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
+      origin, capabilities: origin === 'installed' ? ['rename'] : ['rename', 'remove', 'reauth'] };
+  };
   // Lock-free row builder over one snapshot: mutates `file` (synthesized entries, `who` backfill, dropped
   // dangling default) and reports whether it did. Callers own the locking.
   const build = async (member: Member, agentId: string, file: IndexFile, roster: Set<string>,
@@ -465,21 +477,15 @@ export function createAccounts(ctx: {
         dirty = true;
       }
       // Not while the member agent's own sign-in runs: settle decides whose that `who` is (it may be adopted away).
-      if (typeof profiles[0]?.who === 'string' && entry.who !== profiles[0].who && !signing.has(`${member}\n${provider}`)) { entry.who = profiles[0].who; dirty = true; }
-      const meta = metaOf(entry.route);
-      memberRows.push({ id: provider, provider, route: entry.route, name: entry.name, label: meta.label,
-        billing: meta.billing, state: stateOf(entry.route, profiles[0]?.status, entry.until),
-        ...(entry.until !== undefined ? { until: entry.until } : {}), addedAt: entry.addedAt });
+      if (typeof profiles[0]?.who === 'string' && entry.who !== profiles[0].who && !entry.unavailable && !signing.has(`${member}\n${provider}`)) { entry.who = profiles[0].who; dirty = true; }
+      memberRows.push(rowOf(provider, provider, entry, profiles[0]?.status, profiles[0]?.profileId === undefined ? 'installed' : 'managed'));
       seen.add(provider);
     }
     for (const [id, entry] of Object.entries(file.accounts)) {
       if (entry.agent !== agentId || id.includes('.') || seen.has(id)) continue;
-      const stale = metaOf(entry.route);
       const why = memberUnread(id);
       if (why) unread.set(id, why);
-      memberRows.push({ id, provider: id, route: entry.route, name: entry.name, label: stale.label,
-        billing: stale.billing, state: stateOf(entry.route, undefined, entry.until, why),
-        ...(entry.until !== undefined ? { until: entry.until } : {}), addedAt: entry.addedAt });
+      memberRows.push(rowOf(id, id, entry, undefined, 'managed', why));
     }
     // Account agents: only what the index names, with exactly `<member>--<hex6>` shape. An unindexed
     // agent of that shape is never listed, and an entry whose agent is gone is not listed either.
@@ -488,14 +494,11 @@ export function createAccounts(ctx: {
       if (entry.agent === agentId || !ACCOUNT_AGENT.test(entry.agent) || !entry.agent.startsWith(`${member}--`)) continue;
       if (!roster.has(entry.agent)) continue;
       const provider = id.split('.')[0]!;
-      const meta = metaOf(entry.route);
       const profiles = await profilesOf(entry.agent);
       const who = profiles?.find((p) => p.provider === provider)?.who;
       if (!profiles) unread.set(id, 'unavailable');
       if (!entry.who && typeof who === 'string' && !signing.has(`${member}\n${id}`)) { entry.who = who; dirty = true; }
-      agentRows.push({ id, provider, route: entry.route, name: entry.name, label: meta.label,
-        billing: meta.billing, state: stateOf(entry.route, profiles?.[0]?.status, entry.until, unread.get(id)),
-        ...(entry.until !== undefined ? { until: entry.until } : {}), addedAt: entry.addedAt });
+      agentRows.push(rowOf(id, provider, entry, profiles?.[0]?.status, 'managed', unread.get(id)));
     }
     memberRows.sort((a, b) => a.addedAt - b.addedAt || (a.id < b.id ? -1 : 1));
     agentRows.sort((a, b) => a.addedAt - b.addedAt);
@@ -505,14 +508,11 @@ export function createAccounts(ctx: {
     for (const [id, entry] of Object.entries(file.accounts)) {
       if (entry.agent !== keyAgentId(member) || !roster.has(entry.agent)) continue;
       const provider = id.split('.')[0]!;
-      const meta = metaOf(entry.route);
       const profiles = await profilesOf(entry.agent);
       const who = profiles?.find((p) => p.provider === provider)?.who;
       if (!profiles) unread.set(id, 'unavailable');
       if (!entry.who && typeof who === 'string' && !signing.has(`${member}\n${id}`)) { entry.who = who; dirty = true; }
-      keyRows.push({ id, provider, route: entry.route, name: entry.name, label: meta.label,
-        billing: meta.billing, state: stateOf(entry.route, profiles?.[0]?.status, entry.until, unread.get(id)),
-        ...(entry.until !== undefined ? { until: entry.until } : {}), addedAt: entry.addedAt });
+      keyRows.push(rowOf(id, provider, entry, profiles?.[0]?.status, 'managed', unread.get(id)));
     }
     keyRows.sort((a, b) => a.addedAt - b.addedAt);
     const rows = [...memberRows, ...agentRows, ...keyRows];
@@ -960,6 +960,8 @@ export function createAccounts(ctx: {
       fn(file);
       write(member, file);
     });
+  // An index edit by a caller already holding the index lock.
+  const editHeld = (member: Member, fn: (file: IndexFile) => void): void => { const file = read(member); fn(file); write(member, file); };
   const identityOf = async (agentId: string): Promise<string | undefined> => {
     const { file } = await ctx.request('agents.files.get', { agentId, name: IDENTITY }) as { file: { missing?: boolean; content?: string } };
     return file.missing ? undefined : file.content;
@@ -1079,8 +1081,13 @@ export function createAccounts(ctx: {
     void ctx.locks.exclusive([`add:${member}:${provider}`], () => new Promise<void>((release) => held(release)));
   });
 
+  // In-place adds of one member and provider run one at a time: a second one answers busy at once, never sharing a callback.
+  const placing = new Set<string>();
+
   async function add(member: Member, o: AddOptions, on: (v: SignInView) => void): Promise<AccountSignIn> {
     check(member);
+    if (o && typeof o === 'object' && o.credentialPolicy !== undefined && o.credentialPolicy !== 'in-place')
+      throw new Error(`addAccount: unknown credentialPolicy ${String(o.credentialPolicy)}`);
     if (o && typeof o === 'object' && 'key' in o) throw new Error('addAccount: keys are host-only');
     if (!NEW_MEMBER_ID.test(member)) throw new Error(words('account.legacyMember'));
     const choice = o?.authChoice === 'openai-codex' ? 'openai' : o?.authChoice;
@@ -1091,7 +1098,21 @@ export function createAccounts(ctx: {
     const { agentId: memberAgent, workspace } = await ctx.ensure(member);
     if (o.again !== undefined && (!read(member).accounts[o.again] || o.again.split('.')[0] !== provider))
       throw new Error(`unknown account: ${o.again}`);
-    let releaseAdd = (): void => {};
+    const inPlace = o.credentialPolicy === 'in-place';
+    // Re-auth under the policy signs in on the account's own agent and store; nothing is created or moved.
+    const reauth = inPlace && o.again !== undefined ? read(member).accounts[o.again] : undefined;
+    if (reauth && reauth.agent === keyAgentId(member))
+      throw new Error(`addAccount: ${o.again} cannot sign in again in place`);
+    const placeKey = `${member}\n${provider}`;
+    if (inPlace) {
+      if (placing.has(placeKey)) {
+        const busy: SignInView = { state: 'failed', via: o.via ?? 'browser', why: 'busy' };
+        const same = o.again ?? provider;
+        return { id: same, paste: () => {}, cancel: () => {}, done: Promise.resolve({ view: busy, id: same }).then((r) => { on(r.view); return r; }) };
+      }
+      placing.add(placeKey);
+    }
+    let releaseAdd = (): void => { if (inPlace) placing.delete(placeKey); };
     try {
       // The member agent is the target only while it holds no local profile of the provider (5.15).
       const holdsProvider = async (): Promise<boolean> => {
@@ -1099,10 +1120,10 @@ export function createAccounts(ctx: {
         if (!own.ok || !Array.isArray(own.profiles)) throw new Error('addAccount: the member\'s sign-ins could not be read');
         return own.profiles.some((p) => p.provider === provider);
       };
-      let fresh = o.again !== undefined || await holdsProvider();
+      let fresh = inPlace ? !reauth : o.again !== undefined || await holdsProvider();
       // Only the member-agent path clears a profile it did not create, so only it takes the provider's add lock, held to
       // settle. The read repeats under the lock: the add that held it may have sealed its sign-in on the member agent.
-      if (!fresh) {
+      if (!fresh && !inPlace) {
         releaseAdd = await holdAdd(member, provider);
         fresh = await holdsProvider();
         if (fresh) releaseAdd();
@@ -1116,7 +1137,8 @@ export function createAccounts(ctx: {
       let id: AccountId = provider;
       let agent = memberAgent;
       let added = false;
-      if (!fresh) {
+      if (reauth) { id = o.again!; agent = reauth.agent; }
+      else if (!fresh) {
         const prior = priorOf(memberModel);
         await edit(member, (file) => {
           if (!file.accounts[id]) { file.accounts[id] = entryOf(file, agent, prior); added = true; }
@@ -1214,7 +1236,51 @@ export function createAccounts(ctx: {
       // nothing behind. Identity is its `who`, compared only
       // within this member and provider: the live accounts holding it (the target's own included; several only from
       // before O14) merge into the earliest `addedAt`, whatever `again` names; no `who` never merges. The email never decides.
+      // credentialPolicy 'in-place': the sign-in wrote only its own store. A duplicate principal discards that new store
+      // alone and answers the existing id; a re-sign-in whose principal is not the recorded one marks the account
+      // unavailable. No credential is moved or copied, no member is rebound, and the earlier account is never rewritten.
+      const settleInPlace = async (view: SignInView): Promise<{ view: SignInView; id: AccountId }> => {
+        if (view.state !== 'done') { if (!reauth) await drop(); return { view, id }; }
+        const failed = (error: string): { view: SignInView; id: AccountId } => ({ view: { state: 'failed', via: view.via, why: 'failed', error }, id });
+        const verdict = await ctx.locks.exclusive([agent, indexLock(member)], async (): Promise<{ who?: string } | { existing: AccountId } | { mismatch: true } | string> => {
+          const now = await (ctx.request('byokit.accounts', { action: 'ready', agentId: agent, provider }) as Promise<{ ok?: boolean; who?: string }>);
+          if (!now.ok) return 'Sign-in could not be saved. Try again.';
+          if (reauth) {
+            if (reauth.who !== undefined && now.who !== reauth.who) {
+              editHeld(member, (file) => { const own = file.accounts[id]; if (own) own.unavailable = 'identity_mismatch'; });
+              return { mismatch: true };
+            }
+            const sealed = await ctx.request('byokit.accounts', { action: 'seal', agentId: agent, provider }) as { ok?: boolean };
+            if (!sealed.ok) return 'Sign-in could not be saved. Try again.';
+            editHeld(member, (file) => { const own = file.accounts[id]; if (own) { delete own.unavailable; if (now.who) own.who = now.who; } });
+            return {};
+          }
+          const roster = await (ctx.request('agents.list') as Promise<{ agents: { id: string }[] }>).then((r) => new Set(r.agents.map((a) => a.id)), () => undefined);
+          const held = await profilesOf(memberAgent);
+          if (now.who && !(roster && held)) return 'Existing sign-ins could not be read. Try again.';
+          const memberHolds = (held ?? []).some((p) => p.provider === provider && p.who === now.who);
+          const file = read(member);
+          if (roster && held && (await build(member, memberAgent, file, roster, held)).dirty) write(member, file);
+          const twin = now.who && roster ? Object.entries(file.accounts)
+            .filter(([other, e]) => other !== id && other.split('.')[0] === provider && e.who === now.who && liveEntry(roster, memberHolds, e))
+            .sort(([, a], [, b]) => a.addedAt - b.addedAt)[0] : undefined;
+          if (twin) return { existing: twin[0] };
+          const sealed = await ctx.request('byokit.accounts', { action: 'seal', agentId: agent, provider }) as { ok?: boolean };
+          if (!sealed.ok) return 'Sign-in could not be saved. Try again.';
+          editHeld(member, (f) => { const own = f.accounts[id]; if (own) { if (now.who) own.who = now.who; else delete own.who; } });
+          return now.who ? { who: now.who } : {};
+        }).catch((error: unknown) => (error instanceof Error ? error.message : String(error)).slice(0, 200));
+        if (typeof verdict === 'string') { if (!reauth) await drop(); return failed(verdict); }
+        if ('mismatch' in verdict) return { view: { state: 'failed', via: view.via, why: 'identity_mismatch', existing: id,
+          error: words('account.identityMismatch') }, id };
+        if ('existing' in verdict) {
+          await drop();
+          return { view: { state: 'failed', via: view.via, why: 'duplicate', existing: verdict.existing }, id };
+        }
+        return { view, id };
+      };
       const settle = async (view: SignInView): Promise<{ view: SignInView; id: AccountId }> => {
+        if (inPlace) return settleInPlace(view);
         if (view.state === 'done') {
           const sealed = await ctx.locks.exclusive([memberAgent, agent, indexLock(member)], async (): Promise<{ who?: string; keep?: [AccountId, IndexEntry]; dups: [AccountId, IndexEntry][] } | string> => {
             const answer = await ctx.request('byokit.accounts', { action: 'seal', agentId: agent, provider,
@@ -1282,5 +1348,12 @@ export function createAccounts(ctx: {
     }
   }
 
-  return { list, status, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, key, unkey, backfill, pick, rest, move, remove };
+  // Safe routing metadata: the row and the engine agent holding its sign-in, only for an account this member lists.
+  const context = async (member: Member, id: AccountId): Promise<AccountContext> => {
+    check(member);
+    const { row, entry } = await entryOf(member, id);
+    return { account: row, agentId: entry.agent };
+  };
+
+  return { list, status, add, context, rename, defaults, setDefaults, models, room, bind, keyRefusal, key, unkey, backfill, pick, rest, move, remove };
 }
