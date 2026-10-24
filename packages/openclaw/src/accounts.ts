@@ -12,13 +12,13 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createLocks } from './locks.ts';
 import { detection } from './auth-status.ts';
-import type { Detector } from './detect.ts';
+import { indeterminate, reasonOf, RETRY_AFTER_MS, type Detector } from './detect.ts';
 import { providerOf, resolveSelection } from './pick.ts';
 import { agentOf, memberOf as baseMemberOf } from './attribution.ts';
 import { KEY_PREFIX, MEMBER_ID, NEW_MEMBER_ID, keyAgentId, untilListed, untilUnlisted } from './members.ts';
 import { routes, routeFor, type RouteView } from './routes.ts';
 import { words } from './words.ts';
-import type { Account, AccountId, AccountPick, Defaults, GatewayTransport, Member, ModelInfo, MoveResult, Room, RoomSpan, RunSelection, SignInOptions, SignInState, SignInView } from './types.ts';
+import type { Account, AccountId, AccountPick, AccountStatus, Defaults, GatewayTransport, Member, ModelInfo, MoveResult, Room, RoomSpan, RunSelection, SignInOptions, SignInState, SignInView, UnknownReason } from './types.ts';
 
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 // A provider-local engine model id as the kit's `provider/model` reference; an id already prefixed with its own
@@ -360,6 +360,7 @@ export function createAccounts(ctx: {
   catalog?: (provider: string) => ModelInfo[]; // the catalog rows the kit registered for that provider (the live list)
 }): {
   list(member: Member): Promise<Account[]>;
+  status(member: Member, id: AccountId, o?: { fresh?: boolean }): Promise<AccountStatus>;
   add(member: Member, o: AddOptions, on: (v: SignInView) => void): Promise<AccountSignIn>;
   rename(member: Member, id: AccountId, name: string): Promise<Account>;
   defaults(member: Member): Promise<Defaults>;
@@ -426,20 +427,25 @@ export function createAccounts(ctx: {
   const agentRoster = (): Promise<Set<string>> =>
     (ctx.request('agents.list') as Promise<{ agents: { id: string }[] }>).then((r) => new Set(r.agents.map((a) => a.id)));
   const rosterOf = (): Promise<Set<string>> => agentRoster().catch(() => new Set<string>());
-  const profilesOf = (agentId: string): Promise<LiveProfile[]> =>
+  // Undefined: the agent's profiles could not be read (a failed request or an unreadable store), which says nothing about
+  // its sign-ins; an empty list is a real answer.
+  const profilesOf = (agentId: string): Promise<LiveProfile[] | undefined> =>
     (ctx.request('byokit.accounts', { action: 'list', agentId }) as Promise<{ profiles?: LiveProfile[] }>)
-      .then((r) => Array.isArray(r.profiles) ? r.profiles : [], () => []);
-  const stateOf = (route: string, status: string | undefined, until: number | undefined): SignInState => {
+      .then((r) => Array.isArray(r.profiles) ? r.profiles : undefined, () => undefined);
+  // `unread`: why this account's sign-in could not be checked. A missing profile is then unknown, never signed out.
+  const stateOf = (route: string, status: string | undefined, until: number | undefined, unread?: UnknownReason): SignInState => {
     if (!routes().some((r) => r.choice === route)) return 'not_included';
     if (until !== undefined && until > Date.now()) return 'resting';
-    if (!status) return 'signed_out';
+    if (!status) return unread ? 'unknown' : 'signed_out';
     return usable(status) ? 'ready' : status === 'expired' ? 'needs_again' : 'signed_out';
   };
   // Lock-free row builder over one snapshot: mutates `file` (synthesized entries, `who` backfill, dropped
   // dangling default) and reports whether it did. Callers own the locking.
   const build = async (member: Member, agentId: string, file: IndexFile, roster: Set<string>,
-    memberProfiles: LiveProfile[]): Promise<{ rows: Account[]; dirty: boolean }> => {
+    memberProfiles: LiveProfile[], memberUnread: (id: string) => UnknownReason | undefined = () => undefined,
+  ): Promise<{ rows: Account[]; dirty: boolean }> => {
     let dirty = false;
+    const unread = new Map<string, UnknownReason>();
     const byProvider = new Map<string, LiveProfile[]>();
     for (const p of memberProfiles) {
       if (typeof p.provider !== 'string' || !p.provider) continue;
@@ -469,8 +475,10 @@ export function createAccounts(ctx: {
     for (const [id, entry] of Object.entries(file.accounts)) {
       if (entry.agent !== agentId || id.includes('.') || seen.has(id)) continue;
       const stale = metaOf(entry.route);
+      const why = memberUnread(id);
+      if (why) unread.set(id, why);
       memberRows.push({ id, provider: id, route: entry.route, name: entry.name, label: stale.label,
-        billing: stale.billing, state: stateOf(entry.route, undefined, entry.until),
+        billing: stale.billing, state: stateOf(entry.route, undefined, entry.until, why),
         ...(entry.until !== undefined ? { until: entry.until } : {}), addedAt: entry.addedAt });
     }
     // Account agents: only what the index names, with exactly `<member>--<hex6>` shape. An unindexed
@@ -482,10 +490,11 @@ export function createAccounts(ctx: {
       const provider = id.split('.')[0]!;
       const meta = metaOf(entry.route);
       const profiles = await profilesOf(entry.agent);
-      const who = profiles.find((p) => p.provider === provider)?.who;
+      const who = profiles?.find((p) => p.provider === provider)?.who;
+      if (!profiles) unread.set(id, 'unavailable');
       if (!entry.who && typeof who === 'string' && !signing.has(`${member}\n${id}`)) { entry.who = who; dirty = true; }
       agentRows.push({ id, provider, route: entry.route, name: entry.name, label: meta.label,
-        billing: meta.billing, state: stateOf(entry.route, profiles[0]?.status, entry.until),
+        billing: meta.billing, state: stateOf(entry.route, profiles?.[0]?.status, entry.until, unread.get(id)),
         ...(entry.until !== undefined ? { until: entry.until } : {}), addedAt: entry.addedAt });
     }
     memberRows.sort((a, b) => a.addedAt - b.addedAt || (a.id < b.id ? -1 : 1));
@@ -498,15 +507,19 @@ export function createAccounts(ctx: {
       const provider = id.split('.')[0]!;
       const meta = metaOf(entry.route);
       const profiles = await profilesOf(entry.agent);
-      const who = profiles.find((p) => p.provider === provider)?.who;
+      const who = profiles?.find((p) => p.provider === provider)?.who;
+      if (!profiles) unread.set(id, 'unavailable');
       if (!entry.who && typeof who === 'string' && !signing.has(`${member}\n${id}`)) { entry.who = who; dirty = true; }
       keyRows.push({ id, provider, route: entry.route, name: entry.name, label: meta.label,
-        billing: meta.billing, state: stateOf(entry.route, profiles[0]?.status, entry.until),
+        billing: meta.billing, state: stateOf(entry.route, profiles?.[0]?.status, entry.until, unread.get(id)),
         ...(entry.until !== undefined ? { until: entry.until } : {}), addedAt: entry.addedAt });
     }
     keyRows.sort((a, b) => a.addedAt - b.addedAt);
     const rows = [...memberRows, ...agentRows, ...keyRows];
-    for (const row of rows) if (signing.has(`${member}\n${row.id}`)) row.state = 'signing';
+    for (const row of rows) {
+      if (signing.has(`${member}\n${row.id}`)) row.state = 'signing';
+      else if (row.state === 'unknown') { row.reason = unread.get(row.id)!; row.retryAfterMs = RETRY_AFTER_MS; }
+    }
     if (file.defaults.account !== undefined && !rows.some((r) => r.id === file.defaults.account)) {
       delete file.defaults.account;
       dirty = true;
@@ -516,17 +529,21 @@ export function createAccounts(ctx: {
   // A detected Claude Code login has no profile in the kit: it stays in Claude Code. The engine's detection says whether
   // it is there, and a detected one is the member's signed-in claude-cli profile for this read. The shared detection
   // answers it for every reader (one probe per agent, reused briefly), so a listing and a readiness read cost one probe.
-  const claudeDetected = (agentId: string): Promise<boolean> =>
+  // A failed or indeterminate probe is a reason, not a login: it reads unknown, never as Claude Code being signed out.
+  const claudeDetected = (agentId: string): Promise<boolean | UnknownReason> =>
     detection(ctx.request, agentId, ctx.detect)
-      .then((r) => r.candidates?.some((c) => c.kind === 'claude-cli' && c.credentials === true) === true, () => false);
-  const gather = async (agentId: string): Promise<[Set<string>, LiveProfile[]]> => {
-    const [roster, profiles, claude] = await Promise.all([rosterOf(), profilesOf(agentId), claudeDetected(agentId)]);
-    return [roster, claude && !profiles.some((p) => p.provider === 'claude-cli') ? [...profiles, { provider: 'claude-cli', status: 'ok' }] : profiles];
+      .then((r) => indeterminate(r) ? 'unreadable' : r.candidates?.some((c) => c.kind === 'claude-cli' && c.credentials === true) === true, reasonOf);
+  const gather = async (agentId: string): Promise<[Set<string>, LiveProfile[], (id: string) => UnknownReason | undefined]> => {
+    const [roster, listed, claude] = await Promise.all([rosterOf(), profilesOf(agentId), claudeDetected(agentId)]);
+    const profiles = listed ?? [];
+    const unread = (id: string): UnknownReason | undefined =>
+      listed === undefined ? 'unavailable' : id === 'claude-cli' && typeof claude === 'string' ? claude : undefined;
+    return [roster, claude === true && !profiles.some((p) => p.provider === 'claude-cli') ? [...profiles, { provider: 'claude-cli', status: 'ok' }] : profiles, unread];
   };
   const buildRows = async (member: Member, agentId: string) => {
     const file = read(member);
-    const [roster, profiles] = await gather(agentId);
-    return { ...(await build(member, agentId, file, roster, profiles)), file };
+    const [roster, profiles, unread] = await gather(agentId);
+    return { ...(await build(member, agentId, file, roster, profiles, unread)), file };
   };
   // The account's index entry, only when `list` names it: an unindexed agent is never reachable, whatever the
   // file holds.
@@ -584,6 +601,19 @@ export function createAccounts(ctx: {
       if (dirty) write(member, file);
       return rows;
     });
+  }
+
+  // One account's sign-in. `fresh` drops only that account's earlier probe; its siblings keep theirs. A limit rest is
+  // still signed in, so it reads ready here (`list` says resting).
+  async function status(member: Member, id: AccountId, o?: { fresh?: boolean }): Promise<AccountStatus> {
+    check(member);
+    const { agentId } = await ctx.ensure(member);
+    if (o?.fresh) ctx.detect?.invalidate(read(member).accounts[id]?.agent ?? agentId);
+    const row = (await list(member)).find((r) => r.id === id);
+    if (!row) throw new Error(`unknown account: ${id}`);
+    const checkedAt = Date.now();
+    if (row.state === 'unknown') return { state: 'unknown', checkedAt, reason: row.reason ?? 'unavailable', retryAfterMs: row.retryAfterMs ?? RETRY_AFTER_MS };
+    return { state: row.state === 'ready' || row.state === 'resting' ? 'ready' : 'signed_out', checkedAt };
   }
 
   async function rename(member: Member, id: AccountId, name: string): Promise<Account> {
@@ -1252,5 +1282,5 @@ export function createAccounts(ctx: {
     }
   }
 
-  return { list, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, key, unkey, backfill, pick, rest, move, remove };
+  return { list, status, add, rename, defaults, setDefaults, models, room, bind, keyRefusal, key, unkey, backfill, pick, rest, move, remove };
 }

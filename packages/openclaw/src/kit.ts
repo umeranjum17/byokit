@@ -41,6 +41,7 @@ import { launchBroker } from './browser/broker.ts';
 import type {
   Account,
   AccountId,
+  AccountStatus,
   AccountPick,
   Approval,
   CallOptions,
@@ -637,18 +638,21 @@ export class OpenClawKit {
       // person just made is an account the kit now knows about. A read of the accounts changes nothing.
       if (method === 'byokit.accounts') {
         const action = (params as { action?: string } | undefined)?.action;
-        if (action !== 'list' && action !== 'ready') this.detect.invalidate();
+        if (action !== 'list' && action !== 'ready') {
+          const agent = (params as { agentId?: unknown } | undefined)?.agentId;
+          this.detect.invalidate(typeof agent === 'string' ? agent : undefined);
+        }
       }
       const changesAuth = /^(models\.authLogout|openclaw\.setup\.(auth\.start|activate)|wizard\.(next|cancel)|config\.(apply|patch|set)|agents\.(create|update|delete)|secrets\.(reload|store\.(set|delete))|byokit\.keys)$/.test(method);
       if (!changesAuth || (method === 'byokit.keys' && (params as { action?: string } | undefined)?.action === 'ready'))
         return transport.request(method, params, options);
-      this.admission.invalidate();
-      // A sign-in, a sign-out or a key change moves the detection too: its answer is about this engine's logins.
-      this.detect.invalidate();
-      return Promise.resolve().then(() => transport.request(method, params, options)).finally(() => {
-        this.admission.invalidate();
-        this.detect.invalidate();
-      });
+      // A change that names its agent drops that account's readiness only; one that names none (config, secrets) is every
+      // account's. A sign-in, a sign-out or a key change moves the detection too: its answer is about this engine's logins.
+      const agent = (params as { agentId?: unknown } | undefined)?.agentId;
+      const scope = typeof agent === 'string' ? agent : undefined;
+      const drop = () => { this.admission.invalidate(scope); this.detect.invalidate(scope); };
+      drop();
+      return Promise.resolve().then(() => transport.request(method, params, options)).finally(drop);
     };
   }
   call<M extends GatewayMethod>(method: M, params: GatewayParams<M>, o?: CallOptions): Promise<GatewayResult<M>> {
@@ -865,6 +869,13 @@ export class OpenClawKit {
     return this.accountsCtl.list(member);
   }
 
+  /** One account's sign-in now: ready, signed out, or unknown (a check that gave no answer, with a safe `reason` and
+   *  `retryAfterMs`). `fresh` redoes only that account's probe. Unknown is never a sign-out. */
+  accountStatus(member: Member, id: AccountId, o?: { fresh?: boolean }): Promise<AccountStatus> {
+    if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
+    return this.accountsCtl.status(member, id, o);
+  }
+
   models(member: Member, id: AccountId | { authChoice: string }): Promise<ModelInfo[]> {
     if (typeof id !== 'string') return this.keys.models(member, id);
     if (!this.accountsCtl) return Promise.reject(new Error('gateway not ready'));
@@ -1020,6 +1031,7 @@ export class OpenClawKit {
       request: (method, params, o) => this.request()(method, params, o),
       authStatus: this.admission.read,
       invalidateAuth: this.admission.invalidate,
+      accountStatus: (member, id, o) => this.accountStatus(member, id, o),
       claudeLogin: () => this.engine.claudeLoginCause(),
       onEvent: (fn) => {
         this.listeners.add(fn);

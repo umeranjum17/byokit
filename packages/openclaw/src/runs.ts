@@ -7,13 +7,14 @@ import type { Delegations } from './delegations.ts';
 import type { createAccounts } from './accounts.ts';
 import type { createLocks } from './locks.ts';
 import { authStatus } from './auth-status.ts';
+import { RETRY_AFTER_MS } from './detect.ts';
 import { outputSchema, type OutputSchema, type SchemaOutput } from './output.ts';
 import { words } from './words.ts';
 import { classify } from './classify.ts';
 import { providerOf } from './pick.ts';
 import { engineId } from './accounts.ts';
 import { catalogModelOf, clampThinking, levelsOf, type CatalogModel } from './thinking.ts';
-import type { AccountPick, CliLoginCause, GatewayTransport, Member, PlanWindow, RunEnd, RunEvent, RunFrame, RunSpec, RunUsage, ThinkingReport } from './types.ts';
+import type { AccountId, AccountPick, AccountStatus, CliLoginCause, GatewayTransport, Member, PlanWindow, RunEnd, RunEvent, RunFrame, RunSpec, RunUsage, ThinkingReport } from './types.ts';
 
 // The gateway gives up on a silent run after an hour; we wait ten minutes longer for the reply frame itself.
 const WAIT_MS = 3_600_000;
@@ -33,6 +34,15 @@ type AgentPayload = { runId: string; stream: string; data?: {
 // is: the row's own status is its worst profile's.
 type Row = { provider?: unknown; status?: unknown; profiles?: { status?: unknown }[]; usage?: unknown };
 type AuthStatus = { providers?: (string | Row)[]; unavailable?: { message?: unknown }; unknown?: string[] };
+/** How long admission waits for one fresh sign-in probe before it reports the account unchecked. */
+export const ADMISSION_BUDGET_MS = 15_000;
+async function within(check: Promise<AccountStatus>, ms: number): Promise<AccountStatus> {
+  let timer: NodeJS.Timeout | undefined;
+  const unknown = (reason: 'timeout' | 'unavailable'): AccountStatus => ({ state: 'unknown', checkedAt: Date.now(), reason, retryAfterMs: RETRY_AFTER_MS });
+  try {
+    return await Promise.race([check, new Promise<AccountStatus>((resolve) => { timer = setTimeout(() => resolve(unknown('timeout')), ms); })]);
+  } catch { return unknown('unavailable'); } finally { clearTimeout(timer); }
+}
 export const USABLE = new Set(['ok', 'expiring', 'static']);
 const usable = (row: string | Row): boolean => typeof row === 'string'
   || (Array.isArray(row.profiles) && row.profiles.length > 0 ? row.profiles.some((p) => USABLE.has(String(p?.status)))
@@ -151,7 +161,8 @@ export function createRuns(ctx: {
   replay?: RunReplay;
   request: GatewayTransport['request'];
   authStatus?: (agentId: string, refresh: boolean, native: boolean) => ReturnType<typeof authStatus>;
-  invalidateAuth?: () => void;
+  invalidateAuth?: (agentId?: string) => void;
+  accountStatus?: (member: Member, id: AccountId, o?: { fresh?: boolean }) => Promise<AccountStatus>;
   claudeLogin?: () => CliLoginCause;
   onEvent: GatewayTransport['onEvent'];
   ensure(member: Member): Promise<{ agentId: string }>;
@@ -159,7 +170,7 @@ export function createRuns(ctx: {
   delegations?: Delegations;
   helpers?: Pick<ReturnType<typeof createHelpers>, 'resolve'>;
   tools: ReadonlySet<string>; // KitOptions.tools names, the only names a run's subset may carry
-  accounts?: Pick<ReturnType<typeof createAccounts>, 'bind' | 'keyRefusal' | 'pick' | 'rest'>; // 5.15: account runs
+  accounts?: Pick<ReturnType<typeof createAccounts>, 'bind' | 'keyRefusal' | 'list' | 'pick' | 'rest'>; // 5.15: account runs
   locks?: ReturnType<typeof createLocks>;
   routes: Map<string, { session: string }>; // the caller's session key -> the account session its live run uses; steer and abort follow it
 }): {
@@ -181,9 +192,11 @@ export function createRuns(ctx: {
   // A signed-out claude-cli run names where its Claude Code login is missing (`cause`).
   const cause = (provider: string | undefined) => provider === 'claude-cli' && ctx.claudeLogin ? { cause: ctx.claudeLogin() } : {};
   const signedOut = (provider: string, message: string) => ({ ok: false as const, kind: 'signed-out' as const, message, ...cause(provider) });
-  const failure = (message: string, provider?: string) => {
+  const couldntCheck = (name: string, retryAfterMs = RETRY_AFTER_MS) =>
+    ({ ok: false as const, kind: 'network' as const, message: `I couldn't check ${name} yet`, retryAfterMs });
+  const failure = (message: string, provider?: string, agentId?: string) => {
     const classified = classify(message);
-    if (classified.kind === 'signed-out') ctx.invalidateAuth?.();
+    if (classified.kind === 'signed-out') ctx.invalidateAuth?.(agentId); // that account's snapshot only
     return { ok: false as const, ...classified, message, ...classified.kind === 'signed-out' ? cause(provider) : {} };
   };
   const execute = async <const S extends OutputSchema | undefined = undefined>(spec: RunSpec<S>, on?: (e: Emission) => void, keyAgent?: string, preparedOutput?: ReturnType<typeof outputSchema>): Promise<RunEnd<SchemaOutput<S>>> => {
@@ -262,6 +275,10 @@ export function createRuns(ctx: {
         ...(spec.model !== undefined ? { model: spec.model } : {}), ...(spec.needs ? { needs: spec.needs } : {}) }, skipped, binding);
       if (!pick.ok) {
         if (pick.code === 'unknown_account') throw new Error(`unknown account: ${spec.account}`); // a caller bug
+        // Nothing was ready because a sign-in could not be checked: a retryable probe failure, not a sign-out, and never
+        // another account.
+        const unchecked = pick.code === 'none' ? (await accounts.list(spec.member)).find((r) => r.state === 'unknown') : undefined;
+        if (unchecked) return couldntCheck(unchecked.name, unchecked.retryAfterMs);
         if (pick.code === 'resting') return { ok: false, kind: 'resting', until: await restAccount(pick.account, pick.until), message: pick.reason };
         return { ok: false, kind: pick.code === 'none' ? 'signed-out' : pick.code === 'not_included' ? 'plan' : 'other', message: pick.reason };
       }
@@ -274,6 +291,13 @@ export function createRuns(ctx: {
         if (await moved()) return movedEnd;
         let ready: boolean;
         try {
+          // A named account whose sign-in could not be checked gets one fresh probe within the budget; still unknown ends
+          // the run retryable, and no other account is tried.
+          if (pick.account.state === 'unknown' && ctx.accountStatus) {
+            const again = await within(ctx.accountStatus(spec.member, pick.account.id, { fresh: true }), ADMISSION_BUDGET_MS);
+            if (again.state === 'unknown') return couldntCheck(pick.account.name, again.retryAfterMs);
+            if (again.state === 'signed_out') return signedOut(pick.account.provider, `${pick.account.name} is not signed in`);
+          }
           ready = await signedIn(agent!, pick.account.provider);
         } catch (error) {
           return failure(error instanceof Error ? error.message : String(error));
@@ -369,7 +393,7 @@ export function createRuns(ctx: {
         // A sign-in the kit could not check (a slow or failed probe) is unknown: the run ends `network` (retry), never
         // `signed-out`, so no app signs the person out over it.
         if (!row && auth.unknown?.includes(picked.provider))
-          return { ok: false, kind: 'network', message: `${picked.provider} could not be checked for ${spec.member}; try again` };
+          return { ok: false, kind: 'network', message: `${picked.provider} could not be checked for ${spec.member}; try again`, retryAfterMs: RETRY_AFTER_MS };
         if (!row || !usable(row))
           return signedOut(picked.provider, `${picked.provider} is not signed in for ${spec.member}`);
       }
@@ -436,10 +460,10 @@ export function createRuns(ctx: {
       if (result.stopReason === 'aborted' || (abortedByEngine && result.status !== 'ok')) return { ok: false, aborted: true };
       const message = typeof result.error === 'string' ? result.error
         : typeof result.message === 'string' ? result.message : '';
-      return failure(message, picked?.provider);
+      return failure(message, picked?.provider, agentId);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return failure(message, picked?.provider);
+      return failure(message, picked?.provider, agentId);
     } finally {
       ended = true;
       unsubscribe();

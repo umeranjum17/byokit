@@ -1,0 +1,1 @@
+- FEATURE: `accountRows` draws an account whose sign-in could not be checked (`state: 'unknown'`) as "Couldn't check yet", with no sign-in action, instead of failing the type.

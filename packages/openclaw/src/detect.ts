@@ -2,15 +2,23 @@
 // takes seconds, so a poll that reads readiness and the account list must pay for it once, not once per reader. The
 // answer is reused for a short window and one probe per agent is in flight at a time; a sign-in, a sign-out, an account
 // change or an engine change drops it, so a fresh login is never read from the cache.
-import type { GatewayTransport } from './types.ts';
+import type { GatewayTransport, UnknownReason } from './types.ts';
 
 export type Detection = { candidates?: { kind?: string; credentials?: boolean }[] };
+/** How long a reader waits before asking again after an unknown answer. */
+export const RETRY_AFTER_MS = 5_000;
+export const reasonOf = (error: unknown): UnknownReason =>
+  /time(d)? ?out/i.test(error instanceof Error ? error.message : String(error)) ? 'timeout' : 'unavailable';
+/** An answer that arrived but says nothing: a Claude Code candidate whose `credentials` is neither true nor false. It is
+ *  unknown, never signed out, and never kept. */
+export const indeterminate = (d: Detection | undefined): boolean =>
+  d?.candidates?.some((c) => c.kind === 'claude-cli' && typeof c.credentials !== 'boolean') === true;
 export type DetectOptions = { timeoutMs?: number; signal?: AbortSignal; fresh?: boolean };
 export type Detector = {
   /** The engine's setup detection for one agent. `fresh` skips the cache and the in-flight probe: a sign-in that
    *  verifies what the person just did must read the engine, not an earlier answer. */
   detect(agentId: string, o?: DetectOptions): Promise<Detection>;
-  /** Drops the cached answer (one agent, or every agent). */
+  /** Drops the cached answer and any check in flight (one agent, or every agent): a check that began before it is not kept. */
   invalidate(agentId?: string): void;
 };
 
@@ -25,24 +33,34 @@ export const DETECT_TTL_MS = 10_000;
  */
 export function createDetect(request: GatewayTransport['request'], o?: { ttlMs?: number }): Detector {
   const ttl = o?.ttlMs ?? DETECT_TTL_MS;
-  const cache = new Map<string, { until: number; value: Detection }>();
-  const inflight = new Map<string, Promise<Detection>>();
+  // An account's binding generation: bumped by its own invalidate (or every account's), so a check that began under an
+  // earlier one is neither shared with a later reader nor kept.
+  const generations = new Map<string, number>();
+  let all = 0;
+  const generationOf = (agentId: string): string => `${all}.${generations.get(agentId) ?? 0}`;
+  const cache = new Map<string, { until: number; value: Detection; generation: string }>();
+  const inflight = new Map<string, { call: Promise<Detection>; generation: string }>();
   const detect = (agentId: string, options: DetectOptions = {}): Promise<Detection> => {
+    const generation = generationOf(agentId);
     const hit = cache.get(agentId);
-    if (!options.fresh && hit && hit.until > Date.now()) return Promise.resolve(hit.value);
+    if (!options.fresh && hit && hit.generation === generation && hit.until > Date.now()) return Promise.resolve(hit.value);
     const running = options.fresh ? undefined : inflight.get(agentId);
-    if (running) return running;
-    const call = (request('openclaw.setup.detect', { agentId },
+    if (running?.generation === generation) return running.call;
+    const call: Promise<Detection> = (request('openclaw.setup.detect', { agentId },
       { timeoutMs: options.timeoutMs ?? 20_000, ...(options.signal ? { signal: options.signal } : {}) }) as Promise<Detection>)
-      .then((value) => { cache.set(agentId, { until: Date.now() + ttl, value }); return value; })
-      .finally(() => { if (inflight.get(agentId) === call) inflight.delete(agentId); });
-    inflight.set(agentId, call);
+      .then((value) => {
+        if (!indeterminate(value) && generationOf(agentId) === generation) cache.set(agentId, { until: Date.now() + ttl, value, generation });
+        return value;
+      })
+      .finally(() => { if (inflight.get(agentId)?.call === call) inflight.delete(agentId); });
+    inflight.set(agentId, { call, generation });
     return call;
   };
   return {
     detect,
     invalidate: (agentId?: string) => {
-      if (agentId === undefined) { cache.clear(); inflight.clear(); return; }
+      if (agentId === undefined) { all++; cache.clear(); inflight.clear(); return; }
+      generations.set(agentId, (generations.get(agentId) ?? 0) + 1);
       cache.delete(agentId);
       inflight.delete(agentId);
     },

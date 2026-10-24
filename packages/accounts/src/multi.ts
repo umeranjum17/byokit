@@ -8,7 +8,9 @@ export type Via = RouteVia;
 export type ProviderInfo = Pick<Provider, 'key' | 'name' | 'company' | 'billing'> & { via: Via[] };
 export type Account = AccountLike & { route: string; label: string; email?: string; plan?: string; billing: Billing; addedAt: number; readiness?: Readiness };
 export type ModelInfo = { id: string; name: string; available: boolean; why?: 'plan' | 'resting' | 'signed_out'; until?: number };
-export type SignInState = 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included';
+export type SignInState = 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included' | 'unknown'; // unknown: the sign-in could not be checked, never a sign-out
+/** Why a sign-in check gave no answer: safe codes, never the provider's output. */
+export type UnknownReason = 'timeout' | 'unavailable' | 'unreadable';
 export type AccountLike = { id: string; provider: string; name: string; state: SignInState; billing: Billing; until?: number };
 export type RoomSpan = 'session' | 'week' | 'month' | 'tightest';
 /** Every time here is epoch milliseconds; `at` is the source measurement time, never its receipt time. */

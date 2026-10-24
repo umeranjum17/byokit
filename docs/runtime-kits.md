@@ -1118,8 +1118,16 @@ the engine. External retained sources are touched only when explicitly passed to
   per agent is in flight at a time, its answer is reused for a short window (10 s), and the pin's own status and the
   detection run together instead of one after the other. The window bounds how long a login made outside the kit
   stays unseen (the kit cannot witness the person's own CLI login), and every sign-in, sign-out, key change and
-  account change the kit sees drops the answer at once; a changed witness drops it too. A failed probe is never
-  cached. The account list reads it as no Claude Code login (the account is not listed), never as an error; admission
+  account change the kit sees drops the answer at once; a changed witness drops it too. Checks are shared, cached and
+  dropped per account (agent) and binding generation: one account's login, logout, re-auth or removal drops only its own
+  answer, and a check begun before the drop is neither shared with a later reader nor kept. A failed probe, or an
+  answer that says nothing (a Claude Code candidate whose `credentials` is neither true nor false), is never cached.
+  The account list reads it as `state: 'unknown'` for an account it already lists (with `reason` `timeout`,
+  `unavailable` or `unreadable`, and `retryAfterMs`), never as signed out; an account it never listed stays absent. So
+  does a failed profile read of an account's agent. `accountStatus(member, id, { fresh })` returns
+  `{ state: 'ready' | 'signed_out' | 'unknown', checkedAt, reason?, retryAfterMs? }` (a limit rest is still ready;
+  `fresh` redoes only that account's probe). A run on an account that reads unknown gets one fresh probe within 15 s,
+  then ends `network` with "I couldn't check <name> yet" and `retryAfterMs`; it never tries another account. Admission
   (the readiness reads and a run's pre-check) retries it fresh until 12 s have passed (past the engine's own 10 s
   window, at least twice) and then gives up as *unknown*, never as signed out: `AuthStatus.unknown` names the
   provider, `providerStatus` is `undefined`, `signInState` is `'unknown'`, a run ends `network` (retry), and an
