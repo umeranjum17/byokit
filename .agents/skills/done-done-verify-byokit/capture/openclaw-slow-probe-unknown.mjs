@@ -20,9 +20,11 @@ const evidenceDir = process.argv[2];
 if (!evidenceDir) throw new Error('usage: openclaw-slow-probe-unknown.mjs <evidence-dir>');
 mkdirSync(evidenceDir, { recursive: true });
 
+// The kit binds a Unix socket under its state dir, whose path limit a long run scratch path exceeds: keep it short.
+const base = tmpdir().length > 32 ? '/tmp' : tmpdir();
 const results = [];
 const drive = async (name, probe) => {
-  const stateDir = mkdtempSync(join(tmpdir(), 'byk-slow-probe-'));
+  const stateDir = mkdtempSync(join(base, 'bsp-'));
   const fake = fakeGateway();
   let probes = 0;
   fake.handle('openclaw.setup.detect', async () => {
