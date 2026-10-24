@@ -1,0 +1,60 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "69e029433044a6fed0f82319aa57706a88bbdb93",
+  "tree": "af54e9ec52617fa0200b6b3553efe71b14dd1a36",
+  "claim": "A developer's app can update a cloud computer, which saves a copy from just before the update, and then undo that update: the computer comes back from that copy with the old files, a new id and a running host.",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-24T04:20:43.762Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261024T041714Z-69e02943-35f698/update-undo-result.txt",
+      "sha256": "77c0396595737416b449e6a611d97ea9740e8b10a625ffb7b046cd1fd8011785"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261024T041714Z-69e02943-35f698",
+      "commit": "69e029433044a6fed0f82319aa57706a88bbdb93",
+      "journey": null,
+      "command": null,
+      "feature": "update-undo",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "@byokit/cloud 0.6.0"
+        },
+        "start": "Built SDK in the worktree (npm run build exited 0; doctor resolved packages/cloud/dist). Fresh loopback Boat bench (startFakeSandboxServer, memoryStore, test key, no account or spend). One machine 'web' created with copies on and the recipe installed; version.txt set to 'Umer v1'. No undo copy existed yet.",
+        "steps": [
+          "Tried to undo an update before any update ran; the kit answered that there is no copy to go back to.",
+          "Ran update(recipe) twice; the first update ran and the second saved a copy from just before it, kind before-update, and kept one such copy.",
+          "Changed version.txt to 'Umer v2' and made the host unit report failed, as a crash-looping host would.",
+          "Read the host status (failed) and the undo point, and read the words describing what an undo loses.",
+          "Called undoUpdate(recipe) to undo the update.",
+          "Read version.txt on the machine (Umer v1), checked the machine id changed, checked the old machine is gone, read the host status (running), checked installed.json names the new id, and checked the undo point is still kept.",
+          "Called update(recipe, { undo: false }) and checked it returned undo null and saved no new copy.",
+          "Ran a second bench with ten free copies taken and balance set to 0, then called update; the kit refused with balance and reason copies, and no run happened on the machine."
+        ],
+        "result": "A user sees the update's copy saved (before-update, undo point kept), the host broken after v2, and after the undo: version.txt reads 'Umer v1', a new machine id, the old machine gone, the host running and installed.json naming the new id. The no-copy and no-credit cases print their real messages. Full transcript in update-undo-result.txt, exit 0."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261024T041714Z-69e02943-35f698/update-undo-result.txt",
+        "sha256": "77c0396595737416b449e6a611d97ea9740e8b10a625ffb7b046cd1fd8011785",
+        "verdict": "pass",
+        "seen": "The capture has one record set with fields that match the outcome: undo-kind is before-update, undo-copy is saved, new-id is true, old-gone is gone, host is running, installed-id-matches is true, and runs-unchanged and copies-unchanged are true. The undo-words text describes reverting to the pre-update state. Two fields point the other way: undo-false is null, and refused is balance, meaning a separate save was refused for lack of credit. Those may come from other attempts, so I put some weight on unclear. Only one entry was read, and the outcome names no separate parts."
+      }
+    ]
+  }
+}
