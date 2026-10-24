@@ -82,6 +82,18 @@ export function createAgents(ctx: { call: Call; snapshot(): HerdrSnapshot; rerea
   // its workspace rolls the workspace back with `workspace.close` instead, so no empty workspace
   // survives either; a reused workspace is never closed.
   async function startAgent(o: StartAgent): Promise<AgentRef> {
+    // Refuse before probes or placement: Pi must never discover a paid default model.
+    if (accountKind(o.kind)?.kind === 'pi') {
+      const args = Array.isArray(o.args) && o.args.every(arg => typeof arg === 'string') ? o.args : [];
+      const models = args.slice(0, args.includes('--') ? args.indexOf('--') : args.length).flatMap((arg, i) => arg === '--model' ? [args[i + 1]] : arg.startsWith('--model=') ? [arg.slice(8)] : []);
+      if (args.some(arg => /^-m(?:=|$)/.test(arg)) || models.length !== 1 || typeof models[0] !== 'string' || !models[0] || /[\s\0]/.test(models[0]) || models[0].startsWith('-') || !models[0].split(':')[0] || models[0].split(':')[0]!.endsWith('/')) {
+        throw fail('model_required', 'Choose a model for Pi before starting it.');
+      }
+      // A daemon/pane may hold keys absent from this host. Replacement, never inheritance or overlay.
+      if (!isLaunchEnvironment(o.env) || typeof o.env.env.HOME !== 'string' || !isAbsolute(o.env.env.HOME) || typeof o.env.env.PI_CODING_AGENT_DIR !== 'string' || !isAbsolute(o.env.env.PI_CODING_AGENT_DIR)) {
+        throw fail('account_required', 'Pass the selected Pi account as a complete launch environment.');
+      }
+    }
     const emit = (e: AgentStartEvent): void => {
       try { o.onEvent?.(e); } catch { /* a listener never breaks a start */ }
       emitStart(e);

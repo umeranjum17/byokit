@@ -1,10 +1,10 @@
 # Decide pi backend
 
-A decision and `generate` backend that runs the person's installed pi binary with a chosen model (for example `deepseek/deepseek-flash`), so the app holds no key: `pi({ bin, model, timeoutMs })` from `@byokit/decide/pi` passes the model as `--model`, runs `pi --mode json --no-session --no-tools ...` with the prompt on stdin, and reads the last assistant message.
+A decision and `generate` backend that runs the person's installed pi binary with a chosen model (for example `deepseek/deepseek-flash`), with the complete environment for the app-selected account (never copied from `process.env`): `pi({ bin, model, timeoutMs, env })` from `@byokit/decide/pi` passes the model as `--model`, runs `pi --mode json --no-session --no-tools ...` with the prompt on stdin, and reads the last assistant message.
 
 ## Sub-features
 
-- `pi-model-required`: `pi({ bin, timeoutMs })` with no `model` throws "Choose a model for pi first" before any process starts; pi's own default model is never used.
+- `pi-model-required`: `pi({ bin, timeoutMs })` with no `model` throws `PiError` code `model_required` before any process starts; pi's own default model is never used.
 - `pi-model`: the chosen model reaches pi as `--model <provider/id>`, and the request reaches that provider's endpoint.
 - `pi-answer`: the assistant text is validated against the schema; `data`, `usage` (`input_tokens`/`output_tokens`) and `raw` come back.
 - `pi-refusal`: a pi that exits nonzero, or an assistant message whose `stopReason` is `error`, rejects with `PiError` `process` and fixed text (no stderr).
@@ -45,10 +45,10 @@ server.listen(0, '127.0.0.1'); await once(server, 'listening');
 writeFileSync(join(home, 'agent', 'models.json'), JSON.stringify({ providers: { deepseek: {
   baseUrl: `http://127.0.0.1:${server.address().port}/v1`, api: 'openai-completions', apiKey: 'local-fake-key',
   models: [{ id: 'deepseek-flash' }] } } }));
-process.env.HOME = home; process.env.PI_CODING_AGENT_DIR = join(home, 'agent');
+const env = { HOME: home, PI_CODING_AGENT_DIR: join(home, 'agent'), PATH: '/usr/bin:/bin' };
 const { pi } = await import('@byokit/decide/pi');
 const schema = { type: 'object', required: ['name'], additionalProperties: false, properties: { name: { type: 'string' } } };
-const out = await pi({ bin, model: 'deepseek/deepseek-flash', timeoutMs: 60_000 }).generate({ prompt: 'Who is it?', schema, system: 'You are a test.' });
+const out = await pi({ bin, model: 'deepseek/deepseek-flash', timeoutMs: 60_000, env }).generate({ prompt: 'Who is it?', schema, system: 'You are a test.' });
 const request = seen[0] ?? {};
 const checks = {
   answered: JSON.stringify(out.data) === '{"name":"Umer"}',
@@ -80,4 +80,4 @@ Run the SKILL.md Evidence block. The drive removes its throwaway HOME itself.
 - Loopback only (`127.0.0.1`, ephemeral port); `apiKey` in `models.json` is a fixture. Never run pi against a real provider from a drive.
 - The owner's `~/.pi` is never read: `HOME` and `PI_CODING_AGENT_DIR` point at the throwaway folder. Do not drop those two overrides.
 - Without `models.json`, pi exits `1` with "No API key found" on stderr and only the session header on stdout; that is the `process` refusal.
-- The unit-level argv check runs on the source in `packages/decide/test/pi.test.ts` with a fake pi on PATH.
+- The offline source check in `packages/decide/test/pi.test.ts` proves no child is launched on refusal and that an ambient OpenRouter key is absent from an explicit-model child's environment. The full cross-kit guard capture is [Pi model admission](pi-model-admission.md).

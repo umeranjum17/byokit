@@ -12,7 +12,7 @@ a private tunnel. Each agent keeps its own sign-in, made inside its own screen; 
 ## Minutes to working
 
 You need Node 22.18 or later and Herdr 0.9.1 (`curl -fsSL https://herdr.dev/install.sh | sh`, or the GitHub
-release), plus at least one agent program Herdr knows, such as `pi`, `codex` or `claude`.
+release), plus at least one agent program Herdr knows, such as `codex` or `claude`. Pi starts now require an explicit model and complete selected-account environment; this example's generic form supplies neither, so it does not offer Pi rather than risk a paid default. A Pi model/account picker is a follow-up.
 
 ```sh
 npm i
@@ -51,7 +51,7 @@ helper. Only the helper provisions, stops and tears down that session; do not us
 own-mode commands above in a guarded lab.
 
 Try it without Herdr: `BYOKIT_EXAMPLE_FAKE=1 npm start` runs the kit's stand-in Herdr, whose one agent answers
-`fake pi: <your message>` and asks a question when you send `ask permission`.
+`fake codex: <your message>` and asks a question when you send `ask permission`.
 
 ## Away from home: a relay, and notices only the phone can read
 

@@ -871,7 +871,7 @@ else {
 
 The Node-only `@byokit/decide/pi` subpath runs the person's installed pi binary, for example with
 `deepseek/deepseek-flash`, so an app never needs that provider's key: pi reads its own key store. The host
-passes the absolute binary path and a required `model` (passed through as `--model`); without one, `pi()` throws instead of letting pi pick its own default.
+passes the absolute binary path, a required `model` (passed through as `--model`) and the selected account's complete `env` (including absolute `HOME` and `PI_CODING_AGENT_DIR`). Missing/empty models throw `PiError` code `model_required`; missing account folders throw `account_required`. The kit never copies ambient provider keys into the child.
 Each call runs `pi --mode json --no-session --no-tools --no-extensions --no-skills --no-prompt-templates
 --no-context-files --no-approve --system-prompt <file> --model <model>` in a temporary directory, with the
 prompt on stdin. The answer is the last assistant message's text, validated against the schema; the schema is
@@ -882,7 +882,8 @@ settings, sessions or key files. Failures reject with `PiError` and fixed text t
 import { decide } from '@byokit/decide';
 import { pi } from '@byokit/decide/pi';
 
-const backend = pi({ bin: '/usr/local/bin/pi', model: 'deepseek/deepseek-flash', timeoutMs: 120_000 });
+const backend = pi({ bin: '/usr/local/bin/pi', model: 'deepseek/deepseek-flash', timeoutMs: 120_000,
+  env: { HOME: '/app/home', PI_CODING_AGENT_DIR: '/app/accounts/umer/pi', PATH: '/usr/bin:/bin' } });
 const answers = await decide({ name: 'Umer' }, { keep: { kind: 'yesno', question: 'Keep it?' } },
   { privacy: 'may-leave', backends: [backend] });
 ```

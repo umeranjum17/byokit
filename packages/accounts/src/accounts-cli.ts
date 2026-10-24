@@ -36,7 +36,7 @@ export type PoolRow = {
   room?: Room; windows?: Window[]; readAt?: number;
 };
 
-type Flags = { state?: string; until?: string; why?: string; provider?: string; prefer?: string; json: boolean; cached: boolean; clear: boolean };
+type Flags = { state?: string; until?: string; why?: string; provider?: string; model?: string; prefer?: string; json: boolean; cached: boolean; clear: boolean };
 type Args = { command?: string; words: string[]; flags: Flags };
 
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -48,7 +48,7 @@ export function parse(argv: string[]): Args {
     if (arg === '--json') { flags.json = true; continue; }
     if (arg === '--cached') { flags.cached = true; continue; }
     if (arg === '--clear') { flags.clear = true; continue; }
-    const name = /^--(state|until|why|provider|prefer)$/.exec(arg)?.[1];
+    const name = /^--(state|until|why|provider|model|prefer)$/.exec(arg)?.[1];
     if (name) {
       const value = argv[++i];
       if (value === undefined || value.startsWith('--')) throw new UsageError(`${arg} needs a value`);
@@ -236,7 +236,7 @@ export async function main(argv: string[], io: CliIo): Promise<number> {
         emit({ ok: true, id: picked.account.id, tool, name: picked.account.name, room: picked.room,
           windows: picked.rows.find((r) => r.account.id === picked.account.id)?.windows ?? [], rows,
           readAt: picked.rows.find((r) => r.account.id === picked.account.id)?.readAt,
-          ...kit.launchEnv(picked.account.id) });
+          ...kit.launchEnv(picked.account.id, args.flags.model) });
         return 0;
       }
       case 'use': {
@@ -254,7 +254,7 @@ export async function main(argv: string[], io: CliIo): Promise<number> {
       }
       case 'env': {
         // Folder paths only, for `eval "$(byokit-accounts env <id>)"`: no key, no read, no secret.
-        const env = kit.launchEnv(needed(args.words[0], 'env needs an account id'));
+        const env = kit.launchEnv(needed(args.words[0], 'env needs an account id'), args.flags.model);
         for (const [key, value] of Object.entries(env.set)) io.stdout(`export ${key}=${shellQuote(value)}\n`);
         for (const key of env.unset) io.stdout(`unset ${key}\n`);
         return 0;
@@ -263,7 +263,7 @@ export async function main(argv: string[], io: CliIo): Promise<number> {
         const tool = toolArg(args.words[0]);
         if (tool !== 'pi' && args.flags.provider !== undefined) throw new UsageError('--provider only names a pi subscription');
         const added = tool === 'pi'
-          ? await kit.add('pi', { piProvider: needed(args.flags.provider, 'add pi needs --provider <id>') })
+          ? await kit.add('pi', { piProvider: needed(args.flags.provider, 'add pi needs --provider <id>'), model: needed(args.flags.model, 'add pi needs --model <id>') })
           : await kit.add(tool);
         emit({ account: rowOf(added.account), signIn: added.signIn });
         if (added.signIn.shell !== ':') io.stderr(`next: ${added.signIn.shell}\n`);

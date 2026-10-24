@@ -1,4 +1,4 @@
-// Node-only seam: the host names the person's own installed pi binary; it runs with their HOME and its own provider keys.
+// Node-only seam: the host names the Pi binary, model and selected account's complete environment.
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -9,13 +9,15 @@ import { outputSchema, type OutputSchema } from './schema.ts';
 import { parsedAnswers, responsesInstructions, responsesSchema } from './responses-wire.ts';
 import { runCli } from './cli-run.ts';
 
-export type PiOptions = { bin: string; model: string; timeoutMs: number };
+export type PiOptions = { bin: string; model: string; timeoutMs: number; env: Readonly<Record<string, string>> };
 export type PiBackend = Backend & GenerationBackend;
-type FailureCode = 'invalid_json' | 'invalid_output' | 'process' | 'timeout' | 'aborted';
+type FailureCode = 'model_required' | 'account_required' | 'invalid_json' | 'invalid_output' | 'process' | 'timeout' | 'aborted';
 const messages: Record<FailureCode, string> = {
+  model_required: 'Choose a model for Pi before starting it.',
+  account_required: 'Pass the selected Pi account environment before starting it.',
   invalid_json: 'The model returned invalid JSON.',
   invalid_output: 'The answer did not match the output schema.',
-  process: 'The model could not answer. Check that pi is set up on this computer, with a key for the chosen model: run `pi` once.',
+  process: 'The model could not answer. Check that pi is set up on this computer, with the selected account and an explicit --model.',
   timeout: 'The answer took too long.',
   aborted: 'The answer was cancelled.',
 };
@@ -26,15 +28,16 @@ export class PiError extends Error {
 
 const record = (v: unknown): v is Record<string, any> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-/** The installed pi runs once in JSON mode with no tools, extensions, skills, context files or session; its own key answers. */
+/** Pi runs once in JSON mode with the selected account environment, no tools, extensions or session. */
 export function pi(options: PiOptions): PiBackend {
   if (!isAbsolute(options.bin)) throw new Error('Supply an absolute binary path.');
   // Pi has its own default model per provider; the app must name the one the person chose.
-  if (typeof options.model !== 'string' || !options.model.trim()) throw new Error('Choose a model for pi first: pass model, for example from pi --list-models.');
+  if (typeof options.model !== 'string' || !options.model.trim() || /[\s\0]/.test(options.model) || options.model.startsWith('-') || !options.model.split(':')[0] || options.model.split(':')[0]!.endsWith('/')) throw new PiError('model_required');
+  if (!options.env || typeof options.env.HOME !== 'string' || !isAbsolute(options.env.HOME) || typeof options.env.PI_CODING_AGENT_DIR !== 'string' || !isAbsolute(options.env.PI_CODING_AGENT_DIR)) throw new PiError('account_required');
   if (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0 || options.timeoutMs > 2_147_483_647) {
     throw new Error('The model or timeout is invalid.');
   }
-  const o = { ...options };
+  const o = { ...options, env: { ...options.env } };
   const run = async (input: GenerationRequest): Promise<Generated> => {
     const validator = outputSchema(input.schema);
     if (input.signal?.aborted) throw new PiError('aborted');
@@ -50,8 +53,8 @@ export function pi(options: PiOptions): PiBackend {
       const args = ['--mode', 'json', '--no-session', '--no-tools', '--no-extensions', '--no-skills', '--no-prompt-templates',
         '--no-context-files', '--no-approve', '--system-prompt', systemFile, '--model', o.model];
       const deadline = Date.now() + o.timeoutMs;
-      // The person's own environment so their installed pi answers with its own provider keys; only preload variables are dropped.
-      const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => k !== 'NODE_OPTIONS'));
+      // No ambient credentials or default account selection. Only the app's selected account is passed.
+      const env = Object.fromEntries(Object.entries(o.env).filter(([k]) => k !== 'NODE_OPTIONS'));
       const out = await runCli(o.bin, args, { cwd: scratch, env, deadline, signal: input.signal, stdin: input.prompt },
         (code) => new PiError(code));
       if (out.code !== 0) throw new PiError('process');
@@ -78,7 +81,7 @@ export function pi(options: PiOptions): PiBackend {
     } finally { await rm(scratch, { recursive: true, force: true }); }
   };
   return {
-    name: 'pi', model: o.model ?? 'pi-default', leaves: true, supportsImages: false,
+    name: 'pi', model: o.model, leaves: true, supportsImages: false,
     cacheIdentity: JSON.stringify({ bin: o.bin }),
     generate: run,
     async ask(state, questions, signal) {

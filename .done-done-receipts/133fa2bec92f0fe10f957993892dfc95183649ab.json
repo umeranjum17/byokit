@@ -1,0 +1,63 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "133fa2bec92f0fe10f957993892dfc95183649ab",
+  "tree": "f66706db48b23564fd937d13d61dcd35cd5ddbef",
+  "claim": "A Pi launch from BYOKit with no model, an empty model or a provider-only model now refuses with a plain typed error and sends nothing, even with OPENROUTER_API_KEY in the ambient environment, while an explicit model still launches using only the selected account environment",
+  "result": "pass",
+  "at": "2026-10-24T14:05:15.158Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261024T140509Z-133fa2be-6fc2d5/pi-admission.txt",
+      "sha256": "817d738f82c26cce5acea033f9239dcf1cd42356f4ad1510d5bebfefb5bfee06"
+    },
+    {
+      "path": "<evidence root>/20261024T140509Z-133fa2be-6fc2d5/summary.txt",
+      "sha256": "ddbfb2d0449a83200a590b33c05dc9f3fc58bad36c97e0109bbdf51047a10d17"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261024T140509Z-133fa2be-6fc2d5",
+      "commit": "133fa2bec92f0fe10f957993892dfc95183649ab",
+      "journey": "pi-model-admission",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/pi-model-admission.mjs",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "built public BYOKit entries and native Pi supplied by host"
+        },
+        "start": "isolated folders, fake ambient key, loopback endpoint only",
+        "steps": [
+          "Reproduce raw native missing-model fallback",
+          "Refuse missing and empty models through Accounts, native descriptor, Decide and Herdr preflight without sending a request",
+          "Answer on an explicit model through the built Decide entry and selected account environment"
+        ],
+        "result": "Pi launches require an explicit model; the missing-model guards send zero requests, the explicit model answers, and the selected child environment omits the ambient provider key. Herdr lifecycle remains unqualified."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261024T140509Z-133fa2be-6fc2d5/pi-admission.txt",
+        "sha256": "817d738f82c26cce5acea033f9239dcf1cd42356f4ad1510d5bebfefb5bfee06",
+        "verdict": "pass",
+        "seen": "I read the single JSON record. It shows guardedMissingModelRequests: 0, so the guarded missing-model path sent no requests. It shows explicitModel: moonshotai/kimi-k2.6 with answer.name: Umer, and selectedEnvironmentHasAmbientKey: false, so the explicit-model launch used only the selected account environment. rawNativeMissingModel shows the unguarded fallback being reproduced. The herdr field says offline preflight only, which limits scope but does not contradict the outcome, so I rate it correct."
+      },
+      {
+        "path": "<evidence root>/20261024T140509Z-133fa2be-6fc2d5/summary.txt",
+        "sha256": "ddbfb2d0449a83200a590b33c05dc9f3fc58bad36c97e0109bbdf51047a10d17",
+        "verdict": "pass",
+        "seen": "I read all five lines of the log. Three PASS lines are present: the raw native fallback reproduction, the built Accounts, native descriptor, Decide and Herdr preflight refusing missing or empty models with zero requests, and the explicit-model Decide answering Umer using only the selected account environment. The limitations line says live Herdr process and runner behavior are not covered, but the outcome does not claim live coverage, and no line shows a FAIL. So I rate it correct."
+      }
+    ]
+  }
+}

@@ -172,11 +172,11 @@ test('read-only state reports every CLI without writing or logging secrets', asy
   assert.ok(pi.calls().every((c) => c.argv.includes('--no-refresh')), 'Pi status never refreshes');
   repliesClean(seen);
   // After each CLI's own login, state names the account without secrets.
-  const logins = await cli.add('pi', { piProvider: 'openai-codex' });
+  const logins = await cli.add('pi', { piProvider: 'openai-codex', model: 'chosen-model' });
   writeFileSync(logins.signIn.completion, 'complete', { mode: 0o600 });
   for (const bin of [codex, claude]) {
     const { account, signIn } = bin === codex ? await cli.add('codex') : await cli.add('claude');
-    const folder = Object.values(cli.launchEnv(account.id).set)[0];
+    const folder = Object.values(cli.launchEnv(account.id, 'chosen-model').set)[0];
     const homeVar = bin === codex ? 'CODEX_HOME' : 'CLAUDE_CONFIG_DIR';
     assert.equal(signIn.env[homeVar], folder);
     writeFileSync(join(folder, 'granted'), '');

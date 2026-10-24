@@ -28,7 +28,7 @@ serves a real Unix socket under the scratch directory and answers the pinned pro
 
 - **Write the consumer.** `"$scratch_dir/verify-herdr-close-plan.mjs"` importing `HerdrKit` from `@byokit/herdr`
   and `startFakeHerdr` from `@byokit/herdr/testing`. It starts the fake and kit, then asserts each leg:
-  - `plan-root`: `kit.rename({ workspace: 'w1', label: 'Umer' })`, then `kit.startAgent({ kind: 'pi',
+  - `plan-root`: `kit.rename({ workspace: 'w1', label: 'Umer' })`, then `kit.startAgent({ kind: 'codex',
     cwd: '/tmp/verify-close-plan', place: { workspace: 'new' }, worktree: { branch: 'verify' } })` links a
     checkout into w1's group; `kit.closePlan('w1:p1')` deep-equals `{ paneId: 'w1:p1', tabId: 'w1:t1',
     workspaceId: 'w1', workspaceLabel: 'Umer', group: { label: 'fake-herdr', size: 2 } }`.
