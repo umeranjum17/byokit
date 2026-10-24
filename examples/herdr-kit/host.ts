@@ -117,7 +117,8 @@ const host = await Host.open({
   ...link,
   // This app's own ops: its start-agent form's kinds and folder, and a phone's push address for the relay.
   handle: async (req, grant) => req.op === 'example.setup'
-    ? { kinds: await kit.agentKinds().catch(() => []), folder: resolve(flags.folder), version }
+    // Pi needs a model and a selected account this form cannot supply, so it is not offered.
+    ? { kinds: (await kit.agentKinds().catch(() => [])).filter((k) => k !== 'pi'), folder: resolve(flags.folder), version }
     : req.op === 'example.push' && relay ? relay.subscribe(grant.id, req.args as Subscription)
     : link.handle(req, grant),
 });

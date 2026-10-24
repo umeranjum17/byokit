@@ -75,7 +75,11 @@ async function runServer(): Promise<void> {
   const { startFakeHerdr } = await import('./server.ts');
   // One startup line: a harness reads the socket it must expect, and the recorded env lets a test
   // compare the exact environment the kit spawned us with (docs/runtime-kits.md 6.3).
-  const handle = await startFakeHerdr({ dir: dirname(socketPath), socketPath, onStop: () => process.exit(0) });
+  // A `kinds` file beside the socket (comma-separated, the first owns the agent pane) lets an example offer more than the default `pi`:
+  // the kit passes its server no caller environment, so a file is the only way in.
+  let kinds: string[] | undefined;
+  try { kinds = readFileSync(join(dirname(socketPath), 'kinds'), 'utf8').trim().split(',').filter(Boolean); } catch { /* none: the default */ }
+  const handle = await startFakeHerdr({ dir: dirname(socketPath), socketPath, onStop: () => process.exit(0), ...(kinds?.length ? { world: { kinds } } : {}) });
   process.stdout.write(`${JSON.stringify({ socketPath: handle.socketPath, pid: process.pid, env: process.env })}\n`);
   const stop = () => { void handle.stop(); };
   process.on('SIGTERM', stop);
