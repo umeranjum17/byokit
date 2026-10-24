@@ -14,6 +14,8 @@ skill: .agents/skills/done-done-verify-byokit
 # the repo's verify skill and saves its captures into the run's evidence
 # folder.
 journeys:
+  accounts-rn-models:
+    command: node --conditions=react-native .agents/skills/done-done-verify-byokit/capture/accounts-rn-models.mjs > "$DONE_DONE_EVIDENCE_ROOT/rn-models.log" 2>&1
   build:
     command: npm run build > "$DONE_DONE_EVIDENCE_ROOT/build.log" 2>&1 && echo "npm run build exited 0 and every package built (run $DONE_DONE_RUN_ID)" >> "$DONE_DONE_EVIDENCE_ROOT/build.log" && node --input-type=module -e "import { createRequire } from 'node:module'; const require = createRequire(process.cwd() + '/'); const pkg = require('./packages/accounts/package.json'); const acc = await import('@byokit/accounts'); const testing = await import('@byokit/accounts/testing'); if (!acc.Accounts || !acc.portable || typeof testing.mockOpenAI !== 'function') throw new Error('built entry incomplete'); console.log('doctor ok:', pkg.name, pkg.version, 'resolves', require.resolve('@byokit/accounts'));" > "$DONE_DONE_EVIDENCE_ROOT/doctor.log" 2>&1
   gate:

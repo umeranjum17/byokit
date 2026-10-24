@@ -140,9 +140,10 @@ export function generateRoutes(): Route[] {
     for (const api of [/^openai-(completions|responses)$/, /^anthropic-messages$/]) {
       const speaking = rows.filter((m) => api.test(m.api));
       const bases = [...new Set(speaking.map((m) => m.baseUrl))];
-      if (bases.length === 1 && /^https:\/\/[^{}]+$/.test(bases[0])) return { api: speaking[0].api, baseUrl: bases[0] };
+      if (bases.length === 1 && /^https:\/\/[^{}]+$/.test(bases[0])) return { api: speaking[0].api, baseUrl: bases[0],
+        input: (['text', 'image'] as const).filter((m) => speaking.some((r) => r.input.includes(m))), reasoning: speaking.some((r) => r.reasoning) };
     }
-    return id === 'ollama-pro' ? { api: 'openai-completions', baseUrl: OLLAMA_PRO_BASE_URL } : undefined;
+    return id === 'ollama-pro' ? { api: 'openai-completions', baseUrl: OLLAMA_PRO_BASE_URL, input: ['text' as const], reasoning: false } : undefined;
   };
   for (const r of result) {
     const models = r.provider === 'custom' ? undefined : listOf(r.upstream.id);

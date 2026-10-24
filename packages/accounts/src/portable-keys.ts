@@ -1,5 +1,6 @@
 // Only loaded on the first key request. Published adapters, transformed for Metro by the kit with one recorded Hermes throwIfAborted guard.
-import { createModels, createProvider } from './pi/core.js';
+import { createModels, createProvider, lazyApi } from './pi/core.js';
+import { keyModels } from './key-models.ts';
 import type { ProviderStreams } from '@earendil-works/pi-ai';
 import type { KeyRuntime } from './key-routes.ts';
 
@@ -14,3 +15,4 @@ const loaders: Record<string, () => Promise<ProviderStreams>> = {
 };
 export const runtime: KeyRuntime = { createModels, createProvider, supported: Object.keys(loaders),
   api: (name) => loaders[name](), cloudflare: () => import('./pi/cloudflare-stream.js') };
+runtime.createModels = keyModels({ ...runtime }, lazyApi);

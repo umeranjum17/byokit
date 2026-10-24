@@ -16,7 +16,7 @@
   "esbuild": "0.28.2",
   "options": {
     "entryPoints": {
-      "core": "node_modules/@earendil-works/pi-ai/dist/models.js",
+      "core": "scripts/accounts-pi-core.ts",
       "cloudflare-stream": "node_modules/@earendil-works/pi-ai/dist/providers/cloudflare-stream.js",
       "openai-completions": "node_modules/@earendil-works/pi-ai/dist/api/openai-completions.js",
       "openai-responses": "node_modules/@earendil-works/pi-ai/dist/api/openai-responses.js",
@@ -230,6 +230,10 @@
     {
       "path": "node_modules/@earendil-works/pi-ai/dist/utils/transcript.js",
       "sha256": "4c772c6691be0c5b4c308a09e3eeaa4d965b59e39652442b3aef0600ffb5fccb"
+    },
+    {
+      "path": "scripts/accounts-pi-core.ts",
+      "sha256": "b8a62d90af37de1e5836e0aeded2ac94053459f831b7cf3abff7b29fd90b0be8"
     }
   ],
   "outputs": [
@@ -239,7 +243,7 @@
     },
     {
       "path": "anthropic-messages.js",
-      "sha256": "ff4d50f035b0a25d98bda6907b601145de52d553ec6e87f9ea91a677bef5baad"
+      "sha256": "e3a9fb3bdb332f04b84cb7bc14eb21cbf662a67c71bb3a4e3946b83a69defc85"
     },
     {
       "path": "anthropic-messages.js.map",
@@ -251,19 +255,19 @@
     },
     {
       "path": "azure-openai-responses.js",
-      "sha256": "13e041fe3b267a72776591bf35e698d6c7f9be2ee7767833a8b386077d32c3ba"
+      "sha256": "b0902ffd1fa690ed4419cc5a445590893c9eb17b418803c5d41823bfa2ab7346"
     },
     {
       "path": "azure-openai-responses.js.map",
       "sha256": "d93a64d284adc1441ab023f93902c62ef5f46f0a4f8a5fa4b3d68d173b16fef5"
     },
     {
-      "path": "chunk-44QVZSI4.js",
-      "sha256": "77bbae291b8be5ea21f11d4141153aa5fb87aa87380bccf570501b2bc6cf965e"
+      "path": "chunk-55ILOTBA.js",
+      "sha256": "8091289cc8bd7d6122dc13a95af11d3ab3e14909fc8bdf4c50d23e9ff17d52d6"
     },
     {
-      "path": "chunk-44QVZSI4.js.map",
-      "sha256": "418d862aace643b4f6600afe2f1ad8267ed9064bdef4bd61dc9872eed1e64455"
+      "path": "chunk-55ILOTBA.js.map",
+      "sha256": "1dfa341c31da3c7d4229236239b36ae0489bb60c34fbfb8afc9f89a331bad1e0"
     },
     {
       "path": "chunk-7Z5MAJVW.js",
@@ -274,12 +278,12 @@
       "sha256": "311a8e2d14ead33439af15d1baedd2f6fafe6562e28331ffb00c9f2f3d7e76a4"
     },
     {
-      "path": "chunk-DAXRXMR6.js",
-      "sha256": "37fb20cba35d8e2dd4d2fe4cee732d4fc9cf4a3eb6732ad40380ca1e93141460"
+      "path": "chunk-FT4IFEZ5.js",
+      "sha256": "d1931ec26693d0b02120dd5f2233e683e033edb21f964914b0f35c33fc80045c"
     },
     {
-      "path": "chunk-DAXRXMR6.js.map",
-      "sha256": "1dfa341c31da3c7d4229236239b36ae0489bb60c34fbfb8afc9f89a331bad1e0"
+      "path": "chunk-FT4IFEZ5.js.map",
+      "sha256": "7a9758323c0f5a6600aaf85b2c6b26ad11762670989ab378593ff5e1eb4873b9"
     },
     {
       "path": "chunk-HFF7HWFJ.js",
@@ -296,6 +300,14 @@
     {
       "path": "chunk-KWV666JL.js.map",
       "sha256": "ed562b0bba7ee7214e56ac7f728054b3496bec4597c94a4eb7b4179e6f5cb1c9"
+    },
+    {
+      "path": "chunk-N24NYBSM.js",
+      "sha256": "fba6a4a494b9e262edc6e1b23fe074b9d41098f8d039dd2a28013d09d7964005"
+    },
+    {
+      "path": "chunk-N24NYBSM.js.map",
+      "sha256": "239b4e54fd0001c165af5018abb9cb1916e634e6d8ee12c2fcb72a9169dfe94f"
     },
     {
       "path": "chunk-NA5244EX.js",
@@ -338,14 +350,6 @@
       "sha256": "32762f9138cc9de609ea74d8c777b4b8fe91a900f0dd55f624ce848bdc3b6d84"
     },
     {
-      "path": "chunk-U6W4PXEE.js",
-      "sha256": "24cd871fb6d5ae3683489a2181e2dd8dad3fd067315f294794e9c207eec4ca00"
-    },
-    {
-      "path": "chunk-U6W4PXEE.js.map",
-      "sha256": "7a9758323c0f5a6600aaf85b2c6b26ad11762670989ab378593ff5e1eb4873b9"
-    },
-    {
       "path": "chunk-VAPZ7LCI.js",
       "sha256": "60bed9681e49fbc09406faad1567682e9fd37573e15d79920b327291834dd70c"
     },
@@ -375,11 +379,11 @@
     },
     {
       "path": "core.d.ts",
-      "sha256": "d84b971cc56703d41acbf680117a7f1094630fb1032fd2c37899a8311c200f90"
+      "sha256": "a71d090212db4e0ab431bbaee5edd5dcc689e2d5227596253f6f0127ec3ab296"
     },
     {
       "path": "core.js",
-      "sha256": "1a24b75052678cda18aa01b565d7d64974a0231130aa7b58c06b9ed11e395432"
+      "sha256": "2de6dd4e310398ba6dba9ecbcad246cde79d6b4c6d9c45fc241c2caf666d8a53"
     },
     {
       "path": "core.js.map",
@@ -391,7 +395,7 @@
     },
     {
       "path": "google-generative-ai.js",
-      "sha256": "1fa9296dc391c703ec6eda70f630ee83fb5ca89bbd8d9e06d576688b1c22c7ea"
+      "sha256": "744e39990d4f73e3848d556de10796f8ac0417b0fcfda1c821171c6cebb59e56"
     },
     {
       "path": "google-generative-ai.js.map",
@@ -403,7 +407,7 @@
     },
     {
       "path": "mistral-conversations.js",
-      "sha256": "51466013f26d21f186633a73efe69db026bf312a5a177c6562c865e19c12c6e9"
+      "sha256": "8a45feec7ba4666aa3f2bea636c344780a6fbf5cf4e999a7ea60c90430f94422"
     },
     {
       "path": "mistral-conversations.js.map",
@@ -415,7 +419,7 @@
     },
     {
       "path": "openai-completions.js",
-      "sha256": "01bbde158fd46bba9c0837af73eb430fad2bc71db4db9fc1f38758def2bd324c"
+      "sha256": "e3d6f4538d0351d9a17f292a9871f887503a2f17ba8caa4fd07ebfdbb0072ff7"
     },
     {
       "path": "openai-completions.js.map",
@@ -427,7 +431,7 @@
     },
     {
       "path": "openai-responses.js",
-      "sha256": "47572b349b1f045d3993a2e101c0750661b139b4ec5f67812907dd9c5c843fc5"
+      "sha256": "86aafdc606cbb7c854ace50e223b7a63eab184f9c225ee4907e332ea03f80d62"
     },
     {
       "path": "openai-responses.js.map",

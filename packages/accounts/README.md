@@ -280,9 +280,17 @@ An explicit prebuilt SDK `client` is refused with `KeyRouteError.code === 'auth_
 saved-account secrets: its opaque authentication cannot be verified as this account. It is not silently
 ignored or relabelled. For explicit native/client-owned authentication, `keys()` from `@byokit/accounts/keys`
 (also `computer.keys()` on Node) exposes the typed Pi factories and adapters (with the one recorded Hermes `throwIfAborted` guard), including complete `Models`
-stream/complete/simple/deferred operations and stock options/hooks. Supply an explicit app-owned auth
-context (required on Metro), register your own provider and own that authentication/billing; do not
-attribute native/client-owned requests to a saved account. The selected-key helper is not a restriction
+stream/complete/simple/deferred operations and stock options/hooks. On phones and browsers its `createModels`
+registers runnable OpenAI-compatible and Anthropic Messages key providers with known list routes from the kit's
+generated metadata, with **no frozen model list** and no ambient
+credential lookup. Supply an explicit app-owned auth context (required on Metro); see the
+[phone-only native model recipe](#phone-only-native-model-resolution).
+
+The vendor's live list supplies limits, price and input modalities; if unavailable or unlisted, `found.listed` is false
+and the documented unpriced defaults stand (not a promise of free billing). `getModels()` starts empty: there are no
+invented catalogue rows. You can still register your own provider to replace a route. Node's raw Pi factory remains
+empty; its computer engine supplies the pinned catalogue. Own native authentication/billing; do not attribute
+native/client-owned requests to a saved account. The selected-key helper is not a restriction
 on the native Pi API or a mobile-readiness downgrade. A `KeyRouteError`'s `message` is always the kit's own
 bounded words for its `code`. A failed ask also says why, for logs and an optional "details" line under those words:
 `status` is the HTTP status the provider answered (absent when no answer came back), and `detail` is the provider's
@@ -1385,3 +1393,18 @@ if (started.ok) {
 }
 console.log(rows.length);
 ```
+
+## Phone-only native model resolution
+
+```ts
+import { keys } from '@byokit/accounts/keys';
+import { resolveModel } from '@byokit/accounts';
+declare const apiKey: string; // supplied by your app, never an ambient credential
+const { createModels } = await keys();
+const models = createModels({ authContext: { env: async () => undefined, fileExists: async () => false } });
+const found = await resolveModel(models, 'openrouter', 'google/gemma-4-31b-it:free', { apiKey });
+```
+
+On React Native, `found.model` is ready for `accounts.respond` with its saved account, or for native
+`models.complete` with explicit app-owned authentication. `found.listed` reports whether the vendor's live list
+named it. OpenRouter remains an API-key route billed per use, including when the chosen ID ends in `:free`.

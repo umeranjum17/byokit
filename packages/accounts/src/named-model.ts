@@ -8,18 +8,23 @@ const APIS = ['anthropic-messages', 'openai-completions', 'openai-responses'];
 /** What a provider's live `/models` list said about one id; absent fields keep the safe defaults. */
 export type Limits = { contextWindow?: number; maxTokens?: number; cost?: Model<Api>['cost']; input?: Model<Api>['input'] };
 
-type Catalogue = { getProvider(id: string): { getModels(): readonly Model<Api>[] } | undefined; getModel(provider: string, id: string): Model<Api> | undefined };
+type ModelRoute = Pick<Model<Api>, 'api' | 'baseUrl' | 'input' | 'reasoning' | 'headers' | 'compat'>;
+type Catalogue = { getProvider(id: string): { getModels(): readonly Model<Api>[]; baseUrl?: string; modelRoute?: ModelRoute } | undefined; getModel(provider: string, id: string): Model<Api> | undefined };
 
 /** A gateway whose catalogue mixes APIs (OpenRouter lists Anthropic Messages rows for `anthropic/*` beside its
  *  OpenAI-compatible rest) names the one API an unlisted id is called on. */
 const GATEWAY_API: Record<string, string> = { openrouter: 'openai-completions' };
 
 /** The provider's route when it is known: the one API and base URL every catalogue row shares. */
-function knownRoute(models: Catalogue, provider: string): Model<Api> | undefined {
-  const rows = (models.getProvider(provider)?.getModels() ?? []).filter((m) => !GATEWAY_API[provider] || m.api === GATEWAY_API[provider]);
-  const first = rows[0];
+function knownRoute(models: Catalogue, provider: string): ModelRoute | undefined {
+  const registered = models.getProvider(provider);
+  const all = registered?.getModels() ?? [];
+  const rows = all.filter((m) => !GATEWAY_API[provider] || m.api === GATEWAY_API[provider]);
+  // Kit-registered portable providers carry generated route metadata, never a made-up catalogue model.
+  const first = rows[0] ?? (all.length === 0 && registered?.modelRoute?.baseUrl === registered?.baseUrl ? registered?.modelRoute : undefined);
   if (!first || !APIS.includes(first.api) || !/^https:\/\/[^{}]+$/.test(first.baseUrl ?? '')) return undefined;
-  return rows.every((m) => m.api === first.api && m.baseUrl === first.baseUrl) ? first : undefined;
+  if (!rows.every((m) => m.api === first.api && m.baseUrl === first.baseUrl)) return undefined;
+  return rows.length ? { ...first, input: (['text', 'image'] as const).filter((m) => rows.some((r) => r.input.includes(m))), reasoning: rows.some((r) => r.reasoning) } : first;
 }
 
 /** The catalogue's `provider`/`id` entry, else (known route only) an entry for that id. Unpriced (cost 0), 128k context
@@ -30,10 +35,8 @@ export function namedModel(models: Catalogue, provider: string, id: string, limi
   if (known || !id.trim()) return known;
   const base = knownRoute(models, provider);
   if (!base) return undefined;
-  const rows = models.getProvider(provider)!.getModels().filter((m) => !GATEWAY_API[provider] || m.api === GATEWAY_API[provider]);
-  const { contextWindow = 128_000, maxTokens = 16_384, cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    input = (['text', 'image'] as const).filter((m) => rows.some((r) => r.input.includes(m))) } = limits;
-  return { id, name: id, api: base.api, provider, baseUrl: base.baseUrl, reasoning: rows.some((r) => r.reasoning), input, cost,
+  const { contextWindow = 128_000, maxTokens = 16_384, cost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, input = base.input } = limits;
+  return { id, name: id, api: base.api, provider, baseUrl: base.baseUrl, reasoning: base.reasoning, input, cost,
     contextWindow, maxTokens: Math.min(maxTokens, contextWindow),
     ...(base.headers ? { headers: base.headers } : {}), ...(base.compat ? { compat: base.compat } : {}) } as Model<Api>;
 }

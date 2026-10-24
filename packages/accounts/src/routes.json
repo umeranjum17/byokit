@@ -26,7 +26,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+      "baseUrl": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -56,7 +61,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+      "baseUrl": "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -86,7 +96,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+      "baseUrl": "https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -114,7 +129,11 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://api.ant-ling.com/v1"
+      "baseUrl": "https://api.ant-ling.com/v1",
+      "input": [
+        "text"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -142,7 +161,12 @@
     },
     "models": {
       "api": "anthropic-messages",
-      "baseUrl": "https://api.anthropic.com"
+      "baseUrl": "https://api.anthropic.com",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -170,7 +194,12 @@
     },
     "models": {
       "api": "anthropic-messages",
-      "baseUrl": "https://api.anthropic.com"
+      "baseUrl": "https://api.anthropic.com",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -198,7 +227,12 @@
     },
     "models": {
       "api": "anthropic-messages",
-      "baseUrl": "https://api.anthropic.com"
+      "baseUrl": "https://api.anthropic.com",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -226,7 +260,12 @@
     },
     "models": {
       "api": "anthropic-messages",
-      "baseUrl": "https://api.anthropic.com"
+      "baseUrl": "https://api.anthropic.com",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -254,7 +293,12 @@
     },
     "models": {
       "api": "anthropic-messages",
-      "baseUrl": "https://api.anthropic.com"
+      "baseUrl": "https://api.anthropic.com",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -282,7 +326,12 @@
     },
     "models": {
       "api": "anthropic-messages",
-      "baseUrl": "https://api.anthropic.com"
+      "baseUrl": "https://api.anthropic.com",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -438,7 +487,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://inference.baseten.co/v1"
+      "baseUrl": "https://inference.baseten.co/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -466,7 +520,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://api.cerebras.ai/v1"
+      "baseUrl": "https://api.cerebras.ai/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -620,7 +679,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://api.deepseek.com"
+      "baseUrl": "https://api.deepseek.com",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -648,7 +712,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://api.fireworks.ai/inference/v1"
+      "baseUrl": "https://api.fireworks.ai/inference/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -676,7 +745,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://api.individual.githubcopilot.com"
+      "baseUrl": "https://api.individual.githubcopilot.com",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -704,7 +778,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://api.individual.githubcopilot.com"
+      "baseUrl": "https://api.individual.githubcopilot.com",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -926,7 +1005,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://api.groq.com/openai/v1"
+      "baseUrl": "https://api.groq.com/openai/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -954,7 +1038,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://router.huggingface.co/v1"
+      "baseUrl": "https://router.huggingface.co/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -984,7 +1073,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://api.kimi.com/coding/v1"
+      "baseUrl": "https://api.kimi.com/coding/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1014,7 +1108,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://api.kimi.com/coding/v1"
+      "baseUrl": "https://api.kimi.com/coding/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1042,7 +1141,12 @@
     },
     "models": {
       "api": "openai-responses",
-      "baseUrl": "https://api.meta.ai/v1"
+      "baseUrl": "https://api.meta.ai/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1070,7 +1174,12 @@
     },
     "models": {
       "api": "openai-responses",
-      "baseUrl": "https://api.meta.ai/v1"
+      "baseUrl": "https://api.meta.ai/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1098,7 +1207,12 @@
     },
     "models": {
       "api": "anthropic-messages",
-      "baseUrl": "https://api.minimax.io/anthropic"
+      "baseUrl": "https://api.minimax.io/anthropic",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1128,7 +1242,12 @@
     },
     "models": {
       "api": "anthropic-messages",
-      "baseUrl": "https://api.minimaxi.com/anthropic"
+      "baseUrl": "https://api.minimaxi.com/anthropic",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1156,7 +1275,12 @@
     },
     "models": {
       "api": "anthropic-messages",
-      "baseUrl": "https://api.minimax.io/anthropic"
+      "baseUrl": "https://api.minimax.io/anthropic",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1186,7 +1310,12 @@
     },
     "models": {
       "api": "anthropic-messages",
-      "baseUrl": "https://api.minimaxi.com/anthropic"
+      "baseUrl": "https://api.minimaxi.com/anthropic",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1214,7 +1343,12 @@
     },
     "models": {
       "api": "anthropic-messages",
-      "baseUrl": "https://api.minimax.io/anthropic"
+      "baseUrl": "https://api.minimax.io/anthropic",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1268,7 +1402,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://api.moonshot.ai/v1"
+      "baseUrl": "https://api.moonshot.ai/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1298,7 +1437,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://api.moonshot.cn/v1"
+      "baseUrl": "https://api.moonshot.cn/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1326,7 +1470,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://integrate.api.nvidia.com/v1"
+      "baseUrl": "https://integrate.api.nvidia.com/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1356,7 +1505,11 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://ollama.com/v1"
+      "baseUrl": "https://ollama.com/v1",
+      "input": [
+        "text"
+      ],
+      "reasoning": false
     }
   },
   {
@@ -1384,7 +1537,12 @@
     },
     "models": {
       "api": "openai-responses",
-      "baseUrl": "https://api.openai.com/v1"
+      "baseUrl": "https://api.openai.com/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1438,7 +1596,12 @@
     },
     "models": {
       "api": "openai-responses",
-      "baseUrl": "https://api.openai.com/v1"
+      "baseUrl": "https://api.openai.com/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1466,7 +1629,12 @@
     },
     "models": {
       "api": "openai-responses",
-      "baseUrl": "https://api.openai.com/v1"
+      "baseUrl": "https://api.openai.com/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1494,7 +1662,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://opencode.ai/inference/v1"
+      "baseUrl": "https://opencode.ai/inference/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1524,7 +1697,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://opencode.ai/inference/go/v1"
+      "baseUrl": "https://opencode.ai/inference/go/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1552,7 +1730,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1"
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1580,7 +1763,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1"
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1608,7 +1796,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://openrouter.ai/api/v1"
+      "baseUrl": "https://openrouter.ai/api/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1732,7 +1925,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://api.together.ai/v1"
+      "baseUrl": "https://api.together.ai/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1784,7 +1982,12 @@
     },
     "models": {
       "api": "anthropic-messages",
-      "baseUrl": "https://ai-gateway.vercel.sh"
+      "baseUrl": "https://ai-gateway.vercel.sh",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1812,7 +2015,12 @@
     },
     "models": {
       "api": "openai-responses",
-      "baseUrl": "https://api.x.ai/v1"
+      "baseUrl": "https://api.x.ai/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1840,7 +2048,12 @@
     },
     "models": {
       "api": "openai-responses",
-      "baseUrl": "https://api.x.ai/v1"
+      "baseUrl": "https://api.x.ai/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1868,7 +2081,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://api.xiaomimimo.com/v1"
+      "baseUrl": "https://api.xiaomimimo.com/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1898,7 +2116,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://token-plan-ams.xiaomimimo.com/v1"
+      "baseUrl": "https://token-plan-ams.xiaomimimo.com/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1928,7 +2151,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://token-plan-cn.xiaomimimo.com/v1"
+      "baseUrl": "https://token-plan-cn.xiaomimimo.com/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1958,7 +2186,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://token-plan-sgp.xiaomimimo.com/v1"
+      "baseUrl": "https://token-plan-sgp.xiaomimimo.com/v1",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -1986,7 +2219,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://api.z.ai/api/coding/paas/v4"
+      "baseUrl": "https://api.z.ai/api/coding/paas/v4",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   },
   {
@@ -2016,7 +2254,12 @@
     },
     "models": {
       "api": "openai-completions",
-      "baseUrl": "https://open.bigmodel.cn/api/coding/paas/v4"
+      "baseUrl": "https://open.bigmodel.cn/api/coding/paas/v4",
+      "input": [
+        "text",
+        "image"
+      ],
+      "reasoning": true
     }
   }
 ]
