@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.16.1 (2026-10-24)
+
+- Dependency update: pins @byokit/accounts 0.32.1.
+- FIX: (from @byokit/accounts 0.32.1) Phone and browser apps using `keys().createModels({ authContext })` can now resolve and call vendor live-list model IDs, including OpenRouter IDs absent from the pinned catalogue, without registering their own providers or inventing model rows. API-key billing labels and selected-account key routes are unchanged.
+
 ## 0.16.0 (2026-10-24)
 
 - Dependency update: pins @byokit/accounts 0.32.0.

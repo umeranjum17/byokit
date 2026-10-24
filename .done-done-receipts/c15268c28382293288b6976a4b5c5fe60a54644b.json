@@ -1,0 +1,66 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "c15268c28382293288b6976a4b5c5fe60a54644b",
+  "tree": "f0221ec1446e39b02c721d0de8528390ff9051b7",
+  "claim": "An app on the react-native condition that installs the released @byokit/accounts 0.32.1 and calls keys().createModels({ authContext }) without registering any provider itself gets the key providers registered, can resolve a vendor live-list model that the pinned catalogue does not carry, get an answer through it, and still sees API-key billing and the missing-key error.",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-24T14:07:49.801Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261024T140703Z-c15268c2-b133f4/summary.txt",
+      "sha256": "62ec0ab9c8e2ab1c61df8dd44bea46460e68ff663c8cfb4c03a2d25d052c130c"
+    },
+    {
+      "path": "<evidence root>/20261024T140703Z-c15268c2-b133f4/rn-models-release.txt",
+      "sha256": "f4b80031a9a1531eeb3f4172206d11fe67e51820ba99952f355662bc153c3784"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261024T140703Z-c15268c2-b133f4",
+      "commit": "c15268c28382293288b6976a4b5c5fe60a54644b",
+      "journey": null,
+      "command": "sh <task folder>/scratch/wrap.sh",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "built @byokit/accounts portable public entries"
+        },
+        "start": "No providers supplied by the consumer; synthetic key; loopback vendor stand-in",
+        "steps": [
+          "Import @byokit/accounts/keys under the react-native condition",
+          "Create Models with explicit app-owned auth context",
+          "Resolve the OpenRouter vendor live-list model and read its limits",
+          "Complete a phone-only request through the pinned portable adapter",
+          "Resolve an unlisted and offline model, refuse an unknown provider and missing key, check unchanged API billing"
+        ],
+        "result": "Phone-only SDK consumer resolves the vendor model, receives Hello Umer, and preserves honest fallback and billing behavior; no native device or real provider generation claimed"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261024T140703Z-c15268c2-b133f4/summary.txt",
+        "sha256": "62ec0ab9c8e2ab1c61df8dd44bea46460e68ff663c8cfb4c03a2d25d052c130c",
+        "verdict": "pass",
+        "seen": "I read the single result record (one release-head proof with its detail reference). It quotes 'OpenRouter registered by createModels', 'google/gemma-4-31b-it:free listed=true context=256000 output=32000 price=vendor' with 'openrouter pinned models = 0', 'native-answer: Hello Umer', 'missing-key: error Provider is not configured: openrouter', 'billing=api', and 'EXIT=0'. Every part of the outcome is shown. The outcome names only one scenario, so there are no separate parts."
+      },
+      {
+        "path": "<evidence root>/20261024T140703Z-c15268c2-b133f4/rn-models-release.txt",
+        "sha256": "f4b80031a9a1531eeb3f4172206d11fe67e51820ba99952f355662bc153c3784",
+        "verdict": "pass",
+        "seen": "I read the full npm log, including the pack and install lines, the 'createModels: registered providers' list (which includes openrouter), and the result lines. It quotes 'condition: react-native', 'catalogue: openrouter pinned models = 0', 'live-list: google/gemma-4-31b-it:free listed=true', 'native-answer: Hello Umer', 'missing-key: error Provider is not configured: openrouter', 'billing=api', and 'EXIT=0'. It shows the outcome. It is slightly weaker because the accounts package was installed from a locally packed tarball rather than the registry, and usage 0.10.0 is not on the registry yet."
+      }
+    ]
+  }
+}
