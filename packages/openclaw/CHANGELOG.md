@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.27.4 (2026-10-24)
+
+- FIX: a slow sign-in check no longer signs the user out. A failed or timed-out Claude Code probe (`claude auth status`, a hard 3 s limit in the engine) is retried past the engine's 10 s window, then reads *unknown*, never signed out. Apps now see `'unknown'` from the new `kit.signInState(member, provider)` (`'signed-in' | 'signed-out' | 'unknown'`); `providerStatus` is `undefined` while unknown; a run's admission check ends `kind: 'network'` (retry) instead of `'signed-out'`. Apps must handle `'unknown'`: keep the session and ask again. `signedIn` still returns `false` for it, so decide a sign-out on `signInState`.
+
 ## 0.27.3 (2026-10-24)
 
 - Dependency update: pins @byokit/accounts 0.31.0.
