@@ -25,6 +25,6 @@ export { anthropic, anthropicSseReader, AnthropicIncompleteError, type Anthropic
 
 export { ClaudePlanExpiredError, ClaudePlanPlatformError, claudeAuthorization, claudeCode, claudeProfile, type ClaudePlanOptions } from './claude-plan.ts';
 
-export { chooseAccount, resolveSelection, roomOf, roomWords, type AccountId, type AccountRef, type AgentCapabilities, type Account, type Via, type ProviderInfo, type ModelInfo, type AccountLike, type AccountPick, type Considered, type Defaults, type PickWhy, type Room, type RoomSpan, type RunSelection, type SignInState } from './multi.ts';
+export { chooseAccount, resolveSelection, roomOf, roomWords, type AccountId, type AccountRef, type AgentCapabilities, type Account, type Via, type ProviderInfo, type ModelInfo, type AccountLike, type AccountPick, type Considered, type Defaults, type PickWhy, type Room, type RoomSpan, type RunSelection, type SignInState, type UnknownReason } from './multi.ts';
 export { GOOGLE_CLIENTS, type GoogleClient, type GoogleProtocol } from './flows/google.ts';
 export { REMOTE_CLI_OPS, REMOTE_CLI_PROVIDERS, REMOTE_CLI_WORDS, RemoteCliError, isRemoteCliProvider, remoteCliDevice, remoteCliLabel, type RemoteCliDisplay, type RemoteCliFailure, type RemoteCliLink, type RemoteCliProblem, type RemoteCliProvider, type RemoteCliReply, type RemoteCliResult, type RemoteCliStart, type RemoteCliState } from './remote-cli.ts';

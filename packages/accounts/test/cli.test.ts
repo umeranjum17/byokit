@@ -178,7 +178,7 @@ test('native Claude status resolves at its deadline and reaps a child that ignor
   while (claude.calls().length === 0 && Date.now() < end) await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal(claude.calls().length, 1);
   const pid = claude.calls()[0].pid;
-  t.mock.timers.tick(15_000); assert.equal((await pending).state, 'signed_out');
+  t.mock.timers.tick(15_000); assert.equal((await pending).state, 'unknown');
   t.mock.timers.tick(1000);
   // The escalation SIGKILLs at once, but kill(pid, 0) also succeeds on the dead-but-unreaped zombie until this
   // process reaps it, so bound the wait on the clock like the spawn wait above instead of a loop count.
@@ -192,7 +192,7 @@ test('native Claude status resolves at its deadline and reaps a child that ignor
   // Overflow resolves before child close; its late cleanup must not clear a later test's mocked timer.
   t.mock.timers.reset();
   const flood = cliAccounts({ stateDir: join(root, 'plans'), bins: { claude: claude.bin }, env: { HOME: join(root, 'home'), PATH: '/unused', STATUS_MODE: 'flood' } });
-  assert.equal((await flood.status(account.id)).state, 'signed_out');
+  assert.equal((await flood.status(account.id)).state, 'unknown');
 });
 
 test('Pi auth-check deadline is bounded and reaps only its owned child', async (t) => {
@@ -212,7 +212,7 @@ test('Pi auth-check deadline is bounded and reaps only its owned child', async (
   const owned = pi.calls().find(c => c.pid !== sibling.pid);
   assert.ok(owned, 'the status call started its own child'); const pid = owned.pid;
   t.mock.timers.tick(15_000);
-  const result = await pending; assert.equal(result.state, 'signed_out'); assert.equal(result.why, 'unknown');
+  const result = await pending; assert.equal(result.state, 'unknown'); assert.equal(result.why, 'unknown'); assert.equal(result.reason, 'timeout');
   t.mock.timers.tick(1000);
   let alive = true;
   const reaped = Date.now() + 5000;
@@ -303,7 +303,7 @@ test('managed Pi uses TUI instructions, OAuth-only readiness, isolated roster an
   await kit.rename(account.id, 'Personal ChatGPT');
   assert.equal((await make().status(account.id)).name, 'Personal ChatGPT', 'identity survives restart');
   for (const [mode, why] of [['key', 'api_key'], ['invalid', 'unknown'], ['malformed', 'unknown'], ['flood', 'unknown'], ['wrong-provider', 'unknown'], ['out', undefined]] as const) {
-    const row = await make(mode).status(account.id); assert.equal(row.state, 'signed_out'); assert.equal(row.why, why);
+    const row = await make(mode).status(account.id); assert.equal(row.state, why === 'unknown' ? 'unknown' : 'signed_out'); assert.equal(row.why, why);
     assert.doesNotMatch(JSON.stringify(row), /private-fake-token|access_token/);
     assert.equal(resolveSelection([row], {}, { account: 'auto', model: 'passed-model' }, () => ({ left: 'unknown' }), Date.now()).ok, false);
   }
@@ -547,9 +547,9 @@ test('installed CLIs signed in under the app HOME: listed, picked and launched w
   assert.equal(out.ok, false);
   if (!out.ok) { assert.equal(out.code, 'signed_out'); assert.equal(out.message, 'Claude is not signed in on this computer.'); assert.equal(out.account.why, undefined); }
   const unreadable = await installed(claude.bin, { STATUS_MODE: 'flood' }).status('installed-claude');
-  assert.deepEqual([unreadable.state, unreadable.why, unreadable.cause], ['signed_out', 'unknown', 'Claude on this computer answered in a way the app could not read.']);
+  assert.deepEqual([unreadable.state, unreadable.why, unreadable.reason, unreadable.cause], ['unknown', 'unknown', 'unreadable', 'Claude on this computer answered in a way the app could not read.']);
   const absent = await installed(join(root, 'not-installed')).status('installed-claude');
-  assert.deepEqual([absent.state, absent.why, absent.cause], ['signed_out', 'unknown', 'Claude on this computer could not start.']);
+  assert.deepEqual([absent.state, absent.why, absent.reason, absent.cause], ['unknown', 'unknown', 'unavailable', 'Claude on this computer could not start.']);
 });
 
 test('installed Codex launch distinguishes signed out from failed probes and retries only transient failures once', async () => {
@@ -575,7 +575,8 @@ test('installed Codex launch distinguishes signed out from failed probes and ret
       env: { HOME: join(root, 'home'), PATH: '/unused', STATUS_MODE: mode }, installed: true });
     const launch = await accounts.launch('installed-codex');
     assert.equal(launch.ok, message === undefined, mode);
-    assert.equal(launch.account.state, message === undefined ? 'ready' : 'signed_out', mode);
+    assert.equal(launch.account.state, message === undefined ? 'ready' : failure ? 'unknown' : 'signed_out', mode);
+    if (!launch.ok) assert.equal(launch.code, failure ? 'unknown' : 'signed_out', mode);
     assert.deepEqual(launch.account.probeFailure, failure, mode);
     assert.equal(launch.account.why, failure ? 'unknown' : undefined, mode);
     assert.equal(codex.calls().length, calls, `${mode}: bounded retry, never retry a signed-out or unreadable reply`);

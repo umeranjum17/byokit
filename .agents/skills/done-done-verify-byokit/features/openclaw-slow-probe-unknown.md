@@ -22,5 +22,5 @@ Preconditions: baseline (features/README.md).
 ## Gotchas
 
 - An unknown answer is never kept: the next reader probes again. `signedIn` still returns `false` for unknown; only `signInState` tells the two apart.
-- The account list still reads a failed probe as no Claude Code login (the account is not listed), as before; the person's session is not touched by it.
+- The account list reads a failed probe as `unknown` for an account it already lists (see [openclaw-account-status](./openclaw-account-status.md)); an account it never listed stays absent. The person's session is not touched by it.
 - The kit binds a Unix socket under its state dir, so the script keeps that dir at a short path (`/tmp/bsp-*`, removed at the end) when the run's scratch path is long; a long path fails the bind, not the proof.

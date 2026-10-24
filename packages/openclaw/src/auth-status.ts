@@ -1,7 +1,7 @@
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { signedInProviders, USABLE } from './runs.ts';
-import type { Detection, Detector } from './detect.ts';
+import { indeterminate, type Detection, type Detector } from './detect.ts';
 import type { GatewayTransport } from './types.ts';
 
 export type AuthStatus = { providers?: (string | {
@@ -55,7 +55,7 @@ export async function authStatus(
 }
 
 function nativeStatus(status: AuthStatus, detected: Detection | undefined): AuthStatus {
-  if (detected === undefined) return { ...status, providers: (status.providers ?? []).filter((row) => (typeof row === 'string' ? row : row.provider) !== 'claude-cli'),
+  if (detected === undefined || indeterminate(detected)) return { ...status, providers: (status.providers ?? []).filter((row) => (typeof row === 'string' ? row : row.provider) !== 'claude-cli'),
     unknown: [...status.unknown ?? [], 'claude-cli'] };
   const rows = (status.providers ?? []).filter((row) => (typeof row === 'string' ? row : row.provider) !== 'claude-cli');
   if (detected?.candidates?.some((candidate) => candidate.kind === 'claude-cli' && candidate.credentials === true)) {
@@ -72,8 +72,15 @@ export function createAuthStatus(root: string, request: GatewayTransport['reques
   detect?: Detector) {
   const snapshots = new Map<string, { status: AuthStatus; until: number; witness: string }>();
   const witnesses = new Map<string, string>();
-  let generation = 0;
-  const invalidate = () => { generation++; snapshots.clear(); };
+  // Per agent: one account's login, logout or removal drops its own snapshots and leaves its siblings' alone.
+  const generations = new Map<string, number>();
+  let all = 0;
+  const generationOf = (agentId: string): string => `${all}.${generations.get(agentId) ?? 0}`;
+  const invalidate = (agentId?: string) => {
+    if (agentId === undefined) { all++; snapshots.clear(); return; }
+    generations.set(agentId, (generations.get(agentId) ?? 0) + 1);
+    for (const key of snapshots.keys()) if (key.startsWith(`${agentId}:`)) snapshots.delete(key);
+  };
   const witness = (agentId: string): string | undefined => {
     try {
       return ['openclaw.json', `state/agents/${agentId}/agent/auth-profiles.json`,
@@ -91,7 +98,7 @@ export function createAuthStatus(root: string, request: GatewayTransport['reques
     } catch { return undefined; } // unreadable witnesses never authorize reuse
   };
   const read = async (agentId: string, refresh = false, native = false, reuse = true): Promise<AuthStatus> => {
-    const now = Date.now(), key = `${agentId}:${native}`, before = witness(agentId), epoch = generation;
+    const now = Date.now(), key = `${agentId}:${native}`, before = witness(agentId), epoch = generationOf(agentId);
     for (const [key, snapshot] of snapshots) if (snapshot.until <= now) snapshots.delete(key);
     const cached = snapshots.get(key);
     if (reuse && !refresh && before !== undefined && cached?.witness === before && cached.until > now) return cached.status;
@@ -113,7 +120,7 @@ export function createAuthStatus(root: string, request: GatewayTransport['reques
     }
     const status = native ? nativeStatus(profiles, detected) : profiles;
     // An unknown answer is never kept: the next reader asks again.
-    if (before !== undefined && epoch === generation && witness(agentId) === before && !status.unknown?.length) {
+    if (before !== undefined && epoch === generationOf(agentId) && witness(agentId) === before && !status.unknown?.length) {
       for (const [route, answer] of (native ? [[false, profiles], [true, status]] : [[false, profiles]]) as [boolean, AuthStatus][]) {
         const usable = signedInProviders(answer);
         if (!usable?.length || (route && !usable.includes('claude-cli'))) continue;

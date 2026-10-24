@@ -7,7 +7,7 @@ import type { Keystore } from '@byokit/secrets';
 import { clock, say } from './words.ts';
 import { OPENCODE_GO_PLAN_ROUTE, deleteOpenCodePlanKey, openCodeWorkspace, openCodeWorkspaceEntry, readOpenCodePlanKey, readOpenCodeWorkspace, saveOpenCodePlanKey, saveOpenCodeWorkspace } from './opencode-go.ts';
 import { launchEnv as cleanLaunchEnv } from './isolate.ts';
-import type { AccountLike } from './multi.ts';
+import type { AccountLike, UnknownReason } from './multi.ts';
 import routes from './routes.json' with { type: 'json' };
 export { remoteCliHost, remoteCliState, type RemoteCliHostOptions } from './remote-cli-host.ts';
 export { poolPrepare, type PoolPrepareOptions } from './prepare.ts';
@@ -26,7 +26,9 @@ export type CliAccount = AccountLike & { provider: CliProvider; billing: 'subscr
   /** Why an installed row is not signed in, in plain words. */
   cause?: string;
   /** A failed Codex readiness probe, not a confirmed signed-out reply. Safe metadata only. */
-  probeFailure?: Identity['probeFailure'] };
+  probeFailure?: Identity['probeFailure'];
+  /** Only while `state` is 'unknown' (the status check gave no answer): why, and when to ask again. */
+  reason?: UnknownReason; retryAfterMs?: number };
 export type CliOptions = {
   stateDir: string;
   bins: Partial<Record<CliProvider, string>>;
@@ -54,7 +56,7 @@ export type CliOptions = {
 };
 export type CliLaunchResult =
   | { ok: true; account: CliAccount; set: Record<string, string>; unset: string[]; args?: string[] }
-  | { ok: false; code: 'signed_out' | 'not_included' | 'resting'; account: CliAccount; message: string };
+  | { ok: false; code: 'signed_out' | 'not_included' | 'resting' | 'unknown'; account: CliAccount; message: string };
 export type CliRest = { until: number; why: string };
 /** One managed row of a provider with its room reading, for `pick` and the `list` view of the same rows. */
 export type CliPickRow = { account: CliAccount; room: Room; windows: Reading['windows']; readAt?: number };
@@ -509,13 +511,16 @@ export function cliAccounts(options: CliOptions) {
     return provider === 'claude' ? 'Claude' : provider === 'pi' ? 'Pi' : provider === 'opencode' ? 'OpenCode' : provider === 'kimi' ? 'Kimi' : provider === 'vibe' ? 'Vibe' : provider === 'cursor' ? 'Cursor' : 'Codex';
   }
   /** An installed row reads only its CLI's own answer: signed in, signed out, or no answer with the real cause. */
+  /** A probe that gave no answer (timeout, start, exit, unreadable) is unknown: never a revoked login. */
+  const unknownOf = (cause: NonNullable<Probe['cause']>, name: string) => ({ state: 'unknown' as const, why: 'unknown' as const,
+    reason: ({ 'cli.installedSlow': 'timeout', 'cli.installedUnreadable': 'unreadable' } as const)[cause as 'cli.installedSlow'] ?? 'unavailable' as UnknownReason,
+    retryAfterMs: 5_000, cause: say(cause, { name }) });
   async function installedStatus(r: Row): Promise<CliAccount> {
     const account = { id: r.id, provider: r.provider, name: suggestName(undefined, r.provider), billing: 'subscription' as const, installed: true as const };
     const info = await readIdentity(r);
     if (info.signedIn) return { ...account, name: suggestName(info.email, r.provider), state: 'ready', ...(info.email ? { email: info.email } : {}), ...(info.plan ? { plan: info.plan } : {}), ...(info.method ? { method: info.method } : {}) };
-    const cause = info.cause ?? 'cli.installedSignedOut';
-    return { ...account, state: 'signed_out', ...(info.cause ? { why: 'unknown' as const } : {}),
-      ...(info.probeFailure ? { probeFailure: info.probeFailure } : {}), cause: say(cause, { name: account.name }) };
+    return { ...account, ...(info.cause ? unknownOf(info.cause, account.name) : { state: 'signed_out' as const, cause: say('cli.installedSignedOut', { name: account.name }) }),
+      ...(info.probeFailure ? { probeFailure: info.probeFailure } : {}) };
   }
   async function status(id: string): Promise<CliAccount> {
     const installed = installedRow(id);
@@ -551,7 +556,7 @@ export function cliAccounts(options: CliOptions) {
       const info = await readIdentity(r);
       if (marker(pending(r)) && (r.provider !== 'pi' || info.signedIn)) rmSync(pending(r), { force: true });
       // Pre-existing roster rows have no kit marker; their native status remains authoritative.
-      return { ...account, name: r.name.trim() || (r.provider === 'pi' ? account.name : suggestName(info.email, r.provider)), state: info.signedIn ? 'ready' : signing && !info.why ? 'signing' : 'signed_out', ...(info.why ? { why: info.why } : {}), ...(info.email ? { email: info.email } : {}), ...(info.plan ? { plan: info.plan } : {}), ...(info.method ? { method: info.method } : {}) };
+      return { ...account, name: r.name.trim() || (r.provider === 'pi' ? account.name : suggestName(info.email, r.provider)), ...(info.signedIn ? { state: 'ready' as const } : signing && !info.why ? { state: 'signing' as const } : info.cause ? unknownOf(info.cause, account.name) : { state: 'signed_out' as const }), ...(info.why && !info.cause ? { why: info.why } : {}), ...(info.email ? { email: info.email } : {}), ...(info.plan ? { plan: info.plan } : {}), ...(info.method ? { method: info.method } : {}) };
     });
   }
   function discard(r: Row, login: boolean) {
@@ -711,7 +716,7 @@ export function cliAccounts(options: CliOptions) {
       if (account.state === 'resting' && account.until) {
         return { ok: false, code: 'resting', account, message: say('status.resting', { name: account.name, until: clock(account.until) }) };
       }
-      const code = account.state === 'not_included' ? 'not_included' : 'signed_out';
+      const code = account.state === 'not_included' ? 'not_included' : account.state === 'unknown' ? 'unknown' : 'signed_out';
       return { ok: false, code, account, message: account.cause ?? say(code === 'not_included' ? 'cli.notIncluded' : 'cli.signedOut', { name: account.name }) };
     },
     launchEnv: (id: string, model?: string) => {

@@ -55,6 +55,7 @@
   "account.resting": "Cooling down",
   "account.signed_out": "Not signed in",
   "account.needs_again": "Sign in again",
+  "account.unknown": "Couldn't check yet",
   "account.not_included": "Not in your plan",
   "account.room.unknown": "Room left unknown",
   "account.room.session": "{left} left this session",

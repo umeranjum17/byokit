@@ -136,6 +136,7 @@ export type RunEnd<T = unknown> =
     thinking?: ThinkingReport } // present when the run asked for a thinking level; used may be clamped to the catalog
   | { ok: false; aborted: true }
   | { ok: false; kind: 'signed-out' | 'resting' | 'plan' | 'network' | 'other' | 'output'; until?: number; message: string;
+    retryAfterMs?: number; // a network end for a sign-in that could not be checked: ask again then
     cause?: CliLoginCause }; // only on a signed-out claude-cli run
 
 /** Why a `claude-cli` run or `anthropic-cli` sign-in failed: Claude Code has no login where this engine reads it (5.5).
@@ -264,12 +265,17 @@ export type { GatewayEventName, GatewayEventPayload } from './generated/events.t
 // is `@byokit/accounts`' `Pick`, renamed here because this kit's modules use TypeScript's `Pick<T, K>`.
 export type AccountId = string;      // '<provider>': the member agent's sign-in; '<provider>.<hex6>': agent '<member>--<hex6>'
 export type AccountRef = AccountId;  // always starts with a provider id, so never 'default' or 'auto'
-export type SignInState = 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included';
+export type SignInState = 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included' | 'unknown'; // unknown: the sign-in could not be checked (never a sign-out)
+/** Why a sign-in check gave no answer: safe codes, never the provider's output. */
+export type UnknownReason = 'timeout' | 'unavailable' | 'unreadable';
+/** One account's sign-in, read now: `unknown` carries a `reason` and when to ask again (`retryAfterMs`). */
+export type AccountStatus = { state: 'ready' | 'signed_out' | 'unknown'; checkedAt: number; reason?: UnknownReason; retryAfterMs?: number };
 export type Account = { id: AccountId; provider: string; route: string;        // route = Route.choice it signed in with
   name: string;                      // the person's name for it ("Work"); renameAccount sets it
   label: string;                     // the provider's display name ("ChatGPT")
   email?: string; plan?: string;     // live from models.authStatus usage when reported; never stored by the kit
-  billing: 'subscription' | 'api'; state: SignInState; until?: number; addedAt: number };
+  billing: 'subscription' | 'api'; state: SignInState; until?: number; addedAt: number;
+  reason?: UnknownReason; retryAfterMs?: number }; // reason, retryAfterMs: only while state is 'unknown'
 export type RoomSpan = 'session' | 'week' | 'month' | 'tightest';
 export type Room = { left: number; span: RoomSpan; resetsAt?: number; at?: number } | { left: 'unknown'; at?: number };
                                      // left: percent of the tightest applying window left, 0-100; times epoch ms;

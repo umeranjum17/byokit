@@ -161,7 +161,7 @@ test('cursor status reads isAuthenticated, never the exit code', async () => {
 
   const malformed = cliAccounts({ stateDir, bins: { cursor: cursor.bin }, env: { ...base, CURSOR_STATUS_MODE: 'malformed' } });
   const broken = await malformed.status(account.id);
-  assert.equal(broken.state, 'signed_out');
+  assert.deepEqual([broken.state, broken.reason], ['unknown', 'unreadable'], 'an unreadable reply is not a sign-out');
   assert.doesNotMatch(JSON.stringify(broken), /private-fake-token/);
 });
 

@@ -21,6 +21,8 @@ export type {
   RoomSpan,
   RunSelection,
   SignInState,
+  AccountStatus,
+  UnknownReason,
   GatewayEventName,
   GatewayEventPayload,
   GatewayMethod,

@@ -5,7 +5,7 @@
 import WORDS from './words.json' with { type: 'json' };
 
 export type Billing = 'subscription' | 'api' | 'local' | 'free' | 'unknown';
-export type SignInState = 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included';
+export type SignInState = 'ready' | 'signing' | 'resting' | 'signed_out' | 'needs_again' | 'not_included' | 'unknown';
 export type RoomSpan = 'session' | 'week' | 'month' | 'tightest';
 /** A room-left reading, restated structurally from `@byokit/accounts` (multi.ts): a known percentage or 'unknown'. */
 export type Room = { left: number; span: RoomSpan; resetsAt?: number; at?: number } | { left: 'unknown'; at?: number };
