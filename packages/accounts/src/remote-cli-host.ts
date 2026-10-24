@@ -59,6 +59,7 @@ type Session = {
   /** Set when `settled` has finished: the lock is free and the row is no longer in flight. */
   done?: true;
   completion: string;
+  keepAccount: boolean;
   display: RemoteCliDisplay;
   startedAt: number;
   /** CLI output after the display payload: only failure sniffing reads it, never a reply or a log. */
@@ -171,7 +172,8 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
   readonly signal: AbortSignal;
   state(): Promise<RemoteCliState[]>;
   close(): Promise<void>;
-  start(provider: RemoteCliProvider, opts?: { signal?: AbortSignal }): Promise<RemoteCliStart>;
+  /** Host-only exact managed row. Re-auth never selects a sibling or removes the named row on failure. */
+  start(provider: RemoteCliProvider, opts?: { signal?: AbortSignal; account?: string }): Promise<RemoteCliStart>;
   wait(id: string, opts?: { timeoutMs?: number }): Promise<RemoteCliResult>;
   paste(id: string, pasteText: string): Promise<void>;
   cancel(id: string): Promise<void>;
@@ -212,15 +214,17 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     return remoteCliState(cli, bins);
   }
 
-  async function start(provider: RemoteCliProvider, opts?: { signal?: AbortSignal }): Promise<RemoteCliStart> {
+  async function start(provider: RemoteCliProvider, opts?: { signal?: AbortSignal; account?: string }): Promise<RemoteCliStart> {
+    if (opts?.account !== undefined && (typeof opts.account !== 'string' || !opts.account || opts.account.length > 128))
+      throw new CliAccountError('bad-option');
     if (starts.has(provider)) return fail(provider, 'busy');
-    const task = startLogin(provider, opts?.signal ? AbortSignal.any([lifetime.signal, opts.signal]) : lifetime.signal);
+    const task = startLogin(provider, opts?.signal ? AbortSignal.any([lifetime.signal, opts.signal]) : lifetime.signal, opts?.account);
     starts.set(provider, task);
     try { return await task; }
     finally { starts.delete(provider); }
   }
 
-  async function startLogin(provider: RemoteCliProvider, signal?: AbortSignal): Promise<RemoteCliStart> {
+  async function startLogin(provider: RemoteCliProvider, signal?: AbortSignal, accountId?: string): Promise<RemoteCliStart> {
     if (!isRemoteCliProvider(provider)) throw new Error('accounts.cli.signin.start needs { provider: claude|codex|pi|opencode }');
     // Pi has no headless login; OpenCode connects by pasting its plan key in the computer's app instead.
     if (provider === 'pi' || provider === 'opencode') return fail(provider, 'unsupported');
@@ -229,14 +233,20 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     for (const s of sessions.values()) {
       if (s.provider === provider && !s.done) return fail(provider, 'busy');
     }
-    const rows = await cli.list();
-    if (rows.some((r) => r.provider === provider && r.state === 'ready')) return fail(provider, 'already');
+    // Validate managed ownership before any probe: installed/default logins are never re-auth targets.
+    if (accountId !== undefined) cli.folderOf(accountId);
+    const rows = accountId === undefined ? await cli.list() : [await cli.status(accountId)];
+    if (accountId !== undefined && rows[0].provider !== provider)
+      throw new CliAccountError('kind-mismatch');
+    if (accountId === undefined && rows.some((r) => r.provider === provider && r.state === 'ready')) return fail(provider, 'already');
     let id: string;
     let signIn: { argv: string[]; env: Record<string, string>; completion: string };
     let unlock: (() => void) | undefined;
     let freshId: string | undefined;
     try {
-      const reuse = rows.find((r) => r.provider === provider && !r.installed && (r.state === 'signed_out' || r.state === 'unknown' || r.state === 'signing'));
+      const reuse = accountId === undefined
+        ? rows.find((r) => r.provider === provider && !r.installed && (r.state === 'signed_out' || r.state === 'unknown' || r.state === 'signing'))
+        : rows[0];
       if (reuse) {
         unlock = claimSignIn(cli.folderOf(reuse.id));
         if (!unlock) return fail(provider, 'busy');
@@ -257,7 +267,7 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
       if (e instanceof CliAccountError && e.code === 'prepare-failed') return fail(provider, 'busy');
       return fail(provider, 'failed');
     }
-    if (signal?.aborted) { unlock?.(); await cli.cancel(id); return fail(provider, 'cancelled'); }
+    if (signal?.aborted) { unlock?.(); await cli.cancel(id, { keepAccount: accountId !== undefined }); return fail(provider, 'cancelled'); }
     const child = spawn(signIn.argv[0], signIn.argv.slice(1), { env: signIn.env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
     child.stdin?.on('error', () => {});
     // The host owns admission from claim until row settlement, with no child-exit holder rewrite.
@@ -267,13 +277,13 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
     });
     const settled = exit.then(async () => {
       try { await settle(session); }
-      catch { session.result = fail(provider, 'failed'); await cli.cancel(id).catch(() => {}); }
+      catch { session.result = fail(provider, 'failed'); await cli.cancel(id, { keepAccount: accountId !== undefined }).catch(() => {}); }
       try { unlock?.(); }
       catch { session.result = fail(provider, 'failed'); }
       session.done = true;
       return session.result!;
     });
-    const session: Session = { id, provider, child, exit, settled, completion: signIn.completion,
+    const session: Session = { id, provider, child, exit, settled, completion: signIn.completion, keepAccount: accountId !== undefined,
       display: { id, provider, verificationUri: '' }, startedAt: now(), late: '' };
     const abort = () => { void stop(session, fail(provider, 'cancelled')); };
     signal?.addEventListener('abort', abort, { once: true });
@@ -330,7 +340,7 @@ export function remoteCliHost(options: RemoteCliHostOptions): {
       else if (/expir|timed out/i.test(late)) session.result = fail(session.provider, 'expired');
       else session.result = fail(session.provider, 'failed');
     }
-    if (!session.result.ok) await cli.cancel(session.id).catch(() => {});
+    if (!session.result.ok) await cli.cancel(session.id, { keepAccount: session.keepAccount }).catch(() => {});
     return session.result;
   }
 

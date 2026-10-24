@@ -75,7 +75,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const home = process.env.CLAUDE_CONFIG_DIR || '';
 const granted = home ? require('node:path').join(home, 'granted') : '';
 (async () => {
-  fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ argv: process.argv.slice(2) }) + '\\n');
+  fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify({ argv: process.argv.slice(2), home }) + '\\n');
   const mode = process.env.LOGIN_MODE || 'success';
   if (process.argv[2] === 'auth' && process.argv[3] === 'status') {
     const on = granted && fs.existsSync(granted);
@@ -190,6 +190,49 @@ test('read-only state reports every CLI without writing or logging secrets', asy
   assert.equal(after.find((r) => r.provider === 'pi')?.signedIn, true);
   assert.doesNotMatch(JSON.stringify(after), new RegExp(TOKEN));
   repliesClean(seen);
+});
+
+test('exact native re-auth keeps two Claude folders and the selected row through cancel and restart', async () => {
+  const root = scratchDir('remote-exact-claude');
+  const claude = fakeClaude(join(root, 'bins'));
+  const bins = { claude: claude.bin };
+  const env = { HOME: join(root, 'home'), PATH: '/unused', LOGIN_MODE: 'paste', EXPECT_CODE: 'synthetic' };
+  const stateDir = join(root, 'plans'); mkdirSync(stateDir);
+  let cli = cliAccounts({ stateDir, bins, env });
+  let host = remoteCliHost({ cli, bins });
+  const a = (await cli.add('claude')).account.id;
+  const b = (await cli.add('claude')).account.id;
+  const folders = [cli.folderOf(a), cli.folderOf(b)];
+  assert.notEqual(folders[0], folders[1]);
+  const login = async (id: string) => {
+    const started = await host.start('claude', { account: id }); assert.ok(started.ok);
+    assert.equal(started.signIn.id, id);
+    await host.paste(id, 'synthetic'); assert.equal((await host.wait(id)).ok, true);
+  };
+  try {
+    await login(a);
+    const before = claude.calls().length;
+    await login(b); // A being ready must neither block nor replace B.
+    assert.ok(claude.calls().slice(before).every(c => c.home === folders[1]));
+    const again = await host.start('claude', { account: b }); assert.ok(again.ok);
+    assert.deepEqual(await host.start('claude', { account: a }).then(r => r.ok ? 'ok' : r.error), 'busy');
+    await host.cancel(b);
+    assert.equal((await host.wait(b)).ok, false);
+    assert.equal(cli.folderOf(b), folders[1], 'cancel retains a row even in its allocating instance');
+    assert.equal((await cli.status(a)).state, 'ready');
+    assert.equal((await cli.list()).length, 2);
+    await assert.rejects(host.start('claude', { account: 'missing' }), { code: 'unknown-account' });
+    const beforeInstalled = claude.calls().length;
+    await assert.rejects(host.start('claude', { account: 'installed-claude' }), { code: 'unknown-account' });
+    assert.equal(claude.calls().length, beforeInstalled, 'installed login is not even probed for re-auth');
+    await assert.rejects(host.start('codex', { account: a }), { code: 'kind-mismatch' });
+    await host.close();
+    cli = cliAccounts({ stateDir, bins, env }); host = remoteCliHost({ cli, bins });
+    await login(b);
+    assert.equal(cli.folderOf(b), folders[1]);
+    assert.equal((await cli.status(a)).state, 'ready');
+    assert.deepEqual(await host.start('claude').then(r => r.ok ? 'ok' : r.error), 'already', 'legacy start is unchanged');
+  } finally { await host.close(); }
 });
 
 test('codex device code succeeds over the link and the credential stays on the host', async () => {

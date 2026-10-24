@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "a54bc7e6910a95da39842c44c4b050d6912242ed",
+  "tree": "c09da056741ac27047eb7f85d9ba3e1290a52e46",
+  "claim": "an app can sign in and re-authenticate an exact managed Claude or Codex row without selecting a sibling; cancelling and restarting Claude re-auth retains its original row and folder",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-24T18:40:47.157Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261024T183523Z-a54bc7e6-610abc/targeted-signin.log",
+      "sha256": "ac73f829fc17d288b8bcac6bf364a7333fb087a87716762dfc6da0e6fda76359"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261024T183523Z-a54bc7e6-610abc",
+      "commit": "a54bc7e6910a95da39842c44c4b050d6912242ed",
+      "journey": "accounts-cli-targeted-signin",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/accounts-cli-targeted-signin.mjs --gates",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "0.32.1"
+        },
+        "start": "Empty isolated native roster; deterministic subprocess fixtures; no real credentials",
+        "steps": [
+          "Allocate two claude rows, sign in A then B by exact id, check both and their launch descriptors",
+          "Make A status unknown, re-auth B, refuse overlapping A, cancel B without dropping its allocated row",
+          "Restart the host and native roster, re-auth B at its original store, check A remains ready",
+          "Allocate two codex rows, sign in A then B by exact id, check both and their launch descriptors"
+        ],
+        "result": "PASS: host-only exact managed sign-in prerequisite; no engine routing, principal deduplication, keyring or live-account claim"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261024T183523Z-a54bc7e6-610abc/targeted-signin.log",
+        "sha256": "ac73f829fc17d288b8bcac6bf364a7333fb087a87716762dfc6da0e6fda76359",
+        "verdict": "pass",
+        "seen": "I read all 7 entries. Claude: A and B signed in at distinct stores, B login never selected A (\"B login/status never selected A\"); overlapping re-auth refused busy; cancelling B preserved its id, folder and native data; after restart, re-auth kept the same B binding. Codex: A and B signed in directly at distinct final stores, with B never selecting A. The outcome's sign-in and re-auth of an exact row without sibling selection is shown. The restart and cancel claim is shown for Claude only, which is what the outcome names. The 'installed target not probed' note and the PASS line's exclusions (no keyring or live-account claim) limit scope but do not contradict the outcome. The outcome names one part, so parts is empty."
+      }
+    ]
+  }
+}

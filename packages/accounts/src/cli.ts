@@ -677,8 +677,8 @@ export function cliAccounts(options: CliOptions) {
     unrest,
     saveKey,
     logout,
-    async cancel(id: string): Promise<{ removed: boolean }> {
-      if (created.has(id)) { await drop(id, false); return { removed: true }; }
+    async cancel(id: string, opts?: { keepAccount?: boolean }): Promise<{ removed: boolean }> {
+      if (created.has(id) && !opts?.keepAccount) { await drop(id, false); return { removed: true }; }
       return serial(id, async () => { const r = row(id); rmSync(pending(r), { force: true }); return { removed: false }; });
     },
     async rename(id: string, name: string): Promise<CliAccount> {
