@@ -89,8 +89,7 @@ Hetzner server or an SSH box resolves `{ undo: null }` and rejects `unsupported`
 An update step that fails after the copy rejects with `extra.undo` set to the copy's id.
 `undoPoint()` resolves that copy (or `null`), and `undoUpdate(recipe)` resets the machine to it, as
 `restore` does (on Boat a new machine with a new id), so everything changed since the copy is lost,
-not only the update. With no such copy it rejects `no-undo`. Undo is not yet proven on a real Boat
-computer.
+not only the update. With no such copy it rejects `no-undo`.
 
 ```ts
 import { words, type HostRecipe, type Machine } from '@byokit/cloud';
