@@ -1,0 +1,68 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "24408161c7572d834d355c637efd28adc09700e3",
+  "tree": "53cb300acb14fb8c6e2ffc445040acf58bc6b9a9",
+  "claim": "A slow Claude Code sign-in check no longer signs the person out: it is retried past 10 s and reads unknown, a recovering one reads signed in, and a signed-out one still reads signed out",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-24T10:43:23.118Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261024T104151Z-24408161-2c572e/slow-probe-drive.txt",
+      "sha256": "0dfc769da774295510702c4b662738974a842eaa741a36db93fcf0e85cb599d6"
+    },
+    {
+      "path": "<evidence root>/20261024T104151Z-24408161-2c572e/slow-probe-results.json",
+      "sha256": "64bd5cf33247e70f2db5114b61ed42d401e9718e649ee9ed8dd8e38f8d73afd9"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261024T104151Z-24408161-2c572e",
+      "commit": "24408161c7572d834d355c637efd28adc09700e3",
+      "journey": null,
+      "command": null,
+      "feature": "openclaw-slow-probe-unknown",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "@byokit/openclaw 0.27.3 (commit 24408161)"
+        },
+        "start": "A built @byokit/openclaw checkout (npm run build exited 0; the import resolves inside packages/openclaw/dist) with a fresh state dir per probe and a loopback fake gateway whose engine probe answers Claude Code sign-in status; no account, key or network.",
+        "steps": [
+          "Built the SDK with npm run build and checked that the built @byokit/openclaw entry resolves",
+          "Ran the public-entry drive openclaw-slow-probe-unknown.mjs, which starts a kit with a new state dir for each case",
+          "Case 1: the Claude Code probe takes 3.5 s and errors on every attempt; asked the kit for the sign-in state of a member on claude-cli, then started a Claude Code run for that member",
+          "Case 2: the Claude Code probe errors twice and then answers credentials present; asked the sign-in state, then started a run",
+          "Case 3: the Claude Code probe answers credentials absent; asked the sign-in state, then started a run",
+          "Read the printed results and the drive's DRIVE OK line and exit code"
+        ],
+        "result": "The always-failing slow probe reads unknown after 12.6 s of retries (6 probes) with no provider status, and its run ends network. The probe that recovers reads signed-in after 9 s (3 probes), providerStatus lists claude-cli, and the run is ok. The signed-out probe reads signed-out with no provider status, and its run ends signed-out. The drive exits 0 with DRIVE OK."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261024T104151Z-24408161-2c572e/slow-probe-drive.txt",
+        "sha256": "0dfc769da774295510702c4b662738974a842eaa741a36db93fcf0e85cb599d6",
+        "verdict": "pass",
+        "seen": "Read all 3 entries. 'slow probe' has state \"unknown\" with probes 6 and seconds 12.6, matching the retried-past-10s case. 'slow twice, then signed in' has state \"signed-in\" with run \"ok\", probes 3, seconds 9, and providerStatus [\"claude-cli\"]. 'signed out' has state \"signed-out\" with run \"signed-out\" and probes 0. All three outcome parts are shown, and nothing contradicts them."
+      },
+      {
+        "path": "<evidence root>/20261024T104151Z-24408161-2c572e/slow-probe-results.json",
+        "sha256": "64bd5cf33247e70f2db5114b61ed42d401e9718e649ee9ed8dd8e38f8d73afd9",
+        "verdict": "pass",
+        "seen": "Read all 3 entries in the same results set. 'slow probe' has state \"unknown\" with seconds 12.6. 'slow twice, then signed in' has state \"signed-in\" with run \"ok\". 'signed out' has state \"signed-out\" with run \"signed-out\". The JSON matches capture_0 and shows all three outcome parts."
+      }
+    ]
+  }
+}
