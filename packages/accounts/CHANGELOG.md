@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.33.0 (2026-10-24)
+
+- BREAKING: a managed or installed CLI account whose status check gives no answer (a timeout, a CLI that does not start or exit cleanly, an unreadable reply, a Codex probe failure) now lists `state: 'unknown'` with a safe `reason` (`timeout`, `unavailable`, `unreadable`) and `retryAfterMs`, instead of `signed_out`. `SignInState` gains `'unknown'` (exported on the portable entry too, with `UnknownReason`), and `launch` returns `code: 'unknown'` for it. Treat `'unknown'` as try again later; only `signed_out` means the login is gone.
+- FIX: an explicit "not logged in" reply still reads `signed_out`; a fresh managed account whose probe merely failed no longer looks revoked, and `remoteCliHost` still lets that account sign in again in place.
+- SECURITY: A missing or empty Pi model no longer falls back to a paid default. Pi launches require the model and selected account explicitly; ambient provider keys are never passed on. Offline admission and environment fixtures cover the guarded routes; live Herdr and raw pass-through qualification remain follow-ups.
+
 ## 0.32.1 (2026-10-24)
 
 FIX: Phone and browser apps using `keys().createModels({ authContext })` can now resolve and call vendor live-list model IDs, including OpenRouter IDs absent from the pinned catalogue, without registering their own providers or inventing model rows. API-key billing labels and selected-account key routes are unchanged.

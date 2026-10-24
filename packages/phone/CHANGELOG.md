@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.5 (2026-10-24)
+
+- Dependency update: pins @byokit/accounts 0.33.0.
+- FIX: (from @byokit/accounts 0.33.0) an explicit "not logged in" reply still reads `signed_out`; a fresh managed account whose probe merely failed no longer looks revoked, and `remoteCliHost` still lets that account sign in again in place.
+- SECURITY: (from @byokit/accounts 0.33.0) A missing or empty Pi model no longer falls back to a paid default. Pi launches require the model and selected account explicitly; ambient provider keys are never passed on. Offline admission and environment fixtures cover the guarded routes; live Herdr and raw pass-through qualification remain follow-ups.
+
 ## 0.1.4 (2026-10-24)
 
 - Dependency update: pins @byokit/accounts 0.32.1.
