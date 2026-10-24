@@ -15,6 +15,8 @@ import { RelayClient, type Subscription } from '@byokit/relay';
 import { linkUrl } from '@byokit/relay/device';
 import type { ServeIngress, Via } from '@byokit/discover';
 import { qrMatrix } from '@byokit/ui/link';
+import { versionLabel } from '@byokit/usage/version';
+import { packageVersion } from '@byokit/usage/version/node';
 
 const { values: flags } = parseArgs({ options: {
   herdr: { type: 'string' },                            // the Herdr program, as a full path
@@ -48,6 +50,10 @@ if (flags.socket && !isAbsolute(flags.socket)) {
   console.error('Give the managed session socket as a full path: --socket <absolute path>');
   process.exit(2);
 }
+
+// The Herdr kit this computer runs, for the phone page to show beside its own (`App 0.16.6 · Host 0.16.6`).
+const version = packageVersion(new URL('../package.json', import.meta.resolve('@byokit/herdr')));
+console.log(`Herdr kit ${versionLabel(version)}`);
 
 let said = '';
 const kit = new HerdrKit({ ...(flags.socket
@@ -111,7 +117,7 @@ const host = await Host.open({
   ...link,
   // This app's own ops: its start-agent form's kinds and folder, and a phone's push address for the relay.
   handle: async (req, grant) => req.op === 'example.setup'
-    ? { kinds: await kit.agentKinds().catch(() => []), folder: resolve(flags.folder) }
+    ? { kinds: await kit.agentKinds().catch(() => []), folder: resolve(flags.folder), version }
     : req.op === 'example.push' && relay ? relay.subscribe(grant.id, req.args as Subscription)
     : link.handle(req, grant),
 });

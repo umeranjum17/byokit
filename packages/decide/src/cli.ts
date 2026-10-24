@@ -12,17 +12,22 @@ const { values: o, positionals: files } = (() => {
   try {
     return parseArgs({
       allowPositionals: true,
-      options: { floor: { type: 'string' }, 'max-clear-wrong': { type: 'string', default: '0' }, live: { type: 'string' }, record: { type: 'boolean' } },
+      options: { floor: { type: 'string' }, 'max-clear-wrong': { type: 'string', default: '0' }, live: { type: 'string' }, record: { type: 'boolean' }, version: { type: 'boolean' }, help: { type: 'boolean' } },
     });
   } catch {
     console.error('invalid arguments');
     process.exit(2);
   }
 })();
+// Read inline: the kit installs no dependencies (slim), so it cannot take @byokit/usage/version for this one line.
+const VERSION = `byokit-eval ${(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version}`;
+const USAGE = 'usage: byokit-eval <file.jsonl>... [--floor N] [--max-clear-wrong RATE] [--live typesafe|openrouter [--record]]';
+if (o.version) { console.log(VERSION); process.exit(0); }
+if (o.help) { console.log(`${VERSION}\n${USAGE}`); process.exit(0); }
 const validRate = (value: string) => value.trim() !== '' && Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 1;
 if (!files.length || (o.live && o.live !== 'typesafe' && o.live !== 'openrouter') ||
     (o.floor !== undefined && !validRate(o.floor)) || !validRate(o['max-clear-wrong'])) {
-  console.error('usage: byokit-eval <file.jsonl>... [--floor N] [--max-clear-wrong RATE] [--live typesafe|openrouter [--record]]');
+  console.error(`${VERSION}\n${USAGE}`);
   process.exit(2);
 }
 const via = o.live as 'typesafe' | 'openrouter' | undefined;

@@ -1,0 +1,1 @@
+- FEAT: `byokit-eval --version` prints the running version from its package.json, and `--help` and the usage line start with it.

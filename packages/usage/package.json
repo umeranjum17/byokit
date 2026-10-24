@@ -32,6 +32,14 @@
     "./view": {
       "types": "./dist/view.d.ts",
       "default": "./dist/view.js"
+    },
+    "./version": {
+      "types": "./dist/version.d.ts",
+      "default": "./dist/version.js"
+    },
+    "./version/node": {
+      "types": "./dist/version-node.d.ts",
+      "default": "./dist/version-node.js"
     }
   },
   "files": [

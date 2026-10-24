@@ -121,6 +121,7 @@
   .agent-model select:disabled { color: var(--soft); }
   .agent-model-words { color: var(--soft); font-size: .8em; margin: .35em 0 0; }
   [hidden] { display: none !important; }
+  .build { color: var(--soft); font-size: .75em; text-align: center; margin: 3em 0 0; font-variant-numeric: tabular-nums; }
   @media (min-width: 900px) { body { max-width: 62em; } #cards { grid-template-columns: 1fr 1fr; align-items: start; } }
 </style>
 <h1>Umer&rsquo;s AI plans</h1>
@@ -150,6 +151,7 @@
   <div id="keys-list"></div>
 </section>
 <div id="cards"></div>
+<footer class="build" id="build"></footer>
 <template id="card">
   <section class="card" data-state="signed_out">
     <div class="who">

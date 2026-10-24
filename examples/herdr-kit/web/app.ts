@@ -6,8 +6,10 @@ import { agentWords, herdrDevice } from '@byokit/herdr/device';
 import { consentWords, linkWords, pairErrorWords, pairingView, type PairPhase } from '@byokit/ui/link';
 import { connectedWords } from '@byokit/ui/route';
 import { HERDR_EMPTY, agentIn, blockedView, herdrStore, herdrTreeView, type HerdrState } from '@byokit/ui/kits';
+import { pairLabel, type BuildVersion } from '@byokit/usage/version';
 
 type Device = ReturnType<typeof herdrDevice>;
+declare const __BYOKIT_APP_VERSION__: BuildVersion; // @byokit/herdr's package.json when build-web.ts bundled this page
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, ...kids: (Node | string)[]) => {
@@ -30,6 +32,14 @@ const KEYS: [label: string, key: string][] = [['Allow', 'y'], ['Deny', 'n'], ['S
 const plainKind = (kind?: string) => (kind ? kind[0].toUpperCase() + kind.slice(1) : 'Agent');
 // A badge names a state, so it reads without the sentence's full stop ('Ready for you', not 'Ready for you.').
 const badge = (s: Parameters<typeof agentWords>[0]) => agentWords(s).replace(/\.$/, '');
+// This page's version beside the computer's (once it answers); a page left open across an update says they differ.
+function drawVersions(hostVersion?: BuildVersion) {
+  const { text, mismatch } = pairLabel(__BYOKIT_APP_VERSION__, hostVersion);
+  $('build').textContent = text;
+  $('build-mismatch').textContent = mismatch ?? '';
+  $('build-mismatch').hidden = !mismatch;
+}
+drawVersions();
 
 // ---- Pairing ----
 
@@ -125,7 +135,8 @@ function online() {
 }
 
 async function setup() {
-  const { kinds, folder } = await link.request('example.setup') as { kinds: string[]; folder: string };
+  const { kinds, folder, version } = await link.request('example.setup') as { kinds: string[]; folder: string; version: BuildVersion };
+  drawVersions(version);
   const pick = $<HTMLSelectElement>('kind');
   pick.replaceChildren(...kinds.map((k) => el('option', { value: k, textContent: plainKind(k) })))
   const where = $<HTMLInputElement>('folder');

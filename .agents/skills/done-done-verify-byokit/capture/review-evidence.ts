@@ -149,6 +149,16 @@ const toAgents = (page: Page) => page.evaluate(() => window.scrollTo(0, document
 
 const SCREENS: Screen[] = [
   {
+    id: 'home-footer', path: '',
+    what: 'The foot of the home page: the @byokit/accounts version this build runs (dev build when changes are unreleased)',
+    themes: [...themes], formFactors: ['phone', 'desktop'], interaction: 'home-scroll-to-foot',
+    before: { via: 'ref' }, beforeDrive: true, // the base home, scrolled to its foot, which had no version
+    async drive(page) {
+      await part(page, 'chatgpt', 'signin').waitFor();
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    },
+  },
+  {
     id: 'agents-list', path: '',
     what: 'Agents: each agent with its plan sign-ins counted as "N of M enabled", before anything is connected',
     themes: [...themes], formFactors: ['phone', 'desktop'], interaction: 'agents-open',

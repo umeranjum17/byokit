@@ -7,6 +7,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { main } from '../dist/cli.js';
 import { ComposeError, type Engine } from '@byokit/write';
@@ -116,6 +117,11 @@ test('an operator gets a plain usage line, never a stack, and the right exit cod
   assert.ok(tooMany.err.startsWith('error: drafts must have 1–50 entries\n'), tooMany.err);
   assert.deepEqual((await run(['frobnicate'])).code, 2);
   assert.deepEqual((await run([])).code, 2);
+  // `--version` and the help header name the running write version, and say when it is a dev build.
+  const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string };
+  const shown = `write ${version.replaceAll('.', '\\.')}(\\+dev \\(dev build\\))?\n`;
+  assert.match((await run(['--version'])).out, new RegExp(`^${shown}$`));
+  assert.match((await run(['--help'])).out, new RegExp(`^${shown}write <hello\\|`));
 
   // A missing or stale engine exits 3 with the plain sentence a person reads.
   const stale = await run(['hello'], {}, fakeEngine({ protocol: 9, version: '1.0.0' }));

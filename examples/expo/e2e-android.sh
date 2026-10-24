@@ -89,6 +89,20 @@ if [ -n "${EXPO_CONNECT_EVIDENCE:-}" ]; then
   expect "ChatGPT isn't signed in yet."
   if [ "${EXPO_CONNECT_CAPTURE_ONLY:-0}" = 1 ]; then exit 0; fi
 fi
+# The version label at the foot of the main screen, light and dark; EXPO_VERSION_TEXT is what it must say.
+if [ -n "${EXPO_VERSION_EVIDENCE:-}" ]; then
+  mkdir -p "$EXPO_VERSION_EVIDENCE"
+  for theme in light dark; do
+    case "$theme" in light) night=no;; dark) night=yes;; esac
+    a shell cmd uimode night "$night"
+    start
+    expect "ChatGPT isn't signed in yet."
+    if [ -n "${EXPO_VERSION_TEXT:-}" ]; then seek build; expect "$EXPO_VERSION_TEXT"; else seek seal; fi
+    a exec-out screencap -p > "$EXPO_VERSION_EVIDENCE/${EXPO_VERSION_STAGE:-after}__${theme}__foot.png"
+  done
+  a shell cmd uimode night no
+  exit 0
+fi
 # The live OpenCode Go paste-key journey runs alone, only when asked (it needs a real plan key).
 if [ -n "${EXPO_GO_EVIDENCE:-}" ]; then
   . ./go-journey.sh

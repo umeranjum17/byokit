@@ -47,6 +47,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@byokit/usage": "0.9.1",
     "ownvoice-engine": "0.1.0"
   }
 }

@@ -4,6 +4,8 @@
 // Reads only the files named on its command line; no env, no writes, no network.
 import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { versionLabel } from '@byokit/usage/version';
+import { packageVersion } from '@byokit/usage/version/node';
 import { Compose } from './compose.ts';
 import { inProcessEngine } from './engine.ts';
 import { ComposeError } from './errors.ts';
@@ -26,7 +28,8 @@ const USAGE: Record<string, string> = {
   check: "write check --platform <id> [--voice '<rules json>'] [--original <file>] <draft file>...",
   split: 'write split --platform <id> <file>',
 };
-const TOP_HELP = 'write <hello|platforms|voice parse|voice guide|brief|check|split>';
+const TOP_HELP = 'write <hello|platforms|voice parse|voice guide|brief|check|split> | --version | --help';
+const VERSION = `write ${versionLabel(packageVersion(new URL('../package.json', import.meta.url)))}`;
 
 class UsageError extends Error {
   readonly help: string;
@@ -116,6 +119,10 @@ export async function main(argv: string[], io: CliIo): Promise<number> {
   const run = async (): Promise<number> => {
     const [verb, ...rest] = argv;
     if (verb === undefined) throw new UsageError('no command', TOP_HELP);
+    if ((verb === '--version' || verb === '--help') && rest.length === 0) {
+      out.push(verb === '--version' ? `${VERSION}\n` : `${VERSION}\n${TOP_HELP}\n`);
+      return 0;
+    }
     if (verb === 'hello' || verb === 'platforms') {
       if (rest.length > 0) throw new UsageError(`too many arguments`, USAGE[verb] as string);
       const compose = new Compose(io.engine === undefined ? { engine: inProcessEngine() } : { engine: io.engine });

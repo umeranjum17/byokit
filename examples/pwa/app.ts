@@ -14,9 +14,12 @@ import { connectStep, connectView, type ConnectAction, type ConnectRoute, type C
 import { phaseOf } from '@byokit/ui/phase';
 import type { Reading, Window } from '@byokit/usage';
 import { windowsView } from '@byokit/usage/view';
+import { versionLabel, type BuildVersion } from '@byokit/usage/version';
 
 declare const __BYOKIT_AUTH_BASE__: string | undefined;
 declare const __BYOKIT_DEVICE_BASE__: string | undefined;
+declare const __BYOKIT_VERSION__: BuildVersion; // @byokit/accounts' package.json, read when serve.ts bundles this page
+document.querySelector('#build')!.textContent = `byokit accounts ${versionLabel(__BYOKIT_VERSION__)}`;
 // ChatGPT's model endpoint and Claude's sign-in endpoints don't answer other web pages, so this page asks them through
 // its own server (serve.ts), which passes each request on unchanged and keeps nothing.
 const FORWARD: Record<string, string> = { 'https://chatgpt.com/': 'fwd/chatgpt/', 'https://platform.claude.com/': 'fwd/claude/', 'https://api.anthropic.com/': 'fwd/anthropic/', 'https://opencode.ai/': 'fwd/opencode/' };
