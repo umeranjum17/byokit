@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.6.0 (2026-10-24)
+
+- FIX: Saving copies keeps the newest keep ordinary copies and never counts or deletes the copy from before an update; snapshots() marks it kind: 'before-update'. A save Boat refuses for lack of credit now says that nothing was saved and nothing was deleted (copies.noCredit), not that the balance ran out.
+- BREAKING: machine().update(recipe) now saves a copy of the cloud computer before it changes anything, when it can (Boat, a computer made with keepCopies: true), and resolves { undo, pruneError? } instead of nothing. The copy can take a few minutes and needs one spare free copy on the Boat account or credit; when Boat refuses, update rejects balance and changes nothing. Pass { undo: false } to update without a copy. A Hetzner server or an SSH box resolves undo: null, and { undo: true } rejects unsupported there.
+- FEATURE: machine().undoPoint() and machine().undoUpdate(recipe) undo the last update: the cloud computer goes back to the copy saved just before it (on Boat a new computer with a new id, as restore does), and everything changed since that copy is lost (words update.undo). With no such copy it rejects no-undo.
+
 ## 0.5.0 (2026-10-23)
 
 - FEATURE: `boat()` can let a device in over plain SSH: `provider.sshAccess(ref, publicKey)` adds one OpenSSH public key to the machine (Boat's `/sshkey`) and returns the host, port, user and host key to pin, so the SSH adapter and any SSH client reach a Boat computer like any other server.

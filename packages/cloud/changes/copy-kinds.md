@@ -1,1 +1,0 @@
-- FIX: Saving copies keeps the newest keep ordinary copies and never counts or deletes the copy from before an update; snapshots() marks it kind: 'before-update'. A save Boat refuses for lack of credit now says that nothing was saved and nothing was deleted (copies.noCredit), not that the balance ran out.
