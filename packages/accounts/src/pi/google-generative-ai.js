@@ -13,7 +13,7 @@ import {
   resolveJsonSchemaStrictSampling,
   sanitizeSurrogates,
   transformMessages
-} from "./chunk-U6W4PXEE.js";
+} from "./chunk-FT4IFEZ5.js";
 import {
   calculateCost,
   clampThinkingLevel,
@@ -22,7 +22,7 @@ import {
   getInitialSystemMessage,
   getSystemMessageText,
   withoutInitialSystemMessage
-} from "./chunk-44QVZSI4.js";
+} from "./chunk-N24NYBSM.js";
 import {
   providerHeadersToRecord
 } from "./chunk-TAONF3RX.js";

@@ -2,7 +2,7 @@
 import {
   clampThinkingLevel,
   getSystemMessageText
-} from "./chunk-44QVZSI4.js";
+} from "./chunk-N24NYBSM.js";
 
 // node_modules/@earendil-works/pi-ai/dist/utils/pi-user-agent.js
 function loadNodeOs() {
@@ -584,4 +584,4 @@ export {
   splitErrorToolResultImages,
   transformMessages
 };
-//# sourceMappingURL=chunk-U6W4PXEE.js.map
+//# sourceMappingURL=chunk-FT4IFEZ5.js.map

@@ -48,6 +48,166 @@ function lazyStream(model, setup) {
   });
   return outer;
 }
+function lazyApi(load, capabilities) {
+  const api = {
+    stream: (model, context, options) => lazyStream(model, async () => (await load()).stream(model, context, options)),
+    streamSimple: (model, context, options) => lazyStream(model, async () => (await load()).streamSimple(model, context, options))
+  };
+  if (capabilities?.fetchDeferred) {
+    api.fetchDeferred = (model, handle, options) => lazyStream(model, async () => {
+      const implementation = await load();
+      if (!implementation.fetchDeferred)
+        throw new Error("API does not support deferred responses");
+      return implementation.fetchDeferred(model, handle, options);
+    });
+  }
+  if (capabilities?.cancelDeferred) {
+    api.cancelDeferred = async (model, handle, options) => {
+      const implementation = await load();
+      if (!implementation.cancelDeferred)
+        throw new Error("API cannot cancel deferred responses");
+      await implementation.cancelDeferred(model, handle, options);
+    };
+  }
+  return api;
+}
+
+// node_modules/@earendil-works/pi-ai/dist/utils/text.js
+function contentText(content, separator = "\n") {
+  if (typeof content === "string")
+    return content;
+  return content.filter((block) => block.type === "text").map((block) => block.text).join(separator);
+}
+function getSystemMessageText(message) {
+  const parts = [contentText(message.content)];
+  for (const text of Object.values(message.sections ?? {})) {
+    if (text !== null)
+      parts.push(text);
+  }
+  return parts.filter((part) => part.length > 0).join("\n\n");
+}
+function renderSystemMessageUpdate(message) {
+  const parts = [];
+  const text = contentText(message.content);
+  if (text.length > 0)
+    parts.push(text);
+  for (const [name, value] of Object.entries(message.sections ?? {})) {
+    parts.push(value === null ? `Removed system prompt section "${name}".` : `Updated system prompt section "${name}":
+
+${value}`);
+  }
+  return parts.join("\n\n");
+}
+
+// node_modules/@earendil-works/pi-ai/dist/utils/transcript.js
+function createInitialSystemMessage(systemPrompt, tools) {
+  const hasSystemPrompt = systemPrompt !== void 0 && systemPrompt.length > 0;
+  const hasTools = tools !== void 0 && tools.length > 0;
+  if (!hasSystemPrompt && !hasTools)
+    return void 0;
+  return {
+    role: "system",
+    content: systemPrompt ?? "",
+    ...hasTools ? { toolsAdded: tools } : {},
+    timestamp: 0
+  };
+}
+function normalizeContext(context) {
+  const initialMessage = createInitialSystemMessage(context.systemPrompt, context.tools);
+  const messages = initialMessage ? [initialMessage, ...context.messages] : context.messages;
+  return { messages };
+}
+function isSystemMessage(message) {
+  return message.role === "system";
+}
+function getInitialSystemMessage(messages) {
+  const first = messages[0];
+  return first && isSystemMessage(first) ? first : void 0;
+}
+function withoutInitialSystemMessage(messages) {
+  return getInitialSystemMessage(messages) ? messages.slice(1) : messages;
+}
+function getCurrentTools(messages) {
+  const tools = /* @__PURE__ */ new Map();
+  for (const message of messages) {
+    if (!isSystemMessage(message))
+      continue;
+    for (const tool of message.toolsRemoved ?? [])
+      tools.delete(tool.name);
+    for (const tool of message.toolsAdded ?? [])
+      tools.set(tool.name, tool);
+  }
+  return [...tools.values()];
+}
+function getCurrentSystemMessage(messages) {
+  const content = [];
+  const sections = /* @__PURE__ */ new Map();
+  let timestamp;
+  for (const message of messages) {
+    if (!isSystemMessage(message))
+      continue;
+    timestamp ??= message.timestamp;
+    const text = contentText(message.content);
+    if (text.length > 0)
+      content.push(text);
+    for (const [name, value] of Object.entries(message.sections ?? {})) {
+      if (value === null)
+        sections.delete(name);
+      else
+        sections.set(name, value);
+    }
+  }
+  const tools = getCurrentTools(messages);
+  if (timestamp === void 0 && tools.length === 0)
+    return void 0;
+  return {
+    role: "system",
+    content: content.join("\n\n"),
+    ...sections.size > 0 ? { sections: Object.fromEntries(sections) } : {},
+    ...tools.length > 0 ? { toolsAdded: tools } : {},
+    timestamp: timestamp ?? 0
+  };
+}
+function collapseSystemMessages(context) {
+  const head = getCurrentSystemMessage(context.messages);
+  const messages = context.messages.filter((message) => message.role !== "system");
+  return { messages: head ? [head, ...messages] : messages };
+}
+function resolveTranscript(context, supportsMidConvoSystemMessages) {
+  return supportsMidConvoSystemMessages ? context : collapseSystemMessages(context);
+}
+function getDeclaredTools(messages) {
+  const definitions = /* @__PURE__ */ new Map();
+  for (const message of messages) {
+    if (!isSystemMessage(message))
+      continue;
+    for (const tool of message.toolsAdded ?? [])
+      definitions.set(tool.name, tool);
+  }
+  return [...definitions.values()];
+}
+function hasNonAdditiveToolChanges(messages) {
+  const declared = /* @__PURE__ */ new Set();
+  for (const message of messages) {
+    if (!isSystemMessage(message))
+      continue;
+    if ((message.toolsRemoved?.length ?? 0) > 0)
+      return true;
+    for (const tool of message.toolsAdded ?? []) {
+      if (declared.has(tool.name))
+        return true;
+      declared.add(tool.name);
+    }
+  }
+  return false;
+}
+function resolveTranscriptTools(messages, supportsToolAdditions) {
+  const anchorsAdditions = supportsToolAdditions && !hasNonAdditiveToolChanges(messages);
+  return {
+    requestTools: anchorsAdditions ? getInitialSystemMessage(messages)?.toolsAdded ?? [] : getCurrentTools(messages),
+    anchorsAdditions
+  };
+}
 
 // node_modules/@earendil-works/pi-ai/dist/auth/context.js
 var __rewriteRelativeImportExtension = function(path, preserveJsx) {
@@ -364,143 +524,6 @@ function classifierErrorResult(model, error, aborted = false) {
     stopReason: aborted ? "aborted" : "error",
     errorMessage: error instanceof Error ? error.message : String(error),
     timestamp: Date.now()
-  };
-}
-
-// node_modules/@earendil-works/pi-ai/dist/utils/text.js
-function contentText(content, separator = "\n") {
-  if (typeof content === "string")
-    return content;
-  return content.filter((block) => block.type === "text").map((block) => block.text).join(separator);
-}
-function getSystemMessageText(message) {
-  const parts = [contentText(message.content)];
-  for (const text of Object.values(message.sections ?? {})) {
-    if (text !== null)
-      parts.push(text);
-  }
-  return parts.filter((part) => part.length > 0).join("\n\n");
-}
-function renderSystemMessageUpdate(message) {
-  const parts = [];
-  const text = contentText(message.content);
-  if (text.length > 0)
-    parts.push(text);
-  for (const [name, value] of Object.entries(message.sections ?? {})) {
-    parts.push(value === null ? `Removed system prompt section "${name}".` : `Updated system prompt section "${name}":
-
-${value}`);
-  }
-  return parts.join("\n\n");
-}
-
-// node_modules/@earendil-works/pi-ai/dist/utils/transcript.js
-function createInitialSystemMessage(systemPrompt, tools) {
-  const hasSystemPrompt = systemPrompt !== void 0 && systemPrompt.length > 0;
-  const hasTools = tools !== void 0 && tools.length > 0;
-  if (!hasSystemPrompt && !hasTools)
-    return void 0;
-  return {
-    role: "system",
-    content: systemPrompt ?? "",
-    ...hasTools ? { toolsAdded: tools } : {},
-    timestamp: 0
-  };
-}
-function normalizeContext(context) {
-  const initialMessage = createInitialSystemMessage(context.systemPrompt, context.tools);
-  const messages = initialMessage ? [initialMessage, ...context.messages] : context.messages;
-  return { messages };
-}
-function isSystemMessage(message) {
-  return message.role === "system";
-}
-function getInitialSystemMessage(messages) {
-  const first = messages[0];
-  return first && isSystemMessage(first) ? first : void 0;
-}
-function withoutInitialSystemMessage(messages) {
-  return getInitialSystemMessage(messages) ? messages.slice(1) : messages;
-}
-function getCurrentTools(messages) {
-  const tools = /* @__PURE__ */ new Map();
-  for (const message of messages) {
-    if (!isSystemMessage(message))
-      continue;
-    for (const tool of message.toolsRemoved ?? [])
-      tools.delete(tool.name);
-    for (const tool of message.toolsAdded ?? [])
-      tools.set(tool.name, tool);
-  }
-  return [...tools.values()];
-}
-function getCurrentSystemMessage(messages) {
-  const content = [];
-  const sections = /* @__PURE__ */ new Map();
-  let timestamp;
-  for (const message of messages) {
-    if (!isSystemMessage(message))
-      continue;
-    timestamp ??= message.timestamp;
-    const text = contentText(message.content);
-    if (text.length > 0)
-      content.push(text);
-    for (const [name, value] of Object.entries(message.sections ?? {})) {
-      if (value === null)
-        sections.delete(name);
-      else
-        sections.set(name, value);
-    }
-  }
-  const tools = getCurrentTools(messages);
-  if (timestamp === void 0 && tools.length === 0)
-    return void 0;
-  return {
-    role: "system",
-    content: content.join("\n\n"),
-    ...sections.size > 0 ? { sections: Object.fromEntries(sections) } : {},
-    ...tools.length > 0 ? { toolsAdded: tools } : {},
-    timestamp: timestamp ?? 0
-  };
-}
-function collapseSystemMessages(context) {
-  const head = getCurrentSystemMessage(context.messages);
-  const messages = context.messages.filter((message) => message.role !== "system");
-  return { messages: head ? [head, ...messages] : messages };
-}
-function resolveTranscript(context, supportsMidConvoSystemMessages) {
-  return supportsMidConvoSystemMessages ? context : collapseSystemMessages(context);
-}
-function getDeclaredTools(messages) {
-  const definitions = /* @__PURE__ */ new Map();
-  for (const message of messages) {
-    if (!isSystemMessage(message))
-      continue;
-    for (const tool of message.toolsAdded ?? [])
-      definitions.set(tool.name, tool);
-  }
-  return [...definitions.values()];
-}
-function hasNonAdditiveToolChanges(messages) {
-  const declared = /* @__PURE__ */ new Set();
-  for (const message of messages) {
-    if (!isSystemMessage(message))
-      continue;
-    if ((message.toolsRemoved?.length ?? 0) > 0)
-      return true;
-    for (const tool of message.toolsAdded ?? []) {
-      if (declared.has(tool.name))
-        return true;
-      declared.add(tool.name);
-    }
-  }
-  return false;
-}
-function resolveTranscriptTools(messages, supportsToolAdditions) {
-  const anchorsAdditions = supportsToolAdditions && !hasNonAdditiveToolChanges(messages);
-  return {
-    requestTools: anchorsAdditions ? getInitialSystemMessage(messages)?.toolsAdded ?? [] : getCurrentTools(messages),
-    anchorsAdditions
   };
 }
 
@@ -1100,9 +1123,6 @@ function createProvider(input) {
   }
   return provider;
 }
-function hasApi(model, api) {
-  return isModelType(model, "chat") && model.api === api;
-}
 function calculateCost(model, usage) {
   const inputTokens = usage.input + usage.cacheRead + usage.cacheWrite;
   let rates = model.cost;
@@ -1154,16 +1174,9 @@ function clampThinkingLevel(model, level) {
   }
   return availableLevels[0] ?? "off";
 }
-function modelsAreEqual(a, b) {
-  if (!a || !b)
-    return false;
-  return getModelType(a) === getModelType(b) && a.id === b.id && a.provider === b.provider;
-}
 
 export {
-  ModelsError,
-  getModelType,
-  isModelType,
+  lazyApi,
   getSystemMessageText,
   renderSystemMessageUpdate,
   getInitialSystemMessage,
@@ -1175,14 +1188,11 @@ export {
   resolveTranscriptTools,
   createModels,
   createProvider,
-  hasApi,
   calculateCost,
-  getSupportedThinkingLevels,
-  clampThinkingLevel,
-  modelsAreEqual
+  clampThinkingLevel
 };
 function __byokitPiThrowIfAborted(signal) {
   if (signal == null || !signal.aborted) return;
   throw signal.reason !== void 0 ? signal.reason : Object.assign(new Error("The operation was aborted"), { name: "AbortError" });
 }
-//# sourceMappingURL=chunk-44QVZSI4.js.map
+//# sourceMappingURL=chunk-N24NYBSM.js.map

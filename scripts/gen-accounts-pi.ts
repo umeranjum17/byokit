@@ -58,7 +58,7 @@ export async function generatePi(): Promise<Map<string, string>> {
   if (json('package.json').devDependencies.esbuild !== version) throw new Error('Install the exact esbuild pin before generating Pi');
   const locked = json('package-lock.json').packages['node_modules/@earendil-works/pi-ai'];
   if (locked.version !== pin || pin !== registry.version || locked.integrity && locked.integrity !== registry.integrity || locked.resolved && locked.resolved !== registry.tarball) throw new Error('Verify registry provenance before changing the Pi pin');
-  const entryPoints = { core: `${piRoot}/dist/models.js`, 'cloudflare-stream': `${piRoot}/dist/providers/cloudflare-stream.js`,
+  const entryPoints = { core: 'scripts/accounts-pi-core.ts', 'cloudflare-stream': `${piRoot}/dist/providers/cloudflare-stream.js`,
     ...Object.fromEntries(apis.map((api) => [api, `${piRoot}/dist/api/${api}.js`])) };
   const options = { entryPoints, outdir: relative(root, piDir), bundle: true as const, splitting: true as const, format: 'esm' as const,
     platform: 'neutral' as const, target: 'es2022', mainFields: ['module', 'main'], conditions: ['import'],
@@ -71,7 +71,7 @@ export async function generatePi(): Promise<Map<string, string>> {
     files.set(name, patchBundledNodePreload(patchBundledThrowIfAborted(text)));
   }
   for (const name of Object.keys(entryPoints)) files.set(`${name}.d.ts`, name === 'core'
-    ? "export { createModels, createProvider } from '@earendil-works/pi-ai';\n"
+    ? "export { createModels, createProvider } from '@earendil-works/pi-ai';\nexport { lazyApi } from '@earendil-works/pi-ai/api/lazy';\n"
     : `export * from '@earendil-works/pi-ai/${name === 'cloudflare-stream' ? 'providers' : 'api'}/${name}';\n`);
   const inputs = Object.keys(result.metafile.inputs).sort().map((path) => ({ path, sha256: sha256(readFileSync(resolve(root, path))) }));
   const outputs = [...files].sort(([a], [b]) => a.localeCompare(b)).map(([path, text]) => ({ path, sha256: sha256(text) }));
