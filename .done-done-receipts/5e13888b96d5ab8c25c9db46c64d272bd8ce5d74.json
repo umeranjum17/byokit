@@ -1,0 +1,70 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "5e13888b96d5ab8c25c9db46c64d272bd8ce5d74",
+  "tree": "aebd1f34775b7bfa69171df8afb4f5f28798c2da",
+  "claim": "a host can add a second account of one provider without any sign-in being moved or overwritten, and is told plainly when a login duplicates an account or re-sign-in is the wrong one",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-24T18:04:42.021Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261024T180427Z-5e13888b-bbc3fd/summary.txt",
+      "sha256": "72e54832b30c5cad640cc38eb910503d628a0d94bd9e29f37b27b20eb66879b5"
+    },
+    {
+      "path": "<evidence root>/20261024T180427Z-5e13888b-bbc3fd/openclaw-in-place.txt",
+      "sha256": "cae7d43461e5a2451dcbe8727324222ef5473c93b9f2985183cd102262de13d0"
+    },
+    {
+      "path": "<evidence root>/20261024T180427Z-5e13888b-bbc3fd/openclaw-in-place.mjs",
+      "sha256": "e706c8a850138b78ccdbd6019865dfc07268071dd76fbc98fc09e0f2542cf4d6"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261024T180427Z-5e13888b-bbc3fd",
+      "commit": "5e13888b96d5ab8c25c9db46c64d272bd8ce5d74",
+      "journey": null,
+      "command": "sh /tmp/claude-1000/wrap-inplace.sh",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "0.27.6"
+        },
+        "start": "a fresh kit on the fake gateway with no account",
+        "steps": [
+          "sign in two different logins in place",
+          "sign in as the first login again",
+          "start a second sign-in while one runs",
+          "sign in again on the first account as another login",
+          "read an account context and an unknown one"
+        ],
+        "result": "two accounts on their own stores; the repeat answers duplicate, the overlap busy, the wrong re-sign-in identity_mismatch; nothing was moved"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261024T180427Z-5e13888b-bbc3fd/summary.txt",
+        "sha256": "72e54832b30c5cad640cc38eb910503d628a0d94bd9e29f37b27b20eb66879b5",
+        "verdict": "pass",
+        "seen": "Read the run summary once: it reports two sign-ins becoming two managed accounts, a duplicate answer with the existing id, a busy answer for overlapping sign-ins, and identity_mismatch with the other account untouched. It also reports exit 0 and that no credential was adopted or copied. This matches the outcome. The gaps it lists (cancel, restart) are not named by the outcome."
+      },
+      {
+        "path": "<evidence root>/20261024T180427Z-5e13888b-bbc3fd/openclaw-in-place.txt",
+        "sha256": "cae7d43461e5a2451dcbe8727324222ef5473c93b9f2985183cd102262de13d0",
+        "verdict": "pass",
+        "seen": "Read all 11 entries. Two sign-ins produced openai.ffe0fe and openai.e6bc00, both 'ready' and 'managed'. A repeat sign-in returned why 'duplicate' with existing 'openai.ffe0fe'. Overlapping sign-ins returned 'busy' for one and 'duplicate' for the other. Re-auth as the wrong login returned 'identity_mismatch' with a plain error message. The output ends with 'IN-PLACE OK' and EXIT=0."
+      }
+    ]
+  }
+}
