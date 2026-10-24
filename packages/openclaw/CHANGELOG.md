@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.28.0 (2026-10-24)
+
+- Dependency update: pins @byokit/accounts 0.33.0.
+
+- FEATURE: `kit.accountStatus(member, id, { fresh })` reads one account's sign-in as `{ state: 'ready' | 'signed_out' | 'unknown', checkedAt, reason?, retryAfterMs? }`; `reason` is a safe code (`timeout`, `unavailable`, `unreadable`), never provider output. `fresh` redoes only that account's probe.
+- FIX: a sign-in check that gives no answer (a timed-out or failed Claude Code probe, a Claude Code answer with no `credentials`, a failed profile read of an account's agent) no longer lists the account as signed out. Detection checks are now shared, cached and dropped per account and binding generation, so one account's login, logout, re-auth or removal no longer clears its siblings' answers. A run on an account that reads unknown gets one fresh probe within 15 s, then ends `kind: 'network'` with "I couldn't check <name> yet" and `retryAfterMs`; no other account is tried.
+- BREAKING: `Account.state` (`SignInState`) gains `'unknown'`, with optional `reason` and `retryAfterMs` on the row, and a `network` run end may carry `retryAfterMs`. Handle `'unknown'` by keeping the session and asking again after `retryAfterMs`; only `'signed_out'` and `'needs_again'` mean sign in. `signedIn` stays a conservative boolean: false for unknown.
+- SECURITY: an unchecked sign-in is never read as revoked, and never authorises a run on a stale answer: the unknown answer is not cached, and a run waits for a fresh probe.
+BREAKING: `SignInView.why` gains `'duplicate'` and `'identity_mismatch'` (with `existing`), and `Account` gains optional `unavailable`, `origin` and `capabilities`; code that switches exhaustively on `why` needs the new cases.
+feat: `addAccount(member, { authChoice, credentialPolicy: 'in-place' }, on)` writes a fresh sign-in only to its final store. A principal an account already holds answers `{ view: { state: 'failed', why: 'duplicate', existing }, id }` with nothing moved, overwritten or rebound; two overlapping in-place sign-ins of one provider answer `why: 'busy'`; `again` signs in on that account's own store and a different principal marks it `needs_again` with `unavailable: 'identity_mismatch'`, never run as the new identity. Without the policy `addAccount` behaves as before.
+feat: `kit.accountContext(member, id)` returns `{ account, agentId }` for a listed account (no credential path), and list rows carry `origin` and `capabilities`.
+SECURITY: the in-place policy never calls `adopt`: no credential is moved or copied between accounts.
+
 ## 0.27.6 (2026-10-24)
 
 - Dependency update: pins @byokit/accounts 0.32.1.

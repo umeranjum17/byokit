@@ -1,0 +1,86 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "dd5572c0d53d35a31073d1130fb6223ce7c7f648",
+  "tree": "8516c840985fab4cfce95868d12c6cc59f289d83",
+  "claim": "An app on the released @byokit packages can no longer launch Pi without an explicit model or pass on an ambient provider key, can sign a second ChatGPT account in place with a duplicate login refused and a wrong-login re-auth marked needs again, and reads an account whose sign-in check gives no answer as unknown with a retry time, never signed out, while its sibling stays ready.",
+  "result": "pass",
+  "at": "2026-10-24T18:29:58.822Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261024T182939Z-dd5572c0-aa3049/summary.txt",
+      "sha256": "1441b94ed34e5c2a6bad4e0ebceec26200655d8140b15e62d35cb8e01e56ed67"
+    },
+    {
+      "path": "<evidence root>/20261024T182939Z-dd5572c0-aa3049/pi-admission.txt",
+      "sha256": "817d738f82c26cce5acea033f9239dcf1cd42356f4ad1510d5bebfefb5bfee06"
+    },
+    {
+      "path": "<evidence root>/20261024T182939Z-dd5572c0-aa3049/in-place.txt",
+      "sha256": "977a14c2e02abcb847e505da34ce1bca2f16322980c079b974cf0d2e6f1ad22e"
+    },
+    {
+      "path": "<evidence root>/20261024T182939Z-dd5572c0-aa3049/account-status.txt",
+      "sha256": "be7e90c51d1390aa55ba99c6f2314092b2f5b62bfce67d867a71dd976414a010"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261024T182939Z-dd5572c0-aa3049",
+      "commit": "dd5572c0d53d35a31073d1130fb6223ce7c7f648",
+      "journey": null,
+      "command": "sh <task folder>/scratch/wrap.sh",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "released @byokit packages: accounts 0.33.0, openclaw 0.28.0, decide 0.16.2, herdr 0.16.7, phone 0.1.5 (built public entries)"
+        },
+        "start": "isolated folders, fake ambient provider key, loopback stand-ins only; no real account, provider or network",
+        "steps": [
+          "Launch Pi with no model, an empty model or a provider-only model: it is refused with zero requests even with an ambient provider key set",
+          "Launch Pi with an explicit model: it answers Umer and the ambient provider key is not passed on",
+          "Sign a second ChatGPT account in place: it lands on its own store",
+          "Sign in again as the same person: the sign-in is refused as a duplicate and nothing is moved",
+          "Sign in again on an account as a different person: the account is marked needs again with identity mismatch",
+          "Check an account whose sign-in check gives no answer: it reads unknown with a retry time, never signed out, while its sibling stays ready"
+        ],
+        "result": "Pi never runs without an explicit model or an ambient key, an in-place sign-in never moves or overwrites another account, and an unchecked sign-in reads unknown, never signed out."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261024T182939Z-dd5572c0-aa3049/summary.txt",
+        "sha256": "1441b94ed34e5c2a6bad4e0ebceec26200655d8140b15e62d35cb8e01e56ed67",
+        "verdict": "pass",
+        "seen": "Read the header and 3 summary lines. They state the Pi refusal with zero requests, duplicate refused with nothing moved, identity_mismatch marked needs_again, and unknown with retryAfterMs while the sibling stays ready. The header and summary line up with the detailed captures. Summary only, so the evidence sits in captures 1-3."
+      },
+      {
+        "path": "<evidence root>/20261024T182939Z-dd5572c0-aa3049/pi-admission.txt",
+        "sha256": "817d738f82c26cce5acea033f9239dcf1cd42356f4ad1510d5bebfefb5bfee06",
+        "verdict": "pass",
+        "seen": "Read one JSON object and PASS. guardedMissingModelRequests is 0 for rawNativeMissingModel, and the explicit model yields answer Umer. It does not show an ambient key set (selectedEnvironmentHasAmbientKey is false), so the ambient-key part is only partly shown. The missing-model refusal with zero requests is shown."
+      },
+      {
+        "path": "<evidence root>/20261024T182939Z-dd5572c0-aa3049/in-place.txt",
+        "sha256": "977a14c2e02abcb847e505da34ce1bca2f16322980c079b974cf0d2e6f1ad22e",
+        "verdict": "pass",
+        "seen": "Read 9 entries. Umer's new sign-in gives state failed, why duplicate, existing openai.670f09. The overlapping duplicate gives why duplicate. Re-auth as the wrong login gives why identity_mismatch with the 'different account' error on the original id. The text shows identity_mismatch but not the literal needs_again label. Account list shows both ready, and IN-PLACE OK."
+      },
+      {
+        "path": "<evidence root>/20261024T182939Z-dd5572c0-aa3049/account-status.txt",
+        "sha256": "be7e90c51d1390aa55ba99c6f2314092b2f5b62bfce67d867a71dd976414a010",
+        "verdict": "pass",
+        "seen": "Read 4 entries. Slow probe on A gives state unknown, reason timeout, retryAfterMs 5000, with b ready. The unreadable case gives unreadable then ready. Revoked A gives signed_out, a separate case. The run on an unchecked account gives network with retryAfterMs 5000. The unknown-with-retry and sibling-ready parts are shown; never-signed-out is shown by the timeout entry reading unknown, not signed_out."
+      }
+    ]
+  }
+}

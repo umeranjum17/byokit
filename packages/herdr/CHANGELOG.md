@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.16.7 (2026-10-24)
+
+- SECURITY: A missing or empty Pi model no longer falls back to a paid default. Pi launches require the model and selected account explicitly; ambient provider keys are never passed on. Offline admission and environment fixtures cover the guarded routes; live Herdr and raw pass-through qualification remain follow-ups.
+
 ## 0.16.6 (2026-10-23)
 
 - Dependency update: pins @byokit/discover 0.8.6.
