@@ -1,6 +1,6 @@
 {
   "name": "@byokit/write",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Drafting in a person's voice: voice rules, platform limits, brief lines, model-free draft checks and thread splits over a pinned writing engine, plus an agent CLI.",
   "license": "Apache-2.0",
   "type": "module",
@@ -47,7 +47,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@byokit/usage": "0.9.1",
+    "@byokit/usage": "0.10.0",
     "ownvoice-engine": "0.1.0"
   }
 }

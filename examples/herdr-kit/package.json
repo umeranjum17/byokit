@@ -20,7 +20,7 @@
     "@byokit/relay": "0.8.2",
     "@byokit/seal": "0.3.1",
     "@byokit/ui": "1.0.0",
-    "@byokit/usage": "0.9.1"
+    "@byokit/usage": "0.10.0"
   },
   "devDependencies": {
     "esbuild": "0.28.2"

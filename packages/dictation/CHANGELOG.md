@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.6.0 (2026-10-24)
+
+- Dependency update: pins @byokit/usage 0.10.0.
+
+- FEAT: `byokit-dictation-wer --version` prints the running version, and `--help` starts with it; a build with unreleased changes says `+dev (dev build)`.
+
 ## 0.5.3 (2026-10-20)
 
 - Dependency update: pins @byokit/audio 0.3.0.

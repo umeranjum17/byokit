@@ -1,6 +1,6 @@
 {
   "name": "@byokit/dictation",
-  "version": "0.5.3",
+  "version": "0.6.0",
   "description": "Dictation and recording transcription using your subscription or an on-device engine.",
   "license": "Apache-2.0",
   "type": "module",
@@ -14,7 +14,7 @@
   "files": ["dist", "fixtures/wer", "scripts/generate-wer.py", "scripts/bench", "README.md", "LICENSE", "CHANGELOG.md"],
   "bin": {"byokit-dictation-wer":"./dist/wer-cli.js"},
   "scripts": {"prepack":"tsc -b"},
-  "dependencies": {"@byokit/audio": "0.3.0", "@byokit/usage": "0.9.1"},
+  "dependencies": {"@byokit/audio": "0.3.0", "@byokit/usage": "0.10.0"},
   "peerDependencies": {"whisper.rn":"0.7.2"},
   "peerDependenciesMeta": {"whisper.rn":{"optional":true}}
 }

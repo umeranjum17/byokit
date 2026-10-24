@@ -1,1 +1,0 @@
-- FEAT: `write --version` prints the running version, and `write --help` starts with it; a build with unreleased changes says `+dev (dev build)`.

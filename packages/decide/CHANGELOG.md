@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.16.0 (2026-10-24)
+
+- Dependency update: pins @byokit/accounts 0.32.0.
+
+- FEAT: `byokit-eval --version` prints the running version from its package.json, and `--help` and the usage line start with it.
+
 ## 0.15.1 (2026-10-24)
 
 - Dependency update: pins @byokit/accounts 0.31.0.

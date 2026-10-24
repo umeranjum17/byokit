@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.3.0 (2026-10-24)
+
+- Dependency update: pins @byokit/usage 0.10.0.
+
+- FEAT: `write --version` prints the running version, and `write --help` starts with it; a build with unreleased changes says `+dev (dev build)`.
+
 ## 0.2.1 (2026-10-17)
 
 - README install no longer pins a stale version; it installs the current release.
