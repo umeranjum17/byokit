@@ -1,0 +1,75 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "7049bfeac70b0c658cc9df30b3743560f12eabf7",
+  "tree": "4ed0bc44520e87eddfb82e8b534bdd44cf5f257b",
+  "claim": "A cloud app updates the host on a Boat computer with a copy saved first, undoes the update after the new version breaks the host, and finds the old files and a running host on the new machine; a save refused for credit changes nothing, and undo: false saves no copy. Drive the bench consumer as the feature says (no key, no spend; do not run the live driver). Also copy, unchanged, into the evidence folder as update-undo-live-boat.log, the capture of the finished real Boat run of capture/cloud-update-undo-live.mjs: /tmp/claude-1000/-home-umer--treehouse-byokit-48ee6a-1-byokit/6b8a4870-1b49-44a5-9fcf-5d369dead45c/scratchpad/live-boat-run.txt",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-24T03:36:11.155Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261024T033524Z-7049bfea-8ac621/update-undo-bench.txt",
+      "sha256": "28b0b79199f8d07cb8f46075a933054a4d53219abbb698482eec67abfc188898"
+    },
+    {
+      "path": "<evidence root>/20261024T033524Z-7049bfea-8ac621/update-undo-live-boat.log",
+      "sha256": "6c5d0d88a0e8bf03e222243eb7169974341e72f47933f51de473b0c529754181"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261024T033524Z-7049bfea-8ac621",
+      "commit": "7049bfeac70b0c658cc9df30b3743560f12eabf7",
+      "journey": null,
+      "command": null,
+      "feature": "update-undo",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "@byokit/cloud 0.5.0 (commit 7049bfea)"
+        },
+        "start": "Built workspace packages (packages/*/dist present, doctor check passed); no account, key or spend; loopback Boat bench (startFakeSandboxServer) with a fresh machine.",
+        "steps": [
+          "Ran the doctor check against the built @byokit/accounts and confirmed the entries resolve inside packages/*/dist.",
+          "Wrote the update-undo consumer from the feature recipe into an exclusive scratch directory in the worktree, importing only @byokit/cloud and @byokit/cloud/testing.",
+          "Ran the consumer with node; it exited 0 and its stdout was saved as update-undo-bench.txt.",
+          "Created a machine with copies on, installed the recipe, and wrote Umer v1 to version.txt.",
+          "Called undoUpdate before any update and saw the no-undo error with its words.",
+          "Ran update twice; the second update's result carried an undo copy of kind before-update and one such copy was kept.",
+          "Wrote Umer v2 and set the host unit to failed; read the host state.",
+          "Read the undo point and its words, then ran undoUpdate.",
+          "Read the version file, the new machine id, the old machine status, the host state, and installed.json; confirmed the undo point was kept.",
+          "Ran update with undo: false and compared the copy list before and after.",
+          "On a machine past the free copies with a zero balance, ran update and read the balance refusal, its reason and words, and confirmed the machine's run list was unchanged.",
+          "Copied the finished real Boat run log of capture/cloud-update-undo-live.mjs unchanged as update-undo-live-boat.log.",
+          "Removed the exclusive scratch directory and kept the evidence files."
+        ],
+        "result": "The bench output shows: no undo before any update; after two updates an undo copy of kind before-update with one copy kept; host failed; after the undo the version reads Umer v1 on a new machine id, the old machine is gone, the host runs, installed.json names the new id and the undo point is kept; undo: false gives {\"undo\":null} with copies unchanged; a save past the free copies with no credit is refused with balance and reason copies, and runs are unchanged. The live Boat log ends with result PASS, including the undo steps."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261024T033524Z-7049bfea-8ac621/update-undo-bench.txt",
+        "sha256": "28b0b79199f8d07cb8f46075a933054a4d53219abbb698482eec67abfc188898",
+        "verdict": "pass",
+        "seen": "Read all 14 entries. The capture shows no-undo-yet 'no-undo' and undo: null for undo:false, undo-kind 'before-update' with one copy saved before the update, host-broken 'failed', version back to 'Umer v1', new-id true, old-gone 'gone', host 'running', installed-id-matches true, copies-unchanged true, and a refused save with refused-why 'copies' that left runs-unchanged true. Every field matches the outcome. The outcome names one flow, so no parts are listed."
+      },
+      {
+        "path": "<evidence root>/20261024T033524Z-7049bfea-8ac621/update-undo-live-boat.log",
+        "sha256": "6c5d0d88a0e8bf03e222243eb7169974341e72f47933f51de473b0c529754181",
+        "verdict": "pass",
+        "seen": "Read all 27 log lines. The run creates a machine, saves an undo point 'before-update' before 'Umer v2' is installed, and the host goes 'failed'. The undo returns version 'Umer v1' on a new id (differs: true), the old machine is 'gone', the host is 'running' and answers the same text, and the undo point is kept. The final result is 'PASS', with copies-left []. The removal failure for bx_dw753vbv is consistent with that machine already being replaced by the undo. This matches the outcome."
+      }
+    ]
+  }
+}
