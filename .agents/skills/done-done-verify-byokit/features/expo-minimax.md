@@ -22,11 +22,13 @@ It runs `capture/expo-minimax-host.mjs` (the built `mockDevice({ dialect: 'minim
 
 ## What shows
 
-- Happy path: `the app shows FIXTURE-MINIMAX-CODE`, `ok: MiniMax is connected.` three times (sign-in, then each restart), `ok: MiniMax isn't signed in yet.` after sign-out and its restart; requests `POST /oauth2/device/code` then `POST /oauth2/token urn:ietf:params:oauth:grant-type:user_code`.
+- Happy path: `the app shows FIXTURE-MINIMAX-CODE`, `ok: MiniMax is connected.` three times (sign-in, then each restart), `ok: MiniMax isn't signed in yet.` after sign-out and its restart; requests one `POST /oauth2/device/code`, then `POST /oauth2/token urn:ietf:params:oauth:grant-type:user_code` once a second until the approval.
 - Error case: the base APK's `ok: the base app lists no MiniMax plan`; the refused no-`crypto` sign-in is the test's.
 - Review every PNG: the code readable, no text cut or covered, nothing but fixture data.
 
 ## Gotchas
 
+- A freshly booted emulator joins its Wi-Fi a little after `sys.boot_completed`; the capture waits for `cmd wifi status` to say connected, else the app says `Couldn't reach MiniMax`. The android-36 `google_apis` image is known to work.
+- The fixture code is long, so the shared code sheet wraps it mid-word; a real MiniMax code is short.
 - `EXPO_PUBLIC_*` values are inlined at bundle time: an APK built without the stand-in device base points the MiniMax row at the real `account.minimax.io`. Never sign in there from this proof.
 - A live MiniMax subscription sign-in needs the owner's account; it is not part of this proof.

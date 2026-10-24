@@ -29,6 +29,9 @@ host=$!
 for _ in $(seq 20); do grep -q 'stand-in MiniMax' "$log" 2>/dev/null && break; sleep 1; done
 grep -q 'stand-in MiniMax' "$log" || { cat "$log" >&2; exit 1; }
 
+# A freshly booted emulator joins its Wi-Fi some seconds after boot completes; until then 10.0.2.2 is unreachable.
+for _ in $(seq 60); do a shell cmd wifi status 2>/dev/null | grep -q 'Wifi is connected' && break; sleep 2; done
+a shell cmd wifi status 2>/dev/null | grep -q 'Wifi is connected' || { echo 'FAILED, the emulator has no network' >&2; exit 1; }
 a install -r "$apk" >/dev/null
 a shell pm clear $app >/dev/null
 
@@ -59,6 +62,8 @@ expect() {
   echo "FAILED, expected \"$1\", screen: $(words)" >&2; exit 1
 }
 shot() { a exec-out screencap -p > "$evidence/$1.png"; }
+# Bring the row's billing line above a found element into view, so no frame cuts it at the top edge.
+nudge() { size=$(a shell wm size | tail -1 | grep -oE '[0-9]+x[0-9]+'); w=${size%x*}; h=${size#*x}; a shell input swipe "$((w / 20))" "$((h / 3))" "$((w / 20))" "$((h / 3 + h / 10))" 400; sleep 1; }
 themes() { for theme in light dark; do case "$theme" in light) night=no;; dark) night=yes;; esac; a shell cmd uimode night "$night"; "$@" "$theme"; done; a shell cmd uimode night no; }
 
 start
@@ -66,12 +71,16 @@ expect "ChatGPT isn't signed in yet."
 if [ "$stage" = before ]; then
   list() { start; expect "ChatGPT isn't signed in yet."; for _ in 1 2 3; do scroll down; done; shot "before__$1__plans"; }
   themes list
-  case "$(words)" in *MiniMax*) echo 'FAILED, the base app already lists MiniMax' >&2; exit 1;; esac
+  start; expect "ChatGPT isn't signed in yet."
+  for _ in $(seq 16); do # the whole list, top to bottom
+    case "$(screen)" in *MiniMax*|*minimax*) echo 'FAILED, the base app already lists MiniMax' >&2; exit 1;; esac
+    scroll down
+  done
   echo 'ok: the base app lists no MiniMax plan'
   exit 0
 fi
 
-row() { start; seek minimax-signin; expect "MiniMax isn't signed in yet."; shot "after__$1__minimax-row"; }
+row() { start; seek minimax-signin; expect "MiniMax isn't signed in yet."; nudge; shot "after__$1__minimax-row"; }
 themes row
 start
 tap minimax-signin
@@ -79,16 +88,18 @@ seek minimax-code
 expect 'type this code'
 code=$(value minimax-code)
 echo "the app shows $code"
+nudge
 shot after__light__minimax-code
 a shell cmd uimode night yes
 seek minimax-code
+nudge
 shot after__dark__minimax-code
 a shell cmd uimode night no
 # The person types the code on MiniMax's page.
 curl -fsS -o /dev/null "http://127.0.0.1:$approve/approve?code=$code"
 seek minimax-status
 expect 'MiniMax is connected.'
-connected() { start; seek minimax-status; expect 'MiniMax is connected.'; shot "after__$1__minimax-connected"; }
+connected() { start; seek minimax-status; expect 'MiniMax is connected.'; nudge; shot "after__$1__minimax-connected"; }
 themes connected # kept in secure storage across each restart
 tap minimax-signout
 seek minimax-status
