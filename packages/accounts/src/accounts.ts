@@ -1313,6 +1313,10 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
         throw new Error('Enter a GitHub Enterprise domain, without a path or credentials.');
     }
     if (p.key === 'claude' && body.via === 'code') throw new Error('Claude uses a browser or a pasted code, not a device code.');
+    // A PKCE device sign-in (MiniMax) on a phone needs the app's Web Crypto: React Native has no crypto.subtle.
+    const crypto: Partial<Pick<Crypto, 'getRandomValues' | 'subtle'>> | undefined = this.opts.crypto ?? globalThis.crypto;
+    if (deviceFlow(p.pi)?.pkce && !(crypto?.getRandomValues && crypto.subtle?.digest))
+      throw new Error('This sign-in needs secure random bytes and SHA-256 on this device: pass crypto to Accounts.');
     if (isGoogleClient(p.key) && body.via && !['browser', 'paste'].includes(body.via)) throw googleViaError();
     if (body.via === 'paste' && !isGoogleClient(p.key) && !['claude', 'chatgpt', 'openrouter'].includes(p.key))
       throw Object.assign(new Error('This provider has no paste sign-in flow.'), { readiness: 'no_upstream_flow' });

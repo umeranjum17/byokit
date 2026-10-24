@@ -13,7 +13,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { Accounts, KeyRouteError, ResponseError, computer, deviceFlow, memoryStore, portable, recordStore, resolveModel, type AssistantMessageEvent, type Context, type EndingStore, type Model, type Platform } from '@byokit/accounts';
+import { Accounts, KeyRouteError, ResponseError, computer, deviceFlow, memoryStore, portable, recordStore, resolveModel, route, type AssistantMessageEvent, type Context, type EndingStore, type Model, type Platform } from '@byokit/accounts';
 import { withKeys } from '@byokit/accounts/keys';
 import { mockDevice } from '@byokit/accounts/testing';
 
@@ -350,6 +350,68 @@ test('an expired MiniMax sign-in ends signed out in the instance that signed in,
   } finally {
     Date.now = realNow;
     accounts.stop();
+    await m.close();
+  }
+});
+
+test('a phone app signs in to its MiniMax plan with the Web Crypto it passes, and asks it one question', async () => {
+  // React Native has getRandomValues (expo-crypto's polyfill) but no crypto.subtle: the app passes SHA-256 itself.
+  assert.deepEqual(['minimax:code', 'minimax:code:cn'].map((id) => route(id, { platform: 'rn' }).readiness), ['ready', 'ready'], 'a phone picker offers both MiniMax plan routes');
+  assert.equal(route('minimax:code', { platform: 'rn' }).billing, 'subscription', 'the phone route is the plan, not the API key');
+  const m = await mockDevice({ dialect: 'minimax' });
+  const real = Object.getOwnPropertyDescriptor(globalThis, 'crypto')!;
+  const webcrypto = globalThis.crypto;
+  Object.defineProperty(globalThis, 'crypto', { configurable: true, value: { getRandomValues: webcrypto.getRandomValues.bind(webcrypto) } });
+  const digests: string[] = [];
+  const appCrypto = { getRandomValues: webcrypto.getRandomValues.bind(webcrypto),
+    subtle: { digest: (algorithm: string, data: BufferSource) => { digests.push(algorithm); return webcrypto.subtle.digest(algorithm, data); } } } as unknown as Crypto;
+  const answers: string[] = [];
+  const api = createServer(async (req, res) => {
+    for await (const _ of req);
+    answers.push(String(req.headers.authorization));
+    res.writeHead(200, { 'content-type': 'text/event-stream' });
+    res.end([
+      { type: 'message_start', message: { id: 'fixture', role: 'assistant', model: 'fixture-model', content: [], usage: { input_tokens: 3, output_tokens: 0 } } },
+      { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello Umer' } },
+      { type: 'content_block_stop', index: 0 },
+      { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null }, usage: { output_tokens: 2 } },
+      { type: 'message_stop' },
+    ].map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(''));
+  });
+  await new Promise<void>((resolve) => api.listen(0, '127.0.0.1', resolve));
+  const { store } = stored();
+  const phone = (crypto?: Crypto) => new Accounts<any, number>({ deviceBase: m.base, app: 'byokit journey', offer: ['minimax'], store: () => store, ...(crypto ? { crypto } : {}) }, withKeys(portable));
+  let accounts = phone();
+  try {
+    // Without the app's SHA-256 the sign-in is refused before it starts, naming the cause, and nothing is sent or kept.
+    await assert.rejects(accounts.add(1, 'minimax:code'), { message: 'This sign-in needs secure random bytes and SHA-256 on this device: pass crypto to Accounts.' });
+    assert.deepEqual([m.state.requests.length, await accounts.list(1)], [0, []], 'nothing sent, nothing kept');
+    accounts.stop();
+
+    // With it: the code shows, the person approves it on MiniMax's page, and the account is saved as a plan.
+    accounts = phone(appCrypto);
+    const { id } = await accounts.add(1, 'minimax:code');
+    const shown = accounts.view(1, id)!;
+    assert.deepEqual([shown.code, shown.url], ['FIXTURE-MINIMAX-CODE', 'https://account.minimax.io/activate']);
+    assert.equal(m.approve(shown.code!), true);
+    await accounts.finished(1, id);
+    assert.deepEqual(digests, ['SHA-256'], "the PKCE challenge came from the app's own Web Crypto");
+    const [row] = await accounts.list(1);
+    assert.deepEqual([row.provider, row.billing, row.state], ['minimax', 'subscription', 'ready']);
+
+    // One question, answered through the plan's own bearer.
+    const model: Model<'anthropic-messages'> = { id: 'MiniMax-M2.7', name: 'MiniMax', provider: 'minimax', api: 'anthropic-messages',
+      baseUrl: `http://127.0.0.1:${(api.address() as AddressInfo).port}`, reasoning: false, input: ['text'],
+      cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 }, contextWindow: 8192, maxTokens: 128 };
+    const deltas: string[] = [];
+    const result = await accounts.respond(1, { account: id, model, context: { messages: [{ role: 'user', content: 'Hello', timestamp: 0 }] }, onText: (d) => deltas.push(d) });
+    assert.deepEqual([deltas.join(''), result.stopReason], ['Hello Umer', 'stop']);
+    assert.deepEqual(answers, [`Bearer ${CANARY}`], 'one request, with the signed-in plan token as a bearer');
+  } finally {
+    Object.defineProperty(globalThis, 'crypto', real);
+    accounts.stop();
+    await new Promise((resolve) => api.close(resolve));
     await m.close();
   }
 });
