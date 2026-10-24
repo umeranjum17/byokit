@@ -1,0 +1,65 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "7eebcd06f42a21d9d5dce641f8442675be076738",
+  "tree": "bfc5b023a271d40625d592e816e3f3e8f117f777",
+  "claim": "Installing the released @byokit/accounts 0.32.0, @byokit/decide 0.16.0, @byokit/dictation 0.6.0 and @byokit/write 0.3.0 (with @byokit/usage 0.10.0) gives a person bins that print their running release version: byokit-accounts, byokit-eval, byokit-dictation-wer and write each answer --version with their release version and no dev build.",
+  "result": "pass",
+  "at": "2026-10-24T12:39:50.196Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261024T123921Z-7eebcd06-67bafd/summary.txt",
+      "sha256": "379b32ebc452f51bf37d1135f86215b7362ba0b49c61ef98163a6e1dc575f0fa"
+    },
+    {
+      "path": "<evidence root>/20261024T123921Z-7eebcd06-67bafd/versions-release.txt",
+      "sha256": "4329af5c6f95bdc7bd30de06aab0588ccafa9db1d8ab73c6727ebcc30a0988cf"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261024T123921Z-7eebcd06-67bafd",
+      "commit": "7eebcd06f42a21d9d5dce641f8442675be076738",
+      "journey": null,
+      "command": "node <task folder>/scratch/versions-release-drive.mjs <worktree>",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "@byokit/accounts 0.32.0, decide 0.16.0, dictation 0.6.0, write 0.3.0, usage 0.10.0 (packed at the release head)"
+        },
+        "start": "a fresh app outside the monorepo with nothing installed",
+        "steps": [
+          "install the five packed release tarballs into the app",
+          "run byokit-accounts, byokit-eval, byokit-dictation-wer and write with --version: each prints its release version, not a dev build",
+          "run byokit-eval with an unknown flag: refused with exit 2",
+          "read the installed accounts package with @byokit/usage's packageVersion: the release channel",
+          "before: install the published accounts 0.31.0 and run byokit-accounts --version: refused as an unknown flag"
+        ],
+        "result": "every released bin prints its release version; the published predecessor cannot"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261024T123921Z-7eebcd06-67bafd/summary.txt",
+        "sha256": "379b32ebc452f51bf37d1135f86215b7362ba0b49c61ef98163a6e1dc575f0fa",
+        "verdict": "pass",
+        "seen": "I read the one summary entry and its packing list. It names usage 0.10.0, accounts 0.32.0, decide 0.16.0, dictation 0.6.0 and write 0.3.0, matching the outcome's release set. Its RESULT line says byokit-accounts, byokit-eval, byokit-dictation-wer and write each print their release version with --version and no dev build, and that the published accounts 0.31.0 refuses --version. It points to a detail file I cannot see, so this rests on the summary text alone."
+      },
+      {
+        "path": "<evidence root>/20261024T123921Z-7eebcd06-67bafd/versions-release.txt",
+        "sha256": "4329af5c6f95bdc7bd30de06aab0588ccafa9db1d8ab73c6727ebcc30a0988cf",
+        "verdict": "pass",
+        "seen": "I read all 12 lines of the log. The release head is 7eebcd06..., and the packed versions match the outcome. Each bin's --version output is quoted with exit 0: byokit-accounts 0.32.0, byokit-eval 0.16.0, byokit-dictation-wer 0.6.0, write 0.3.0, each marked 'not a dev build'. The usage check reads the installed accounts as version 0.32.0 on the release channel. The before-check shows published 0.31.0 exiting 2 on --version, which is the contrast the outcome describes."
+      }
+    ]
+  }
+}
