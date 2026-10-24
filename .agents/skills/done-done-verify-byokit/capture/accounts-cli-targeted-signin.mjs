@@ -1,14 +1,23 @@
 // Built public SDK, real isolated native subprocesses; no real account, provider or credential.
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, openSync, closeSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
+import { spawnSync } from 'node:child_process';
 import { cliAccounts, remoteCliHost } from '@byokit/accounts/cli';
 const require = createRequire(import.meta.url);
 assert.match(require.resolve('@byokit/accounts/cli'), /packages\/accounts\/dist\/cli\.js$/);
 const evidence = process.env.DONE_DONE_EVIDENCE_ROOT;
 assert.ok(evidence, 'run through done-done');
+if (process.argv.includes('--gates')) {
+  const fd = openSync(join(evidence, 'checks.log'), 'wx');
+  try {
+    const checks = spawnSync('bash', ['-c', 'npm run build && npm run check && node scripts/readme-check.ts && npm run release -- lint --base origin/main && sh scripts/test.sh "packages/accounts/test/*.test.ts"'],
+      { stdio: ['ignore', fd, fd], env: { ...process.env, BYOKIT_TEST_ENGINE_DIR: join(evidence, 'unused-engine') } });
+    assert.equal(checks.status, 0, `CI-matching gates failed: ${checks.error?.message ?? checks.signal ?? checks.status}; see checks.log`);
+  } finally { closeSync(fd); }
+}
 const root = mkdtempSync(join(tmpdir(), 'byk-native-target-'));
 const log = [];
 const note = text => { log.push(text); console.log(text); };
@@ -99,6 +108,11 @@ if (process.argv[2] === 'auth' && process.argv[3] === 'status') {
   }
   note('PASS: host-only exact managed sign-in prerequisite; no engine routing, principal deduplication, keyring or live-account claim');
   writeFileSync(join(evidence, 'targeted-signin.log'), log.join('\n') + '\n');
+  writeFileSync(join(evidence, 'summary.txt'), [
+    'Command: node .agents/skills/done-done-verify-byokit/capture/accounts-cli-targeted-signin.mjs' + (process.argv.includes('--gates') ? ' --gates' : ''),
+    ...(process.argv.includes('--gates') ? ['PASS: npm run build; npm run check; node scripts/readme-check.ts; npm run release -- lint --base origin/main; sh scripts/test.sh "packages/accounts/test/*.test.ts".'] : []),
+    ...log,
+  ].join('\n') + '\n');
   writeFileSync(join(evidence, 'steps.json'), JSON.stringify({ target: { version: require(join(process.cwd(), 'packages/accounts/package.json')).version }, start: 'Empty isolated native roster; deterministic subprocess fixtures; no real credentials', steps, result: log.at(-1) }, null, 2));
 } finally {
   await host?.close();

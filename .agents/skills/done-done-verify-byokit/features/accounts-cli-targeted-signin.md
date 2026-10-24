@@ -5,6 +5,8 @@ Surface: `packages/accounts/src/remote-cli-host.ts` and `cli.ts`, built public `
 ## Drive and capture
 
 After building and committing, run `done-done run accounts-cli-targeted-signin`.
+For a single sealed run that also records the CI-matching gates, run:
+`done-done run accounts-cli-targeted-signin -- node .agents/skills/done-done-verify-byokit/capture/accounts-cli-targeted-signin.mjs --gates`.
 The maintained capture `capture/accounts-cli-targeted-signin.mjs` imports the built package,
 allocates two empty Claude rows and two empty Codex rows and drives real native subprocess
 fixtures at their final isolated folders. No real CLI, credential or account is used.
@@ -17,7 +19,7 @@ keeps its allocated row and native data even in the creating instance. After a h
 restart, B re-auth keeps its original id and folder. Unknown and wrong-provider targets
 throw typed refusals without fallback; legacy provider-only start still answers already.
 
-Evidence: `targeted-signin.log` and `steps.json`. Both belong to the same done-done run.
+Evidence: `targeted-signin.log`, `steps.json`, `summary.txt` and (with `--gates`) `checks.log`. All belong to the same done-done run.
 No screen exists for this SDK-only surface.
 
 ## Boundaries
