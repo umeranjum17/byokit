@@ -1119,7 +1119,11 @@ the engine. External retained sources are touched only when explicitly passed to
   detection run together instead of one after the other. The window bounds how long a login made outside the kit
   stays unseen (the kit cannot witness the person's own CLI login), and every sign-in, sign-out, key change and
   account change the kit sees drops the answer at once; a changed witness drops it too. A failed probe is never
-  cached and reads as no Claude Code login (the account is not listed), never as an error. A sign-in drive reads the
+  cached. The account list reads it as no Claude Code login (the account is not listed), never as an error; admission
+  (the readiness reads and a run's pre-check) retries it fresh until 12 s have passed (past the engine's own 10 s
+  window, at least twice) and then gives up as *unknown*, never as signed out: `AuthStatus.unknown` names the
+  provider, `providerStatus` is `undefined`, `signInState` is `'unknown'`, a run ends `network` (retry), and an
+  unknown answer is not kept for the next reader. A sign-in drive reads the
   engine every time (what it does next is decided on that answer) and drops the shared answer when it starts and
   when it ends.
   The split ref is sent as the `agent` request's per-run `provider`/`model` (pin `AgentParamsSchema`; needs `operator.admin`,

@@ -292,7 +292,8 @@ test('oc.run tool subset: only named kit tools run, an unknown name is refused, 
   assert.equal((all.at(-1) as { error?: boolean }).error, false);
 });
 
-test('oc.state carries the kit and engine versions and the member\'s sign-ins', async () => {
+test('oc.state carries the kit and engine versions and the member\'s sign-ins', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
   const w = await world();
   const a = await device(w, 'a');
   const version = (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version: string }).version;
@@ -301,6 +302,7 @@ test('oc.state carries the kit and engine versions and the member\'s sign-ins', 
   w.fake.handle('models.authStatus', (p) => ({ providers: p.agentId === 'a' ? [{ provider: 'openai', status: 'ok' },
     { provider: 'xai', status: 'expired', profiles: [{ status: 'expired' }] }, { provider: 'minimax', status: 'missing' }] : [] }));
   assert.deepEqual((await a.oc.state()).signedIn, ['openai']);
+  t.mock.timers.tick(11_000); // the shared detection of the first read is reused for 10 s only
   w.fake.handle('openclaw.setup.detect', (p) => ({ candidates: p.agentId === 'a' ? [{ kind: 'claude-cli', credentials: true }] : [] }));
   assert.deepEqual((await a.oc.state()).signedIn, ['openai', 'claude-cli']);
   assert.equal(await w.kit.signedIn('a', 'claude-cli'), true);
