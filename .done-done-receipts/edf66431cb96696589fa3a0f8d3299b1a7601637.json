@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "edf66431cb96696589fa3a0f8d3299b1a7601637",
+  "tree": "6eb5236491e8800a6ff1e4e196248de72199889f",
+  "claim": "An app that installs the released @byokit/openclaw 0.27.4 no longer signs a person out when the Claude Code sign-in check is slow: it reads unknown after a retry past 10 s and the run ends as a retryable network error, a recovering check reads signed in, and a signed-out check still reads signed out.",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-24T11:28:32.146Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261024T112453Z-edf66431-ac753c/openclaw-release.txt",
+      "sha256": "e4741d1451fc2cfe3dcb0b3102e4257fea4fa1c8fd07581eeaf91c05d20f0f4e"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261024T112453Z-edf66431-ac753c",
+      "commit": "edf66431cb96696589fa3a0f8d3299b1a7601637",
+      "journey": null,
+      "command": "sh <task folder>/scratch/drive.sh <worktree>",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "@byokit/openclaw"
+        },
+        "start": "The app has a member whose Claude Code login is checked by the engine's probe, with a 3 s limit.",
+        "steps": [
+          "The app asks signInState while the probe takes 3.5 s and errors every time",
+          "The app asks signInState while the probe errors twice and then answers signed in",
+          "The app asks signInState while the probe answers signed out",
+          "Each time the app starts a Claude Code run for the member"
+        ],
+        "result": "The always-slow probe reads unknown after a retry past 10 s and the run ends network; the recovering probe reads signed-in and the run is ok; the signed-out probe reads signed-out and the run ends signed-out."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261024T112453Z-edf66431-ac753c/openclaw-release.txt",
+        "sha256": "e4741d1451fc2cfe3dcb0b3102e4257fea4fa1c8fd07581eeaf91c05d20f0f4e",
+        "verdict": "pass",
+        "seen": "I read all 3 entries. Slow probe: state unknown, run network, seconds 12.6 (past 10 s), so it ends as a retryable network error as the outcome says. Slow twice then signed in: state signed-in, run ok, providerStatus claude-cli, so a recovering check reads signed in. Signed out: state signed-out, run signed-out, so a signed-out check still reads signed out. The before run on 0.27.3 shows the old behavior of ending as signed-out, which contrasts with the fix. The outcome names no separate widths or frames, so parts and covers stay empty."
+      }
+    ]
+  }
+}
