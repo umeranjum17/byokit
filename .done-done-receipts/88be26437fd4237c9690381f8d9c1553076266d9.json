@@ -1,0 +1,56 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "88be26437fd4237c9690381f8d9c1553076266d9",
+  "tree": "426272beab6770a06f5e682264c7a2c86c6fcbba",
+  "claim": "Phone-only SDK apps resolve OpenRouter live-list model IDs and receive an answer without supplying providers or a model catalogue.",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-24T11:47:50.152Z",
+  "files": [
+    {
+      "path": "<evidence root>/88be2643-rn-models.log",
+      "sha256": "9a34515bb883959011abf12fbe621711944ce3c38744fe3fba849ff0370af19e"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261024T113622Z-88be2643-ee1d32",
+      "commit": "88be26437fd4237c9690381f8d9c1553076266d9",
+      "journey": "accounts-rn-models",
+      "command": "node --conditions=react-native .agents/skills/done-done-verify-byokit/capture/accounts-rn-models.mjs > \"$DONE_DONE_EVIDENCE_ROOT/rn-models.log\" 2>&1",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "built @byokit/accounts portable public entries"
+        },
+        "start": "No providers supplied by the consumer; synthetic key; loopback vendor stand-in",
+        "steps": [
+          "Import @byokit/accounts/keys under the react-native condition",
+          "Create Models with explicit app-owned auth context",
+          "Resolve the OpenRouter vendor live-list model and read its limits",
+          "Complete a phone-only request through the pinned portable adapter",
+          "Resolve an unlisted and offline model, refuse an unknown provider and missing key, check unchanged API billing"
+        ],
+        "result": "Phone-only SDK consumer resolves the vendor model, receives Hello Umer, and preserves honest fallback and billing behavior; no native device or real provider generation claimed"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/88be2643-rn-models.log",
+        "sha256": "9a34515bb883959011abf12fbe621711944ce3c38744fe3fba849ff0370af19e",
+        "verdict": "pass",
+        "seen": "I read all five entries. The live-list line shows google/gemma-4-31b-it:free with listed=true, and the native-answer line shows a returned answer, 'Hello Umer', using a pinned portable adapter with an explicit key. The missing-key error is a separate case and does not contradict the outcome. The fallback line shows offline and unlisted IDs still resolve, with unknown and blank IDs refused. The outcome names one part, so parts and covers are empty. The text does not directly show that the app supplied no providers or catalogue, so I leave some room for unclear."
+      }
+    ]
+  }
+}
