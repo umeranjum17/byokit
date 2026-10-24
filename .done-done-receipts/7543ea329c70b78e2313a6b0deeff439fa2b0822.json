@@ -1,0 +1,125 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "7543ea329c70b78e2313a6b0deeff439fa2b0822",
+  "tree": "ff8027e4bfc4333fe5118d78a7e8f8a40a47f592",
+  "claim": "Every BYOKit CLI prints its version for --version and in its help header (a build with unreleased changes says +dev (dev build)); the example PWA's sign-in page (its home page, a list of plans to sign in to) ends with 'byokit accounts <version>'; the herdr-kit phone page shows App and Host versions side by side and a hint when the host comes back on a different version; the Expo app's main screen ends with its app and kit versions",
+  "result": "pass",
+  "at": "2026-10-24T10:24:52.217Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261024T101234Z-7543ea32-613db1/show-versions.txt",
+      "sha256": "682e6b11359105455cbb94b4932980573273e1bc9d2695766aa20d90707807fe"
+    },
+    {
+      "path": "<evidence root>/20261024T101234Z-7543ea32-613db1/herdr-kit/versions-match.png",
+      "sha256": "2f11b818bbd4416785de74e171fd96ecda67b41bb4729278e043c5a9dc233fa1"
+    },
+    {
+      "path": "<evidence root>/20261024T101234Z-7543ea32-613db1/herdr-kit/restart-connected.png",
+      "sha256": "e3d91c3aaea150f1b11776abde358dce7637ed9163e3062af5f441e36c97b073"
+    },
+    {
+      "path": "<evidence root>/20261024T101234Z-7543ea32-613db1/pwa/home-footer/after__light__phone.png",
+      "sha256": "3e6f20ba0da874204e590853076c92e09e712afdd27f613e5069d2f79fd36054"
+    },
+    {
+      "path": "<evidence root>/20261024T101234Z-7543ea32-613db1/pwa/home-footer/after__dark__desktop.png",
+      "sha256": "f2f6c753ebc324315ad7725c0f534923aff22f1d62425b238046af666e322278"
+    },
+    {
+      "path": "<evidence root>/20261024T101234Z-7543ea32-613db1/expo-versions.txt",
+      "sha256": "c919aa2fbf99dc0180fa6cf3c7563599489045a06216cee05e7e91922cd69b5b"
+    },
+    {
+      "path": "<evidence root>/20261024T101234Z-7543ea32-613db1/expo/after__light__foot.png",
+      "sha256": "3171a15b6ef2363b8228e5572f555b3e6fcc67f5a975a532a1199f4fc5be829e"
+    },
+    {
+      "path": "<evidence root>/20261024T101234Z-7543ea32-613db1/expo/after__dark__foot.png",
+      "sha256": "8792199b2cf956db2d0d1d5b5088f8c66b73b95089df6ebe08e5fe18294754d0"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261024T101234Z-7543ea32-613db1",
+      "commit": "7543ea329c70b78e2313a6b0deeff439fa2b0822",
+      "journey": null,
+      "command": "sh <task data>/drive.sh",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "byokit at 7543ea32: built CLIs of @byokit/accounts, decide, dictation, write; examples/pwa; examples/herdr-kit; examples/expo release APK"
+        },
+        "start": "a person who cannot tell which BYOKit version a command, page or app is running",
+        "steps": [
+          "the person runs byokit-accounts, byokit-eval, byokit-dictation-wer and write with --version and --help, and byokit-eval with no files",
+          "the person opens the example PWA and scrolls to the foot of the home page, light and dark, phone and desktop",
+          "the person pairs the herdr-kit phone page with the computer and looks at its foot",
+          "the computer restarts on a different version (99.0.0) while the phone page stays open",
+          "the person opens the Expo example on an Android emulator and scrolls to the end of the main screen, light and dark"
+        ],
+        "result": "each CLI prints its package version (+dev (dev build) while unreleased changes are pending; byokit-eval plain); the PWA foot says byokit accounts 0.31.0+dev (dev build); the herdr-kit page says App 0.16.6 · Host 0.16.6, then App 0.16.6 · Host 99.0.0 with the hint to update the older one; the Expo screen ends with byokit example 1.0.0 · @byokit/accounts 0.31.0"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261024T101234Z-7543ea32-613db1/show-versions.txt",
+        "sha256": "682e6b11359105455cbb94b4932980573273e1bc9d2695766aa20d90707807fe",
+        "verdict": "pass",
+        "seen": "Read all 11 entries. byokit-accounts --version and --help both show '0.31.0+dev (dev build)', and byokit-dictation-wer and write also show '+dev (dev build)'. Exit codes are 0. This matches the CLI part. The herdr-kit lines only reference screenshots and do not show the version screens, so they are not counted."
+      },
+      {
+        "path": "<evidence root>/20261024T101234Z-7543ea32-613db1/herdr-kit/versions-match.png",
+        "sha256": "2f11b818bbd4416785de74e171fd96ecda67b41bb4729278e043c5a9dc233fa1",
+        "verdict": "pass",
+        "seen": "The footer reads 'App 0.16.6 · Host 0.16.6' side by side, and the page is 'Connected to Test computer'. No mismatch hint appears, which fits the matching-versions part."
+      },
+      {
+        "path": "<evidence root>/20261024T101234Z-7543ea32-613db1/herdr-kit/restart-connected.png",
+        "sha256": "e3d91c3aaea150f1b11776abde358dce7637ed9163e3062af5f441e36c97b073",
+        "verdict": "pass",
+        "seen": "The footer reads 'App 0.16.6 · Host 99.0.0', side by side, and below it is the hint 'The app and the host run different versions: update the older one, then reload.' This shows both the side-by-side versions and the mismatch hint."
+      },
+      {
+        "path": "<evidence root>/20261024T101234Z-7543ea32-613db1/pwa/home-footer/after__light__phone.png",
+        "sha256": "3e6f20ba0da874204e590853076c92e09e712afdd27f613e5069d2f79fd36054",
+        "verdict": "pass",
+        "seen": "The sign-in page lists plans such as 'Sign in with Ollama Pro'. Its footer reads 'byokit accounts 0.31.0+dev (dev build)'."
+      },
+      {
+        "path": "<evidence root>/20261024T101234Z-7543ea32-613db1/pwa/home-footer/after__dark__desktop.png",
+        "sha256": "f2f6c753ebc324315ad7725c0f534923aff22f1d62425b238046af666e322278",
+        "verdict": "pass",
+        "seen": "Desktop-width sign-in page with plan cards. The footer reads 'byokit accounts 0.31.0+dev (dev build)', which matches the sign-in footer part."
+      },
+      {
+        "path": "<evidence root>/20261024T101234Z-7543ea32-613db1/expo-versions.txt",
+        "sha256": "c919aa2fbf99dc0180fa6cf3c7563599489045a06216cee05e7e91922cd69b5b",
+        "verdict": "pass",
+        "seen": "Read the build log. Its check lines 'ok: byokit example 1.0.0 · @byokit/accounts 0.31.0' under 'Night mode: no' and 'Night mode: yes' match the expected footer. The log is build output rather than a screenshot of the screen, so it is weaker evidence."
+      },
+      {
+        "path": "<evidence root>/20261024T101234Z-7543ea32-613db1/expo/after__light__foot.png",
+        "sha256": "3171a15b6ef2363b8228e5572f555b3e6fcc67f5a975a532a1199f4fc5be829e",
+        "verdict": "pass",
+        "seen": "Light-theme Expo main screen. The bottom footer reads 'byokit example 1.0.0 · @byokit/accounts 0.31.0', which shows the app and kit versions."
+      },
+      {
+        "path": "<evidence root>/20261024T101234Z-7543ea32-613db1/expo/after__dark__foot.png",
+        "sha256": "8792199b2cf956db2d0d1d5b5088f8c66b73b95089df6ebe08e5fe18294754d0",
+        "verdict": "pass",
+        "seen": "Dark-theme Expo main screen. The footer reads 'byokit example 1.0.0 · @byokit/accounts 0.31.0', which shows the app and kit versions."
+      }
+    ]
+  }
+}
