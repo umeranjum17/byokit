@@ -1366,6 +1366,8 @@ failure. The credential is written only by the CLI on the computer; it never rea
 never logged. Read-only state names each CLI's subscription sign-in without secrets. Pi and OpenCode have
 no headless login over the link (OpenCode's plan key is pasted in the computer's app via `saveKey`), so
 they report "not supported here" while their state still reads. Each CLI's own terms apply.
+The computer host can target an existing managed row with `start(provider, { account: cliAccountId, signal })`, including a ready row for re-auth. It probes and signs in only that row; a ready sibling never replaces it. Unknown or installed ids throw `CliAccountError('unknown-account')` before a native probe; wrong-provider rows throw `kind-mismatch`, never falling back. Same-provider sign-ins remain serialized/busy. Cancellation, expiry and failed re-auth keep the targeted row and its native data, even when this kit instance allocated it (`cli.cancel(id, {keepAccount:true})` also retains a row explicitly). The CLI may have changed its own login before failing: no rollback or verified-principal guarantee is implied. Provider-only start and the phone's portable start API are unchanged. OpenClaw per-account execution requires separate backend binding support.
+
 `start(provider, { signal })` cancels its attempt when the signal aborts, and `close()` cancels every
 unfinished attempt and waits for its native child to exit; a host stops with `close()`. A raw client that starts a remote sign-in and never calls `wait` keeps that account busy until the host closes or restarts; the engine path always calls `wait`. One host process per `stateDir` is supported; several hosts on one `stateDir` are not.
 

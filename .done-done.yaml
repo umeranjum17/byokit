@@ -14,6 +14,9 @@ skill: .agents/skills/done-done-verify-byokit
 # the repo's verify skill and saves its captures into the run's evidence
 # folder.
 journeys:
+  accounts-cli-targeted-signin:
+    command: node .agents/skills/done-done-verify-byokit/capture/accounts-cli-targeted-signin.mjs
+    timeout: 2m
   accounts-rn-models:
     command: node --conditions=react-native .agents/skills/done-done-verify-byokit/capture/accounts-rn-models.mjs > "$DONE_DONE_EVIDENCE_ROOT/rn-models.log" 2>&1
   pi-model-admission:
