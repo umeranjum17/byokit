@@ -106,7 +106,7 @@ export class Engine {
   // included (it has no native host signal of its own). start() replaces it, so an earlier shutdown cannot decline
   // a later drive.
   private stopOwner = new AbortController();
-  private claudeLogin?: ReturnType<typeof remoteCliHost>; private claudeAccounts?: ReturnType<typeof cliAccounts>; private claudeReset?: Promise<void>;
+  private claudeLogin?: ReturnType<typeof remoteCliHost>; private claudeAccounts?: ReturnType<typeof cliAccounts>; private claudeReset?: Promise<void>; private bound?: ReturnType<Engine['nativeBound']>;
   private credentialsLocked = false;
   // True when the last start found no installed Claude Code login: the engine then uses its own fallback folder.
   private claudeFallback = false;
@@ -438,14 +438,23 @@ export class Engine {
   /** The fallback Claude sign-in for a machine whose installed Claude Code is signed out: it signs into the engine's folder. */
   nativeClaudeLogin(): ReturnType<typeof remoteCliHost> {
     if (this.claudeLogin) return this.claudeLogin;
+    const login = this.claudeCli(this.root, { claude: this.claudeFolder });
+    this.claudeAccounts = login.cli; this.claudeLogin = login.host;
+    return this.claudeLogin;
+  }
+  /** The Claude Code sign-ins bound to account entries (K1): each row owns a folder under `<root>/native`, apart from
+   * the fallback login's one folder. The binding is the row id; nothing here is a credential or a copy of one. */
+  nativeBound(): { cli: ReturnType<typeof cliAccounts>; host: ReturnType<typeof remoteCliHost> } {
+    return this.bound ??= this.claudeCli(join(this.root, 'native'));
+  }
+  private claudeCli(stateDir: string, managedFolders?: { claude: string }) {
     const { env } = this.doctorContext(), home = join(this.root, 'home');
     const bin = onPath(env.PATH, 'claude');
     const bins = bin ? { claude: bin } : {};
     // The login runs in its own HOME: CLAUDE_CONFIG_DIR points it at the engine's folder, which accounts refuses as a HOME's default login.
-    for (const dir of ['home', 'login-home']) mkdirSync(join(this.root, dir), { recursive: true, mode: 0o700 });
-    const cli = cliAccounts({ stateDir: this.root, bins, env: { PATH: env.PATH, HOME: join(this.root, 'login-home'), LANG: env.LANG, TMPDIR: env.TMPDIR, XDG_CONFIG_HOME: join(home, '.config'), XDG_CACHE_HOME: join(home, '.cache'), XDG_DATA_HOME: join(home, '.local/share'), XDG_STATE_HOME: join(home, '.local/state') }, managedFolders: { claude: this.claudeFolder } });
-    this.claudeAccounts = cli; this.claudeLogin = remoteCliHost({ cli, bins });
-    return this.claudeLogin;
+    for (const dir of ['home', 'login-home', ...stateDir === this.root ? [] : ['native']]) mkdirSync(join(this.root, dir), { recursive: true, mode: 0o700 });
+    const cli = cliAccounts({ stateDir, bins, env: { PATH: env.PATH, HOME: join(this.root, 'login-home'), LANG: env.LANG, TMPDIR: env.TMPDIR, XDG_CONFIG_HOME: join(home, '.config'), XDG_CACHE_HOME: join(home, '.cache'), XDG_DATA_HOME: join(home, '.local/share'), XDG_STATE_HOME: join(home, '.local/state') }, ...managedFolders ? { managedFolders } : {} });
+    return { cli, host: remoteCliHost({ cli, bins }) };
   }
   /** Where a Claude Code login must be for this engine's gateway to read it. `signIn: false` when a fallback sign-in
    * would write a folder the gateway does not read: it started on the person's login location (installed sign-in, or
@@ -628,8 +637,8 @@ export class Engine {
   async stop(): Promise<void> {
     this.stopping = true;
     this.stopOwner.abort();
-    await this.claudeLogin?.close(); await this.claudeReset?.catch(() => {});
-    this.claudeLogin = undefined; this.claudeAccounts = undefined;
+    await this.claudeLogin?.close(); await this.bound?.host.close(); await this.claudeReset?.catch(() => {});
+    this.claudeLogin = undefined; this.claudeAccounts = undefined; this.bound = undefined;
     await this.starting?.catch(() => {});
     const child = this.child;
     await this.started.terminate(delay);

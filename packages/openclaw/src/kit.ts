@@ -485,7 +485,11 @@ export class OpenClawKit {
       // An add outlives a restart (activation restarts the gateway before it settles): requests use the kit's current transport.
       this.accountsCtl = createAccounts({ request: (method, params, o) => this.request()(method, params, o), root: this.engine.root,
         ensure: (member) => this.ensureMember(member), locks: this.locks,
-        signIn: (agentId, o, on, fresh) => startSignIn({ ...this.signInCtx(), ensure: async () => ({ agentId }), fresh }, agentId, o, on),
+        signIn: (agentId, o, on, fresh, native) => startSignIn({ ...this.signInCtx(), ensure: async () => ({ agentId }), fresh,
+          ...native === undefined ? {} : { bound: { ...native, host: () => this.engine.nativeBound().host,
+            ready: async () => (await this.engine.nativeBound().cli.status(native.cliAccountId)).state === 'ready' } } }, agentId, o, on),
+        native: { allocate: async () => (await this.engine.nativeBound().cli.add('claude')).account.id,
+          status: (id) => this.engine.nativeBound().cli.status(id), remove: (id) => this.engine.nativeBound().cli.remove(id).then(() => {}) },
         routes: this.routeMap, log: this.o.log, reseal: () => this.engine.authStore.reseal(), detect: this.detect,
         catalog: (provider) => this.registered.get(provider) ?? [] });
       this.helpersCtl = createHelpers({ root: this.engine.root, list: (member) => this.accounts(member) });
