@@ -53,7 +53,7 @@ export type CliOptions = {
   installed?: boolean;
 };
 export type CliLaunchResult =
-  | { ok: true; account: CliAccount; set: Record<string, string>; unset: string[] }
+  | { ok: true; account: CliAccount; set: Record<string, string>; unset: string[]; args?: string[] }
   | { ok: false; code: 'signed_out' | 'not_included' | 'resting'; account: CliAccount; message: string };
 export type CliRest = { until: number; why: string };
 /** One managed row of a provider with its room reading, for `pick` and the `list` view of the same rows. */
@@ -70,11 +70,15 @@ export type SignInCommand = { argv: string[]; env: Record<string, string>; compl
 export const VIBE_API_KEY_ROUTE = 'vibe:key';
 export class CliAccountError extends Error {
   override name = 'CliAccountError';
-  readonly code: 'unknown-account' | 'invalid-name' | 'kind-mismatch' | 'prepare-failed' | 'bad-option';
+  readonly code: 'unknown-account' | 'invalid-name' | 'kind-mismatch' | 'prepare-failed' | 'bad-option' | 'model-required';
   constructor(code: CliAccountError['code']) {
-    super(say(({ 'unknown-account': 'cli.unknownAccount', 'invalid-name': 'cli.invalidName', 'kind-mismatch': 'cli.kindMismatch', 'prepare-failed': 'cli.prepareFailed', 'bad-option': 'cli.badOption' } as const)[code]));
+    super(code === 'model-required' ? 'Choose a model for Pi before starting it.' : say(({ 'unknown-account': 'cli.unknownAccount', 'invalid-name': 'cli.invalidName', 'kind-mismatch': 'cli.kindMismatch', 'prepare-failed': 'cli.prepareFailed', 'bad-option': 'cli.badOption' } as const)[code]));
     this.code = code;
   }
+}
+function piArgs(model?: string, provider?: string): string[] {
+  if (typeof model !== 'string' || !model.trim() || /[\s\0]/.test(model) || model.startsWith('-') || !model.split(':')[0] || model.split(':')[0]!.endsWith('/')) throw new CliAccountError('model-required');
+  return [...(provider ? ['--provider', provider] : []), '--model', model];
 }
 type Row = { id: string; provider: CliProvider; name: string; folder: string; found: boolean; piProvider?: PiProvider; adoptedFrom?: string; addedAt?: number; installed?: true };
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -183,12 +187,13 @@ function folderAddedAt(folder: string): number | undefined {
   } catch { return undefined; }
 }
 export type NativePiAccount = {
-  kind: 'pi'; bin: string;
+  kind: 'pi'; bin: string; args: string[];
   launch: { set: { PI_CODING_AGENT_DIR: string }; unset: string[] };
   resumeArgs(ref: { kind: 'id' | 'path'; value: string }): string[];
 };
 /** Read-only Pi launch descriptor; no grant reads, sign-in or readiness claim. */
-export function nativePiAccount(options: { stateDir: string; folder: string; bin: string; home: string }): NativePiAccount {
+export function nativePiAccount(options: { stateDir: string; folder: string; bin: string; home: string; model?: string }): NativePiAccount {
+  const args = piArgs(options?.model);
   if (!record(options) || [options.stateDir, options.folder, options.bin, options.home].some(v => !text(v) || !isAbsolute(v))) throw new CliAccountError('bad-option');
   const stateDir = resolve(options.stateDir); const parent = join(stateDir, 'pi'); const folder = resolve(options.folder);
   for (const path of ['.claude', '.codex', '.pi', '.kimi-code']) {
@@ -202,7 +207,7 @@ export function nativePiAccount(options: { stateDir: string; folder: string; bin
     }
   } catch { throw new CliAccountError('bad-option'); }
   return {
-    kind: 'pi', bin: options.bin,
+    kind: 'pi', bin: options.bin, args,
     launch: { set: { PI_CODING_AGENT_DIR: folder }, unset: ['PI_CODING_AGENT_SESSION_DIR', 'CLAUDE_CONFIG_DIR', 'CODEX_HOME'] },
     resumeArgs(ref) {
       if (!record(ref) || (ref.kind !== 'id' && ref.kind !== 'path') || !text(ref.value) || !ref.value || ref.value.startsWith('-')) throw new CliAccountError('kind-mismatch');
@@ -403,14 +408,14 @@ export function cliAccounts(options: CliOptions) {
   function spawnEnv(r: Row) {
     return cleanLaunchEnv({ base: env, account: launch(r) }).env;
   }
-  function command(r: Row): SignInCommand {
+  function command(r: Row, model?: string): SignInCommand {
     // OpenCode and Vibe have no native login to spawn: the app collects the key with hidden typing and
     // completes the sign-in with saveKey. The shell is a no-op; the key never enters argv or env.
     if (r.provider === 'opencode') return { argv: [], env: spawnEnv(r), completion: complete(r), shell: ':', instruction: { words: 'cli.opencodeKey' } };
     if (r.provider === 'vibe') return { argv: [], env: spawnEnv(r), completion: complete(r), shell: ':', instruction: { words: 'cli.vibeKey' } };
     // Kimi Code: public `kimi login` (no flags) writes OAuth under KIMI_CODE_HOME; completion on exit 0.
     // Cursor: public `cursor-agent login` writes the login under XDG_CONFIG_HOME; completion on exit 0.
-    const argv = r.provider === 'pi' ? [binary('pi')]
+    const argv = r.provider === 'pi' ? [binary('pi'), ...piArgs(model, r.piProvider)]
       : r.provider === 'claude' ? [binary(r.provider), 'auth', 'login', '--claudeai']
       : r.provider === 'kimi' || r.provider === 'cursor' ? [binary(r.provider), 'login']
       : [binary(r.provider), 'login', '--device-auth'];
@@ -421,8 +426,8 @@ export function cliAccounts(options: CliOptions) {
     const shell = `(umask 077; /bin/mkdir ${quote(lock)} || exit 1; ${login} <&0 & byokit_pid=$!; printf '%s' "$byokit_pid" > ${quote(holder)}; trap ${quote(cleanup)} EXIT; wait "$byokit_pid"; byokit_status=$?; byokit_pid=; [ "$byokit_status" -eq 0 ]${r.provider === 'pi' ? '' : ` && (set -C; printf complete > ${quote(completion)})`})`;
     return { argv, env: passed, completion, shell, ...(r.provider === 'pi' ? { instruction: { words: 'cli.piLogin' as const, command: `/login ${r.piProvider}` as const } } : {}) };
   }
-  function begin(r: Row): SignInCommand {
-    const result = command(r);
+  function begin(r: Row, model?: string): SignInCommand {
+    const result = command(r, model);
     // Refuse overlapping sign-in starts; reuse the pending command until completion or cancel.
     if (!marker(pending(r)) || marker(complete(r))) {
       rmSync(complete(r), { force: true });
@@ -620,10 +625,11 @@ export function cliAccounts(options: CliOptions) {
   }
   function remove(id: string) { return drop(id, true); }
   type Added = { account: CliAccount; signIn: SignInCommand };
-  function add(provider: 'pi', metadata: { piProvider: PiProvider }): Promise<Added>;
+  function add(provider: 'pi', metadata: { piProvider: PiProvider; model: string }): Promise<Added>;
   function add(provider: 'claude' | 'codex' | 'opencode' | 'kimi' | 'vibe' | 'cursor'): Promise<Added>;
-  function add(provider: CliProvider, metadata?: { piProvider?: PiProvider }): Promise<Added> { return addManaged(provider, metadata); }
-  async function addManaged(provider: CliProvider, metadata?: { piProvider?: PiProvider }, adopted?: Row): Promise<Added> {
+  function add(provider: CliProvider, metadata?: { piProvider?: PiProvider; model?: string }): Promise<Added> { return addManaged(provider, metadata); }
+  async function addManaged(provider: CliProvider, metadata?: { piProvider?: PiProvider; model?: string }, adopted?: Row): Promise<Added> {
+    if (provider === 'pi') piArgs(metadata?.model, metadata?.piProvider);
     if (!providers.includes(provider) || (provider === 'pi' && !validPiProvider(metadata?.piProvider))) throw new CliAccountError('bad-option');
     binary(provider);
     const parent = join(stateDir, provider); if (!directory(stateDir) || !directory(parent, true)) throw new CliAccountError('bad-option');
@@ -634,7 +640,7 @@ export function cliAccounts(options: CliOptions) {
     if (!directory(r.folder, true)) throw new CliAccountError('bad-option');
     try {
       if (history[provider]) historyLink(history[provider]!, join(r.folder, provider === 'claude' ? 'projects' : 'sessions'));
-      const signIn = begin(r);
+      const signIn = begin(r, metadata?.model);
       await options.prepare?.(r.folder, provider);
       if (!safe(r)) throw new CliAccountError('prepare-failed');
       save([...load(), r], provider); created.add(r.id);
@@ -644,22 +650,22 @@ export function cliAccounts(options: CliOptions) {
   return {
     list: async (): Promise<CliAccount[]> => Promise.all([...load().filter((r) => !r.found && !r.id.startsWith('found-')), ...installedRows()].map((r) => status(r.id))),
     add,
-    adopt: (foundId: string, metadata?: { piProvider?: PiProvider }): Promise<Added> => serial(foundId, async () => {
+    adopt: (foundId: string, metadata?: { piProvider?: PiProvider; model?: string }): Promise<Added> => serial(foundId, async () => {
       const rows = load();
       const found = rows.find(r => r.id === foundId && r.id.startsWith('found-'));
       if (!found) throw new CliAccountError('unknown-account');
       const adopted = rows.find(r => !r.found && !r.id.startsWith('found-') && r.adoptedFrom === foundId);
       if (adopted) {
         if (operations.has(adopted.id)) throw new CliAccountError('prepare-failed');
-        const signIn = begin(adopted);
+        const signIn = begin(adopted, metadata?.model);
         return { account: await status(adopted.id), signIn };
       }
       // Only metadata seeds a new empty folder; never inspect or copy the discovered source.
       return addManaged(found.provider, metadata, found);
     }),
-    signInAgain: (id: string): SignInCommand => {
+    signInAgain: (id: string, model?: string): SignInCommand => {
       if (operations.has(id)) throw new CliAccountError('prepare-failed');
-      return begin(row(id));
+      return begin(row(id), model);
     },
     status,
     rest,
@@ -676,12 +682,14 @@ export function cliAccounts(options: CliOptions) {
       return status(id);
     },
     remove,
-    async launch(id: string): Promise<CliLaunchResult> {
+    async launch(id: string, model?: string): Promise<CliLaunchResult> {
+      const selected = installedRow(id) ?? row(id);
+      if (selected.provider === 'pi') piArgs(model, selected.piProvider);
       const account = await status(id);
       if (account.state === 'ready') {
         const r = installedRow(id) ?? row(id);
         const base = launch(r);
-        if (r.provider !== 'opencode') return { ok: true, account, ...base };
+        if (r.provider !== 'opencode') return { ok: true, account, ...base, ...(r.provider === 'pi' ? { args: piArgs(model, r.piProvider) } : {}) };
         // The folder files are the delivery copy: the key reaches OpenCode through `{file:}`
         // substitution in the folder's opencode.json, never argv or env.
         return serial(id, async (): Promise<CliLaunchResult> => {
@@ -706,7 +714,11 @@ export function cliAccounts(options: CliOptions) {
       const code = account.state === 'not_included' ? 'not_included' : 'signed_out';
       return { ok: false, code, account, message: account.cause ?? say(code === 'not_included' ? 'cli.notIncluded' : 'cli.signedOut', { name: account.name }) };
     },
-    launchEnv: (id: string) => launch(installedRow(id) ?? row(id)),
+    launchEnv: (id: string, model?: string) => {
+      const r = installedRow(id) ?? row(id);
+      const args = r.provider === 'pi' ? { args: piArgs(model, r.piProvider) } : {};
+      return { ...launch(r), ...args };
+    },
     /** The account a tool's stored `use` names, or undefined. */
     preferOf: (provider: CliProvider): string | undefined => {
       if (!providers.includes(provider)) throw new CliAccountError('bad-option');
@@ -726,8 +738,7 @@ export function cliAccounts(options: CliOptions) {
     launchArgs: (id: string, model?: string): string[] => {
       const r = row(id);
       if (r.provider !== 'pi') return [];
-      if (!text(model) || !model.trim() || model.startsWith('-')) throw new Error(`Choose a model for ${r.piProvider} first: pass the model id to launchArgs(id, model).`);
-      return ['--provider', r.piProvider!, '--model', model];
+      return piArgs(model, r.piProvider);
     },
     kinds: (provider: CliProvider): string[] => providers.includes(provider) ? [provider] : [],
     resumeArgs(kind: string, ref: { kind: 'id' | 'path'; value: string }): string[] {

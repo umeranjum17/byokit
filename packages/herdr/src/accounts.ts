@@ -60,7 +60,8 @@ export function createAccountPanes(ctx: { call: Call; startAgent(o: StartAgent):
       }
       return await ctx.startAgent({ ...start, place: { tab: 'new', workspaceId,
         ...(label === undefined ? {} : { label }) } });
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && ['model_required', 'account_required'].includes(String((error as { code?: string }).code))) throw error;
       // A runtime error can contain account env. Never relay it to the sign-in screen.
       throw Object.assign(new Error(words('agent.notReady')), { code: 'sign_in_failed' });
     }

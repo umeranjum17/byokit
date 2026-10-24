@@ -59,7 +59,7 @@ test('startAgent returns the served pane id in every placement, worktree include
   await withKit(async (kit) => {
     const start = (place: Parameters<HerdrKit['startAgent']>[0]['place'],
       extra: Partial<Parameters<HerdrKit['startAgent']>[0]> = {}) =>
-      kit.startAgent({ kind: 'pi', cwd: '/tmp/h5', place, ...extra } as Parameters<HerdrKit['startAgent']>[0]);
+      kit.startAgent({ kind: 'codex', cwd: '/tmp/h5', place, ...extra } as Parameters<HerdrKit['startAgent']>[0]);
     const taken = new Set(['w1:p1', 'w1:p2']);
     const ws = await start({ workspace: 'new' });
     const tab = await start({ tab: 'new', workspaceId: 'w1' });

@@ -316,7 +316,7 @@ test('WP11: Codex resume args and account env; sign-in opens an explicit-env tab
   h.state.failStart = true;
   await assert.rejects(h.kit.openSignInTab({ workspaceId: 'w1', kind: 'codex', cwd: '/repo',
     env: { SECRET: 'secret-canary' } }), (e: Error) => !e.message.includes('secret-canary'));
-  await assert.rejects(h.kit.startAgent({ kind: 'pi', cwd: '/repo', place: { pane: 'old' }, env: { CODEX_HOME: '/other' } }),
+  await assert.rejects(h.kit.startAgent({ kind: 'codex', cwd: '/repo', place: { pane: 'old' }, env: { CODEX_HOME: '/other' } }),
     (e: { code?: string }) => e.code === 'env_mismatch');
 });
 

@@ -12,7 +12,7 @@ a private tunnel. Each agent keeps its own sign-in, made inside its own screen; 
 ## Minutes to working
 
 You need Node 22.18 or later and Herdr 0.9.1 (`curl -fsSL https://herdr.dev/install.sh | sh`, or the GitHub
-release), plus at least one agent program Herdr knows, such as `pi`, `codex` or `claude`.
+release), plus at least one agent program Herdr knows, such as `codex` or `claude`. Pi starts now require an explicit model and complete selected-account environment; this example's generic form supplies neither, so choosing Pi refuses safely rather than using a paid default. A Pi model/account picker is a follow-up.
 
 ```sh
 npm i

@@ -7,9 +7,9 @@ import assert from 'node:assert/strict';
 import { chmodSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
-import { agentInstallState, isAutoInstallShim, resolveAgentBinary } from '../src/agents.ts';
+import { createAgents, agentInstallState, isAutoInstallShim, resolveAgentBinary } from '../src/agents.ts';
 import { HerdrKit } from '../src/kit.ts';
-import { startFakeHerdr } from '../src/testing/index.ts';
+import { startFakeHerdr, type FakeHerdr } from '../src/testing/index.ts';
 import type { AgentStartEvent } from '../src/types.ts';
 
 const SHIM = '#!/bin/sh\nexec mise x -- pi "$@"\n';
@@ -66,14 +66,14 @@ test('a Node interpreter under mise is installed, not a shim; a shell launcher s
 });
 
 async function withKit(
-  run: (kit: HerdrKit, seen: { call: AgentStartEvent[]; wide: AgentStartEvent[] }) => Promise<void>): Promise<void> {
+  run: (kit: HerdrKit, seen: { call: AgentStartEvent[]; wide: AgentStartEvent[] }, fake: FakeHerdr) => Promise<void>): Promise<void> {
   const fake = await startFakeHerdr({ dir: scratchDir('herdr-install-umer-start') });
   const kit = new HerdrKit({ mode: 'adopt', bin: '/not/used', socketPath: fake.socketPath });
   try {
     await kit.start();
     const seen = { call: [] as AgentStartEvent[], wide: [] as AgentStartEvent[] };
     const off = kit.onStartAgent((e) => { seen.wide.push(e); });
-    try { await run(kit, seen); }
+    try { await run(kit, seen, fake); }
     finally { off(); }
   } finally {
     await kit.stop();
@@ -81,10 +81,30 @@ async function withKit(
   }
 }
 
+test('Pi admission refuses absent models without any transport calls, and replaces inherited keys', async () => {
+  let calls = 0;
+  const agents = createAgents({ call: async () => { calls++; throw new Error('unexpected call'); }, snapshot: () => { throw new Error('unexpected read'); }, reread: async () => { throw new Error('unexpected read'); } });
+  for (const args of [undefined, [], ['--model', ''], ['--model='], ['--', '--model', 'ignored'], ['--model', 'openrouter/'], ['--model', 'openrouter/:high'], ['--model', ':high']]) {
+    await assert.rejects(agents.startAgent({ kind: 'pi', cwd: '/fixture', place: { workspace: 'new' }, args }), { code: 'model_required' });
+  }
+  await assert.rejects(agents.startAgent({ kind: 'pi', cwd: '/fixture', place: { workspace: 'new' }, args: ['--model', 'fixture/model'] }), { code: 'account_required' });
+  assert.equal(calls, 0);
+  const offline = new HerdrKit({ mode: 'adopt', bin: '/unused', socketPath: '/unused' });
+  await assert.rejects(offline.openSignInTab({ workspaceId: 'unused', kind: 'pi', cwd: '/fixture' }), { code: 'model_required' });
+  await withKit(async (kit, _seen, fake) => {
+    fake.world.panes[0]!.env = { OPENROUTER_API_KEY: 'local-incident-fixture', OTHER_API_KEY: 'local-incident-fixture' };
+    const ref = await kit.startAgent({ kind: 'pi', cwd: '/fixture', place: { pane: 'w1:p1' }, args: ['--model', 'fixture/model'], env: { env: { HOME: '/fixture', PI_CODING_AGENT_DIR: '/fixture/pi' }, unset: [] } });
+    const env = fake.world.panes.find(p => p.pane_id === ref.paneId)!.env!;
+    assert.equal(Object.hasOwn(env, 'OPENROUTER_API_KEY'), false);
+    assert.equal(Object.hasOwn(env, 'OTHER_API_KEY'), false);
+    assert.equal(env.PI_CODING_AGENT_DIR, '/fixture/pi');
+  });
+});
+
 test('startAgent with a shim install emits installing then ready — subscribable, no polling', async () => {
   const dir = binDir('herdr-install-umer-events', { pi: SHIM });
   await withKit(async (kit, seen) => {
-    const ref = await kit.startAgent({ kind: 'pi', cwd: '/tmp/umer', place: { workspace: 'new' },
+    const ref = await kit.startAgent({ kind: 'pi', args: ['--model', 'fixture/model'], env: { env: { HOME: '/fixture', PI_CODING_AGENT_DIR: '/fixture/pi' }, unset: [] }, cwd: '/tmp/umer', place: { workspace: 'new' },
       installProbe: { path: [dir] }, onEvent: (e) => { seen.call.push(e); } });
     assert.match(ref.paneId, /^w\d+:p\d+$/);
     assert.equal(seen.call.length, 3);
@@ -99,7 +119,7 @@ test('startAgent with a shim install emits installing then ready — subscribabl
 test('startAgent with a real binary emits only ready', async () => {
   const dir = binDir('herdr-install-umer-events-real', { pi: REAL });
   await withKit(async (kit, seen) => {
-    const ref = await kit.startAgent({ kind: 'pi', cwd: '/tmp/umer', place: { workspace: 'new' },
+    const ref = await kit.startAgent({ kind: 'pi', args: ['--model', 'fixture/model'], env: { env: { HOME: '/fixture', PI_CODING_AGENT_DIR: '/fixture/pi' }, unset: [] }, cwd: '/tmp/umer', place: { workspace: 'new' },
       installProbe: { path: [dir] }, onEvent: (e) => { seen.call.push(e); } });
     assert.equal(seen.call.length, 2);
     assert.equal(seen.call[0]?.phase, 'placed');
@@ -107,7 +127,7 @@ test('startAgent with a real binary emits only ready', async () => {
   });
 });
 
-test('a failed shim start emits launchFailed install-failed and rejects unchanged', async () => {
+test('a failed shim start emits launchFailed install-failed and safely rejects a complete launch', async () => {
   const fake = await startFakeHerdr({ dir: scratchDir('herdr-install-umer-fail'),
     agentStartFaults: [{ code: 'agent_failed', message: 'boom' }] });
   const kit = new HerdrKit({ mode: 'adopt', bin: '/not/used', socketPath: fake.socketPath });
@@ -116,9 +136,9 @@ test('a failed shim start emits launchFailed install-failed and rejects unchange
     await kit.start();
     const seen: AgentStartEvent[] = [];
     await assert.rejects(
-      kit.startAgent({ kind: 'pi', cwd: '/tmp/umer', place: { workspace: 'new' },
+      kit.startAgent({ kind: 'pi', args: ['--model', 'fixture/model'], env: { env: { HOME: '/fixture', PI_CODING_AGENT_DIR: '/fixture/pi' }, unset: [] }, cwd: '/tmp/umer', place: { workspace: 'new' },
         installProbe: { path: [dir] }, onEvent: (e) => { seen.push(e); } }),
-      (e: { code?: string }) => e.code === 'agent_failed');
+      { code: 'start_failed', message: "This helper isn't ready yet. Try again in a moment." });
     assert.equal(seen.length, 3);
     assert.equal(seen[0]?.phase, 'installing');
     assert.equal(seen[1]?.phase, 'placed');
@@ -139,7 +159,7 @@ test('a failed start with a real binary emits launchFailed start-rejected', asyn
     await kit.start();
     const seen: AgentStartEvent[] = [];
     await assert.rejects(
-      kit.startAgent({ kind: 'pi', cwd: '/tmp/umer', place: { workspace: 'new' },
+      kit.startAgent({ kind: 'pi', args: ['--model', 'fixture/model'], env: { env: { HOME: '/fixture', PI_CODING_AGENT_DIR: '/fixture/pi' }, unset: [] }, cwd: '/tmp/umer', place: { workspace: 'new' },
         installProbe: { path: [dir] }, onEvent: (e) => { seen.push(e); } }));
     assert.equal(seen.length, 2);
     assert.equal(seen[0]?.phase, 'placed');

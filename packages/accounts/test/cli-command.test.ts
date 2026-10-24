@@ -371,8 +371,8 @@ test('a new folder shares only the plan table, never a sign-in file', () => {
   assert.equal(readlinkSync(join(codexFolder, 'sessions')), join(codexHome, 'sessions'));
   assert.equal(readFileSync(join(codexFolder, 'config.toml'), 'utf8'), 'model = "gpt-5"');
 
-  const pi = added(['pi', '--provider', 'openai-codex']);
-  assert.deepEqual(pi.signIn.argv, [f.bins.pi]);
+  const pi = added(['pi', '--provider', 'openai-codex', '--model', 'chosen-model']);
+  assert.deepEqual(pi.signIn.argv, [f.bins.pi, '--provider', 'openai-codex', '--model', 'chosen-model']);
   assert.equal(pi.signIn.instruction?.command, '/login openai-codex');
   const piFolder = folderOf(pi.signIn.env);
   assert.deepEqual(readdirSync(piFolder).sort(), [PENDING, 'extensions', 'sessions', 'settings.json', 'skills']);

@@ -123,17 +123,19 @@ test('read-only native Pi descriptor selects only an independent owned folder an
   const root = scratchDir('cli-pi'); const home = join(root, 'home'); const stateDir = join(root, 'plans');
   const folder = join(stateDir, 'pi', 'abcdef'); mkdirSync(folder, { recursive: true });
   const auth = join(folder, 'auth.json'); writeFileSync(auth, 'unreadable-fixture-grant', { mode: 0 });
-  const descriptor = nativePiAccount({ stateDir, folder, bin: '/app/bin/pi', home });
+  const descriptor = nativePiAccount({ model: 'chosen-model', stateDir, folder, bin: '/app/bin/pi', home });
   assert.equal(descriptor.kind, 'pi'); assert.equal(descriptor.bin, '/app/bin/pi');
+  assert.deepEqual(descriptor.args, ['--model', 'chosen-model']);
+  for (const model of [undefined, '', '  ', '--provider', 'openrouter/', 'openrouter/:high', ':high']) assert.throws(() => nativePiAccount({ stateDir, folder, bin: '/app/bin/pi', home, model }), { name: 'CliAccountError', code: 'model-required' });
   assert.deepEqual(descriptor.launch.set, { PI_CODING_AGENT_DIR: folder });
   assert.deepEqual(descriptor.resumeArgs({ kind: 'path', value: join(root, 'umer.jsonl') }), ['--session', join(root, 'umer.jsonl')]);
   assert.deepEqual(descriptor.resumeArgs({ kind: 'id', value: '11111111-1111-4111-8111-111111111111' }), ['--session', '11111111-1111-4111-8111-111111111111']);
   for (const value of ['', '--resume', 'bad\u0000value']) assert.throws(() => descriptor.resumeArgs({ kind: 'path', value }), CliAccountError);
-  assert.throws(() => nativePiAccount({ stateDir, folder: home, bin: '/app/bin/pi', home }), CliAccountError);
-  assert.throws(() => nativePiAccount({ stateDir: join(home, '.pi'), folder, bin: '/app/bin/pi', home }), CliAccountError);
-  assert.throws(() => nativePiAccount({ stateDir, folder, bin: 'pi', home }), CliAccountError);
+  assert.throws(() => nativePiAccount({ model: 'chosen-model', stateDir, folder: home, bin: '/app/bin/pi', home }), CliAccountError);
+  assert.throws(() => nativePiAccount({ model: 'chosen-model', stateDir: join(home, '.pi'), folder, bin: '/app/bin/pi', home }), CliAccountError);
+  assert.throws(() => nativePiAccount({ model: 'chosen-model', stateDir, folder, bin: 'pi', home }), CliAccountError);
   symlinkSync(folder, join(stateDir, 'pi', 'deadbeef'));
-  assert.throws(() => nativePiAccount({ stateDir, folder: join(stateDir, 'pi', 'deadbeef'), bin: '/app/bin/pi', home }), CliAccountError);
+  assert.throws(() => nativePiAccount({ model: 'chosen-model', stateDir, folder: join(stateDir, 'pi', 'deadbeef'), bin: '/app/bin/pi', home }), CliAccountError);
   assert.equal(statSync(auth).mode & 0o777, 0, 'descriptor does not modify grants');
 });
 
@@ -196,7 +198,7 @@ test('native Claude status resolves at its deadline and reaps a child that ignor
 test('Pi auth-check deadline is bounded and reaps only its owned child', async (t) => {
   const root = scratchDir('pi-deadline'); const pi = fake(join(root, 'bins'), 'pi');
   const kit = cliAccounts({ stateDir: join(root, 'plans'), bins: { pi: pi.bin }, env: { HOME: join(root, 'home'), PATH: '/unused', STATUS_MODE: 'hang' } });
-  const { account } = await kit.add('pi', { piProvider: 'openai-codex' });
+  const { account } = await kit.add('pi', { piProvider: 'openai-codex', model: 'chosen-model' });
   // A hung pi this status call did not start: the deadline must never signal a process it does not own.
   const sibling = spawn(pi.bin, ['auth', 'check', '--provider', 'openai-codex', '--json', '--no-refresh'], { env: { STATUS_MODE: 'hang' }, stdio: 'ignore' });
   t.after(() => { sibling.kill('SIGKILL'); });
@@ -271,21 +273,27 @@ test('legacy bytes, host-owned rows, rollback, cancellation and folder escape re
 
 test('managed Pi uses TUI instructions, OAuth-only readiness, isolated roster and ready-only Auto', async () => {
   const root = scratchDir('managed-pi'); const pi = fake(join(root, 'bins'), 'pi');
-  const stateDir = join(root, 'plans'); const env = { HOME: join(root, 'home'), PATH: '/unused', PI_CODING_AGENT_DIR: '/forbidden', PI_CODING_AGENT_SESSION_DIR: '/forbidden', ANTHROPIC_API_KEY: 'canary-secret', OPENAI_API_KEY: 'canary-secret', CLAUDE_CONFIG_DIR: '/forbidden', CODEX_HOME: '/forbidden' };
+  const stateDir = join(root, 'plans'); const env = { HOME: join(root, 'home'), PATH: '/unused', PI_CODING_AGENT_DIR: '/forbidden', PI_CODING_AGENT_SESSION_DIR: '/forbidden', ANTHROPIC_API_KEY: 'canary-secret', OPENAI_API_KEY: 'canary-secret', OPENROUTER_API_KEY: 'canary-secret', CLAUDE_CONFIG_DIR: '/forbidden', CODEX_HOME: '/forbidden' };
   const make = (mode = 'oauth', bins: Partial<Record<CliProvider, string>> = { pi: pi.bin }) => cliAccounts({ stateDir, bins, env: { ...env, STATUS_MODE: mode } });
-  const kit = make(); const { account, signIn } = await kit.add('pi', { piProvider: 'openai-codex' });
-  const folder = kit.launchEnv(account.id).set.PI_CODING_AGENT_DIR;
+  const kit = make();
+  await assert.rejects(kit.add('pi', { piProvider: 'openai-codex' } as never), { name: 'CliAccountError', code: 'model-required' });
+  assert.deepEqual(pi.calls(), []);
+  const { account, signIn } = await kit.add('pi', { piProvider: 'openai-codex', model: 'chosen-model' });
+  await assert.rejects(kit.launch(account.id), { name: 'CliAccountError', code: 'model-required' });
+  assert.throws(() => kit.signInAgain(account.id), { name: 'CliAccountError', code: 'model-required' });
+  assert.throws(() => kit.launchEnv(account.id), { name: 'CliAccountError', code: 'model-required' });
+  const folder = kit.launchEnv(account.id, 'chosen-model').set.PI_CODING_AGENT_DIR;
   assert.equal(account.name, 'ChatGPT'); assert.equal(account.piProvider, 'openai-codex');
-  assert.deepEqual(signIn.argv, [pi.bin]); assert.deepEqual(signIn.instruction, { words: 'cli.piLogin', command: '/login openai-codex' });
+  assert.deepEqual(signIn.argv, [pi.bin, '--provider', 'openai-codex', '--model', 'chosen-model']); assert.deepEqual(signIn.instruction, { words: 'cli.piLogin', command: '/login openai-codex' });
   assert.ok(!signIn.shell.includes('/login')); assert.deepEqual(kit.launchArgs(account.id, 'gpt-6-sol'), ['--provider', 'openai-codex', '--model', 'gpt-6-sol']);
   // Pi's own per-provider default model is never used: no chosen model, no launch argv.
-  for (const none of [undefined, '', '  ', '--provider']) assert.throws(() => kit.launchArgs(account.id, none), /^Error: Choose a model for openai-codex first: /);
+  for (const none of [undefined, '', '  ', '--provider']) assert.throws(() => kit.launchArgs(account.id, none), { name: 'CliAccountError', code: 'model-required' });
   assert.deepEqual(kit.kinds('pi'), ['pi']);
   assert.deepEqual(await kit.usageSource(account.id), { provider: 'pi', folder, piProvider: 'openai-codex' });
   for (const kind of ['id', 'path'] as const) assert.deepEqual(kit.resumeArgs('pi', { kind, value: 'session.jsonl' }), ['--session', 'session.jsonl']);
   for (const value of ['', '--flag', 'bad\0value']) assert.throws(() => kit.resumeArgs('pi', { kind: 'id', value }), CliAccountError);
-  await assert.rejects(kit.add('pi', { piProvider: 'qwen-portal' }), CliAccountError);
-  await assert.rejects(kit.add('pi', { piProvider: 'openai-codex; echo secret' }), CliAccountError);
+  await assert.rejects(kit.add('pi', { piProvider: 'qwen-portal', model: 'chosen-model' }), CliAccountError);
+  await assert.rejects(kit.add('pi', { piProvider: 'openai-codex; echo secret', model: 'chosen-model' }), CliAccountError);
   const login = spawnSync('/bin/sh', ['-c', signIn.shell], { encoding: 'utf8', env: { AMBIENT_SECRET: 'canary-secret' } });
   assert.equal(login.status, 0, login.stderr); assert.equal(existsSync(signIn.completion), false, 'TUI exit is not sign-in completion');
   assert.equal((await make('out').status(account.id)).state, 'signing');
@@ -302,11 +310,11 @@ test('managed Pi uses TUI instructions, OAuth-only readiness, isolated roster an
   assert.equal(resolveSelection([ready], {}, { account: 'auto', model: 'passed-model' }, () => ({ left: 'unknown' }), Date.now()).ok, true);
   assert.equal((await make('oauth', {}).status(account.id)).state, 'not_included');
   const calls = pi.calls();
-  assert.deepEqual(calls[0].argv, []);
+  assert.deepEqual(calls[0].argv, ['--provider', 'openai-codex', '--model', 'chosen-model']);
   for (const c of calls) {
     assert.equal(c.env.PI_CODING_AGENT_DIR, folder);
     assert.doesNotMatch(JSON.stringify(c), /canary-secret|forbidden/);
-    if (c.argv.length) assert.deepEqual(c.argv, ['auth', 'check', '--provider', 'openai-codex', '--json', '--no-refresh']);
+    if (c.argv[0] === 'auth') assert.deepEqual(c.argv, ['auth', 'check', '--provider', 'openai-codex', '--json', '--no-refresh']);
   }
   const roster = join(stateDir, 'pi-accounts-v1.json'); const bytes = readFileSync(roster, 'utf8');
   assert.equal(existsSync(join(stateDir, 'accounts-v1.json')), false);
@@ -317,7 +325,7 @@ test('managed Pi uses TUI instructions, OAuth-only readiness, isolated roster an
   const added = await legacy.add('claude'); await legacy.rename(added.account.id, 'Work'); await legacy.remove(added.account.id);
   assert.equal(readFileSync(roster, 'utf8'), bytes);
   assert.equal((await make().status(account.id)).name, 'Personal ChatGPT');
-  const pending = await kit.add('pi', { piProvider: 'github-copilot' });
+  const pending = await kit.add('pi', { piProvider: 'github-copilot', model: 'chosen-model' });
   assert.deepEqual(await make('out').cancel(pending.account.id), { removed: false }, 'restart cancellation keeps named account');
   assert.equal((await make('out').status(pending.account.id)).state, 'signed_out');
   assert.equal(await kit.usageSource(pending.account.id), undefined, 'a Pi provider with no quota route stays unknown');
@@ -336,9 +344,9 @@ test('managed Pi room comes from the folder login; a Pi provider with no route s
   const kit = cliAccounts({ stateDir, bins, env, usage: usage({ stateDir, fetch: http.fetch }) });
   const login = (id: string, piProvider: string, token: unknown) =>
     writeFileSync(join(kit.folderOf(id), 'auth.json'), JSON.stringify({ [piProvider]: token }));
-  const chatgpt = await kit.add('pi', { piProvider: 'openai-codex' });
-  const kimi = await kit.add('pi', { piProvider: 'kimi-coding' });
-  const copilot = await kit.add('pi', { piProvider: 'github-copilot' });
+  const chatgpt = await kit.add('pi', { piProvider: 'openai-codex', model: 'chosen-model' });
+  const kimi = await kit.add('pi', { piProvider: 'kimi-coding', model: 'chosen-model' });
+  const copilot = await kit.add('pi', { piProvider: 'github-copilot', model: 'chosen-model' });
   const chatgptFolder = kit.folderOf(chatgpt.account.id); const kimiFolder = kit.folderOf(kimi.account.id);
   for (const id of [chatgpt.account.id, kimi.account.id, copilot.account.id]) assert.equal((await kit.status(id)).state, 'ready');
   assert.deepEqual(await kit.usageSource(chatgpt.account.id), { provider: 'pi', folder: chatgptFolder, piProvider: 'openai-codex' });
@@ -393,11 +401,11 @@ test('explicit adoption maps found metadata to new empty managed folders, idempo
   const kit = cliAccounts({ stateDir, bins, env, prepare: async folder => { prepared.push(folder); assert.equal(existsSync(join(folder, 'auth.json')), false); } });
   for (const row of found) {
     assert.throws(() => kit.signInAgain(row.id), e => e instanceof CliAccountError && e.code === 'unknown-account');
-    const metadata = row.provider === 'pi' ? { piProvider: 'openai-codex' } : undefined;
-    if (row.provider === 'pi') await assert.rejects(kit.adopt(row.id), e => e instanceof CliAccountError && e.code === 'bad-option');
+    const metadata = row.provider === 'pi' ? { piProvider: 'openai-codex', model: 'chosen-model' } : undefined;
+    if (row.provider === 'pi') await assert.rejects(kit.adopt(row.id), e => e instanceof CliAccountError && e.code === 'model-required');
     const [first, again] = await Promise.all([kit.adopt(row.id, metadata), kit.adopt(row.id, metadata)]);
     assert.equal(first.account.id, again.account.id); assert.equal(first.account.adoptedFrom, row.id); assert.equal(first.account.name, row.name);
-    const folder = Object.values(kit.launchEnv(first.account.id).set)[0];
+    const folder = Object.values(kit.launchEnv(first.account.id, 'chosen-model').set)[0];
     assert.notEqual(folder, row.folder); assert.equal(existsSync(join(folder, 'auth.json')), false);
     assert.equal(readFileSync(join(row.folder, 'auth.json'), 'utf8'), 'never-copy-secret');
     const restarted = cliAccounts({ stateDir, bins, env });

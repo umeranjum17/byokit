@@ -120,7 +120,7 @@ test('every op round-trips for a control device with full scope', async () => {
     await hd.answer('w1:p2', ['y'], entry.revision);
     await until(() => hd.blocked(), (list) => list.length === 0);
     // New workspaces are creatable; the only tab refuses a widening close.
-    const placed = await hd.startAgent({ kind: 'pi', cwd: '/tmp', place: { workspace: 'new', label: 'side' } });
+    const placed = await hd.startAgent({ kind: 'codex', cwd: '/tmp', place: { workspace: 'new', label: 'side' } });
     assert.match(placed.paneId, /^w2:/);
     // The fake does not broadcast creates, so surface the new workspace the way a live
     // server would, then wait for the kit's refresh to publish it.
@@ -139,7 +139,7 @@ test('a control device closing the only pane of a tab hears the close.wouldWiden
   await withBench({ run: async ({ kit, fake, pair }) => {
     const { hd } = await pair('control', ALL, 'desk');
     // A fresh workspace holds one tab with one pane: closing that pane would widen to the tab.
-    const placed = await hd.startAgent({ kind: 'pi', cwd: '/tmp', place: { workspace: 'new', label: 'side' } });
+    const placed = await hd.startAgent({ kind: 'codex', cwd: '/tmp', place: { workspace: 'new', label: 'side' } });
     fake.emit({ type: 'workspace.created', workspace_id: placed.paneId.split(':')[0] });
     await until(() => hd.tree(), (t) => t.workspaces.some((w) =>
       w.tabs.some((tab) => tab.panes.some((p) => p.id === placed.paneId))));
@@ -171,7 +171,7 @@ test('a view grant reads and observes but cannot prompt, keys, answer or close',
     await assert.rejects(hd.keys('w1:p2', ['y']), (e: Error) => e.message === NOT_ALLOWED);
     await assert.rejects(hd.answer('w1:p2', ['y'], 1), (e: Error) => e.message === NOT_ALLOWED);
     await assert.rejects(hd.close({ pane: 'w1:p1' }), (e: Error) => e.message === NOT_ALLOWED);
-    await assert.rejects(hd.startAgent({ kind: 'pi', cwd: '/tmp', place: { workspace: 'new' } }),
+    await assert.rejects(hd.startAgent({ kind: 'codex', cwd: '/tmp', place: { workspace: 'new' } }),
       (e: Error) => e.message === NOT_ALLOWED);
     await assert.rejects(hd.registerNotices(new Uint8Array(32).fill(1)), (e: Error) => e.message === NOT_ALLOWED);
     await assert.rejects(hd.call('ping', {}), (e: Error) => e.message === NOT_ALLOWED);
@@ -196,7 +196,7 @@ test('scope is enforced per workspace list', async () => {
   await withBench({ run: async ({ fake, pair }) => {
     const narrow = await pair('control', { workspaces: ['w1'] }, 'narrow');
     const wide = await pair('control', ALL, 'wide');
-    const placed = await wide.hd.startAgent({ kind: 'pi', cwd: '/tmp', place: { workspace: 'new', label: 'other' } });
+    const placed = await wide.hd.startAgent({ kind: 'codex', cwd: '/tmp', place: { workspace: 'new', label: 'other' } });
     const outside = placed.paneId;
     // The fake does not broadcast creates, so surface the new workspace the way a live
     // server would, then wait for the kit's refresh to publish it.
@@ -225,7 +225,7 @@ test('hd.rename, hd.focus and hd.layout are scoped typed edits, never hd.call', 
     const wide = await pair('control', ALL, 'wide');
     const viewer = await pair('view', ALL, 'viewer');
     // A second workspace outside the narrow grant's scope, surfaced the way a live server would.
-    const placed = await wide.hd.startAgent({ kind: 'pi', cwd: '/tmp', place: { workspace: 'new', label: 'other' } });
+    const placed = await wide.hd.startAgent({ kind: 'codex', cwd: '/tmp', place: { workspace: 'new', label: 'other' } });
     const other = placed.paneId.split(':')[0];
     fake.emit({ type: 'workspace.created', workspace_id: other });
     await until(() => wide.hd.tree(), (t) => t.workspaces.some((w) => w.id === other));
@@ -251,7 +251,7 @@ test('hd.rename, hd.focus and hd.layout are scoped typed edits, never hd.call', 
     // Out-of-scope edits name a real, valid target but are refused with the kit's sentence before any
     // call: the target's label and focus are untouched (no Herdr call took effect).
     await assert.rejects(narrow.hd.rename({ pane: `${other}:p1`, label: 'nope' }), (e: Error) => e.message === NOT_ALLOWED);
-    assert.equal(fake.world.panes.find((p) => p.pane_id === `${other}:p1`)?.label, 'pi', 'the refused pane rename changed nothing');
+    assert.equal(fake.world.panes.find((p) => p.pane_id === `${other}:p1`)?.label, 'codex', 'the refused pane rename changed nothing');
     await assert.rejects(narrow.hd.focus({ pane: `${other}:p1` }), (e: Error) => e.message === NOT_ALLOWED);
     assert.equal(fake.world.panes.find((p) => p.pane_id === `${other}:p1`)?.focused, false, 'the refused focus changed nothing');
     assert.equal(fake.world.panes.find((p) => p.focused)?.workspace_id, 'w1');
@@ -384,7 +384,7 @@ test('hd.kinds, hd.wait and hd.subscribe round-trip with view/control and scope 
     await assert.rejects(viewer.hd.wait('w1:p2', { timeoutMs: 100 }), (e: Error) => e.message === NOT_ALLOWED);
     await assert.rejects(narrow.hd.wait('w1:p2', { timeoutMs: 0 }));
     await assert.rejects(narrow.hd.wait('w1:p2', { until: ['nope' as never], timeoutMs: 100 }));
-    const placed = await wide.hd.startAgent({ kind: 'pi', cwd: '/tmp', place: { workspace: 'new', label: 'other' } });
+    const placed = await wide.hd.startAgent({ kind: 'codex', cwd: '/tmp', place: { workspace: 'new', label: 'other' } });
     const outside = placed.paneId;
     const other = outside.split(':')[0];
     fake.emit({ type: 'workspace.created', workspace_id: other });

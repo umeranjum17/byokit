@@ -44,7 +44,7 @@ test('K7: busy-then-ok resolves and the agent starts', async () => {
   const kit = new HerdrKit({ mode: 'adopt', bin: '/not/used', socketPath: fake.socketPath });
   try {
     await kit.start();
-    const ref = await kit.startAgent({ kind: 'pi', cwd: '/tmp/k7', place: { workspace: 'new' } });
+    const ref = await kit.startAgent({ kind: 'codex', cwd: '/tmp/k7', place: { workspace: 'new' } });
     assert.match(ref.paneId, /^w\d+:p\d+$/);
     assert.equal(typeof ref.name, 'string');
     const deadline = Date.now() + 3000;
@@ -65,7 +65,7 @@ test('K7: a permanent busy failure rejects after the 5 s budget and leaves no ex
     const before = panesOf(kit.snapshot()).sort();
     fake.agentStartFaults.push(...Array.from({ length: 100 }, () => ({ code: 'agent_pane_busy' })));
     const started = Date.now();
-    await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/tmp/k7', place: { workspace: 'new' } }),
+    await assert.rejects(kit.startAgent({ kind: 'codex', cwd: '/tmp/k7', place: { workspace: 'new' } }),
       (e: { code?: string }) => e.code === 'agent_pane_busy');
     const elapsed = Date.now() - started;
     assert.ok(elapsed >= 4500, `the retry budget runs ~5 s before giving up (took ${elapsed}ms)`);
@@ -81,13 +81,13 @@ test('K7: a failed start rolls back a created split pane but never a caller-owne
     fake.agentStartFaults.push({ code: 'agent_failed', message: 'boom' });
     const before = panesOf(kit.snapshot()).sort();
     await assert.rejects(
-      kit.startAgent({ kind: 'pi', cwd: '/tmp/k7', place: { split: 'w1:p1', direction: 'right' } }),
+      kit.startAgent({ kind: 'codex', cwd: '/tmp/k7', place: { split: 'w1:p1', direction: 'right' } }),
       /boom/);
     await until(() => panesOf(kit.snapshot()).length, before.length, 3000, 'the split pane is closed');
     assert.deepEqual(panesOf(kit.snapshot()).sort(), before);
     // A pane the caller owns: the same failure rejects but the pane stays put.
     fake.agentStartFaults.push({ code: 'agent_failed', message: 'boom' });
-    await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/tmp/k7', place: { pane: 'w1:p1' } }), /boom/);
+    await assert.rejects(kit.startAgent({ kind: 'codex', cwd: '/tmp/k7', place: { pane: 'w1:p1' } }), /boom/);
     assert.ok(panesOf(kit.snapshot()).includes('w1:p1'), 'the caller-owned pane is never rolled back');
     assert.equal(agentOf(kit.snapshot(), 'w1:p1'), undefined, 'no agent started on the failed pane');
   }, 'herdr-k7-rollback');
@@ -95,7 +95,7 @@ test('K7: a failed start rolls back a created split pane but never a caller-owne
 
 test('K7: the worktree pane receives the env, and the branch is optional', async () => {
   await withKit(async (kit, fake) => {
-    const ref = await kit.startAgent({ kind: 'pi', cwd: '/tmp/k7-wt', place: { workspace: 'new' },
+    const ref = await kit.startAgent({ kind: 'codex', cwd: '/tmp/k7-wt', place: { workspace: 'new' },
       worktree: { branch: 'k7' }, env: { K7_ENV: 'yes' } });
     const pane = (await kit.call('pane.get', { pane_id: ref.paneId })) as
       { pane?: { cwd?: string; env?: Record<string, string>; workspace_id?: string } };
@@ -107,7 +107,7 @@ test('K7: the worktree pane receives the env, and the branch is optional', async
     assert.equal(pane.pane?.cwd, ws.workspace?.worktree?.checkout_path);
     // No branch: the start still resolves into a linked checkout. A task HOME confines the
     // XDG dirs the caller did not set, so a sign-in in the pane stays under it.
-    const plain = await kit.startAgent({ kind: 'pi', cwd: '/tmp/k7-wt', place: { workspace: 'new' },
+    const plain = await kit.startAgent({ kind: 'codex', cwd: '/tmp/k7-wt', place: { workspace: 'new' },
       worktree: {}, env: { HOME: '/tasks/t1', XDG_CACHE_HOME: '/tasks/cache' } });
     const plainPane = (await kit.call('pane.get', { pane_id: plain.paneId })) as
       { pane?: { workspace_id?: string; env?: Record<string, string> } };
@@ -128,13 +128,13 @@ test('launch env reaches new, existing and sign-in shells with scrubbing and exp
     // Existing shell also has a credential absent from the host base: a clean result removes it.
     fake.world.panes.find((p) => p.pane_id === 'w1:p1')!.env = { ...base, MINIMAX_TOKEN: 'fake-launch-token' };
     for (const place of [{ pane: 'w1:p1' }, { workspace: 'new' as const }]) {
-      const ref = await kit.startAgent({ kind: 'pi', cwd: '/app', place, env: launch });
+      const ref = await kit.startAgent({ kind: 'codex', cwd: '/app', place, env: launch });
       const env = fake.world.panes.find((p) => p.pane_id === ref.paneId)!.env!;
       assert.ok(['CLAUDE_CODE_OAUTH_TOKEN', 'OPENAI_API_KEY', 'MINIMAX_TOKEN', 'REMOVE'].every((k) => !(k in env)));
       assert.equal(env.NAME, 'Umer'); assert.equal(env.CODEX_HOME, '/app/umer/account');
       assert.equal(env.PATH, base.PATH); assert.equal(env.HOME, base.HOME); assert.equal(env.LANG, base.LANG);
     }
-    const ref = await kit.openSignInTab({ workspaceId: 'w1', kind: 'pi', cwd: '/app', env: launch });
+    const ref = await kit.openSignInTab({ workspaceId: 'w1', kind: 'codex', cwd: '/app', env: launch });
     assert.equal(fake.world.panes.find((p) => p.pane_id === ref.paneId)!.env!.NAME, 'Umer');
     assert.ok(base.CLAUDE_CODE_OAUTH_TOKEN === 'fake-launch-token', 'input remains unchanged');
   }, 'herdr-launch-env');
@@ -160,23 +160,23 @@ test('launch env preparation uses private files, sanitizes errors and rolls back
       return call(method, params, timeout);
     };
     const launch = launchEnv({ base: { PATH: '/usr/bin:/bin' }, set: { EXPLICIT_TOKEN: 'fake-launch-token' } });
-    const ref = await kit.startAgent({ kind: 'pi', cwd: '/app', place: { workspace: 'new' }, env: launch });
+    const ref = await kit.startAgent({ kind: 'codex', cwd: '/app', place: { workspace: 'new' }, env: launch });
     // The start sourced its launch env and its agent hint from private files of its own;
     // both are removed when the flow ends.
     assert.ok(files.length === 2 && files.every((p) => !existsSync(p)), 'private files removed');
     assert.ok(commands.every((text) => !text.includes('fake-launch-token')));
     const before = fake.world.panes.length;
     fake.agentStartFaults.push({ code: 'failed', message: 'fake-launch-token' });
-    await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/app', place: { workspace: 'new' }, env: launch }),
+    await assert.rejects(kit.startAgent({ kind: 'codex', cwd: '/app', place: { workspace: 'new' }, env: launch }),
       (e: Error) => !e.message.includes('fake-launch-token'));
     assert.equal(fake.world.panes.length, before);
-    await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/app', place: { pane: ref.paneId }, env: launch, timeoutMs: 30 }),
+    await assert.rejects(kit.startAgent({ kind: 'codex', cwd: '/app', place: { pane: ref.paneId }, env: launch, timeoutMs: 30 }),
       (e: { code?: string }) => e.code === 'env_mismatch');
     assert.ok(fake.world.panes.some((p) => p.pane_id === ref.paneId));
-    await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/app', place: { workspace: 'new' },
+    await assert.rejects(kit.startAgent({ kind: 'codex', cwd: '/app', place: { workspace: 'new' },
       env: { env: {}, unset: ['bad;name'] }, timeoutMs: 30 }), (e: { code?: string }) => e.code === 'env_mismatch');
     assert.equal(fake.world.panes.length, before, 'preparation failure closes only its created pane');
-    await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/app', place: { pane: 'w1:p1' }, env: launch, timeoutMs: NaN }),
+    await assert.rejects(kit.startAgent({ kind: 'codex', cwd: '/app', place: { pane: 'w1:p1' }, env: launch, timeoutMs: NaN }),
       (e: { code?: string }) => e.code === 'env_mismatch');
   }, 'herdr-launch-env-failure');
 });
@@ -186,14 +186,14 @@ test('placed fires with the pane/tab/workspace ids before the start settles', as
     // A pinned real binary keeps the install state off the host PATH: no `installing` event on
     // any machine, so the phase lists below hold exactly (agent-install.test.ts's REAL pattern).
     const dir = scratchDir('herdr-placed-real-pi');
-    writeFileSync(join(dir, 'pi'), '#!/bin/sh\nexit 0\n');
-    chmodSync(join(dir, 'pi'), 0o700);
+    writeFileSync(join(dir, 'codex'), '#!/bin/sh\nexit 0\n');
+    chmodSync(join(dir, 'codex'), 0o700);
     const probe = { path: [dir] };
     const seen: AgentStartEvent[] = [];
     const off = kit.onStartAgent((e) => seen.push(e));
     try {
       // A tab placement: the placed ref names the fresh pane and the tab holding it.
-      const ref = await kit.startAgent({ kind: 'pi', cwd: '/tmp/k7', place: { tab: 'new', workspaceId: 'w1' }, installProbe: probe });
+      const ref = await kit.startAgent({ kind: 'codex', cwd: '/tmp/k7', place: { tab: 'new', workspaceId: 'w1' }, installProbe: probe });
       assert.deepEqual(seen.map((e) => e.phase), ['placed', 'ready'], 'placed lands before ready');
       const placedRef = (e: AgentStartEvent) => (e as { ref?: { paneId: string; tabId: string; workspaceId: string } }).ref!;
       assert.equal(placedRef(seen[0]!).paneId, ref.paneId);
@@ -202,21 +202,21 @@ test('placed fires with the pane/tab/workspace ids before the start settles', as
       assert.equal(pane?.tab_id, placedRef(seen[0]!).tabId, 'the placed tab id is the pane\'s own');
       // A workspace-label placement reusing the seeded workspace: same guarantee.
       seen.length = 0;
-      const reuse = await kit.startAgent({ kind: 'pi', cwd: '/tmp/k7', installProbe: probe,
+      const reuse = await kit.startAgent({ kind: 'codex', cwd: '/tmp/k7', installProbe: probe,
         place: { workspace: fake.world.workspaces[0]!.label } });
       assert.deepEqual(seen.map((e) => e.phase), ['placed', 'ready']);
       assert.equal(placedRef(seen[0]!).paneId, reuse.paneId);
       assert.equal(placedRef(seen[0]!).workspaceId, 'w1');
       // A placement failure fires launchFailed alone — nothing landed, nothing to route by.
       seen.length = 0;
-      await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/tmp/k7', installProbe: probe,
+      await assert.rejects(kit.startAgent({ kind: 'codex', cwd: '/tmp/k7', installProbe: probe,
         place: { tab: 'new', workspaceId: 'missing' } }),
         (e: { code?: string }) => e.code === 'workspace_not_found');
       assert.deepEqual(seen.map((e) => e.phase), ['launchFailed'], 'no placed when the placement itself fails');
       // A pane-owned start whose launch fails after placement: placed still came first.
       seen.length = 0;
       fake.agentStartFaults.push({ code: 'agent_failed', message: 'boom' });
-      await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/tmp/k7', installProbe: probe,
+      await assert.rejects(kit.startAgent({ kind: 'codex', cwd: '/tmp/k7', installProbe: probe,
         place: { pane: 'w1:p1' } }), /boom/);
       assert.deepEqual(seen.map((e) => e.phase), ['placed', 'launchFailed'],
         'a pane placement resolves before its launch can fail');
@@ -233,7 +233,7 @@ test('P5d: a created workspace carries the label place on its root tab', async (
       return undefined;
     };
     // A label place with no matching workspace creates one; the tab carries place.label.
-    const ref = await kit.startAgent({ kind: 'pi', cwd: '/tmp/p5d',
+    const ref = await kit.startAgent({ kind: 'codex', cwd: '/tmp/p5d',
       place: { workspace: 'p5d-ws', label: 'p5d-task' } });
     const deadline = Date.now() + 3000;
     for (;;) {
@@ -244,7 +244,7 @@ test('P5d: a created workspace carries the label place on its root tab', async (
     const ws = kit.snapshot().workspaces.find((w) => w.label === 'p5d-ws');
     assert.ok(ws, 'the workspace keeps its own label');
     // A plain new workspace with a label labels the workspace and its root tab alike.
-    const plain = await kit.startAgent({ kind: 'pi', cwd: '/tmp/p5d', place: { workspace: 'new', label: 'p5d-new' } });
+    const plain = await kit.startAgent({ kind: 'codex', cwd: '/tmp/p5d', place: { workspace: 'new', label: 'p5d-new' } });
     const deadline2 = Date.now() + 3000;
     for (;;) {
       if (tabLabelOf(plain.paneId) === 'p5d-new') break;
@@ -252,7 +252,7 @@ test('P5d: a created workspace carries the label place on its root tab', async (
       await new Promise((r) => setTimeout(r, 10));
     }
     // A reused workspace is untouched: its existing tab keeps its own label.
-    const reuse = await kit.startAgent({ kind: 'pi', cwd: '/tmp/p5d',
+    const reuse = await kit.startAgent({ kind: 'codex', cwd: '/tmp/p5d',
       place: { workspace: 'p5d-ws', label: 'p5d-second' } });
     const reuseTab = kit.snapshot().workspaces.find((w) => w.label === 'p5d-ws')
       ?.tabs.find((t) => t.panes.some((p) => p.id === reuse.paneId))?.label;
@@ -266,7 +266,7 @@ test('P5b: the overlay form verifies set and unset in the pane without starting 
     // every other export — where the replacement form would scrub them.
     fake.world.panes.find((p) => p.pane_id === 'w1:p1')!.env =
       { PATH: '/usr/bin:/bin', KEEP: 'yes', REMOVE: 'yes' };
-    const ref = await kit.startAgent({ kind: 'pi', cwd: '/app', place: { pane: 'w1:p1' },
+    const ref = await kit.startAgent({ kind: 'codex', cwd: '/app', place: { pane: 'w1:p1' },
       env: { overlay: { ADDED: 'one' }, unset: ['REMOVE'] } });
     assert.equal(ref.paneId, 'w1:p1');
     const env = fake.world.panes.find((p) => p.pane_id === 'w1:p1')!.env!;
@@ -279,14 +279,14 @@ test('P5b: the overlay form verifies set and unset in the pane without starting 
     const placed = (e: AgentStartEvent): void => {
       if (e.phase === 'placed') placedId = e.ref.paneId;
     };
-    await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/app', place: { workspace: 'new' },
+    await assert.rejects(kit.startAgent({ kind: 'codex', cwd: '/app', place: { workspace: 'new' },
       env: { overlay: { 'bad;name': 'x' } }, timeoutMs: 5000, onEvent: placed }),
       (e: { code?: string }) => e.code === 'env_mismatch');
     assert.ok(placedId, 'the placement resolved before the overlay was verified');
     assert.equal(agentOf(kit.snapshot(), placedId), undefined, 'no agent started on a mismatch');
     await until(() => panesOf(kit.snapshot()).length, before.length, 3000, 'the created pane is rolled back');
     // An unset/set overlap fails the same way, before anything starts.
-    await assert.rejects(kit.startAgent({ kind: 'pi', cwd: '/app', place: { workspace: 'new' },
+    await assert.rejects(kit.startAgent({ kind: 'codex', cwd: '/app', place: { workspace: 'new' },
       env: { overlay: { CLASH: 'x' }, unset: ['CLASH'] }, timeoutMs: 5000 }),
       (e: { code?: string }) => e.code === 'env_mismatch');
     await until(() => panesOf(kit.snapshot()).length, before.length, 3000, 'no pane survives a mismatch');

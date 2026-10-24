@@ -143,7 +143,9 @@ import { agentWords, herdrDevice } from '@byokit/herdr/device';
 declare const link: DeviceLink;     // from pairing (pairWithCode / pairWithOffer)
 
 const hd = herdrDevice(link);
-const agent = await hd.startAgent({ kind: 'pi', cwd: '/home/me/project', place: { workspace: 'new' } });
+const agent = await hd.startAgent({ kind: 'pi', cwd: '/home/me/project', place: { workspace: 'new' },
+  args: ['--model', 'openai-codex/gpt-6-sol'],
+  env: { env: { HOME: '/app/home', PATH: '/usr/bin:/bin', PI_CODING_AGENT_DIR: '/app/accounts/umer/pi' }, unset: [] } });
 await hd.prompt(agent.paneId, 'Run the tests');
 for (const q of await hd.blocked()) {
   console.log(agentWords('blocked'), q.prompt);
@@ -547,9 +549,13 @@ const off = kit.onStartAgent((e) => {
   if (e.phase === 'launchFailed') console.log(e.reason, e.message);
 });
 await kit.startAgent({ kind: 'pi', cwd: '/home/me/project', place: { workspace: 'new' },
+  args: ['--model', 'openai-codex/gpt-6-sol'],
+  env: { env: { HOME: '/app/home', PATH: '/usr/bin:/bin', PI_CODING_AGENT_DIR: '/app/accounts/umer/pi' }, unset: [] },
   onEvent: (e) => { if (e.phase === 'ready') console.log(e.ref.paneId); } });
 off();
 ```
+
+Pi starts refuse before any probe/placement unless `args` carries exactly one nonempty `--model` (`model_required`) and `env` is the complete replacement form with absolute `HOME` and `PI_CODING_AGENT_DIR` (`account_required`). Plain inheritance/overlays are refused for Pi; only the app-selected environment reaches it, and keys inherited by the daemon or pane are removed. This also applies through `openSignInTab` and device starts. Raw `call`/`cli` pass-throughs remain caller-owned and are not qualified by this guard.
 
 ## Placement without an agent
 
