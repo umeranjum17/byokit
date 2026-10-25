@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, lstatSync, symlinkSync, chmodSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, readdirSync, lstatSync, symlinkSync, chmodSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { HerdrKit, importConversation, type ConversationImport } from '../src/index.ts';
@@ -9,7 +9,7 @@ import { startFakeHerdr } from '../src/testing/index.ts';
 
 // Real socket and filesystem; the fake never launches an agent CLI or model session.
 test('carry Pi history between isolated accounts, refusing damaged, unsafe and unwritable destinations', async () => {
-  const root = scratchDir('conversation'), a = join(root, 'a'), b = join(root, 'b');
+  const root = realpathSync(scratchDir('conversation')), a = join(root, 'a'), b = join(root, 'b');
   mkdirSync(a); mkdirSync(b);
   const id = '12345678-1234-1234-1234-123456789abc', path = `sessions/--fixture--/2026-10-25T00-00-00-000Z_${id}.jsonl`;
   mkdirSync(join(a, 'sessions/--fixture--'), { recursive: true });

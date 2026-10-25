@@ -302,7 +302,9 @@ and delete it when no longer needed. Bundles are not encrypted and hashes do not
 This first slice supports Pi's default account-local JSONL store. Export requires an idle/done pane started
 through this kit with an explicit replacement `PI_CODING_AGENT_DIR`; an adopted pane, custom session store,
 other kind or unpublished conversation is `unsupported`, never a default-HOME fallback. Keep the account
-folders quiescent during transfer. Limits default to 256 MiB and 20,000 files, with a hard 1 GiB container
+folders quiescent during transfer. Use physical, absolute account folders and bundle-parent paths: resolve
+platform directory aliases when allocating your own folders, rather than passing symlinked paths to the kit.
+Limits default to 256 MiB and 20,000 files, with a hard 1 GiB container
 ceiling; callers can lower the limits. The archive validates relative paths and digests and refuses symlinks,
 special files and existing conversations. `overwrite: true` retains replaced files until every placement
 succeeds; failure restores and verifies originals or returns `rollback-failed` for host recovery. That failure

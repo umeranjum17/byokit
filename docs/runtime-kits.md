@@ -3248,6 +3248,9 @@ before creating its private output file, then renames it in the output directory
 20,000 files; the byte ceiling, including container overhead, is 1 GiB. The file-count ceiling is 20,000;
 manifest reads are capped at 16 MiB. Discovery is bounded to 20,000 entries and eight directory levels.
 
+Account roots and bundle parents must be physical, absolute paths. Callers resolve platform directory aliases
+when allocating their own folders; the archive never silently follows them. Path safety precedes reading a
+source file to measure its size, so an unsafe source is not reclassified as a size refusal.
 Import opens regular files without following symlinks, verifies the manifest and every payload digest,
 rejects duplicate, absolute, traversal and special-file entries, and stages privately inside an existing
 explicit account folder. Existing files for the same conversation id are refused unless overwrite is true.

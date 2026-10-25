@@ -9,7 +9,9 @@ Build the SDK, then write a task-private plain Node consumer outside the reposit
 public `@byokit/herdr` and `@byokit/herdr/testing` entries using `createRequire` rooted at the checkout;
 assert that resolution ends in `dist/index.js`. Do not import the internal conversation module.
 
-1. Make two isolated account folders A and B. Seed A with a default Pi session fixture, using the documented
+1. Allocate owned scratch, resolve its physical path with `realpathSync`, then make isolated account folders
+   A and B there. Platform temp-directory aliases must not turn a bounds test into a path-safety refusal.
+   Keep the explicit negative symlink cases below. Seed A with a default Pi session fixture, using the documented
    layout cited by `packages/herdr/src/conversations.ts`, plus a separate synthetic credential canary.
 2. Run `startFakeHerdr` in a short private scratch path. Start the exported host kit against its socket,
    then call `startAgent` against the fake only, with an explicit replacement HOME and PI_CODING_AGENT_DIR,
