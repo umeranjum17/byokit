@@ -12,7 +12,7 @@
 - Dependency update: pins @byokit/pair 0.10.5.
 - Dependency update: pins @byokit/accounts 0.34.0.
 
-- DOCS: align the npm description, keywords and homepage with the BYOKit README; no version bump.
+- DOCS: update the package description to match the BYOKit README.
 
 ## 0.28.1 (2026-10-25)
 

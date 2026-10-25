@@ -9,7 +9,7 @@
 - Dependency update: pins @byokit/discover 0.8.7.
 - Dependency update: pins @byokit/seal 0.3.2.
 
-- DOCS: align the npm description, keywords and homepage with the BYOKit README; no version bump.
+- DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
 
 ## 0.16.7 (2026-10-24)
 
