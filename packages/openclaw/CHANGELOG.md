@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.28.1 (2026-10-25)
+
+FIX: applying a Skill Workshop proposal no longer fails with "database is locked" when something else on the same install is writing the shared state database. The workshop's lease write now waits up to 30 s for that file's lock instead of giving up after the engine's 5 s busy timeout; the wait is raised only in the lease worker, so synchronous engine calls keep their current bound.
+feat: an `anthropic-cli` account added with `credentialPolicy: 'in-place'` is bound to its own managed Claude Code folder by a durable, non-secret `{kind:'native-cli', cliAccountId, cli}` on its entry. Listing, `accountStatus`, re-auth and `removeAccount` read and act through that binding (the native CLI's own readiness and logout), never an engine-sealed profile.
+SECURITY: the binding is an id, never a token or a copy of a login; each account signs in at its own final folder, a cancelled re-auth keeps its row, and removal logs out that folder only. `anthropic-cli` now needs the in-place policy. The engine backend does not yet run on the binding (K2), so a bound account is signed in but not yet routed.
+
 ## 0.28.0 (2026-10-24)
 
 - Dependency update: pins @byokit/accounts 0.33.0.
