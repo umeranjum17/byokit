@@ -3237,6 +3237,43 @@ variable are tab only, labelled one sign-in per computer user, and the kit never
 credentials for them. Readiness probes run only with the managed folder's explicit env (D13) and otherwise report
 unknown.
 
+### 6.6.1 Conversation bundles (host only)
+
+`HerdrKit.exportConversation(target: AgentRef, { to, maxBytes?, maxFiles? })` and
+`importConversation({ bundle, accountFolder, kind, conversation, overwrite? })` carry conversation data,
+not sign-ins. Import is exported from `.` and available on the host kit too. Both resolve typed
+`ConversationExport` / `ConversationImport` results: success contains only `ok`, `kind`, the conversation id,
+file count, byte count and bundle SHA-256; failure contains `ok: false`, `code` and a plain `words.json` message.
+Codes are `unsupported`, `too-large`, `invalid-bundle`, `digest-mismatch`, `unsafe-path`, `exists`,
+`write-failed`, and `rollback-failed`. No caught errors, account paths or transcript text enter results or logs.
+
+The first slice supports Pi's documented default JSONL store only: `sessions/<encoded cwd>/<timestamp>_<id>.jsonl`
+inside the explicit `PI_CODING_AGENT_DIR`. The adapter table in `src/conversations.ts` cites the tool source.
+The exporting kit must have started the pane with an explicit replacement account environment; adopted panes,
+custom session stores, unsupported kinds and non-idle conversations refuse with `unsupported`. Published Pi
+session ids and paths are resolved inside that recorded folder only; no default HOME is discovered. Claude
+and Codex adapters are a follow-up on the same engine and format, not consumer-owned storage handling.
+
+Format one is an opaque binary file: an eight-byte marker, four-byte manifest length, UTF-8 JSON manifest,
+then uncompressed file bytes in manifest order. The versioned manifest contains kind, conversation id,
+relative file paths, sizes, SHA-256 digests and totals; never absolute account paths. Export checks bounds
+before creating its private output file, then renames it in the output directory. Defaults are 256 MiB and
+20,000 files; the byte ceiling, including container overhead, is 1 GiB. The file-count ceiling is 20,000;
+manifest reads are capped at 16 MiB. Discovery is bounded to 20,000 entries and eight directory levels.
+
+Account roots and bundle parents must be physical, absolute paths. Callers resolve platform directory aliases
+when allocating their own folders; the archive never silently follows them. Path safety precedes reading a
+source file to measure its size, so an unsafe source is not reclassified as a size refusal.
+Import opens regular files without following symlinks, verifies the manifest and every payload digest,
+rejects duplicate, absolute, traversal and special-file entries, and stages privately inside an existing
+explicit account folder. Existing files for the same conversation id are refused unless overwrite is true.
+Overwrite retains originals until all placements succeed. Failure restores originals, verifies their hashes,
+removes newly created files/directories and staging, or returns `rollback-failed` if restoration cannot be proven.
+Hosts must serialize access to these app-managed folders against external writers while carrying a conversation;
+this is not a filesystem-wide lock against a concurrently running CLI. No CLI, agent session or lifecycle action
+is started by export or import. A byte-identical fixture restore proves data transport only: real CLI resume on
+another computer requires that agent's own sign-in there and belongs to the consumer's next journey.
+
 ### 6.7 Generation (`scripts/gen-types.ts`, H2)
 
 Input `schema/herdr-api-0.9.1.json`. Request methods are the `const` values of the request schema's `method`
