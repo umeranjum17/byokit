@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.8.7 (2026-10-25)
+
+- Dependency update: pins @byokit/ui 1.1.0.
+
+- DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
+
 ## 0.8.6 (2026-10-23)
 
 - Dependency update: pins @byokit/ui 1.0.0.

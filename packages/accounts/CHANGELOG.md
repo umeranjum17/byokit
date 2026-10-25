@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.34.0 (2026-10-25)
+
+- Dependency update: pins @byokit/usage 0.10.1.
+- Dependency update: pins @byokit/secrets 0.5.3.
+
+feat: the computer-side remote CLI host accepts an exact managed account id for native Claude/Codex sign-in and re-auth; cancellation and failure retain that row through restart.
+SECURITY: explicit targets never select a sibling or installed login; unknown and wrong-provider targets are refused. Native credentials remain at the CLI's own final store, without copying or rollback. This is the K1 host prerequisite, not OpenClaw multi-account execution.
+- DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
+
 ## 0.33.0 (2026-10-24)
 
 - BREAKING: a managed or installed CLI account whose status check gives no answer (a timeout, a CLI that does not start or exit cleanly, an unreadable reply, a Codex probe failure) now lists `state: 'unknown'` with a safe `reason` (`timeout`, `unavailable`, `unreadable`) and `retryAfterMs`, instead of `signed_out`. `SignInState` gains `'unknown'` (exported on the portable entry too, with `UnknownReason`), and `launch` returns `code: 'unknown'` for it. Treat `'unknown'` as try again later; only `signed_out` means the login is gone.

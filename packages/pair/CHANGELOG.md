@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.10.5 (2026-10-25)
+
+- DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
+
 ## 0.10.4 (2026-10-18)
 
 - FIX: A code that ran out while the person was saying yes now tells the computer too. When the yes landed after the offer's own expiry but inside the answer time, the device was refused `expired` while `confirm`'s `signal` never aborted, so the computer said nothing; it now aborts once, the same way a run-out during the question does, and still no grant is written.

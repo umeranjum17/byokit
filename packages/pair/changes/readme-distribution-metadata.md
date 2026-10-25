@@ -1,1 +1,0 @@
-- DOCS: align the npm description, keywords and homepage with the BYOKit README; no version bump.

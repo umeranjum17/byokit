@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.2.2 (2026-10-25)
+
+- DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
+
 ## 0.2.1 (2026-10-16)
 
 - **Deprecated:** new home is `@platform-kits/record`; new work goes there.

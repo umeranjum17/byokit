@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.8.1 (2026-10-25)
+
+- Dependency update: pins @byokit/secrets 0.5.3.
+
+- DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
+
 ## 0.8.0 (2026-10-18)
 
 - FIX: `disconnect()` revokes refresh and access tokens at the MCP app before local deletion and reports whether app-side revocation succeeded.

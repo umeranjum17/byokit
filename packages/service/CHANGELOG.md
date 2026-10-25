@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Dependency update: pins @byokit/cloud 0.6.1.
+
 - Dependency update: pins @byokit/cloud 0.6.0.
 
 - Dependency update: pins @byokit/cloud 0.5.0.

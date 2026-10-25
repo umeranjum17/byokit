@@ -1,0 +1,63 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "e7d0df284a41161a8f9ee564f1736f6ddbc67e01",
+  "tree": "593e5d8f14210bb77fecbe8e53bca538c63a3884",
+  "claim": "The prepared BYOKit release passes the 35-package packed-consumer journey and retains the accepted README npm metadata in all 27 selected release manifests.",
+  "result": "pass",
+  "at": "2026-10-25T08:48:47.078Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261025T084217Z-e7d0df28-5af8b9/metadata-pack.json",
+      "sha256": "8d3c3768f479b68aa59f53f37e27c8122a11dcd4d97f991236029aecea8ca5de"
+    },
+    {
+      "path": "<evidence root>/20261025T084217Z-e7d0df28-5af8b9/pack-release.log",
+      "sha256": "d719a31f620423bf0f176734de5c6011b55ddacd09cda17f733f7f38f40e86c1"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261025T084217Z-e7d0df28-5af8b9",
+      "commit": "e7d0df284a41161a8f9ee564f1736f6ddbc67e01",
+      "journey": null,
+      "command": "bash <task data>/pack-release-proof.sh",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "Accounts 0.34.0; UI 1.1.0; MCP 0.2.0; 24 metadata patches"
+        },
+        "start": "clean committed compatible metadata-release candidate; no publication",
+        "steps": [
+          "npm pack all workspace packages and install the complete candidate tarball set in a fresh app outside the monorepo, using the existing pack-fresh-project capture",
+          "Drive installed public exports and the offline consumer journeys, including refusal cases, through scripts/pack-smoke.ts",
+          "Pack the 27 selected release packages and compare their public tarball manifests with the accepted README metadata: descriptions, keywords and homepage; verify prepared versions and expected latest dist-tags"
+        ],
+        "result": "The full packed-candidate consumer passes and all 27 tarball manifests carry the accepted README descriptions, keywords and homepages with the exact prepared versions. This proves preparation, not npm publication."
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "openai-codex/gpt-6.1-sol",
+    "independence": "session-only",
+    "author": {
+      "agent": "pi",
+      "model": "openai-codex/gpt-6.1-sol"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261025T084217Z-e7d0df28-5af8b9/metadata-pack.json",
+        "sha256": "8d3c3768f479b68aa59f53f37e27c8122a11dcd4d97f991236029aecea8ca5de",
+        "verdict": "pass",
+        "seen": "Read all 27 package entries. The result states \"all 27 candidate tarball manifests retain the accepted README descriptions, keywords and homepages\" and identifies acceptedMetadataBase \"b301554f55a062ecfecf777c3f477c9b9a579cae\". Every entry has tag \"latest\" and the accepted description; 26 include keywords and homepages, while @byokit/openclaw omits both. This capture supports metadata retention, not the smoke journey."
+      },
+      {
+        "path": "<evidence root>/20261025T084217Z-e7d0df28-5af8b9/pack-release.log",
+        "sha256": "d719a31f620423bf0f176734de5c6011b55ddacd09cda17f733f7f38f40e86c1",
+        "verdict": "pass",
+        "seen": "Read all 35 package results, nine additional scenario results, and 27 metadata results. Every result passes. The summaries state \"pack smoke: 35/35 packages pass\" and \"metadata tarball proof: 27/27 accepted descriptions, keywords and homepages (including intentional absent fields); exact prepared versions and latest tags PASS\", followed by \"EXIT=0\"."
+      }
+    ]
+  }
+}

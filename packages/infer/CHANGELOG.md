@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.2 (2026-10-25)
+
+- DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
+
 ## 0.3.1 (2026-10-19)
 
 - FIX: A probability read (`complete({ n_probs })`) used to come back degenerate, one token at 1.0 and the rest at 0, because llama.rn reads the probabilities after sampling and the temperature-0 sampler had already collapsed the candidates. It now returns the model's real next-token distribution, and the read is a sample, not a greedy pick: each token is drawn from that distribution (temperature 1, no top-k/top-p/min-p cut, `seed: 0`). Calls without `n_probs` still decode greedily.
