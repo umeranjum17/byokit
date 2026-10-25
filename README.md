@@ -22,19 +22,60 @@
 
 ## Quick start
 
-Install the published `@byokit/accounts` **0.33.0** package in an empty folder:
+Install the published `@byokit/accounts` **0.33.0** package, save the demo next to it, and run it. The demo runs the whole ChatGPT flow against a stand-in OpenAI on loopback, so it needs no account, no network and no key:
 
 ```sh
 mkdir byokit-demo && cd byokit-demo
 npm i @byokit/accounts@0.33.0
-node -e "import('@byokit/accounts')
-  .then(m => console.log(
-  Object.keys(m.PROVIDERS).length))"
+cat > demo.mjs <<'EOF'
+import { Accounts, memoryStore, portable }
+  from '@byokit/accounts';
+import { mockOpenAI }
+  from '@byokit/accounts/testing';
+
+// A stand-in OpenAI on loopback.
+const openai = await mockOpenAI();
+const store = () => memoryStore();
+const accounts = new Accounts({
+  authBase: openai.base,
+  apiBase: openai.base,
+  store,
+}, portable);
+
+// Sign in by device code.
+const shown = await accounts.login(
+  1, 'chatgpt');
+console.log(shown.state, shown.code);
+openai.approve(shown.code);
+await accounts.finished(1, 'chatgpt');
+const status = await accounts.status(
+  1, 'chatgpt');
+console.log(status.words);
+
+// Ask on the account just signed in.
+await accounts.respond(1, {
+  model: 'gpt-6-sol',
+  input: 'Plan my day',
+  onText: (t) => process.stdout
+    .write(t),
+});
+console.log();
+await openai.close();
+EOF
+node demo.mjs
 ```
 
-The last command prints how many provider routes the typed entry point exposes. Nothing signs in and no provider is called.
+The last command, with the published **0.33.0** package, prints:
 
-For the whole offline sign-in-and-answer journey, with no account, network or key, use the [accounts quick start](packages/accounts#quickstart).
+```text
+waiting MOCK-10001
+ChatGPT is connected.
+You said: Plan my day
+```
+
+The first line is the device code the person types on the provider's page. After it the account reads connected, and that same account answers the question. The stand-in echoes the question, so the answer is its own shape and not a claim about a real model's words.
+
+For the longer walk through the same flow, see the [accounts quick start](packages/accounts#quickstart).
 
 ## Why BYOKit
 
@@ -45,19 +86,12 @@ For the whole offline sign-in-and-answer journey, with no account, network or ke
 
 ## What you get
 
-<p align="center">
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/accounts-card-dark.png" />
-  <img src="docs/readme/accounts-card-light.png" width="380" alt="The accounts screen: a ChatGPT Plus account connected, the plan shown on its card, and the Ask box on the same screen." />
-</picture>
-</p>
-
 - **Sign in without typing a password.** The person enters a device code on the provider's own page; the app never sees it.
 - **Bill what the plan already covers.** The plan behind each account is shown on its card, not guessed, and pay-per-use API keys are listed apart.
 - **Pair a phone with a computer.** Compare two words before an encrypted link is approved.
 - **Put voice in the app's own screen.** Realtime voice, audio and dictation kits, not a bolted-on window.
 
-These are captures of the examples in this repository, run with local stand-ins and the demo person Umer. No personal account and no live provider is involved.
+The capture at the top is `examples/pwa` in this repository, run with local stand-ins and the demo person Umer. No personal account and no live provider is involved.
 
 ## Proof
 
