@@ -6,7 +6,7 @@
 // (npm run test:engine), never in npm test.
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { OpenClawKit } from '../../src/kit.ts';
 import { Engine } from '../../src/engine.ts';
@@ -16,7 +16,7 @@ import { NATIVE_ENV_VAR, nativeEnvPath } from '../../src/native-env.ts';
 import type { SignInView } from '../../src/types.ts';
 
 const POLICY = { authChoice: 'anthropic-cli', credentialPolicy: 'in-place' } as const;
-const install = scratchDir('k2-engine-native');
+const install = realpathSync(scratchDir('k2-engine-native'));
 const engineDir = sharedEngineDir() ?? join(install, 'engine');
 
 before(async () => {
@@ -27,7 +27,7 @@ before(async () => {
 }, { timeout: 600_000 });
 
 test('native accounts: each launch, reuse and probe uses its own folder; a limit rests only that account', { timeout: 600_000 }, async () => {
-  const dir = scratchDir('k2-native-runs'), home = join(dir, 'home'), bin = join(dir, 'bin');
+  const dir = realpathSync(scratchDir('k2-native-runs')), home = join(dir, 'home'), bin = join(dir, 'bin');
   const calls = join(dir, 'calls.jsonl'), stateDir = join(dir, 'state'), root = join(stateDir, 'openclaw');
   mkdirSync(home, { recursive: true }); mkdirSync(bin);
   // The stand-in Claude Code: a login per CLAUDE_CONFIG_DIR, a bounded JSON status, and a stream-json turn. It records the

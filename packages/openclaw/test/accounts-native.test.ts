@@ -3,7 +3,7 @@
 // re-auth that is cancelled keeps the row, removal logs out that folder only, and the engine is never asked to seal or activate.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { OpenClawKit } from '../src/kit.ts';
@@ -67,7 +67,8 @@ process.stdin.setEncoding('utf8'); process.stdin.once('data', (code) => { fs.wri
 // agent, rewritten from the index after an add or a removal and never holding anything but a folder. Reading one account
 // is that account's own probe: a slow sibling delays nothing and never signs it out.
 test('K2: bound folders are published per account agent, and a slow probe on one account leaves the other ready', { timeout: 30_000 }, async () => {
-  const root = scratchDir('k2-published'), bin = join(root, 'bin'); mkdirSync(bin, { recursive: true });
+  const root = realpathSync(scratchDir('k2-published')), stateDir = join(root, 'alias'), bin = join(root, 'bin');
+  mkdirSync(bin, { recursive: true }); symlinkSync(root, stateDir, 'dir'); // Exercise macOS-style /tmp aliases on every host.
   // A login per CLAUDE_CONFIG_DIR; a slow marker file in that folder makes the status probe pause, as a hung CLI would.
   writeFileSync(join(bin, 'claude'), `#!${process.execPath}
 const fs = require('node:fs'), path = require('node:path'), dir = process.env.CLAUDE_CONFIG_DIR, granted = path.join(dir, 'granted');
@@ -79,7 +80,7 @@ console.log('If the browser did not open, visit: https://claude.example.test/aut
 process.stdin.setEncoding('utf8'); process.stdin.once('data', (code) => { fs.writeFileSync(granted, code.trim()); process.exit(0); });
 `, { mode: 0o700 });
   const fake = fakeGateway();
-  const kit = new OpenClawKit({ stateDir: root, enginePath: [bin], spawnEngine: false, callbackPort: 0,
+  const kit = new OpenClawKit({ stateDir, enginePath: [bin], spawnEngine: false, callbackPort: 0,
     transport: (ctx) => fake.factory(ctx) });
   const kitRoot = join(root, 'openclaw'), nativeDir = join(kitRoot, 'native', 'claude');
   const table = () => JSON.parse(readFileSync(join(kitRoot, 'native', 'env.json'), 'utf8')) as

@@ -1,7 +1,7 @@
 // Built public SDK (@byokit/openclaw over its fake gateway), real isolated native subprocesses; no real account, provider or credential.
 // K1: the binding on the entry, and list/status/re-auth/logout through it. K2: the published folder table the engine reads.
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, rmSync, openSync, closeSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, realpathSync, rmSync, openSync, closeSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
@@ -20,7 +20,7 @@ if (process.argv.includes('--gates')) {
     assert.equal(checks.status, 0, `CI-matching gates failed: ${checks.error?.message ?? checks.signal ?? checks.status}; see checks.log`);
   } finally { closeSync(fd); }
 }
-const root = mkdtempSync(join(tmpdir(), 'byk-native-binding-'));
+const root = realpathSync(mkdtempSync(join(tmpdir(), 'byk-native-binding-')));
 const log = [];
 const note = text => { log.push(text); console.log(text); };
 const steps = ['Add two anthropic-cli accounts in place, each signed in at its own native folder', 'List both through their bindings; the engine seals and activates nothing', 'K2: the gateway is given a folder table naming one folder per account agent, paths only', 'K2: a slow probe on A leaves B ready and A bound', 'Cancel a re-auth of B; B keeps its binding and folder', 'Sign B out in its own folder; B reads signed out, A stays ready', 'K2: reading and signing out never unpublish a row', 'Remove B; only B folder is logged out and dropped, and its table row with it'];

@@ -7,6 +7,8 @@ Surface: `packages/openclaw/src/accounts.ts` (`add`, `build`, `remove`), `signin
 After building and committing, run `done-done run openclaw-native-binding`; add `-- node .agents/skills/done-done-verify-byokit/capture/openclaw-native-binding.mjs --gates` for one sealed run that also records the CI-matching gates.
 The capture adds two `anthropic-cli` accounts with `credentialPolicy: 'in-place'` over the fake gateway and a fake `claude` that signs in per `CLAUDE_CONFIG_DIR`. It checks two distinct native folders, that each index entry holds only `{kind, cliAccountId, cli}`, listing and `accountStatus` through the binding (B signed out in its folder reads signed out, A stays ready), a cancelled re-auth keeping B's binding, removal logging out B's folder only, and that the engine sealed and activated nothing. For K2 it also checks the published table (`native/env.json`, named by `BYOKIT_NATIVE_ENV`): one row per account agent holding a CLI name and that account's own folder and nothing else, that a slow probe on A leaves B ready and both bound, that a signed-out or probed account keeps its row, and that removing B drops B's row.
 
+Folder assertions use canonical paths, matching the managed CLI descriptor even when the host's temp directory is an alias (macOS `/tmp` → `/private/tmp`). The existing K2 integration journey also supplies a symlinked state directory on every host; it must still name the same two final folders.
+
 Evidence: `native-binding.log`, `steps.json`, `summary.txt` and (with `--gates`) `checks.log`, all from the same done-done run. No screen exists for this SDK-only surface.
 
 ## Boundaries
