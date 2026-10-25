@@ -1,0 +1,61 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "92b26149134a01c963be1e81446b8d9b5acb8840",
+  "tree": "e52b8c73fae1a2199b7026b2b2e71844db65cbff",
+  "claim": "A release publish on this branch attempts only the eight kits that still belong in @byokit (mcp, cloud, audio, dictation, infer, phone, push, signaling) and never attempts @byokit/record, overlay, statusbar, browser or bubble, which are held back with private: true",
+  "result": "pass",
+  "at": "2026-10-25T12:49:14.555Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261025T124803Z-92b26149-9200b2/publish-dry-run.txt",
+      "sha256": "21804bee07d3d810591b9b129ee747e6a0b486c592605df952af63691ab74084"
+    },
+    {
+      "path": "<evidence root>/20261025T124803Z-92b26149-9200b2/held-back.txt",
+      "sha256": "4860141afc8cf21dc2c29eb3e5fc888828b9c185f878f4afa23f1d2d124815b3"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261025T124803Z-92b26149-9200b2",
+      "commit": "92b26149134a01c963be1e81446b8d9b5acb8840",
+      "journey": null,
+      "command": "/var/tmp/bk-release-hold.sh",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "byokit release tool 2026-10-25 (the merged 27-package release at 50e246f0)"
+        },
+        "start": "main with 27 versions merged but only 14 published: a publish attempt stopped on @byokit/record with a 404, and five of the versions waiting behind it belong to names that moved to @platform-kits",
+        "steps": [
+          "run the release tool's own publish dry run on this branch",
+          "read the gate list and the npm publish lines it prints",
+          "read the five held manifests and the pending set computed from the same rule"
+        ],
+        "result": "the publish attempts only the eight kits that still belong in @byokit (mcp, cloud, audio, dictation, infer, phone, push, signaling); @byokit/record, overlay, statusbar, browser and bubble appear nowhere because private: true holds them back, and no version or lockfile moved"
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "openai-codex/gpt-6.1-sol",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261025T124803Z-92b26149-9200b2/publish-dry-run.txt",
+        "sha256": "21804bee07d3d810591b9b129ee747e6a0b486c592605df952af63691ab74084",
+        "verdict": "pass"
+      },
+      {
+        "path": "<evidence root>/20261025T124803Z-92b26149-9200b2/held-back.txt",
+        "sha256": "4860141afc8cf21dc2c29eb3e5fc888828b9c185f878f4afa23f1d2d124815b3",
+        "verdict": "pass"
+      }
+    ]
+  }
+}
