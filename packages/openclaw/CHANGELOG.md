@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.28.2 (2026-10-25)
+
+- Dependency update: pins @byokit/ui 1.1.0.
+- Dependency update: pins @byokit/secrets 0.5.3.
+- Dependency update: pins @byokit/seal 0.3.2.
+- Dependency update: pins @byokit/discover 0.8.7.
+- Dependency update: pins @byokit/relay 0.8.3.
+- Dependency update: pins @byokit/pair 0.10.5.
+- Dependency update: pins @byokit/accounts 0.34.0.
+
+- DOCS: update the package description to match the BYOKit README.
+
 ## 0.28.1 (2026-10-25)
 
 FIX: applying a Skill Workshop proposal no longer fails with "database is locked" when something else on the same install is writing the shared state database. The workshop's lease write now waits up to 30 s for that file's lock instead of giving up after the engine's 5 s busy timeout; the wait is raised only in the lease worker, so synchronous engine calls keep their current bound.

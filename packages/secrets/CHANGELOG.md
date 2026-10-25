@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.5.3 (2026-10-25)
+
+- Dependency update: pins @byokit/seal 0.3.2.
+
+- DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
+
 ## 0.5.2 (2026-10-17)
 
 - Dependency update: pins @byokit/seal 0.3.1.

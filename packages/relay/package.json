@@ -1,7 +1,9 @@
 {
   "name": "@byokit/relay",
-  "version": "0.8.2",
-  "description": "A blind relay for @byokit/pair: hosts dial out, devices reach them by address; host proof of key, enrolment, push notifications.",
+  "version": "0.8.3",
+  "description": "TypeScript kits that let people sign in to your app with the AI plans they already pay for, on web, phone and desktop.",
+  "homepage": "https://github.com/umeranjum17/byokit#relay",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "license": "Apache-2.0",
   "type": "module",
   "repository": {
@@ -31,7 +33,7 @@
     "prepack": "tsc -b"
   },
   "dependencies": {
-    "@byokit/pair": "0.10.4",
+    "@byokit/pair": "0.10.5",
     "web-push": "3.6.7",
     "ws": "8.22.0"
   },

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.1 (2026-10-25)
+
+- DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
+
 - Add isolated Chromium sessions for URLs and local HTML, viewport and device scale settings,
   readiness waits, and PNG captures of a page or element, with an app-selected installed browser.
 

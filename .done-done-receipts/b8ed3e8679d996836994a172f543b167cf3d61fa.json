@@ -1,0 +1,61 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "b8ed3e8679d996836994a172f543b167cf3d61fa",
+  "tree": "3ddfd0088cc83478dce921035e7259bc866f6093",
+  "claim": "The prepared BYOKit release passes the 35-package packed-consumer journey and retains the accepted README npm metadata in all 27 selected release manifests.",
+  "result": "pass",
+  "at": "2026-10-25T09:34:45.395Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261025T093143Z-b8ed3e86-c01cb3/metadata-pack.json",
+      "sha256": "25a5b2a42f9881809c382e21f5f66e6685b215d7c8e7ccd954ba5e252cf99b3e"
+    },
+    {
+      "path": "<evidence root>/20261025T093143Z-b8ed3e86-c01cb3/pack-release.log",
+      "sha256": "5a705dffe76a0017c8c3c49ef32d17a520673fd7fb4811e131421c77e038e9ec"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261025T093143Z-b8ed3e86-c01cb3",
+      "commit": "b8ed3e8679d996836994a172f543b167cf3d61fa",
+      "journey": null,
+      "command": "bash <task data>/pack-release-recovery.sh",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "Accounts 0.34.0; UI 1.1.0; MCP 0.2.0; 24 metadata patches"
+        },
+        "start": "clean current preserving-merge metadata-release candidate b8ed3e8679d996836994a172f543b167cf3d61fa; no publication",
+        "steps": [
+          "npm pack all workspace packages and install the complete candidate tarball set in a fresh app outside the monorepo, using the existing pack-fresh-project capture",
+          "Drive installed public exports and the offline consumer journeys, including refusal cases, through scripts/pack-smoke.ts",
+          "Pack the 27 selected release packages and compare their public tarball manifests with the accepted README metadata: descriptions, keywords and homepage; verify prepared versions and expected latest dist-tags"
+        ],
+        "result": "The full packed-candidate consumer passes and all 27 tarball manifests carry the accepted README descriptions, keywords and homepages with the exact prepared versions. This proves preparation, not npm publication."
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "openai-codex/gpt-6.1-sol",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261025T093143Z-b8ed3e86-c01cb3/metadata-pack.json",
+        "sha256": "25a5b2a42f9881809c382e21f5f66e6685b215d7c8e7ccd954ba5e252cf99b3e",
+        "verdict": "pass"
+      },
+      {
+        "path": "<evidence root>/20261025T093143Z-b8ed3e86-c01cb3/pack-release.log",
+        "sha256": "5a705dffe76a0017c8c3c49ef32d17a520673fd7fb4811e131421c77e038e9ec",
+        "verdict": "pass"
+      }
+    ]
+  }
+}

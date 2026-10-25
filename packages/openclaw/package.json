@@ -1,7 +1,7 @@
 {
   "name": "@byokit/openclaw",
-  "version": "0.28.1",
-  "description": "The OpenClaw runtime kit: the pinned engine's full operator surface with plain-words helpers for members, sign-in, runs and approvals.",
+  "version": "0.28.2",
+  "description": "TypeScript kits that let people sign in to your app with the AI plans they already pay for, on web, phone and desktop.",
   "license": "Apache-2.0",
   "type": "module",
   "repository": {
@@ -60,18 +60,18 @@
     "prepack": "tsc -b && node ../../scripts/fix-words-dts.cjs"
   },
   "dependencies": {
-    "@byokit/accounts": "0.33.0",
-    "@byokit/pair": "0.10.4",
-    "@byokit/relay": "0.8.2",
-    "@byokit/discover": "0.8.6",
-    "@byokit/seal": "0.3.1",
-    "@byokit/secrets": "0.5.2",
+    "@byokit/accounts": "0.34.0",
+    "@byokit/pair": "0.10.5",
+    "@byokit/relay": "0.8.3",
+    "@byokit/discover": "0.8.7",
+    "@byokit/seal": "0.3.2",
+    "@byokit/secrets": "0.5.3",
     "@openclaw/gateway-client": "2026.9.33",
     "@openclaw/gateway-protocol": "2026.9.33",
     "ws": "8.22.0"
   },
   "devDependencies": {
-    "@byokit/ui": "1.0.0"
+    "@byokit/ui": "1.1.0"
   },
   "publishConfig": {
     "access": "public"

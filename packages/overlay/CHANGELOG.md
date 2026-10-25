@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.3.2 (2026-10-25)
+
+- Dependency update: pins @byokit/bubble 0.3.2.
+
+- DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
+
 ## 0.3.1 (2026-10-16)
 
 - Dependency update: pins @byokit/bubble 0.3.1.

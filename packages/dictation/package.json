@@ -1,7 +1,9 @@
 {
   "name": "@byokit/dictation",
-  "version": "0.6.0",
-  "description": "Dictation and recording transcription using your subscription or an on-device engine.",
+  "version": "0.6.1",
+  "description": "TypeScript kits that let people sign in to your app with the AI plans they already pay for, on web, phone and desktop.",
+  "homepage": "https://github.com/umeranjum17/byokit#dictation",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "license": "Apache-2.0",
   "type": "module",
   "repository": {"type":"git", "url":"git+https://github.com/umeranjum17/byokit.git", "directory":"packages/dictation"},
@@ -14,7 +16,7 @@
   "files": ["dist", "fixtures/wer", "scripts/generate-wer.py", "scripts/bench", "README.md", "LICENSE", "CHANGELOG.md"],
   "bin": {"byokit-dictation-wer":"./dist/wer-cli.js"},
   "scripts": {"prepack":"tsc -b"},
-  "dependencies": {"@byokit/audio": "0.3.0", "@byokit/usage": "0.10.0"},
+  "dependencies": {"@byokit/audio": "0.3.1", "@byokit/usage": "0.10.1"},
   "peerDependencies": {"whisper.rn":"0.7.2"},
   "peerDependenciesMeta": {"whisper.rn":{"optional":true}}
 }

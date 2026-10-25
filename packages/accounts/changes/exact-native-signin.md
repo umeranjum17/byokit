@@ -1,2 +1,0 @@
-feat: the computer-side remote CLI host accepts an exact managed account id for native Claude/Codex sign-in and re-auth; cancellation and failure retain that row through restart.
-SECURITY: explicit targets never select a sibling or installed login; unknown and wrong-provider targets are refused. Native credentials remain at the CLI's own final store, without copying or rollback. This is the K1 host prerequisite, not OpenClaw multi-account execution.

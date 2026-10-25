@@ -32,7 +32,7 @@
     "prepack": "tsc -b"
   },
   "dependencies": {
-    "@byokit/discover": "0.8.6"
+    "@byokit/discover": "0.8.7"
   },
   "publishConfig": {
     "access": "public"

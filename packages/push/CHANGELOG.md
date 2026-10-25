@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.1 (2026-10-25)
+
+- Dependency update: pins @byokit/seal 0.3.2.
+
+- DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
+
 ## 0.1.0 (2026-10-20)
 
 - FEAT: Answer from the notification on iOS without opening the app. An app-delegate subscriber takes a text-action press on a

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.3 (2026-10-25)
+
+- DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
+
 ## 0.1.2 (2026-10-16)
 
 - **Deprecated:** new home is `@platform-kits/statusbar`; new work goes there.

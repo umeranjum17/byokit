@@ -1,0 +1,52 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "33f61ed4ad2a73315dedd0b0cd953ea57b4eceac",
+  "tree": "8c4708d9cf20caab45a59924be4cdd72aaec5a0a",
+  "claim": "The installed 0.9.0 parser rejects the original auto session-source selection and accepts the project configuration with all five explicitly supported session readers; configuration acceptance only, not retro execution or account readiness.",
+  "result": "pass",
+  "at": "2026-10-25T08:05:51.488Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261025T080523Z-33f61ed4-ca328a/config-acceptance.log",
+      "sha256": "4355e071a1c52e7b8d2fa99c145e5cfeafd6b2dd430538648ab9bd9ff7394379"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261025T080523Z-33f61ed4-ca328a",
+      "commit": "33f61ed4ad2a73315dedd0b0cd953ea57b4eceac",
+      "journey": null,
+      "command": "bash <private task evidence>/capture-config.sh",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "learn-from-mistakes-axi 0.9.0 installed configuration parser"
+        },
+        "start": "Project session-source configuration contains agents: [auto] and is rejected",
+        "steps": [
+          "Parse original project YAML using installed loadConfig with empty LFM_HOME and assert rejection",
+          "Parse committed project YAML with the same installed loadConfig and assert all five supported session readers are accepted"
+        ],
+        "result": "The installed 0.9.0 configuration parser accepts explicit session agents; configuration acceptance only, no retro or account readiness qualification"
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "openai-codex/gpt-6-luna",
+    "independence": "session-only",
+    "author": {
+      "agent": "pi",
+      "model": "openai-codex/gpt-6-luna"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261025T080523Z-33f61ed4-ca328a/config-acceptance.log",
+        "sha256": "4355e071a1c52e7b8d2fa99c145e5cfeafd6b2dd430538648ab9bd9ff7394379",
+        "verdict": "pass",
+        "seen": "I read all three entries: the outcome says the parser rejects the original selection and accepts the project configuration; Before reports rejection of agents: auto; After reports acceptance of all five supported agents. These results match the outcome."
+      }
+    ]
+  }
+}
