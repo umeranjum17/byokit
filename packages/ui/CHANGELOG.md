@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 1.1.0 (2026-10-25)
+
+- Dependency update: pins @byokit/accounts 0.34.0.
+
+- FEATURE: `accountRows` draws an account whose sign-in could not be checked (`state: 'unknown'`) as "Couldn't check yet", with no sign-in action, instead of failing the type.
+- FEATURE: `agentView(agent, accounts, defaults?, models?)` (`@byokit/ui/accounts`) draws one agent's sign-in methods like an Agent tab: its plans with the accounts connected on each, `N of M enabled`, one account in use at a time, its default model from that account's live list, and pay-per-use keys listed apart, labelled and never chosen. A saved account that is no longer ready is never swapped for another. `Account` gains an optional `email`, read only to tell two accounts on one plan apart.
+- DOCS: align the npm description, keywords and homepage with the BYOKit README; no version bump.
+
 - Dependency update: pins @byokit/accounts 0.33.0.
 
 - Dependency update: pins @byokit/accounts 0.32.1.

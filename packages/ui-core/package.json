@@ -52,7 +52,7 @@
     "prepack": "tsc -b"
   },
   "dependencies": {
-    "@byokit/ui": "1.0.0"
+    "@byokit/ui": "1.1.0"
   },
   "publishConfig": {
     "access": "public"

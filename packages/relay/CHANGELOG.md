@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.8.3 (2026-10-25)
+
+- Dependency update: pins @byokit/pair 0.10.5.
+
+- DOCS: align the npm description, keywords and homepage with the BYOKit README; no version bump.
+
 ## 0.8.2 (2026-10-18)
 
 - Dependency update: pins @byokit/pair 0.10.4.

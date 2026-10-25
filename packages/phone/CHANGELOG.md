@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.6 (2026-10-25)
+
+- Dependency update: pins @byokit/accounts 0.34.0.
+
+- DOCS: align the npm description, keywords and homepage with the BYOKit README; no version bump.
+
 ## 0.1.5 (2026-10-24)
 
 - Dependency update: pins @byokit/accounts 0.33.0.

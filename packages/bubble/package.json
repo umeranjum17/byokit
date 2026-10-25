@@ -1,6 +1,6 @@
 {
   "name": "@byokit/bubble",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "TypeScript kits that let people sign in to your app with the AI plans they already pay for, on web, phone and desktop.",
   "homepage": "https://github.com/umeranjum17/byokit#bubble",
   "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],

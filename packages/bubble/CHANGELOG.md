@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.2 (2026-10-25)
+
+- DOCS: align the npm description, keywords and homepage with the BYOKit README; no version bump.
+
 ## 0.3.1 (2026-10-16)
 
 - FIX: The Android module builds with Android Gradle Plugin 9 (React Native 0.88, Expo SDK 58).
