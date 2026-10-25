@@ -6,7 +6,7 @@
 
 <strong>Ship apps where people sign in with the AI plan they already pay for.</strong>
 
-<p>TypeScript kits for web, mobile, desktop and Node apps: typed helpers for plans, devices and voice, with subscription and pay-per-use labels kept apart and no pooling proxy.</p>
+<p>TypeScript kits that let people sign in to your app with ChatGPT, Claude or other plans they already pay for, on web, phone and desktop.</p>
 
 <picture>
   <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="docs/readme/agents-phone-dark.png" />
