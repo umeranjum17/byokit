@@ -1,7 +1,9 @@
 {
   "name": "@byokit/phone",
   "version": "0.1.5",
-  "description": "An agent that runs on the phone itself: the person's own AI account, a chat kept on the phone, and the app's own tools.",
+  "description": "Typed TypeScript kits for apps using the AI plans and devices people already have.",
+  "homepage": "https://github.com/umeranjum17/byokit#phone",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "license": "Apache-2.0",
   "type": "module",
   "repository": { "type": "git", "url": "git+https://github.com/umeranjum17/byokit.git", "directory": "packages/phone" },

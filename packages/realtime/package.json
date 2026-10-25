@@ -1,7 +1,9 @@
 {
   "name": "@byokit/realtime",
   "version": "0.3.2",
-  "description": "Realtime voice sessions with host-held credentials and injected audio.",
+  "description": "Typed TypeScript kits for apps using the AI plans and devices people already have.",
+  "homepage": "https://github.com/umeranjum17/byokit#realtime",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "license": "Apache-2.0",
   "type": "module",
   "repository": {

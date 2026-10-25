@@ -1,7 +1,9 @@
 {
   "name": "@byokit/audio",
   "version": "0.3.0",
-  "description": "Shared on-device audio detection: streaming speech detection with one pinned neural graph, in Node, React Native and the browser. No network, no keys.",
+  "description": "Typed TypeScript kits for apps using the AI plans and devices people already have.",
+  "homepage": "https://github.com/umeranjum17/byokit#audio",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "license": "Apache-2.0",
   "type": "module",
   "repository": {

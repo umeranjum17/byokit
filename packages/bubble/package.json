@@ -1,7 +1,9 @@
 {
   "name": "@byokit/bubble",
   "version": "0.3.1",
-  "description": "A floating bubble over other apps on Android: a panel that opens on tap, per-app visibility rules, a text-free tap log and an optional focused-field reader. On iOS it reports unsupported.",
+  "description": "Typed TypeScript kits for apps using the AI plans and devices people already have.",
+  "homepage": "https://github.com/umeranjum17/byokit#bubble",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "deprecated": "New home: @platform-kits/overlay. New work goes there.",
   "license": "Apache-2.0",
   "type": "module",

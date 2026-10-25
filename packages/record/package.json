@@ -1,7 +1,9 @@
 {
   "name": "@byokit/record",
   "version": "0.2.1",
-  "description": "Record a screen or a desktop into a take and make a video from it, through any recorder that implements the open recorder protocol v1 this kit defines.",
+  "description": "Typed TypeScript kits for apps using the AI plans and devices people already have.",
+  "homepage": "https://github.com/umeranjum17/byokit#record",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "deprecated": "New home: @platform-kits/record. New work goes there.",
   "license": "Apache-2.0",
   "type": "module",

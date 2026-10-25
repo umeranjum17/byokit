@@ -1,7 +1,9 @@
 {
   "name": "@byokit/browser",
   "version": "0.1.0",
-  "description": "Capture PNGs of URLs or local HTML with an explicitly selected Chromium in an isolated session.",
+  "description": "Typed TypeScript kits for apps using the AI plans and devices people already have.",
+  "homepage": "https://github.com/umeranjum17/byokit#browser",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "license": "Apache-2.0",
   "type": "module",
   "repository": {

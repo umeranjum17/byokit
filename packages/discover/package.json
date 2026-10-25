@@ -1,7 +1,9 @@
 {
   "name": "@byokit/discover",
   "version": "0.8.6",
-  "description": "The addresses a phone can dial the home computer on. Tailscale Serve with ownership checks, direct tailnet, LAN, mDNS advertising (Node) and mDNS browsing (React Native).",
+  "description": "Typed TypeScript kits for apps using the AI plans and devices people already have.",
+  "homepage": "https://github.com/umeranjum17/byokit#discover",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "license": "Apache-2.0",
   "type": "module",
   "repository": {

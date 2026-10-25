@@ -1,7 +1,9 @@
 {
   "name": "@byokit/statusbar",
   "version": "0.1.2",
-  "description": "One ongoing job as a status-bar chip on Android 16 (a promoted ongoing notification), with a counts-only lock-screen copy and up to three actions. On iOS and older Android it reports unsupported.",
+  "description": "Typed TypeScript kits for apps using the AI plans and devices people already have.",
+  "homepage": "https://github.com/umeranjum17/byokit#statusbar",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "deprecated": "New home: @platform-kits/statusbar. New work goes there.",
   "license": "Apache-2.0",
   "type": "module",

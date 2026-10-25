@@ -1,7 +1,9 @@
 {
   "name": "@byokit/pair",
   "version": "0.10.4",
-  "description": "Scan a code to pair a phone or browser with the home computer over one encrypted link (Noise IK over WebSocket).",
+  "description": "Typed TypeScript kits for apps using the AI plans and devices people already have.",
+  "homepage": "https://github.com/umeranjum17/byokit#pair",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "license": "Apache-2.0",
   "type": "module",
   "repository": {

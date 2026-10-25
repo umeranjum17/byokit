@@ -1,7 +1,9 @@
 {
   "name": "@byokit/connect",
   "version": "0.8.0",
-  "description": "Connect a person's third-party apps with PKCE, refresh and typed remote MCP.",
+  "description": "Typed TypeScript kits for apps using the AI plans and devices people already have.",
+  "homepage": "https://github.com/umeranjum17/byokit#connect",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "license": "Apache-2.0",
   "type": "module",
   "repository": {

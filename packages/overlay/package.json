@@ -1,7 +1,9 @@
 {
   "name": "@byokit/overlay",
   "version": "0.3.1",
-  "description": "Deprecated: renamed to @byokit/bubble. Re-exports @byokit/bubble unchanged through 0.3.x; removed in 0.4.0.",
+  "description": "Typed TypeScript kits for apps using the AI plans and devices people already have.",
+  "homepage": "https://github.com/umeranjum17/byokit#overlay",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "deprecated": "New home: @platform-kits/overlay. New work goes there.",
   "license": "Apache-2.0",
   "type": "module",

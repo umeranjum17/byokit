@@ -1,7 +1,9 @@
 {
   "name": "@byokit/accounts",
   "version": "0.33.0",
-  "description": "Sign in with the AI plan you already pay for, into your app's own store.",
+  "description": "Typed TypeScript kits for apps using the AI plans and devices people already have.",
+  "homepage": "https://github.com/umeranjum17/byokit#accounts",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "license": "Apache-2.0",
   "type": "module",
   "repository": {

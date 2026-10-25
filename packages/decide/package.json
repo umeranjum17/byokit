@@ -1,7 +1,9 @@
 {
   "name": "@byokit/decide",
   "version": "0.16.2",
-  "description": "Typed questions in, a typed answer with confidence out, abstaining below a floor. Rules, Jev and configurable OpenAI backends, and an eval runner.",
+  "description": "Typed TypeScript kits for apps using the AI plans and devices people already have.",
+  "homepage": "https://github.com/umeranjum17/byokit#decide",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "license": "Apache-2.0",
   "type": "module",
   "repository": {

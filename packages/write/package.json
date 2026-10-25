@@ -1,7 +1,9 @@
 {
   "name": "@byokit/write",
   "version": "0.3.0",
-  "description": "Drafting in a person's voice: voice rules, platform limits, brief lines, model-free draft checks and thread splits over a pinned writing engine, plus an agent CLI.",
+  "description": "Typed TypeScript kits for apps using the AI plans and devices people already have.",
+  "homepage": "https://github.com/umeranjum17/byokit#write",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "license": "Apache-2.0",
   "type": "module",
   "repository": {

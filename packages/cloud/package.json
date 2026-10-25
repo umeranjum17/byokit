@@ -1,7 +1,9 @@
 {
   "name": "@byokit/cloud",
   "version": "0.6.0",
-  "description": "The person's own always-on cloud computer for an app's host process: typed setup, install, cost and words.",
+  "description": "Typed TypeScript kits for apps using the AI plans and devices people already have.",
+  "homepage": "https://github.com/umeranjum17/byokit#cloud",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "license": "Apache-2.0",
   "type": "module",
   "repository": {

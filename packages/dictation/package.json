@@ -1,7 +1,9 @@
 {
   "name": "@byokit/dictation",
   "version": "0.6.0",
-  "description": "Dictation and recording transcription using your subscription or an on-device engine.",
+  "description": "Typed TypeScript kits for apps using the AI plans and devices people already have.",
+  "homepage": "https://github.com/umeranjum17/byokit#dictation",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "license": "Apache-2.0",
   "type": "module",
   "repository": {"type":"git", "url":"git+https://github.com/umeranjum17/byokit.git", "directory":"packages/dictation"},

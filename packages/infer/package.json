@@ -1,7 +1,9 @@
 {
   "name": "@byokit/infer",
   "version": "0.3.1",
-  "description": "Text generation on the phone itself: Gemini Nano where present, else a verified downloaded model; nothing sent anywhere.",
+  "description": "Typed TypeScript kits for apps using the AI plans and devices people already have.",
+  "homepage": "https://github.com/umeranjum17/byokit#infer",
+  "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],
   "license": "Apache-2.0",
   "type": "module",
   "repository": { "type": "git", "url": "git+https://github.com/umeranjum17/byokit.git", "directory": "packages/infer" },
