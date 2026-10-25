@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "id": "9c808389825f4e85",
+  "id": "7b7da60de6ed790d",
   "upstream": {
     "name": "openclaw",
     "version": "2026.9.33",
@@ -53,29 +53,37 @@
     },
     {
       "path": "dist/prepare.runtime--y1-AtS2.mjs",
-      "before": "4ac1b35a78ce33207105c442b9008dc6866aef3c160366e37854b5b31549aa59",
-      "after": "849f73219cde6ecb290f21c0e059a7f1ef47ff4ea68e6c21b4826f1df1bb0ffd",
       "edits": [
         {
           "find": "\t\tlet systemPrompt = turnRuntimeFacts?.remainingPrompt ?? transformedSystemPrompt;\n",
           "replace": "\t\tlet systemPrompt = turnRuntimeFacts?.remainingPrompt ?? transformedSystemPrompt;\n\t\t// BYOKit: Claude wire names for the Tooling list (ch-cli-tool-prefix). The Claude wire catalog\n\t\t// exposes OpenClaw tools as mcp__openclaw__<name>, so the printed Tooling list on that route must\n\t\t// use those exact names. Every other route keeps the stock prompt byte-identical; already-prefixed\n\t\t// names are never prefixed again. Order, summaries and error semantics are unchanged.\n\t\tif (!skipsTurnPreparation && isClaudeCli && promptTools.length > 0) {\n\t\t\tconst byokitBareNames = new Set(promptTools.map((tool) => tool?.name).filter((name) => typeof name === \"string\" && name.length > 0 && !name.startsWith(\"mcp__openclaw__\")));\n\t\t\tif (byokitBareNames.size > 0) {\n\t\t\t\tconst byokitLines = systemPrompt.split(\"\\n\");\n\t\t\t\tlet byokitInTooling = false;\n\t\t\t\tlet byokitToolingArmed = false;\n\t\t\t\tfor (let byokitI = 0; byokitI < byokitLines.length; byokitI++) {\n\t\t\t\t\tconst byokitLine = byokitLines[byokitI];\n\t\t\t\t\tif (byokitLine.startsWith(\"## \")) {\n\t\t\t\t\t\tbyokitInTooling = byokitLine === \"## Tooling\";\n\t\t\t\t\t\tbyokitToolingArmed = false;\n\t\t\t\t\t} else if (byokitInTooling && !byokitToolingArmed) {\n\t\t\t\t\t\tif (byokitLine === \"Tools policy-filtered. Names case-sensitive; call exact.\") byokitToolingArmed = true;\n\t\t\t\t\t} else if (byokitInTooling && byokitToolingArmed && byokitLine.startsWith(\"- \")) {\n\t\t\t\t\t\tconst byokitMatch = /^- (\\S+?)(:.*)?$/.exec(byokitLine);\n\t\t\t\t\t\tif (byokitMatch && byokitBareNames.has(byokitMatch[1])) byokitLines[byokitI] = `- mcp__openclaw__${byokitMatch[1]}${byokitMatch[2] ?? \"\"}`;\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\tsystemPrompt = byokitLines.join(\"\\n\");\n\t\t\t}\n\t\t}\n"
+        },
+        {
+          "find": "import { accessSync } from \"node:fs\";\n",
+          "replace": "import { accessSync, readFileSync as byokitReadFileSync } from \"node:fs\";\n\nconst BYOKIT_NATIVE_CONFLICT_ENV = [\"AI_GATEWAY_API_KEY\", \"ANTHROPIC_API_KEY\", \"AZURE_OPENAI_API_KEY\", \"DEEPSEEK_API_KEY\", \"GEMINI_API_KEY\", \"GOOGLE_GENERATIVE_AI_API_KEY\", \"GROQ_API_KEY\", \"MISTRAL_API_KEY\", \"OPENAI_API_BASE\", \"OPENAI_API_KEY\", \"OPENAI_BASE_URL\", \"OPENROUTER_API_KEY\", \"XAI_API_KEY\"];\n/** BYOKit K2: the managed native folder a bound account agent's CLI work must use, or undefined (unbound, or no table). */\nfunction byokitNativeEnv(agentId) {\n\tconst file = process.env.BYOKIT_NATIVE_ENV;\n\tif (!file || typeof agentId !== \"string\" || !agentId) return;\n\ttry {\n\t\tconst table = JSON.parse(byokitReadFileSync(file, \"utf8\"));\n\t\tconst row = table && table.v === 1 && table.accounts && typeof table.accounts === \"object\" ? table.accounts[agentId] : void 0;\n\t\treturn row && row.cli === \"claude\" && typeof row.dir === \"string\" && row.dir.startsWith(\"/\") ? row.dir : void 0;\n\t} catch {\n\t\treturn;\n\t}\n}\n"
+        },
+        {
+          "find": "\tconst backendResolved = resolveCliBackendConfig(params.provider, params.config, { agentId: workspaceResolution.agentId });\n",
+          "replace": "\tconst backendResolved = resolveCliBackendConfig(params.provider, params.config, { agentId: workspaceResolution.agentId });\n\t// BYOKit K2: a bound account runs its own native CLI folder from the kit's non-secret table. Every other run resolves\n\t// exactly as stock; the folder is set for this child only, the process environment is never touched, and another\n\t// provider's key or billing endpoint is cleared from it.\n\tconst byokitNative = backendResolved.id === \"claude-cli\" ? byokitNativeEnv(workspaceResolution.agentId) : void 0;\n\tif (byokitNative) backendResolved.config = {\n\t\t...backendResolved.config,\n\t\tenv: { ...backendResolved.config.env, CLAUDE_CONFIG_DIR: byokitNative },\n\t\tclearEnv: [...new Set([...backendResolved.config.clearEnv ?? [], ...BYOKIT_NATIVE_CONFLICT_ENV])]\n\t};\n"
         }
-      ]
+      ],
+      "before": "4ac1b35a78ce33207105c442b9008dc6866aef3c160366e37854b5b31549aa59",
+      "after": "780b92728ddac5b3799bc2051ca0cfcba98c570bef37f79b356db77a99d679ef"
     },
     {
       "path": "dist/setup-inference-ur2QGopt.mjs",
-      "before": "ac3585f5a463905bbffbab5032fd3104f0d46ea4bab955a8193fe62db38f7fe2",
-      "after": "562842cf6c967eb828f12a91ae384af3e610c1dfc65788cbfb2f87837d383d7d",
       "edits": [
         {
           "find": "import { u as toErrorObject } from \"./error-coercion-1P2One0X.mjs\";\n",
-          "replace": "import { u as toErrorObject } from \"./error-coercion-1P2One0X.mjs\";\nimport { t as byokitProbeClaudeAuth } from \"./cli-auth-seam-CDPu8dne.mjs\";\nimport { a as byokitRunUtf8 } from \"./exec-DkOImFhW.mjs\";\n"
+          "replace": "import { u as toErrorObject } from \"./error-coercion-1P2One0X.mjs\";\nimport { t as byokitProbeClaudeAuth } from \"./cli-auth-seam-CDPu8dne.mjs\";\nimport { a as byokitRunUtf8 } from \"./exec-DkOImFhW.mjs\";\nimport { readFileSync as byokitReadFileSync } from \"node:fs\";\n/** BYOKit K2: the detection probe for a bound account agent reads that account's own native folder. */\nfunction byokitNativeDetectEnv(agentId) {\n\tconst file = process.env.BYOKIT_NATIVE_ENV;\n\tif (!file || typeof agentId !== \"string\" || !agentId) return;\n\ttry {\n\t\tconst table = JSON.parse(byokitReadFileSync(file, \"utf8\"));\n\t\tconst row = table && table.v === 1 && table.accounts && typeof table.accounts === \"object\" ? table.accounts[agentId] : void 0;\n\t\tif (!row || row.cli !== \"claude\" || typeof row.dir !== \"string\" || !row.dir.startsWith(\"/\")) return;\n\t\treturn { ...process.env, CLAUDE_CONFIG_DIR: row.dir };\n\t} catch {\n\t\treturn;\n\t}\n}\n"
         },
         {
           "find": "\t\tconfig: cfg,\n\t\tagentId: targetAgentId\n\t});\n\tsignal.throwIfAborted();\n\tconst configuredModel = detected.find",
-          "replace": "\t\tconfig: cfg,\n\t\tagentId: targetAgentId,\n\t\t// BYOKit: restore native verified login detection; never return CLI output or credentials.\n\t\tdeps: {\n\t\t\tdetectClaudeLoginState: async (_probe, command) => {\n\t\t\t\tconst auth = await byokitProbeClaudeAuth({ command, signal });\n\t\t\t\treturn { credentials: auth.status === \"available\" ? true : auth.status === \"missing\" ? false : void 0,\n\t\t\t\t\t...auth.authMethod === \"claude.ai\" ? { authKind: \"claude-subscription\" } : {} };\n\t\t\t},\n\t\t\tdetectCodexLoginState: async (_probe, command) => {\n\t\t\t\tconst env = { ...process.env };\n\t\t\t\tfor (const name of [\"CODEX_HOME\", \"OPENAI_API_KEY\", \"OPENAI_BASE_URL\", \"CODEX_OSS_BASE_URL\"]) delete env[name];\n\t\t\t\ttry {\n\t\t\t\t\tconst auth = await byokitRunUtf8([command, \"login\", \"status\"], { baseEnv: env, signal,\n\t\t\t\t\t\ttimeoutMs: 3000, maxOutputBytes: 65536, maxCombinedOutputBytes: 65536,\n\t\t\t\t\t\tterminateOnOutputLimit: true, killProcessTree: true });\n\t\t\t\t\tif (auth.termination !== \"exit\") return void 0;\n\t\t\t\t\tconst text = auth.stdout + \"\\n\" + auth.stderr;\n\t\t\t\t\tif (auth.code === 0 && /^Logged in using ChatGPT\\b/m.test(text)) return true;\n\t\t\t\t\tif (/Not logged in|signed out|Logged in using an API key/i.test(text)) return false;\n\t\t\t\t} catch { signal.throwIfAborted(); }\n\t\t\t\treturn void 0;\n\t\t\t}\n\t\t}\n\t});\n\tsignal.throwIfAborted();\n\tconst configuredModel = detected.find"
+          "replace": "\t\tconfig: cfg,\n\t\tagentId: targetAgentId,\n\t\t// BYOKit: restore native verified login detection; never return CLI output or credentials.\n\t\tdeps: {\n\t\t\tdetectClaudeLoginState: async (_probe, command) => {\n\t\t\t\tconst auth = await byokitProbeClaudeAuth({ command, signal, env: byokitNativeDetectEnv(targetAgentId) });\n\t\t\t\treturn { credentials: auth.status === \"available\" ? true : auth.status === \"missing\" ? false : void 0,\n\t\t\t\t\t...auth.authMethod === \"claude.ai\" ? { authKind: \"claude-subscription\" } : {} };\n\t\t\t},\n\t\t\tdetectCodexLoginState: async (_probe, command) => {\n\t\t\t\tconst env = { ...process.env };\n\t\t\t\tfor (const name of [\"CODEX_HOME\", \"OPENAI_API_KEY\", \"OPENAI_BASE_URL\", \"CODEX_OSS_BASE_URL\"]) delete env[name];\n\t\t\t\ttry {\n\t\t\t\t\tconst auth = await byokitRunUtf8([command, \"login\", \"status\"], { baseEnv: env, signal,\n\t\t\t\t\t\ttimeoutMs: 3000, maxOutputBytes: 65536, maxCombinedOutputBytes: 65536,\n\t\t\t\t\t\tterminateOnOutputLimit: true, killProcessTree: true });\n\t\t\t\t\tif (auth.termination !== \"exit\") return void 0;\n\t\t\t\t\tconst text = auth.stdout + \"\\n\" + auth.stderr;\n\t\t\t\t\tif (auth.code === 0 && /^Logged in using ChatGPT\\b/m.test(text)) return true;\n\t\t\t\t\tif (/Not logged in|signed out|Logged in using an API key/i.test(text)) return false;\n\t\t\t\t} catch { signal.throwIfAborted(); }\n\t\t\t\treturn void 0;\n\t\t\t}\n\t\t}\n\t});\n\tsignal.throwIfAborted();\n\tconst configuredModel = detected.find"
         }
-      ]
+      ],
+      "before": "ac3585f5a463905bbffbab5032fd3104f0d46ea4bab955a8193fe62db38f7fe2",
+      "after": "7601eb1be3724bb9f4f97e3bcd54f817106a9742b5de7e39c7767200fa51ff49"
     },
     {
       "path": "dist/oauth-Dqmi6EU2.mjs",

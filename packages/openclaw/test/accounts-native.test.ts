@@ -3,7 +3,7 @@
 // re-auth that is cancelled keeps the row, removal logs out that folder only, and the engine is never asked to seal or activate.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { OpenClawKit } from '../src/kit.ts';
@@ -60,5 +60,75 @@ process.stdin.setEncoding('utf8'); process.stdin.once('data', (code) => { fs.wri
     await kit.removeAccount('m1', b.id);
     assert.deepEqual((await kit.accounts('m1')).map((r) => [r.id, r.state]), [[a.id, 'ready']]);
     assert.deepEqual(logins().map(([, who]) => who), ['code-a'], 'removal logged out B\'s folder only');
+  } finally { await kit.stop(); }
+});
+
+// K2 (docs/runtime-kits.md 5.15): the binding reaches the engine as a table of folder paths, one row per bound account
+// agent, rewritten from the index after an add or a removal and never holding anything but a folder. Reading one account
+// is that account's own probe: a slow sibling delays nothing and never signs it out.
+test('K2: bound folders are published per account agent, and a slow probe on one account leaves the other ready', { timeout: 30_000 }, async () => {
+  const root = realpathSync(scratchDir('k2-published')), stateDir = join(root, 'alias'), bin = join(root, 'bin');
+  mkdirSync(bin, { recursive: true }); symlinkSync(root, stateDir, 'dir'); // Exercise macOS-style /tmp aliases on every host.
+  // A login per CLAUDE_CONFIG_DIR; a slow marker file in that folder makes the status probe pause, as a hung CLI would.
+  writeFileSync(join(bin, 'claude'), `#!${process.execPath}
+const fs = require('node:fs'), path = require('node:path'), dir = process.env.CLAUDE_CONFIG_DIR, granted = path.join(dir, 'granted');
+if (process.argv[3] === 'status') {
+  if (fs.existsSync(path.join(dir, 'slow'))) { const wait = new Int32Array(new SharedArrayBuffer(4)); Atomics.wait(wait, 0, 0, 1500); }
+  console.log(JSON.stringify({ loggedIn: fs.existsSync(granted) })); process.exit();
+}
+console.log('If the browser did not open, visit: https://claude.example.test/authorize');
+process.stdin.setEncoding('utf8'); process.stdin.once('data', (code) => { fs.writeFileSync(granted, code.trim()); process.exit(0); });
+`, { mode: 0o700 });
+  const fake = fakeGateway();
+  const kit = new OpenClawKit({ stateDir, enginePath: [bin], spawnEngine: false, callbackPort: 0,
+    transport: (ctx) => fake.factory(ctx) });
+  const kitRoot = join(root, 'openclaw'), nativeDir = join(kitRoot, 'native', 'claude');
+  const table = () => JSON.parse(readFileSync(join(kitRoot, 'native', 'env.json'), 'utf8')) as
+    { v: number; accounts: Record<string, { cli: string; dir: string }> };
+  const index = () => JSON.parse(readFileSync(join(kitRoot, 'accounts', 'm1.json'), 'utf8')) as
+    { accounts: Record<string, { agent: string; native?: { cliAccountId: string } }> };
+  const signedIn = async (name: string) => {
+    const seen: SignInView[] = [];
+    const handle = await kit.addAccount('m1', { ...POLICY, name }, (view) => seen.push(view));
+    for (let waited = 0; !seen.some((view) => view.url) && waited < 300; waited++) await new Promise((r) => setTimeout(r, 10));
+    handle.paste(name);
+    const result = await handle.done;
+    assert.equal(result.view.state, 'done', `${name}: ${JSON.stringify(result.view)}`);
+    return result.id;
+  };
+  try {
+    await kit.start();
+    const idA = await signedIn('Claude — Work'), idB = await signedIn('Claude — Home');
+    const rows = index().accounts;
+    // The folder each account's own login landed in, by the code the fake CLI wrote there.
+    const folderOf = (name: string) => readdirSync(nativeDir)
+      .map((id) => join(nativeDir, id)).find((dir) => { try { return readFileSync(join(dir, 'granted'), 'utf8') === name; } catch { return false; } })!;
+    await kit.accounts('m1');
+    const published = table();
+    assert.equal(published.v, 1);
+    assert.deepEqual(Object.keys(published.accounts).sort(), [rows[idA]!.agent, rows[idB]!.agent].sort(),
+      'one row per bound account agent: nothing the app could read as a credential');
+    assert.deepEqual(Object.keys(published.accounts[rows[idA]!.agent]!).sort(), ['cli', 'dir'], 'a row is a CLI name and a folder');
+    assert.equal(published.accounts[rows[idA]!.agent]!.dir, folderOf('Claude — Work'));
+    assert.equal(published.accounts[rows[idB]!.agent]!.dir, folderOf('Claude — Home'));
+    assert.notEqual(published.accounts[rows[idA]!.agent]!.dir, published.accounts[rows[idB]!.agent]!.dir, 'two accounts, two folders');
+
+    // A's probe hangs for a moment: B still reads ready through its own folder, and A keeps its own answer after.
+    writeFileSync(join(folderOf('Claude — Work'), 'slow'), 'slow');
+    const slowA = kit.accountStatus('m1', idA);
+    const sibling = await kit.accountStatus('m1', idB);
+    assert.equal(sibling.state, 'ready', 'a slow sibling never signs another account out');
+    assert.equal((await slowA).state, 'ready', 'A keeps its own answer');
+
+    // Signing A out of its own folder changes A alone: B is untouched, and both rows are still bound.
+    rmSync(join(folderOf('Claude — Work'), 'slow'));
+    rmSync(join(folderOf('Claude — Work'), 'granted'));
+    assert.deepEqual((await kit.accounts('m1')).map((row) => [row.id, row.state, row.native]), [[idA, 'signed_out', true], [idB, 'ready', true]]);
+    assert.deepEqual(Object.keys(table().accounts).sort(), [rows[idA]!.agent, rows[idB]!.agent].sort(),
+      'reading the folder of one account never unpublishes another');
+
+    // Dropping an account drops its row: the table never outlives the index entry that names it.
+    await kit.removeAccount('m1', idB);
+    assert.deepEqual(Object.keys(table().accounts), [rows[idA]!.agent]);
   } finally { await kit.stop(); }
 });
