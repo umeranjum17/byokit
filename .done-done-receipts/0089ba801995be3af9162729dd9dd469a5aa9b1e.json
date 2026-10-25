@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "0089ba801995be3af9162729dd9dd469a5aa9b1e",
+  "tree": "ac83ac3bad1bfdb0bc888fbee4c441d6b056cc50",
+  "claim": "A host carries a Pi fixture conversation between isolated explicit account folders through the built public kit, restores files and the complete bundle byte-identically, and refuses bounded, damaged, unsafe and existing inputs with rollback preserving the original tree. Real CLI resume, sign-in and other kinds are not proven.",
+  "result": "pass",
+  "at": "2026-10-25T15:58:15.644Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261025T155802Z-0089ba80-302088/conversation.log",
+      "sha256": "2b9d30d871c81556fa4cf50db2aed12e52ceec3cd6c601c27dd57feda61f38fb"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261025T155802Z-0089ba80-302088",
+      "commit": "0089ba801995be3af9162729dd9dd469a5aa9b1e",
+      "journey": null,
+      "command": "bash -c 'd=$(mktemp -d /tmp/byk-conv.XXXXXX); \"$FM_HOME/bin/fm-scratch.sh\" register byk-herdr-conv-export \"$d\"; TMPDIR=\"$d\" node \"$CONVERSATION_CAPTURE\" \"$d\"; code=$?; rm -rf -- \"$d\"; exit \"$code\"'",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "0.16.8"
+        },
+        "start": "Two isolated account folders and a documented synthetic Pi session, no accounts or model sessions",
+        "steps": [
+          "Select the explicit account using the built host kit against its fake transport",
+          "Export one Pi conversation by path and id",
+          "Import on computer B and compare complete bundle, manifest and file bytes",
+          "Refuse existing, oversized, tampered, duplicate, traversal, symlink and special-file bundles",
+          "Fail overwrite after removing an older-location file, restore the byte-identical original tree and remove staging"
+        ],
+        "result": "Pi conversation data is carried between explicit folders byte-identically; typed refusals preserve originals. Real CLI resume and other kinds are not proven."
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "openai-codex/gpt-6.1-sol",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261025T155802Z-0089ba80-302088/conversation.log",
+        "sha256": "2b9d30d871c81556fa4cf50db2aed12e52ceec3cd6c601c27dd57feda61f38fb",
+        "verdict": "pass",
+        "seen": "I read all 19 entries: 18 JSON records and the final limitation statement. The capture identifies \"entry\":\"built public host export\", reports successful Pi export/import with matching digests, and confirms \"byteIdentical\":true and \"manifestAndCompleteBundleRestoredByteIdentically\":true. Refusals include \"too-large\", \"exists\", \"digest-mismatch\", and seven \"unsafe-path\" results. After \"write-failed\", \"restoredOriginalAndOtherLocation\":true and \"stagingRemoved\":true support rollback. The final statement explicitly says real CLI resume, sign-in, and other agent kinds were not proven."
+      }
+    ]
+  }
+}
