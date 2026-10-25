@@ -17,7 +17,7 @@
 
 [Quick start](#quick-start) · [Packages](packages) · [Examples](examples) · [Contributing](CONTRIBUTING.md)
 
-[![npm version of @byokit/accounts](https://img.shields.io/npm/v/@byokit/accounts?style=flat&label=accounts)](https://www.npmjs.com/org/byokit) [![CI](https://img.shields.io/github/actions/workflow/status/umeranjum17/byokit/ci.yml?style=flat&branch=main)](https://github.com/umeranjum17/byokit/actions/workflows/ci.yml) [![Apache-2.0 license](https://img.shields.io/badge/license-Apache--2.0-666?style=flat)](LICENSE)
+[![npm version of @byokit/accounts](https://img.shields.io/npm/v/@byokit/accounts?style=flat&label=accounts)](https://www.npmjs.com/org/byokit) [![Apache-2.0 license](https://img.shields.io/badge/license-Apache--2.0-666?style=flat)](LICENSE)
 </div>
 
 ## Quick start
@@ -27,7 +27,9 @@ Install the published `@byokit/accounts` **0.33.0** package in an empty folder:
 ```sh
 mkdir byokit-demo && cd byokit-demo
 npm i @byokit/accounts@0.33.0
-node -e "import('@byokit/accounts').then(m => console.log(Object.keys(m.PROVIDERS).length, 'provider routes'))"
+node -e "import('@byokit/accounts')
+  .then(m => console.log(
+  Object.keys(m.PROVIDERS).length))"
 ```
 
 The last command prints how many provider routes the typed entry point exposes. Nothing signs in and no provider is called.
@@ -36,19 +38,24 @@ For the whole offline sign-in-and-answer journey, with no account, network or ke
 
 ## Why BYOKit
 
-| Instead of… | BYOKit gives your app… |
-| --- | --- |
-| Rebuilding each provider's sign-in by hand | Typed sign-in and provider helpers behind package APIs |
-| Treating a subscription like an API key | Plan and per-use billing labelled apart; API-key routes are opt-in |
-| Sending credentials to a pooling proxy | Sign-ins stored by the app and sent straight to the provider; BYOKit hosts no pooling service |
-| Writing a bespoke device link | Pairing, discovery and encrypted link kits you can compose |
+- **Instead of rebuilding each provider's sign-in by hand:** typed sign-in and provider helpers behind package APIs.
+- **Instead of treating a subscription like an API key:** plan and per-use billing labelled apart, with API-key routes opt-in.
+- **Instead of sending credentials to a pooling proxy:** sign-ins stored by the app and sent straight to the provider; BYOKit hosts no pooling service.
+- **Instead of writing a bespoke device link:** pairing, discovery and encrypted link kits you can compose.
 
 ## What you get
 
-<table>
-<tr><td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/signin-dark.png" /><img src="docs/readme/signin-light.png" alt="The ChatGPT card waiting for a device code: the code, its expiry and a button to open the provider page." width="100%" /></picture><br><strong>Sign in without typing a password.</strong><br>The person enters a device code on the provider's own page; the app never sees it.</td><td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/plan-dark.png" /><img src="docs/readme/plan-light.png" alt="The plan card after sign-in: the ChatGPT Plus badge, the connected account, and the room left." width="100%" /></picture><br><strong>Bill what the plan already covers.</strong><br>The plan behind the account is shown on the card, not guessed.</td></tr>
-<tr><td><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/pair-invitation-dark.png" /><img src="docs/readme/pair-invitation-light.png" alt="The pairing form asks for the code the computer shows." width="100%" /></picture><br><strong>Pair a phone with a computer.</strong><br>Compare two words before an encrypted link is approved.</td><td><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/reply-dark.png" /><img src="docs/readme/reply-light.png" alt="The voice example shows the words it heard and the assistant's reply." width="100%" /></picture><br><strong>Put voice in the app's own screen.</strong><br>Realtime voice, audio and dictation kits, not a bolted-on window.</td></tr>
-</table>
+<p align="center">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/accounts-card-dark.png" />
+  <img src="docs/readme/accounts-card-light.png" width="380" alt="The accounts screen: a ChatGPT Plus account connected, the plan shown on its card, and the Ask box on the same screen." />
+</picture>
+</p>
+
+- **Sign in without typing a password.** The person enters a device code on the provider's own page; the app never sees it.
+- **Bill what the plan already covers.** The plan behind each account is shown on its card, not guessed, and pay-per-use API keys are listed apart.
+- **Pair a phone with a computer.** Compare two words before an encrypted link is approved.
+- **Put voice in the app's own screen.** Realtime voice, audio and dictation kits, not a bolted-on window.
 
 These are captures of the examples in this repository, run with local stand-ins and the demo person Umer. No personal account and no live provider is involved.
 
@@ -61,14 +68,12 @@ These are captures of the examples in this repository, run with local stand-ins 
 
 ## Packages
 
-| Build | Packages |
-| --- | --- |
-| Sign in and understand plans | [accounts](packages/accounts), [usage](packages/usage) |
-| Pair devices and communicate | [pair](packages/pair), [discover](packages/discover), [relay](packages/relay), [link](packages/link), [signaling](packages/signaling) |
-| Voice and on-device AI | [realtime](packages/realtime), [audio](packages/audio), [dictation](packages/dictation), [infer](packages/infer), [speak](packages/speak) |
-| Decide and connect tools | [decide](packages/decide), [connect](packages/connect), [mcp](packages/mcp) |
-| Runtime and app capabilities | [openclaw](packages/openclaw), [herdr](packages/herdr), [cloud](packages/cloud), [browser](packages/browser), [phone](packages/phone), [record](packages/record), [bubble](packages/bubble), [overlay](packages/overlay), [statusbar](packages/statusbar) |
-| UI and private data | [ui](packages/ui), [ui-core](packages/ui-core), [secrets](packages/secrets), [seal](packages/seal), [push](packages/push), [outbox](packages/outbox), [write](packages/write) |
+- **Sign in and understand plans** — [accounts](packages/accounts), [usage](packages/usage)
+- **Pair devices and communicate** — [pair](packages/pair), [discover](packages/discover), [relay](packages/relay), [link](packages/link), [signaling](packages/signaling)
+- **Voice and on-device AI** — [realtime](packages/realtime), [audio](packages/audio), [dictation](packages/dictation), [infer](packages/infer), [speak](packages/speak)
+- **Decide and connect tools** — [decide](packages/decide), [connect](packages/connect), [mcp](packages/mcp)
+- **Runtime and app capabilities** — [openclaw](packages/openclaw), [herdr](packages/herdr), [cloud](packages/cloud), [browser](packages/browser), [phone](packages/phone), [record](packages/record), [bubble](packages/bubble), [overlay](packages/overlay), [statusbar](packages/statusbar)
+- **UI and private data** — [ui](packages/ui), [ui-core](packages/ui-core), [secrets](packages/secrets), [seal](packages/seal), [push](packages/push), [outbox](packages/outbox), [write](packages/write)
 
 Some kits are private, deprecated or still awaiting qualification; each package guide states its status and platform support. [Browse all package guides](packages).
 
@@ -88,7 +93,8 @@ Some kits are private, deprecated or still awaiting qualification; each package 
 
 ```sh
 npm ci --no-audit --no-fund
-npm run build && npm run check && npm test
+npm run build && npm run check
+npm test
 ```
 
 ## License
