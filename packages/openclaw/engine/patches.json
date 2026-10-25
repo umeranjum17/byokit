@@ -1,6 +1,6 @@
 {
   "v": 1,
-  "id": "105c3274582a4ede",
+  "id": "9c808389825f4e85",
   "upstream": {
     "name": "openclaw",
     "version": "2026.9.33",
@@ -53,17 +53,19 @@
     },
     {
       "path": "dist/prepare.runtime--y1-AtS2.mjs",
+      "before": "4ac1b35a78ce33207105c442b9008dc6866aef3c160366e37854b5b31549aa59",
+      "after": "849f73219cde6ecb290f21c0e059a7f1ef47ff4ea68e6c21b4826f1df1bb0ffd",
       "edits": [
         {
           "find": "\t\tlet systemPrompt = turnRuntimeFacts?.remainingPrompt ?? transformedSystemPrompt;\n",
           "replace": "\t\tlet systemPrompt = turnRuntimeFacts?.remainingPrompt ?? transformedSystemPrompt;\n\t\t// BYOKit: Claude wire names for the Tooling list (ch-cli-tool-prefix). The Claude wire catalog\n\t\t// exposes OpenClaw tools as mcp__openclaw__<name>, so the printed Tooling list on that route must\n\t\t// use those exact names. Every other route keeps the stock prompt byte-identical; already-prefixed\n\t\t// names are never prefixed again. Order, summaries and error semantics are unchanged.\n\t\tif (!skipsTurnPreparation && isClaudeCli && promptTools.length > 0) {\n\t\t\tconst byokitBareNames = new Set(promptTools.map((tool) => tool?.name).filter((name) => typeof name === \"string\" && name.length > 0 && !name.startsWith(\"mcp__openclaw__\")));\n\t\t\tif (byokitBareNames.size > 0) {\n\t\t\t\tconst byokitLines = systemPrompt.split(\"\\n\");\n\t\t\t\tlet byokitInTooling = false;\n\t\t\t\tlet byokitToolingArmed = false;\n\t\t\t\tfor (let byokitI = 0; byokitI < byokitLines.length; byokitI++) {\n\t\t\t\t\tconst byokitLine = byokitLines[byokitI];\n\t\t\t\t\tif (byokitLine.startsWith(\"## \")) {\n\t\t\t\t\t\tbyokitInTooling = byokitLine === \"## Tooling\";\n\t\t\t\t\t\tbyokitToolingArmed = false;\n\t\t\t\t\t} else if (byokitInTooling && !byokitToolingArmed) {\n\t\t\t\t\t\tif (byokitLine === \"Tools policy-filtered. Names case-sensitive; call exact.\") byokitToolingArmed = true;\n\t\t\t\t\t} else if (byokitInTooling && byokitToolingArmed && byokitLine.startsWith(\"- \")) {\n\t\t\t\t\t\tconst byokitMatch = /^- (\\S+?)(:.*)?$/.exec(byokitLine);\n\t\t\t\t\t\tif (byokitMatch && byokitBareNames.has(byokitMatch[1])) byokitLines[byokitI] = `- mcp__openclaw__${byokitMatch[1]}${byokitMatch[2] ?? \"\"}`;\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\tsystemPrompt = byokitLines.join(\"\\n\");\n\t\t\t}\n\t\t}\n"
         }
-      ],
-      "before": "4ac1b35a78ce33207105c442b9008dc6866aef3c160366e37854b5b31549aa59",
-      "after": "849f73219cde6ecb290f21c0e059a7f1ef47ff4ea68e6c21b4826f1df1bb0ffd"
+      ]
     },
     {
       "path": "dist/setup-inference-ur2QGopt.mjs",
+      "before": "ac3585f5a463905bbffbab5032fd3104f0d46ea4bab955a8193fe62db38f7fe2",
+      "after": "562842cf6c967eb828f12a91ae384af3e610c1dfc65788cbfb2f87837d383d7d",
       "edits": [
         {
           "find": "import { u as toErrorObject } from \"./error-coercion-1P2One0X.mjs\";\n",
@@ -73,9 +75,7 @@
           "find": "\t\tconfig: cfg,\n\t\tagentId: targetAgentId\n\t});\n\tsignal.throwIfAborted();\n\tconst configuredModel = detected.find",
           "replace": "\t\tconfig: cfg,\n\t\tagentId: targetAgentId,\n\t\t// BYOKit: restore native verified login detection; never return CLI output or credentials.\n\t\tdeps: {\n\t\t\tdetectClaudeLoginState: async (_probe, command) => {\n\t\t\t\tconst auth = await byokitProbeClaudeAuth({ command, signal });\n\t\t\t\treturn { credentials: auth.status === \"available\" ? true : auth.status === \"missing\" ? false : void 0,\n\t\t\t\t\t...auth.authMethod === \"claude.ai\" ? { authKind: \"claude-subscription\" } : {} };\n\t\t\t},\n\t\t\tdetectCodexLoginState: async (_probe, command) => {\n\t\t\t\tconst env = { ...process.env };\n\t\t\t\tfor (const name of [\"CODEX_HOME\", \"OPENAI_API_KEY\", \"OPENAI_BASE_URL\", \"CODEX_OSS_BASE_URL\"]) delete env[name];\n\t\t\t\ttry {\n\t\t\t\t\tconst auth = await byokitRunUtf8([command, \"login\", \"status\"], { baseEnv: env, signal,\n\t\t\t\t\t\ttimeoutMs: 3000, maxOutputBytes: 65536, maxCombinedOutputBytes: 65536,\n\t\t\t\t\t\tterminateOnOutputLimit: true, killProcessTree: true });\n\t\t\t\t\tif (auth.termination !== \"exit\") return void 0;\n\t\t\t\t\tconst text = auth.stdout + \"\\n\" + auth.stderr;\n\t\t\t\t\tif (auth.code === 0 && /^Logged in using ChatGPT\\b/m.test(text)) return true;\n\t\t\t\t\tif (/Not logged in|signed out|Logged in using an API key/i.test(text)) return false;\n\t\t\t\t} catch { signal.throwIfAborted(); }\n\t\t\t\treturn void 0;\n\t\t\t}\n\t\t}\n\t});\n\tsignal.throwIfAborted();\n\tconst configuredModel = detected.find"
         }
-      ],
-      "before": "ac3585f5a463905bbffbab5032fd3104f0d46ea4bab955a8193fe62db38f7fe2",
-      "after": "562842cf6c967eb828f12a91ae384af3e610c1dfc65788cbfb2f87837d383d7d"
+      ]
     },
     {
       "path": "dist/oauth-Dqmi6EU2.mjs",
@@ -104,6 +104,17 @@
         {
           "find": "\tconst normalizedModel = params.provider?.normalizeModelId?.({\n\t\tprovider: ref.provider,\n\t\tmodelId: ref.model\n\t})?.trim();\n\tconst modelRef = normalizedModel ? `${ref.provider}/${normalizedModel}` : resolvedModel;\n",
           "replace": "\t// BYOKit: use the same manifest policies as the exact configured-route witness; direct hooks still win.\n\tconst normalizedModel = params.provider?.normalizeModelId?.({\n\t\tprovider: ref.provider,\n\t\tmodelId: ref.model\n\t})?.trim() || byokitParseSetupModelRef(resolvedModel, ref.provider, {\n\t\tmanifestPlugins: byokitSetupMetadata({ config: params.config, workspaceDir: ctx.workspace, env: process.env }).plugins,\n\t\tallowPluginNormalization: false\n\t})?.model;\n\tconst modelRef = normalizedModel ? `${ref.provider}/${normalizedModel}` : resolvedModel;\n"
+        }
+      ]
+    },
+    {
+      "path": "dist/openclaw-state-lease-worker-BLSJkljd.mjs",
+      "before": "fadbfceba58e2fa5e7b6d141d3a5a4352e851ad7cb3d427203680725bea45c20",
+      "after": "0b28d0641f22696c39e6345c0157232e872fcbfeff21bf030fa2f19b25bfb913",
+      "edits": [
+        {
+          "find": "\t\t}, OPENCLAW_SQLITE_BUSY_TIMEOUT_MS);\n",
+          "replace": "\t\t}, 30000); /* BYOKit: a state lease attempt waits out another writer on the same state database instead of failing at the 5 s busy timeout; a workshop apply takes this lease. */\n"
         }
       ]
     }
