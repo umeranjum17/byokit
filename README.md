@@ -4,60 +4,60 @@
   <img src="docs/readme/wordmark-light.svg" alt="BYOKit" width="280" />
 </picture>
 
-<strong>Ship apps using users’ existing AI plans, devices, and typed helpers—without pooling proxies.</strong>
+<strong>Ship apps where people sign in with the AI plan they already pay for.</strong>
 
-<p>TypeScript kits for developers building web, mobile, desktop, and Node apps. Sign-ins stay in your app; subscription use is labeled separately from pay-per-use API keys.</p>
+<p>TypeScript kits for web, mobile, desktop and Node apps: typed helpers for plans, devices and voice, with subscription and pay-per-use labels kept apart and no pooling proxy.</p>
 
 <picture>
-  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="docs/readme/pair-dark.png" />
-  <source media="(max-width: 600px)" srcset="docs/readme/pair-light.png" />
-  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/pair-dark.png" />
-  <img src="docs/readme/pair-light.png" width="520" alt="The phone pairing example shows the words sled meteor while waiting for the computer owner to approve." />
+  <source media="(max-width: 600px) and (prefers-color-scheme: dark)" srcset="docs/readme/agents-phone-dark.png" />
+  <source media="(max-width: 600px)" srcset="docs/readme/agents-phone-light.png" />
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/agents-dark.png" />
+  <img src="docs/readme/agents-light.png" width="880" alt="The PWA example's Agents page: the Codex agent runs on the ChatGPT plan Umer already pays for, its default model is listed below, and pay-per-use API keys sit in a separate group." />
 </picture>
 
+[Quick start](#quick-start) · [Packages](packages) · [Examples](examples) · [Contributing](CONTRIBUTING.md)
+
+[![npm version of @byokit/accounts](https://img.shields.io/npm/v/@byokit/accounts?style=flat&label=accounts)](https://www.npmjs.com/org/byokit) [![CI](https://img.shields.io/github/actions/workflow/status/umeranjum17/byokit/ci.yml?style=flat&branch=main)](https://github.com/umeranjum17/byokit/actions/workflows/ci.yml) [![Apache-2.0 license](https://img.shields.io/badge/license-Apache--2.0-666?style=flat)](LICENSE)
 </div>
 
 ## Quick start
 
-Install the published `@byokit/accounts` **0.33.0** package in a clean folder, then confirm the typed entry point loads:
+Install the published `@byokit/accounts` **0.33.0** package in an empty folder:
 
 ```sh
 mkdir byokit-demo && cd byokit-demo
-npm init -y && npm i @byokit/accounts@0.33.0
-node -e "import('@byokit/accounts')"
+npm i @byokit/accounts@0.33.0
+node -e "import('@byokit/accounts').then(m => console.log(Object.keys(m.PROVIDERS).length, 'provider routes'))"
 ```
 
-The last command exits successfully when the public entry point loads. This does not sign in or make a provider request.
+The last command prints how many provider routes the typed entry point exposes. Nothing signs in and no provider is called.
 
-[Quick start](#quick-start) · [Packages](packages) · [Examples](examples) · [Contributing](CONTRIBUTING.md)
-
-[![npm packages](https://img.shields.io/npm/v/@byokit/accounts?style=flat&label=accounts)](https://www.npmjs.com/org/byokit) [![CI](https://img.shields.io/github/actions/workflow/status/umeranjum17/byokit/ci.yml?style=flat&branch=main)](https://github.com/umeranjum17/byokit/actions/workflows/ci.yml) [![Apache-2.0 license](https://img.shields.io/badge/license-Apache--2.0-666?style=flat)](LICENSE)
-
-For the complete offline sign-in-and-response journey, see the [accounts quick start](packages/accounts#quickstart) and its loopback stand-in.
+For the whole offline sign-in-and-answer journey, with no account, network or key, use the [accounts quick start](packages/accounts#quickstart).
 
 ## Why BYOKit
 
 | Instead of… | BYOKit gives your app… |
 | --- | --- |
-| Rebuilding each provider flow yourself | Typed sign-in and provider helpers behind package APIs |
-| Treating a subscription like an API key | Separate labels for subscription plans and per-use API billing; API-key routes require opt-in |
-| Sending credentials to a pooling proxy | App-owned sign-in storage and direct provider flows; no BYOKit-hosted pooling service |
-| Building a bespoke device link | Pairing, discovery and encrypted link kits you can compose |
+| Rebuilding each provider's sign-in by hand | Typed sign-in and provider helpers behind package APIs |
+| Treating a subscription like an API key | Plan and per-use billing labelled apart; API-key routes are opt-in |
+| Sending credentials to a pooling proxy | Sign-ins stored by the app and sent straight to the provider; BYOKit hosts no pooling service |
+| Writing a bespoke device link | Pairing, discovery and encrypted link kits you can compose |
 
 ## What you get
 
 <table>
-<tr><td width="50%"><img src="docs/readme/pair-invitation-light.png" alt="The pairing example asks the phone owner to compare two words before connecting." width="100%"><br><strong>Pair devices with care.</strong><br>Compare words before approving an encrypted link.</td><td width="50%"><img src="docs/readme/reply-light.png" alt="The voice example displays the user's words and the assistant's reply." width="100%"><br><strong>Build voice flows.</strong><br>Realtime voice, audio and dictation kits for your app's interface.</td></tr>
-<tr><td><img src="docs/images/pwa-3-connected.png" alt="Umer's AI plans example shows a connected subscription account." width="100%"><br><strong>Sign in with a plan.</strong><br>Keep sign-ins in app-chosen storage and present the provider's subscription route.</td><td><img src="docs/readme/hero-light.png" alt="A real BYOKit example showing a phone and computer together." width="100%"><br><strong>Compose typed capabilities.</strong><br>Usage, decisions, runtime and UI kits are separate packages.</td></tr>
+<tr><td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/signin-dark.png" /><img src="docs/readme/signin-light.png" alt="The ChatGPT card waiting for a device code: the code, its expiry and a button to open the provider page." width="100%" /></picture><br><strong>Sign in without typing a password.</strong><br>The person enters a device code on the provider's own page; the app never sees it.</td><td width="50%"><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/plan-dark.png" /><img src="docs/readme/plan-light.png" alt="The plan card after sign-in: the ChatGPT Plus badge, the connected account, and the room left." width="100%" /></picture><br><strong>Bill what the plan already covers.</strong><br>The plan behind the account is shown on the card, not guessed.</td></tr>
+<tr><td><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/pair-invitation-dark.png" /><img src="docs/readme/pair-invitation-light.png" alt="The pairing form asks for the code the computer shows." width="100%" /></picture><br><strong>Pair a phone with a computer.</strong><br>Compare two words before an encrypted link is approved.</td><td><picture><source media="(prefers-color-scheme: dark)" srcset="docs/readme/reply-dark.png" /><img src="docs/readme/reply-light.png" alt="The voice example shows the words it heard and the assistant's reply." width="100%" /></picture><br><strong>Put voice in the app's own screen.</strong><br>Realtime voice, audio and dictation kits, not a bolted-on window.</td></tr>
 </table>
 
-These are real examples, not design mockups. Demo data uses Umer. The voice run uses a simulated microphone and an offline peer; pairing stops before approval. No personal account or live provider is used in the captures.
+These are captures of the examples in this repository, run with local stand-ins and the demo person Umer. No personal account and no live provider is involved.
 
 ## Proof
 
-- [Published npm releases](https://www.npmjs.com/org/byokit): for example, `@byokit/accounts` **0.33.0** and `@byokit/pair` **0.10.4**. See the [release history](https://github.com/umeranjum17/byokit/releases).
-- The repository's [CI workflow](.github/workflows/ci.yml) runs the build, TypeScript checks and test suite. Reproduce locally with `npm run build`, `npm run check`, and `npm test` (see [contributing checks](CONTRIBUTING.md)).
-- Real consumer examples: [PWA](examples/pwa), [Expo](examples/expo), [offline voice](examples/realtime-voice), and [Herdr phone pairing](examples/herdr-kit).
+- **Published releases.** [`@byokit/accounts`](https://www.npmjs.com/package/@byokit/accounts) is at **0.33.0** and [`@byokit/pair`](https://www.npmjs.com/package/@byokit/pair) at **0.10.4**; every version and its notes are in the [release history](https://github.com/umeranjum17/byokit/releases).
+- **Tests and types.** The [CI workflow](.github/workflows/ci.yml) builds every package, type-checks sources and tests, and runs the suite. Rerun it yourself with `npm ci --no-audit --no-fund`, `npm run build`, `npm run check`, `npm test` (details in [contributing](CONTRIBUTING.md)).
+- **Runnable examples.** [Web/PWA](examples/pwa), [Expo and React Native](examples/expo), [offline voice](examples/realtime-voice) and [computer pairing](examples/herdr-kit) are apps in this repository, not screenshots of one.
+- **What is not claimed here.** There are no user counts, quotes or benchmark numbers on this page; the links above are the evidence, and each one can be opened or rerun.
 
 ## Packages
 
@@ -73,14 +73,14 @@ These are real examples, not design mockups. Demo data uses Umer. The voice run 
 Some kits are private, deprecated or still awaiting qualification; each package guide states its status and platform support. [Browse all package guides](packages).
 
 <details>
-<summary>More: examples, security, and project details</summary>
+<summary>More: docs, security and project details</summary>
 
 - [Web example](examples/pwa) · [Mobile example](examples/expo) · [Voice example](examples/realtime-voice)
 - [Runtime kits](docs/runtime-kits.md) · [Capability kits](docs/capability-kits.md) · [Cloud kit](docs/cloud-kit.md)
 - [Vision](VISION.md) · [Package conventions](docs/kit-conventions.md) · [Contributing and platform checks](CONTRIBUTING.md)
 - [Account security notes](packages/accounts/SECURITY.md) · [Relay security boundary](packages/relay/SECURITY.md)
 - [Releases](https://github.com/umeranjum17/byokit/releases) · [Report a problem](https://github.com/umeranjum17/byokit/issues)
-- [Previous README reference](docs/readme-reference.md) retains the prior installation details and links.
+- [Previous README reference](docs/readme-reference.md) keeps the earlier install details and links.
 
 </details>
 
