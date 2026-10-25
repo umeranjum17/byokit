@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "91a0b4453fcd8a7edc2c1aacab1b8d13900bdf96",
+  "tree": "0aafa47dbf3c68ede712093e5e4424a06e6d97ce",
+  "claim": "an app can add a second Claude Code account that signs in at its own native folder, is listed and checked through a durable binding, keeps its row when a re-auth is cancelled, and is logged out alone on removal",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-24T21:14:30.138Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261024T211106Z-91a0b445-f394bd/native-binding.log",
+      "sha256": "db6100746f139adbb5726a9e60badabe275c59c62c36baa5884cb67840692f79"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261024T211106Z-91a0b445-f394bd",
+      "commit": "91a0b4453fcd8a7edc2c1aacab1b8d13900bdf96",
+      "journey": "openclaw-native-binding",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/openclaw-native-binding.mjs --gates",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "0.28.0"
+        },
+        "start": "Fake gateway, empty account index; deterministic native subprocess fixtures; no real credentials",
+        "steps": [
+          "Add two anthropic-cli accounts in place, each signed in at its own native folder",
+          "List both through their bindings; the engine seals and activates nothing",
+          "Cancel a re-auth of B; B keeps its binding and folder",
+          "Sign B out in its own folder; B reads signed out, A stays ready",
+          "Remove B; only B folder is logged out and dropped"
+        ],
+        "result": "PASS: durable native binding, list/status/re-auth/logout through it; no engine backend, principal dedup, keyring or live-account claim"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261024T211106Z-91a0b445-f394bd/native-binding.log",
+        "sha256": "db6100746f139adbb5726a9e60badabe275c59c62c36baa5884cb67840692f79",
+        "verdict": "pass"
+      }
+    ]
+  }
+}

@@ -2261,7 +2261,7 @@ and requalify Doctor plus Gateway/other-agent controls. Reproduction details rem
 in the sealed native package-publication recovery helper, explicitly outside D19 coverage; ordinary managed
 Gateway/Doctor commands load the patched module.
 
-**Key replacement evidence (9.33 compatibility, set `105c3274582a4ede`).** The staged-credential replacement
+**Key replacement evidence (9.33 compatibility, set `9c808389825f4e85`).** The staged-credential replacement
 predicate requires an actual existing credential source for that provider: a non-setup agent-local profile or a
 configured global provider key. An inherited/effective model provider alone is not credential evidence. Stock
 9.33 introduced that extra heuristic; the 8.35 activation path did not require confirmation merely for a model
@@ -2283,6 +2283,20 @@ direct-hook precedence, and mismatched provider/model/auth refusal. The unchange
 reach its synthetic402 billing refusal, then activate and chat on a valid chosen model. Drop this edit when upstream
 staging applies the same manifest-aware canonicalization as route resolution; requalify both controls before removal.
 The sealed package-publication recovery bundle remains outside D19 coverage.
+
+**Contended state database (one install, two writers).** Every Skill Workshop apply takes a `skill-collection`
+lease and a `skill-workshop-target` lease in the shared state database, so an apply writes the same SQLite file as
+anything else on that install (another process on the state directory, an engine worker, a CLI still running). The
+lease worker's write transaction waited for that file's lock with the engine's shared 5 s SQLite busy timeout and the
+acquisition reported `store unavailable (sqlite-busy)` as final the moment that single wait ran out, so
+`skills.proposals.apply` failed with `database is locked` for a lock another writer released a moment later. The
+audited edit raises only that one lease-write wait, in the worker that owns it, to 30 s: the shared
+`OPENCLAW_SQLITE_BUSY_TIMEOUT_MS` stays 5 s, so a synchronous main-thread SQLite call never blocks longer than it
+does today, and the lease's own `waitMs` (5 s, held-lease accounting) is unchanged. No schema, RPC, config key,
+retry loop or client-visible error is added; a genuinely stuck database still fails, just after waiting instead of
+racing. `packages/openclaw/test/engine/sqlite-contention.test.ts` holds that lock from a second connection for 8 s and
+requires the apply to land, which fails on the stock bytes with exactly that error. Drop this edit when upstream
+retries `SQLITE_BUSY` inside its lease acquisition loop instead of treating it as a final storage failure.
 
 **Engine sets.** A patched engine is never made by editing files in place: stock OpenClaw rewrites its process
 title (`/proc/<pid>/cmdline` is `openclaw-gateway`, `test/engine/boot.test.ts`) and a running Gateway holds no file or
