@@ -22,6 +22,8 @@ export type SignInCtx = {
   nativeClaudeLogin?(): ReturnType<typeof remoteCliHost>; resetNativeClaudeLogin?(): Promise<void>;
   // Where the gateway reads a Claude Code login; `signIn: false` when the fallback login's folder is not it (Engine.claudeLoginCause).
   claudeLogin?(): CliLoginCause;
+  // K1: this sign-in is bound to one managed native row: its own host, and the row's own readiness (never the engine's detection).
+  bound?: { cliAccountId: string; reauth: boolean; host(): ReturnType<typeof remoteCliHost>; ready(): Promise<boolean> };
   onDisconnect?(fn: () => void): () => void;
   restarted(signal?: AbortSignal): Promise<boolean>;
   // The engine's own shutdown signal (Engine.stop): a shutdown before the commit point declines this drive at once,
@@ -269,17 +271,19 @@ export function signIn(
         // one the person just made land?) must be the engine's answer now.
         const probe = agentId as string;
         const detected = async () => {
+          if (ctx.bound) return ctx.bound.ready();
           const value = await detection(ctx.request, probe, ctx.detect, { fresh: true, signal, timeoutMs: STATUS_MS });
           return value.candidates?.some(candidate => candidate.kind === 'claude-cli' && candidate.credentials === true);
         };
-        native = ctx.nativeClaudeLogin?.();
-        if (!await detected()) {
-          const cause = ctx.claudeLogin?.();
+        native = ctx.bound?.host() ?? ctx.nativeClaudeLogin?.();
+        const account = ctx.bound ? { account: ctx.bound.cliAccountId } : {};
+        if (ctx.bound?.reauth || !await detected()) { // a re-auth logs in again, ready or not
+          const cause = ctx.bound ? undefined : ctx.claudeLogin?.();
           if (cause?.signIn === false) return { state: 'failed', via, why: 'failed', error: 'Claude Code is installed here, but its sign-in could not be checked. Run claude once on this machine to sign in, then try again.', cause };
           if (!native) return { state: 'failed', via, why: 'failed', error: 'Claude Code sign-in is not available on this engine.' };
-          let started = await native.start('claude', { signal }); let ready = false;
+          let started = await native.start('claude', { signal, ...account }); let ready = false;
           if (!started.ok && started.error === 'already') { ready = Boolean(await detected());
-            if (!ready && ctx.resetNativeClaudeLogin) { if (signal.aborted || native.signal.aborted) return cancelled(); await ctx.resetNativeClaudeLogin(); started = await native.start('claude', { signal }); } }
+            if (!ready && !ctx.bound && ctx.resetNativeClaudeLogin) { if (signal.aborted || native.signal.aborted) return cancelled(); await ctx.resetNativeClaudeLogin(); started = await native.start('claude', { signal }); } }
           if (!ready) {
             if (!started.ok) return { state: 'failed', via, why: started.error === 'busy' ? 'busy' : started.error === 'cancelled' ? 'declined' : 'failed', error: started.words };
             nativeId = started.signIn.id; if (signal.aborted) { await native.cancel(nativeId); return cancelled(); }
@@ -351,6 +355,8 @@ export function signIn(
       // The commit point: a phone cancel or host shutdown that landed before it activates nothing. Done waits for the gateway restart an `auth` change causes (activation.ts).
       // For Claude only host shutdown cuts that wait; a late restart has persisted the route and says saved. A key's cancel still declines its wait; a late key keeps the shared words.
       if (signal.aborted || native?.signal.aborted) return cancelled(); committed = true;
+      // A bound row is complete when its own CLI reads ready: the engine's route for it is the backend's job (K2), not a sealed profile.
+      if (ctx.bound) return { state: 'done', via };
       const result = await activate(ctx, { agentId, kind: apiKey === undefined ? 'claude-cli' : 'api-key', ...(apiKey === undefined ? {} : { authChoice: o.authChoice, apiKey }), }, { timeoutMs: PULL_MS, signal: apiKey === undefined ? native?.signal : signal });
       if (apiKey !== undefined && signal.aborted) return cancelled();
       if (result.late) return { state: 'failed', via, why: 'failed', error: apiKey === undefined ? words('signin.savedNotRestarted') : LATE_RESTART };

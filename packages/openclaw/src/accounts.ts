@@ -101,8 +101,10 @@ export const modelsOfAccount = (row: Pick<Account, 'provider' | 'state'>, answer
   return [...own, ...codex];
 };
 
+/** K1: the durable, non-secret link from an account entry to its managed native CLI row (a folder the CLI owns). Allocated once at creation. */
+export type NativeBinding = { kind: 'native-cli'; cliAccountId: string; cli: 'claude' };
 type IndexEntry = { agent: string; name: string; route: string; addedAt: number; until?: number; model?: string; who?: string;
-  priorModel?: string; unavailable?: 'identity_mismatch' };
+  priorModel?: string; unavailable?: 'identity_mismatch'; native?: NativeBinding };
 type IndexFile = { v: 1; accounts: Record<string, IndexEntry>; defaults: Defaults; gone?: string[]; dropped?: string[] };
 
 type LiveProfile = { provider?: string; profileId?: string; type?: string; status?: string; who?: string };
@@ -115,7 +117,7 @@ export type Binding = { agentId: string; id?: AccountId };
 type AddOptions = { authChoice: string; via?: 'browser' | 'code'; name?: string; again?: AccountId;
   credentialPolicy?: 'in-place' };
 type AccountSignIn = { id: AccountId; paste(text: string): void; cancel(): void; done: Promise<{ view: SignInView; id: AccountId }> };
-type StartSignIn = (agentId: string, o: SignInOptions, on: (v: SignInView) => void, fresh: boolean) =>
+type StartSignIn = (agentId: string, o: SignInOptions, on: (v: SignInView) => void, fresh: boolean, native?: { cliAccountId: string; reauth: boolean }) =>
   { paste(text: string): void; cancel(): void; done: Promise<SignInView> };
 
 const named = (name: unknown, op: string): string => {
@@ -124,6 +126,8 @@ const named = (name: unknown, op: string): string => {
   return trimmed;
 };
 const empty = (): IndexFile => ({ v: 1, accounts: {}, defaults: {} });
+const validBinding = (v: unknown): v is NativeBinding => !!v && typeof v === 'object' && (v as NativeBinding).kind === 'native-cli'
+  && (v as NativeBinding).cli === 'claude' && typeof (v as NativeBinding).cliAccountId === 'string' && /^pa_[0-9a-f]{18}$/.test((v as NativeBinding).cliAccountId);
 const validEntry = (v: unknown): v is IndexEntry => !!v && typeof v === 'object'
   && typeof (v as IndexEntry).agent === 'string' && typeof (v as IndexEntry).name === 'string'
   && typeof (v as IndexEntry).route === 'string' && Number.isFinite((v as IndexEntry).addedAt)
@@ -131,7 +135,8 @@ const validEntry = (v: unknown): v is IndexEntry => !!v && typeof v === 'object'
   && ((v as IndexEntry).model === undefined || typeof (v as IndexEntry).model === 'string')
   && ((v as IndexEntry).who === undefined || typeof (v as IndexEntry).who === 'string')
   && ((v as IndexEntry).priorModel === undefined || typeof (v as IndexEntry).priorModel === 'string')
-  && ((v as IndexEntry).unavailable === undefined || (v as IndexEntry).unavailable === 'identity_mismatch');
+  && ((v as IndexEntry).unavailable === undefined || (v as IndexEntry).unavailable === 'identity_mismatch')
+  && ((v as IndexEntry).native === undefined || validBinding((v as IndexEntry).native));
 /** The member agent's primary as a durable index string; empty when there was none (or it is not a string primary). */
 const priorOf = (model: unknown): string => {
   if (typeof model === 'string') return model;
@@ -355,6 +360,8 @@ export function createAccounts(ctx: {
   ensure(member: Member): Promise<{ agentId: string; workspace: string }>;
   locks: ReturnType<typeof createLocks>;
   signIn: StartSignIn;
+  // K1: the managed native CLI rows account entries bind to (host-provided; absent where no native login can run).
+  native?: { allocate(): Promise<string>; status(id: string): Promise<{ state: string; reason?: UnknownReason }>; remove(id: string): Promise<void> };
   routes: ReadonlyMap<string, { session: string }>; // the runs' map: the caller's key -> the account session its live run uses
   log?: (line: string) => void;
   reseal?: () => Promise<void>; // re-seal the live credential store after a removal (no-op without a seal or a live engine)
@@ -451,6 +458,12 @@ export function createAccounts(ctx: {
       ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
       origin, capabilities: origin === 'installed' ? ['rename'] : ['rename', 'remove', 'reauth'] };
   };
+  // A bound account is read through its binding: the native CLI's own status, never the engine's profile store.
+  const nativeOf = async (b: NativeBinding): Promise<{ status?: string; unread?: UnknownReason }> => {
+    const live = await ctx.native?.status(b.cliAccountId).catch(() => undefined);
+    if (!live) return { unread: 'unavailable' };
+    return live.state === 'ready' ? { status: 'ok' } : live.state === 'unknown' ? { unread: live.reason ?? 'unavailable' } : {};
+  };
   // Lock-free row builder over one snapshot: mutates `file` (synthesized entries, `who` backfill, dropped
   // dangling default) and reports whether it did. Callers own the locking.
   const build = async (member: Member, agentId: string, file: IndexFile, roster: Set<string>,
@@ -494,6 +507,12 @@ export function createAccounts(ctx: {
       if (entry.agent === agentId || !ACCOUNT_AGENT.test(entry.agent) || !entry.agent.startsWith(`${member}--`)) continue;
       if (!roster.has(entry.agent)) continue;
       const provider = id.split('.')[0]!;
+      if (entry.native) {
+        const live = await nativeOf(entry.native);
+        if (live.unread) unread.set(id, live.unread);
+        agentRows.push(rowOf(id, provider, entry, live.status, 'managed', live.unread));
+        continue;
+      }
       const profiles = await profilesOf(entry.agent);
       const who = profiles?.find((p) => p.provider === provider)?.who;
       if (!profiles) unread.set(id, 'unavailable');
@@ -1037,6 +1056,8 @@ export function createAccounts(ctx: {
       return;
     }
     await ctx.locks.exclusive([agent, indexLock(member)], async () => {
+      // Native logout goes through the binding: this row's folder only, before the entry that names it is dropped.
+      if (entry.native) await ctx.native?.remove(entry.native.cliAccountId);
       const roster = await agentRoster();
       if (roster.has(agent)) {
         await ctx.request('byokit.accounts', { action: 'clear', agentId: agent });
@@ -1072,6 +1093,8 @@ export function createAccounts(ctx: {
       await untilUnlisted(ctx.request, agent);
     }
     rmSync(agentDir(agent), { recursive: true, force: true });
+    const native = read(member).accounts[id]?.native;
+    if (native) await ctx.native?.remove(native.cliAccountId);
     await edit(member, (file) => { delete file.accounts[id]; });
   })().catch((error: unknown) => ctx.log?.(`addAccount: ${agent} is not removed yet: ${error instanceof Error ? error.message : String(error)}`));
 
@@ -1095,6 +1118,9 @@ export function createAccounts(ctx: {
     if (!route) throw new Error(`addAccount: ${String(o?.authChoice)} is not a subscription sign-in`);
     const name = o.name === undefined ? undefined : named(o.name, 'addAccount');
     const provider = route.provider;
+    // Native Claude Code is bound to a managed CLI row (K1); it is never sealed as an engine profile, so only in place.
+    const nativeRoute = route.choice === 'anthropic-cli';
+    if (nativeRoute && (o.credentialPolicy !== 'in-place' || !ctx.native)) throw new Error('addAccount: anthropic-cli needs credentialPolicy in-place and a native login');
     const { agentId: memberAgent, workspace } = await ctx.ensure(member);
     if (o.again !== undefined && (!read(member).accounts[o.again] || o.again.split('.')[0] !== provider))
       throw new Error(`unknown account: ${o.again}`);
@@ -1131,7 +1157,10 @@ export function createAccounts(ctx: {
       // The member agent's primary before this sign-in or any merge on it: restored when its profile moves away or
       // the member-agent account is removed. Durable on the member entry as `priorModel` (empty when none).
       const memberModel = await readModel(memberAgent);
+      const binding: NativeBinding | undefined = nativeRoute && !reauth
+        ? { kind: 'native-cli', cliAccountId: await ctx.native!.allocate(), cli: 'claude' } : undefined;
       const entryOf = (file: IndexFile, agent: string, prior?: string): IndexEntry => ({ agent, route: route.choice, addedAt: Date.now(),
+        ...(binding ? { native: binding } : {}),
         name: name ?? `${route.label} ${Object.values(file.accounts).filter((e) => e.route === route.choice).length + 1}`,
         ...(prior !== undefined ? { priorModel: prior } : {}) });
       let id: AccountId = provider;
@@ -1183,7 +1212,8 @@ export function createAccounts(ctx: {
       const key = `${member}\n${id}`;
       signing.set(key, (signing.get(key) ?? 0) + 1);
       const handle = ctx.signIn(agent, { authChoice: route.choice, ...(o.via ? { via: o.via } : {}) },
-        (v) => { if (v.state === 'waiting') on(v); }, fresh);
+        (v) => { if (v.state === 'waiting') on(v); }, fresh,
+        (binding ?? reauth?.native) && { cliAccountId: (binding ?? reauth!.native!).cliAccountId, reauth: !binding });
       // Moves the profile `who` names from `from` into `to`, under both agents' locks; refused, nothing changes.
       const profilesOf = (agent: string): Promise<LiveProfile[] | undefined> => (ctx.request('byokit.accounts', { action: 'list', agentId: agent }) as Promise<{ ok?: boolean; profiles?: LiveProfile[] }>)
         .then((r) => (r.ok === true && Array.isArray(r.profiles) ? r.profiles : undefined), () => undefined);
@@ -1241,6 +1271,8 @@ export function createAccounts(ctx: {
       // unavailable. No credential is moved or copied, no member is rebound, and the earlier account is never rewritten.
       const settleInPlace = async (view: SignInView): Promise<{ view: SignInView; id: AccountId }> => {
         if (view.state !== 'done') { if (!reauth) await drop(); return { view, id }; }
+        // The drive saw the bound row's own CLI read ready: nothing to seal, no engine profile or principal to compare yet.
+        if (binding ?? reauth?.native) return { view, id };
         const failed = (error: string): { view: SignInView; id: AccountId } => ({ view: { state: 'failed', via: view.via, why: 'failed', error }, id });
         const verdict = await ctx.locks.exclusive([agent, indexLock(member)], async (): Promise<{ who?: string } | { existing: AccountId } | { mismatch: true } | string> => {
           const now = await (ctx.request('byokit.accounts', { action: 'ready', agentId: agent, provider }) as Promise<{ ok?: boolean; who?: string }>);
