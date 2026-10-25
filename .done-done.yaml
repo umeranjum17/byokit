@@ -20,6 +20,9 @@ journeys:
   openclaw-native-binding:
     command: node .agents/skills/done-done-verify-byokit/capture/openclaw-native-binding.mjs
     timeout: 2m
+  openclaw-two-openai-accounts:
+    command: node .agents/skills/done-done-verify-byokit/capture/openclaw-two-openai-accounts.mjs "$DONE_DONE_EVIDENCE_ROOT"
+    timeout: 2m
   accounts-rn-models:
     command: node --conditions=react-native .agents/skills/done-done-verify-byokit/capture/accounts-rn-models.mjs > "$DONE_DONE_EVIDENCE_ROOT/rn-models.log" 2>&1
   pi-model-admission:
