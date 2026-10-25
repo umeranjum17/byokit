@@ -19,6 +19,7 @@ import { gatewayTransport } from './transport.ts';
 import { createMembers } from './members.ts';
 import { createHelpers, HELPER_TAIL, HelperError } from './helpers.ts';
 import { createAccounts, memberOfAccount, modelsOf, engineModelId } from './accounts.ts';
+import { writeNativeEnv } from './native-env.ts';
 import { createLocks } from './locks.ts';
 import { keyAgentId, KEY_PREFIX, MEMBER_ID } from './members.ts';
 import { confirmRetainedLogin as confirmLogin, migrateRetainedLogin as migrateLogin } from './migrate.ts';
@@ -489,7 +490,9 @@ export class OpenClawKit {
           ...native === undefined ? {} : { bound: { ...native, host: () => this.engine.nativeBound().host,
             ready: async () => (await this.engine.nativeBound().cli.status(native.cliAccountId)).state === 'ready' } } }, agentId, o, on),
         native: { allocate: async () => (await this.engine.nativeBound().cli.add('claude')).account.id,
-          status: (id) => this.engine.nativeBound().cli.status(id), remove: (id) => this.engine.nativeBound().cli.remove(id).then(() => {}) },
+          status: (id) => this.engine.nativeBound().cli.status(id), remove: (id) => this.engine.nativeBound().cli.remove(id).then(() => {}),
+          folderOf: (id) => this.engine.nativeBound().cli.folderOf(id),
+          publish: (member, rows) => writeNativeEnv(this.engine.root, member, rows) },
         routes: this.routeMap, log: this.o.log, reseal: () => this.engine.authStore.reseal(), detect: this.detect,
         catalog: (provider) => this.registered.get(provider) ?? [] });
       this.helpersCtl = createHelpers({ root: this.engine.root, list: (member) => this.accounts(member) });

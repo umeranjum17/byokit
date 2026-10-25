@@ -361,7 +361,10 @@ export function createAccounts(ctx: {
   locks: ReturnType<typeof createLocks>;
   signIn: StartSignIn;
   // K1: the managed native CLI rows account entries bind to (host-provided; absent where no native login can run).
-  native?: { allocate(): Promise<string>; status(id: string): Promise<{ state: string; reason?: UnknownReason }>; remove(id: string): Promise<void> };
+  // K2 adds `folderOf` and `publish`: the one folder a bound row's engine children run in, and the non-secret table the
+  // engine patch reads to find it (see native-env.ts).
+  native?: { allocate(): Promise<string>; status(id: string): Promise<{ state: string; reason?: UnknownReason }>; remove(id: string): Promise<void>;
+    folderOf(id: string): string; publish(member: Member, rows: Record<string, { cli: 'claude'; dir: string }>): void | Promise<void> };
   routes: ReadonlyMap<string, { session: string }>; // the runs' map: the caller's key -> the account session its live run uses
   log?: (line: string) => void;
   reseal?: () => Promise<void>; // re-seal the live credential store after a removal (no-op without a seal or a live engine)
@@ -464,6 +467,21 @@ export function createAccounts(ctx: {
     if (!live) return { unread: 'unavailable' };
     return live.state === 'ready' ? { status: 'ok' } : live.state === 'unknown' ? { unread: live.reason ?? 'unavailable' } : {};
   };
+  // K2: the engine's children of a bound agent run in that row's own folder. The table holds folder paths only, is rebuilt
+  // from this member's index (so a dropped entry loses its folder) and leaves every other member's rows alone. A member is
+  // published once per process until an add or removal forces it, so a restart's first list restores the table.
+  const publishedNative = new Set<Member>();
+  const publishNative = async (member: Member, force = false): Promise<void> => {
+    if (!ctx.native?.publish || (!force && publishedNative.has(member))) return;
+    const rows: Record<string, { cli: 'claude'; dir: string }> = {};
+    for (const entry of Object.values(read(member).accounts)) {
+      if (!entry.native) continue;
+      try { rows[entry.agent] = { cli: entry.native.cli, dir: ctx.native.folderOf(entry.native.cliAccountId) }; }
+      catch { /* a folder the host no longer names is not published */ }
+    }
+    try { await ctx.native.publish(member, rows); publishedNative.add(member); }
+    catch (error) { ctx.log?.(`accounts: bound folders are not published: ${error instanceof Error ? error.message : String(error)}`); }
+  };
   // Lock-free row builder over one snapshot: mutates `file` (synthesized entries, `who` backfill, dropped
   // dangling default) and reports whether it did. Callers own the locking.
   const build = async (member: Member, agentId: string, file: IndexFile, roster: Set<string>,
@@ -510,7 +528,8 @@ export function createAccounts(ctx: {
       if (entry.native) {
         const live = await nativeOf(entry.native);
         if (live.unread) unread.set(id, live.unread);
-        agentRows.push(rowOf(id, provider, entry, live.status, 'managed', live.unread));
+        // `native` marks the row for the runs' admission: its sign-in lives in that folder, not in the engine's store.
+        agentRows.push({ ...rowOf(id, provider, entry, live.status, 'managed', live.unread), native: true });
         continue;
       }
       const profiles = await profilesOf(entry.agent);
@@ -612,6 +631,8 @@ export function createAccounts(ctx: {
     check(member);
     const { agentId } = await ctx.ensure(member);
     const first = await ctx.locks.shared(indexLock(member), () => buildRows(member, agentId));
+    // A bound row exists: its own folder is what its engine children must use (K2). Once per process, or after a change.
+    if (first.rows.some((row) => row.native)) await publishNative(member);
     if (!first.dirty) return first.rows;
     // A write is needed (synthesized entry, `who` backfill or dropped default): redo it under the
     // exclusive lock so two first-lists cannot interleave their read-modify-write.
@@ -1078,6 +1099,7 @@ export function createAccounts(ctx: {
       // The live store changed: re-seal at once so the sealed copy stops holding the removed profile.
       await ctx.reseal?.();
     });
+    await publishNative(member, true);
   }
   const onGateway = (agent: string): Promise<boolean> => untilListed(ctx.request, agent)
     .then(() => true, () => (ctx.request('agents.list') as Promise<{ agents: { id: string }[] }>)
@@ -1096,6 +1118,7 @@ export function createAccounts(ctx: {
     const native = read(member).accounts[id]?.native;
     if (native) await ctx.native?.remove(native.cliAccountId);
     await edit(member, (file) => { delete file.accounts[id]; });
+    await publishNative(member, true);
   })().catch((error: unknown) => ctx.log?.(`addAccount: ${agent} is not removed yet: ${error instanceof Error ? error.message : String(error)}`));
 
   // Member-agent adds of one provider take turns from the sign-in's start to its settle, so a cleanup clears only the
@@ -1364,7 +1387,11 @@ export function createAccounts(ctx: {
         await drop();
         return { view, id };
       };
-      const done = handle.done.then(settle).finally(() => {
+      const done = handle.done.then(settle).then(async (result) => {
+        // An add that settled (or dropped a failed one) changes which folders the engine may use.
+        await publishNative(member, true);
+        return result;
+      }).finally(() => {
         releaseAdd();
         const left = signing.get(key)! - 1;
         if (left) signing.set(key, left);

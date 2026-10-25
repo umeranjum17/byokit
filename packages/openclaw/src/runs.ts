@@ -298,7 +298,11 @@ export function createRuns(ctx: {
             if (again.state === 'unknown') return couldntCheck(pick.account.name, again.retryAfterMs);
             if (again.state === 'signed_out') return signedOut(pick.account.provider, `${pick.account.name} is not signed in`);
           }
-          ready = await signedIn(agent!, pick.account.provider);
+          ready = pick.account.native
+            // A bound native row keeps its sign-in in its own CLI folder, not in the engine's profile store (K1/K2): the
+            // row just read that folder's own status, so admission asks the same binding the child will run in.
+            ? pick.account.state === 'ready'
+            : await signedIn(agent!, pick.account.provider);
         } catch (error) {
           return failure(error instanceof Error ? error.message : String(error));
         }

@@ -15,6 +15,7 @@ import { appendUsageBoot } from './usage-boots.ts';
 import { reconcileConfig, appRecoveryPrefixes } from './config.ts';
 import { writePlugin, resolveBridge } from './bridge.ts';
 import { sweepOrphans } from './accounts.ts';
+import { NATIVE_ENV_VAR, nativeEnvPath } from './native-env.ts';
 import { installedPlugins } from './plugins.ts';
 import type { KitOptions } from './kit.ts';
 import type { CliLoginCause, KitState, ToolSpec } from './types.ts';
@@ -396,6 +397,8 @@ export class Engine {
       OPENCLAW_NO_RESPAWN: '1', OPENCLAW_SKIP_CHANNELS: '1', OPENCLAW_DISABLE_BONJOUR: '1',
       OPENCLAW_EXEC_SHELL_SNAPSHOT: '0', OPENCLAW_LOAD_SHELL_ENV: '0', OPENCLAW_GATEWAY_TOKEN: this.token,
       BYOKIT_BRIDGE_SOCK: this.bridgeSock,
+      // K2: the non-secret table of bound accounts' own native folders, read by the engine patch at every CLI run.
+      [NATIVE_ENV_VAR]: nativeEnvPath(this.root),
       BYOKIT_APP_OWNED_SESSION_PREFIXES: JSON.stringify(this.appOwnedSessionPrefixes),
     } };
   }
