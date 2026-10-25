@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.1 (2026-10-25)
+
+- DOCS: align the npm description, keywords and homepage with the BYOKit README; no version bump.
+
 ## 0.1.0 (2026-10-05)
 
 - FEAT: New kit: `bridgeSignaling(url)` speaks a bridge WebSocket's `{id, method, params}` requests and `{event, params}`

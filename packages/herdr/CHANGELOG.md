@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.16.8 (2026-10-25)
+
+- Dependency update: pins @byokit/relay 0.8.3.
+- Dependency update: pins @byokit/pair 0.10.5.
+- Dependency update: pins @byokit/discover 0.8.7.
+- Dependency update: pins @byokit/seal 0.3.2.
+
+- DOCS: align the npm description, keywords and homepage with the BYOKit README; no version bump.
+
 ## 0.16.7 (2026-10-24)
 
 - SECURITY: A missing or empty Pi model no longer falls back to a paid default. Pi launches require the model and selected account explicitly; ambient provider keys are never passed on. Offline admission and environment fixtures cover the guarded routes; live Herdr and raw pass-through qualification remain follow-ups.

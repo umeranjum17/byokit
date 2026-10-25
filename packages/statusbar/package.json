@@ -1,6 +1,6 @@
 {
   "name": "@byokit/statusbar",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "TypeScript kits that let people sign in to your app with the AI plans they already pay for, on web, phone and desktop.",
   "homepage": "https://github.com/umeranjum17/byokit#statusbar",
   "keywords": ["typescript","ai","ai-sdk","react-native","web","privacy"],

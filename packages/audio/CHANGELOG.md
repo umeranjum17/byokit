@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.1 (2026-10-25)
+
+- DOCS: align the npm description, keywords and homepage with the BYOKit README; no version bump.
+
 ## 0.3.0 (2026-10-20)
 
 - FEAT: `@byokit/audio/react-native` adds `sileroSession(bytes, onnxruntime-react-native)`, mirroring `./node` on the pinned

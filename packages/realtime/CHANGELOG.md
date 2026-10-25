@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.3 (2026-10-25)
+
+- DOCS: align the npm description, keywords and homepage with the BYOKit README; no version bump.
+
 ## 0.3.2 (2026-10-17)
 
 - Dependency update: ws 8.22.0.

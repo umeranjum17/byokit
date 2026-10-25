@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.3.2 (2026-10-25)
+
+- DOCS: align the npm description, keywords and homepage with the BYOKit README; no version bump.
+
 ## 0.3.1 (2026-10-17)
 
 - README intro now says in plain words what the kit does; compatibility vectors stay in the body.
