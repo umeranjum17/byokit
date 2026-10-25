@@ -93,6 +93,10 @@ export type AgentStartEvent =
   | { phase: 'placed'; kind: string; ref: PlaceRef }
   | { phase: 'ready'; kind: string; ref: AgentRef }
   | { phase: 'launchFailed'; kind: string; reason: AgentLaunchFailureReason; message: string };
+export type ConversationFailure = { ok: false; code: 'unsupported' | 'too-large' | 'invalid-bundle' | 'digest-mismatch' | 'unsafe-path' | 'exists' | 'write-failed' | 'rollback-failed'; message: string };
+export type ConversationExport = { ok: true; kind: string; conversation: string; files: number; bytes: number; digest: string } | ConversationFailure;
+export type ConversationImport = ConversationExport;
+export type ConversationImportOptions = { bundle: string; accountFolder: string; kind: string; conversation: string; overwrite?: boolean };
 export type AgentRef = { paneId: string; name?: string; created?: boolean };   // created: startAgent sets it always
 // Where a placement landed: the fresh (or named) pane plus the tab and workspace holding it.
 export type PlaceRef = { paneId: string; tabId: string; workspaceId: string };

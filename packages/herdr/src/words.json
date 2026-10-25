@@ -32,5 +32,13 @@
   "move.blocked": "This conversation is waiting for your answer. Answer it, then move it.",
   "move.changed": "This conversation changed while moving, so it was not moved. Check your panes, then try again.",
   "move.interrupt_unsupported": "Stopping a step is not available for this agent. Move it when the step finishes.",
+  "conversation.unsupported": "This conversation cannot be carried to another computer yet.",
+  "conversation.too-large": "This conversation is larger than the allowed limit.",
+  "conversation.invalid-bundle": "This conversation bundle is not valid.",
+  "conversation.digest-mismatch": "This conversation bundle changed or is damaged.",
+  "conversation.unsafe-path": "This conversation bundle contains an unsafe file.",
+  "conversation.exists": "This conversation already exists here.",
+  "conversation.write-failed": "The conversation could not be saved.",
+  "conversation.rollback-failed": "The original conversation could not be fully restored. Check it before trying again.",
   "turn.failed": "This turn could not be confirmed. Check the helper before trying again."
 }
