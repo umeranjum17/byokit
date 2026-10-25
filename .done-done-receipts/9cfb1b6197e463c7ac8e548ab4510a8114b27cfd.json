@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "9cfb1b6197e463c7ac8e548ab4510a8114b27cfd",
+  "tree": "43afa7dc58c22fe30bbfd5716a3a6432988c258b",
+  "claim": "applying a Skill Workshop proposal while another writer holds the shared state database's write lock past the engine's 5 s busy timeout lands `applied` and reads `applied` afterwards, instead of failing `database is locked`",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-25T05:08:03.535Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261025T044135Z-9cfb1b61-8a41b5/workshop-contention.log",
+      "sha256": "89b3726653df9505f443f83bea2d336e438ef63b24706896327ee9f0a97b160c"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261025T044135Z-9cfb1b61-8a41b5",
+      "commit": "9cfb1b6197e463c7ac8e548ab4510a8114b27cfd",
+      "journey": null,
+      "command": "node .agents/skills/done-done-verify-byokit/capture/openclaw-workshop-contention.mjs",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "OpenClaw 2026.9.33"
+        },
+        "start": "a fresh isolated engine state directory, one member, one pending Workshop proposal",
+        "steps": [
+          "Boot the pinned Gateway through the public kit and create and inspect a Workshop proposal for a member",
+          "Take the shared state database's write lock from a second connection and hold it 8 s",
+          "Apply the proposal through skills.proposals.apply while that lock is held"
+        ],
+        "result": "the apply waits for the other writer and lands applied, with the proposal reading applied afterwards"
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "commandcode/deepseek/deepseek-v4.1-flash",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261025T044135Z-9cfb1b61-8a41b5/workshop-contention.log",
+        "sha256": "89b3726653df9505f443f83bea2d336e438ef63b24706896327ee9f0a97b160c",
+        "verdict": "pass",
+        "seen": "Read all four capture entries. The proposal record, second-writer record, apply record, and after record each contain the fields relied on: second writer shows \"transaction\":\"BEGIN IMMEDIATE\" and \"holdsMs\":8000 with \"journalMode\":\"wal\"; apply shows \"status\":\"applied\", \"waitedMs\":8219 (past the 5 s busy timeout) and \"failedError\":null; after shows \"status\":\"applied\" and \"waitedPastBusyTimeout\":true. No entry reports a \"database is locked\" failure, and the waited time exceeds the busy timeout, matching the outcome exactly."
+      }
+    ]
+  }
+}
