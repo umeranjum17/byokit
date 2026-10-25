@@ -1,7 +1,7 @@
 {
   "name": "@byokit/openclaw",
   "version": "0.28.1",
-  "description": "The OpenClaw runtime kit: the pinned engine's full operator surface with plain-words helpers for members, sign-in, runs and approvals.",
+  "description": "TypeScript kits that let people sign in to your app with the AI plans they already pay for, on web, phone and desktop.",
   "license": "Apache-2.0",
   "type": "module",
   "repository": {
