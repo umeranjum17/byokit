@@ -1,39 +1,39 @@
 {
   "schema": 2,
   "repo": "byokit",
-  "head": "504ce80f67aa0fc8ea4f74d1d5eadfbfc3d2f7f5",
-  "tree": "1df3646b6c6ef2802d31b98a433a37f0c072fafd",
+  "head": "7a8dd808cfe78303a7b6910c94b41e2b1da84250",
+  "tree": "0e9e4028c92a304612edb5821069bc43b96d83eb",
   "claim": "The README's hero is a real capture of the example web app: the Agents page shows the Codex agent running on the ChatGPT plan the person already pays for, with its default model, and pay-per-use API keys listed apart, in light and dark at phone and desktop widths.",
   "result": "pass",
-  "at": "2026-10-25T06:04:15.206Z",
+  "at": "2026-10-25T07:22:09.103Z",
   "files": [
     {
-      "path": "<evidence root>/20261025T060334Z-504ce80f-27ed96/capture/agents-codex/after__light__desktop.png",
+      "path": "<evidence root>/20261025T072123Z-7a8dd808-431c12/capture/agents-codex/after__light__desktop.png",
       "sha256": "3b04175fa618aeb8ce46f43de05e5381c9dd8f47978c9d8bf86ec8a72c6504a4"
     },
     {
-      "path": "<evidence root>/20261025T060334Z-504ce80f-27ed96/capture/agents-codex/after__dark__desktop.png",
+      "path": "<evidence root>/20261025T072123Z-7a8dd808-431c12/capture/agents-codex/after__dark__desktop.png",
       "sha256": "55d2fd1086758bc7f6ce3a5d5a4b1940b1784aa04da9c315c3a3618ff485f38f"
     },
     {
-      "path": "<evidence root>/20261025T060334Z-504ce80f-27ed96/capture/agents-codex/after__light__phone.png",
+      "path": "<evidence root>/20261025T072123Z-7a8dd808-431c12/capture/agents-codex/after__light__phone.png",
       "sha256": "f2f887879b6bec55166bafd178f47486aabed9a9accdcc4444b243cf577fde9e"
     },
     {
-      "path": "<evidence root>/20261025T060334Z-504ce80f-27ed96/capture/agents-codex/after__dark__phone.png",
+      "path": "<evidence root>/20261025T072123Z-7a8dd808-431c12/capture/agents-codex/after__dark__phone.png",
       "sha256": "df34a911fd56bc7e5076586584a664bbbbed5a210d39bc5734a1f74cd40cf102"
     }
   ],
   "runs": [
     {
-      "run_id": "20261025T060334Z-504ce80f-27ed96",
-      "commit": "504ce80f67aa0fc8ea4f74d1d5eadfbfc3d2f7f5",
+      "run_id": "20261025T072123Z-7a8dd808-431c12",
+      "commit": "7a8dd808cfe78303a7b6910c94b41e2b1da84250",
       "journey": null,
       "command": "sh <task data>/drive-readme-hero.sh",
       "tool": "0.6.7",
       "steps": {
         "target": {
-          "version": "@byokit/accounts 0.33.0 (built examples/pwa at 504ce80f)"
+          "version": "@byokit/accounts 0.33.0 (built examples/pwa at 7a8dd808)"
         },
         "start": "The example web app built from this checkout, opened at phone and desktop widths in light and dark, with no agent signed in and no account connected.",
         "steps": [
@@ -56,25 +56,25 @@
     },
     "verdicts": [
       {
-        "path": "<evidence root>/20261025T060334Z-504ce80f-27ed96/capture/agents-codex/after__light__desktop.png",
+        "path": "<evidence root>/20261025T072123Z-7a8dd808-431c12/capture/agents-codex/after__light__desktop.png",
         "sha256": "3b04175fa618aeb8ce46f43de05e5381c9dd8f47978c9d8bf86ec8a72c6504a4",
         "verdict": "pass",
         "seen": "Agents page, Codex expanded: \"ChatGPT — Uses your ChatGPT plan\", \"umer@example.com / In use\", \"Pay per use (1)\" section listing \"OpenAI API key\", and \"Default model GPT-6 Sol\" with \"New runs use GPT-6 Sol.\" Light background, full-width desktop layout (~1280px). All parts of the outcome are present; no overlay or error."
       },
       {
-        "path": "<evidence root>/20261025T060334Z-504ce80f-27ed96/capture/agents-codex/after__dark__desktop.png",
+        "path": "<evidence root>/20261025T072123Z-7a8dd808-431c12/capture/agents-codex/after__dark__desktop.png",
         "sha256": "55d2fd1086758bc7f6ce3a5d5a4b1940b1784aa04da9c315c3a3618ff485f38f",
         "verdict": "pass",
         "seen": "Same Agents page in dark theme at desktop width: \"Codex — 1 of 1 enabled\", \"ChatGPT / Uses your ChatGPT plan\", \"umer@example.com / In use\", \"Pay per use (1)\" with \"OpenAI API key\", \"Default model GPT-6 Sol\". No overlay or contradiction."
       },
       {
-        "path": "<evidence root>/20261025T060334Z-504ce80f-27ed96/capture/agents-codex/after__light__phone.png",
+        "path": "<evidence root>/20261025T072123Z-7a8dd808-431c12/capture/agents-codex/after__light__phone.png",
         "sha256": "f2f887879b6bec55166bafd178f47486aabed9a9accdcc4444b243cf577fde9e",
         "verdict": "pass",
         "seen": "Narrow phone-width, light theme capture of the Agents page: \"Codex 1 of 1 enabled\", \"ChatGPT / Uses your ChatGPT plan\", \"umer@example.com / In use\", \"Pay per use (1)\" → \"OpenAI API key\", \"Default model GPT-6 Sol\". Content fully visible, no keyboard overlay."
       },
       {
-        "path": "<evidence root>/20261025T060334Z-504ce80f-27ed96/capture/agents-codex/after__dark__phone.png",
+        "path": "<evidence root>/20261025T072123Z-7a8dd808-431c12/capture/agents-codex/after__dark__phone.png",
         "sha256": "df34a911fd56bc7e5076586584a664bbbbed5a210d39bc5734a1f74cd40cf102",
         "verdict": "pass",
         "seen": "Narrow phone-width, dark theme: \"Codex 1 of 1 enabled\", \"ChatGPT / Uses your ChatGPT plan\", \"umer@example.com / In use\", \"Pay per use (1)\" with \"OpenAI API key\", \"Default model GPT-6 Sol\", \"New runs use GPT-6 Sol.\" Nothing hidden."
