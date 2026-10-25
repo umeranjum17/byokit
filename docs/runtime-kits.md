@@ -2163,6 +2163,19 @@ runs on the lane with its saved model, or a supplied model of the same provider 
   filters) is `memberOfAccount` (`src/accounts.ts`, over the pure `src/attribution.ts`). It maps an indexed
   `<member>--<hex6>` agent, and `byokit-key-<member>` when present, to `<member>`; a legacy member id that ends in
   `--<hex6>` maps to itself while its workspace exists. An unindexed account-shaped agent maps nowhere.
+- Native-bound accounts (`anthropic-cli`, `credentialPolicy: 'in-place'`): the account entry carries a durable, non-secret
+  `native: { kind: 'native-cli', cliAccountId, cli: 'claude' }` — an id, never a token or a copy of a login — and the person
+  signs in at that managed folder in unmodified Claude Code. Listing and `accountStatus` read the row through the binding
+  (the CLI's own status; no answer is `unknown`, never signed out), `again: id` signs in at the same folder, and
+  `removeAccount` logs out that folder only. The engine seals and activates nothing for a bound row: `src/native-env.ts`
+  publishes `native/env.json` (`{ v: 1, accounts: { <agentId>: { cli, dir } } }`, folder paths only, rebuilt from the
+  member's index after an add settles or a removal) and the app passes its path as `BYOKIT_NATIVE_ENV`; the pinned
+  engine's `resolveCliBackendConfig` seam (5.16) then runs every launch and resumed session of that agent with
+  `CLAUDE_CONFIG_DIR` set to its folder and clears another provider's key or billing endpoint from that child
+  (`OPENROUTER_API_KEY`, `OPENAI_API_KEY`/`_BASE_URL`/`_BASE_API`, `AI_GATEWAY_API_KEY`, `AZURE_OPENAI_API_KEY` and the
+  like), never touching the kit's own environment. `openclaw.setup.detect` for a bound agent probes that folder too. A
+  bound run is admitted from that folder's own status (`Account.native` marks the row), never the engine's profile store;
+  the generation keys already include the agent, so reuse stays on the account, and a limit rests that account only.
 
 **Words** (added to `src/words.json`; `words` also fills `{provider}`, `{room}`, `{left}`, `{model}`, `{n}` and
 `{ago}`; the kit renders `{left}` as the number with a percent sign, since `%` is banned in the file, `{room}` from the

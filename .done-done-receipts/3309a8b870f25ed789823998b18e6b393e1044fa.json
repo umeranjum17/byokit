@@ -1,0 +1,59 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "3309a8b870f25ed789823998b18e6b393e1044fa",
+  "tree": "d1737e40adf1b3dbd96e777dd2c540ec13c0c37d",
+  "claim": "an app's two native Claude accounts each name their own folder to the pinned engine, a slow probe on one leaves the other ready, and removing one drops only its folder",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-25T15:49:00.637Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261025T154502Z-3309a8b8-4016cc/native-binding.log",
+      "sha256": "8ec4aaafa0241cd99ea9bc6d19657c09084959db7712cc5a0214c64266a0f2c3"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261025T154502Z-3309a8b8-4016cc",
+      "commit": "3309a8b870f25ed789823998b18e6b393e1044fa",
+      "journey": null,
+      "command": "node .agents/skills/done-done-verify-byokit/capture/openclaw-native-binding.mjs --gates",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "0.28.2"
+        },
+        "start": "Fake gateway, empty account index; deterministic native subprocess fixtures; no real credentials",
+        "steps": [
+          "Add two anthropic-cli accounts in place, each signed in at its own native folder",
+          "List both through their bindings; the engine seals and activates nothing",
+          "K2: the gateway is given a folder table naming one folder per account agent, paths only",
+          "K2: a slow probe on A leaves B ready and A bound",
+          "Cancel a re-auth of B; B keeps its binding and folder",
+          "Sign B out in its own folder; B reads signed out, A stays ready",
+          "K2: reading and signing out never unpublish a row",
+          "Remove B; only B folder is logged out and dropped, and its table row with it"
+        ],
+        "result": "PASS: durable native binding, list/status/re-auth/logout through it, and the published folder table the pinned engine runs each account on; the engine child itself is held by packages/openclaw/test/engine/native-binding.test.ts (npm run test:engine); no principal dedup, keyring or live-account claim"
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "openai-codex/gpt-6.1-sol",
+    "independence": "agent",
+    "author": {
+      "agent": "",
+      "model": ""
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261025T154502Z-3309a8b8-4016cc/native-binding.log",
+        "sha256": "8ec4aaafa0241cd99ea9bc6d19657c09084959db7712cc5a0214c64266a0f2c3",
+        "verdict": "pass",
+        "seen": "Read all 9 log entries. The capture reports “two Claude accounts signed in at distinct native folders” and “one row per account agent” naming its own folder. A “slow probe on A” leaves both bound and B ready. Removing B “dropped B folder only; A kept its login” and removed B’s table row. Engine-child execution is attributed to a separate test, not demonstrated directly here."
+      }
+    ]
+  }
+}

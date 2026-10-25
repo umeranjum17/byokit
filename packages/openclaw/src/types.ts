@@ -279,6 +279,7 @@ export type Account = { id: AccountId; provider: string; route: string;        /
   reason?: UnknownReason; retryAfterMs?: number; // reason, retryAfterMs: only while state is 'unknown'
   unavailable?: 'identity_mismatch'; // state 'needs_again': the re-sign-in was another principal; sign in as the recorded one
   origin?: 'managed' | 'installed';  // managed: the kit's own sign-in; installed: the person's own Claude Code login
+  native?: true;                     // managed and bound to its own native CLI folder (K1/K2): its state reads that CLI
   capabilities?: AccountAction[] };  // what the kit does for this row; an installed login is only renamed
 export type AccountAction = 'rename' | 'remove' | 'reauth';
 /** Safe routing metadata for one account of a member: the row and the engine agent that holds its sign-in. No credential path. */

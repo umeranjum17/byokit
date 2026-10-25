@@ -129,7 +129,8 @@ test('claude route prints wire names in Tooling; other routes keep the stock pro
   assert.equal(sha256(stock), file.before, 'stock byte fixture drift');
   assert.equal(sha256(editText(stock, file)), file.after, 'patched bytes drift');
   const edit = file.edits[0]!;
-  assert.equal(file.edits.length, 1);
+  // The Tooling edit is the only one on the system prompt; K2's binding edits touch the import and the backend config.
+  assert.equal(file.edits.filter((f) => f.find.includes('remainingPrompt')).length, 1);
   const inserted = edit.replace.slice(edit.find.length);
   const render = new Function('systemPrompt', 'skipsTurnPreparation', 'isClaudeCli', 'promptTools',
     `${inserted}\nreturn systemPrompt;`) as (prompt: string, skip: boolean, claude: boolean, tools: { name: string }[]) => string;
