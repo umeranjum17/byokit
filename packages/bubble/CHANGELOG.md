@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Held back from publishing:** this deprecated name stays at its last published
+  release and takes no new version; new work goes to `@platform-kits/overlay`.
+
 ## 0.3.2 (2026-10-25)
 
 - DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
