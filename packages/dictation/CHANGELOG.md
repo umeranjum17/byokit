@@ -7,7 +7,7 @@
 - Dependency update: pins @byokit/usage 0.10.1.
 - Dependency update: pins @byokit/audio 0.3.1.
 
-- DOCS: align the npm description, keywords and homepage with the BYOKit README; no version bump.
+- DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
 
 ## 0.6.0 (2026-10-24)
 

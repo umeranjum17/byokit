@@ -4,7 +4,7 @@
 
 ## 0.10.5 (2026-10-25)
 
-- DOCS: align the npm description, keywords and homepage with the BYOKit README; no version bump.
+- DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
 
 ## 0.10.4 (2026-10-18)
 

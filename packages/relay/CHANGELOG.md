@@ -6,7 +6,7 @@
 
 - Dependency update: pins @byokit/pair 0.10.5.
 
-- DOCS: align the npm description, keywords and homepage with the BYOKit README; no version bump.
+- DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
 
 ## 0.8.2 (2026-10-18)
 

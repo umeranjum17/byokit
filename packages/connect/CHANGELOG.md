@@ -6,7 +6,7 @@
 
 - Dependency update: pins @byokit/secrets 0.5.3.
 
-- DOCS: align the npm description, keywords and homepage with the BYOKit README; no version bump.
+- DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
 
 ## 0.8.0 (2026-10-18)
 

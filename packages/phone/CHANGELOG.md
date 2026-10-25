@@ -6,7 +6,7 @@
 
 - Dependency update: pins @byokit/accounts 0.34.0.
 
-- DOCS: align the npm description, keywords and homepage with the BYOKit README; no version bump.
+- DOCS: align npm descriptions, keywords and homepages with the BYOKit README.
 
 ## 0.1.5 (2026-10-24)
 
