@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.17.1 (2026-10-26)
+
+- Adds portable bundles for Claude Code conversations, copying only per-project JSONL transcripts while preserving their conversation IDs and bundle digests.
+- Adds portable conversation bundles for Codex rollout JSONL and opencode session, message and part records, preserving each conversation's native id and bundle digest without including credentials.
+
 ## 0.17.0 (2026-10-26)
 
 - FEATURE: Host-only Pi conversation export/import with one bounded, versioned opaque bundle, SHA-256 verification, private staging and rollback. Only explicit app-managed account stores are eligible; credentials never move. Claude/Codex adapters and second-computer CLI resume remain separate follow-ups. This additive API is a minor release; versions are assigned only by the trusted release publisher.
