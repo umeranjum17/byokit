@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "179512873e3ff1e91822f281b159bf2dc93cdd49",
+  "tree": "16d9ff2de7b3b333e23622725949faf99a1ae3fc",
+  "claim": "Apps can export a Pi conversation from one managed folder, import it into another, and resume with earlier turns visible",
+  "result": "pass",
+  "at": "2026-10-26T06:04:56.501Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261026T055939Z-17951287-83196e/journey.txt",
+      "sha256": "d29f61fc2d140d0143777d5b648f370d81e51556b3d70b6704e18cba24b1d4b1"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261026T055939Z-17951287-83196e",
+      "commit": "179512873e3ff1e91822f281b159bf2dc93cdd49",
+      "journey": null,
+      "command": "sh evidence/sealed-proof.sh",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "0.17.0"
+        },
+        "start": "Pi conversation exists in managed account A",
+        "steps": [
+          "Pack @byokit/herdr 0.17.0 and install the tarball in an external consumer",
+          "Export the Pi conversation from account A",
+          "Import it into isolated account B",
+          "Resume by reading the imported Pi session"
+        ],
+        "result": "Export and import succeeded; the prior turn is visible after import."
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:opencode",
+    "model": "ollama-cloud/deepseek-v4.1-flash",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261026T055939Z-17951287-83196e/journey.txt",
+        "sha256": "d29f61fc2d140d0143777d5b648f370d81e51556b3d70b6704e18cba24b1d4b1",
+        "verdict": "pass",
+        "seen": "Read all four capture entries. Export returned ok:true, kind:\"pi\", conversation:\"12345678-1234-1234-1234-123456789abc\", files:1, bytes:281, digest:\"17a97ba2e12b1f84e1b1e3f5bdb9003131ac5acd6aeda7c9c39485e43ccde145\". Import returned ok:true with the same kind, conversation, files, bytes, and digest. Resume reported \"prior turn visible: true\". These fields show the outcome's export, import, and resume steps succeeded. The outcome has no separately capturable display variants, so parts is empty."
+      }
+    ]
+  }
+}
