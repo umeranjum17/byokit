@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "0a7a8c952c75529c612b2edc8021aa429a70757e",
+  "tree": "630236b72da683d822240c49fdb34e4db617bced",
+  "claim": "A synthetic two-account acceptance run proves: two final stores with distinct principals; identity/cancel/expiry/restart including duplicate, busy, declined, still ready, identity_mismatch, needs_again; unknown and revocation isolation where unknown A leaves B ready and revoked A signs out A only; limit isolation and restart where A is resting, B remains open and restart restores A resting. No real sign-in, credential file, or provider network.",
+  "result": "pass",
+  "at": "2026-10-26T01:30:23.904Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261026T013006Z-0a7a8c95-00e898/result.json",
+      "sha256": "c33ac22d760947113b51f5cfca6b0b24643155169bbeb5ae956714e798616201"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261026T013006Z-0a7a8c95-00e898",
+      "commit": "0a7a8c952c75529c612b2edc8021aa429a70757e",
+      "journey": "openclaw-two-openai-accounts",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/openclaw-two-openai-accounts.mjs \"$DONE_DONE_EVIDENCE_ROOT\"",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "0.28.2"
+        },
+        "start": "Two synthetic ChatGPT OAuth identities sign in through the loopback fake gateway into independent account agents.",
+        "steps": [
+          "sign in A and B; inspect their distinct profile stores",
+          "exercise duplicate, busy, cancellation, wrong-principal re-auth and expired-store restart",
+          "make A probe unknown, revoke A only",
+          "hit A rate limit, run B explicitly, restart and inspect A rest"
+        ],
+        "result": "A and B remain isolated; no account rotation or credential adoption; uncertainty, revocation and rest are scoped to the exact account."
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:opencode",
+    "model": "ollama-cloud/deepseek-v4.1-flash",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261026T013006Z-0a7a8c95-00e898/result.json",
+        "sha256": "c33ac22d760947113b51f5cfca6b0b24643155169bbeb5ae956714e798616201",
+        "verdict": "pass",
+        "seen": "The capture's four labeled outputs map one-to-one onto the outcome's four claims, and the values match verbatim (two distinct-principal stores; all six identity states; unknown/revocation isolation; resting/open/restart limit isolation). It is synthetic-run data with no real sign-in, matching the outcome's scope, so it directly evidences the outcome."
+      }
+    ]
+  }
+}
