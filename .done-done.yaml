@@ -44,6 +44,13 @@ journeys:
       {
         echo "CI gate event rule, read at $(date -u +%Y-%m-%dT%H:%M:%SZ) on head $(git rev-parse HEAD)"
         echo
+        echo "Current task workflow settings:"
+        sed -n '1,24p' .github/workflows/ci.yml
+        echo "Existing path-aware dispatcher (docs-only and unrelated paths):"
+        sed -n '1,28p' scripts/ci-changes.ts
+        echo "Required ci-ok aggregator:"
+        awk '/^  ci-ok:$/{p=1} p' .github/workflows/ci.yml
+        echo
         echo "What this capture shows, in order:"
         echo "  a. the bug: the push to main run 39548414209 (before this change) failed at the done-done gate;"
         echo "  b. the fix: the done-done job's condition now runs it on a pull request only;"
@@ -87,12 +94,13 @@ journeys:
         "target": { "version": "BYOKit CI workflow at the recorded commit" },
         "start": "Pull-request branch with a workflow change; no release workflow changes",
         "steps": [
-          "Inspect the changed workflow's concurrency group: pull requests share a group keyed by PR number and cancel in-progress runs only for pull_request events.",
-          "Inspect the push trigger and confirm main pushes are not cancelled.",
-          "Inspect the existing path-aware changes dispatcher and required ci-ok aggregator: unrelated heavy jobs can be skipped while ci-ok remains available.",
+          "Read the current workflow concurrency block: pull-request runs share a group keyed by PR number and cancel in-progress runs only for pull_request events.",
+          "Read the push trigger and confirm main pushes are not cancelled.",
+          "Read the existing path-aware changes dispatcher: Markdown-only changes set code=false and unrelated changed paths leave area jobs false.",
+          "Read the ci-ok aggregator and confirm it accepts skipped jobs so the required check remains available.",
           "Read the real workflow and CI run evidence recorded in ci-gate-event.log."
         ],
-        "result": "The workflow applies per-PR cancellation only to pull-request runs; main pushes are unaffected, and the path-aware dispatcher can skip unrelated heavy jobs without removing ci-ok."
+        "result": "The workflow configuration keys concurrency by PR number and cancels only pull-request runs; main pushes are unaffected, while the existing path-aware dispatcher and ci-ok aggregator keep docs-only and unrelated changes from requiring heavy jobs."
       }
       JSON
   # The core user journey and the release path, in .done-done.yaml: a consumer app
