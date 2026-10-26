@@ -1,0 +1,57 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "417625bd8923250a242b9dcbe96c812900b0794c",
+  "tree": "52d0f358b2a215ea31761b45d716b5f38435b053",
+  "claim": "GitHub cancelled superseded pull-request run 40302146934 when run 40325736157 started; README-only docs PR 870 skipped 23 heavy jobs while preserving the required ci-ok check",
+  "result": "pass",
+  "at": "2026-10-26T15:13:53.447Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261026T151323Z-417625bd-ee8d60/ci-gate-event.log",
+      "sha256": "bb097e8e05fa1d68664fe36dd4bf8bf95e4288a41f07ffe05f4febc358283bf6"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261026T151323Z-417625bd-ee8d60",
+      "commit": "417625bd8923250a242b9dcbe96c812900b0794c",
+      "journey": "ci-gate-event",
+      "command": "{\n  echo \"CI gate event rule, read at $(date -u +%Y-%m-%dT%H:%M:%SZ) on head $(git rev-parse HEAD)\"\n  echo\n  echo \"Current task workflow settings:\"\n  sed -n '1,24p' .github/workflows/ci.yml\n  echo \"Existing path-aware dispatcher (docs-only and unrelated paths):\"\n  grep -nE 'code=|const run =' scripts/ci-changes.ts\n  echo \"The dispatcher sets code=false for docs-only changes; area jobs run only when a shared input or matching area path changed.\"\n  echo \"Required ci-ok aggregator:\"\n  awk '/^  ci-ok:$/{p=1} p' .github/workflows/ci.yml\n  echo\n  echo \"Live cancellation evidence: run 40302146934 was superseded by the newer pull-request run 40325736157:\"\n  gh-axi run view 40302146934\n  echo \"Live README-only docs PR evidence: https://github.com/umeranjum17/byokit/pull/870, run 40328580435:\"\n  gh-axi pr checks 870\n  echo\n  echo \"What this capture shows, in order:\"\n  echo \"  a. the bug: the push to main run 39548414209 (before this change) failed at the done-done gate;\"\n  echo \"  b. the fix: the done-done job's condition now runs it on a pull request only;\"\n  echo \"  c. that condition's false side is real: in this same workflow a step guarded by\"\n  echo \"     github.event_name == 'pull_request' ran in the pull request run and did not run in the push\"\n  echo \"     to main run, while the step guarded by github.event_name == 'push' did the opposite;\"\n  echo \"  d. the aggregate: a job skipped by design passes ci-ok, so the push to main run is green;\"\n  echo \"  e. the release: a green push to main CI run triggers the Release workflow.\"\n  echo\n  echo \"1. The bug, in the push to main run's own job log (run 39548414209, event push, before this change; this is the run the fix removes):\"\n  gh-axi run view 39548414209 --job 119051848588 --log 2>&1 | grep -o 'FAIL: receipt head[^\\\\]*'\n  gh-axi run view 39548414209 2>&1 | grep -E 'done-done,completed|ci-ok,completed'\n  echo\n  echo \"2. The fix: the job that judges the receipt (.github/workflows/ci.yml, job done-done):\"\n  awk '/^  done-done:$/{p=1} p&&/^  [a-z0-9-]+:$/&&!/^  done-done:$/{exit} p' .github/workflows/ci.yml\n  echo\n  echo \"3. The same event condition, evaluated by GitHub on real runs of this workflow. The check job\"\n  echo \"   guards its two release lint steps by the event (.github/workflows/ci.yml, job check):\"\n  grep -A 2 'name: Release lint' .github/workflows/ci.yml\n  echo \"   the release lint steps that ran, read from each run's check job log:\"\n  echo -n \"   run 39548414209 (push to main): \"\n  gh-axi run view 39548414209 --job 119051848705 --log 2>&1 | grep -oE 'Release lint \\((main push|PR)\\)' | sort -u | tr '\\n' ' '\n  echo\n  echo -n \"   run 39549914720 (pull request): \"\n  gh-axi run view 39549914720 --job 119056562572 --log 2>&1 | grep -oE 'Release lint \\((main push|PR)\\)' | sort -u | tr '\\n' ' '\n  echo\n  echo \"   So on a push to main github.event_name == 'pull_request' is false, and the done-done job is skipped.\"\n  echo\n  echo \"4. The aggregate that decides whether CI is green (.github/workflows/ci.yml, job ci-ok):\"\n  awk '/^  # The one required check/{p=1} p' .github/workflows/ci.yml\n  echo \"   and what it did on a real run where 15 jobs were skipped by their own area (run 39549914720, a pull request):\"\n  gh-axi run view 39549914720 2>&1 | awk '/,skipped$/{n++} END{print \"   jobs skipped by their own area: \" n}'\n  gh-axi run view 39549914720 2>&1 | grep -E 'done-done,completed|ci-ok,completed'\n  echo \"   A skipped job is not a failure, so on a push to main, where the done-done job is skipped, ci-ok is green.\"\n  echo\n  echo \"5. What publishes the release (.github/workflows/release.yml, job publish):\"\n  awk '/^  publish:$/{p=1} p&&/runs-on:/{print; exit} p' .github/workflows/release.yml\n} > \"$DONE_DONE_EVIDENCE_ROOT/ci-gate-event.log\" 2>&1\ncat > \"$DONE_DONE_EVIDENCE_ROOT/steps.json\" <<'JSON'\n{\n  \"target\": { \"version\": \"BYOKit CI workflow at the recorded commit\" },\n  \"start\": \"Pull-request branch with a workflow change; no release workflow changes\",\n  \"steps\": [\n    \"Read the current workflow concurrency block: pull-request runs share a group keyed by PR number and cancel in-progress runs only for pull_request events.\",\n    \"Read the push trigger and confirm main pushes are not cancelled.\",\n    \"Read the existing path-aware changes dispatcher: Markdown-only changes set code=false and unrelated changed paths leave area jobs false.\",\n    \"Read the ci-ok aggregator and confirm it accepts skipped jobs so the required check remains available.\",\n    \"Observe GitHub cancel run 40302146934 after newer pull-request run 40325736157 started.\",\n    \"Observe README-only docs PR https://github.com/umeranjum17/byokit/pull/870 run 40328580435 with 23 heavy jobs skipped and ci-ok still present.\",\n    \"Read the real workflow and CI run evidence recorded in ci-gate-event.log.\"\n  ],\n  \"result\": \"GitHub cancelled superseded pull-request run 40302146934 when run 40325736157 started; the README-only docs PR 870 skipped 23 heavy jobs while preserving the required ci-ok check.\"\n}\nJSON\n",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "BYOKit CI workflow at the recorded commit"
+        },
+        "start": "Pull-request branch with a workflow change; no release workflow changes",
+        "steps": [
+          "Read the current workflow concurrency block: pull-request runs share a group keyed by PR number and cancel in-progress runs only for pull_request events.",
+          "Read the push trigger and confirm main pushes are not cancelled.",
+          "Read the existing path-aware changes dispatcher: Markdown-only changes set code=false and unrelated changed paths leave area jobs false.",
+          "Read the ci-ok aggregator and confirm it accepts skipped jobs so the required check remains available.",
+          "Observe GitHub cancel run 40302146934 after newer pull-request run 40325736157 started.",
+          "Observe README-only docs PR https://github.com/umeranjum17/byokit/pull/870 run 40328580435 with 23 heavy jobs skipped and ci-ok still present.",
+          "Read the real workflow and CI run evidence recorded in ci-gate-event.log."
+        ],
+        "result": "GitHub cancelled superseded pull-request run 40302146934 when run 40325736157 started; the README-only docs PR 870 skipped 23 heavy jobs while preserving the required ci-ok check."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "agent",
+    "author": {
+      "agent": "opencode",
+      "model": "ollama-cloud/deepseek-v4.1-flash"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261026T151323Z-417625bd-ee8d60/ci-gate-event.log",
+        "sha256": "bb097e8e05fa1d68664fe36dd4bf8bf95e4288a41f07ffe05f4febc358283bf6",
+        "verdict": "pass",
+        "seen": "I read the full capture: the run 40302146934 header (conclusion \"cancelled\", noted as superseded by run 40325736157), all 33 job entries, the docs PR 870 run 40328580435 summary (\"4 passed, 0 failed, 23 skipped, 27 total\"), all 27 checks (23 skip, ci-ok pass), and the ci-ok aggregator rule. Both parts of the outcome are shown. The capture does not give the exact start time of run 40325736157, only that it superseded the earlier run."
+      }
+    ]
+  }
+}

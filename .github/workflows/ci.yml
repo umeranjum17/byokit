@@ -5,9 +5,10 @@ on:
   push:
     branches: [main]
 
+# PR-keyed cancellation keeps the newest review run without interrupting main pushes.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/main') }}
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   TMPDIR: /tmp
