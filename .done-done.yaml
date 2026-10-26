@@ -47,7 +47,8 @@ journeys:
         echo "Current task workflow settings:"
         sed -n '1,24p' .github/workflows/ci.yml
         echo "Existing path-aware dispatcher (docs-only and unrelated paths):"
-        sed -n '1,28p' scripts/ci-changes.ts
+        grep -nE 'code=|const run =' scripts/ci-changes.ts
+        echo "The dispatcher sets code=false for docs-only changes; area jobs run only when a shared input or matching area path changed."
         echo "Required ci-ok aggregator:"
         awk '/^  ci-ok:$/{p=1} p' .github/workflows/ci.yml
         echo
