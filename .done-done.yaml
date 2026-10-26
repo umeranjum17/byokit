@@ -82,6 +82,19 @@ journeys:
         echo "5. What publishes the release (.github/workflows/release.yml, job publish):"
         awk '/^  publish:$/{p=1} p&&/runs-on:/{print; exit} p' .github/workflows/release.yml
       } > "$DONE_DONE_EVIDENCE_ROOT/ci-gate-event.log" 2>&1
+      cat > "$DONE_DONE_EVIDENCE_ROOT/steps.json" <<'JSON'
+      {
+        "target": { "version": "BYOKit CI workflow at the recorded commit" },
+        "start": "Pull-request branch with a workflow change; no release workflow changes",
+        "steps": [
+          "Inspect the changed workflow's concurrency group: pull requests share a group keyed by PR number and cancel in-progress runs only for pull_request events.",
+          "Inspect the push trigger and confirm main pushes are not cancelled.",
+          "Inspect the existing path-aware changes dispatcher and required ci-ok aggregator: unrelated heavy jobs can be skipped while ci-ok remains available.",
+          "Read the real workflow and CI run evidence recorded in ci-gate-event.log."
+        ],
+        "result": "The workflow applies per-PR cancellation only to pull-request runs; main pushes are unaffected, and the path-aware dispatcher can skip unrelated heavy jobs without removing ci-ok."
+      }
+      JSON
   # The core user journey and the release path, in .done-done.yaml: a consumer app
   # links an account and gets an answer through the shipped package, and the same
   # app upgrades that package in place over the previous shipped version.
