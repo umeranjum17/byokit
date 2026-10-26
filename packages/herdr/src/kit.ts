@@ -13,6 +13,9 @@ import type {
 } from './types.ts';
 import type { AgentTurnEnd, AgentTurnOptions } from './types.ts';
 import { createTurns } from './turns.ts';
+import { conversationFolder, exportStore, importConversation, fail as conversationFailure } from './conversations.ts';
+import { isLaunchEnvironment } from './launch-env.ts';
+import type { ConversationExport } from './types.ts';
 
 const kinds = ['pane.agent_detected', 'pane.created', 'pane.closed', 'pane.focused', 'pane.moved', 'pane.exited', 'pane.updated',
   'workspace.created', 'workspace.closed', 'workspace.focused', 'workspace.renamed', 'workspace.updated',
@@ -206,6 +209,7 @@ export class HerdrKit {
   private readonly startListeners = new Set<(e: AgentStartEvent) => void>();
   private readonly blockedList: Blocked;
   private readonly turns: ReturnType<typeof createTurns>;
+  private readonly conversationAccounts = new Map<string, { kind: string; folder: string }>();
   constructor(o: HerdrKitOptions) {
     this.o = o;
     this.supervisor = new Supervisor(o, (s) => this.setState(s));
@@ -691,7 +695,21 @@ export class HerdrKit {
   openSignInTab(o: OpenSignInTab): Promise<AgentRef> { return this.accountPanes.openSignInTab(o); }
   move(o: Move): Promise<MoveResult> { return this.accountPanes.move(o); }
   moveToAccount(target: AgentRef, o: MoveToAccount): Promise<MoveToAccountResult> { return this.accountPanes.moveToAccount(target, o); }
-  startAgent(o: StartAgent): Promise<AgentRef> { return this.agents.startAgent(o); }
+  async startAgent(o: StartAgent): Promise<AgentRef> {
+    const folder = conversationFolder(o.kind, isLaunchEnvironment(o.env) ? o.env.env : {}), ref = await this.agents.startAgent(o);
+    this.conversationAccounts.delete(ref.paneId);
+    if (folder) this.conversationAccounts.set(ref.paneId, { kind: o.kind, folder });
+    return ref;
+  }
+  async exportConversation(target: AgentRef, o: { to: string; maxBytes?: number; maxFiles?: number }): Promise<ConversationExport> {
+    try {
+      const account = this.conversationAccounts.get(target.paneId), { agent } = await this.call('agent.get', { target: target.paneId });
+      return account && agent.agent === account.kind && ['idle', 'done'].includes(agent.agent_status)
+        && agent.agent_session?.agent === account.kind && ['id', 'path'].includes(agent.agent_session.kind) && typeof agent.agent_session.value === 'string'
+        ? exportStore(account.kind, account.folder, agent.agent_session.value, o) : conversationFailure('unsupported');
+    } catch { return conversationFailure('unsupported'); }
+  }
+  importConversation = importConversation;
   // Placement without an agent (6.4): the same ladder `startAgent` resolves — a shell or
   // application tab, a shell split, a new or labelled workspace — minus the launch. Creates the
   // pane and starts nothing; answers the placed pane/tab/workspace ref.

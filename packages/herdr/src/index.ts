@@ -6,6 +6,8 @@ export type { InstallMuseOptions, MuseReadiness, MuseInstallReceipt, MuseInstall
 export { HERDR_VERSION, HERDR_PROTOCOL } from './constants.ts';
 export { accountKinds, accountKind, type AccountKind } from './kinds.ts';
 export { HerdrKit } from './kit.ts';
+export { importConversation } from './conversations.ts';
+export type { ConversationExport, ConversationImport, ConversationFailure, ConversationImportOptions } from './types.ts';
 export { agentWords, stateWords, words, WORDS, type WordKey } from './words.ts';
 export { agentProbePath, extraPathDirs, runStatusCommand, agentInstallState, isAutoInstallShim, resolveAgentBinary, classifyStartFailure, isPromptable } from './agents.ts';
 export type {
