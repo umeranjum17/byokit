@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "30c167c9a1e394223c8aac68ec135b4f8f845572",
+  "tree": "92f45d032713c3ffc9f7e255957c08c740135052",
+  "claim": "A synthetic two-account acceptance run proves: two final stores with distinct principals; identity/cancel/expiry/restart including duplicate, busy, declined, still ready, identity_mismatch, needs_again; unknown and revocation isolation where unknown A leaves B ready and revoked A signs out A only; limit isolation and restart where A is resting, B remains open and restart restores A resting. No real sign-in, credential file, or provider network.",
+  "result": "pass",
+  "at": "2026-10-26T01:01:13.683Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261026T010035Z-30c167c9-98e435/result.json",
+      "sha256": "e2bfc67d906028e7f5f4abb4641231a5d647f2e0ed3acdd305f242f017c2f936"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261026T010035Z-30c167c9-98e435",
+      "commit": "30c167c9a1e394223c8aac68ec135b4f8f845572",
+      "journey": "openclaw-two-openai-accounts",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/openclaw-two-openai-accounts.mjs \"$DONE_DONE_EVIDENCE_ROOT\"",
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "0.28.2"
+        },
+        "start": "Two synthetic ChatGPT OAuth identities sign in through the loopback fake gateway into independent account agents.",
+        "steps": [
+          "sign in A and B; inspect their distinct profile stores",
+          "exercise duplicate, busy, cancellation, wrong-principal re-auth and expired-store restart",
+          "make A probe unknown, revoke A only",
+          "hit A rate limit, run B explicitly, restart and inspect A rest"
+        ],
+        "result": "A and B remain isolated; no account rotation or credential adoption; uncertainty, revocation and rest are scoped to the exact account."
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:opencode",
+    "model": "ollama-cloud/deepseek-v4.1-flash",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261026T010035Z-30c167c9-98e435/result.json",
+        "sha256": "e2bfc67d906028e7f5f4abb4641231a5d647f2e0ed3acdd305f242f017c2f936",
+        "verdict": "pass",
+        "seen": "The capture's four labelled outputs directly instantiate the stated outcome's claims (distinct principals, auth state-machine edges, cross-account unknown/revocation isolation, per-account limit isolation with restart), so it is on-point and internally consistent. Residual doubt only because the full question wording was truncated and the run is synthetic, so it proves simulated rather than real sign-in behavior."
+      }
+    ]
+  }
+}
