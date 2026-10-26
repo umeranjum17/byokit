@@ -1,7 +1,8 @@
-# Carry a Pi conversation between computers
+# Carry a Pi or Claude conversation between computers
 
-Outcome: an app carries one Pi conversation between two explicit account folders through the built host kit,
-without knowing transcript layout or moving sign-ins. This slice does not claim a real CLI resume.
+Outcome: an app carries one Pi or Claude Code conversation between two explicit account folders through the built
+host kit, without knowing transcript layout or moving sign-ins. Claude proof uses an existing local transcript,
+copied unchanged into isolated folders; the journey never starts a CLI or reads credentials.
 
 ## Drive
 
@@ -36,8 +37,25 @@ checkout, with the task's approved evidence root configured. The consumer writes
 command and output with the private evidence. Judge the sealed capture through `done-done receipt` for the
 bounded outcome above, never an unperformed CLI resume.
 
+## Claude real-session drive
+
+With an existing real Claude session file selected from `~/.claude/projects`, copy it into an exclusive task
+scratch folder (never modify the source), then run the public built-package consumer in an open done-done evidence run:
+
+```sh
+done-done run --open
+DONE_DONE_EVIDENCE_ROOT="$EVIDENCE_DIR" node .agents/skills/done-done-verify-byokit/capture/herdr-claude-conversation.mjs "$SCRATCH" "$CLAUDE_TRANSCRIPT"
+done-done run --close "$RUN_ID"
+```
+
+The capture prints receipts only, writes `conversation.json` and `steps.json` to the run evidence folder,
+verifies byte-identical restored history and same-ID/same-digest re-export, and never prints transcript text.
+Keep the copied private transcript out of the repository and remove the registered scratch folder after the run.
+
 ## Limits
 
-Only Pi's default JSONL store is supported in this slice; Claude and Codex adapters are follow-ups on the
-same format. A real CLI resume on a second computer needs the agent's own sign-in there and belongs to
-muxr's next journey. No example UI is added. Subscription/API billing labels are unchanged.
+Pi's default JSONL store and Claude Code's per-project JSONL transcripts are supported. Codex, opencode and
+Gemini remain unsupported. The real Claude journey copies one existing transcript into isolated folders, imports
+it, and confirms its unchanged conversation ID and digest on a fake resume; it does not start a real CLI. A real
+CLI resume on a second computer needs the agent's own sign-in there and belongs to muxr's next journey. No
+example UI is added. Subscription/API billing labels are unchanged.

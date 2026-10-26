@@ -1,0 +1,1 @@
+- 0.17.1 adds portable bundles for Claude Code conversations, copying only per-project JSONL transcripts while preserving their conversation IDs and bundle digests. Codex, opencode and Gemini remain unsupported.

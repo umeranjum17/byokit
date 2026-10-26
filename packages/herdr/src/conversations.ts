@@ -12,6 +12,8 @@ const uuid = '[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}';
 const stores: Record<string, { variable: string; directory: string; accepts(path: string, conversation: string): boolean }> = {
   pi: { variable: 'PI_CODING_AGENT_DIR', directory: 'sessions', accepts: (p, id) => new RegExp(`^sessions/--[^/\\\\\x00-\x1f]+--/[0-9TZ.-]+_${uuid}\\.jsonl$`).test(p) && p.endsWith(`_${id}.jsonl`) },
 };
+stores.claude = { variable: 'CLAUDE_CONFIG_DIR', directory: 'projects',
+  accepts: (p, id) => new RegExp(`^projects/[^/]+/${uuid}\\.jsonl$`).test(p) && p.endsWith(`/${id}.jsonl`) };
 type Entry = { path: string; size: number; sha256: string };
 type Manifest = { version: 1; kind: string; conversation: string; files: Entry[]; bytes: number };
 export const fail = (code: ConversationFailure['code']): ConversationFailure => ({ ok: false, code, message: words(`conversation.${code}`) });
@@ -105,15 +107,15 @@ export async function exportStore(kind: string, folder: string, conversation: st
     if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0 || maxBytes > CEILING || !Number.isSafeInteger(maxFiles) || maxFiles <= 0 || maxFiles > 20000) return fail('too-large');
     const byId = new RegExp(`^${uuid}$`).test(conversation), candidates = byId ? conversationFiles(folder, kind, conversation) : [];
     const rel = byId && candidates.length === 1 ? candidates[0]! : relative(folder, conversation).split('\\').join('/');
-    const id = new RegExp(`_(${uuid})\\.jsonl$`).exec(rel)?.[1];
+    const id = kind === 'claude' ? new RegExp(`(${uuid})\\.jsonl$`).exec(rel)?.[1] : new RegExp(`_(${uuid})\\.jsonl$`).exec(rel)?.[1];
     if (!id || !store.accepts(rel, id)) return fail('unsupported');
     if (resolve(o.to) === resolve(folder, rel)) return fail('unsafe-path');
     fd = regular(safe(folder, rel)); const size = fstatSync(fd).size;
     if (size > maxBytes) return fail('too-large');
     const first = Buffer.alloc(Math.min(size, 64 * 1024)); readSync(fd, first, 0, first.length, 0);
     try {
-      const header = JSON.parse(first.subarray(0, first.indexOf(10)).toString('utf8')) as { type?: string; id?: string };
-      if (header.type !== 'session' || header.id !== id) return fail('unsupported');
+      const header = JSON.parse(first.subarray(0, first.indexOf(10)).toString('utf8')) as { type?: string; id?: string; sessionId?: string };
+      if (kind === 'claude' ? header.sessionId !== id : header.type !== 'session' || header.id !== id) return fail('unsupported');
     } catch { return fail('unsupported'); }
     const m: Manifest = { version: 1, kind, conversation: id, files: [{ path: rel, size, sha256: copy(fd, 0, size) }], bytes: size };
     const header = Buffer.from(JSON.stringify(m)), prefix = Buffer.alloc(12);
