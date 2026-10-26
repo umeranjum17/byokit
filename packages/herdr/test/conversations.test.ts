@@ -64,3 +64,27 @@ test('carry Pi history between isolated accounts, refusing damaged, unsafe and u
     assert.equal(tree(b), restored); assert.equal(readdirSync(b).some(p => p.startsWith('.conversation-')), false);
   } finally { await kit.stop(); await fake.stop(); }
 });
+
+test('carry a Claude transcript between isolated account folders with its native session id', async () => {
+  const root = realpathSync(scratchDir('claude-conversation')), a = join(root, 'a'), b = join(root, 'b');
+  mkdirSync(a); mkdirSync(b);
+  const id = '22345678-1234-1234-1234-123456789abc', path = `projects/-fixture-project/${id}.jsonl`;
+  mkdirSync(join(a, 'projects/-fixture-project'), { recursive: true });
+  const body = `${JSON.stringify({ type: 'user', sessionId: id, cwd: '/fixture', message: { role: 'user', content: 'Earlier Claude turn' } })}\n${JSON.stringify({ type: 'assistant', sessionId: id, message: { role: 'assistant', content: 'Reply' } })}\n`;
+  writeFileSync(join(a, path), body);
+  const fake = await startFakeHerdr({ dir: join(root, 'fake'), world: { kinds: ['claude'] } });
+  const kit = new HerdrKit({ mode: 'adopt', bin: '/unused', socketPath: fake.socketPath });
+  try {
+    await kit.start();
+    const ref = await kit.startAgent({ kind: 'claude', cwd: a, place: { pane: 'w1:p1' }, args: ['--resume', id], installProbe: { path: [] },
+      env: { env: { HOME: a, CLAUDE_CONFIG_DIR: a }, unset: [] } });
+    fake.world.agents.find(x => x.pane_id === ref.paneId)!.agent_session = { source: 'fixture', agent: 'claude', kind: 'id', value: id };
+    const bundle = join(root, 'bundle'), exported = await kit.exportConversation(ref, { to: bundle });
+    assert.equal(exported.ok, true); if (!exported.ok) return;
+    assert.equal(exported.conversation, id);
+    const options = { bundle, accountFolder: b, kind: 'claude', conversation: id };
+    assert.deepEqual(await importConversation(options), exported);
+    const restored = readFileSync(join(b, path), 'utf8');
+    assert.equal(restored, body); assert.match(restored, /Earlier Claude turn/);
+  } finally { await kit.stop(); await fake.stop(); }
+});

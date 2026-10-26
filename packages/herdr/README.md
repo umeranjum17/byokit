@@ -299,11 +299,13 @@ with file/byte counts and the bundle SHA-256, or `{ ok: false, code, message }`;
 account paths are returned. Bundle contents are private conversation data: protect the file during transfer
 and delete it when no longer needed. Bundles are not encrypted and hashes do not authenticate their sender.
 
-This first slice supports Pi's default account-local JSONL store. Export requires an idle/done pane started
-through this kit with an explicit replacement `PI_CODING_AGENT_DIR`; an adopted pane, custom session store,
-other kind or unpublished conversation is `unsupported`, never a default-HOME fallback. Keep the account
-folders quiescent during transfer. Use physical, absolute account folders and bundle-parent paths: resolve
-platform directory aliases when allocating your own folders, rather than passing symlinked paths to the kit.
+This slice supports Pi's default account-local JSONL store and Claude Code's per-project JSONL transcripts
+under `CLAUDE_CONFIG_DIR/projects`. Export requires an idle/done pane started through this kit with its
+explicit replacement `PI_CODING_AGENT_DIR` or `CLAUDE_CONFIG_DIR`; an adopted pane, custom session store,
+other kind or unpublished conversation is `unsupported`, never a default-HOME fallback. Codex, opencode and
+gemini remain unsupported. Keep the account folders quiescent during transfer. Use physical, absolute account
+folders and bundle-parent paths: resolve platform directory aliases when allocating your own folders, rather
+than passing symlinked paths to the kit.
 Limits default to 256 MiB and 20,000 files, with a hard 1 GiB container
 ceiling; callers can lower the limits. The archive validates relative paths and digests and refuses symlinks,
 special files and existing conversations. `overwrite: true` retains replaced files until every placement
@@ -318,8 +320,8 @@ is added in this slice. Subscription versus API billing labels are unchanged.
 ### Move between accounts on this computer
 
 A move accepts mapped managed kinds, including Claude (`CLAUDE_CONFIG_DIR`), Codex (`CODEX_HOME`) and Pi
-(`PI_CODING_AGENT_DIR`, `--session <id|absolute path>`). The host-only conversation bundle below carries Pi history;
-Claude and Codex history adapters remain a follow-up.
+(`PI_CODING_AGENT_DIR`, `--session <id|absolute path>`). The host-only conversation bundle above carries Pi and
+Claude Code history; Codex, opencode and Gemini history adapters remain unsupported.
 `moveToAccount` and `move` first ask the server for its version and, when it is older than the pinned 0.9.1, refuse with `unsupported` and “Moving accounts needs Herdr 0.9.1 or newer. You have X. Run herdr update.” before any read or change (older versions are untested, not known unsupported; a server that reports no version is let through). `moveToAccount` checks the target managed folder once with `agentStatus`, after immediate refusals and before waiting or splitting. A signed-out target returns `signed_out` and “Sign in to {name} first.” (`name` defaults to “this account”), with `live` naming the unchanged source and no new pane. Unknown readiness proceeds (including Pi); generic `move` has no check, so Accounts hosts call `cliAccounts.launch` and pass its `set`/`unset` only on success. The check is not a lock: a later sign-out still starts only in the selected folder, with existing `start_failed` rollback and no default-login retry.
 It verifies the new shell's effective
 account folder, resumes the conversation there, waits for a ready session, then closes the old pane. A failed

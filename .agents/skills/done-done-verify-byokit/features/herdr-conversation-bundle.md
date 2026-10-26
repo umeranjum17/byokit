@@ -1,7 +1,8 @@
-# Carry a Pi conversation between computers
+# Carry a Pi or Claude conversation between computers
 
-Outcome: an app carries one Pi conversation between two explicit account folders through the built host kit,
-without knowing transcript layout or moving sign-ins. This slice does not claim a real CLI resume.
+Outcome: the built host kit carries a Pi conversation between two explicit account folders. Claude's native
+store is proven separately with an existing local transcript copied unchanged into isolated folders; its public
+kit launcher path is not proven because the helper is currently stubbed. No credential or CLI is used.
 
 ## Drive
 
@@ -36,8 +37,26 @@ checkout, with the task's approved evidence root configured. The consumer writes
 command and output with the private evidence. Judge the sealed capture through `done-done receipt` for the
 bounded outcome above, never an unperformed CLI resume.
 
+## Claude real-session drive
+
+With an existing real Claude session file selected from `~/.claude/projects`, copy it into an exclusive task
+scratch folder (never modify the source), then run the built store adapter in an open done-done evidence run.
+The adapter uses the built `dist/conversations.js` store functions and public `@byokit/herdr` importer; it skips
+`HerdrKit.startAgent` because the launcher helper is stubbed, so this proves the store round trip, not the kit launcher.
+
+```sh
+done-done run --open
+DONE_DONE_EVIDENCE_ROOT="$EVIDENCE_DIR" node .agents/skills/done-done-verify-byokit/capture/herdr-claude-conversation.mjs "$SCRATCH" "$CLAUDE_TRANSCRIPT"
+done-done run --close "$RUN_ID"
+```
+
+The capture prints receipts only, writes `conversation.json` and `steps.json` to the run evidence folder,
+verifies byte-identical restored history and same-ID/same-digest re-export, and never prints transcript text.
+Keep the copied private transcript out of the repository and remove the registered scratch folder after the run.
+
 ## Limits
 
-Only Pi's default JSONL store is supported in this slice; Claude and Codex adapters are follow-ups on the
-same format. A real CLI resume on a second computer needs the agent's own sign-in there and belongs to
-muxr's next journey. No example UI is added. Subscription/API billing labels are unchanged.
+Pi's default JSONL store and Claude Code's per-project JSONL transcripts are implemented; Codex, opencode and
+Gemini remain unsupported. Claude proof copies one existing transcript into isolated folders, imports it, and
+confirms the same ID/digest by re-export. It does not prove `HerdrKit.startAgent` or a native Claude CLI resume:
+the launcher stub is a separate follow-up. No example UI is added. Subscription/API billing labels are unchanged.

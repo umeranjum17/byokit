@@ -1,0 +1,70 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "89d2a440ef4d989794210a2f57a2ef4445e1018a",
+  "tree": "8861c37e44b057ee636741a5dbc7d7e67a611494",
+  "claim": "An app can import a copied real Claude Code transcript into an isolated account folder and verify that its earlier turns, conversation ID and bundle digest remain intact.",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-26T13:16:42.569Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261026T131603Z-89d2a440-c31e05/conversation.json",
+      "sha256": "1e9ea92042b8a7f94a4db53fdae83444923e8d88ad65ffb347706fbbfd63abc6"
+    },
+    {
+      "path": "<evidence root>/20261026T131603Z-89d2a440-c31e05/capture.stdout",
+      "sha256": "163b91c8c764689794d66babfcc82baf4158e771c45d9bc9d8d21d53fa29d686"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261026T131603Z-89d2a440-c31e05",
+      "commit": "89d2a440ef4d989794210a2f57a2ef4445e1018a",
+      "journey": null,
+      "command": "env PATH=/usr/bin:/bin HOME=\u0022$SCRATCH\u0022 node .agents/skills/done-done-verify-byokit/capture/herdr-claude-conversation.mjs \u0022$SCRATCH\u0022 \u0022$CLAUDE_TRANSCRIPT\u0022",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "0.17.1"
+        },
+        "start": "real Claude transcript in account A",
+        "environment": {
+          "PATH": "/usr/bin:/bin",
+          "HOME": "<scratch>",
+          "DONE_DONE_EVIDENCE_ROOT": "<evidence root>/20261026T131603Z-89d2a440-c31e05"
+        },
+        "steps": [
+          "copy transcript into isolated account A",
+          "export portable bundle",
+          "import into isolated account B",
+          "re-export the same session id"
+        ],
+        "result": "Earlier turns restored; conversation id and bundle digest unchanged."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261026T131603Z-89d2a440-c31e05/conversation.json",
+        "sha256": "1e9ea92042b8a7f94a4db53fdae83444923e8d88ad65ffb347706fbbfd63abc6",
+        "verdict": "pass",
+        "seen": "Read the one entry (9892829 bytes, 1 file). Conversation ID 2daf893d-4e0d-4a97-82cb-8de5bbd5b4e0 is present. digest, importDigest and resumeDigest all equal b826072f84f1ddc6c7e70876a6c27cb15d37da7889c4e426a03fa0b35181a4a7, and earlierTurnsRestored is true. This matches the outcome: import, conversation ID, bundle digest and earlier turns are all intact. The outcome names one part, so parts and covers are empty."
+      },
+      {
+        "path": "<evidence root>/20261026T131603Z-89d2a440-c31e05/capture.stdout",
+        "sha256": "163b91c8c764689794d66babfcc82baf4158e771c45d9bc9d8d21d53fa29d686",
+        "verdict": "pass",
+        "seen": "Read the one JSON record on stdout. kind is claude, conversation is 2daf893d-4e0d-4a97-82cb-8de5bbd5b4e0, files is 1, and digest, importDigest and resumeDigest all equal b826072f84f1ddc6c7e70876a6c27cb15d37da7889c4e426a03fa0b35181a4a7. earlierTurnsRestored is true. This matches the outcome. The outcome names one part, so parts and covers are empty."
+      }
+    ]
+  }
+}
