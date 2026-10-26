@@ -1,0 +1,59 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "2f4e972bb38ba57101902d04ad36dd24387aa43b",
+  "tree": "1112ed1ef922d820efda3c819a79b17b0bf8b9d4",
+  "claim": "A user can carry Codex and OpenCode conversation history between explicit account folders in the existing portable bundle format, preserving native conversation ids, earlier turns and bundle digests without copying credentials.",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-26T16:01:15.425Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261026T155915Z-2f4e972b-0c0cf3/carry-herdr-conversation-stores.txt",
+      "sha256": "6f9c371f80910ef21a9cf1f42d48e589d74abdeef4e1e1a9667d6c78fe24f576"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261026T155915Z-2f4e972b-0c0cf3",
+      "commit": "2f4e972bb38ba57101902d04ad36dd24387aa43b",
+      "journey": null,
+      "command": null,
+      "feature": "herdr-conversation-stores",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "@byokit/herdr 0.17.0 (commit 2f4e972b, built dist)"
+        },
+        "start": "Worktree built with npm run build; packages/herdr/dist present. No account data, HOME or credentials used. Two empty account folders (a: source, b: destination) in a scratch dir under the run tmp folder.",
+        "steps": [
+          "Wrote a synthetic Codex rollout (sessions/2026/10/25/rollout-...jsonl with a session_meta record and an earlier user turn 'Earlier Codex turn') into account folder a.",
+          "Wrote a synthetic OpenCode session, message and text part (storage/session, storage/message, storage/part) with the earlier turn 'Earlier OpenCode turn' into account folder a.",
+          "Started a stand-in Herdr server for Codex and attached the Codex conversation id to an agent; exported that agent's conversation to a bundle.",
+          "Imported the Codex bundle into account folder b with the same kind and conversation id; checked the import result equals the export and the earlier turn text is present in b.",
+          "Re-exported account folder b and compared kind, conversation, files, bytes and digest with the first export.",
+          "Repeated the same export, import and re-export for OpenCode with its own stand-in Herdr server, into a second destination.",
+          "Tried an import with kind 'claude' and an export from an unsupported kind 'nope' to see the refusals."
+        ],
+        "result": "Each import reports ok with the same native conversation id, file count, byte count and digest as the export (Codex digest ca954f25..., OpenCode digest 32c3af67...). The earlier turns read back in account folder b, and re-exports match. Unsupported kinds return a refusal (invalid-bundle for the mismatched kind, unsupported for 'nope'). No credential files were read or copied."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261026T155915Z-2f4e972b-0c0cf3/carry-herdr-conversation-stores.txt",
+        "sha256": "6f9c371f80910ef21a9cf1f42d48e589d74abdeef4e1e1a9667d6c78fe24f576",
+        "verdict": "pass",
+        "seen": "Read all entries: Codex export and import both show conversation 72345678-..., files 1, bytes 262, the same digest ca954f25...; 'imported equals export: true'; the earlier Codex turn is present in folder b; re-export matches on kind, conversation, files, bytes and digest. OpenCode export and import both show ses_01j8y0z7..., files 3, bytes 373, digest 32c3af67...; 'imported equals export: true'; the earlier OpenCode turn is present; re-export matches. The file lists contain only session and message/part/session JSON and rollout files, with no credential files. The unsupported-kind refusal is a separate negative check and does not contradict the outcome. Nothing shows a mismatch."
+      }
+    ]
+  }
+}

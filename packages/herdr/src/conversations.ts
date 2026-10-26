@@ -7,6 +7,7 @@ import type { ConversationExport, ConversationImport, ConversationFailure, Conve
 import { words } from './words.ts';
 const CEILING = 1024 ** 3, HEADER_LIMIT = 16 * 1024 ** 2;
 const uuid = '[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}';
+const conversationId = new RegExp(`^(?:${uuid}|ses_[0-9a-z]{26})$`);
 // Pi SessionManager.getDefaultSessionDirPath/newSession, pi-mono d5b3de22d0e24a3e9c38a9410d3329b099717283.
 // https://github.com/badlogic/pi-mono/blob/d5b3de22d0e24a3e9c38a9410d3329b099717283/packages/coding-agent/src/core/session-manager.ts
 const stores: Record<string, { variable: string; directory: string; accepts(path: string, conversation: string): boolean }> = {
@@ -14,6 +15,10 @@ const stores: Record<string, { variable: string; directory: string; accepts(path
 };
 stores.claude = { variable: 'CLAUDE_CONFIG_DIR', directory: 'projects',
   accepts: (p, id) => new RegExp(`^projects/[^/]+/${uuid}\\.jsonl$`).test(p) && p.endsWith(`/${id}.jsonl`) };
+stores.codex = { variable: 'CODEX_HOME', directory: 'sessions',
+  accepts: (p, id) => new RegExp(`^sessions/[0-9]{4}/[0-9]{2}/[0-9]{2}/rollout-[0-9TZ-]+-${uuid}\\.jsonl$`).test(p) && p.endsWith(`-${id}.jsonl`) };
+stores.opencode = { variable: 'OPENCODE_DATA_DIR', directory: 'storage',
+  accepts: (p, id) => new RegExp(`^storage/(?:session/[^/]+/${id}\\.json|message/${id}/[^/]+\\.json|part/[^/]+/[^/]+\\.json)$`).test(p) };
 type Entry = { path: string; size: number; sha256: string };
 type Manifest = { version: 1; kind: string; conversation: string; files: Entry[]; bytes: number };
 export const fail = (code: ConversationFailure['code']): ConversationFailure => ({ ok: false, code, message: words(`conversation.${code}`) });
@@ -47,11 +52,27 @@ function conversationFiles(root: string, kind: string, id: string): string[] {
         if (++seen > 20000) refuse('too-large');
         const child = `${rel}/${entry.name}`; safe(root, child);
         if (entry.isDirectory()) walk(child, depth + 1);
-        else if (stores[kind]!.accepts(child, id)) { const fd = regular(safe(root, child)); closeSync(fd); found.push(child); }
+        else if (stores[kind]!.accepts(child, id) && !(kind === 'opencode' && child.startsWith('storage/part/'))) { const fd = regular(safe(root, child)); closeSync(fd); found.push(child); }
       } } finally { dir.closeSync(); }
     } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
   }
-  walk(stores[kind]!.directory, 0); return found;
+  walk(stores[kind]!.directory, 0);
+  if (kind === 'opencode') {
+    const messageIds = found.filter((p) => p.startsWith(`storage/message/${id}/`))
+      .map((p) => p.slice(`storage/message/${id}/`.length).replace(/\.json$/, ''));
+    for (const messageId of messageIds) {
+      const rel = `storage/part/${messageId}`;
+      try {
+        const dir = opendirSync(safe(root, rel));
+        try { for (let entry = dir.readSync(); entry; entry = dir.readSync()) {
+          if (++seen > 20000) refuse('too-large');
+          const child = `${rel}/${entry.name}`; safe(root, child);
+          if (entry.isFile() && entry.name.endsWith('.json')) { const fd = regular(safe(root, child)); closeSync(fd); found.push(child); }
+        } } finally { dir.closeSync(); }
+      } catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
+    }
+  }
+  return found.sort();
 }
 // Constant-memory copying and hashing; positional reads keep all passes independent.
 function copy(fd: number, offset: number, size: number, out?: number): string {
@@ -76,7 +97,7 @@ function checkedManifest(fd: number): { m: Manifest; offset: number; digest: str
   let m: Manifest;
   try { m = JSON.parse(raw.toString('utf8')) as Manifest; } catch { return refuse('invalid-bundle'); }
   if (!m || m.version !== 1 || typeof m.kind !== 'string' || typeof m.conversation !== 'string'
-    || !new RegExp(`^${uuid}$`).test(m.conversation) || !Array.isArray(m.files) || !m.files.length
+    || !conversationId.test(m.conversation) || !Array.isArray(m.files) || !m.files.length
     || m.files.length > 20000 || !Number.isSafeInteger(m.bytes) || m.bytes < 0) refuse('invalid-bundle');
   const store = Object.hasOwn(stores, m.kind) ? stores[m.kind] : undefined;
   if (!store) refuse('unsupported');
@@ -90,8 +111,11 @@ function checkedManifest(fd: number): { m: Manifest; offset: number; digest: str
     if (offset + total > size) refuse('invalid-bundle');
     if (copy(fd, offset + total - f.size, f.size) !== f.sha256) refuse('digest-mismatch');
   }
-  // Pi persists a conversation in exactly one JSONL file, not an account-wide directory.
-  if (m.kind === 'pi' && m.files.length !== 1 || total !== m.bytes || offset + total !== size) refuse('invalid-bundle');
+  if (m.kind === 'pi' && m.files.length !== 1 || m.kind === 'codex' && m.files.length !== 1
+    || m.kind === 'opencode' && (m.files.filter((f) => f.path.startsWith('storage/session/')).length !== 1
+      || m.files.some((f) => f.path.startsWith('storage/part/')
+        && !names.has(`storage/message/${m.conversation}/${f.path.split('/')[2]}.json`)))
+    || total !== m.bytes || offset + total !== size) refuse('invalid-bundle');
   return { m, offset, digest: copy(fd, 0, size) };
 }
 export function conversationFolder(kind: string, env: Record<string, string>): string | undefined {
@@ -100,43 +124,47 @@ export function conversationFolder(kind: string, env: Record<string, string>): s
 }
 export async function exportStore(kind: string, folder: string, conversation: string,
   o: { to: string; maxBytes?: number; maxFiles?: number }): Promise<ConversationExport> {
-  let fd: number | undefined, temp: string | undefined;
+  const opened: { path: string; fd: number; size: number; sha256: string }[] = []; let temp: string | undefined;
   try {
     const store = Object.hasOwn(stores, kind) ? stores[kind] : undefined; if (!store) return fail('unsupported');
     const maxBytes = o.maxBytes ?? 256 * 1024 ** 2, maxFiles = o.maxFiles ?? 20000;
     if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0 || maxBytes > CEILING || !Number.isSafeInteger(maxFiles) || maxFiles <= 0 || maxFiles > 20000) return fail('too-large');
-    const byId = new RegExp(`^${uuid}$`).test(conversation), candidates = byId ? conversationFiles(folder, kind, conversation) : [];
-    const rel = byId && candidates.length === 1 ? candidates[0]! : relative(folder, conversation).split('\\').join('/');
-    const id = kind === 'claude' ? new RegExp(`(${uuid})\\.jsonl$`).exec(rel)?.[1] : new RegExp(`_(${uuid})\\.jsonl$`).exec(rel)?.[1];
+    const byId = conversationId.test(conversation), candidates = byId ? conversationFiles(folder, kind, conversation) : [];
+    const rel = byId ? candidates.find((p) => p.startsWith('storage/session/') || kind !== 'opencode') : relative(folder, conversation).split('\\').join('/');
+    if (!rel) return fail('unsupported');
+    const id = kind === 'claude' ? new RegExp(`(${uuid})\\.jsonl$`).exec(rel)?.[1]
+      : kind === 'codex' ? new RegExp(`-(${uuid})\\.jsonl$`).exec(rel)?.[1]
+      : kind === 'opencode' ? new RegExp(`(ses_[0-9a-z]{26})\\.json$`).exec(rel)?.[1]
+      : new RegExp(`_(${uuid})\\.jsonl$`).exec(rel)?.[1];
     if (!id || !store.accepts(rel, id)) return fail('unsupported');
-    if (resolve(o.to) === resolve(folder, rel)) return fail('unsafe-path');
-    fd = regular(safe(folder, rel)); const size = fstatSync(fd).size;
-    if (size > maxBytes) return fail('too-large');
-    const first = Buffer.alloc(Math.min(size, 64 * 1024)); readSync(fd, first, 0, first.length, 0);
+    const paths = kind === 'opencode' ? [...candidates].sort((a, b) => Number(!a.startsWith('storage/session/')) - Number(!b.startsWith('storage/session/'))) : [rel];
+    if (!paths.length || paths.length > maxFiles || paths.some((p) => resolve(o.to) === resolve(folder, p))) return fail('too-large');
+    for (const path of paths) {
+      const fd = regular(safe(folder, path)), size = fstatSync(fd).size;
+      if (size > maxBytes) { closeSync(fd); return fail('too-large'); }
+      opened.push({ path, fd, size, sha256: copy(fd, 0, size) });
+    }
+    const first = opened[0]!, buffer = Buffer.alloc(Math.min(first.size, 64 * 1024)); readSync(first.fd, buffer, 0, buffer.length, 0);
     try {
-      const header = JSON.parse(first.subarray(0, first.indexOf(10)).toString('utf8')) as { type?: string; id?: string; sessionId?: string };
-      if (kind === 'claude' ? header.sessionId !== id : header.type !== 'session' || header.id !== id) return fail('unsupported');
+      const text = buffer.toString('utf8'), raw = kind === 'opencode' ? text : buffer.subarray(0, buffer.indexOf(10)).toString('utf8');
+      const header = JSON.parse(raw) as { type?: string; id?: string; sessionId?: string; payload?: { id?: string } };
+      if (kind === 'claude' ? header.sessionId !== id : kind === 'codex' ? header.type !== 'session_meta' || header.payload?.id !== id
+        : kind === 'opencode' ? header.id !== id : header.type !== 'session' || header.id !== id) return fail('unsupported');
     } catch { return fail('unsupported'); }
-    const m: Manifest = { version: 1, kind, conversation: id, files: [{ path: rel, size, sha256: copy(fd, 0, size) }], bytes: size };
-    const header = Buffer.from(JSON.stringify(m)), prefix = Buffer.alloc(12);
-    prefix.write('BYKCONV1'); prefix.writeUInt32BE(header.length, 8);
+    const size = opened.reduce((n, f) => n + f.size, 0);
+    const m: Manifest = { version: 1, kind, conversation: id, files: opened.map(({ path, size, sha256 }) => ({ path, size, sha256 })), bytes: size };
+    const header = Buffer.from(JSON.stringify(m)), prefix = Buffer.alloc(12); prefix.write('BYKCONV1'); prefix.writeUInt32BE(header.length, 8);
     if (12 + header.length + size > maxBytes) return fail('too-large');
-    const dir = safe(dirname(resolve(o.to)));
-    temp = join(dir, `.conversation-${randomUUID()}`);
+    const dir = safe(dirname(resolve(o.to))); temp = join(dir, `.conversation-${randomUUID()}`);
     const out = openSync(temp, 'wx', 0o600);
-    try { writeSync(out, prefix); writeSync(out, header); if (copy(fd, 0, size, out) !== m.files[0]!.sha256 || fstatSync(fd).size !== size) refuse('digest-mismatch'); }
+    try { writeSync(out, prefix); writeSync(out, header); for (const f of opened) if (copy(f.fd, 0, f.size, out) !== f.sha256 || fstatSync(f.fd).size !== f.size) refuse('digest-mismatch'); }
     finally { closeSync(out); }
     const check = regular(temp); let digest: string;
     try { digest = checkedManifest(check).digest; } finally { closeSync(check); }
     renameSync(temp, resolve(o.to)); temp = undefined;
-    return { ok: true, kind, conversation: id, files: 1, bytes: size, digest };
+    return { ok: true, kind, conversation: id, files: opened.length, bytes: size, digest };
   } catch (e) { return result(e); }
-  finally {
-    try {
-      if (fd !== undefined) closeSync(fd);
-      if (temp) unlinkSync(temp);
-    } catch { return fail('write-failed'); }
-  }
+  finally { try { for (const f of opened) closeSync(f.fd); if (temp) unlinkSync(temp); } catch { return fail('write-failed'); } }
 }
 export async function importConversation(o: ConversationImportOptions): Promise<ConversationImport> {
   let fd: number | undefined, stage: string | undefined;
