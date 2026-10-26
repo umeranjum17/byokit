@@ -17,7 +17,7 @@
 
 [Quick start](#quick-start) · [Packages](packages) · [Examples](examples) · [Contributing](CONTRIBUTING.md)
 
-[![npm version of @byokit/accounts](https://img.shields.io/npm/v/@byokit/accounts?style=flat&label=accounts)](https://www.npmjs.com/org/byokit) [![Apache-2.0 license](https://img.shields.io/badge/license-Apache--2.0-666?style=flat)](LICENSE)
+[![npm version of @byokit/accounts](https://img.shields.io/npm/v/@byokit/accounts?style=flat&label=accounts)](https://www.npmjs.com/org/byokit) [![Apache-2.0 license](https://img.shields.io/badge/license-Apache--2.0-666?style=flat)](LICENSE) [![X @umership](https://img.shields.io/badge/X-@umership-666?style=flat&logo=x)](https://x.com/umership)
 </div>
 
 ## Quick start
