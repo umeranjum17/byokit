@@ -1,8 +1,8 @@
 # Carry a Pi or Claude conversation between computers
 
-Outcome: an app carries one Pi or Claude Code conversation between two explicit account folders through the built
-host kit, without knowing transcript layout or moving sign-ins. Claude proof uses an existing local transcript,
-copied unchanged into isolated folders; the journey never starts a CLI or reads credentials.
+Outcome: the built host kit carries a Pi conversation between two explicit account folders. Claude's native
+store is proven separately with an existing local transcript copied unchanged into isolated folders; its public
+kit launcher path is not proven because the helper is currently stubbed. No credential or CLI is used.
 
 ## Drive
 
@@ -40,7 +40,9 @@ bounded outcome above, never an unperformed CLI resume.
 ## Claude real-session drive
 
 With an existing real Claude session file selected from `~/.claude/projects`, copy it into an exclusive task
-scratch folder (never modify the source), then run the public built-package consumer in an open done-done evidence run:
+scratch folder (never modify the source), then run the built store adapter in an open done-done evidence run.
+The adapter uses the built `dist/conversations.js` store functions and public `@byokit/herdr` importer; it skips
+`HerdrKit.startAgent` because the launcher helper is stubbed, so this proves the store round trip, not the kit launcher.
 
 ```sh
 done-done run --open
@@ -54,8 +56,7 @@ Keep the copied private transcript out of the repository and remove the register
 
 ## Limits
 
-Pi's default JSONL store and Claude Code's per-project JSONL transcripts are supported. Codex, opencode and
-Gemini remain unsupported. The real Claude journey copies one existing transcript into isolated folders, imports
-it, and confirms its unchanged conversation ID and digest on a fake resume; it does not start a real CLI. A real
-CLI resume on a second computer needs the agent's own sign-in there and belongs to muxr's next journey. No
-example UI is added. Subscription/API billing labels are unchanged.
+Pi's default JSONL store and Claude Code's per-project JSONL transcripts are implemented; Codex, opencode and
+Gemini remain unsupported. Claude proof copies one existing transcript into isolated folders, imports it, and
+confirms the same ID/digest by re-export. It does not prove `HerdrKit.startAgent` or a native Claude CLI resume:
+the launcher stub is a separate follow-up. No example UI is added. Subscription/API billing labels are unchanged.
