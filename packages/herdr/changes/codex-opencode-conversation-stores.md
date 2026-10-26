@@ -1,1 +1,0 @@
-- Adds portable conversation bundles for Codex rollout JSONL and opencode session, message and part records, preserving each conversation's native id and bundle digest without including credentials.
