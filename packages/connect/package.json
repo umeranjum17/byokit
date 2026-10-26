@@ -42,6 +42,6 @@
     "@modelcontextprotocol/sdk": "1.32.1"
   },
   "devDependencies": {
-    "emulate": "0.12.2"
+    "emulate": "0.12.3"
   }
 }
