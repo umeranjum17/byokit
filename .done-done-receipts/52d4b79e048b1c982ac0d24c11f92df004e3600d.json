@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "52d4b79e048b1c982ac0d24c11f92df004e3600d",
+  "tree": "48d4f5819c7c0d2a19069bffcf8cf45d2bbf6ebe",
+  "claim": "Pi consumers can use Ollama Pro through the existing OpenAI-compatible provider shape, preserving its Ollama endpoint and using the model they selected.",
+  "result": "pass",
+  "at": "2026-10-26T13:05:20.987Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261026T123031Z-52d4b79e-003c40/20261026T123031Z-52d4b79e-003c40.log",
+      "sha256": "e8e28faf2197e64861b214f29c6afd707ede85273aeec4b191b09353569d6b3d"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261026T123031Z-52d4b79e-003c40",
+      "commit": "52d4b79e048b1c982ac0d24c11f92df004e3600d",
+      "journey": null,
+      "command": "sh -c 'node --input-type=module < ~/firstmate/data/byk-ollama-pro-shape/capture.mjs'",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "0.34.0"
+        },
+        "start": "Ollama Pro plan key is available in an in-memory fixture store.",
+        "steps": [
+          "Resolve the Ollama Pro catalogue shape and plan-key route.",
+          "Send the selected model through built @byokit/accounts with a fixture transport.",
+          "Observe the OpenAI-compatible endpoint, model id, and credential header."
+        ],
+        "result": "The request reached https://ollama.com/v1/chat/completions with deepseek-v4.1-flash and returned shape-ok."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261026T123031Z-52d4b79e-003c40/20261026T123031Z-52d4b79e-003c40.log",
+        "sha256": "e8e28faf2197e64861b214f29c6afd707ede85273aeec4b191b09353569d6b3d",
+        "verdict": "pass",
+        "seen": "I read the one capture entry. It shows providerShape \"openai\", routeId \"ollama-pro:plan_key\", endpoint \"https://ollama.com/v1/chat/completions\", selectedModel \"deepseek-v4.1-flash\", authPresent true, response text \"shape-ok\", and stopReason \"stop\". This matches the outcome: an OpenAI-compatible shape, the Ollama endpoint preserved, the user's selected model used, and a successful completion. The outcome names a single part, so parts is empty."
+      }
+    ]
+  }
+}

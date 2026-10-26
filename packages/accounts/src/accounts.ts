@@ -588,7 +588,7 @@ export class Accounts<R extends AuthHost = AuthHost, M extends Member = Member> 
   constructor(opts: AccountsOptions<M> = {}, platform: Platform = portable) {
     this.opts = opts;
     this.platform = platform;
-    this.providers = opts.offer ? offered(opts.offer) : offered().filter((p) => platform.signsIn(p.pi));
+    this.providers = opts.offer ? offered(opts.offer) : offered().filter((p) => platform.signsIn(p.pi) || planKey(p.key));
   }
 
   /** A member's own store. */

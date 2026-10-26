@@ -1,0 +1,1 @@
+- FIX: Map Ollama Pro onto the existing OpenAI-compatible provider shape so Pi consumers can resolve and call its plan-key route without a project alias.
