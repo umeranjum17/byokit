@@ -52,6 +52,11 @@ journeys:
         echo "Required ci-ok aggregator:"
         awk '/^  ci-ok:$/{p=1} p' .github/workflows/ci.yml
         echo
+        echo "Live cancellation evidence: run 40302146934 was superseded by the newer pull-request run 40325736157:"
+        gh-axi run view 40302146934
+        echo "Live README-only docs PR evidence: https://github.com/umeranjum17/byokit/pull/870, run 40328580435:"
+        gh-axi pr checks 870
+        echo
         echo "What this capture shows, in order:"
         echo "  a. the bug: the push to main run 39548414209 (before this change) failed at the done-done gate;"
         echo "  b. the fix: the done-done job's condition now runs it on a pull request only;"
@@ -99,9 +104,11 @@ journeys:
           "Read the push trigger and confirm main pushes are not cancelled.",
           "Read the existing path-aware changes dispatcher: Markdown-only changes set code=false and unrelated changed paths leave area jobs false.",
           "Read the ci-ok aggregator and confirm it accepts skipped jobs so the required check remains available.",
+          "Observe GitHub cancel run 40302146934 after newer pull-request run 40325736157 started.",
+          "Observe README-only docs PR https://github.com/umeranjum17/byokit/pull/870 run 40328580435 with 23 heavy jobs skipped and ci-ok still present.",
           "Read the real workflow and CI run evidence recorded in ci-gate-event.log."
         ],
-        "result": "The workflow configuration keys concurrency by PR number and cancels only pull-request runs; main pushes are unaffected, while the existing path-aware dispatcher and ci-ok aggregator keep docs-only and unrelated changes from requiring heavy jobs."
+        "result": "GitHub cancelled superseded pull-request run 40302146934 when run 40325736157 started; the README-only docs PR 870 skipped 23 heavy jobs while preserving the required ci-ok check."
       }
       JSON
   # The core user journey and the release path, in .done-done.yaml: a consumer app
