@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.17.0 (2026-10-26)
+
+- FEATURE: Host-only Pi conversation export/import with one bounded, versioned opaque bundle, SHA-256 verification, private staging and rollback. Only explicit app-managed account stores are eligible; credentials never move. Claude/Codex adapters and second-computer CLI resume remain separate follow-ups. This additive API is a minor release; versions are assigned only by the trusted release publisher.
+
 ## 0.16.8 (2026-10-25)
 
 - Dependency update: pins @byokit/relay 0.8.3.
