@@ -249,7 +249,7 @@
     }
   },
   "ollama-pro": {
-    "pi": "ollama-pro",
+    "pi": "openai",
     "name": "Ollama Pro",
     "company": "Ollama",
     "billing": "subscription",

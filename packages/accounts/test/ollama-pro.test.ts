@@ -37,7 +37,7 @@ function local() {
 
 test('catalogue offers Ollama Pro as a pasted plan key', () => {
   const p = provider('ollama-pro');
-  assert.deepEqual([p.pi, p.name, p.company, p.billing, p.auth], ['ollama-pro', 'Ollama Pro', 'Ollama', 'subscription', 'api-key']);
+  assert.deepEqual([p.pi, p.name, p.company, p.billing, p.auth], ['openai', 'Ollama Pro', 'Ollama', 'subscription', 'api-key']);
   assert.deepEqual(p.routes, [OLLAMA_PRO_PLAN_ROUTE]);
   assert.equal(OLLAMA_PRO_BASE_URL, 'https://ollama.com/v1');
   assert.ok(offered().some((q) => q.key === 'ollama-pro'));
@@ -61,12 +61,15 @@ test('respondKey streams openai-completions to ollama.com/v1 with the plan key h
     { id: 'fixture', choices: [{ index: 0, delta: { role: 'assistant', content: 'ok' }, finish_reason: null }] },
     { id: 'fixture', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } },
   ];
+  assert.equal(model.provider, route(OLLAMA_PRO_PLAN_ROUTE).provider);
   let hit = '';
+  let requestedModel = '';
   const result = await accounts.respondKey('Umer', {
     account: id, model, context,
     options: {
       fetch: async (input, init) => {
         hit = String(input);
+        requestedModel = (JSON.parse(String(init?.body)) as { model: string }).model;
         const headers = new Headers(init?.headers);
         assert.equal(headers.get('authorization'), `Bearer ${CANARY}`);
         leak(hit);
@@ -78,6 +81,7 @@ test('respondKey streams openai-completions to ollama.com/v1 with the plan key h
     },
   });
   assert.equal(hit, `${OLLAMA_PRO_BASE_URL}/chat/completions`);
+  assert.equal(requestedModel, model.id);
   assert.equal(result.stopReason, 'stop');
   assert.ok(!JSON.stringify(result).includes(CANARY));
 });

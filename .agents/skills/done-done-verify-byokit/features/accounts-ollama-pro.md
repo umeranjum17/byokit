@@ -1,12 +1,12 @@
 # Ollama Pro plan-key route
 
-Built `@byokit/accounts/ollama-pro`: save a plan key via the shared secrets seam, chat against a loopback fake of `https://ollama.com/v1` with default model `deepseek-v4.1-flash`. Fakes only.
+Built `@byokit/accounts/ollama-pro`: save a plan key via the shared secrets seam, chat against a loopback fake of `https://ollama.com/v1` using the consumer-selected `deepseek-v4.1-flash` model. The catalogue maps Ollama Pro to the existing `openai` provider shape; BYOKit supplies no model catalog. Fakes only.
 
 ## Sub-features
 
-- Catalogue route `ollama-pro:plan_key` (subscription plan key, strong model `deepseek-v4.1-flash`).
+- Catalogue route `ollama-pro:plan_key` (subscription plan key) maps to the `openai` shape while retaining the Ollama route id and endpoint.
 - Seam: `saveOllamaProPlanKey` / `ollamaProPlanAccount` / `deleteOllamaProPlanKey` — one `accounts.ollama-pro:plan_key` entry; missing key says `Add the Ollama Pro plan key first.`
-- `ollamaProChat` POSTs `/chat/completions` to a 127.0.0.1 fake with Bearer from the store; canary never in argv/env/response/errors.
+- Provider conformance test resolves the Ollama route through `Accounts.respondKey` and proves the selected provider/model reach `/chat/completions` at the configured base URL; `ollamaProChat` POSTs to a 127.0.0.1 fake with Bearer from the store. Canary never in argv/env/response/errors.
 
 ## Driving it with node scratch consumers
 
