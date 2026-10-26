@@ -1,0 +1,52 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "6798dae1daf2f7538cb98de703aa227ec95fcd1d",
+  "tree": "9662ca01172846ad79d9cffe46916935c50a4b13",
+  "claim": "A README visitor sees an X badge reading @umership in the README badge row.",
+  "result": "pass",
+  "at": "2026-10-26T04:02:45.153Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261026T040019Z-6798dae1-397a00/readme.png",
+      "sha256": "47df6fdddaa100962096912a24f6594d44f5b62167fa20e50360d8ec5dff9581"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261026T040019Z-6798dae1-397a00",
+      "commit": "6798dae1daf2f7538cb98de703aa227ec95fcd1d",
+      "journey": null,
+      "command": null,
+      "tool": "0.6.7",
+      "steps": {
+        "target": {
+          "version": "README at 6798dae1"
+        },
+        "start": "GitHub rendered README",
+        "steps": [
+          "Open the repository README at desktop width",
+          "Inspect the centered header badges"
+        ],
+        "result": "The X badge names @umership alongside npm and license badges."
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:opencode",
+    "model": "ollama-cloud/deepseek-v4.1-flash",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261026T040019Z-6798dae1-397a00/readme.png",
+        "sha256": "47df6fdddaa100962096912a24f6594d44f5b62167fa20e50360d8ec5dff9581",
+        "verdict": "pass",
+        "seen": "The README badge row below the hero shows badges: \"License ... 0.0.1\" (blue), \"npm ... 0.0.1\" (orange), \"CI npm: 0.0.0\" and \"@umership\" (grey). The rightmost badge reads \"@umership\", matching the outcome that a README visitor sees an X badge reading @umership in the badge row. It is small but legible, and no overlay hides it."
+      }
+    ]
+  }
+}
