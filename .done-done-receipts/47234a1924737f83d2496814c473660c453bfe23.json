@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "47234a1924737f83d2496814c473660c453bfe23",
+  "tree": "d1c3d5b41530110fb0b00952dba24dd3d1778429",
+  "claim": "Apps can export a Pi, Claude, Codex or opencode conversation from one managed folder, import it into another and get identical files, through the packed @byokit/herdr 0.17.1",
+  "result": "pass",
+  "at": "2026-10-26T19:09:07.349Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261026T190852Z-47234a19-55f30b/journey.txt",
+      "sha256": "a3b8e72ec78dc8dc472834595ba912ff16e717a30b59d12b9e823c5d77441268"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261026T190852Z-47234a19-55f30b",
+      "commit": "47234a1924737f83d2496814c473660c453bfe23",
+      "journey": null,
+      "command": "sh scratch/sealed-proof.sh",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "0.17.1"
+        },
+        "start": "Conversations exist in managed account A for pi, claude, codex and opencode",
+        "steps": [
+          "Pack @byokit/herdr 0.17.1 and install the tarball in an external consumer",
+          "Export each conversation from account A with kit.exportConversation",
+          "Import it into isolated account B with importConversation",
+          "Compare restored files byte for byte"
+        ],
+        "result": "Export and import succeeded for pi, claude, codex and opencode; restored files are identical."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261026T190852Z-47234a19-55f30b/journey.txt",
+        "sha256": "a3b8e72ec78dc8dc472834595ba912ff16e717a30b59d12b9e823c5d77441268",
+        "verdict": "pass",
+        "seen": "I read all four entries (pi, claude, codex, opencode) plus the PASS line. Each shows 'export ok' and 'import ok', and each reports 'bytes identical in account B: true'. The capture was installed @byokit/herdr 0.17.1, matching the version in the outcome. The outcome names one check across four agents, not separate widths or frames, so no parts are listed."
+      }
+    ]
+  }
+}
