@@ -1,7 +1,7 @@
 # @byokit/speak
 
-Read a reply aloud through the platform's own text-to-speech. No network, no provider keys, no audio files:
-the web speaks through `speechSynthesis`, Android through `TextToSpeech`, iOS through `AVSpeechSynthesizer`.
+The device path reads replies aloud without a network, provider key or audio file: the web uses `speechSynthesis`,
+Android uses `TextToSpeech`, and iOS uses `AVSpeechSynthesizer`. The separate provider path returns audio bytes for host playback.
 On Node (and anywhere with no engine) `speaker` is `unsupported` unless the host injects one. Private at 0.1.0.
 
 ```ts
@@ -40,3 +40,30 @@ await custom.speak('Hi Umer').done;
 
 The second example's `engine` is the host's own `SpeakEngine`; `createSpeaker(null)` is the
 `unsupported` speaker the default entry uses on Node.
+
+## Use a speech provider
+
+The provider path is separate from the device speaker. The app supplies its own credential and a secure
+credential store, and persists the selected provider/voice through its own store. The kit never chooses or
+switches either. The reference adapter uses the compatible `/v1/audio/voices` and `/v1/audio/speech` routes;
+`speak()` returns MP3 bytes for the host app to play. Device `speaker` remains the labelled fallback.
+
+```ts
+import { createProviderSpeech, openAICompatibleSpeech } from '@byokit/speak';
+import type { SpeechChoiceStore } from '@byokit/speak';
+
+declare const choiceStore: SpeechChoiceStore;
+declare const secureStore: { get(key: string): Promise<string> };
+const provider = openAICompatibleSpeech();
+const speech = createProviderSpeech([provider], choiceStore); // load/save { provider, voice }
+await speech.connect('openai-compatible', {
+  apiKey: await secureStore.get('speech-key'), baseUrl: 'https://api.example.com', model: 'tts-1',
+});
+const voices = await speech.voices('openai-compatible');
+await speech.select({ provider: 'openai-compatible', voice: voices[0].id }); // explicit; persist in choiceStore
+const mp3 = await speech.speak('Hi Umer'); // play with the host's audio facility
+```
+
+The choice store persists selection only, not credentials. The host must retain credentials in secure storage and
+reconnect explicitly after restart. A failed provider request rejects with a plain, key-safe error; there is no
+fallback to the device voice or another provider.
