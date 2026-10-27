@@ -1,7 +1,7 @@
 <h1 align="center">@byokit/approve</h1>
 
 <p align="center">
-  <img alt="status: private, not on npm" src="https://img.shields.io/badge/status-private%20not%20on%20npm-lightgrey?style=flat" />
+  <a href="https://www.npmjs.com/package/@byokit/approve"><img alt="npm" src="https://img.shields.io/npm/v/@byokit/approve?style=flat" /></a>
   <a href="https://github.com/umeranjum17/byokit/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/umeranjum17/byokit/ci.yml?style=flat&branch=main" /></a>
   <a href="LICENSE"><img alt="Apache 2.0" src="https://img.shields.io/badge/license-Apache--2.0-666?style=flat" /></a>
   <img alt="Node 22+ | browsers | React Native" src="https://img.shields.io/badge/platform-Node%2022%2B%20%7C%20browsers%20%7C%20React%20Native-666?style=flat" />
@@ -13,7 +13,9 @@ the same words, or a past deadline is refused with a typed code. No dependencies
 
 ## Install
 
-Private at 0.1.0: not on npm yet, so there is nothing to install. The quickstart below runs from this workspace.
+```sh
+npm install @byokit/approve
+```
 
 Node 22.18+, browsers and React Native: the kit uses only Web Crypto (`crypto.getRandomValues`), which every
 supported platform provides. Requests and grants are frozen plain JSON, so they cross a worker or process
