@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "6034aff34fa2a16f95555042b8766742d2ed2012",
+  "tree": "fda21794696f6dabb95bd09f4cd595ff65c68ef6",
+  "claim": "A phone session reports each move of a chat through onChange, and a tool that needs approval is shown as asking (session blocked) while the app's ask is open; after a no the tool never ran and the turn ended done.",
+  "result": "pass",
+  "at": "2026-10-27T01:06:27.382Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261027T010617Z-6034aff3-4b399c/phone-drive.txt",
+      "sha256": "3f76be878c6b51a70e0aef44d8e6ace8df4e2fd74a032fa29e0c782a4a903759"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261027T010617Z-6034aff3-4b399c",
+      "commit": "6034aff34fa2a16f95555042b8766742d2ed2012",
+      "journey": null,
+      "command": "sh proof.sh",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "@byokit/phone 0.1.6 built dist with onChange and tool approval"
+        },
+        "start": "a signed-in phone session on the loopback OpenAI stand-in with one tool that needs approval",
+        "steps": [
+          "Subscribe with onChange",
+          "Send 'mail the plumber'; the model calls the send_email tool",
+          "The tool shows as asking and the session as blocked while the app's ask is open",
+          "The app's ask answers no"
+        ],
+        "result": "onChange reported each move; the tool never ran; the model was told the person declined; the session ended done and idle (see phone-drive.txt)"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261027T010617Z-6034aff3-4b399c/phone-drive.txt",
+        "sha256": "3f76be878c6b51a70e0aef44d8e6ace8df4e2fd74a032fa29e0c782a4a903759",
+        "verdict": "pass",
+        "seen": "I read all 10 entries. Entry 3 shows CHANGE running blocked with send_email 'asking', and entry 4 is the ASK with status blocked. Entry 5 shows the tool resuming after the ask. Entry 10 is RESULT with 'The person declined... It did not run... ran 0'. Entries 8 and 9 show CHANGE done working, then done idle. The outcome is fully matched: the session was blocked while the ask was open, the no answer meant the tool never ran, and the turn ended done. The footer's grep counts agree. The outcome names one part, so parts and covers are empty."
+      }
+    ]
+  }
+}
