@@ -1,0 +1,1 @@
+- Dependency update: pins @anthropic-ai/sdk 1.3.0, @google/genai 2.31.0, @modelcontextprotocol/sdk 1.32.2 and openai 7.43.0; undici-types 8.12.3 (types only).
