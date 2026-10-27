@@ -100,3 +100,26 @@ app's bundled copy of the pinned graph (verified by size and a pure-JS SHA-256, 
 `onnxruntime-react-native` 1.24.3 is a second **optional** peer; the app installs it and passes it in. Its unit proof is a
 deterministic fake runtime, so handset CPU and battery are unmeasured.
 Nothing here starts a GPU or a local service; the CPU execution provider is the only one used.
+## Wake word (Android)
+
+`createWake({ session })` listens for a wake word with a graph **you supply**; this kit bundles, pins and
+downloads no wake model, so no model licence or training-data provenance is implied by installing it.
+On Android, `wakeSession(bytes, onnxruntime-react-native)` from `@byokit/audio/react-native` runs your graph on the CPU provider:
+
+```ts
+import { createWake } from '@byokit/audio';
+import { wakeSession } from '@byokit/audio/react-native';
+declare const graphBytes: Uint8Array; // your wake graph, from your app's assets
+declare const pcm16kMono: Int16Array;
+const wake = createWake({ session: await wakeSession(graphBytes, require('onnxruntime-react-native')) });
+for (const hit of await wake.push(pcm16kMono)) console.log(hit.atMs, hit.score);
+```
+
+The graph contract: input `audio`, float32 `[1, 24000]` (the trailing 1.5 s of 16 kHz mono PCM in [-1, 1],
+zero-filled before the stream began); output `score`, float32, first element in [0, 1]. It is stateless
+and does its own feature extraction. The kit scores it every 80 ms and owns the window, the 0.5 threshold,
+`patience` (2 consecutive hops) and a 2 s cooldown. A score outside [0, 1] is `bad-model`.
+
+**iOS: wake works only while the app is foregrounded.** iOS suspends an app's microphone in the background,
+so `createWake` can listen only while your app is open and on screen; there is no always-listening path
+on iPhone. Its unit proof is a deterministic fake runtime; handset CPU, battery and accuracy are unmeasured.
