@@ -39,9 +39,9 @@
   },
   "dependencies": {
     "@byokit/secrets": "0.5.3",
-    "@modelcontextprotocol/sdk": "1.32.1"
+    "@modelcontextprotocol/sdk": "1.32.2"
   },
   "devDependencies": {
-    "emulate": "0.12.2"
+    "emulate": "0.12.3"
   }
 }

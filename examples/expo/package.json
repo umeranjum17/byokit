@@ -13,13 +13,13 @@
     "@byokit/secrets": "file:../../packages/secrets",
     "@byokit/statusbar": "file:../../packages/statusbar",
     "@byokit/ui": "file:../../packages/ui",
-    "expo": "~57.0.25",
+    "expo": "~57.0.31",
     "expo-build-properties": "~57.0.22",
-    "expo-crypto": "~57.0.3",
+    "expo-crypto": "~57.0.4",
     "expo-keep-awake": "~57.0.2",
     "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
-    "react": "19.3.0",
+    "react": "19.3.1",
     "react-native": "0.86.3",
     "@byokit/push": "file:../../packages/push",
     "@byokit/usage": "file:../../packages/usage",
@@ -27,7 +27,7 @@
     "expo-share-intent": "8.0.1",
     "@byokit/infer": "file:../../packages/infer",
     "llama.rn": "0.12.9",
-    "@dr.pogodin/react-native-fs": "2.40.3"
+    "@dr.pogodin/react-native-fs": "2.41.0"
   },
   "overrides": {
     "shell-quote": "1.12.0",
