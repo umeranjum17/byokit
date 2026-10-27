@@ -15,6 +15,9 @@ such as muxr shows: a pane's terminal is its own truth, so a phone session, with
   reads `interrupted` and the session `blocked` until the person taps Try again (`resume`). A tool cut off mid-run
   runs again only when `replaySafe: true` (keyed by `callId`); any other is reported to the model as "may or may not
   have acted". A `requestId` already sent returns that turn and sends nothing.
+- **Tools that act for the person ask first.** A tool with `approval: { button, reason }` runs only after the app's
+  `ask(approval)` resolves `true`; a `false` is reported to the model as declined and the tool never runs. The answer is
+  kept in the log: a kill while asking asks again on Try again, a kill after the answer does not.
 - **No background time.** A phone gives an app none: "survives" means "continues correctly when reopened".
 - **Not here yet:** moving a phone chat to a computer or the cloud, shell or file tools, Claude plan turns, and Pi
   Durable (its `pi-ai` 1.x does not match the pin in `@byokit/accounts`).
@@ -82,6 +85,11 @@ caps model calls per turn (default 8). Then:
 
 - `send(text, { requestId?, signal?, onText? })` runs one turn to its end; an abort rejects with the signal's reason
   and leaves the turn `interrupted`. `resume(requestId, opts)` finishes an interrupted turn from its last kept step.
+- `onChange(fn)` calls `fn({ turn, status })` on every kept step and when a turn ends or is cut off, and returns
+  the unsubscribe. A Home row redraws from it, and a local notification ("finished", "needs your yes") fires from it:
+  a tool waiting on the person reads `asking` and the session `blocked`. Streamed text stays on `send`'s `onText`.
+- `open` takes `ask(approval)` when any tool has an `approval`; `approval` is `{ requestId, callId, tool, args, button,
+  reason }`. Show it (a sheet, a notification action) and resolve with the person's answer.
 - `account()` is `{ id, name, billing, words, signedIn }`; `clear()` forgets the chat on this phone.
 - `turns` is the whole chat: each turn's `text`, `answer`, `state` (`running`, `done`, `failed`, `interrupted`), its
   tools' states and, when it did not finish, `code` and `words`. `status` uses Herdr's own words (`AgentStatus`), so

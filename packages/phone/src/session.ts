@@ -44,10 +44,14 @@ export type PhoneTool = {
   /** True only when running it again after the phone cut it off gives the same result, because its effect is keyed by
    *  `callId` (for example a file named by it). Otherwise a cut-off call is reported to the model as stopped, never rerun. */
   replaySafe?: boolean;
+  /** Set when the tool acts for the person (sends, spends, deletes): `run` waits until the session's `ask` says yes. `button`
+   *  labels the person's yes ("Send the email"), `reason` says what it will do. A no reaches the model as declined. */
+  approval?: { button: string; reason: string };
   run(args: Record<string, unknown>, call: { requestId: string; callId: string; signal?: AbortSignal }): Promise<string>;
 };
 
-export type PhoneToolState = 'running' | 'done' | 'interrupted';
+/** `asking`: the tool waits for the person's yes or no. */
+export type PhoneToolState = 'running' | 'asking' | 'done' | 'interrupted';
 export type PhoneTurnState = 'running' | 'done' | 'failed' | 'interrupted';
 /** One thing the person sent and what came of it. `words` says why a turn failed or was interrupted. */
 export type PhoneTurn = {
@@ -56,11 +60,16 @@ export type PhoneTurn = {
   tools: { callId: string; name: string; state: PhoneToolState }[];
 };
 /** The session as a Home row beside Herdr panes, in the same words as Herdr's `AgentStatus`: `blocked` means a turn
- *  was cut off and waits for the person's Try again. */
+ *  was cut off and waits for the person's Try again, or a tool waits for their yes or no. */
 export type PhoneSessionStatus = 'idle' | 'working' | 'blocked';
 /** Who answers and how it is paid for, in the catalogue's own sentence ("Uses your ChatGPT plan.", "Charged per use to
  *  your OpenRouter account, not a plan."). */
 export type PhoneAccount = { id: string; name: string; billing: Billing; words: string; signedIn: boolean };
+
+/** What the person is asked to allow: one tool call, with the words of its `approval`. */
+export type PhoneApproval = { requestId: string; callId: string; tool: string; args: Record<string, unknown>; button: string; reason: string };
+/** What `onChange` hands over: the turn that moved, as it now stands, and the session's status after the move. */
+export type PhoneChange = { turn: PhoneTurn; status: PhoneSessionStatus };
 
 export type PhoneSessionOptions<M extends Member> = {
   /** The app's own `Accounts`, where the person signed in on this phone. */
@@ -72,6 +81,10 @@ export type PhoneSessionOptions<M extends Member> = {
   model?: Model<Api> | string;
   instructions: string;
   tools?: readonly PhoneTool[];
+  /** Asks the person to allow a tool call that has an `approval`: show it (a sheet, a notification) and resolve with
+   *  their answer. Required when any tool has one. The answer is kept: a turn cut off while asking asks again on Try
+   *  again, a turn cut off after the answer does not. A rejection or an abort leaves the turn `interrupted`. */
+  ask?(approval: PhoneApproval): Promise<boolean>;
   log: PhoneLog;
   /** Model calls one turn may make. Default 8. */
   maxSteps?: number;
@@ -88,11 +101,14 @@ type Entry =
   | { t: 'user'; rid: string; text: string; at: number }
   | { t: 'step'; rid: string; text: string; calls: Call[] }
   | { t: 'tool-start'; rid: string; id: string }
+  | { t: 'tool-ask'; rid: string; id: string }
+  | { t: 'tool-answer'; rid: string; id: string; allow: boolean }
   | { t: 'tool-end'; rid: string; id: string; output: string; error?: boolean }
   | { t: 'end'; rid: string; text: string }
   | { t: 'fail'; rid: string; code: PhoneErrorCode };
 
 const ZERO = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+const DECLINED = 'The person declined to let this tool run. It did not run: do not try it again unless they ask.';
 const STOPPED = 'The app closed while this tool was running. It may or may not have acted, and it was not run again: do not assume it ran, and ask the person before trying it again.';
 
 /** The cause of a failed model call, in the shared vocabulary; null for an abort or anything else, which is rethrown. */
@@ -108,6 +124,7 @@ function codeOf(e: unknown): PhoneErrorCode | null {
 export class PhoneSession<M extends Member = Member> {
   private entries: Entry[];
   private running: string | null = null;
+  private readonly listeners = new Set<(change: PhoneChange) => void>();
   private readonly o: PhoneSessionOptions<M>;
 
   private constructor(o: PhoneSessionOptions<M>, entries: Entry[]) {
@@ -121,6 +138,7 @@ export class PhoneSession<M extends Member = Member> {
     for (const line of await o.log.read()) {
       try { const e = JSON.parse(line); if (e && typeof e.t === 'string' && typeof e.rid === 'string') entries.push(e); } catch { /* a torn last line */ }
     }
+    if (!o.ask && o.tools?.some((t) => t.approval)) throw new TypeError('a tool needs approval, so the session needs an ask');
     return new PhoneSession(o, entries);
   }
 
@@ -142,6 +160,9 @@ export class PhoneSession<M extends Member = Member> {
       if (e.t === 'step') {
         if (e.text) turn.answer = turn.answer ? `${turn.answer}\n\n${e.text}` : e.text;
         for (const c of e.calls) turn.tools.push({ callId: c.id, name: c.name, state: turn.state === 'running' ? 'running' : 'interrupted' });
+      } else if (e.t === 'tool-ask' || e.t === 'tool-answer') {
+        const tool = turn.tools.find((x) => x.callId === e.id);
+        if (tool) tool.state = e.t === 'tool-ask' ? (tool.state === 'running' ? 'asking' : tool.state) : (tool.state === 'asking' ? 'running' : tool.state);
       } else if (e.t === 'tool-end') {
         const tool = turn.tools.find((x) => x.callId === e.id);
         if (tool) tool.state = 'done';
@@ -153,8 +174,17 @@ export class PhoneSession<M extends Member = Member> {
   }
 
   get status(): PhoneSessionStatus {
-    if (this.running !== null) return 'working';
+    if (this.running !== null) return this.turns.find((t) => t.requestId === this.running)?.tools.some((t) => t.state === 'asking') ? 'blocked' : 'working';
     return this.turns.at(-1)?.state === 'interrupted' ? 'blocked' : 'idle';
+  }
+
+  /** Hear every move of the chat: a turn starts, a step lands, a tool starts, waits for the person's yes or no, or
+   *  ends, a turn finishes, fails or is cut off. Each call carries the turn as it now stands and the session's status,
+   *  enough for a Home row or a local notification. Returns the way to stop listening. A listener that throws does not
+   *  stop the chat; its error is rethrown outside it. */
+  onChange(fn: (change: PhoneChange) => void): () => void {
+    this.listeners.add(fn);
+    return () => { this.listeners.delete(fn); };
   }
 
   /** Send the person's words and run the turn to its end. A `requestId` already sent returns that turn as it stands
@@ -168,7 +198,7 @@ export class PhoneSession<M extends Member = Member> {
     try {
       await this.write({ t: 'user', rid, text, at: (this.o.now ?? Date.now)() });
       return await this.run(rid, o);
-    } finally { this.running = null; }
+    } finally { this.release(rid); }
   }
 
   /** Finish an interrupted turn (the person's Try again): it carries on from its last kept step. A tool the phone cut
@@ -178,7 +208,7 @@ export class PhoneSession<M extends Member = Member> {
     if (!turn) throw new RangeError(`no turn ${requestId} in this session`);
     if (turn.state !== 'interrupted') return turn;
     this.claim();
-    try { return await this.run(requestId, o); } finally { this.running = null; }
+    try { return await this.run(requestId, o); } finally { this.release(requestId); }
   }
 
   /** Forget the whole chat on this phone (sign-out, or "Clear chat"). */
@@ -197,6 +227,22 @@ export class PhoneSession<M extends Member = Member> {
     await this.o.log.append(JSON.stringify(e));
     this.entries.push(e);
     if (e.t === 'user') this.running = e.rid;
+    this.emit(e.rid);
+  }
+
+  private release(rid: string) {
+    this.running = null;
+    this.emit(rid);
+  }
+
+  private emit(rid: string) {
+    if (!this.listeners.size) return;
+    const turn = this.turns.find((t) => t.requestId === rid);
+    if (!turn) return;
+    const change = { turn, status: this.status };
+    for (const fn of this.listeners) {
+      try { fn(change); } catch (e) { queueMicrotask(() => { throw e; }); }
+    }
   }
 
   private async row(): Promise<Account | undefined> {
@@ -214,7 +260,7 @@ export class PhoneSession<M extends Member = Member> {
     let steps = this.entries.filter((e) => e.t === 'step' && e.rid === rid).length;
     for (;;) {
       // Answer every call of the last kept step first: a resumed turn may have stopped between them.
-      const last = this.entries.findLast((e) => e.rid === rid && e.t !== 'tool-start' && e.t !== 'tool-end');
+      const last = this.entries.findLast((e) => e.rid === rid && e.t !== 'tool-start' && e.t !== 'tool-end' && e.t !== 'tool-ask' && e.t !== 'tool-answer');
       if (last?.t === 'step' && last.calls.length) {
         for (const call of last.calls) await this.answerCall(rid, call, tools, o.signal);
         if (steps >= (this.o.maxSteps ?? 8)) return this.fail(rid, 'step-limit');
@@ -246,12 +292,16 @@ export class PhoneSession<M extends Member = Member> {
     const mine = this.entries.filter((e) => e.rid === rid && 'id' in e && e.id === call.id);
     if (mine.some((e) => e.t === 'tool-end')) return;
     const tool = tools.find((t) => t.name === call.name);
-    if (mine.length && !tool?.replaySafe) {
+    if (mine.some((e) => e.t === 'tool-start') && !tool?.replaySafe) {
       await this.write({ t: 'tool-end', rid, id: call.id, output: STOPPED, error: true });
       return;
     }
     if (!tool) {
       await this.write({ t: 'tool-end', rid, id: call.id, output: `There is no tool named ${call.name} on this phone.`, error: true });
+      return;
+    }
+    if (tool.approval && !(await this.allowed(rid, call, tool, tool.approval, signal))) {
+      await this.write({ t: 'tool-end', rid, id: call.id, output: DECLINED });
       return;
     }
     await this.write({ t: 'tool-start', rid, id: call.id });
@@ -262,6 +312,21 @@ export class PhoneSession<M extends Member = Member> {
       output = `The tool failed: ${e instanceof Error ? e.message : String(e)}`; error = true;
     }
     await this.write({ t: 'tool-end', rid, id: call.id, output, ...(error ? { error } : {}) });
+  }
+
+  /** The person's kept answer for this call, asking first when there is none. */
+  private async allowed(rid: string, call: Call, tool: PhoneTool, approval: { button: string; reason: string }, signal?: AbortSignal): Promise<boolean> {
+    const mine = this.entries.filter((e) => e.rid === rid && 'id' in e && e.id === call.id);
+    const kept = mine.find((e) => e.t === 'tool-answer');
+    if (kept?.t === 'tool-answer') return kept.allow;
+    if (!mine.some((e) => e.t === 'tool-ask')) await this.write({ t: 'tool-ask', rid, id: call.id });
+    if (signal?.aborted) throw signal.reason;
+    const allow = await new Promise<boolean>((yes, no) => {
+      signal?.addEventListener('abort', () => no(signal.reason), { once: true });
+      this.o.ask!({ requestId: rid, callId: call.id, tool: tool.name, args: call.args, ...approval }).then(yes, no);
+    });
+    await this.write({ t: 'tool-answer', rid, id: call.id, allow });
+    return allow;
   }
 
   /** One model call over the chat so far: earlier finished turns as words, this turn step by step. */

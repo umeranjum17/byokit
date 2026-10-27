@@ -10,7 +10,7 @@ import { Accounts, memoryStore, portable, type Api, type Model } from '@byokit/a
 import { withKeys } from '@byokit/accounts/keys';
 import { mockOpenAI } from '@byokit/accounts/testing';
 import plain from '../../../fixtures/conformance/plain-words.json' with { type: 'json' };
-import { memoryLog, PhoneError, PhoneSession, WORDS, type PhoneTool } from '../src/index.ts';
+import { memoryLog, PhoneError, PhoneSession, WORDS, type PhoneApproval, type PhoneChange, type PhoneTool } from '../src/index.ts';
 
 async function signedIn(t: { after(fn: () => unknown): void }) {
   const openai = await mockOpenAI();
@@ -147,6 +147,67 @@ test('one turn at a time, and every sentence is plain', async (t) => {
   await assert.rejects(sent);
   const pattern = new RegExp(plain.pattern, 'i');
   for (const [key, sentence] of Object.entries(WORDS)) assert.doesNotMatch(sentence.replace(/\{\w+\}/g, 'X'), pattern, key);
+});
+
+test('a turn is heard through onChange, a tool waits for the person\'s yes, a no never runs it, and a kill while asking asks again', async (t) => {
+  const { accounts, asked } = await signedIn(t);
+  const log = memoryLog();
+  const ran: string[] = [];
+  const tool: PhoneTool = { name: 'send_email', description: 'Send an email.', parameters: { type: 'object', properties: { input: { type: 'string' } } },
+    approval: { button: 'Send the email', reason: 'Sends an email from your account.' }, run: async (_, call) => { ran.push(call.callId); return 'sent'; } };
+  const waiting: PhoneApproval[] = [];
+  let answer!: (allow: boolean) => void;
+  const o = { accounts, member: 'Umer', account: 'chatgpt', model: 'gpt-6-sol', instructions: 'You run on a phone.', tools: [tool], log,
+    ask: (a: PhoneApproval) => new Promise<boolean>((yes) => { waiting.push(a); answer = yes; }) };
+  await assert.rejects(PhoneSession.open({ ...o, ask: undefined }), TypeError, 'a tool that needs approval cannot open without a way to ask');
+
+  const session = await PhoneSession.open(o);
+  const heard: PhoneChange[] = [];
+  const stop = session.onChange((c) => heard.push(c));
+  const kill = new AbortController();
+  const sent = session.send('mail the plumber', { requestId: 'r1', signal: kill.signal });
+  while (!waiting.length) await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(waiting[0], { requestId: 'r1', callId: 'call_1', tool: 'send_email', args: { input: 'mail the plumber' },
+    button: 'Send the email', reason: 'Sends an email from your account.' });
+  assert.equal(session.status, 'blocked', 'a Home row shows the question as Herdr shows a blocked agent');
+  assert.deepEqual(session.turns[0].tools, [{ callId: 'call_1', name: 'send_email', state: 'asking' }]);
+  assert.deepEqual(heard.at(-1)!.turn.tools, session.turns[0].tools);
+  assert.equal(heard.at(-1)!.status, 'blocked');
+  assert.deepEqual(ran, []);
+
+  kill.abort(new Error('app killed'));
+  await assert.rejects(sent, /app killed/);
+  assert.equal(heard.at(-1)!.turn.state, 'interrupted');
+  assert.equal(heard.at(-1)!.status, 'blocked');
+  assert.deepEqual(ran, [], 'killed while asking, the tool never ran');
+
+  const reopened = await PhoneSession.open(o);
+  const resumed = reopened.resume('r1');
+  while (waiting.length < 2) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(waiting[1].callId, 'call_1', 'Try again asks again, once');
+  answer(false);
+  const turn = await resumed;
+  assert.equal(turn.state, 'done');
+  assert.match(turn.answer, /^You did: The person declined/);
+  assert.deepEqual(ran, [], 'a no never runs the tool');
+  assert.deepEqual(turn.tools, [{ callId: 'call_1', name: 'send_email', state: 'done' }]);
+  assert.equal(reopened.status, 'idle');
+
+  const yes = session.send('mail the electrician', { requestId: 'r2' });
+  while (waiting.length < 3) await new Promise((r) => setTimeout(r, 5));
+  answer(true);
+  assert.equal((await yes).answer, 'You did: sent');
+  assert.deepEqual(ran, ['call_1'], 'a yes runs it once');
+  assert.deepEqual(heard.filter((c) => c.turn.requestId === 'r2').map((c) => c.turn.state).at(-1), 'done');
+  assert.equal(heard.at(-1)!.status, 'idle');
+  const count = heard.length;
+  stop();
+  const last = session.send('thanks', { requestId: 'r3' });
+  while (waiting.length < 4) await new Promise((r) => setTimeout(r, 5));
+  answer(true);
+  await last;
+  assert.equal(heard.length, count, 'a stopped listener hears nothing more');
+  assert.equal(asked().length, 6);
 });
 
 /** An OpenAI-compatible provider on loopback: a tool call first, then the answer once the tool's result comes back. */
