@@ -1,7 +1,7 @@
 {
   "name": "@byokit/speak",
   "version": "0.1.1",
-  "description": "Read a reply aloud through the platform's own text-to-speech: speechSynthesis on web, TextToSpeech on Android, AVSpeechSynthesizer on iOS. No network, no keys.",
+  "description": "Platform text-to-speech plus explicit provider-backed speech with selectable voices.",
   "license": "Apache-2.0",
   "type": "module",
   "repository": {

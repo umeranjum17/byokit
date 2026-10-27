@@ -15,6 +15,9 @@ export type { SpeakEngine } from './speak.ts';
 export { browserEngine } from './browser.ts';
 export { nativeEngine } from './native.ts';
 export type { BrowserSynthesis, BrowserUtterance } from './browser.ts';
+export { createProviderSpeech } from './provider.ts';
+export type { SpeechChoice, SpeechChoiceStore, SpeechCredentials, SpeechProvider } from './provider.ts';
+export { openAICompatibleSpeech } from './openai-compatible.ts';
 
 const native = requireOptionalNativeModule<NativeSpeak>('ByokitSpeak');
 

@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "b3a713c78def9a4080ac8a581c3b86f9fdce4f2b",
+  "tree": "ac8beccff3ca5597f25cbd72b45dc4a18f03b568",
+  "claim": "The built public @byokit/speak lets an app connect its selected provider, choose and persist one voice, and receive speech audio; missing selection and provider errors never switch provider or voice.",
+  "result": "pass",
+  "at": "2026-10-27T06:01:50.388Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261027T060135Z-b3a713c7-e10806/provider-consumer.log",
+      "sha256": "0aaef25637886fdb0c0a238be93648a2473233c83d964ce0c2d172efbf2329c7"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261027T060135Z-b3a713c7-e10806",
+      "commit": "b3a713c78def9a4080ac8a581c3b86f9fdce4f2b",
+      "journey": null,
+      "command": "sh ../../../firstmate-8bf1b0/10/firstmate/data/byk-speak-provider/drive.sh",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "@byokit/speak 0.1.0 at commit 8ac2c29d"
+        },
+        "start": "A consumer app has no saved provider or voice choice; a task-owned loopback fake speech provider is running.",
+        "steps": [
+          "Call speak with no saved choice and observe the explicit choose-provider-and-voice refusal.",
+          "Connect the OpenAI-compatible adapter using a synthetic key, task-owned loopback base URL and model.",
+          "List the fake provider's voices and explicitly select and persist voice-1.",
+          "Speak Hi Umer; verify the request names voice-1 and the consumer receives the fake MP3 bytes.",
+          "Make the fake speech endpoint return HTTP 503 and observe the provider error without fallback."
+        ],
+        "result": "The built public package connected to the selected provider, listed and persisted voice-1, returned fake audio bytes, refused missing selection and surfaced HTTP 503 without switching voices or providers."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261027T060135Z-b3a713c7-e10806/provider-consumer.log",
+        "sha256": "0aaef25637886fdb0c0a238be93648a2473233c83d964ce0c2d172efbf2329c7",
+        "verdict": "pass",
+        "seen": "I read the single capture entry in provider-consumer.log. It records 'missing selection refused', 'connected', 'listed 1 voice', 'saved explicit choice', 'returned 3 audio bytes', and 'HTTP 503 surfaced', and it says 'authorization never printed'. These match the outcome: a connected provider, an explicitly saved single voice, audio returned, a missing selection refused, and an error surfaced. Nothing shows a provider or voice switch. The outcome names no separate parts that need their own captures."
+      }
+    ]
+  }
+}
