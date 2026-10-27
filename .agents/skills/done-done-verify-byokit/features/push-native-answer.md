@@ -13,6 +13,9 @@ text to the host with the device's notice key and presses the relay's action rou
   `openAnswer` gives the typed text; the press answers `200`.
 - `answer-refusals`: the same reply replayed on a newer notification, and a reply sealed by another device key, are
   refused by the host (`502` with the host's error); no answer is recorded.
+- `choice-journey`: a notice with `answer: { host, choices: [{ id: 'allow', ... }, { id: 'deny', ... }] }` and
+  `actions: ['allow', 'deny']`; `sealAnswer({ event, action, choice })` → press → `onAction` → `openChoice` gives
+  `'allow'`, while `openAnswer` gives `null`; an `allow` seal pressed on `deny` is refused (`502`).
 - `native-ios` (not provable on Linux): `ios/NoticeAnswerCenter.swift` takes the press in the background. Its sealer and
   payload parser run under `swift test` in `packages/push/ios` (CI `push-ios`, or the pinned Swift Linux image with
   swift-crypto standing in for CryptoKit); the delegate itself needs an iOS build on a device (see Gotchas).

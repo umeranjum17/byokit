@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { boxKeyPair, sealNotice } from '@byokit/seal';
-import { openAnswer, openNoticeContent, sealAnswer } from '../src/index.ts';
+import { openAnswer, openChoice, openNoticeContent, sealAnswer } from '../src/index.ts';
 import { paired, startRelay } from '../../relay/test/helpers.ts';
 import vector from '../ios/AnswerTests/answer-vector.json' with { type: 'json' };
 
@@ -20,6 +20,19 @@ test('the reply the Swift handler seals opens on the host only for its own notif
   assert.equal(openAnswer({ event: press.event, action: press.action }, bytes('devicePublic'), bytes('hostSecret')), null, 'no reply');
 });
 
+test('the choice the Swift handler seals opens as a choice only, never as text', () => {
+  const bytes = (name: 'deviceSecret' | 'hostSecret' | 'devicePublic' | 'hostPublic' | 'nonce') => Uint8Array.from(vector[name]);
+  const { reply, sealed } = vector.choice;
+  const press = { event: reply.event, action: reply.action, reply: sealed };
+  assert.equal(sealAnswer(reply, bytes('deviceSecret'), bytes('hostPublic'), () => bytes('nonce')), sealed, 'same bytes as Swift');
+  assert.equal(openChoice(press, bytes('devicePublic'), bytes('hostSecret')), 'allow');
+  assert.equal(openAnswer(press, bytes('devicePublic'), bytes('hostSecret')), null, 'a choice is not typed text');
+  assert.equal(openChoice({ event: vector.reply.event, action: vector.reply.action, reply: vector.sealed }, bytes('devicePublic'), bytes('hostSecret')), null, 'typed text is not a choice');
+  assert.equal(openChoice({ ...press, event: 'perm-8' }, bytes('devicePublic'), bytes('hostSecret')), null, 'replayed onto another notification');
+  assert.equal(openChoice({ ...press, action: 'deny' }, bytes('devicePublic'), bytes('hostSecret')), null, 'another button');
+  assert.equal(openChoice(press, boxKeyPair().publicKey, bytes('hostSecret')), null, 'another device');
+});
+
 test('a typed Answer travels from the notification through the relay to the host', async () => {
   const sent: any[] = [];
   const fetch = (async (_url: string, init?: RequestInit) => {
@@ -32,8 +45,9 @@ test('a typed Answer travels from the notification through the relay to the host
   const r = await startRelay({ push: { fetch } });
   const h = await paired(r, 'Umer phone', { onAction: (a) => {
     const text = openAnswer(a, phone.publicKey, host.secretKey);
-    if (text === null) throw new Error('not an answer from this phone');
-    answers.push(text);
+    const choice = openChoice(a, phone.publicKey, host.secretKey);
+    if (text === null && choice === null) throw new Error('not an answer from this phone');
+    answers.push(text ?? `choice:${choice}`);
     return { answered: a.event };
   } });
   await h.client.subscribe(h.grant.device.id, { expo: 'ExponentPushToken[phone]', platform: 'ios' });
@@ -67,4 +81,25 @@ test('a typed Answer travels from the notification through the relay to the host
   const res2 = await pressOn(forged, sealAnswer({ event: 'ask-44', action: 'answer', text: 'y' }, stranger.secretKey, host.publicKey));
   assert.equal(res2.status, 502, 'a reply this phone did not seal is refused');
   assert.deepEqual(answers, ['y']);
+
+  // The same pipe carries a pressed choice: the notice lists the choices, the press seals the chosen id.
+  const permission = async (id: string) => {
+    await h.client.notify({
+      id, title: 'Claude needs permission', urgency: 'high', mutableContent: true, categoryId: 'agent-permission', actions: ['allow', 'deny'],
+      data: sealNotice({ title: 'Claude asks', body: 'Run rm -rf build?', data: { answer: { host: 'home', choices: [{ id: 'allow', label: 'Allow' }, { id: 'deny', label: 'Deny' }] } } }, phone.publicKey),
+    }, { includeContent: true });
+    return sent.at(-1).data as Record<string, any>;
+  };
+  const press = (body: Record<string, any>, action: string, sealedAs: string) => globalThis.fetch(`${r.http}/relay/v1/push/action`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ token: body.action, action, reply: sealAnswer({ event: body.id, action: sealedAs, choice: sealedAs }, phone.secretKey, host.publicKey) }),
+  });
+  const first = await permission('perm-7');
+  const choices = (openNoticeContent({ body: first }, phone.secretKey)?.data?.answer as { choices: { id: string }[] }).choices;
+  assert.deepEqual(choices.map((c) => c.id), ['allow', 'deny'], 'the choices arrive sealed in the notice, not in the clear');
+  const allowed = await press(first, 'allow', 'allow');
+  assert.deepEqual([allowed.status, await allowed.json()], [200, { ok: true, value: { answered: 'perm-7' } }]);
+  assert.deepEqual(answers, ['y', 'choice:allow']);
+  assert.equal((await press(await permission('perm-8'), 'deny', 'allow')).status, 502, 'an Allow seal cannot ride the Deny button');
+  assert.deepEqual(answers, ['y', 'choice:allow']);
 });
