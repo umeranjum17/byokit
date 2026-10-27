@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "9c3bebd4f6664c035246241f4deee44eb322eef9",
+  "tree": "2085b973d0ba0d84a8526c03f3716505a2018d66",
+  "claim": "All five kits are publishable at 0.1.1 and release lint passes; phone and push are current on npm.",
+  "result": "pass",
+  "at": "2026-10-27T00:35:06.276Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261027T003446Z-9c3bebd4-c479b1/release-batch.log",
+      "sha256": "39dde0210e0f50f68f7f96f6ca8a0558a04569c7151ef5f99e8affab459317e0"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261027T003446Z-9c3bebd4-c479b1",
+      "commit": "9c3bebd4f6664c035246241f4deee44eb322eef9",
+      "journey": null,
+      "command": "L=\"$DONE_DONE_EVIDENCE_ROOT/release-batch.log\"\n{\n  echo \"Release batch capture on head $(git rev-parse HEAD)\"\n  for p in speak approve outbox service share; do\n    n=$(node -p \"const j=require('./packages/$p/package.json');j.name+' '+j.version+' private='+(j.private===true)\")\n    echo \"manifest: $n\"\n    echo \"  npm registry: $(npm view @byokit/$p version 2>&1 | grep -m1 -oE 'E404|^[0-9.]+$')\"\n    (cd packages/$p && npm pack --dry-run 2>&1 | grep -E 'filename|total files' | tr '\\n' ' '); echo\n  done\n  for p in phone push; do echo \"already on npm: @byokit/$p repo $(node -p \"require('./packages/$p/package.json').version\") npm $(npm view @byokit/$p version)\"; done\n  npm run release -- lint --base origin/main 2>&1 | tail -1\n} > \"$L\" 2>&1\ncat > \"$DONE_DONE_EVIDENCE_ROOT/steps.json\" <<'J'\n{\"target\":{\"version\":\"@byokit speak, approve, outbox, service and share 0.1.1\"},\n \"start\":\"Branch from main where the five kits were private at 0.1.0 and absent from npm\",\n \"steps\":[\"Read each package manifest: version 0.1.1, not private\",\"Ask the npm registry for each name: not published yet (E404)\",\"Pack each package without publishing: a 0.1.1 tarball builds\",\"Compare phone and push with npm: same version\",\"Run the release lint against main: ok\"],\n \"result\":\"All five kits are publishable at 0.1.1 and release lint passes; phone and push are current on npm.\"}\nJ\n",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "@byokit speak, approve, outbox, service and share 0.1.1"
+        },
+        "start": "Branch from main where the five kits were private at 0.1.0 and absent from npm",
+        "steps": [
+          "Read each package manifest: version 0.1.1, not private",
+          "Ask the npm registry for each name: not published yet (E404)",
+          "Pack each package without publishing: a 0.1.1 tarball builds",
+          "Compare phone and push with npm: same version",
+          "Run the release lint against main: ok"
+        ],
+        "result": "All five kits are publishable at 0.1.1 and release lint passes; phone and push are current on npm."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261027T003446Z-9c3bebd4-c479b1/release-batch.log",
+        "sha256": "39dde0210e0f50f68f7f96f6ca8a0558a04569c7151ef5f99e8affab459317e0",
+        "verdict": "pass",
+        "seen": "I read all 12 entries: five manifests (speak, approve, outbox, service, share), each with version 0.1.1, private=false, npm registry E404, and a tarball listing (22, 6, 11, 17, 33 files). Two already-published entries (phone repo 0.1.6 and npm 0.1.6; push repo 0.1.1 and npm 0.1.1) match. The final line reads 'release lint: ok'. E404 means the 0.1.1 versions are not yet on the registry, which fits 'publishable'. Nothing shows a contradiction. The outcome names no separate parts that need their own captures."
+      }
+    ]
+  }
+}
