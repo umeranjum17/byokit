@@ -60,7 +60,7 @@ App Group files or user defaults. App Group sharing follows Apple's keychain ent
 
 A person types an answer on the notification and it reaches the host while the app stays closed: no JavaScript runs.
 The kit's app-delegate subscriber sits in front of the app's notification delegate (expo-notifications' or the
-app's own) and takes only a text-action press on a relay notification whose opened notice has `data.answer`.
+app's own) and takes only a text-action press, or a press on a button listed in `answer.choices`, on a relay notification whose opened notice has `data.answer`.
 Everything else is forwarded unchanged, and a press the kit takes never reaches JavaScript, so it is never sent twice.
 
 1. Provision each paired host from your trusted pairing state, and again when one is added or revoked:
@@ -102,6 +102,16 @@ another notification opens to `null`. On success the alert is removed. On failur
 the relay's own reason (for example `Computer offline`), `Nothing was sent` for empty text, a missing target or a
 locked key (before the first unlock after a reboot).
 The app must provision the same device key the host seals to (`setNoticeKey`); there is one per device.
+
+### Answer with a button
+
+A permission question needs no typing. List the choices in the sealed notice, `answer: { host, choices: [{ id, label }] }`,
+and offer one plain (non-text) button per choice with the choice's `id` as its identifier (`actions: ['allow', 'deny']`,
+`opensAppToForeground: false`). A press on one of them is taken the same way: the phone seals
+`{ action, choice, event, v: 2 }` and the host opens it with `openChoice(press, devicePublic, hostSecretKey)`, which gives the
+pressed `id` or `null` (not this device, notification or button; a typed text opens only with `openAnswer`, a choice only
+with `openChoice`). The choices are read from the opened notice, so a relay cannot add a button; what each `id` does stays
+on the host. The failure alert reads as above.
 
 Android has no background Answer yet: there the press is the app's to handle.
 

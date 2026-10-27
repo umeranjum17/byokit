@@ -6,5 +6,10 @@
   "nonce": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
   "reply": {"event": "ask-42", "action": "answer", "text": "y, ✓ go/on"},
   "sealed": "AAECAwQFBgcICQoLbvgsyU2CDoVU9C-XB7yy081v43lkK9Zh30hMuuYvDkEu5bmJpg-DrTSrrJRDqCVOSQnzON0UTMf0Wmq_ccW-YNDX6bMpJhpMyTqoRFNjL9o",
-  "userInfo": {"body": {"id": "ask-42", "title": "An agent needs you", "action": "tok-1", "actions": ["answer"], "data": {"sessionId": "s-1", "answer": {"host": "home"}}}}
+  "userInfo": {"body": {"id": "ask-42", "title": "An agent needs you", "action": "tok-1", "actions": ["answer"], "data": {"sessionId": "s-1", "answer": {"host": "home"}}}},
+  "choice": {
+    "reply": {"event": "perm-7", "action": "allow", "choice": "allow"},
+    "sealed": "AAECAwQFBgcICQoLbvgsyU2CDoVU9C-XBaOqwZ1h7ThpMtpszkhMuuYwCQNt9beH4Q2DuzSrrJRK4XfB-K3xc5BNAZPkC3258MDSbKnyMhTVao8q-Xk",
+    "userInfo": {"body": {"id": "perm-7", "title": "Claude needs permission", "action": "tok-2", "actions": ["allow", "deny"], "data": {"answer": {"host": "home", "choices": [{"id": "allow", "label": "Allow"}, {"id": "deny", "label": "Deny"}]}}}}
+  }
 }

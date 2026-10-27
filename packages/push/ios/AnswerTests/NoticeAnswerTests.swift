@@ -18,8 +18,17 @@ final class NoticeAnswerTests: XCTestCase {
     XCTAssertEqual(request.host, "home")
     let nonce = try ChaChaPoly.Nonce(data: bytes("nonce"))
     let text = (vector["reply"] as! [String: Any])["text"] as! String
-    XCTAssertEqual(NoticeAnswer.seal(request, text: text, deviceSecret: bytes("deviceSecret"), hostPublic: bytes("hostPublic"), nonce: nonce), vector["sealed"] as? String)
-    XCTAssertNil(NoticeAnswer.seal(request, text: text, deviceSecret: bytes("deviceSecret"), hostPublic: Data(repeating: 0, count: 32)))
+    XCTAssertEqual(NoticeAnswer.seal(request, reply: .text(text), deviceSecret: bytes("deviceSecret"), hostPublic: bytes("hostPublic"), nonce: nonce), vector["sealed"] as? String)
+    XCTAssertNil(NoticeAnswer.seal(request, reply: .text(text), deviceSecret: bytes("deviceSecret"), hostPublic: Data(repeating: 0, count: 32)))
+  }
+
+  func testAPressedChoiceSealsTheBytesTheHostOpens() throws {
+    let choice = vector["choice"] as! [String: Any]
+    let request = try XCTUnwrap(AnswerRequest(userInfo: choice["userInfo"] as! [String: Any], action: "allow"))
+    XCTAssertEqual(request.choices, ["allow", "deny"])
+    XCTAssertEqual(try XCTUnwrap(AnswerRequest(userInfo: userInfo, action: "answer")).choices, [], "a text-only notice has no choice buttons")
+    let nonce = try ChaChaPoly.Nonce(data: bytes("nonce"))
+    XCTAssertEqual(NoticeAnswer.seal(request, reply: .choice("allow"), deviceSecret: bytes("deviceSecret"), hostPublic: bytes("hostPublic"), nonce: nonce), choice["sealed"] as? String)
   }
 
   func testOnlyAnAnswerableRelayNotificationIsTaken() {
@@ -37,14 +46,14 @@ final class NoticeAnswerTests: XCTestCase {
   func testPressGoesToTheRelayActionRouteAndSaysWhyItFailed() throws {
     let request = try XCTUnwrap(AnswerRequest(userInfo: userInfo, action: "answer"))
     let target = AnswerTarget(host: "home", relay: "https://relay.example", key: bytes("hostPublic"))
-    let press = try XCTUnwrap(NoticeAnswer.press(request, text: "y", deviceSecret: bytes("deviceSecret"), target: target))
+    let press = try XCTUnwrap(NoticeAnswer.press(request, reply: .text("y"), deviceSecret: bytes("deviceSecret"), target: target))
     XCTAssertEqual(press.url?.absoluteString, "https://relay.example/relay/v1/push/action")
     XCTAssertEqual(press.httpMethod, "POST")
     let sent = try JSONSerialization.jsonObject(with: XCTUnwrap(press.httpBody)) as! [String: String]
     XCTAssertEqual(sent["token"], "tok-1")
     XCTAssertEqual(sent["action"], "answer")
     XCTAssertNotNil(sent["reply"])
-    XCTAssertNil(NoticeAnswer.press(request, text: "y", deviceSecret: bytes("deviceSecret"), target: AnswerTarget(host: "home", relay: "http://relay.example", key: bytes("hostPublic"))))
+    XCTAssertNil(NoticeAnswer.press(request, reply: .text("y"), deviceSecret: bytes("deviceSecret"), target: AnswerTarget(host: "home", relay: "http://relay.example", key: bytes("hostPublic"))))
     XCTAssertNil(NoticeAnswer.failure(status: 200, body: nil))
     XCTAssertEqual(NoticeAnswer.failure(status: 503, body: Data(#"{"error":"computer offline"}"#.utf8)), "Computer offline")
     XCTAssertEqual(NoticeAnswer.failure(status: 500, body: nil), "The answer was refused")
