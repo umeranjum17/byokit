@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "f00d55b15374492e1cb1b6e3cd21a5bcbdd57051",
+  "tree": "3664c52f4f7f8d1c85de86366837d3a4ae2fc018",
+  "claim": "createWake over a caller-supplied graph, driven through the built Android entry with a fake onnxruntime-react-native, reports two detections for three bursts (cooldown suppresses one); no real graph or device",
+  "result": "pass",
+  "at": "2026-10-27T01:14:51.929Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261027T011442Z-f00d55b1-c5e895/wake.log",
+      "sha256": "7219108402178ebcdfd2583067ce8a6f69f7cbddc17fa7f3b629780a1b4d52a3"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261027T011442Z-f00d55b1-c5e895",
+      "commit": "f00d55b15374492e1cb1b6e3cd21a5bcbdd57051",
+      "journey": null,
+      "command": "node wake-capture.mjs .",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "0.3.1"
+        },
+        "start": "A stream of 6 s of 16 kHz PCM with three loud bursts and a caller-supplied (fake) wake graph",
+        "steps": [
+          "Create a wake session from graph bytes on the React Native entry",
+          "Push the audio in 777-sample chunks through createWake",
+          "Read detections"
+        ],
+        "result": "Two detections (the burst in the cooldown is suppressed); graph fed float32 [1, 24000]"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261027T011442Z-f00d55b1-c5e895/wake.log",
+        "sha256": "7219108402178ebcdfd2583067ce8a6f69f7cbddc17fa7f3b629780a1b4d52a3",
+        "verdict": "pass",
+        "seen": "Read all 2 detection entries, all 3 bursts, and the firstFeed and graphRuns fields. Detection atMs 1120 (score 0.9) falls within the 1.0-1.5s burst. Detection atMs 4160 (score 0.9) falls within the 4.0-4.5s burst. The 1.8-2.2s burst is marked as inside the 2s cooldown and produces no detection. Two detections for three bursts matches the outcome. The capture also states the fake runtime and synthetic bursts, consistent with the outcome's 'no real graph or device'."
+      }
+    ]
+  }
+}
