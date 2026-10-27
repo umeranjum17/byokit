@@ -1,0 +1,61 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "59c173d57eab763ec118110a2d5377c7e228c9d8",
+  "tree": "7f52aa07227afe6154f5eef5d4ff0482d91def91",
+  "claim": "A Pi consumer on a computer gets an ollama-pro model from the engine and calls Ollama Pro through a loopback stub with no local alias",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-27T19:01:25.074Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261027T190009Z-59c173d5-f18b7d/ollama-pro-engine-call.txt",
+      "sha256": "c4876c2293d568ae02a0aa03258dd18b01cec47632d8a0d8c9420ff2140ed05e"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261027T190009Z-59c173d5-f18b7d",
+      "commit": "59c173d57eab763ec118110a2d5377c7e228c9d8",
+      "journey": null,
+      "command": null,
+      "feature": "accounts-ollama-pro",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "@byokit/accounts 0.34.0 (commit 59c173d5)"
+        },
+        "start": "Worktree at commit 59c173d5 on fm/byk-oc-ollama-call-shape, clean, built with npm run build; no Ollama Pro plan key saved; loopback stub not yet running.",
+        "steps": [
+          "Ran the build and the doctor check that @byokit/accounts resolves inside packages/accounts/dist.",
+          "Wrote a Node consumer in a scratch folder that imports only public entries (@byokit/accounts, @byokit/accounts/ollama-pro) with an in-memory key store.",
+          "Asked the computer engine for the ollama-pro model 'deepseek-v4.1-flash' with no local alias and printed the model's provider, API shape and base URL.",
+          "Asked the Ollama Pro plan-key account for a model before any key was saved; the consumer printed the refusal.",
+          "Added the Ollama Pro plan key to the Accounts instance (the key is stored, never printed).",
+          "Started a loopback HTTP stub on 127.0.0.1 standing in for https://ollama.com/v1.",
+          "Sent a chat request through accounts.respondKey using the engine's model, with fetch redirected from https://ollama.com to the loopback stub.",
+          "Read back what the stub received (path, model, stream flag, whether the bearer matched the saved key) and the reply, and checked the key was absent from the result.",
+          "Ran the consumer to completion; the transcript is saved as ollama-pro-engine-call.txt."
+        ],
+        "result": "The transcript shows the engine returns an ollama-pro model (provider ollama-pro, openai-completions, base URL https://ollama.com/v1) with no alias; the plan-key account refuses with 'Add the Ollama Pro plan key first.' before a key is saved; after saving, the loopback stub receives POST /v1/chat/completions with the deepseek-v4.1-flash model, stream true and the saved key as Bearer, and the consumer gets stopReason stop with text pong-from-stub; the key does not appear in the result."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261027T190009Z-59c173d5-f18b7d/ollama-pro-engine-call.txt",
+        "sha256": "c4876c2293d568ae02a0aa03258dd18b01cec47632d8a0d8c9420ff2140ed05e",
+        "verdict": "pass",
+        "seen": "I read every entry in the capture (about 10 lines). It shows engine.getModel returning provider=ollama-pro, api=openai-completions, baseUrl=https://ollama.com/v1. Before the key was saved, the request was refused with 'Add the Ollama Pro plan key first.' The plan key was then saved as account ollama-pro:plan_key. The chat went through a loopback stub, with request URL https://ollama.com/v1/chat/completions, and the stub saw model=deepseek-v4.1-flash, stream=true, and bearer-matches-saved-key=true. The reply was stopReason=stop with text 'pong-from-stub', and canary in result was false. This matches the outcome: a Pi consumer with no local alias gets the ollama-pro model from the engine and calls Ollama Pro through a loopback stub."
+      }
+    ]
+  }
+}
