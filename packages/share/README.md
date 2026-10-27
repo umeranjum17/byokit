@@ -1,6 +1,6 @@
 # @byokit/share
 
-Guarded shared text and files. Private at 0.1.0 until packed/native qualification.
+Guarded shared text and files. Published before native qualification: see the PR qualification evidence below for what was observed.
 
 The React Native entry supplies the published share API with additive `errorCode`,
 `skipped`, and `skipReasons`. The default entry is native-free and reports

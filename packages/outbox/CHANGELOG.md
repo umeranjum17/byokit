@@ -1,3 +1,8 @@
 # Changelog
 
 ## Unreleased
+
+## 0.1.1 (2026-10-27)
+
+- FEAT: `@byokit/outbox` — a durable outbound message queue in one fsynced JSON store. Every mutation is revision-checked (stale revisions reject), and cancellation wins until the real send: the last revision-checked re-check and the `sender.send` invocation are one serialized critical section, so a cancel accepted while queued **or after the durable claim but before the invocation** still wins and the sender is never called. A cancel past the invocation returns `too-late`; a send interrupted by an earlier process answers `unknown` and is never redispatched (no invented exactly-once) until `resolve` records what the app learned from the transport. No sender, transport, credentials or network are bundled: the app passes the sender and every test uses fakes.
+- FEAT: Optional `requestId` on `enqueue` (same length rule as `kind`) makes a retried enqueue return the existing entry in any state and add nothing; the id is persisted with no expiry so a phone reconnect cannot double-send.

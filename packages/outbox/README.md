@@ -2,10 +2,9 @@
 
 A durable outbound message queue: messages wait in a file, every change is bound to a revision, and a
 message can be taken back until the moment it is handed to the sender. The kit is named for the capability
-(outbox); like every unpublished kit its name is confirmed with the owner before a first publish
-([docs/kit-conventions.md](../../docs/kit-conventions.md) §1.2).
+(outbox).
 
-Node host side, private at 0.1.0. It ships **no sender and no transport**: the app passes the sender, and
+Node host side. It ships **no sender and no transport**: the app passes the sender, and
 every kit test uses a fake. The store is one JSON file, written atomically and fsynced, under
 `stateDir/outbox/entries.json` (directory 0700, file 0600).
 

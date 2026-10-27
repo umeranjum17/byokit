@@ -69,7 +69,7 @@ it does not model, so a fake bench there rejects `provider` and writes nothing.
 Platforms: Linux (`systemd --user`) and macOS (a per-user LaunchAgent). Every other platform,
 Windows included, rejects `unsupported`; `status` resolves `{ phase: 'unsupported' }` there.
 
-**Status: in development** (private, not published). The CI job `service-linux` proves the
+**Status: first release, 0.1.x.** The CI job `service-linux` proves the
 journey on a disposable GitHub-hosted Ubuntu runner: install a loopback echo, see it `active`
 and answering, uninstall it and see the file gone; it also proves a refused linger rejects
 `linger`. The CI job `service-macos` proves the same journey on a disposable `macos-latest` runner:

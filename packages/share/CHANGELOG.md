@@ -2,8 +2,10 @@
 
 ## Unreleased
 
-Private candidate: native runtime qualification is pending. Do not publish these
-notes until each surface's qualification gate is recorded.
+## 0.1.1 (2026-10-27)
+
+First public release, published by owner decision before native runtime qualification is
+complete: the iOS native build and device behavior are not qualified.
 
 - SECURITY: On Android a share can no longer make the app read its own private files: content URIs served by
   the app's own providers (including the `N@authority` form) are refused; that item is left out with

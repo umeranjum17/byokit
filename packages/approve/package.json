@@ -1,7 +1,6 @@
 {
   "name": "@byokit/approve",
-  "version": "0.1.0",
-  "private": true,
+  "version": "0.1.1",
   "description": "Exact-action approval: a grant binds to the one request naming its action, button label, app and reason, and refuses any other or mutated request. No dependencies; Node 22+, browsers and React Native.",
   "license": "Apache-2.0",
   "type": "module",
