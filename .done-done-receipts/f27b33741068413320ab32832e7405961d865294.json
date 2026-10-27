@@ -1,0 +1,60 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "f27b33741068413320ab32832e7405961d865294",
+  "tree": "a10b60585a1271c7b874945bfb0ab9d14d17c065",
+  "claim": "a computer that answers pings late keeps its live link, and a silent computer is still dropped within two ping rounds",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-27T19:43:49.681Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261027T194245Z-f27b3374-8ad5d8/pair-busy-host-drive.txt",
+      "sha256": "6d02d4f7a6a30c389a146aa7a3376a482ba1dc31849558f45027a42e3017cd1b"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261027T194245Z-f27b3374-8ad5d8",
+      "commit": "f27b33741068413320ab32832e7405961d865294",
+      "journey": null,
+      "command": null,
+      "feature": "pair-busy-host",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "@byokit/pair 0.10.5 (commit f27b3374)"
+        },
+        "start": "Built SDK workspace (npm run build exit 0) with no link running; loopback host and phone-side forwarder not yet started.",
+        "steps": [
+          "Ran npm run build in the worktree and confirmed @byokit/pair resolves to packages/pair/dist.",
+          "Started a loopback Host (Kitchen computer) and a phone-side forwarder on a second loopback port that forwards phone frames to the host at once.",
+          "Paired a phone device named Pixel 9 through the forwarder's offer and approved the matching words on the host.",
+          "Opened a DeviceLink with a 400 ms ping interval and waited for it to show online.",
+          "Made the forwarder delay host frames by 600 ms and sent one request (say.hello), then waited for ten delayed host frames.",
+          "Checked that the link never went offline during the delayed frames and that the request was answered.",
+          "Stopped host frames entirely and timed how long the link took to show offline.",
+          "Stopped the link, host and both servers; the script exited 0."
+        ],
+        "result": "The console output shows the busy leg with 10 delayed frames, no offline status, and the request answered with {\"echo\":{\"text\":\"hi\"},\"from\":\"Pixel 9\"}. In the silent leg the link showed offline after 1396 ms (limit 1400 ms), and the run printed PASS with exit 0."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261027T194245Z-f27b3374-8ad5d8/pair-busy-host-drive.txt",
+        "sha256": "6d02d4f7a6a30c389a146aa7a3376a482ba1dc31849558f45027a42e3017cd1b",
+        "verdict": "pass",
+        "seen": "I read every line of the capture: the device check and host pairing lines, then two result entries. Busy case: 'busy: frames= 10 wentOffline= false answer= {\"echo\":{\"text\":\"hi\"},\"from\":\"Pixel 9\"}' shows the late-answering device kept its link through 10 frames. Silent case: 'silent: offline after 1396 ms (limit 1400 ms)' shows the silent device was dropped within the two-round limit. The final line is 'PASS' with EXIT=0. Both behaviours in the outcome are shown. The outcome names one behaviour pair within a single capture, not separate widths or themes, so no parts are listed."
+      }
+    ]
+  }
+}
