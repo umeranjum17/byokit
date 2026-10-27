@@ -1,0 +1,62 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "d710a07f5a42ad4a20ed47365f3b472a37e54088",
+  "tree": "f605478f9aca1fe667ae1ea896f30f2d0b4ba2f1",
+  "claim": "A host opens the allow or deny choice a phone sealed for a notification button, through the relay, and refuses a choice replayed onto another button or notification",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-27T00:23:03.244Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261027T002151Z-d710a07f-804b78/push-native-answer-choice.txt",
+      "sha256": "e5b28da754755ff5dbcce312d4dce371113e213a725f1cb118eb0831df4dea3e"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261027T002151Z-d710a07f-804b78",
+      "commit": "d710a07f5a42ad4a20ed47365f3b472a37e54088",
+      "journey": null,
+      "command": null,
+      "feature": "push-native-answer",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "@byokit/push 0.1.1 (commit d710a07f)"
+        },
+        "start": "Built workspace packages (push, relay, pair, seal dist) with a loopback relay not yet running; no phone, host or device paired; fake Expo push fetch empty.",
+        "steps": [
+          "Started a loopback relay and admitted a host named Kitchen computer, then the host connected to the relay.",
+          "Paired a phone named Umer phone to the host through the relay and subscribed an iOS push token.",
+          "Host sent notice perm-7 with the choices Allow and Deny and actions allow and deny, with the content sealed to the phone's key.",
+          "Phone opened the notice from the push payload and read the question and its two choices.",
+          "Phone pressed Allow on perm-7, sealing the Allow choice for that notification and button, and posted the press to the relay.",
+          "Host received the press and opened it as a choice and as typed text; it read the choice as allow.",
+          "Host sent notice perm-8 with the same choices.",
+          "Phone sealed an Allow choice and pressed it on the Deny button of perm-8; the relay forwarded it and the host refused it.",
+          "Host sent notice perm-9 with the same choices.",
+          "Phone replayed the Allow seal made for perm-7 onto the Allow button of perm-9; the host refused it.",
+          "Stopped the host client, relay and HTTP server."
+        ],
+        "result": "The Allow press on perm-7 answered 200 with {\"ok\":true,\"value\":{\"answered\":\"perm-7\"}} and the host recorded choice allow (openAnswer null). The Allow seal pressed on Deny (perm-8) and the perm-7 Allow seal replayed onto perm-9 each returned 502 {\"error\":\"not an answer from this phone\"}. Recorded answers: [\"choice:allow\"]."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261027T002151Z-d710a07f-804b78/push-native-answer-choice.txt",
+        "sha256": "e5b28da754755ff5dbcce312d4dce371113e213a725f1cb118eb0831df4dea3e",
+        "verdict": "pass"
+      }
+    ]
+  }
+}
