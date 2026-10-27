@@ -18,3 +18,9 @@ export interface VadSession {
   run(window: Float32Array, state: Float32Array | null): Promise<{ probability: number; state: Float32Array }>;
   release?(): Promise<void> | void;
 }
+/** The seam for a wake graph: one trailing window of audio in, one score in [0, 1] out. Stateless, so
+ * a session may be reused across streams; the kit owns the rolling window, threshold and cooldown. */
+export interface WakeSession {
+  run(window: Float32Array): Promise<number>;
+  release?(): Promise<void> | void;
+}

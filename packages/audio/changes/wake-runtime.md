@@ -1,0 +1,1 @@
+- ADD: `createWake` and, for Android, `wakeSession` from `@byokit/audio/react-native` run a caller-supplied wake ONNX graph on-device (graph contract documented; no model bundled).
