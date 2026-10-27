@@ -1,0 +1,1 @@
+- Add an explicit provider-backed speech path with a persisted provider/voice choice and an OpenAI-compatible reference adapter. Provider audio is returned to the host for playback; the device voice remains unchanged and is never selected automatically.

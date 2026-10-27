@@ -14,6 +14,9 @@ export { createSpeaker } from './speak.ts';
 export type { SpeakEngine } from './speak.ts';
 export { browserEngine } from './browser.ts';
 export { nativeEngine } from './native.ts';
+export { createProviderSpeech } from './provider.ts';
+export type { SpeechChoice, SpeechChoiceStore, SpeechCredentials, SpeechProvider } from './provider.ts';
+export { openAICompatibleSpeech } from './openai-compatible.ts';
 export type { BrowserSynthesis, BrowserUtterance } from './browser.ts';
 
 const synthesis = typeof speechSynthesis === 'undefined' ? null : speechSynthesis;
