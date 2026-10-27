@@ -8,7 +8,6 @@ Built `@byokit/accounts/ollama-pro`: save a plan key via the shared secrets seam
 - Seam: `saveOllamaProPlanKey` / `ollamaProPlanAccount` / `deleteOllamaProPlanKey` — one `accounts.ollama-pro:plan_key` entry; missing key says `Add the Ollama Pro plan key first.`
 - Provider conformance test resolves the Ollama route through `Accounts.respondKey` and proves the selected provider/model reach `/chat/completions` at the configured base URL; `ollamaProChat` POSTs to a 127.0.0.1 fake with Bearer from the store. Canary never in argv/env/response/errors.
 - Computer engine: `computer.engine(store).getModel('ollama-pro', id)` answers (OpenAI-compatible, `https://ollama.com/v1`) so a Pi consumer needs no local alias; proven by the 'consumer resolves ollama-pro' test in `packages/accounts/test/ollama-pro.test.ts` (loopback stub sees POST `/v1/chat/completions`, Bearer key, the named model, `stream: true`).
-- Computer engine: `computer.engine(store).getModel('ollama-pro', id)` answers (OpenAI-compatible, `https://ollama.com/v1`) so a Pi consumer needs no local alias; proven by the 'consumer resolves ollama-pro' test in `packages/accounts/test/ollama-pro.test.ts` (loopback stub sees POST `/v1/chat/completions`, Bearer key, the named model, `stream: true`).
 
 ## Driving it with node scratch consumers
 
