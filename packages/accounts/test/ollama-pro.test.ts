@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import type { Keystore } from '@byokit/secrets';
-import { Accounts, memoryStore, ResponseError, type Context, type Model } from '../src/index.ts';
+import { Accounts, computer, memoryStore, ResponseError, type Context, type Model } from '../src/index.ts';
 import { offered, planKey, provider, route, signInChoices } from '../src/catalogue.ts';
 import { portable } from '../src/accounts.ts';
 import {
@@ -84,6 +84,48 @@ test('respondKey streams openai-completions to ollama.com/v1 with the plan key h
   assert.equal(requestedModel, model.id);
   assert.equal(result.stopReason, 'stop');
   assert.ok(!JSON.stringify(result).includes(CANARY));
+});
+
+test('a consumer resolves ollama-pro from the engine and calls it through a loopback stub, no alias', async () => {
+  const accounts = local();
+  const { id } = await accounts.add('Umer', OLLAMA_PRO_PLAN_ROUTE, { key: CANARY });
+  const engine = computer.engine(memoryStore() as never) as unknown as { getModel(provider: string, id: string): Model<'openai-completions'> | undefined };
+  const model = engine.getModel('ollama-pro', 'deepseek-v4.1-flash');
+  assert.ok(model, 'engine.getModel answers ollama-pro with no per-project alias');
+  assert.deepEqual([model.provider, model.api, model.baseUrl], ['ollama-pro', 'openai-completions', OLLAMA_PRO_BASE_URL]);
+  const seen: { path?: string; auth?: string; body?: { model: string; stream?: boolean; messages: unknown[] } } = {};
+  const server = createServer((req, res) => {
+    seen.path = req.url; seen.auth = req.headers.authorization;
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      seen.body = JSON.parse(body);
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.write(`data: ${JSON.stringify({ id: 'stub', choices: [{ index: 0, delta: { role: 'assistant', content: 'pong-from-stub' }, finish_reason: null }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ id: 'stub', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } })}\n\n`);
+      res.end('data: [DONE]\n\n');
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as { port: number };
+  try {
+    let requested = '';
+    const result = await accounts.respondKey('Umer', {
+      account: id, model, context: { messages: [{ role: 'user', content: 'ping', timestamp: 0 }] },
+      options: { fetch: async (input, init) => {
+        requested = String(input);
+        return fetch(requested.replace('https://ollama.com', `http://127.0.0.1:${port}`), init);
+      } },
+    });
+    assert.equal(requested, `${OLLAMA_PRO_BASE_URL}/chat/completions`);
+    assert.equal(seen.path, '/v1/chat/completions');
+    assert.equal(seen.auth, `Bearer ${CANARY}`);
+    assert.equal(seen.body?.model, 'deepseek-v4.1-flash');
+    assert.equal(seen.body?.stream, true);
+    assert.equal(result.stopReason, 'stop');
+    assert.deepEqual(result.content, [{ type: 'text', text: 'pong-from-stub' }]);
+    assert.ok(!JSON.stringify(result).includes(CANARY));
+  } finally { server.close(); server.closeAllConnections(); }
 });
 
 test('plan-key seam and member handle: Map store, canary never in error words', async () => {
