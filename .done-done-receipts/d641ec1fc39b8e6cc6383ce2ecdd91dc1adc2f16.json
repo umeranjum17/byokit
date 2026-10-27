@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "d641ec1fc39b8e6cc6383ce2ecdd91dc1adc2f16",
+  "tree": "f29f1f75b0d6faa1553dd65b16cec7c1711a3d8a",
+  "claim": "A consumer app installs the packed @byokit/accounts built with the bumped provider SDK pins, links a ChatGPT account against the loopback stand-in and gets a streamed answer",
+  "result": "pass",
+  "at": "2026-10-27T20:20:17.140Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261027T201916Z-d641ec1f-7e4576/core-journey.txt",
+      "sha256": "673b3366d433c47ccdd587612dfb1ace70d8696f472fd57aa3d81fca5389a109"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261027T201916Z-d641ec1f-7e4576",
+      "commit": "d641ec1fc39b8e6cc6383ce2ecdd91dc1adc2f16",
+      "journey": null,
+      "command": "node .agents/skills/done-done-verify-byokit/capture/core-journey.mjs",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "0.34.0"
+        },
+        "start": "a fresh consumer app with no package installed and no account linked",
+        "steps": [
+          "install the shipped @byokit/accounts package into the app",
+          "the app links a ChatGPT account by device code: it shows a code and the person approves it",
+          "the app reads the account status",
+          "the app asks the provider a question and prints the answer it gets back"
+        ],
+        "result": "the installed package answers: \"ChatGPT is connected.\" and the answer \"You said: Plan my day\""
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261027T201916Z-d641ec1f-7e4576/core-journey.txt",
+        "sha256": "673b3366d433c47ccdd587612dfb1ace70d8696f472fd57aa3d81fca5389a109",
+        "verdict": "pass",
+        "seen": "I read all 7 entries: package line, sign-in code, status 'ChatGPT is connected.', streamed and answer lines both 'You said: Plan my day', plus the 'not offered' and 'no account' lines. The header confirms the tgz install from npm pack, the loopback stand-in provider, and 'run: node consumer.mjs (exit 0)'. The two error lines are negative-case checks and do not contradict the outcome. The outcome names one part, so parts and covers are empty. The bumped provider SDK pins are not visible in this capture, but the outcome's core claim is shown."
+      }
+    ]
+  }
+}
