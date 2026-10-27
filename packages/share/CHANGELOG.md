@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.1 (2026-10-27)
+
 Private candidate: native runtime qualification is pending. Do not publish these
 notes until each surface's qualification gate is recorded.
 
