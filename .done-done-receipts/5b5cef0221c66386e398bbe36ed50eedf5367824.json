@@ -1,0 +1,63 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "5b5cef0221c66386e398bbe36ed50eedf5367824",
+  "tree": "660d25c0003cccc1b73853eecf95cbbb2900e008",
+  "claim": "BYOKit's build journey builds every package and the built @byokit/accounts entry passes its doctor check, and the run records those steps",
+  "result": "pass",
+  "at": "2026-10-28T22:50:03.730Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261028T224954Z-5b5cef02-78a48c/build.log",
+      "sha256": "4d0fcd4a3a127c73eb7abda95b5432afda5f7ea3f7344d2aa95d3506dd8a7d8f"
+    },
+    {
+      "path": "<evidence root>/20261028T224954Z-5b5cef02-78a48c/doctor.log",
+      "sha256": "8111fa9bd429972855ecbc54423af989efe476be6c25d0434c0fb0acea39e8f4"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261028T224954Z-5b5cef02-78a48c",
+      "commit": "5b5cef0221c66386e398bbe36ed50eedf5367824",
+      "journey": "build",
+      "command": "npm run build > \"$DONE_DONE_EVIDENCE_ROOT/build.log\" 2>&1 && echo \"npm run build exited 0 and every package built (run $DONE_DONE_RUN_ID)\" >> \"$DONE_DONE_EVIDENCE_ROOT/build.log\" && node --input-type=module -e \"import { createRequire } from 'node:module'; const require = createRequire(process.cwd() + '/'); const pkg = require('./packages/accounts/package.json'); const acc = await import('@byokit/accounts'); const testing = await import('@byokit/accounts/testing'); if (!acc.Accounts || !acc.portable || typeof testing.mockOpenAI !== 'function') throw new Error('built entry incomplete'); console.log('doctor ok:', pkg.name, pkg.version, 'resolves', require.resolve('@byokit/accounts'));\" > \"$DONE_DONE_EVIDENCE_ROOT/doctor.log\" 2>&1 && node scripts/done-done-steps.ts build",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "0.34.0"
+        },
+        "start": "clean checkout at 5b5cef0221c66386e398bbe36ed50eedf5367824 with no build output from this run",
+        "steps": [
+          "Ran npm run build: tsc -b packages/accounts, packages/realtime, packages/pair, packages/link, packages/relay, packages/decide, packages/ui, packages/ui-core, packages/discover, packages/reach, packages/seal, packages/secrets, packages/connect, packages/openclaw, packages/herdr, packages/write, packages/record, packages/bubble, packages/overlay, packages/cloud, packages/service, packages/statusbar, packages/usage, packages/push, packages/speak, packages/audio, packages/dictation, packages/mcp, packages/share, packages/signaling, packages/infer, packages/approve, packages/outbox, packages/browser, packages/phone, then node scripts/fix-words-dts.cjs.",
+          "Ran the built-entry doctor check: doctor ok: @byokit/accounts 0.34.0 resolves packages/accounts/dist/index.js",
+          "Read the build and doctor output this run wrote to build.log and doctor.log."
+        ],
+        "result": "npm run build exited 0 and every package built; doctor ok: @byokit/accounts 0.34.0 resolves packages/accounts/dist/index.js"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261028T224954Z-5b5cef02-78a48c/build.log",
+        "sha256": "4d0fcd4a3a127c73eb7abda95b5432afda5f7ea3f7344d2aa95d3506dd8a7d8f",
+        "verdict": "pass",
+        "seen": "Read the whole build.log: the npm run build command, the tsc -b line listing the packages (accounts through phone, including the packages named in the outcome), and the final line 'npm run build exited 0 and every package built (run 20261028T224954Z-5b5cef02-78a48c)'. No error or failure lines appear. This capture covers the build part; the doctor check is shown by doctor.log."
+      },
+      {
+        "path": "<evidence root>/20261028T224954Z-5b5cef02-78a48c/doctor.log",
+        "sha256": "8111fa9bd429972855ecbc54423af989efe476be6c25d0434c0fb0acea39e8f4",
+        "verdict": "pass",
+        "seen": "Read the single entry in doctor.log: 'doctor ok: @byokit/accounts 0.34.0 resolves .../packages/accounts/dist/index.js'. The status is ok and it resolves to the built dist/index.js entry, matching the outcome's doctor-check part."
+      }
+    ]
+  }
+}
