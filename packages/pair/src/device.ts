@@ -371,10 +371,10 @@ export class DeviceLink {
     later(every, tick);
   }
 
-  /** Whether `m` answers something this device sent: any pong so far (a busy host answers late), a reply to a waiting
-   *  request, or a frame on one of its streams. Only those prove the host hears this device; its events alone do not. */
+  /** Whether `m` answers something this device sent: a pong for a ping still outstanding (a busy host answers late, but
+   *  a ping unanswered for two rounds has timed out), a reply to a waiting request, or a frame on one of its streams. Only those prove the host hears this device; its events alone do not. */
   private answers(m: any) {
-    return (m.t === 'pong' && m.n <= this.pingId) || (m.t === 'res' && this.pending.has(m.id)) || !!this.streams?.has(m.s);
+    return (m.t === 'pong' && m.n <= this.pingId && m.n > this.pingId - 2) || (m.t === 'res' && this.pending.has(m.id)) || !!this.streams?.has(m.s);
   }
 
   private sendPending(l: Open, id: number, p: Pending) {
