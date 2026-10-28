@@ -1,0 +1,56 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "aae87a58d61e4f70bbe8c83c2d10de19f2a0a192",
+  "tree": "0b46eec750195b195adba8154b46a2359dd791e4",
+  "claim": "Draft pull requests and pull request body edits no longer start CI, and a push to main runs only the areas the merge changed",
+  "result": "pass",
+  "at": "2026-10-28T07:41:05.303Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261028T074044Z-aae87a58-ec980c/ci-diet.log",
+      "sha256": "afe80b6699ea6c7ef1e415be37bc229b92c36d2705838d56ab4107ebb8c82fd8"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261028T074044Z-aae87a58-ec980c",
+      "commit": "aae87a58d61e4f70bbe8c83c2d10de19f2a0a192",
+      "journey": null,
+      "command": "sh /tmp/claude-1000/-home-umer--treehouse-byokit-48ee6a-9-byokit/67cebfa4-3f9f-49fc-a45b-f3ee75b405ae/scratchpad/ci-diet.sh",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "BYOKit CI workflows (ci.yml, dictation-wer.yml) and scripts/ci-changes.ts at the recorded commit"
+        },
+        "start": "A pull request branch that changes only the CI workflow files and the job dispatcher; no package code changes",
+        "steps": [
+          "Read the pull_request trigger types in ci.yml and dictation-wer.yml: opened, synchronize, reopened, ready_for_review, with no edited.",
+          "Read the draft condition on the changes job, on ci-ok and on the dictation WER job.",
+          "Open the pull request as a draft and read the GitHub run it started: every job is skipped and no runner is used.",
+          "Mark the pull request ready and read the run it started: the area-scoped job set runs.",
+          "Read the pull request's body edit times against its run start times: no run starts at an edit.",
+          "Run the old and the new job dispatcher on five real merges to main and count the jobs each would run."
+        ],
+        "result": "A draft pull request started a run with every job skipped; the ready pull request ran its area jobs; body edits started no run; a push to main now runs fewer jobs than before when the merge did not touch a shared input."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261028T074044Z-aae87a58-ec980c/ci-diet.log",
+        "sha256": "afe80b6699ea6c7ef1e415be37bc229b92c36d2705838d56ab4107ebb8c82fd8",
+        "verdict": "pass",
+        "seen": "I read every section: 2 workflow trigger blocks, 5 dispatcher merges, 1 draft run, 1 ready run, and 4 branch runs with 2 body-edit timestamps. Draft: the run started while the PR was a draft (run 40627052986) shows 'conclusion: skipped', 'jobs 26 skipped', 'executed jobs: 0', and ci.yml's types list has no 'edited'. Body edits: both edits (03:32:01Z) fall after every run start (03:30:12Z to 03:30:30Z), and no run is listed after them, so the edits started nothing. Push to main: new dispatcher counts (12, 28, 20, 32, 32) are below the old 32 on three merges; the two merges at 32 changed all areas, so the full set is consistent. The ready run's 2 failures do not contradict the trigger outcome."
+      }
+    ]
+  }
+}

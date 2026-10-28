@@ -1,9 +1,13 @@
 name: CI
 
+# A pull request runs on open, push, reopen and ready-for-review only: a draft is skipped until it is marked ready, and
+# no job reads the pull request's title or body, so an edit (`edited`) never re-runs anything.
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
+  workflow_dispatch:
 
 # PR-keyed cancellation keeps the newest review run without interrupting main pushes.
 concurrency:
@@ -17,10 +21,12 @@ permissions:
   contents: read
 
 jobs:
-  # Slow jobs below run on a pull request only when it changes their area (scripts/ci-changes.ts); a push to main runs
-  # them all. A docs-only pull request (code=false) also skips the every-PR jobs' tests, keeping check's README, M6 and
-  # release lints. ci-ok at the bottom is the one required check: a job skipped by design passes it.
+  # Slow jobs below run only when the change they gate touches their area (scripts/ci-changes.ts): a pull request against
+  # its base, a push to main against the commit before it (the merged tree is checked, scoped to what the merge changed);
+  # a manual run (workflow_dispatch) runs them all. A draft pull request skips every job. A docs-only or evidence-only
+  # change (code=false) also skips the every-PR jobs' tests, keeping check's README, M6 and release lints. ci-ok at the bottom is the one required check: a job skipped by design passes it.
   changes:
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -41,7 +47,7 @@ jobs:
           node-version: '24.16.0'
       - id: areas
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: node scripts/ci-changes.ts ${BASE:+"$BASE"} | tee -a "$GITHUB_OUTPUT"
 
   check:
@@ -769,7 +775,7 @@ jobs:
   # each succeeded or was skipped by its area or by its event (the done-done gate runs on a pull request only).
   # overlay-android-webview is left out on purpose: it must never block.
   ci-ok:
-    if: always()
+    if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     needs: [changes, check, herdr-macos, service-linux, service-macos, done-done, pack, seal-swift, secrets-keyring, browser,
       openclaw-engine, openclaw-browser, write-engine, record-recorder, react-native, android, overlay-android, share-android,
       share-android-app, share-ios-prebuild, statusbar-android, audit, push-android, push-ios]
