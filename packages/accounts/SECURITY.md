@@ -82,9 +82,9 @@ The kit never borrows environment API keys. Its Node-only `./cli` exception invo
   .tmp symlink is unchanged; encryption failure preserves the prior file and random temp
   files are cleaned after successful replacement (`test/units.test.ts`).
 - [x] Sign-in and failed late-revoke logs use fixed messages, exercised with credential
-  canaries in injected failures (`test/accounts.test.ts`, `test/revoke.test.ts`).
+  canaries in injected failures (`test/portable.test.ts`, `test/key-routes.test.ts`, `test/google.test.ts`).
 - [x] Revocation and late completion use offline fake-provider regression coverage
-  (`test/revoke.test.ts`); isolation and portable imports retain their existing tests
+  (`test/google.test.ts`, `test/portable.test.ts`); isolation and portable imports retain their existing tests
   (`test/isolation.test.ts`, `test/portable.test.ts`).
 
 Run `npm run build`, `npm run check` and `npm test` to reproduce the review checks.

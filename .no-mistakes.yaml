@@ -2,6 +2,8 @@
 # test.instructions is read from the trusted default branch once merged.
 test:
   instructions: |
+    The suite holds only integration and end-to-end journeys: a change adds or extends
+    a journey test and never adds a unit, snapshot or mock-heavy test.
     Run only the tests of the packages and paths this change touches, plus one user
     journey below; CI runs the full suite on every pull request, so never run the
     whole `npm test` here. Name the changed parts' test files or globs, e.g.

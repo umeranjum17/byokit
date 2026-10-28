@@ -26,4 +26,3 @@ Preconditions: baseline (features/README.md).
 ## Gotchas
 
 - `machineStore` resolves the path from `os.homedir()`, so every process of the drive sets `HOME` to the scratch home; never run it against the real HOME.
-- `packages/accounts/test/signin.test.ts` drives the same two-app journey through Pi's computer flow with a child process.

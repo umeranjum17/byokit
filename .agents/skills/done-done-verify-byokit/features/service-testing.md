@@ -44,8 +44,6 @@ and `fail` models a failing command.
 
 `serviceContract(label, make)` runs the same assertions against every bench (spec 8):
 
-- `packages/service/test/contract.test.ts` — the fake bench; runs locally, under
-  `scripts/test.sh` (throwaway HOME) and in the CI `check` job's `npm test`.
 - `packages/service/test/linux.journey.ts` — the real `systemd --user` bench plus the section 7
   journey; runs in CI job `service-linux` on a disposable runner, skipped anywhere else.
 

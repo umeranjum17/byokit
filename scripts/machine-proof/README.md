@@ -9,9 +9,7 @@ node scripts/machine-proof/run.ts --dry-run --output .lab/m6-dry.json
 The same runner uses the loopback Boat adapter and fake SSH binary, registers the entire
 `machineContract`, installs an app with M3, records all 21 M6 rows on both adapters,
 exercises sleep/resume and a throwaway redundant `noEnv` request, and checkpoints JSON.
-The fake never qualifies M6. `scripts/machine-proof.test.ts` also installs all three
-recipes on both fake machine types and executes the two-process wrapper with harmless
-local Node children to prove child failure stops its sibling. No account or model is needed.
+The fake never qualifies M6. No account or model is needed.
 
 ## Live input
 

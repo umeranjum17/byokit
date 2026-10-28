@@ -31,8 +31,7 @@ serves a real Unix socket under the scratch directory and answers the pinned pro
     `cwd === '/tmp/verify-worktree/umer-try'`, whose workspace has `worktree.checkout_path` equal to that path and
     `is_linked_worktree: true`, and no agent on the pane.
   - `place-worktree-fault` is not driven here: the stand-in has no `worktree.create` fault and the socket transport is
-    not public. The integration test `packages/herdr/test/place.test.ts` ("...that fails to create leaves no tab,
-    workspace or pane") proves it against the same fake through a transport that rejects `worktree.create`.
+    not public; no maintained test drives it.
 - **Run and capture.** `feature=herdr-place-worktree; entry=@byokit/herdr; drive=(node "$scratch_dir/verify-herdr-place-worktree.mjs")`;
   then run SKILL.md Evidence's capture block. Exit code `0`.
 - **place-worktree shows.** The shell's cwd is the checkout path, the placed workspace is the linked checkout.

@@ -19,7 +19,7 @@ It also drives missing-list/offline fallback, unknown-provider and blank-id refu
 
 `rn-models.log` records real SDK output and missing-key error. `steps.json` records the consumer journey. Both belong to this run only under `$DONE_DONE_EVIDENCE_ROOT`; seal and judge them with done-done before claiming proof.
 
-The regression test `packages/accounts/test/rn-key-models.test.ts` runs the same consumer for both `react-native` and `browser` export conditions with egress blocked. Existing portable bundling coverage checks that the explicit keys graph uses only kit-owned Pi artifacts and the default graph remains SDK-free.
+Portable bundling coverage in `packages/accounts/test/portable.test.ts` and `key-routes.test.ts` checks that the explicit keys graph uses only kit-owned Pi artifacts and the default graph remains SDK-free.
 
 ## Boundaries
 

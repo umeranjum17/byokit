@@ -17,7 +17,7 @@ A consumer app lists a member's accounts (Claude Code and ChatGPT, side by side)
 
 Preconditions: baseline (features/README.md).
 
-- **Offline journey.** `sh scripts/test.sh packages/openclaw/test/readiness.test.ts packages/accounts/test/cli.test.ts` runs the readiness journey on the fake gateway and the CLI status rows: expect them to pass.
+- **Offline journey.** `sh scripts/test.sh packages/openclaw/test/kit.test.ts packages/accounts/test/cli-command.test.ts` runs the readiness journey on the fake gateway and the CLI status rows: expect them to pass.
 - **Public-entry drive.** `feature=openclaw-account-status; entry=.agents/skills/done-done-verify-byokit/capture/openclaw-account-status.mjs; drive=(node "$entry" "$evidence_dir")` after `npm run build`, then SKILL.md's Evidence capture block. The script imports only the built `@byokit/openclaw` and `@byokit/openclaw/testing` entries and runs in well under a second.
 
 ## Gotchas

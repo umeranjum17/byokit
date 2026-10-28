@@ -99,4 +99,4 @@ Regression: against a build without the change `go account 403` throws `Unsuppor
 
 - Loopback only (`127.0.0.1`, ephemeral port); the key is a fixture string. Never call OpenCode Go or any real provider.
 - The backends' endpoints are fixed; the drive passes a `fetch` that rewrites the origin to the fake and sends through the real `fetch`.
-- The integration tests `packages/decide/test/opencode-go.test.ts` ("a refused Go plan abstains with a typed failure …"), `decide.test.ts` (the Jev retry journey) and `react-native.test.ts` (the answerer's `KeyRouteError` leg) run the same cases on the source.
+- The integration tests `packages/decide/test/decide.test.ts` (the Jev retry journey) and `react-native.test.ts` (the answerer's `KeyRouteError` leg) run the same cases on the source.

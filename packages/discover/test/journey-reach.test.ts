@@ -15,6 +15,7 @@ import type { AddressInfo } from 'node:net';
 import type { NetworkInterfaceInfo } from 'node:os';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
+import { browse, scan, type ZeroconfLike } from '../src/browse.ts';
 import { routeChoices } from '@byokit/ui/route';
 import {
   FUNNEL_ERROR, SERVE_OWNED_ERROR, advertise, directRoutes, inspectServe, isPeer, needsSignin,
@@ -400,4 +401,37 @@ test('an app recommends the route a person sees: Serve, then direct when Serve i
   entries = await recommend({ tailscale, interfaces: lanOnly });
   assert.equal(picked(entries), 'tailscale');
   assert.deepEqual(order(entries), ['tailscale', 'tailscale-direct', 'private', 'lan']);
+});
+
+// Folded in from the deleted browse unit file: the phone's own Wi-Fi scan, over a fake native browser.
+test('a phone browses its Wi-Fi: a computer appears, moves its port, goes away, and a timed scan keeps what is left', async () => {
+  const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+  const calls: string[] = [];
+  const zc: ZeroconfLike = {
+    scan: (type, protocol, domain) => { calls.push(`scan ${type} ${protocol} ${domain}`); },
+    stop: () => { calls.push('stop'); },
+    on: (event, listener) => { listeners.set(event, [...(listeners.get(event) ?? []), listener]); },
+  };
+  const emit = (event: string, ...args: unknown[]) => { for (const listener of listeners.get(event) ?? []) listener(...args); };
+  const service = (name: string, port: number, type = 'muxr') => ({ name, fullName: `${name}.local._${type}._tcp.`, host: `${name}.local.`, addresses: ['192.168.1.23'], port, txt: { machine: 'm1' } });
+
+  const handle = browse({ type: 'muxr', zeroconf: zc });
+  const events: string[] = [];
+  handle.on('found', (s) => events.push(`found ${s.name}:${s.port}`));
+  handle.on('updated', (s) => events.push(`updated ${s.name}:${s.port}`));
+  handle.on('lost', (name) => events.push(`lost ${name}`));
+  emit('resolved', service('devbox', 8792));
+  emit('resolved', service('devbox', 8793));
+  emit('remove', 'devbox');
+  handle.stop();
+  assert.deepEqual(events, ['found devbox:8792', 'updated devbox:8793', 'lost devbox']);
+  assert.deepEqual(calls, ['scan muxr tcp local.', 'stop']);
+
+  const pending = scan({ type: 'ssh', ms: 60, zeroconf: zc });
+  await new Promise((r) => setTimeout(r, 10));
+  emit('resolved', service('hostA', 22, 'ssh'));
+  emit('resolved', service('hostB', 2222, 'ssh'));
+  emit('remove', 'hostB');
+  assert.deepEqual((await pending).map((s) => [s.name, s.port]), [['hostA', 22]]);
+  assert.equal(calls.at(-1), 'stop');
 });

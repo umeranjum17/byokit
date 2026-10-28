@@ -7,7 +7,7 @@ Verification recipe for the engine-set freeze in [`@byokit/openclaw`](../../../.
 
 - A clean first install (stock set + patched set) completes and both sets verify, with no per-entry fsync in `freeze` and at most one bulk flush.
 - A drifted/damaged published set is still detected by full verification and rebuilt as a sibling; the old tree's
-  bytes are preserved; the drifted set is never launched (covered by `packages/openclaw/test/engine-unit.test.ts`).
+  bytes are preserved; the drifted set is never launched.
 - Freeze wall time on a real engine set is seconds, not minutes. This is the author's measurement on the reference
   host, not something the repository verifies.
 
