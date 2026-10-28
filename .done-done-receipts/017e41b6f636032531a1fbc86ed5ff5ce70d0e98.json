@@ -1,0 +1,98 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "017e41b6f636032531a1fbc86ed5ff5ce70d0e98",
+  "tree": "6c5c383ece5e0834895136dbfa4c74d15e3565fe",
+  "claim": "The committed workflow pins setup-java 6.1.0 in every Java setup step, and the BYOKit build and core consumer journey pass",
+  "result": "pass",
+  "at": "2026-10-28T17:56:57.309Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261028T175628Z-017e41b6-0c06e8/setup-java.txt",
+      "sha256": "6877fe8cc993a41081bc814c916d96cb0f2aa3ce5d2bd28c8a50a174042353b1"
+    },
+    {
+      "path": "<evidence root>/20261028T175533Z-017e41b6-0e03db/build.log",
+      "sha256": "d4376c4664c307b275bdde1fbffe74c8deed7e867552c96c97c505ddd541e509"
+    },
+    {
+      "path": "<evidence root>/20261028T175432Z-017e41b6-44dfba/core-journey.txt",
+      "sha256": "630859c948c3597b1d1a04cd832ac05ceaa8d4f33733c5a657b7e53a07083e7f"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261028T175628Z-017e41b6-0c06e8",
+      "commit": "017e41b6f636032531a1fbc86ed5ff5ce70d0e98",
+      "journey": null,
+      "command": "node -e 'import fs from \"node:fs\"; import {execFileSync} from \"node:child_process\"; const d=process.env.DONE_DONE_EVIDENCE_ROOT; const s=execFileSync(\"grep\",[\"-n\",\"actions/setup-java@\", \".github/workflows/ci.yml\"],{encoding:\"utf8\"}); fs.writeFileSync(`${d}/setup-java.txt`,s); fs.writeFileSync(`${d}/steps.json`,JSON.stringify({target:{version:\"BYOKit CI workflow\"},start:\"workflow pinned to setup-java 6.0.1\",steps:[\"read every Java setup action reference in the committed workflow\"],result:\"all seven setup-java actions pin 6.1.0\"}));'",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "BYOKit CI workflow"
+        },
+        "start": "workflow pinned to setup-java 6.0.1",
+        "steps": [
+          "read every Java setup action reference in the committed workflow"
+        ],
+        "result": "all seven setup-java actions pin 6.1.0"
+      }
+    },
+    {
+      "run_id": "20261028T175533Z-017e41b6-0e03db",
+      "commit": "017e41b6f636032531a1fbc86ed5ff5ce70d0e98",
+      "journey": "build",
+      "command": "npm run build > \"$DONE_DONE_EVIDENCE_ROOT/build.log\" 2>&1 && echo \"npm run build exited 0 and every package built (run $DONE_DONE_RUN_ID)\" >> \"$DONE_DONE_EVIDENCE_ROOT/build.log\" && node --input-type=module -e \"import { createRequire } from 'node:module'; const require = createRequire(process.cwd() + '/'); const pkg = require('./packages/accounts/package.json'); const acc = await import('@byokit/accounts'); const testing = await import('@byokit/accounts/testing'); if (!acc.Accounts || !acc.portable || typeof testing.mockOpenAI !== 'function') throw new Error('built entry incomplete'); console.log('doctor ok:', pkg.name, pkg.version, 'resolves', require.resolve('@byokit/accounts'));\" > \"$DONE_DONE_EVIDENCE_ROOT/doctor.log\" 2>&1",
+      "tool": "0.6.18"
+    },
+    {
+      "run_id": "20261028T175432Z-017e41b6-44dfba",
+      "commit": "017e41b6f636032531a1fbc86ed5ff5ce70d0e98",
+      "journey": "core",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/core-journey.mjs",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "0.34.0"
+        },
+        "start": "a fresh consumer app with no package installed and no account linked",
+        "steps": [
+          "install the shipped @byokit/accounts package into the app",
+          "the app links a ChatGPT account by device code: it shows a code and the person approves it",
+          "the app reads the account status",
+          "the app asks the provider a question and prints the answer it gets back"
+        ],
+        "result": "the installed package answers: \"ChatGPT is connected.\" and the answer \"You said: Plan my day\""
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261028T175628Z-017e41b6-0c06e8/setup-java.txt",
+        "sha256": "6877fe8cc993a41081bc814c916d96cb0f2aa3ce5d2bd28c8a50a174042353b1",
+        "verdict": "pass",
+        "seen": "Read all 7 entries (lines 456, 510, 566, 604, 635, 691, 732). Each reads 'uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0', so every Java setup step is pinned to 6.1.0 with the same SHA. This covers the first part only."
+      },
+      {
+        "path": "<evidence root>/20261028T175533Z-017e41b6-0e03db/build.log",
+        "sha256": "d4376c4664c307b275bdde1fbffe74c8deed7e867552c96c97c505ddd541e509",
+        "verdict": "pass",
+        "seen": "Read the single build entry. It states 'npm run build exited 0 and every package built (run 20261028T175533Z-017e41b6-0e03db)', and the run ran tsc -b across the packages before the fix-words script. This shows the build part passing."
+      },
+      {
+        "path": "<evidence root>/20261028T175432Z-017e41b6-44dfba/core-journey.txt",
+        "sha256": "630859c948c3597b1d1a04cd832ac05ceaa8d4f33733c5a657b7e53a07083e7f",
+        "verdict": "pass",
+        "seen": "Read all journey lines. The header says 'run: node consumer.mjs (exit 0)'. It shows 'status: ChatGPT is connected.' and 'streamed: You said: Plan my day', with 'not offered' and 'no account' lines as the expected error checks. This shows the core consumer journey passing."
+      }
+    ]
+  }
+}
