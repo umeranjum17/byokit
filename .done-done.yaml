@@ -32,11 +32,12 @@ journeys:
     command: node .agents/skills/done-done-verify-byokit/capture/pi-model-admission.mjs
     timeout: 5m
   build:
-    command: npm run build > "$DONE_DONE_EVIDENCE_ROOT/build.log" 2>&1 && echo "npm run build exited 0 and every package built (run $DONE_DONE_RUN_ID)" >> "$DONE_DONE_EVIDENCE_ROOT/build.log" && node --input-type=module -e "import { createRequire } from 'node:module'; const require = createRequire(process.cwd() + '/'); const pkg = require('./packages/accounts/package.json'); const acc = await import('@byokit/accounts'); const testing = await import('@byokit/accounts/testing'); if (!acc.Accounts || !acc.portable || typeof testing.mockOpenAI !== 'function') throw new Error('built entry incomplete'); console.log('doctor ok:', pkg.name, pkg.version, 'resolves', require.resolve('@byokit/accounts'));" > "$DONE_DONE_EVIDENCE_ROOT/doctor.log" 2>&1
+    command: npm run build > "$DONE_DONE_EVIDENCE_ROOT/build.log" 2>&1 && echo "npm run build exited 0 and every package built (run $DONE_DONE_RUN_ID)" >> "$DONE_DONE_EVIDENCE_ROOT/build.log" && node --input-type=module -e "import { createRequire } from 'node:module'; const require = createRequire(process.cwd() + '/'); const pkg = require('./packages/accounts/package.json'); const acc = await import('@byokit/accounts'); const testing = await import('@byokit/accounts/testing'); if (!acc.Accounts || !acc.portable || typeof testing.mockOpenAI !== 'function') throw new Error('built entry incomplete'); console.log('doctor ok:', pkg.name, pkg.version, 'resolves', require.resolve('@byokit/accounts'));" > "$DONE_DONE_EVIDENCE_ROOT/doctor.log" 2>&1 && node scripts/done-done-steps.ts build
   gate:
     command: |
       { echo "gate checked at $(date -u +%Y-%m-%dT%H:%M:%SZ) on head $(git rev-parse HEAD)"; done-done gate; } > "$DONE_DONE_EVIDENCE_ROOT/gate.log" 2>&1
       { echo "CI check runs for this pull request, read at $(date -u +%Y-%m-%dT%H:%M:%SZ):"; gh-axi pr checks 800 2>&1 | grep -E '^(summary|  done-done,)'; } > "$DONE_DONE_EVIDENCE_ROOT/ci-checks.log" 2>&1
+      node scripts/done-done-steps.ts gate
   # The CI gate's event rule: the done-done job judges a receipt against the commit CI
   # checked out, so it runs on a pull request only, and the ci-ok aggregate passes a job
   # skipped by design. One capture holds the workflow's own rule, the gate's ancestor
