@@ -81,5 +81,4 @@ Run the SKILL.md Evidence block, then `leak_check 'sk-umer-test-SECRET-zai-key'`
 
 - Loopback only (`127.0.0.1`, ephemeral port); the key is a fixture string. Never call Z.AI or any real provider.
 - The backend's endpoint is fixed; the drive passes a `fetch` that rewrites the origin to the fake and sends through the real `fetch`.
-- The unit-level cases (route, account tag, refusal words, cut-off replies) run on the source in `packages/decide/test/zai.test.ts`.
 - No live GLM call: there is no lab Z.AI key, so the live proof is "not proven live: no lab GLM key".

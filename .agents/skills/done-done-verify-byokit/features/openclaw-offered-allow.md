@@ -26,4 +26,4 @@ Use SKILL.md's Evidence capture block after allocating `evidence_dir`. The consu
 
 ## Gotchas
 
-This drive proves the written config contract. The real engine's wizard refusing the click without the plugin, and returning the authorize URL with it, is the Crewhouse gate at `ch-te-gate` row 2 (`.../data/ch-te-gate/report.md`); the reconcile rule is unit-covered by `packages/openclaw/test/config.test.ts` and the boot by `packages/openclaw/test/kit.test.ts`. No provider, credential or network is involved; there is no changed app screen, theme or device UI.
+This drive proves the written config contract. The real engine's wizard refusing the click without the plugin, and returning the authorize URL with it, is the Crewhouse gate at `ch-te-gate` row 2 (`.../data/ch-te-gate/report.md`); the boot is covered by `packages/openclaw/test/kit.test.ts`. No provider, credential or network is involved; there is no changed app screen, theme or device UI.

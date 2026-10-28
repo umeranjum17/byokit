@@ -414,7 +414,7 @@ values only). The pinned `react-native-zeroconf` dependency (`0.17.4`) is suppli
 `test/journey-reach.test.ts` drives the built package as a host app does: `reach`, `serve`/`unserve`, `recommend`,
 `advertise`, `routes`/`directRoutes` and `tailscaleState` against a fake `tailscale` CLI that logs every call. The real
 binary never runs, and no packet goes out: mDNS advertise uses a fake publisher, and the React Native browse API
-(`test/browse.test.ts`) uses a fake zeroconf module.
+(`test/journey-reach.test.ts`) uses a fake zeroconf module.
 
 ## Links
 

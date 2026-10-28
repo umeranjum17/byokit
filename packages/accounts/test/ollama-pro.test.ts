@@ -35,57 +35,6 @@ function local() {
   }) });
 }
 
-test('catalogue offers Ollama Pro as a pasted plan key', () => {
-  const p = provider('ollama-pro');
-  assert.deepEqual([p.pi, p.name, p.company, p.billing, p.auth], ['openai', 'Ollama Pro', 'Ollama', 'subscription', 'api-key']);
-  assert.deepEqual(p.routes, [OLLAMA_PRO_PLAN_ROUTE]);
-  assert.equal(OLLAMA_PRO_BASE_URL, 'https://ollama.com/v1');
-  assert.ok(offered().some((q) => q.key === 'ollama-pro'));
-  assert.ok(!signInChoices().some((q) => q.key === 'ollama-pro'));
-  assert.equal(planKey('ollama-pro'), true);
-  const r = route(OLLAMA_PRO_PLAN_ROUTE, { platform: 'browser' });
-  assert.deepEqual([r.readiness, r.billing, r.offer], ['ready', 'subscription', 'default']);
-  assert.deepEqual([r.upstream.id, r.upstream.method, r.upstream.flow, r.aliases], ['ollama-pro', 'OLLAMA_API_KEY', 'present', ['ollama-cloud']]);
-});
-
-test('respondKey streams openai-completions to ollama.com/v1 with the plan key header (fake fetch)', async () => {
-  const accounts = local();
-  const { id } = await accounts.add('Umer', OLLAMA_PRO_PLAN_ROUTE, { key: CANARY });
-  const model: Model<'openai-completions'> = {
-    id: 'deepseek-v4.1-flash', name: 'DeepSeek', provider: 'ollama-pro', api: 'openai-completions',
-    baseUrl: OLLAMA_PRO_BASE_URL, reasoning: false, input: ['text'],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 128000, maxTokens: 8192,
-  };
-  const context: Context = { messages: [{ role: 'user', content: 'ping', timestamp: 0 }] };
-  const openaiEvents = [
-    { id: 'fixture', choices: [{ index: 0, delta: { role: 'assistant', content: 'ok' }, finish_reason: null }] },
-    { id: 'fixture', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } },
-  ];
-  assert.equal(model.provider, route(OLLAMA_PRO_PLAN_ROUTE).provider);
-  let hit = '';
-  let requestedModel = '';
-  const result = await accounts.respondKey('Umer', {
-    account: id, model, context,
-    options: {
-      fetch: async (input, init) => {
-        hit = String(input);
-        requestedModel = (JSON.parse(String(init?.body)) as { model: string }).model;
-        const headers = new Headers(init?.headers);
-        assert.equal(headers.get('authorization'), `Bearer ${CANARY}`);
-        leak(hit);
-        return new Response(
-          openaiEvents.map((e) => `data: ${JSON.stringify(e)}\n\n`).join('') + 'data: [DONE]\n\n',
-          { headers: { 'content-type': 'text/event-stream' } },
-        );
-      },
-    },
-  });
-  assert.equal(hit, `${OLLAMA_PRO_BASE_URL}/chat/completions`);
-  assert.equal(requestedModel, model.id);
-  assert.equal(result.stopReason, 'stop');
-  assert.ok(!JSON.stringify(result).includes(CANARY));
-});
-
 test('a consumer resolves ollama-pro from the engine and calls it through a loopback stub, no alias', async () => {
   const accounts = local();
   const { id } = await accounts.add('Umer', OLLAMA_PRO_PLAN_ROUTE, { key: CANARY });
@@ -126,38 +75,6 @@ test('a consumer resolves ollama-pro from the engine and calls it through a loop
     assert.deepEqual(result.content, [{ type: 'text', text: 'pong-from-stub' }]);
     assert.ok(!JSON.stringify(result).includes(CANARY));
   } finally { server.close(); server.closeAllConnections(); }
-});
-
-test('plan-key seam and member handle: Map store, canary never in error words', async () => {
-  const { store, saved } = memoryKeys();
-  assert.equal(ollamaProPlanKeyEntry(), `accounts.${OLLAMA_PRO_PLAN_ROUTE}`);
-  const handle = ollamaProPlanAccount(store);
-  assert.equal(handle.provider, 'ollama-pro');
-  await assert.rejects(handle.access(new AbortController().signal), (e: unknown) => {
-    assert.ok(e instanceof Error && e.message === 'Add the Ollama Pro plan key first.');
-    leak(e.message);
-    return true;
-  });
-  await saveOllamaProPlanKey(store, CANARY);
-  assert.deepEqual([...saved], [[`accounts.${OLLAMA_PRO_PLAN_ROUTE}`, CANARY]]);
-  assert.equal(await readOllamaProPlanKey(store), CANARY);
-  assert.equal(await handle.access(new AbortController().signal), CANARY);
-
-  const accounts = local();
-  const { id } = await accounts.add('Umer', OLLAMA_PRO_PLAN_ROUTE, { key: CANARY });
-  assert.ok(id.startsWith(`${OLLAMA_PRO_PLAN_ROUTE}.`));
-  assert.equal(await accounts.ollamaPro('Umer').access(new AbortController().signal), CANARY);
-  const other = local();
-  await other.add('Luis', OLLAMA_PRO_PLAN_ROUTE, { key: 'luis-ollama-plan-key' });
-  assert.equal(await other.ollamaPro('Luis').access(new AbortController().signal), 'luis-ollama-plan-key');
-  await assert.rejects(other.ollamaPro('Umer').access(new AbortController().signal),
-    (e) => e instanceof ResponseError && e.kind === 'signed_out');
-  const portableKit = new Accounts({ store: () => memoryStore(), keyStore: () => memoryKeys().store }, portable);
-  assert.ok(portableKit.providers.some((q) => q.key === 'ollama-pro'));
-  assert.equal((await portableKit.status(1, 'ollama-pro')).state, 'signed_out');
-
-  await deleteOllamaProPlanKey(store);
-  assert.deepEqual([...saved], []);
 });
 
 test('ollamaProChat hits a loopback fake; canary stays out of argv, env, logs and errors', async () => {

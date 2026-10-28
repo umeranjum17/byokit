@@ -5,7 +5,6 @@ A person with only the phone app deploys onto any SSH box: the app passes its ow
 ## Sub-features
 
 - `transport-bench`: `sh scripts/test.sh packages/cloud/test/journey-cloud.test.ts` (`a phone with only its own SSH module deploys onto any SSH box…`): unpinned setup fails at listing with no command sent; confirm pins; with no listener securing fails `state.failed` (retryable), a transport without `forward` fails `error.app`, then steps run to ready with `securing` carrying the route and one proof forward opened and closed; no Tailscale command runs; a changed key reads host-key-changed and exec rejects host-key.
-- `transport-contract`: `sh scripts/test.sh packages/cloud/test/contract.test.ts`: the machine contract over `fakeSshTransport` from `@byokit/cloud/testing`.
 - `transport-forward`: the same journey, after `securing`: a real `@byokit/pair` host listens on the fake machine's loopback port, and a `DeviceLink` pairs and requests through `sshResolve()` over `fakeSshTransport().forward`; one forward is shared, reused, reopened after `close()`, and a wrong pin reads `host-key`.
 - `transport-live`: `capture/cloud-ssh-transport.mjs` on a real VM, below.
 

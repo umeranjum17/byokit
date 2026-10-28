@@ -25,4 +25,4 @@ Preconditions: baseline (features/README.md); no process of a previous drive is 
 ## Gotchas
 
 - A refresh happens only when the access expires within five minutes, so the seed expires in 60 s and the rotated answer uses `expires_in: 60` to make the next call refresh again.
-- Two processes sharing one store need a store with a cross-process lock (`fileStore`); `packages/accounts/test/signin.test.ts` drives that case with real child processes.
+- Two processes sharing one store need a store with a cross-process lock (`fileStore`).

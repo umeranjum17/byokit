@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "0912d88ca945ed3479c1df27cb47271c5607e1e8",
+  "tree": "a95ea5667af5ad56ddbfaf792f4c931a49f33a7c",
+  "claim": "A fresh consumer app installs the shipped @byokit/accounts package, links a ChatGPT account by device code, reads the account status and prints the answer to its question",
+  "result": "pass",
+  "at": "2026-10-28T14:00:30.022Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261028T134559Z-20f76f93-b1aa75/core-journey.txt",
+      "sha256": "f17fedd2e64d3d523a88570fa8b6137eca203290ea614b978c3525f4a4fcc748"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261028T134559Z-20f76f93-b1aa75",
+      "commit": "20f76f9393e3065a7dacdc51c300a19ff179757d",
+      "journey": "core",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/core-journey.mjs",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "0.34.0"
+        },
+        "start": "a fresh consumer app with no package installed and no account linked",
+        "steps": [
+          "install the shipped @byokit/accounts package into the app",
+          "the app links a ChatGPT account by device code: it shows a code and the person approves it",
+          "the app reads the account status",
+          "the app asks the provider a question and prints the answer it gets back"
+        ],
+        "result": "the installed package answers: \"ChatGPT is connected.\" and the answer \"You said: Plan my day\""
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261028T134559Z-20f76f93-b1aa75/core-journey.txt",
+        "sha256": "f17fedd2e64d3d523a88570fa8b6137eca203290ea614b978c3525f4a4fcc748",
+        "verdict": "pass"
+      }
+    ]
+  }
+}
