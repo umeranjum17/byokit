@@ -4,6 +4,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readlinkSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cliAccounts, nativePiAccount, CliAccountError, type CliProvider } from '../src/cli.ts';
+import { OPENCODE_GO_PLAN_ROUTE, openCodePlanKeyEntry } from '../src/opencode-go.ts';
 import { resolveSelection } from '../src/multi.ts';
 import { clock, say } from '../src/words.ts';
 import { roomOf, usage } from '@byokit/usage';
@@ -550,6 +551,49 @@ test('installed CLIs signed in under the app HOME: listed, picked and launched w
   assert.deepEqual([unreadable.state, unreadable.why, unreadable.reason, unreadable.cause], ['unknown', 'unknown', 'unreadable', 'Claude on this computer answered in a way the app could not read.']);
   const absent = await installed(join(root, 'not-installed')).status('installed-claude');
   assert.deepEqual([absent.state, absent.why, absent.reason, absent.cause], ['unknown', 'unknown', 'unavailable', 'Claude on this computer could not start.']);
+});
+
+test('managed OpenCode Go key route and folder launch remain separate from installed discovery', async () => {
+  const root = scratchDir('managed-opencode-route'), bin = fake(join(root, 'bins'), 'opencode').bin;
+  const values = new Map<string, string>();
+  const keyStore = { get: async (name: string) => values.get(name) ?? null, set: async (name: string, value: string) => { values.set(name, value); },
+    delete: async (name: string) => values.delete(name) };
+  const home = join(root, 'home'); mkdirSync(home);
+  const kit = cliAccounts({ stateDir: join(root, 'plans'), bins: { opencode: bin }, env: { HOME: home, PATH: '/unused' }, installed: true, keyStore,
+    fetch: async (input) => { assert.equal(String(input), 'https://opencode.ai/console/api/orgs'); return new Response('', { status: 401 }); } });
+  const { account } = await kit.add('opencode');
+  assert.equal(account.state, 'signing');
+  const key = 'synthetic-opencode-go-key';
+  assert.equal((await kit.saveKey(account.id, key)).state, 'ready');
+  assert.equal(values.get(openCodePlanKeyEntry(OPENCODE_GO_PLAN_ROUTE, account.id)), key);
+  assert.equal(OPENCODE_GO_PLAN_ROUTE, 'opencode:plan_key:opencode-go');
+  assert.deepEqual((await kit.list()).map((row) => row.id), [account.id], 'managed row remains; absent default store adds no installed row');
+  const launch = await kit.launch(account.id);
+  assert.equal(launch.ok, true);
+  if (launch.ok) {
+    assert.equal(launch.set.OPENCODE_CONFIG_DIR, kit.folderOf(account.id));
+    assert.equal(launch.set.XDG_DATA_HOME, join(kit.folderOf(account.id), 'data'));
+    assert.equal(launch.set.OPENCODE_CONFIG, join(kit.folderOf(account.id), 'opencode.json'));
+    assert.ok(launch.unset.includes('OPENCODE_API_KEY'));
+    assert.ok(!launch.unset.includes('OPENCODE_CONFIG'), 'managed key config remains explicitly selected');
+  }
+  assert.equal(readFileSync(join(kit.folderOf(account.id), 'go.key'), 'utf8'), key);
+  assert.equal((await kit.logout(account.id)).state, 'signed_out');
+});
+
+test('installed Cursor readiness and launch remain unchanged beside store-gated OpenCode', async () => {
+  const root = scratchDir('installed-cursor'); const cursorBin = join(root, 'bins', 'cursor-agent');
+  const calls = join(root, 'cursor.jsonl'); mkdirSync(join(root, 'bins'), { recursive: true }); writeFileSync(calls, '');
+  writeFileSync(cursorBin, `#!${process.execPath}\nconst fs=require('node:fs');\nfs.appendFileSync(${JSON.stringify(calls)},JSON.stringify({argv:process.argv.slice(2),home:process.env.HOME})+'\\n');\nconsole.log(JSON.stringify({isAuthenticated:true}));\n`, { mode: 0o755 });
+  const home = join(root, 'home'); mkdirSync(home);
+  const kit = cliAccounts({ stateDir: join(root, 'plans'), bins: { cursor: cursorBin, opencode: cursorBin }, env: { HOME: home, PATH: '/unused' }, installed: true });
+  const rows = await kit.list();
+  assert.deepEqual(rows.map(({ id, provider, state, name }) => [id, provider, state, name]), [['installed-cursor', 'cursor', 'ready', 'Cursor']]);
+  assert.deepEqual(JSON.parse(readFileSync(calls, 'utf8')).argv, ['status', '--format', 'json']);
+  assert.equal(JSON.parse(readFileSync(calls, 'utf8')).home, home);
+  const launch = await kit.launch('installed-cursor');
+  assert.equal(launch.ok, true); assert.equal(launch.account.state, 'ready');
+  if (launch.ok) assert.deepEqual(launch.set, {});
 });
 
 test('installed Codex launch distinguishes signed out from failed probes and retries only transient failures once', async () => {

@@ -1,10 +1,11 @@
 # Installed CLIs in the accounts list, and the Claude judge on them
 
-A host app driving the built `@byokit/accounts/cli` with `installed: true` lists the Claude, Codex and Cursor the person already installed and signed in to under their own HOME, then judges a decide question through the installed Claude with `@byokit/decide/claude-code`, which runs it with that HOME and no `CLAUDE_CONFIG_DIR`. A managed account keeps its own folder.
+A host app driving the built `@byokit/accounts/cli` with `installed: true` lists the Claude, Codex and Cursor the person already installed and signed in to under their own HOME, plus installed OpenCode when its default login store exists. Claude/Codex/Cursor use their non-secret status commands; OpenCode stays honestly `unknown` because it has no non-secret status command, and can still be launched with the person's HOME and no BYOKit folder/XDG overrides. The installed Claude can judge a decide question through `@byokit/decide/claude-code`, which runs it with that HOME and no `CLAUDE_CONFIG_DIR`. A managed account keeps its own folder.
 
 ## Sub-features
 
-- `installed-listed`: `list()` shows one `installed-<provider>` row per CLI in `bins` (`installed: true`), `ready` with email and plan when the CLI's own status command says signed in; managed rows are listed unchanged beside it, and without `installed: true` no installed row appears.
+- `installed-listed`: `list()` shows one `installed-<provider>` row per eligible CLI in `bins` (`installed: true`), `ready` with email and plan when the CLI's own status command says signed in; managed rows are listed unchanged beside it, and without `installed: true` no installed row appears.
+- `installed-opencode-listed`: OpenCode is listed only when its binary and `auth.json` or `opencode.db` exist under the default/XDG data root; discovery checks existence only. Status is `unknown` with the reason that no non-secret sign-in check exists, never `ready` or `signed_out` from a nonexistent probe; `launch()` is allowed with an empty `set` and per-use OpenCode, Claude and Codex overrides in `unset`.
 - `installed-probe-env`: the status command runs with the app's `env.HOME`, no `CLAUDE_CONFIG_DIR`, no per-use key (`ANTHROPIC_API_KEY`); Codex gets `CODEX_HOME=<HOME>/.codex`.
 - `installed-launch`: `launch('installed-claude')` is `ok` with an empty `set` and the per-use overrides in `unset`; a managed row's `launchEnv` still sets `CLAUDE_CONFIG_DIR` to its folder.
 - `installed-decide`: `decide(...)` with `claudeCode({ bin, account: launch })` answers, and the Claude it ran saw the person's HOME and no `CLAUDE_CONFIG_DIR`; with the managed row's `launchEnv` it saw that folder.
@@ -15,7 +16,7 @@ A host app driving the built `@byokit/accounts/cli` with `installed: true` lists
 
 ## How to get to it (user POV)
 
-- The app builds `cliAccounts({ stateDir, bins: { claude, codex }, env: { HOME, PATH }, installed: true })`, shows `list()`, the person picks the installed Claude, and the app passes `await accounts.launch(id)` to `claudeCode({ bin, account, timeoutMs })` for its decide calls.
+- The app builds `cliAccounts({ stateDir, bins: { claude, codex, cursor, opencode }, env: { HOME, PATH }, installed: true })`, shows `list()`; the person can pick installed OpenCode and run it with the returned launch environment while status stays unknown. For Claude decide calls, the app passes `await accounts.launch(id)` to `claudeCode({ bin, account, timeoutMs })` .
 
 ## Driving it with node scratch consumers
 

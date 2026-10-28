@@ -22,6 +22,7 @@ export function decoy(root: string) {
   const marks = join(root, 'marks');
   const trace = join(root, 'trace.log');
   const pi = join(home, '.pi'), codex = join(home, '.codex'), claude = join(home, '.claude'), agents = join(home, '.agents');
+  const opencode = join(home, '.local', 'share', 'opencode');
   const token = { type: 'oauth', access: `${CANARY}-access`, refresh: `${CANARY}-refresh`, expires: Date.now() + 86_400_000 };
   put(join(pi, 'agent', 'auth.json'), JSON.stringify({ 'openai-codex': token, xai: token }));
   put(join(pi, 'agent', 'settings.json'), JSON.stringify({ defaultProvider: 'openai-codex', defaultModel: 'gpt-6-sol', packages: ['npm:evil'] }));
@@ -29,9 +30,11 @@ export function decoy(root: string) {
   put(join(codex, 'auth.json'), JSON.stringify({ tokens: { access_token: `${CANARY}-codex`, refresh_token: `${CANARY}-codex-refresh` } }));
   put(join(claude, '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: `${CANARY}-claude` } }));
   put(join(agents, 'skills', 'owner-skill', 'SKILL.md'), '---\nname: owner-skill\ndescription: the person\'s own skill\n---\n');
+  put(join(opencode, 'auth.json'), JSON.stringify({ 'opencode-go': { type: 'api', key: `${CANARY}-opencode` } }));
+  put(join(opencode, 'opencode.db'), `${CANARY}-opencode-db`);
   mkdirSync(marks, { recursive: true });
   writeFileSync(trace, '');
-  const roots = [pi, codex, claude, agents];
+  const roots = [pi, codex, claude, agents, opencode];
   const before = hashes(roots);
   return {
     root, home, roots, marks,
