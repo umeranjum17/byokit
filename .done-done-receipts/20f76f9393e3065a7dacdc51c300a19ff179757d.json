@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "20f76f9393e3065a7dacdc51c300a19ff179757d",
+  "tree": "74d5024206cbdd23bf95bc8fa02c5112ebec927b",
+  "claim": "A consumer app installs the shipped @byokit/accounts package, signs in a ChatGPT stand-in account, streams an answer, and gets plain refusals when not offered or not signed in, with the test suite pruned to integration tests and no product code changed",
+  "result": "pass",
+  "at": "2026-10-28T13:46:28.329Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261028T134559Z-20f76f93-b1aa75/core-journey.txt",
+      "sha256": "f17fedd2e64d3d523a88570fa8b6137eca203290ea614b978c3525f4a4fcc748"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261028T134559Z-20f76f93-b1aa75",
+      "commit": "20f76f9393e3065a7dacdc51c300a19ff179757d",
+      "journey": "core",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/core-journey.mjs",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "0.34.0"
+        },
+        "start": "a fresh consumer app with no package installed and no account linked",
+        "steps": [
+          "install the shipped @byokit/accounts package into the app",
+          "the app links a ChatGPT account by device code: it shows a code and the person approves it",
+          "the app reads the account status",
+          "the app asks the provider a question and prints the answer it gets back"
+        ],
+        "result": "the installed package answers: \"ChatGPT is connected.\" and the answer \"You said: Plan my day\""
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261028T134559Z-20f76f93-b1aa75/core-journey.txt",
+        "sha256": "f17fedd2e64d3d523a88570fa8b6137eca203290ea614b978c3525f4a4fcc748",
+        "verdict": "pass",
+        "seen": "I read the single capture record (core-journey.txt). It shows the core journey: 'package: @byokit/accounts@0.34.0', 'status: ChatGPT is connected.', 'streamed: You said: Plan my day', 'not offered: Error: AI account not offered here', and 'no account: ResponseError: ChatGPT isn't signed in yet.' with 'run: node consumer.mjs (exit 0)'. These match the install, sign-in, streaming, and plain-refusal parts of the outcome. The capture does not show the test-suite pruning or that no product code changed, so those parts are unverified here. The outcome names one part, so no per-part list is needed."
+      }
+    ]
+  }
+}
