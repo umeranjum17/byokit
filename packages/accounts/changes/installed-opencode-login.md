@@ -1,0 +1,1 @@
+- FIX: Installed OpenCode logins are discovered by checking the default/XDG data store's existence only and can be launched with the person's HOME. Their status remains honestly unknown because OpenCode has no non-secret sign-in check.

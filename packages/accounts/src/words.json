@@ -79,6 +79,7 @@
   "cli.vibeKey": "Paste the key in the app to connect this account.",
   "cli.missingPlanKey": "Add the {name} plan key first.",
   "cli.installedSignedOut": "{name} is not signed in on this computer.",
+  "cli.installedNoStatus": "{name} on this computer has no non-secret sign-in check.",
   "cli.installedExit": "{name} on this computer stopped before answering the account check.",
   "cli.installedRpc": "{name} on this computer refused the account check.",
   "cli.installedWrite": "{name} on this computer could not receive the account check.",

@@ -50,8 +50,9 @@ export type CliOptions = {
   claudeHeaders?: { 'anthropic-beta': string; 'User-Agent': string };
   /** Reaches the OpenCode console when an OpenCode key saved without a workspace is launched (default: global fetch). */
   fetch?: typeof fetch;
-  /** Also list each installed Claude, Codex and Cursor `bins` entry as it runs under `env.HOME` (id `installed-<provider>`),
-   * read with the CLI's own status command. It launches with no folder variable; it cannot be renamed, rested or removed. */
+  /** Also list installed Claude, Codex and Cursor entries after their non-secret status check, plus OpenCode when its
+   * default/XDG data-root login store exists (id `installed-<provider>`). OpenCode remains unknown because it has no safe status command.
+   * Installed entries run under `env.HOME` with no managed folder; they cannot be renamed, rested or removed. */
   installed?: boolean;
 };
 export type CliLaunchResult =
@@ -86,8 +87,8 @@ type Row = { id: string; provider: CliProvider; name: string; folder: string; fo
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const text = (v: unknown): v is string => typeof v === 'string' && !v.includes('\0');
 const providers: CliProvider[] = ['claude', 'codex', 'pi', 'opencode', 'kimi', 'vibe', 'cursor'];
-/** The CLIs with one non-secret status command for their own login (Pi's is per provider; Kimi, OpenCode and Vibe have none). */
-const installable: CliProvider[] = ['claude', 'codex', 'cursor'];
+/** CLIs with a non-secret login status command, plus OpenCode's store-presence-only installed row. */
+const installable: CliProvider[] = ['claude', 'codex', 'cursor', 'opencode'];
 const piRoutes = routes.filter(r => r.upstream.surface === 'accounts' && r.billing === 'subscription' && r.upstream.flow === 'present' && (r.via === 'browser' || r.via === 'code'));
 const validPiProvider = (p: unknown): p is PiProvider => text(p) && piRoutes.some(r => r.upstream.id === p);
 /** The Pi provider ids a BYOKit-owned quota route reads the folder login for; every other Pi row stays unknown. */
@@ -247,7 +248,12 @@ export function cliAccounts(options: CliOptions) {
   // An installed Codex keeps its login where it would itself: the person's CODEX_HOME, else ~/.codex. Codex reads it, never the kit.
   const codexHome = (r: Row) => !r.installed ? r.folder : env.CODEX_HOME && isAbsolute(env.CODEX_HOME) ? env.CODEX_HOME : join(env.HOME, '.codex');
   const codexSource = (r: Row) => ({ provider: 'codex' as const, bin: binary('codex'), home: codexHome(r), env: spawnEnv(r) });
-  const installedRows = (): Row[] => options.installed ? installable.filter((p) => bins[p]).map((p) => ({ id: `installed-${p}`, provider: p, name: '', folder: '', found: false, installed: true })) : [];
+  function installedLoginExists(provider: CliProvider): boolean {
+    if (provider !== 'opencode') return true;
+    const dataHome = env.XDG_DATA_HOME && isAbsolute(env.XDG_DATA_HOME) ? env.XDG_DATA_HOME : join(env.HOME, '.local', 'share');
+    return ['auth.json', 'opencode.db'].some((name) => existsSync(join(dataHome, 'opencode', name)));
+  }
+  const installedRows = (): Row[] => options.installed ? installable.filter((p) => bins[p] && installedLoginExists(p)).map((p) => ({ id: `installed-${p}`, provider: p, name: '', folder: '', found: false, installed: true })) : [];
   const installedRow = (id: string) => installedRows().find((r) => r.id === id);
   /** The one usage source for a ready row; a provider whose reader is a later lane stays unknown. */
   function roomSource(r: Row): Source | undefined {
@@ -510,13 +516,15 @@ export function cliAccounts(options: CliOptions) {
     if (first) return (first[0].toUpperCase() + first.slice(1).toLowerCase()).slice(0, 64);
     return provider === 'claude' ? 'Claude' : provider === 'pi' ? 'Pi' : provider === 'opencode' ? 'OpenCode' : provider === 'kimi' ? 'Kimi' : provider === 'vibe' ? 'Vibe' : provider === 'cursor' ? 'Cursor' : 'Codex';
   }
-  /** An installed row reads only its CLI's own answer: signed in, signed out, or no answer with the real cause. */
+  /** Installed rows trust only a non-secret provider answer; OpenCode has no such command and remains unknown. */
   /** A probe that gave no answer (timeout, start, exit, unreadable) is unknown: never a revoked login. */
   const unknownOf = (cause: NonNullable<Probe['cause']>, name: string) => ({ state: 'unknown' as const, why: 'unknown' as const,
     reason: ({ 'cli.installedSlow': 'timeout', 'cli.installedUnreadable': 'unreadable' } as const)[cause as 'cli.installedSlow'] ?? 'unavailable' as UnknownReason,
     retryAfterMs: 5_000, cause: say(cause, { name }) });
   async function installedStatus(r: Row): Promise<CliAccount> {
     const account = { id: r.id, provider: r.provider, name: suggestName(undefined, r.provider), billing: 'subscription' as const, installed: true as const };
+    if (r.provider === 'opencode') return { ...account, state: 'unknown', why: 'unknown', reason: 'unavailable',
+      cause: say('cli.installedNoStatus', { name: account.name }) };
     const info = await readIdentity(r);
     if (info.signedIn) return { ...account, name: suggestName(info.email, r.provider), state: 'ready', ...(info.email ? { email: info.email } : {}), ...(info.plan ? { plan: info.plan } : {}), ...(info.method ? { method: info.method } : {}) };
     return { ...account, ...(info.cause ? unknownOf(info.cause, account.name) : { state: 'signed_out' as const, cause: say('cli.installedSignedOut', { name: account.name }) }),
@@ -691,10 +699,10 @@ export function cliAccounts(options: CliOptions) {
       const selected = installedRow(id) ?? row(id);
       if (selected.provider === 'pi') piArgs(model, selected.piProvider);
       const account = await status(id);
-      if (account.state === 'ready') {
+      if (account.state === 'ready' || selected.installed && selected.provider === 'opencode') {
         const r = installedRow(id) ?? row(id);
         const base = launch(r);
-        if (r.provider !== 'opencode') return { ok: true, account, ...base, ...(r.provider === 'pi' ? { args: piArgs(model, r.piProvider) } : {}) };
+        if (r.installed || r.provider !== 'opencode') return { ok: true, account, ...base, ...(r.provider === 'pi' ? { args: piArgs(model, r.piProvider) } : {}) };
         // The folder files are the delivery copy: the key reaches OpenCode through `{file:}`
         // substitution in the folder's opencode.json, never argv or env.
         return serial(id, async (): Promise<CliLaunchResult> => {

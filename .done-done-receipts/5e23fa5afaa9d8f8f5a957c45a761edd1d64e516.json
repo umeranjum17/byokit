@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "5e23fa5afaa9d8f8f5a957c45a761edd1d64e516",
+  "tree": "cb70e897490022e1ca105742866c150ff23dfaac",
+  "claim": "An installed OpenCode login with a detected store is listed honestly as unknown and can be launched with the person’s HOME and no BYOKit folder or XDG overrides; missing store or binary means no row.",
+  "result": "pass",
+  "at": "2026-10-28T18:09:48.284Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261028T180944Z-5e23fa5a-71f94b/opencode-installed.log",
+      "sha256": "a54d8df5868a4bc3e4bb27f9a8e6b545270207cf0bf18d963c9fedaf62965105"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261028T180944Z-5e23fa5a-71f94b",
+      "commit": "5e23fa5afaa9d8f8f5a957c45a761edd1d64e516",
+      "journey": "accounts-cli-installed-opencode",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/accounts-cli-installed-opencode.mjs",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "0.34.0"
+        },
+        "start": "Synthetic OpenCode binary and auth.json in a disposable HOME; no real login or network",
+        "steps": [
+          "List installed accounts with the synthetic OpenCode binary and login-store path present; observe installed-opencode with unknown status and the non-secret-check reason.",
+          "Launch the installed account and run the supplied binary with the returned environment; observe HOME preserved, the six per-use overrides removed, and no folder or XDG override.",
+          "List again with the store missing, the binary missing, and installed discovery disabled; observe no installed OpenCode row in each case."
+        ],
+        "result": "The installed OpenCode account is listed only with its binary and store, stays honestly unknown, and launches with the user HOME and no BYOKit folder overrides."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261028T180944Z-5e23fa5a-71f94b/opencode-installed.log",
+        "sha256": "a54d8df5868a4bc3e4bb27f9a8e6b545270207cf0bf18d963c9fedaf62965105",
+        "verdict": "pass",
+        "seen": "I read the whole capture: one list entry, one launch entry, and one guards entry covering three negative cases. The list line shows \"installed-opencode; state unknown because OpenCode has no non-secret sign-in check\", matching the unknown state for an installed login. The launch line shows \"HOME preserved, no folder/XDG overrides, and all six per-use overrides removed\", matching the HOME-only launch. The guards line says \"missing store, missing binary, and installed:false each produce no installed OpenCode row\", matching the no-row cases. The result line reads PASS. The outcome names a single part, so parts and covers are empty."
+      }
+    ]
+  }
+}

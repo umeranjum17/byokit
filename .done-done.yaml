@@ -17,6 +17,9 @@ journeys:
   accounts-cli-targeted-signin:
     command: node .agents/skills/done-done-verify-byokit/capture/accounts-cli-targeted-signin.mjs
     timeout: 2m
+  accounts-cli-installed-opencode:
+    command: node .agents/skills/done-done-verify-byokit/capture/accounts-cli-installed-opencode.mjs
+    timeout: 2m
   openclaw-native-binding:
     command: node .agents/skills/done-done-verify-byokit/capture/openclaw-native-binding.mjs
     timeout: 2m
