@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "85a6d3f9713f181aea52b9ca3479b152185b26fd",
+  "tree": "c06871366cfad556a5adf68ad4f4bcc91bd12080",
+  "claim": "Draft pull requests and pull request body edits no longer start CI, and a push to main runs only the areas the merge changed (every area when the merge changes a shared build input such as package-lock.json)",
+  "result": "pass",
+  "at": "2026-10-28T10:26:48.171Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261028T102632Z-85a6d3f9-2121a5/ci-diet.log",
+      "sha256": "23b971753b643e2549d589d9ee0ce311b5f0960bd08c584f0dd205e72368fa22"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261028T102632Z-85a6d3f9-2121a5",
+      "commit": "85a6d3f9713f181aea52b9ca3479b152185b26fd",
+      "journey": null,
+      "command": "sh /tmp/claude-1000/-home-umer--treehouse-byokit-48ee6a-9-byokit/dd0ecaaa-51f9-4524-8206-5d8f50db22ca/scratchpad/ci-diet.sh",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "BYOKit CI workflows (ci.yml, dictation-wer.yml) and scripts/ci-changes.ts at the recorded commit"
+        },
+        "start": "A pull request branch that changes only the CI workflow files and the job dispatcher; no package code changes",
+        "steps": [
+          "Read the pull_request trigger types in ci.yml and dictation-wer.yml: opened, synchronize, reopened, ready_for_review, with no edited.",
+          "Read the draft condition on the changes job, on ci-ok and on the dictation WER job.",
+          "Open the pull request as a draft and read the GitHub run it started: every job is skipped and no runner is used.",
+          "Mark the pull request ready and read the run it started: the area-scoped job set runs.",
+          "Read the pull request's body edit times against its run start times: no run starts at an edit.",
+          "Run the old and the new job dispatcher on five real merges to main and count the jobs each would run."
+        ],
+        "result": "A draft pull request started a run with every job skipped; the ready pull request ran its area jobs; body edits started no run; a push to main now runs fewer jobs than before when the merge did not touch a shared input."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261028T102632Z-85a6d3f9-2121a5/ci-diet.log",
+        "sha256": "23b971753b643e2549d589d9ee0ce311b5f0960bd08c584f0dd205e72368fa22",
+        "verdict": "pass"
+      }
+    ]
+  }
+}
