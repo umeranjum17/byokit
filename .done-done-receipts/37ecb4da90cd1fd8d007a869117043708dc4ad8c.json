@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "37ecb4da90cd1fd8d007a869117043708dc4ad8c",
+  "tree": "2eb5f26ecf6813488e2f0a16a9bd8e15b10c73ab",
+  "claim": "A fresh consumer installs the shipped accounts package, links a ChatGPT account by device code, reads its status, and gets an answer",
+  "result": "pass",
+  "at": "2026-10-28T19:34:14.056Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261028T175432Z-017e41b6-44dfba/core-journey.txt",
+      "sha256": "630859c948c3597b1d1a04cd832ac05ceaa8d4f33733c5a657b7e53a07083e7f"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261028T175432Z-017e41b6-44dfba",
+      "commit": "017e41b6f636032531a1fbc86ed5ff5ce70d0e98",
+      "journey": "core",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/core-journey.mjs",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "0.34.0"
+        },
+        "start": "a fresh consumer app with no package installed and no account linked",
+        "steps": [
+          "install the shipped @byokit/accounts package into the app",
+          "the app links a ChatGPT account by device code: it shows a code and the person approves it",
+          "the app reads the account status",
+          "the app asks the provider a question and prints the answer it gets back"
+        ],
+        "result": "the installed package answers: \"ChatGPT is connected.\" and the answer \"You said: Plan my day\""
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261028T175432Z-017e41b6-44dfba/core-journey.txt",
+        "sha256": "630859c948c3597b1d1a04cd832ac05ceaa8d4f33733c5a657b7e53a07083e7f",
+        "verdict": "pass",
+        "seen": "I read the full capture, which has 7 lines. It shows the package as @byokit/accounts@0.34.0, sign-in waiting with code MOCK-10001, 'status: ChatGPT is connected.', and 'streamed: You said: Plan my day' with a matching 'answer: You said: Plan my day'. Together these show the outcome: the package was installed, the account was linked, status was read, and an answer was returned. The 'not offered' and 'no account' lines are expected negative checks, not contradictions. The outcome names one part, so parts and covers are empty."
+      }
+    ]
+  }
+}
