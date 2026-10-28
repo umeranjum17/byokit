@@ -50,6 +50,6 @@
   },
   "dependencies": {
     "@byokit/usage": "0.10.1",
-    "ownvoice-engine": "0.1.0"
+    "ownvoice-engine": "0.2.0"
   }
 }
