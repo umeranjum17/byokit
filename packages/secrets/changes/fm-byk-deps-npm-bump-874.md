@@ -1,0 +1,1 @@
+- Dependency update: pins @napi-rs/keyring 2.1.2.

@@ -73,7 +73,7 @@ test('the manifest installs no tree: optional peers only, with the slim export',
   assert.deepEqual(manifest.dependencies ?? {}, {}, 'no runtime dependencies: nothing to install');
   // Sibling peer ranges must track the workspace kits exactly, read live so release cascades never stale-pin this test.
   const siblingVersion = (kit: string): string => (JSON.parse(readFileSync(new URL(`../../${kit}/package.json`, import.meta.url), 'utf8')) as { version: string }).version;
-  assert.deepEqual(manifest.peerDependencies, { '@byokit/accounts': siblingVersion('accounts'), openai: '7.25.0', '@byokit/pair': siblingVersion('pair') });
+  assert.deepEqual(manifest.peerDependencies, { '@byokit/accounts': siblingVersion('accounts'), openai: '7.43.0', '@byokit/pair': siblingVersion('pair') });
   for (const peer of Object.keys(manifest.peerDependencies!)) {
     assert.equal(manifest.peerDependenciesMeta?.[peer]?.optional, true, `${peer} stays optional`);
   }
