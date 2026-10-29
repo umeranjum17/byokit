@@ -1,1 +1,0 @@
-- Dependency update: pins sodium-native 5.2.0.

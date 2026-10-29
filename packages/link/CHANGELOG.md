@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Dependency update: pins @byokit/pair 0.11.0.
+
 - Dependency update: pins @byokit/pair 0.10.5.
 
 - Dependency update: pins @byokit/pair 0.10.4.

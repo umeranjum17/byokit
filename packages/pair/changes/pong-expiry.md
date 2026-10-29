@@ -1,1 +1,0 @@
-- FIX: A pong for a ping that went unanswered for two rounds no longer keeps a link alive; a pong for a ping still outstanding does, so a busy computer's late answer keeps the link.

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.16.4 (2026-10-29)
+
+- Dependency update: pins @byokit/pair 0.11.0.
+- SECURITY: (from @byokit/pair 0.11.0) A host may now request a pairing offer longer than five minutes (the default is unchanged), which widens how long an offer stays usable.
+- FIX: (from @byokit/pair 0.11.0) A pong for a ping that went unanswered for two rounds no longer keeps a link alive; a pong for a ping still outstanding does, so a busy computer's late answer keeps the link.
+
+- Dependency update: the optional `openai` peer is pinned to 7.43.0 (was 7.25.0; request types only).
+
 ## 0.16.3 (2026-10-25)
 
 - Dependency update: pins @byokit/pair 0.10.5.

@@ -1,0 +1,63 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "63dd0c1a6e8a245273d95b4503f9a337ffac24ee",
+  "tree": "c6df09a53fda58d9abcf73bc6afed8a33d966a84",
+  "claim": "BYOKit's build journey builds every package and the built @byokit/accounts entry passes its doctor check, and the run records those steps",
+  "result": "pass",
+  "at": "2026-10-29T04:08:47.716Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261029T040819Z-63dd0c1a-9edf98/build.log",
+      "sha256": "2513b35db4f4ecd56e0760ecaa467de789e8a044f0643d12fe014cb34b9530e8"
+    },
+    {
+      "path": "<evidence root>/20261029T040819Z-63dd0c1a-9edf98/doctor.log",
+      "sha256": "8111fa9bd429972855ecbc54423af989efe476be6c25d0434c0fb0acea39e8f4"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261029T040819Z-63dd0c1a-9edf98",
+      "commit": "63dd0c1a6e8a245273d95b4503f9a337ffac24ee",
+      "journey": "build",
+      "command": "npm run build > \"$DONE_DONE_EVIDENCE_ROOT/build.log\" 2>&1 && echo \"npm run build exited 0 and every package built (run $DONE_DONE_RUN_ID)\" >> \"$DONE_DONE_EVIDENCE_ROOT/build.log\" && node --input-type=module -e \"import { createRequire } from 'node:module'; const require = createRequire(process.cwd() + '/'); const pkg = require('./packages/accounts/package.json'); const acc = await import('@byokit/accounts'); const testing = await import('@byokit/accounts/testing'); if (!acc.Accounts || !acc.portable || typeof testing.mockOpenAI !== 'function') throw new Error('built entry incomplete'); console.log('doctor ok:', pkg.name, pkg.version, 'resolves', require.resolve('@byokit/accounts'));\" > \"$DONE_DONE_EVIDENCE_ROOT/doctor.log\" 2>&1 && node scripts/done-done-steps.ts build",
+      "tool": "0.6.18",
+      "steps": {
+        "target": {
+          "version": "0.34.0"
+        },
+        "start": "clean checkout at 63dd0c1a6e8a245273d95b4503f9a337ffac24ee with no build output from this run",
+        "steps": [
+          "Ran npm run build: tsc -b packages/accounts, packages/realtime, packages/pair, packages/link, packages/relay, packages/decide, packages/ui, packages/ui-core, packages/discover, packages/reach, packages/seal, packages/secrets, packages/connect, packages/openclaw, packages/herdr, packages/write, packages/record, packages/bubble, packages/overlay, packages/cloud, packages/service, packages/statusbar, packages/usage, packages/push, packages/speak, packages/audio, packages/dictation, packages/mcp, packages/share, packages/signaling, packages/infer, packages/approve, packages/outbox, packages/browser, packages/phone, then node scripts/fix-words-dts.cjs.",
+          "Ran the built-entry doctor check: doctor ok: @byokit/accounts 0.34.0 resolves packages/accounts/dist/index.js",
+          "Read the build and doctor output this run wrote to build.log and doctor.log."
+        ],
+        "result": "npm run build exited 0 and every package built; doctor ok: @byokit/accounts 0.34.0 resolves packages/accounts/dist/index.js"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261029T040819Z-63dd0c1a-9edf98/build.log",
+        "sha256": "2513b35db4f4ecd56e0760ecaa467de789e8a044f0643d12fe014cb34b9530e8",
+        "verdict": "pass",
+        "seen": "I read the single build.log entry. It quotes 'npm run build exited 0 and every package built (run 20261029T040819Z-63dd0c1a-9edf98)' and lists the tsc -b targets from packages/accounts through packages/phone, followed by the fix-words step. That matches the outcome's build part. It does not cover the doctor check, which capture_1 handles."
+      },
+      {
+        "path": "<evidence root>/20261029T040819Z-63dd0c1a-9edf98/doctor.log",
+        "sha256": "8111fa9bd429972855ecbc54423af989efe476be6c25d0434c0fb0acea39e8f4",
+        "verdict": "pass",
+        "seen": "I read the single doctor.log entry. It reads 'doctor ok: @byokit/accounts 0.34.0 resolves <worktree>/packages/accounts/dist/index.js'. The 'doctor ok' field and the dist/index.js path match the outcome's requirement that the built @byokit/accounts entry passes its doctor check."
+      }
+    ]
+  }
+}
