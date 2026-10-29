@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.11.0 (2026-10-29)
+
+- SECURITY: A host may now request a pairing offer longer than five minutes (the default is unchanged), which widens how long an offer stays usable.
+- Dependency update: pins sodium-native 5.2.0.
+- FIX: A pong for a ping that went unanswered for two rounds no longer keeps a link alive; a pong for a ping still outstanding does, so a busy computer's late answer keeps the link.
+
 ## 0.10.5 (2026-10-25)
 
 - DOCS: align npm descriptions, keywords and homepages with the BYOKit README.

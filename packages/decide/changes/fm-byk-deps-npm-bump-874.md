@@ -1,1 +1,0 @@
-- Dependency update: the optional `openai` peer is pinned to 7.43.0 (was 7.25.0; request types only).
