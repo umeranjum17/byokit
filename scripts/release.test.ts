@@ -339,3 +339,70 @@ test("publish CLI still fails every other HEAD mismatch", () => {
     assert.match(offMain.stderr, /publish refuses: HEAD != origin\/main/);
   } finally { rmSync(repo.dir, { recursive: true, force: true }); }
 });
+
+// A new package name that npm refuses (no trusted publisher yet) must not stop
+// the packages after it in the publish order.
+test("publish continues past a failed package, then names it", () => {
+  const parent = mkdtempSync(join(tmpdir(), "release-publish-continue-"));
+  const dir = join(parent, "repo");
+  const bare = join(parent, "origin.git");
+  const publishLog = join(parent, "publish.log");
+  const run = (cmd: string, args: string[]): SpawnSyncReturns<string> =>
+    spawnSync(cmd, args, {
+      cwd: dir, encoding: "utf8", timeout: 120_000,
+      env: { ...process.env, PATH: join(dir, "bin") + ":" + process.env.PATH, npm_config_offline: "true" },
+    });
+  const git = (...args: string[]): string => {
+    const r = run("git", ["-c", "user.name=Umer", "-c", "user.email=umer@example.invalid", "-c", "commit.gpgsign=false", ...args]);
+    assert.equal(r.status, 0, r.stderr);
+    return r.stdout;
+  };
+  try {
+    for (const path of ["scripts", "bin", "packages/a-first", "packages/b-middle", "packages/c-last"]) mkdirSync(join(dir, path), { recursive: true });
+    copyFileSync(join(root, "scripts/release.ts"), join(dir, "scripts/release.ts"));
+    for (const [d, name] of [["a-first", "@byokit/a-first"], ["b-middle", "@byokit/b-middle"], ["c-last", "@byokit/c-last"]]) {
+      writeFileSync(join(dir, `packages/${d}/package.json`), JSON.stringify({ name, version: "0.1.0" }, null, 2));
+      writeFileSync(join(dir, `packages/${d}/CHANGELOG.md`), "# Changelog\n\n## 0.1.0\n\n- First release.\n");
+    }
+    // Every name is new to npm (E404). The gates pass offline, and the middle
+    // publish is refused the way npm refuses an unconfigured trusted publisher.
+    writeFileSync(join(dir, "bin/npm"), `#!/bin/sh
+if [ "$1" = view ]; then echo '{"error":{"code":"E404"}}'; exit 1; fi
+case "$1" in
+  ci|run|test) exit 0 ;;
+  publish)
+    echo "$*" >> '${publishLog}'
+    case "$*" in
+      *@byokit/b-middle*) echo 'npm error 404 Not Found - PUT https://registry.npmjs.org/@byokit%2fb-middle' >&2; exit 1 ;;
+    esac
+    exit 0 ;;
+esac
+exit 1
+`);
+    chmodSync(join(dir, "bin/npm"), 0o755);
+    writeFileSync(join(dir, "bin/gh"), `#!/bin/sh
+if [ "$1" = run ]; then echo '[{"status":"completed","conclusion":"success","event":"push"}]'; exit 0; fi
+if [ "$1" = release ] && [ "$2" = view ]; then exit 1; fi
+if [ "$1" = release ] && [ "$2" = create ]; then exit 0; fi
+exit 1
+`);
+    chmodSync(join(dir, "bin/gh"), 0o755);
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ private: true, type: "module", workspaces: ["packages/*"] }));
+    assert.equal(spawnSync("git", ["init", "-q", "--bare", bare]).status, 0);
+    git("init", "-q", "-b", "main");
+    git("remote", "add", "origin", bare);
+    git("add", ".");
+    git("commit", "-qm", "fixture");
+    git("push", "-q", "origin", "main");
+    const r = run(process.execPath, ["scripts/release.ts", "publish"]);
+    assert.equal(r.status, 1, "a failed package keeps the exit nonzero");
+    assert.match(r.stderr, /npm publish failed for 1 package\(s\)/);
+    assert.match(r.stderr, /@byokit\/b-middle@0\.1\.0: npm error 404 Not Found/);
+    assert.match(r.stderr, /published this run: @byokit\/a-first@0\.1\.0, @byokit\/c-last@0\.1\.0/);
+    const publishes = readFileSync(publishLog, "utf8").trim().split("\n");
+    assert.equal(publishes.length, 3);
+    assert.match(publishes[0], /@byokit\/a-first/);
+    assert.match(publishes[1], /@byokit\/b-middle/);
+    assert.match(publishes[2], /@byokit\/c-last/, "the package after the failure still publishes");
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
