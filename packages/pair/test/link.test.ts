@@ -117,11 +117,20 @@ test('a pairing code runs out, a person can say no, and a host can be full', asy
   await assert.rejects(pairWithOffer(full.host.offer({ role: 'control', urls: [full.url] }).text, { name: 'Two' }), (e: LinkError) => e.code === 'full');
 });
 
-test('pairing lifetime cannot exceed five minutes', async () => {
+test('a host may ask for a longer pairing window, and five minutes is the default', async () => {
   const now = Date.now();
   const h = await startHost({ now: () => now, pairMs: 900_000 });
-  assert.equal(h.host.offer({ role: 'view', urls: [h.url] }).expires, now + 300_000);
-  assert.equal(h.host.code({ role: 'view' }).expires, now + 300_000);
+  assert.equal(h.host.offer({ role: 'view', urls: [h.url] }).expires, now + 900_000);
+  assert.equal(h.host.code({ role: 'view' }).expires, now + 900_000);
+  const d = await startHost({ now: () => now });
+  assert.equal(d.host.offer({ role: 'view', urls: [d.url] }).expires, now + 300_000);
+  assert.equal(d.host.code({ role: 'view' }).expires, now + 300_000);
+});
+
+test('an invalid pairing window is refused where the host is created', async () => {
+  for (const pairMs of [0, -1, 1.5, NaN, Infinity]) {
+    await assert.rejects(startHost({ pairMs }), (e: Error) => e.message.includes('pairMs'));
+  }
 });
 
 test('slow approval cannot grant an expired QR or typed code', async () => {
@@ -165,7 +174,7 @@ test('machine-bound short code: words, approval, replay, wrong code, expiry and 
   assert.equal(code.length, 57, 'fits one line in an 80-column terminal');
   assert.equal(normalizeCode(code.toLowerCase().replace(/-/g, ' ')), code.replace(/-/g, ''));
   assert.match(code, /^K1-[2-9A-HJKMNP-Z]{4}(-[2-9A-HJKMNP-Z]{4}){2}(-[0-9A-F]{4}){8}$/);
-  assert.equal(expires, now + 300_000);
+  assert.equal(expires, now + 900_000);
   let shown = '';
   const grant = await pairWithCode(h.url, code.toLowerCase().replace(/-/g, ' '), {
     name: 'Umer’s phone', onWords: (w) => { shown = w; },
@@ -188,7 +197,7 @@ test('machine-bound short code: words, approval, replay, wrong code, expiry and 
   await assert.rejects(pairWithCode(h.url, unused, { name: 'Locked out' }), wrong);
   assert.equal(h.asked.length, 1, 'five guesses withdrew the real code');
   const stale = h.host.shortCode({ role: 'control' }).code;
-  now += 300_001;
+  now += 900_001;
   await assert.rejects(pairWithCode(h.url, stale, { name: 'Expired' }), wrong);
 
   for (const confirm of [() => false, () => { throw new Error('No approval'); }]) {
