@@ -718,6 +718,7 @@ function cmdPublish(rest: string[]): void {
     console.log(`would gate: clean dist, build, check, test, smoke:pack for ${pendingOrder.join(", ")}`);
   }
   const publishedNow: { pkg: string; version: string }[] = [];
+  const publishFailed: { pkg: string; version: string; line: string }[] = [];
   for (const d of pendingOrder) {
     const p = byDir.get(d) as WSPkg;
     const tag = `${d}-v${p.version}`;
@@ -732,19 +733,30 @@ function cmdPublish(rest: string[]): void {
     if (dryRun) {
       console.log(`npm ${pubArgs.join(" ")} --dry-run`);
     } else {
-      try {
-        sh("npm", pubArgs, { stdio: "inherit" });
-      } catch (e) {
-        const done = publishedNow.map((r) => r.pkg).join(", ") || "none";
-        const left = pendingOrder.slice(pendingOrder.indexOf(d)).map((x) => `@byokit/${x}`).join(", ");
-        throw new Error(`${(e as Error).message}\npublished this run: ${done}; remaining: ${left}`);
+      // Captured rather than inherited so a failure's first output line can be reported.
+      const r = spawnSync("npm", pubArgs, { cwd: root, encoding: "utf8" });
+      const out = `${r.stderr ?? ""}${r.stdout ?? ""}`;
+      if (r.status !== 0) {
+        process.stderr.write(out);
+        const line = out.split("\n").map((l) => l.trim()).find((l) => l !== "") ?? `npm publish exited ${r.status ?? r.signal}`;
+        publishFailed.push({ pkg: p.name, version: p.version, line });
+        // One refused name (a new package with no trusted publisher yet) must not
+        // stop the packages after it in the order.
+        continue;
       }
+      process.stdout.write(r.stdout ?? "");
+      process.stderr.write(r.stderr ?? "");
       publishedNow.push({ pkg: p.name, version: p.version });
     }
     const section = parseChangelog(readChangelog(d) as string).versions.find((s) => s.version === p.version);
     const notes = `${(section?.bullets ?? []).map((b) => (b.kind === "other" ? `- ${b.text}` : `- ${b.kind}: ${b.text}`)).join("\n")}\n\nnpm: \`${p.name}@${p.version}\``;
     doRelease(tag, `${p.name} ${p.version}`, notes, head);
     if (dryRun) publishedNow.push({ pkg: p.name, version: p.version });
+  }
+  if (publishFailed.length > 0) {
+    const failed = publishFailed.map((f) => `${f.pkg}@${f.version}: ${f.line}`).join("\n");
+    const published = publishedNow.map((r) => `${r.pkg}@${r.version}`).join(", ") || "none";
+    throw new Error(`npm publish failed for ${publishFailed.length} package(s):\n${failed}\npublished this run: ${published}`);
   }
   // Backfill: versions on npm with no GitHub release yet.
   for (const p of pkgs) {
