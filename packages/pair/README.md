@@ -172,7 +172,7 @@ any service; pass `offerText(decoded)` to `pairWithOffer`. Groups of five charac
 or dashes; case is ignored, O means 0 and I/L mean 1. Other mistakes fail the checksum. The checksum catches
 transcription errors, not tampering: Noise authenticates the host and the person still approves the two words.
 This envelope is longer than the 12-character `host.code()` PSK code, which uses `pairWithCode` and a known
-host address. Both obey the same single-use, at-most-five-minute pairing window.
+host address. Both obey the same single-use pairing window, five minutes by default unless the host asks for longer.
 
 The [PWA pairing page](../../examples/pwa/pair.html) accepts a deep link or pasted envelope, compares words,
 keeps the grant in `browserDeviceStore`, and requests `get.summary`. Run `npm run build`, then
@@ -247,7 +247,7 @@ the approved control device requests a constrained invitation; a peer cannot wid
 inviter's current grant, including expiry, in both `handle` and `confirm`. Apply capability scope in `allow`
 for every peer request or stream; `meta` alone does not enforce it. Revoking the inviter cancels redemption
 when `confirm` checks it; already-paired peers are independent grants unless the app revokes them too. No grant exists until `confirm` says yes. This is
-an online invitation: single-use and at most five minutes, with the host present for pairing. It is not a
+an online invitation: single-use and five minutes by default (a host may ask for longer), with the host present for pairing. It is not a
 long-lived or host-offline signed invitation.
 
 ## Device
@@ -493,7 +493,7 @@ reviewed PAKE and is outside this API.
 The host consumes the random code on its first valid presentation, including declined pairing.
 Five wrong code attempts withdraw **all** open codes and QR tickets; handshake limits remain
 300/minute globally and 30/minute per source when the app supplies `peer`. Codes expire after
-`pairMs` (at most five minutes), checked on presentation and through grant persistence. Replay,
+`pairMs` (five minutes by default; a longer value widens how long an offer stays usable), checked on presentation and through grant persistence. Replay,
 late approval and expiry never create a grant. Malicious routing can still deny service or consume
 a code by forwarding a live attempt. Anyone who photographs the full code can race to pair with
 the real host, so **both screens still show the same two words and host approval defaults to No**.

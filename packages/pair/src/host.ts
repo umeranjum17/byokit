@@ -76,7 +76,8 @@ export type HostOptions = {
   caps?: Record<string, number>;
   /** New handshakes allowed per minute, in all and per `peer` given to `accept`. Default 300 and 30. */
   handshakes?: { perMinute?: number; perPeer?: number };
-  /** How long a pairing code, and a person's answer, may take. At most (and by default) five minutes. */
+  /** How long a pairing code, and a person's answer, may take. Five minutes by default; a longer value widens
+   *  how long an offer stays usable. */
   pairMs?: number;
   /** The clock, for tests. */
   now?: () => number;
@@ -118,6 +119,7 @@ export class Host {
 
   private constructor(opts: HostOptions, grants: Grant[]) {
     this.opts = opts;
+    this.checkPairMs();
     this.keys = opts.keys;
     this.id = hostId(opts.keys.publicKey);
     this.store = opts.grants;
@@ -134,7 +136,7 @@ export class Host {
   }
 
   private now() { return this.opts.now?.() ?? Date.now(); }
-  private get pairMs() { return Math.min(this.opts.pairMs ?? 300_000, 300_000); }
+  private get pairMs() { return this.opts.pairMs ?? 300_000; }
   private ended(g: Grant) { return g.expires !== undefined && g.expires <= this.now(); }
   private currentGrant(grants: Grant[], id: string, key: string): Grant | undefined {
     const g = grants.find((x) => x.id === id);
@@ -423,6 +425,11 @@ export class Host {
     if (lifetime !== undefined && (!Number.isSafeInteger(lifetime) || lifetime <= 0)) throw new Error('A lifetime must be a positive whole number of milliseconds.');
   }
 
+  private checkPairMs() {
+    const ms = this.opts.pairMs;
+    if (ms !== undefined && (!Number.isSafeInteger(ms) || ms <= 0)) throw new Error('pairMs must be a positive whole number of milliseconds.');
+  }
+
   private async grant(key: string, name: string, t: GrantTerms, pairExpires?: number): Promise<Grant | null> {
     this.checkLifetime(t.lifetime);
     let added: Grant | null = null;
@@ -437,7 +444,7 @@ export class Host {
         ...(t.kind === undefined ? {} : { kind: t.kind }), ...(t.lifetime === undefined ? {} : { expires: now + t.lifetime }), ...(t.meta === undefined ? {} : { meta: t.meta }) };
       return [...others, added];
     });
-    // A slow store can commit after the code ran out: the five-minute life holds through the save too.
+    // A slow store can commit after the code ran out: the pairing life holds through the save too.
     if (added && pairExpires !== undefined && pairExpires < this.now()) {
       await this.revoke((added as Grant).id);
       throw new PairExpired();

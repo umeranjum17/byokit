@@ -1,0 +1,1 @@
+- SECURITY: A host may now request a pairing offer longer than five minutes (the default is unchanged), which widens how long an offer stays usable.
