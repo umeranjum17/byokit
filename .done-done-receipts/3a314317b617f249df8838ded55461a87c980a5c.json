@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "3a314317b617f249df8838ded55461a87c980a5c",
+  "tree": "4f2217358c36d24f4961873d68363bd939c84416",
+  "claim": "A push consumer refuses retained native notice decryption and answer preparation after sign-out, and a successful key write restores both without network activity.",
+  "result": "pass",
+  "at": "2026-10-30T04:38:05.857Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261030T043751Z-3a314317-5df86a/proof.txt",
+      "sha256": "2ec7358faa7270500705b9ac30a62006ce4f97da61440a2fd080a74d07b3d801"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261030T043751Z-3a314317-5df86a",
+      "commit": "3a314317b617f249df8838ded55461a87c980a5c",
+      "journey": null,
+      "command": "sh ./refusal-proof.sh",
+      "tool": "0.6.23",
+      "steps": {
+        "target": {
+          "version": "3a314317"
+        },
+        "start": "Signed-in push consumer with retained native key",
+        "steps": [
+          "Declare sign-out before cleanup",
+          "Attempt decrypt and prepare an answer after cleanup failure",
+          "Write a valid replacement key",
+          "Verify decrypt and answer preparation recover without sending"
+        ],
+        "result": "Retained credentials are refused after sign-out; only a successful key write restores both."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261030T043751Z-3a314317-5df86a/proof.txt",
+        "sha256": "2ec7358faa7270500705b9ac30a62006ce4f97da61440a2fd080a74d07b3d801",
+        "verdict": "pass"
+      }
+    ]
+  }
+}
