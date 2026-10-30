@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.17.0 (2026-10-30)
+
+- FIX: High-effort Claude thinking runs no longer die on a pinned output cap: the cap is the caller's choice, and the CLI decides when no output budget is supplied.
+
 ## 0.16.4 (2026-10-29)
 
 - Dependency update: pins @byokit/pair 0.11.0.
