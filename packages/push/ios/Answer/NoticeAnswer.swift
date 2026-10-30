@@ -3,6 +3,9 @@
 // (a typed text) or `{ action, choice, event, v: 2 }` (a pressed choice)
 // under HKDF-SHA256(X25519(device, host), salt: device public | host public, info: "byokit.push.answer.v1").
 import Foundation
+#if SWIFT_PACKAGE
+import NoticeSession
+#endif
 #if canImport(FoundationNetworking)
 import FoundationNetworking // URLRequest off Apple platforms
 #endif
@@ -72,7 +75,8 @@ enum NoticeAnswer {
   }
 
   /// The JSON body for `POST <relay>/relay/v1/push/action`.
-  static func press(_ request: AnswerRequest, reply: AnswerReply, deviceSecret: Data, target: AnswerTarget) -> URLRequest? {
+  static func press(_ request: AnswerRequest, reply: AnswerReply, deviceSecret: Data, target: AnswerTarget, session: NoticeSession) throws -> URLRequest? {
+    try session.requireSignedIn() // Refuse before sealing; callers must not post after this throws.
     guard let sealed = seal(request, reply: reply, deviceSecret: deviceSecret, hostPublic: target.key),
           let url = URL(string: target.relay + "/relay/v1/push/action"), url.scheme == "https",
           let body = try? JSONSerialization.data(withJSONObject: ["token": request.token, "action": request.action, "reply": sealed])

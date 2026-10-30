@@ -73,11 +73,17 @@ final class NoticeAnswerCenter: NSObject, UNUserNotificationCenterDelegate {
     task = UIApplication.shared.beginBackgroundTask(withName: "byokit.notices.answer") { settle("Not sent in time") }
     let given = typed.map { AnswerReply.text($0.userText.trimmingCharacters(in: .whitespacesAndNewlines)) } ?? .choice(request.action)
     if given == .text("") { return settle("Nothing was sent") }
+    guard let group = Bundle.main.object(forInfoDictionaryKey: "ByokitNoticeAppGroup") as? String else { return settle("The device key is locked or missing") }
+    let session = NoticeSession(group: group)
+    do { try session.requireSignedIn() } catch { return settle(error.localizedDescription) }
     guard let target = Self.targets().first(where: { $0.host == request.host }) else { return settle("This device has no answer route") }
-    guard let group = Bundle.main.object(forInfoDictionaryKey: "ByokitNoticeAppGroup") as? String,
-          var secret = NoticeKeyStore(group: group).get() else { return settle("The device key is locked or missing") }
+    guard var secret = NoticeKeyStore(group: group).get() else { return settle("The device key is locked or missing") }
     defer { secret.resetBytes(in: 0..<secret.count) }
-    guard let press = NoticeAnswer.press(request, reply: given, deviceSecret: secret, target: target) else { return settle("The answer could not be sealed") }
+    let press: URLRequest
+    do {
+      guard let sealed = try NoticeAnswer.press(request, reply: given, deviceSecret: secret, target: target, session: session) else { return settle("The answer could not be sealed") }
+      press = sealed
+    } catch { return settle(error.localizedDescription) }
     URLSession.shared.dataTask(with: press) { body, reply, error in
       settle(error.map { $0.localizedDescription.trimmingCharacters(in: CharacterSet(charactersIn: ".")) }
         ?? NoticeAnswer.failure(status: (reply as? HTTPURLResponse)?.statusCode, body: body))

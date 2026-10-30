@@ -5,6 +5,7 @@ export type NoticeContent = { title: string; body: string; data?: Record<string,
 export interface NativeNotices {
   setNoticeKey(key: number[]): Promise<void>;
   clearNoticeKey(): Promise<void>;
+  declareSignedOut(): Promise<void>;
   setAnswerTargets(targets: { host: string; relay: string; key: number[] }[]): Promise<void>;
 }
 /** Accept the seal envelope itself, the `notice` field of APNs/FCM custom data, or `@byokit/relay`'s `data`. */
@@ -30,6 +31,11 @@ export function createNotices(native: NativeNotices | null) {
       if (!(key instanceof Uint8Array) || key.length !== 32) throw new Error('notices: key must be 32 bytes');
       if (native === null) throw new Error('notices: unavailable on this platform');
       await native.setNoticeKey(Array.from(key));
+    },
+    /** iOS: refuse background decrypt/Answer before clearing the key and every Answer target. Only setNoticeKey resumes. */
+    async declareSignedOut(): Promise<void> {
+      if (native === null || typeof native.declareSignedOut !== 'function') throw new Error('notices: unavailable on this platform');
+      await native.declareSignedOut();
     },
     async clearNoticeKey(): Promise<void> {
       if (native === null) throw new Error('notices: unavailable on this platform');

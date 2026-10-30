@@ -1,0 +1,1 @@
+- SECURITY: A signed-out app's notification extension no longer decrypts notices, and its native Answer path no longer submits answers, even if clearing the key or answer targets fails.
