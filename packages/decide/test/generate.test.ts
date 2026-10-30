@@ -54,7 +54,7 @@ else {
 }
 `;
 
-test('Claude binary seam: the person\'s own sign-in, structured generation, scalar decisions and fixed failures', async () => {
+test('Claude binary seam: the person\'s own sign-in, structured generation, scalar decisions and fixed failures', async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'byokit-decide-generate-'));
   const configDir = join(root, 'host-config');
   const logDir = join(root, 'fake-log');
@@ -67,6 +67,7 @@ test('Claude binary seam: the person\'s own sign-in, structured generation, scal
   const previousOAuth = process.env.CLAUDE_CODE_OAUTH_TOKEN;
   const previousAuthToken = process.env.ANTHROPIC_AUTH_TOKEN;
   const previousBedrock = process.env.CLAUDE_CODE_USE_BEDROCK;
+  const previousOutputTokens = process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS;
   try {
     await mkdir(configDir);
     await mkdir(logDir);
@@ -84,6 +85,7 @@ test('Claude binary seam: the person\'s own sign-in, structured generation, scal
     process.env.CLAUDE_CODE_OAUTH_TOKEN = 'subscription-token';
     process.env.ANTHROPIC_AUTH_TOKEN = 'api-token';
     process.env.CLAUDE_CODE_USE_BEDROCK = '1';
+    process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = '7';
     process.env.FAKE_CLAUDE_LOG = logDir;
     const backend = claudeCode({ bin, model: 'chosen-model', timeoutMs: 5000 });
     assert.equal(backend.billing, 'subscription');
@@ -105,7 +107,8 @@ test('Claude binary seam: the person\'s own sign-in, structured generation, scal
     assert.equal(JSON.parse(arg('--settings')).forceLoginMethod, 'claudeai');
     assert.deepEqual(JSON.parse(arg('--json-schema')), schema);
     assert.equal(arg('--model'), 'chosen-model');
-    assert.equal(log.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS, '16384');
+    t.diagnostic(`Default child output budget: ${JSON.stringify(Object.fromEntries(Object.entries(log.env).filter(([k]) => k === 'CLAUDE_CODE_MAX_OUTPUT_TOKENS')))}`);
+    assert.equal(Object.hasOwn(log.env, 'CLAUDE_CODE_MAX_OUTPUT_TOKENS'), false);
     // The person's own HOME and PATH, and no kit-owned sign-in folder.
     assert.equal(log.env.HOME, decoyHome);
     assert.equal(log.env.PATH, process.env.PATH);
@@ -116,6 +119,21 @@ test('Claude binary seam: the person\'s own sign-in, structured generation, scal
     assert.equal('CLAUDE_CODE_USE_BEDROCK' in log.env, false);
     assert.deepEqual(Object.keys(log.env).filter((k: string) => /KEY|TOKEN|SECRET|NODE_OPTIONS/.test(k) && k !== 'CLAUDE_CODE_MAX_OUTPUT_TOKENS' && k !== 'CLAUDE_CODE_OAUTH_TOKEN'), []);
     await assert.rejects(readFile(join(log.cwd, 'any')), { code: 'ENOENT' });
+    const capped = await generate({ state: { name: 'Umer' } }, schema, { backends: [backend], budget: { maxOutputTokens: 64_000 } });
+    assert.deepEqual(capped.data, data);
+    const cappedLog = JSON.parse(await readFile(join(logDir, 'invocation.json'), 'utf8'));
+    t.diagnostic(`Caller-set child output budget: ${JSON.stringify({ CLAUDE_CODE_MAX_OUTPUT_TOKENS: cappedLog.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS })}`);
+    assert.equal(cappedLog.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS, '64000');
+    for (const maxOutputTokens of [16_385, 1_000_000]) {
+      const raised = await generate({ state: 'Umer' }, schema, { backends: [backend], budget: { maxOutputTokens } });
+      assert.deepEqual(raised.data, data);
+      const raisedLog = JSON.parse(await readFile(join(logDir, 'invocation.json'), 'utf8'));
+      assert.equal(raisedLog.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS, String(maxOutputTokens));
+    }
+    for (const maxOutputTokens of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, 1_000_001]) {
+      await assert.rejects(backend.generate({ prompt: 'normal', schema, maxOutputTokens }), /output budget is invalid/);
+      await assert.rejects(generate({ state: 'Umer' }, schema, { backends: [backend], budget: { maxOutputTokens } }), /generation budget is invalid/);
+    }
     // A host-passed config directory is set as given, over the ambient one.
     process.env.CLAUDE_CONFIG_DIR = ambient;
     await claudeCode({ bin, configDir, timeoutMs: 5000 }).generate({ prompt: 'normal', schema });
@@ -199,6 +217,8 @@ test('Claude binary seam: the person\'s own sign-in, structured generation, scal
     else process.env.ANTHROPIC_AUTH_TOKEN = previousAuthToken;
     if (previousBedrock === undefined) delete process.env.CLAUDE_CODE_USE_BEDROCK;
     else process.env.CLAUDE_CODE_USE_BEDROCK = previousBedrock;
+    if (previousOutputTokens === undefined) delete process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS;
+    else process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = previousOutputTokens;
     delete process.env.FAKE_CLAUDE_LOG;
     await rm(join(homeClaude, 'byokit-test-canary'), { force: true });
     await rm(root, { recursive: true, force: true });
@@ -344,8 +364,12 @@ test('the installed Codex from the accounts list decides on the person\'s ChatGP
     assert.deepEqual(managedLog.images, [[137, 80, 78, 71]]);
     assert.match(managedLog.prompt, /^Images, in attachment order: Umer-design\n/);
     assert.equal(managedLog.args.includes('--model'), false);
-    const viaGenerate = await generate<typeof data>({ state: { name: 'Umer' } }, schema, { backends: [backend] });
+    const viaGenerate = await generate<typeof data>({ state: { name: 'Umer' } }, schema, { backends: [backend], budget: { maxOutputTokens: 64_000 } });
     assert.deepEqual([viaGenerate.data, viaGenerate.by], [data, 'codex']);
+    assert.deepEqual((await backend.generate({ prompt: 'normal', schema, maxOutputTokens: 16_385 })).data, data);
+    for (const maxOutputTokens of [0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, 1_000_001]) {
+      await assert.rejects(backend.generate({ prompt: 'normal', schema, maxOutputTokens }), /output budget is invalid/);
+    }
     for (const [prompt, code] of [['broken', 'invalid_json'], ['partial', 'invalid_output'], ['failed', 'process']] as const) {
       await assert.rejects(backend.generate({ prompt, schema }), (e: unknown) => e instanceof CodexError && e.code === code && !e.message.includes('private'));
     }
@@ -428,7 +452,7 @@ test('generation validates locally, refuses unsupported schemas, separates model
   let response: unknown = data;
   const backend: GenerationBackend = { name: 'fake', model: 'one', leaves: false, async generate(request) {
     calls++;
-    assert.equal(request.maxOutputTokens, 16_384);
+    assert.equal(request.maxOutputTokens, undefined);
     return { data: response, text: '', usage: { output_tokens: 4 } };
   } };
   const opts = { backends: [backend], cache: new MemoryGenerationCache() };
@@ -436,6 +460,10 @@ test('generation validates locally, refuses unsupported schemas, separates model
   assert.equal((await generate({ state: 'Umer' }, schema, opts)).source, 'cache');
   assert.equal(calls, 1);
   const key = generationCacheKey({ state: 'Umer' }, schema, backend);
+  assert.equal(key, generationCacheKey({ state: 'Umer' }, schema, backend, {}));
+  assert.equal(key, generationCacheKey({ state: 'Umer' }, schema, backend, { maxOutputTokens: undefined }));
+  assert.notEqual(key, generationCacheKey({ state: 'Umer' }, schema, backend, { maxOutputTokens: 16_384 }));
+  assert.notEqual(key, generationCacheKey({ state: 'Umer' }, schema, backend, { maxOutputTokens: 64_000 }));
   assert.notEqual(key, generationCacheKey({ state: 'changed' }, schema, backend));
   assert.notEqual(key, generationCacheKey({ state: 'Umer' }, { ...schema, title: 'another' }, backend));
   assert.notEqual(key, generationCacheKey({ state: 'Umer' }, schema, { ...backend, model: 'two' }));
