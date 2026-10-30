@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "4cd8e89d73ae51a9101e8f9823174997d7a6f55d",
+  "tree": "27a0d049fecc930701a3137b6138d99951b3c9cf",
+  "claim": "Release is prepared for consumer installation: @byokit/decide 0.17.0 (from 0.16.4) and @byokit/push 0.2.0 (from 0.1.1).",
+  "result": "pass",
+  "at": "2026-10-30T06:11:22.120Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261030T061028Z-4cd8e89d-e37b96/versions.txt",
+      "sha256": "cf36c4f03b0650ddb5965aab21b48fcf946f597ad5e40ac783534141527c7e7e"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261030T061028Z-4cd8e89d-e37b96",
+      "commit": "4cd8e89d73ae51a9101e8f9823174997d7a6f55d",
+      "journey": null,
+      "command": "sh -c 'node \"$BYK_RELEASE_EVIDENCE/capture-release.mjs\"'",
+      "tool": "0.6.23",
+      "steps": {
+        "target": {
+          "version": "@byokit/decide 0.17.0; @byokit/push 0.2.0"
+        },
+        "start": "Clean committed release branch at 4cd8e89d73ae51a9101e8f9823174997d7a6f55d; original prepare output is retained, not replayed.",
+        "steps": [
+          "Read the retained output of npm run release -- prepare decide=minor push=minor.",
+          "Observe the current package manifests against their pre-prepare versions and list every changed package before and after.",
+          "Observe matching root and Expo lock entries and new changelog headings for decide 0.17.0 and push 0.2.0.",
+          "Save the version matrix and retained prepare transcript as versions.txt; no registry publication or new runtime execution is claimed."
+        ],
+        "result": "The release is prepared for consumer installation of @byokit/decide 0.17.0 (was 0.16.4) and @byokit/push 0.2.0 (was 0.1.1); no other package version changed."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261030T061028Z-4cd8e89d-e37b96/versions.txt",
+        "sha256": "cf36c4f03b0650ddb5965aab21b48fcf946f597ad5e40ac783534141527c7e7e",
+        "verdict": "pass",
+        "seen": "I read the single capture entry set in versions.txt. The Package table shows @byokit/decide 0.16.4 to 0.17.0 and @byokit/push 0.1.1 to 0.2.0, matching the outcome. The fresh observation says manifests and root/Expo lock entries match the after versions, both changelog headings exist, and no other package changed. The retained prepare output lists '## @byokit/decide 0.17.0' and '## @byokit/push 0.2.0'. The capture stops at preparation and says it does not claim npm availability, which the outcome does not require. The outcome names one part, so parts and covers are empty."
+      }
+    ]
+  }
+}

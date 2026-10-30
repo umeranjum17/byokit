@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.2.0 (2026-10-30)
+
+- FEAT: Answer with a button on iOS: a notice whose `data.answer.choices` lists `{ id, label }` is answered by a plain
+  button press with no typing and no JavaScript. The phone seals `{ action, choice, event, v: 2 }`; the host opens it
+  with the new `openChoice` (`openAnswer` still opens only typed text, `v: 1`). Wire fixture and Swift/TS vectors updated first.
+- SECURITY: A signed-out app's notification extension no longer decrypts notices, and its native Answer path no longer submits answers, even if clearing the key or answer targets fails.
+
 ## 0.1.1 (2026-10-25)
 
 - Dependency update: pins @byokit/seal 0.3.2.

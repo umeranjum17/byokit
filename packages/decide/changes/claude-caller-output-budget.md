@@ -1,1 +1,0 @@
-- FIX: High-effort Claude thinking runs no longer die on a pinned output cap: the cap is the caller's choice, and the CLI decides when no output budget is supplied.
