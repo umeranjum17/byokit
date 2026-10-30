@@ -21,19 +21,28 @@ It consumes `@byokit/seal` 0.3.1; keys are raw 32-byte X25519 **secret keys**, n
 2. Provision the same device key whose public half the sender uses:
 
    ```ts
-   import { setNoticeKey, clearNoticeKey } from '@byokit/push';
+   import { setNoticeKey, declareSignedOut } from '@byokit/push';
    async function provisionDeviceKey(deviceBoxSecret: Uint8Array) {
      await setNoticeKey(deviceBoxSecret); // Raw X25519 secret, 32 bytes
    }
-   // Call before logout, revocation, or handing the device to another account.
+   // iOS: call before logout, revocation, or handing the device to another account.
    async function forgetDeviceKey() {
-     await clearNoticeKey();
+     await declareSignedOut();
    }
    ```
 
    The React Native entry loads the Expo module. Default Node/web entries are native-free; provisioning
    there rejects as unavailable. `openNoticeContent(payload, key)` is the pure JS parser for app-side use.
    Rotation replaces the one stored key; messages sent to an old key fall back. There is no key history.
+
+   **iOS sign-out:** `declareSignedOut(): Promise<void>` first persists a kit-owned refusal in the shared App
+   Group defaults, then attempts both `clearNoticeKey()` and `setAnswerTargets([])`. It rejects if cleanup fails,
+   but the refusal remains: the extension delivers the untouched original alert without decrypting, and native
+   Answer refuses before sealing or posting, with `This device is signed out` in the failure alert. Retry cleanup
+   on failure; neither a later successful clear nor replacing targets ends the refusal. **Only a successful
+   `setNoticeKey` ends it**, after the key write succeeds. Provision the new account's trusted targets before
+   setting its key. The raw clear/target calls remain available; they do not themselves declare sign-out.
+   `declareSignedOut` is iOS-only; Android apps still use `clearNoticeKey()` (there is no native Answer there).
 3. Send `sealNotice({ title, body, data? }, deviceBoxPublic)` from seal 0.3.1. `title` is a non-empty string,
    `body` a string, and optional `data` a JSON object. Muxr's routing fields (`sessionId`, `eventId`, etc.)
    fit in `data`; the kit adds no product-specific fields. Notices assert no sender identity. The server
@@ -46,7 +55,7 @@ Send an APNs **alert** with `aps["mutable-content"]: 1`, generic `aps.alert.titl
 and `data: { notice: envelope }`; the NSE also reads Expo's `userInfo.body.notice` wrapper.
 The NSE replaces only title/body and writes opened routing fields to `userInfo.data` and
 `userInfo.body.data` for Expo's remote-notification serializer.
-A missing key, malformed envelope, authentication failure or timeout preserves the original alert.
+A declared sign-out, missing key, malformed envelope, authentication failure or timeout preserves the original alert.
 Sent through `@byokit/relay`, the envelope is the notification's `data` (`relay.notify({ data: sealNotice(…) })`),
 which Expo carries at `userInfo.body.data`; the NSE and `openNoticeContent` open that shape too.
 
@@ -143,6 +152,7 @@ Android Keystore. A restored backup without its Keystore key fails closed. No di
 `npm run build`, `npm run check`, `npm test`, and `npm run smoke:pack` cover the portable entry and payload parser.
 CI's `push-android` assembles the example and runs JVM compatibility/fallback tests.
 CI's `push-ios` runs `swift test` against the same seal fixture and the Answer vector `test/answer.test.ts` shares,
+including sign-out with failed key/target cleanup, unchanged extension content, and successful sign-in recovery,
 and compiles the generated extension and the Answer handler in the example simulator build. Unit/build checks do not prove APNs/FCM delivery to a sleeping physical phone.
 
 Manual delivery proof (requires the app owner's signed build and push accounts): provision the fixture key,

@@ -11,6 +11,12 @@ public class NoticesModule: Module {
       defer { key.resetBytes(in: 0..<key.count) }
       try NoticeKeyStore(group: group).set(key)
     }
+    AsyncFunction("declareSignedOut") {
+      guard let group = Bundle.main.object(forInfoDictionaryKey: "ByokitNoticeAppGroup") as? String else { throw NoticeKeyError.unavailable }
+      try NoticeSession(group: group).declareSignedOut(
+        clearKey: { try NoticeKeyStore(group: group).clear() },
+        clearTargets: { try NoticeAnswerCenter.setTargets([]) })
+    }
     AsyncFunction("clearNoticeKey") {
       guard let group = Bundle.main.object(forInfoDictionaryKey: "ByokitNoticeAppGroup") as? String else { throw NoticeKeyError.unavailable }
       try NoticeKeyStore(group: group).clear()
