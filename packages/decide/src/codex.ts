@@ -10,6 +10,7 @@ import { generationImages } from './generation-images.ts';
 import { validateImageReferences } from './images.ts';
 import { parsedAnswers, responsesInstructions, responsesSchema } from './responses-wire.ts';
 import { runCli } from './cli-run.ts';
+import { validOutputBudget } from './generation-budget.ts';
 
 /** A Codex account's environment from `@byokit/accounts/cli` (`launch(id)` when ready, or `launchEnv(id)`): a managed
  * account sets its own `CODEX_HOME`; the installed one sets nothing, so the person's own sign-in answers. */
@@ -62,7 +63,7 @@ export function codex(options: CodexOptions): CodexBackend {
     if (input.signal?.aborted) throw new CodexError('aborted');
     const maxOutputTokens = input.maxOutputTokens ?? 16_384;
     // ponytail: validated like the Claude seam, but codex exec has no output cap flag; add it when Codex ships one.
-    if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 16_384) throw new Error('The output budget is invalid.');
+    if (!validOutputBudget(maxOutputTokens)) throw new Error('The output budget is invalid.');
     let scratch: string;
     try { scratch = await mkdtemp(join(tmpdir(), 'byokit-codex-')); } catch { throw new CodexError('process'); }
     try {

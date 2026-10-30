@@ -8,6 +8,7 @@ import { parseUsage } from './http.ts';
 import { outputSchema, type OutputSchema } from './schema.ts';
 import { parsedAnswers, responsesInstructions, responsesSchema } from './responses-wire.ts';
 import { runCli } from './cli-run.ts';
+import { validOutputBudget } from './generation-budget.ts';
 
 export type PiOptions = { bin: string; model: string; timeoutMs: number; env: Readonly<Record<string, string>> };
 export type PiBackend = Backend & GenerationBackend;
@@ -43,7 +44,7 @@ export function pi(options: PiOptions): PiBackend {
     if (input.signal?.aborted) throw new PiError('aborted');
     const maxOutputTokens = input.maxOutputTokens ?? 16_384;
     // ponytail: validated like the other seams, but pi has no output cap flag; add it when pi ships one.
-    if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 16_384) throw new Error('The output budget is invalid.');
+    if (!validOutputBudget(maxOutputTokens)) throw new Error('The output budget is invalid.');
     let scratch: string;
     try { scratch = await mkdtemp(join(tmpdir(), 'byokit-pi-')); } catch { throw new PiError('process'); }
     try {

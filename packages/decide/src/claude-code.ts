@@ -7,6 +7,7 @@ import type { Generated, GenerationBackend, GenerationRequest } from './generate
 import { parseUsage } from './http.ts';
 import { outputSchema, type OutputSchema } from './schema.ts';
 import { generationImages } from './generation-images.ts';
+import { validOutputBudget } from './generation-budget.ts';
 import { validateImageReferences } from './images.ts';
 import { runCli } from './cli-run.ts';
 
@@ -59,8 +60,8 @@ export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
     ] as unknown[]);
     content.push({ type: 'text', text: input.prompt });
     if (input.signal?.aborted) throw new ClaudeCodeError('aborted');
-    const maxOutputTokens = input.maxOutputTokens ?? 16_384;
-    if (!Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 16_384) throw new Error('The output budget is invalid.');
+    const maxOutputTokens = input.maxOutputTokens;
+    if (!validOutputBudget(maxOutputTokens)) throw new Error('The output budget is invalid.');
     let scratch: string;
     try { scratch = await mkdtemp(join(tmpdir(), 'byokit-claude-code-')); } catch { throw new ClaudeCodeError('process'); }
     try {
@@ -74,7 +75,7 @@ export function claudeCode(options: ClaudeCodeOptions): ClaudeCodeBackend {
       const env = {
         ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !unset.has(k) && (k === 'CLAUDE_CODE_OAUTH_TOKEN' || (!/KEY|TOKEN|SECRET|^NODE_OPTIONS$/i.test(k) && !billingRoutes.has(k))))),
         ...(o.configDir !== undefined && { CLAUDE_CONFIG_DIR: o.configDir }),
-        CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens),
+        ...(maxOutputTokens !== undefined && { CLAUDE_CODE_MAX_OUTPUT_TOKENS: String(maxOutputTokens) }),
         DISABLE_AUTOUPDATER: '1', CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
       };
       const execute = async (args: string[], stdin?: string) => {

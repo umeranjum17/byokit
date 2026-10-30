@@ -2,6 +2,7 @@ import { cacheKey, type Usage } from './core.ts';
 import { outputSchema, type OutputSchema } from './schema.ts';
 import { UnsupportedImagesError, type ImageInput } from './images.ts';
 import { generationImages } from './generation-images.ts';
+import { validOutputBudget } from './generation-budget.ts';
 
 export type GenerationInput = { state: unknown; images?: readonly ImageInput[] };
 export type GenerationBudget = { timeoutMs?: number; maxOutputTokens?: number };
@@ -56,7 +57,7 @@ export class MemoryGenerationCache implements GenerationCache {
 export function generationCacheKey(input: GenerationInput, schema: OutputSchema, backend: Pick<GenerationBackend, 'name' | 'model' | 'cacheIdentity'>, budget?: GenerationBudget): string {
   return cacheKey({ generation: 1, input: { state: input.state, images: generationImages(input.images) }, schema: JSON.parse(outputSchema(schema).json),
     backend: { name: backend.name, model: backend.model, identity: backend.cacheIdentity ?? null },
-    maxOutputTokens: budget?.maxOutputTokens ?? 16_384 }, {});
+    maxOutputTokens: budget?.maxOutputTokens ?? null }, {});
 }
 
 const failures = {
@@ -75,8 +76,8 @@ export async function generate<T = unknown>(input: GenerationInput, schema: Outp
   const snapshot: GenerationInput = { state: JSON.parse(JSON.stringify(input.state) ?? 'null'), images };
   const selectedSchema: OutputSchema = JSON.parse(validator.json);
   const timeoutMs = opts.budget?.timeoutMs ?? 120_000;
-  const maxOutputTokens = opts.budget?.maxOutputTokens ?? 16_384;
-  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647 || !Number.isSafeInteger(maxOutputTokens) || maxOutputTokens < 1 || maxOutputTokens > 16_384) {
+  const maxOutputTokens = opts.budget?.maxOutputTokens;
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > 2_147_483_647 || !validOutputBudget(maxOutputTokens)) {
     throw new Error('The generation budget is invalid.');
   }
   let result: GenerationResult<T> = { data: null, text: '', by: 'none', ms: 0, source: 'api',

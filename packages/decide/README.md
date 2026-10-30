@@ -720,9 +720,12 @@ length/item/property counts, unique items, enums/const, numeric bounds, types an
 schemas. Unknown constraints, including `$ref`, `pattern` and `format`, fail before a backend runs.
 Schemas are snapshotted before awaiting a backend. The same validator runs in the CLI adapter.
 
-The budget defaults to 120 seconds for the backend sequence and 16,384 output tokens. Set
-`budget.maxOutputTokens: 8192` for an 8k answer. Hosts implementing `GenerationBackend` must honour
-`maxOutputTokens` and reject incomplete answers; the runner enforces the time limit and validates
+The budget defaults to 120 seconds for the backend sequence, with no output-token cap supplied
+by the runner. Claude's CLI decides its own output budget unless the caller sets
+`budget.maxOutputTokens` (or `maxOutputTokens` on a direct backend call); for example, `64_000` allows
+room for high-effort thinking. Explicit budgets must be safe integers from 1 to 1,000,000.
+Hosts implementing `GenerationBackend` must honour an explicit `maxOutputTokens` and reject
+incomplete answers; the runner enforces the time limit and validates
 complete values again. `signal` cancels generation. `privacy: 'stays-here'` skips hosted backends.
 There is no default disk cache. `MemoryGenerationCache` is the portable reference; cache keys cover
 state, canonical image bytes/MIME/IDs, schema, backend, model, host-supplied account/config identity and output budget. Pin a model
