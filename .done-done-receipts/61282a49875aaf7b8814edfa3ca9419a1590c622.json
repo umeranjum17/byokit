@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "61282a49875aaf7b8814edfa3ca9419a1590c622",
+  "tree": "88eceae2c9646545ae41bd856961b1e4dab1c67c",
+  "claim": "A built SDK consumer can leave Claude's output budget to its CLI, pass 64000 or 16385 verbatim, and receive a rejection for invalid budgets.",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-30T04:40:44.879Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261030T044016Z-61282a49-f6eceb/consumer.log",
+      "sha256": "32451abbe38d89bab411a7b0d17a0d31bb19ca3a5b5cdbedb27a18cab8a0cbdf"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261030T044016Z-61282a49-f6eceb",
+      "commit": "61282a49875aaf7b8814edfa3ca9419a1590c622",
+      "journey": null,
+      "command": "sh -c 'node \"$DRIVE\"'",
+      "tool": "0.6.23",
+      "steps": {
+        "target": {
+          "version": "@byokit/decide 0.16.4, built workspace public exports"
+        },
+        "start": "Clean committed SDK build, empty private fixture home, deterministic child; no live model.",
+        "steps": [
+          "A consumer imports the built public SDK and Claude entry.",
+          "Generate a complete storyboard without an output budget; observe undefined backend request and absent child env cap even with synthetic ambient cap 7.",
+          "Generate with caller budgets 64000, 16385 and 1000000; inspect child environment for verbatim values.",
+          "Compare stable unset cache identities and separate explicit budgets.",
+          "Attempt invalid budgets and observe rejection before child launch."
+        ],
+        "result": "Offline consumer receives complete structured data with CLI-owned unset output budget and verbatim caller budgets; invalid values are refused. This proves budget plumbing, not live high-effort model completion."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261030T044016Z-61282a49-f6eceb/consumer.log",
+        "sha256": "32451abbe38d89bab411a7b0d17a0d31bb19ca3a5b5cdbedb27a18cab8a0cbdf",
+        "verdict": "pass"
+      }
+    ]
+  }
+}
