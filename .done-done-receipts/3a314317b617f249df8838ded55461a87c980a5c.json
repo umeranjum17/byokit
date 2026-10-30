@@ -3,34 +3,39 @@
   "repo": "byokit",
   "head": "3a314317b617f249df8838ded55461a87c980a5c",
   "tree": "4f2217358c36d24f4961873d68363bd939c84416",
-  "claim": "A push consumer refuses retained native notice decryption and answer preparation after sign-out, and a successful key write restores both without network activity.",
+  "claim": "A push consumer declares sign-out before cleanup; native decrypt and Answer preparation refuse retained credentials after cleanup failures and across a fresh process, and only a successful key write restores them, in an offline Linux Swift runtime consumer.",
+  "skill": "done-done-verify-byokit",
   "result": "pass",
-  "at": "2026-10-30T04:38:05.857Z",
+  "at": "2026-10-30T04:53:31.353Z",
   "files": [
     {
-      "path": "<evidence root>/20261030T043751Z-3a314317-5df86a/proof.txt",
-      "sha256": "2ec7358faa7270500705b9ac30a62006ce4f97da61440a2fd080a74d07b3d801"
+      "path": "<evidence root>/20261030T045253Z-3a314317-cb3ba5/push-signout-consumer.log",
+      "sha256": "93106199580afe30b2c77d65e9a59b8567635cd00fd95710b7c3b9ca38531591"
     }
   ],
   "runs": [
     {
-      "run_id": "20261030T043751Z-3a314317-5df86a",
+      "run_id": "20261030T045253Z-3a314317-cb3ba5",
       "commit": "3a314317b617f249df8838ded55461a87c980a5c",
       "journey": null,
-      "command": "sh ./refusal-proof.sh",
+      "command": "sh -c 'bash \"$PROOF\"'",
       "tool": "0.6.23",
       "steps": {
         "target": {
-          "version": "3a314317"
+          "version": "@byokit/push at 3a314317b617f249df8838ded55461a87c980a5c; built public Node entry and shipping Swift sources compiled in pinned Linux Swift 5.10.1"
         },
-        "start": "Signed-in push consumer with retained native key",
+        "start": "Synthetic notice/answer fixture keys, signed-in shared-defaults suite and retained in-memory key/target stores; no Apple device or live network",
         "steps": [
-          "Declare sign-out before cleanup",
-          "Attempt decrypt and prepare an answer after cleanup failure",
-          "Write a valid replacement key",
-          "Verify decrypt and answer preparation recover without sending"
+          "Import the built public push entry; its declareSignedOut rejects on a native-free platform rather than silently succeeding.",
+          "Use createNotices with a synthetic bridge: the declaration is forwarded once and its cleanup error is exposed unchanged.",
+          "Run a native Swift consumer of the shipped NoticeSession, NoticePayload.openTransport and NoticeAnswer.press code with real fixture crypto; observe initial decryption and POST request preparation, without sending it.",
+          "Declare sign-out: observe the shared refusal before either cleanup attempt, intentionally fail both removals, and receive the original cleanup error.",
+          "Retain valid fixture keys and targets; observe decrypt refused and Answer preparation throwing This device is signed out, producing no request to post.",
+          "Start a second native process in the same synthetic shared-defaults suite and observe the same decrypt and Answer refusal.",
+          "Retry both removals successfully and attempt a failed sign-in key write: neither ends the refusal.",
+          "Provision targets and successfully write the key: the same notice decrypts again and Answer prepares a POST request without sending it."
         ],
-        "result": "Retained credentials are refused after sign-out; only a successful key write restores both."
+        "result": "A push consumer declares sign-out before cleanup; native decrypt and Answer preparation refuse retained credentials after cleanup failures and across a fresh process, and only a successful key write restores them. Linux runtime boundary and synthetic bridge only; Apple Keychain, UNNotificationContent, APNs and background delivery remain unexercised here."
       }
     }
   ],
@@ -44,9 +49,10 @@
     },
     "verdicts": [
       {
-        "path": "<evidence root>/20261030T043751Z-3a314317-5df86a/proof.txt",
-        "sha256": "2ec7358faa7270500705b9ac30a62006ce4f97da61440a2fd080a74d07b3d801",
-        "verdict": "pass"
+        "path": "<evidence root>/20261030T045253Z-3a314317-cb3ba5/push-signout-consumer.log",
+        "sha256": "93106199580afe30b2c77d65e9a59b8567635cd00fd95710b7c3b9ca38531591",
+        "verdict": "pass",
+        "seen": "I read all the capture's entries (about 20 lines). It shows the outcome: the sign-out declaration is reported, with the cleanup error surfaced rather than silent success. 'Retained valid key: decrypt refused; retained route: Answer refused: This device is signed out; no request to post' appears before the key clear, after the key and targets cleanup failures, and in the fresh extension/answer process. 'Failed sign-in key write: refusal remains' is followed by 'Successful key write restores decrypt and Answer preparation; method=POST; no network request made'. The run ends with RUNTIME_CONSUMER_EXIT=0. The capture itself names its limit as a Linux shared-defaults boundary consumer, which matches the offline Linux scope in the outcome. The outcome names no separate parts, so parts and covers are empty."
       }
     ]
   }
