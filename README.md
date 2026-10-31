@@ -106,7 +106,7 @@ The capture at the top is `examples/pwa` in this repository, run with local stan
 - **Pair devices and communicate** — [pair](packages/pair), [discover](packages/discover), [relay](packages/relay), [link](packages/link), [signaling](packages/signaling)
 - **Voice and on-device AI** — [realtime](packages/realtime), [audio](packages/audio), [dictation](packages/dictation), [infer](packages/infer), [speak](packages/speak)
 - **Decide and connect tools** — [decide](packages/decide), [connect](packages/connect), [mcp](packages/mcp)
-- **Runtime and app capabilities** — [openclaw](packages/openclaw), [herdr](packages/herdr), [cloud](packages/cloud), [browser](packages/browser), [phone](packages/phone), [record](packages/record), [bubble](packages/bubble), [overlay](packages/overlay), [statusbar](packages/statusbar)
+- **Runtime and app capabilities** — [openclaw](packages/openclaw), [herdr](packages/herdr), [endpoint](packages/endpoint), [cloud](packages/cloud), [browser](packages/browser), [phone](packages/phone), [record](packages/record), [bubble](packages/bubble), [overlay](packages/overlay), [statusbar](packages/statusbar)
 - **UI and private data** — [ui](packages/ui), [ui-core](packages/ui-core), [secrets](packages/secrets), [seal](packages/seal), [push](packages/push), [outbox](packages/outbox), [write](packages/write)
 
 Some kits are private, deprecated or still awaiting qualification; each package guide states its status and platform support. [Browse all package guides](packages).

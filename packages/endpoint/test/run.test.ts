@@ -1,0 +1,105 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { scratchDir } from '../../test-support.ts';
+import { EndpointError, readEndpointRoom, startEndpoint } from '../src/index.ts';
+
+const fake = join(dirname(fileURLToPath(import.meta.url)), 'fake-cli-proxy-api.mjs');
+
+test('the child runs private: umask 077, no core dump, a bare environment, a 0600 log, and the config goes at stop', async () => {
+  const dir = scratchDir('endpoint-run');
+  const bin = join(dir, 'cli-proxy-api');
+  writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`); chmodSync(bin, 0o700);
+  const state = join(dir, 'state');
+  process.env['PGSTORE_DSN'] = 'host-secret'; process.env['HOME_JWT'] = 'host-secret';
+  const ep = await startEndpoint({ stateDir: state, credential: { provider: 'openai', key: 'sk-fixture' }, models: ['m'], binaryPath: bin, port: 18417, env: { BYOKIT_FIXTURE: 'fixture' } });
+  try {
+    assert.equal(ep.url, 'http://127.0.0.1:18417');
+    assert.match(ep.clientKey, /^byokit-/);
+    assert.equal((await fetch(`${ep.url}/v1/models`, { headers: { authorization: 'Bearer sk-fixture' } })).status, 401, 'the provider key is not the client key');
+    const folder = join(state, 'endpoint');
+    const probe = JSON.parse(readFileSync(join(folder, 'probe.json'), 'utf8'));
+    assert.deepEqual(probe.argv, ['--config', join(folder, 'config.yaml'), '--local-model'], 'never --home-jwt');
+    assert.equal(probe.umask, 0o077);
+    assert.equal(probe.coreLimit, '0');
+    assert.deepEqual(Object.keys(probe.env).filter((k) => !['PWD', 'SHLVL', '_'].includes(k)).sort(), ['BYOKIT_FIXTURE', 'GOTRACEBACK', 'HOME'], 'only what sh itself adds besides the three');
+    assert.equal(probe.env.GOTRACEBACK, 'none');
+    assert.equal(probe.cwd, folder);
+    assert.equal(probe.configMode, 0o600);
+    assert.equal(statSync(join(folder, 'server.log')).mode & 0o777, 0o600);
+    assert.equal(statSync(state).mode & 0o777, 0o700);
+    assert.match(readFileSync(join(folder, 'server.log'), 'utf8'), /fake server up/);
+  } finally { await ep.stop(); delete process.env['PGSTORE_DSN']; delete process.env['HOME_JWT']; }
+  assert.equal(existsSync(join(state, 'endpoint', 'config.yaml')), false);
+});
+
+test('existing endpoint state directories are tightened before writing the provider key', async () => {
+  const dir = scratchDir('endpoint-private-dirs');
+  const bin = join(dir, 'cli-proxy-api');
+  writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`); chmodSync(bin, 0o700);
+  const state = join(dir, 'state');
+  const endpointDir = join(state, 'endpoint');
+  const authsDir = join(endpointDir, 'auths');
+  const homeDir = join(endpointDir, 'home');
+  mkdirSync(state, { mode: 0o700 });
+  for (const path of [endpointDir, authsDir, homeDir]) mkdirSync(path, { recursive: true });
+  for (const path of [endpointDir, authsDir, homeDir]) chmodSync(path, 0o755);
+  const ep = await startEndpoint({ stateDir: state, credential: { provider: 'openai', key: 'sk-fixture' }, models: ['m'], binaryPath: bin, port: 18418 });
+  try {
+    for (const path of [state, endpointDir, authsDir, homeDir]) assert.equal(statSync(path).mode & 0o777, 0o700);
+    assert.equal(statSync(join(endpointDir, 'config.yaml')).mode & 0o777, 0o600);
+  } finally { await ep.stop(); }
+});
+
+test('config and log symlinks are refused without writing to their targets', async () => {
+  for (const name of ['config.yaml', 'server.log']) {
+    const dir = scratchDir(`endpoint-${name}-symlink`);
+    const state = join(dir, 'state');
+    const endpointDir = join(state, 'endpoint');
+    const target = join(dir, 'outside-target');
+    mkdirSync(state, { mode: 0o700 });
+    mkdirSync(endpointDir, { mode: 0o700 });
+    writeFileSync(target, '');
+    symlinkSync(target, join(endpointDir, name));
+    await assert.rejects(startEndpoint({ stateDir: state, credential: { provider: 'openai', key: 'sk-fixture' }, models: ['m'], binaryPath: '/bin/true' }), (error: unknown) => error instanceof EndpointError && error.code === 'state-file-symlink' && error.message.includes(name));
+    assert.equal(readFileSync(target, 'utf8'), '');
+  }
+});
+
+test('room: OpenCode and Z.ai return their provider-shaped readings with the key', async () => {
+  const seen: string[] = [];
+  const fakeFetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    seen.push(`${url} ${new Headers(init?.headers).get('authorization')}`);
+    const body = String(url).includes('opencode.ai')
+      ? { usage: { rolling: { status: 'ok', percent: 33 } } }
+      : { success: true, data: { limits: [{ unit: 3, number: 5, percentage: 4 }] } };
+    return new Response(JSON.stringify(body), { status: 200 });
+  }) as typeof fetch;
+  const opencode = await readEndpointRoom({ credential: { provider: 'opencode', key: 'plan-key' }, fetch: fakeFetch });
+  assert.equal(opencode.provider, 'opencode');
+  assert.ok('windows' in opencode);
+  assert.deepEqual(opencode.windows, [{ provider: 'opencode', kind: 'rolling', usedPercent: 33, minutes: 300 }]);
+  const zai = await readEndpointRoom({ credential: { provider: 'zai', key: 'zai-key' }, fetch: fakeFetch });
+  assert.equal(zai.provider, 'zai');
+  assert.ok('windows' in zai);
+  assert.deepEqual(zai.windows, [{ provider: 'zai', kind: 'session', usedPercent: 4, minutes: 300 }]);
+  assert.deepEqual(seen, [
+    'https://opencode.ai/zen/go/v1/usage Bearer plan-key',
+    'https://api.z.ai/api/monitor/usage/quota/limit Bearer zai-key',
+  ]);
+});
+
+test('room: providers without a usage API return a typed result without requesting or throwing', async () => {
+  let requests = 0;
+  const fakeFetch = (async () => { requests++; throw new Error('unexpected request'); }) as typeof fetch;
+  for (const provider of ['openai', 'openrouter'] as const) {
+    const result = await readEndpointRoom({ credential: { provider, key: 'k' }, fetch: fakeFetch });
+    assert.deepEqual(result, {
+      ok: false, code: 'no-usage-api', provider,
+    });
+    assert.equal('windows' in result, false);
+  }
+  assert.equal(requests, 0);
+});

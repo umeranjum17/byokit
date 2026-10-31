@@ -10,6 +10,7 @@ const kits = (...names: string[]): string[] => names.map((n) => `packages/${n}/`
 const AREAS: Record<string, string[]> = {
   openclaw: kits('openclaw', 'pair', 'relay', 'discover', 'seal', 'secrets', 'ui', 'accounts', 'usage'),
   write: kits('write'),
+  endpoint: kits('endpoint', 'usage'),
   record: kits('record'),
   seal: kits('seal'),
   secrets: [...kits('secrets', 'seal'), 'scripts/test-keyring.sh'],

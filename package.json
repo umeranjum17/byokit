@@ -11,7 +11,7 @@
     "node": ">=24.16.0 <25 || >=26.1.0"
   },
   "scripts": {
-    "build": "tsc -b packages/accounts packages/realtime packages/pair packages/link packages/relay packages/decide packages/ui packages/ui-core packages/discover packages/reach packages/seal packages/secrets packages/connect packages/openclaw packages/herdr packages/write packages/record packages/bubble packages/overlay packages/cloud packages/service packages/statusbar packages/usage packages/push packages/speak packages/audio packages/dictation packages/mcp packages/share packages/signaling packages/infer packages/approve packages/outbox packages/browser packages/phone && node scripts/fix-words-dts.cjs",
+    "build": "tsc -b packages/accounts packages/realtime packages/pair packages/link packages/relay packages/decide packages/ui packages/ui-core packages/discover packages/reach packages/seal packages/secrets packages/connect packages/openclaw packages/herdr packages/write packages/record packages/bubble packages/overlay packages/cloud packages/service packages/statusbar packages/usage packages/push packages/speak packages/audio packages/dictation packages/mcp packages/share packages/signaling packages/infer packages/approve packages/outbox packages/browser packages/phone packages/endpoint && node scripts/fix-words-dts.cjs",
     "check": "tsc -p tsconfig.json",
     "gen:write": "node packages/write/scripts/gen-types.ts",
     "gen:herdr": "node packages/herdr/scripts/gen-types.ts",
@@ -23,6 +23,7 @@
     "test:engine": "sh scripts/test.sh $(find packages/openclaw/test/engine -name '*.test.ts' ! -name 'browser-*.test.ts' | sort)",
     "test:browser-engine": "sh scripts/test.sh 'packages/openclaw/test/engine/browser-*.test.ts'",
     "test:write-engine": "sh scripts/test.sh 'packages/write/test/engine/*.test.ts'",
+    "test:endpoint-engine": "sh scripts/test.sh 'packages/endpoint/test/engine/*.test.ts'",
     "gen:openclaw": "node packages/openclaw/scripts/gen-methods.ts"
   },
   "overrides": {

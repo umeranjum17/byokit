@@ -27,7 +27,10 @@ aggregator" and exposes the aggregator's **full** power:
   delivery with receipts, output and terminal streaming, blocked-agent approvals. Each coding agent in Herdr keeps its
   own subscription login. Extracted from muxr's Herdr integration.
 
-Both kits: typed helpers for the common paths **plus** a first-class typed pass-through to the complete supported
+`@byokit/endpoint` sits beside them as a small third runtime kit: it is not an aggregator for subscriptions, but runs the
+checksum-pinned CLIProxyAPI on loopback for one API key (key routes only, no sign-in, no pool) and serves it as one local address.
+
+The two aggregators: typed helpers for the common paths **plus** a first-class typed pass-through to the complete supported
 surface (OpenClaw Gateway operator protocol; Herdr socket API and CLI), so no consumer forks or bypasses the kit.
 They share connection adapters (`link`, `relay`, `discover`, `seal`, `ui`) and conventions, never a
 lowest-common-denominator interface. `@byokit/accounts` keeps serving direct-provider apps (including Ownvoice); its

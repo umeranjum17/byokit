@@ -33,6 +33,7 @@ jobs:
       code: ${{ steps.areas.outputs.code }}
       openclaw: ${{ steps.areas.outputs.openclaw }}
       write: ${{ steps.areas.outputs.write }}
+      endpoint: ${{ steps.areas.outputs.endpoint }}
       record: ${{ steps.areas.outputs.record }}
       seal: ${{ steps.areas.outputs.seal }}
       secrets: ${{ steps.areas.outputs.secrets }}
@@ -389,6 +390,28 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run build
       - run: npm run test:write-engine
+
+  # @byokit/endpoint against the pinned CLIProxyAPI release (checksum checked by the test), in a no-network namespace
+  # with a loopback fake upstream. No account, key or model: the only credential is a fixture string.
+  endpoint-engine:
+    needs: changes
+    if: needs.changes.outputs.endpoint == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.16.0'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+      # Hosted Ubuntu restricts unprivileged user namespaces, which `unshare -rn` needs; this runner is ephemeral.
+      - run: if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download v8.0.48 -R router-for-me/CLIProxyAPI --pattern '*linux_amd64_no-plugin.tar.gz' --dir "$RUNNER_TEMP/cliproxyapi"
+      - run: BYOKIT_CLIPROXYAPI_ARCHIVE=$(ls "$RUNNER_TEMP"/cliproxyapi/*.tar.gz) npm run test:endpoint-engine
 
   # A real screen recorder on a private X display; no owner's display or account.
   record-recorder:
@@ -777,7 +800,7 @@ jobs:
   ci-ok:
     if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     needs: [changes, check, herdr-macos, service-linux, service-macos, done-done, pack, seal-swift, secrets-keyring, browser,
-      openclaw-engine, openclaw-browser, write-engine, record-recorder, react-native, android, overlay-android, share-android,
+      openclaw-engine, openclaw-browser, write-engine, endpoint-engine, record-recorder, react-native, android, overlay-android, share-android,
       share-android-app, share-ios-prebuild, statusbar-android, audit, push-android, push-ios]
     runs-on: ubuntu-latest
     timeout-minutes: 2
