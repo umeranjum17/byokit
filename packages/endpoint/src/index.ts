@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, openSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { delimiter, dirname, isAbsolute, join } from 'node:path';
+import { accessSync, chmodSync, closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { delimiter, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { usage, type Reading } from '@byokit/usage';
 import { EndpointError, KEY_ROUTES, checkOptions, endpointConfig, newClientKey, type EndpointCredential, type EndpointOptions } from './config.ts';
 
@@ -23,7 +23,22 @@ const inGitTree = (dir: string): boolean => {
 /** Refuses a stateDir that is relative, inside a git work tree or open to group or world; nothing is written yet. */
 function checkStateDir(stateDir: string): void {
   if (typeof stateDir !== 'string' || !isAbsolute(stateDir)) throw new EndpointError('bad-state-dir', 'stateDir must be an absolute path.');
-  if (inGitTree(stateDir)) throw new EndpointError('state-dir-in-git', 'stateDir is inside a git work tree, where the key could be committed; use an app data folder.');
+  const target = resolve(stateDir);
+  let current = target;
+  let existing: string | undefined;
+  while (true) {
+    try {
+      if (lstatSync(current).isSymbolicLink()) throw new EndpointError('state-dir-symlink', 'stateDir contains a symbolic link; a link could place the key inside a repository.');
+      existing ??= current;
+    } catch (error) {
+      if (error instanceof EndpointError) throw error;
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || dirname(current) === current) throw error;
+    }
+    if (dirname(current) === current) break;
+    current = dirname(current);
+  }
+  const actual = join(realpathSync(existing!), relative(existing!, target));
+  if (inGitTree(actual)) throw new EndpointError('state-dir-in-git', 'stateDir is inside a git work tree, where the key could be committed; use an app data folder.');
   if (existsSync(stateDir) && (statSync(stateDir).mode & 0o077) !== 0) throw new EndpointError('state-dir-open', 'stateDir is accessible to its group or others; run chmod 700 on it.');
 }
 function binary(path: string | undefined): string {
@@ -41,6 +56,7 @@ export async function startEndpoint(options: EndpointOptions): Promise<Endpoint>
   const dir = join(options.stateDir, 'endpoint');
   const privateDirs = [options.stateDir, dir, join(dir, 'auths'), join(dir, 'home')];
   for (const d of privateDirs) mkdirSync(d, { recursive: true, mode: 0o700 });
+  checkStateDir(options.stateDir);
   for (const d of privateDirs) chmodSync(d, 0o700);
   const clientKey = newClientKey();
   const config = join(dir, 'config.yaml');

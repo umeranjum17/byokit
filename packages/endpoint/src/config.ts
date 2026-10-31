@@ -4,7 +4,7 @@ import { join } from 'node:path';
 export type EndpointErrorCode =
   | 'bad-state-dir' | 'state-dir-in-git' | 'state-dir-open' | 'bad-credential' | 'more-than-one-credential'
   | 'subscription-provider' | 'unknown-provider' | 'no-models' | 'host-not-loopback' | 'base-url-refused'
-  | 'bad-port' | 'store-variable' | 'binary-missing' | 'start-failed';
+  | 'bad-port' | 'state-dir-symlink' | 'env-proxy' | 'store-variable' | 'binary-missing' | 'start-failed';
 export class EndpointError extends Error {
   readonly code: EndpointErrorCode;
   readonly detail?: Record<string, unknown>;
@@ -41,11 +41,13 @@ export type EndpointOptions = {
   port?: number;
   /** Replaces the provider's address: https, or http on loopback (a local fake). */
   baseUrl?: string;
-  /** Extra child environment, e.g. a proxy. Store and Home variables are refused. */
+  /** Extra child environment. Store, Home, proxy and TLS interception variables are refused. */
   env?: Readonly<Record<string, string>>;
   log?: (line: string) => void;
 };
 const STORE_VARIABLE = /^(PGSTORE_|GITSTORE_|OBJECTSTORE_|HOME_JWT$)/i;
+const PROXY_VARIABLE = /(^|_)proxy$/i;
+const TLS_VARIABLES = new Set(['NODE_EXTRA_CA_CERTS', 'SSL_CERT_FILE', 'SSL_CERT_DIR', 'CURL_CA_BUNDLE', 'REQUESTS_CA_BUNDLE']);
 const LOOPBACK = ['127.0.0.1', 'localhost'];
 
 /** Every refusal the options can earn before anything is written or spawned; returns the validated parts. */
@@ -66,6 +68,8 @@ export function checkOptions(o: EndpointOptions): { provider: EndpointProvider; 
   if (!url || !(url.protocol === 'https:' || url.protocol === 'http:' && LOOPBACK.includes(url.hostname))) throw new EndpointError('base-url-refused', 'baseUrl must be https, or http on 127.0.0.1 or localhost, so a key never travels in the clear.');
   const bad = Object.keys(o.env ?? {}).filter((name) => STORE_VARIABLE.test(name));
   if (bad.length) throw new EndpointError('store-variable', `env names ${bad.join(', ')}; PGSTORE_*, GITSTORE_*, OBJECTSTORE_* and HOME_JWT would move the key off this device.`, { detail: { names: bad } });
+  const routed = Object.keys(o.env ?? {}).filter((name) => PROXY_VARIABLE.test(name) || TLS_VARIABLES.has(name.toUpperCase()));
+  if (routed.length) throw new EndpointError('env-proxy', `env names ${routed.join(', ')} are refused: a caller-supplied proxy or TLS override could carry the key off this device; the endpoint talks to the provider address only.`, { detail: { names: routed } });
   return { provider: provider as EndpointProvider, key, host: host === 'localhost' ? '127.0.0.1' : host, baseUrl };
 }
 

@@ -15,7 +15,7 @@ test('the child runs private: umask 077, no core dump, a bare environment, a 060
   const state = join(dir, 'state');
   process.env['PGSTORE_DSN'] = 'host-secret'; process.env['HOME_JWT'] = 'host-secret';
   const logged: string[] = [];
-  const ep = await startEndpoint({ stateDir: state, credential: { provider: 'openai', key: 'sk-fixture' }, models: ['m'], binaryPath: bin, port: 18417, log: (l) => logged.push(l), env: { HTTPS_PROXY: 'http://127.0.0.1:1' } });
+  const ep = await startEndpoint({ stateDir: state, credential: { provider: 'openai', key: 'sk-fixture' }, models: ['m'], binaryPath: bin, port: 18417, log: (l) => logged.push(l), env: { BYOKIT_FIXTURE: 'fixture' } });
   try {
     assert.equal(ep.url, 'http://127.0.0.1:18417');
     assert.match(ep.clientKey, /^byokit-/);
@@ -25,11 +25,12 @@ test('the child runs private: umask 077, no core dump, a bare environment, a 060
     assert.deepEqual(probe.argv, ['--config', join(folder, 'config.yaml'), '--local-model'], 'never --home-jwt');
     assert.equal(probe.umask, 0o077);
     assert.equal(probe.coreLimit, '0');
-    assert.deepEqual(Object.keys(probe.env).filter((k) => !['PWD', 'SHLVL', '_'].includes(k)).sort(), ['GOTRACEBACK', 'HOME', 'HTTPS_PROXY'], 'only what sh itself adds besides the three');
+    assert.deepEqual(Object.keys(probe.env).filter((k) => !['PWD', 'SHLVL', '_'].includes(k)).sort(), ['BYOKIT_FIXTURE', 'GOTRACEBACK', 'HOME'], 'only what sh itself adds besides the three');
     assert.equal(probe.env.GOTRACEBACK, 'none');
     assert.equal(probe.cwd, folder);
     assert.equal(probe.configMode, 0o600);
     assert.equal(statSync(join(folder, 'server.log')).mode & 0o777, 0o600);
+    assert.equal(statSync(state).mode & 0o777, 0o700);
     assert.match(readFileSync(join(folder, 'server.log'), 'utf8'), /fake server up/);
     assert.deepEqual(logged, ['endpoint: listening on http://127.0.0.1:18417']);
   } finally { await ep.stop(); delete process.env['PGSTORE_DSN']; delete process.env['HOME_JWT']; }
@@ -45,7 +46,8 @@ test('existing endpoint state directories are tightened before writing the provi
   const endpointDir = join(state, 'endpoint');
   const authsDir = join(endpointDir, 'auths');
   const homeDir = join(endpointDir, 'home');
-  for (const path of [state, endpointDir, authsDir, homeDir]) mkdirSync(path, { recursive: true });
+  mkdirSync(state, { mode: 0o700 });
+  for (const path of [endpointDir, authsDir, homeDir]) mkdirSync(path, { recursive: true });
   for (const path of [endpointDir, authsDir, homeDir]) chmodSync(path, 0o755);
   const ep = await startEndpoint({ stateDir: state, credential: { provider: 'openai', key: 'sk-fixture' }, models: ['m'], binaryPath: bin, port: 18418 });
   try {

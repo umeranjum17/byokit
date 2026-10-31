@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { scratchDir } from '../../test-support.ts';
 import { startEndpoint, EndpointError, type EndpointOptions, type EndpointErrorCode } from '../src/index.ts';
@@ -18,6 +18,11 @@ test('every refusal is typed, names what is missing and writes nothing', async (
   await refuses(base(open), 'state-dir-open', /chmod 700/);
   const repo = join(dir, 'repo'); mkdirSync(join(repo, '.git'), { recursive: true });
   await refuses(base(join(repo, 'state')), 'state-dir-in-git', /git work tree/);
+  const stateLink = join(dir, 'state-link'); symlinkSync(join(repo, 'state'), stateLink);
+  await refuses(base(stateLink), 'state-dir-symlink', /link could place the key inside a repository/);
+  const target = join(dir, 'target'); mkdirSync(target);
+  const ancestorLink = join(dir, 'ancestor-link'); symlinkSync(target, ancestorLink);
+  await refuses(base(join(ancestorLink, 'not-created', 'state')), 'state-dir-symlink', /link could place the key inside a repository/);
   await refuses({ ...base(state), credential: [{ provider: 'openai', key: 'a' }, { provider: 'zai', key: 'b' }] as never }, 'more-than-one-credential', /exactly one/);
   await refuses({ ...base(state), credential: { provider: 'openai', key: ' ' } }, 'bad-credential', /non-empty key/);
   for (const provider of ['claude', 'chatgpt', 'codex', 'openai-codex']) await refuses({ ...base(state), credential: { provider, key: 'x' } as never }, 'subscription-provider', /subscription sign-in/);
@@ -27,6 +32,7 @@ test('every refusal is typed, names what is missing and writes nothing', async (
   for (const host of ['0.0.0.0', '', '::', '192.168.1.5', 'example.com']) await refuses({ ...base(state), host }, 'host-not-loopback', /not loopback/);
   for (const baseUrl of ['http://api.example.com/v1', 'ftp://127.0.0.1/v1', 'not a url']) await refuses({ ...base(state), baseUrl }, 'base-url-refused', /https, or http on 127.0.0.1/);
   for (const name of ['PGSTORE_DSN', 'gitstore_url', 'OBJECTSTORE_BUCKET', 'HOME_JWT']) await refuses({ ...base(state), env: { [name]: 'x' } }, 'store-variable', new RegExp(name, 'i'));
+  for (const name of ['HTTPS_PROXY', 'https_proxy', 'NODE_EXTRA_CA_CERTS', 'NO_PROXY']) await refuses({ ...base(state), env: { [name]: 'x' } }, 'env-proxy', /caller-supplied proxy or TLS override could carry the key off this device/);
   await refuses({ ...base(state), binaryPath: join(dir, 'missing') }, 'binary-missing', /binaryPath/);
   assert.deepEqual(readdirSync(state), [], 'a refusal creates no endpoint folder');
   assert.equal(existsSync(join(dir, 'relative')), false);
