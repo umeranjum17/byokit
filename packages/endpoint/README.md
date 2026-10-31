@@ -29,6 +29,7 @@ console.log('windows' in room ? room.windows : room.code);
 - **One address, one credential per run.** `url` is `http://127.0.0.1:<port>` (`port` defaults to 8317). `clientKey` is new every run; a tool
   must send it, so another program on the computer cannot spend the person's key. The provider key never leaves the config file the kit writes
   (0600, in `<stateDir>/endpoint/`, deleted by `stop()`).
+- **Retries.** At most one repeat per request, and only after a refusal.
 - **Key routes.** `provider` is `openai`, `openrouter`, `opencode` or `zai`; each is an OpenAI-compatible upstream. `baseUrl` replaces its address
   with an `https` one, or an `http` one on loopback for a local fake.
 - **The child.** It starts through `sh` with umask 077 and `ulimit -c 0`, `GOTRACEBACK=none`, an environment built from nothing (`HOME` in the endpoint

@@ -80,8 +80,8 @@ export function endpointConfig(o: EndpointOptions, clientKey: string, dir: strin
     // :119-124 the per-run client key is the only way in, on top of the loopback bind.
     access: { 'api-keys': [clientKey] },
     oauth: { 'auth-dir': join(dir, 'auths') },
-    // :200-222 and :233-235 one credential has nothing to rotate to, so a transient 5xx is retried on it at once, not cooled for a minute.
-    routing: { retry: { 'request-retry': 3, 'max-retry-interval': 5 }, cooldown: { 'transient-error-cooldown-seconds': -1 } },
+    // One repeat per client request, only after a 5xx refusal or a connection failure, so one client request never bills a key twice.
+    routing: { retry: { 'request-retry': 1, 'max-retry-interval': 5 }, cooldown: { 'transient-error-cooldown-seconds': -1 } },
     // :1190-1205 debug, request logs and statistics off; :1213 pprof off.
     observability: { logs: { debug: false, 'logging-to-file': false, 'request-log': false }, usage: { 'usage-statistics-enabled': false }, pprof: { enable: false } },
     // :370 and :469 the Codex and Claude look-alikes stay off even though no such route is configured below.
