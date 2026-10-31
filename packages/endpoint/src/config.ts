@@ -37,6 +37,8 @@ export type EndpointOptions = {
   /** Loopback only: `127.0.0.1` (default) or `localhost`. */
   host?: string;
   port?: number;
+  /** Retries are off by default; `retry: 1` accepts that a failed attempt may have been billed. */
+  retry?: 0 | 1;
   /** Replaces the provider's address: https, or http on loopback (a local fake). */
   baseUrl?: string;
   /** Extra child environment. Store, Home, proxy and certificate-interception variables are refused. */
@@ -85,8 +87,8 @@ export function endpointConfig(o: EndpointOptions, clientKey: string, dir: strin
     // :119-124 the per-run client key is the only way in, on top of the loopback bind.
     access: { 'api-keys': [clientKey] },
     oauth: { 'auth-dir': join(dir, 'auths') },
-    // One repeat per client request, only after a 5xx refusal or a connection failure, so one client request never bills a key twice.
-    routing: { retry: { 'request-retry': 1, 'max-retry-interval': 5 }, cooldown: { 'transient-error-cooldown-seconds': -1 } },
+    // The caller chooses request-retry: 0 or 1.
+    routing: { retry: { 'request-retry': o.retry ?? 0, 'max-retry-interval': 5 }, cooldown: { 'transient-error-cooldown-seconds': -1 } },
     // :1190-1205 debug, request logs and statistics off; :1213 pprof off.
     observability: { logs: { debug: false, 'logging-to-file': false, 'request-log': false }, usage: { 'usage-statistics-enabled': false }, pprof: { enable: false } },
     // :370 and :469 the Codex and Claude look-alikes stay off even though no such route is configured below.

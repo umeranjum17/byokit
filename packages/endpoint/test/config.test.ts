@@ -13,7 +13,7 @@ test('the generated config is exactly the guarded one, field by field', () => {
     management: { 'allow-remote': false, 'secret-key': '', 'disable-control-panel': true },
     access: { 'api-keys': ['client-key'] },
     oauth: { 'auth-dir': '/s/endpoint/auths' },
-    routing: { retry: { 'request-retry': 1, 'max-retry-interval': 5 }, cooldown: { 'transient-error-cooldown-seconds': -1 } },
+    routing: { retry: { 'request-retry': 0, 'max-retry-interval': 5 }, cooldown: { 'transient-error-cooldown-seconds': -1 } },
     observability: { logs: { debug: false, 'logging-to-file': false, 'request-log': false }, usage: { 'usage-statistics-enabled': false }, pprof: { enable: false } },
     upstream: { codex: { 'disable-codex-cloaking': true }, claude: { 'disable-claude-cloak-mode': true, 'disable-cloaking-model-list': true } },
     'api-keys': { 'openai-compatibility': [{ name: 'opencode', 'base-url': 'https://opencode.ai/zen/go/v1', keys: [{ 'api-key': 'k"ey: &x' }], models: [{ name: 'm1', alias: 'm1' }, { name: 'm2', alias: 'm2' }] }] },
@@ -22,12 +22,14 @@ test('the generated config is exactly the guarded one, field by field', () => {
   assert.deepEqual(JSON.parse(JSON.stringify(c)), c);
 });
 
-test('retry permits one repeat only after refusal, so a client request never bills twice', () => {
+test('request retries default off and are enabled only by explicit opt-in', () => {
   const c = endpointConfig(options, 'client-key', '/s/endpoint') as Config;
   const routing = c['routing'] as { retry: Record<string, number>; cooldown: Record<string, number> };
-  assert.equal(routing.retry['request-retry'], 1);
+  assert.equal(routing.retry['request-retry'], 0);
   assert.equal(routing.retry['max-retry-interval'], 5);
   assert.equal(routing.cooldown['transient-error-cooldown-seconds'], -1);
+  const optedIn = endpointConfig({ ...options, retry: 1 }, 'client-key', '/s/endpoint') as Config;
+  assert.equal((optedIn['routing'] as { retry: Record<string, number> }).retry['request-retry'], 1);
 });
 
 test('no route the endpoint exposes can reach the Claude or ChatGPT look-alike', () => {
