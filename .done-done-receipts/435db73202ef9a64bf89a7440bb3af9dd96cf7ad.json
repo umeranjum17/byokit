@@ -1,0 +1,64 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "435db73202ef9a64bf89a7440bb3af9dd96cf7ad",
+  "tree": "e87016513cd9a0b1fe54e90d88eae83773ba59b7",
+  "claim": "The built @byokit/endpoint refuses a subscription provider id as not a key route with a typed error, and starts the real pinned CLIProxyAPI v8.0.48 on loopback for one fixture API key: in a no-network namespace, with the explicit retry: 1 opt-in (retries are off by default), a client request returns 200 after one repeat, with one upstream identity, no leaked key file, no extra log file and no Claude Code look-alike call. No live provider, account or model is proven.",
+  "result": "pass",
+  "at": "2026-10-31T02:42:32.350Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261031T024223Z-435db732-12ade4/summary.txt",
+      "sha256": "4a68068c6440945ad68948539a119222654a57eff1cdef2209c6f2835cef5244"
+    },
+    {
+      "path": "<evidence root>/20261031T024223Z-435db732-12ade4/drive.log",
+      "sha256": "cb3e24ec12ac185f1ba2e0b58784ca4b43aa799185f144beed1823bf1cb7e49f"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261031T024223Z-435db732-12ade4",
+      "commit": "435db73202ef9a64bf89a7440bb3af9dd96cf7ad",
+      "journey": null,
+      "command": "sh drive.sh",
+      "tool": "0.6.24",
+      "steps": {
+        "target": {
+          "version": "0.1.0"
+        },
+        "start": "A built checkout, the pinned CLIProxyAPI v8.0.48 release archive (checksum checked) and a loopback fake upstream; no account, key or model",
+        "steps": [
+          "Ask the built kit to start an endpoint for a subscription provider id (claude) and read the typed unknown-provider refusal",
+          "Start the real pinned binary through startEndpoint with one fixture API key and the explicit retry: 1 opt-in, in a no-network namespace",
+          "Send one chat request with the per-run client key; the fake upstream fails the first call",
+          "Read the request outcome, the upstream call log, the leftover files and the Claude Code look-alike count"
+        ],
+        "result": "The refusal names the requirement; the client got HTTP 200 after the one opted-in retry, with one upstream identity, no file holding the key, no extra log file and no look-alike call (pass line in drive.log)"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261031T024223Z-435db732-12ade4/summary.txt",
+        "sha256": "4a68068c6440945ad68948539a119222654a57eff1cdef2209c6f2835cef5244",
+        "verdict": "pass",
+        "seen": "I read all 3 content lines of summary.txt. It shows 'EndpointError unknown-provider - claude is not a key route here', 'client_http=200 upstream_hits=2 statuses=[503 200 ] distinct_upstream_identities=1 leak_files=0 extra_log_files=0 disguised_calls=0', 'PASS', and 'exit=0'. These match the outcome's refusal, retry, single identity, and no-leak claims. The capture does not show the no-network namespace directly, but it is consistent with the drive log. The outcome names only one part, so parts and covers are empty."
+      },
+      {
+        "path": "<evidence root>/20261031T024223Z-435db732-12ade4/drive.log",
+        "sha256": "cb3e24ec12ac185f1ba2e0b58784ca4b43aa799185f144beed1823bf1cb7e49f",
+        "verdict": "pass",
+        "seen": "I read all 8 lines of drive.log. It shows the refusal line 'EndpointError unknown-provider - claude...', the header '== real pinned binary, started by the kit, under unshare -rn', and 'client_http=200 upstream_hits=2 statuses=[503 200 ] distinct_upstream_identities=1 leak_files=0 extra_log_files=0 disguised_calls=0', followed by 'PASS' and 'exit=0'. These match the outcome. The log does not show the pinned binary hash matches v8.0.48 by name, but the hash line is consistent with the pinned claim. The outcome names only one part, so parts and covers are empty."
+      }
+    ]
+  }
+}
