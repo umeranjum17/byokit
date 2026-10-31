@@ -4,7 +4,7 @@ import { join } from 'node:path';
 export type EndpointErrorCode =
   | 'bad-state-dir' | 'state-dir-in-git' | 'state-dir-open' | 'bad-credential' | 'more-than-one-credential'
   | 'unknown-provider' | 'no-models' | 'host-not-loopback' | 'base-url-not-provider-host'
-  | 'bad-port' | 'state-dir-symlink' | 'state-file-symlink' | 'env-proxy' | 'store-variable' | 'binary-missing' | 'start-failed';
+  | 'bad-port' | 'bad-retry' | 'state-dir-symlink' | 'state-file-symlink' | 'env-proxy' | 'store-variable' | 'binary-missing' | 'start-failed';
 export class EndpointError extends Error {
   readonly code: EndpointErrorCode;
   readonly detail?: Record<string, unknown>;
@@ -59,6 +59,7 @@ export function checkOptions(o: EndpointOptions): { provider: EndpointProvider; 
   if (!Object.hasOwn(KEY_ROUTES, provider)) throw new EndpointError('unknown-provider', `${provider} is not a key route here; use one of ${Object.keys(KEY_ROUTES).join(', ')}.`, { detail: { provider } });
   if (!o.models?.length || o.models.some((m) => typeof m !== 'string' || m === '')) throw new EndpointError('no-models', 'models needs at least one model id.');
   if (o.port !== undefined && (!Number.isInteger(o.port) || o.port < 1 || o.port > 65535)) throw new EndpointError('bad-port', 'port must be an integer from 1 through 65535.');
+  if (o.retry !== undefined && o.retry !== 0 && o.retry !== 1) throw new EndpointError('bad-retry', 'retry must be 0 (the default, no repeat) or 1; more repeats could bill a request twice or more.');
   const host = o.host ?? '127.0.0.1';
   if (!LOOPBACK.includes(host)) throw new EndpointError('host-not-loopback', `host ${host} is not loopback; use 127.0.0.1 or localhost.`, { detail: { host } });
   const baseUrl = o.baseUrl ?? KEY_ROUTES[provider as EndpointProvider].baseUrl;

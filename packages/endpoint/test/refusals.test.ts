@@ -41,6 +41,7 @@ test('every refusal is typed, names what is missing and writes nothing', async (
   await refuses({ ...base(state), credential: { provider: 'nope', key: 'x' } as never }, 'unknown-provider', /not a key route/);
   await refuses({ ...base(state), models: [] }, 'no-models', /at least one model/);
   for (const port of [0, -1, 65536, 1.5, Number.NaN, '8317']) await refuses({ ...base(state), port } as never, 'bad-port', /integer from 1 through 65535/);
+  for (const retry of [2, 5, -1, 0.5, '1']) await refuses({ ...base(state), retry } as never, 'bad-retry', /0 \(the default, no repeat\) or 1/);
   for (const host of ['0.0.0.0', '', '::', '192.168.1.5', 'example.com']) await refuses({ ...base(state), host }, 'host-not-loopback', /not loopback/);
   for (const baseUrl of ['https://attacker.example/v1', 'http://api.example.com/v1', 'ftp://127.0.0.1/v1', 'not a url']) await refuses({ ...base(state), baseUrl }, 'base-url-not-provider-host', /api\.openai\.com or loopback HTTP/);
   for (const name of ['PGSTORE_DSN', 'gitstore_url', 'OBJECTSTORE_BUCKET', 'HOME_JWT']) await refuses({ ...base(state), env: { [name]: 'x' } }, 'store-variable', new RegExp(name, 'i'));

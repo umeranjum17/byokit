@@ -1,6 +1,7 @@
 {
   "name": "@byokit/endpoint",
   "version": "0.1.0",
+  "private": true,
   "description": "One loopback address that answers OpenAI and Anthropic web-format requests with the person's own API key, through a checksum-pinned CLIProxyAPI.",
   "license": "Apache-2.0",
   "type": "module",
