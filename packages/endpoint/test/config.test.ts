@@ -40,3 +40,10 @@ test('no route the endpoint exposes can reach the Claude or ChatGPT look-alike',
   }
   assert.equal((endpointConfig({ ...options, host: 'localhost' }, 'c', '/s') as Config)['server']!['host'], '127.0.0.1');
 });
+
+test('base URLs stay on the provider host except for loopback fakes', () => {
+  const own = endpointConfig({ ...options, credential: { provider: 'openai', key: 'k' } }, 'c', '/s') as Config;
+  assert.equal((own['api-keys']!['openai-compatibility'] as Array<Record<string, unknown>>)[0]!['base-url'], KEY_ROUTES.openai.baseUrl);
+  const local = endpointConfig({ ...options, baseUrl: 'http://127.0.0.1:18911/v1' }, 'c', '/s') as Config;
+  assert.equal((local['api-keys']!['openai-compatibility'] as Array<Record<string, unknown>>)[0]!['base-url'], 'http://127.0.0.1:18911/v1');
+});

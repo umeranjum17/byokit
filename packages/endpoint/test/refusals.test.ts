@@ -37,14 +37,14 @@ test('every refusal is typed, names what is missing and writes nothing', async (
   }
   await refuses({ ...base(state), credential: [{ provider: 'openai', key: 'a' }, { provider: 'zai', key: 'b' }] as never }, 'more-than-one-credential', /exactly one/);
   await refuses({ ...base(state), credential: { provider: 'openai', key: ' ' } }, 'bad-credential', /non-empty key/);
-  for (const provider of ['claude', 'chatgpt', 'codex', 'openai-codex']) await refuses({ ...base(state), credential: { provider, key: 'x' } as never }, 'subscription-provider', /subscription sign-in/);
+  await refuses({ ...base(state), credential: { provider: 'claude', key: 'x' } as never }, 'unknown-provider', /not a key route/);
   await refuses({ ...base(state), credential: { provider: 'nope', key: 'x' } as never }, 'unknown-provider', /not a key route/);
   await refuses({ ...base(state), models: [] }, 'no-models', /at least one model/);
   for (const port of [0, -1, 65536, 1.5, Number.NaN, '8317']) await refuses({ ...base(state), port } as never, 'bad-port', /integer from 1 through 65535/);
   for (const host of ['0.0.0.0', '', '::', '192.168.1.5', 'example.com']) await refuses({ ...base(state), host }, 'host-not-loopback', /not loopback/);
-  for (const baseUrl of ['http://api.example.com/v1', 'ftp://127.0.0.1/v1', 'not a url']) await refuses({ ...base(state), baseUrl }, 'base-url-refused', /https, or http on 127.0.0.1/);
+  for (const baseUrl of ['https://attacker.example/v1', 'http://api.example.com/v1', 'ftp://127.0.0.1/v1', 'not a url']) await refuses({ ...base(state), baseUrl }, 'base-url-not-provider-host', /api\.openai\.com or loopback HTTP/);
   for (const name of ['PGSTORE_DSN', 'gitstore_url', 'OBJECTSTORE_BUCKET', 'HOME_JWT']) await refuses({ ...base(state), env: { [name]: 'x' } }, 'store-variable', new RegExp(name, 'i'));
-  for (const name of ['HTTPS_PROXY', 'https_proxy', 'NODE_EXTRA_CA_CERTS', 'NO_PROXY']) await refuses({ ...base(state), env: { [name]: 'x' } }, 'env-proxy', /caller-supplied proxy or TLS override could carry the key off this device/);
+  for (const name of ['HTTPS_PROXY', 'https_proxy', 'NODE_EXTRA_CA_CERTS', 'NO_PROXY']) await refuses({ ...base(state), env: { [name]: 'x' } }, 'env-proxy', /caller-supplied proxy would carry the provider key off this device; the endpoint talks to the provider address only/);
   await refuses({ ...base(state), binaryPath: join(dir, 'missing') }, 'binary-missing', /binaryPath/);
   assert.deepEqual(readdirSync(state), [], 'a refusal creates no endpoint folder');
   assert.equal(existsSync(join(dir, 'relative')), false);

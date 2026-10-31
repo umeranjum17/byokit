@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 export type EndpointErrorCode =
   | 'bad-state-dir' | 'state-dir-in-git' | 'state-dir-open' | 'bad-credential' | 'more-than-one-credential'
-  | 'subscription-provider' | 'unknown-provider' | 'no-models' | 'host-not-loopback' | 'base-url-refused'
+  | 'unknown-provider' | 'no-models' | 'host-not-loopback' | 'base-url-not-provider-host'
   | 'bad-port' | 'state-dir-symlink' | 'env-proxy' | 'store-variable' | 'binary-missing' | 'start-failed';
 export class EndpointError extends Error {
   readonly code: EndpointErrorCode;
@@ -25,8 +25,6 @@ export const KEY_ROUTES = {
   zai: { baseUrl: 'https://api.z.ai/api/coding/paas/v4', usage: true },
 } as const;
 export type EndpointProvider = keyof typeof KEY_ROUTES;
-/** Sign-in routes this slice never serves: named, they are refused rather than treated as an unknown id. */
-const SUBSCRIPTIONS = ['claude', 'anthropic-plan', 'chatgpt', 'codex', 'openai-codex', 'copilot', 'github-copilot', 'grok', 'kimi', 'meta', 'qwen', 'gemini', 'google-gemini-cli', 'google-antigravity'];
 export type EndpointCredential = { provider: EndpointProvider; key: string };
 export type EndpointOptions = {
   /** Absolute, outside any git work tree, private to the person (no group or world access). */
@@ -41,7 +39,7 @@ export type EndpointOptions = {
   port?: number;
   /** Replaces the provider's address: https, or http on loopback (a local fake). */
   baseUrl?: string;
-  /** Extra child environment. Store, Home, proxy and TLS interception variables are refused. */
+  /** Extra child environment. Store, Home, proxy and certificate-interception variables are refused. */
   env?: Readonly<Record<string, string>>;
   log?: (line: string) => void;
 };
@@ -56,20 +54,22 @@ export function checkOptions(o: EndpointOptions): { provider: EndpointProvider; 
   if (Array.isArray(c)) throw new EndpointError('more-than-one-credential', 'One endpoint serves exactly one credential; start a second endpoint for another key.', { detail: { count: c.length } });
   const { provider, key } = (c ?? {}) as Partial<EndpointCredential>;
   if (typeof provider !== 'string' || typeof key !== 'string' || key.trim() === '') throw new EndpointError('bad-credential', 'credential needs a provider id and a non-empty key.');
-  if (SUBSCRIPTIONS.includes(provider)) throw new EndpointError('subscription-provider', `${provider} is a subscription sign-in; this endpoint serves only API-key routes (${Object.keys(KEY_ROUTES).join(', ')}).`, { detail: { provider } });
   if (!Object.hasOwn(KEY_ROUTES, provider)) throw new EndpointError('unknown-provider', `${provider} is not a key route here; use one of ${Object.keys(KEY_ROUTES).join(', ')}.`, { detail: { provider } });
   if (!o.models?.length || o.models.some((m) => typeof m !== 'string' || m === '')) throw new EndpointError('no-models', 'models needs at least one model id.');
   if (o.port !== undefined && (!Number.isInteger(o.port) || o.port < 1 || o.port > 65535)) throw new EndpointError('bad-port', 'port must be an integer from 1 through 65535.');
   const host = o.host ?? '127.0.0.1';
   if (!LOOPBACK.includes(host)) throw new EndpointError('host-not-loopback', `host ${host} is not loopback; use 127.0.0.1 or localhost.`, { detail: { host } });
   const baseUrl = o.baseUrl ?? KEY_ROUTES[provider as EndpointProvider].baseUrl;
-  let url: URL | undefined;
-  try { url = new URL(baseUrl); } catch { /* refused below */ }
-  if (!url || !(url.protocol === 'https:' || url.protocol === 'http:' && LOOPBACK.includes(url.hostname))) throw new EndpointError('base-url-refused', 'baseUrl must be https, or http on 127.0.0.1 or localhost, so a key never travels in the clear.');
+  const providerUrl = new URL(KEY_ROUTES[provider as EndpointProvider].baseUrl);
+  let url: URL;
+  try { url = new URL(baseUrl); } catch { throw new EndpointError('base-url-not-provider-host', `baseUrl must use ${providerUrl.host} or loopback HTTP.`); }
+  const providerHost = url.protocol === providerUrl.protocol && url.hostname === providerUrl.hostname && url.port === providerUrl.port;
+  const localHost = url.protocol === 'http:' && LOOPBACK.includes(url.hostname);
+  if (!providerHost && !localHost) throw new EndpointError('base-url-not-provider-host', `baseUrl must use ${providerUrl.host} or loopback HTTP.`);
   const bad = Object.keys(o.env ?? {}).filter((name) => STORE_VARIABLE.test(name));
   if (bad.length) throw new EndpointError('store-variable', `env names ${bad.join(', ')}; PGSTORE_*, GITSTORE_*, OBJECTSTORE_* and HOME_JWT would move the key off this device.`, { detail: { names: bad } });
   const routed = Object.keys(o.env ?? {}).filter((name) => PROXY_VARIABLE.test(name) || TLS_VARIABLES.has(name.toUpperCase()));
-  if (routed.length) throw new EndpointError('env-proxy', `env names ${routed.join(', ')} are refused: a caller-supplied proxy or TLS override could carry the key off this device; the endpoint talks to the provider address only.`, { detail: { names: routed } });
+  if (routed.length) throw new EndpointError('env-proxy', `env names ${routed.join(', ')} are refused: a caller-supplied proxy would carry the provider key off this device; the endpoint talks to the provider address only.`, { detail: { names: routed } });
   return { provider: provider as EndpointProvider, key, host: host === 'localhost' ? '127.0.0.1' : host, baseUrl };
 }
 

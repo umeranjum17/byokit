@@ -30,15 +30,14 @@ console.log('windows' in room ? room.windows : room.code);
   must send it, so another program on the computer cannot spend the person's key. The provider key never leaves the config file the kit writes
   (0600, in `<stateDir>/endpoint/`, deleted by `stop()`).
 - **Retries.** At most one repeat per request, and only after a refusal.
-- **Key routes.** `provider` is `openai`, `openrouter`, `opencode` or `zai`; each is an OpenAI-compatible upstream. `baseUrl` replaces its address
-  with an `https` one, or an `http` one on loopback for a local fake.
+- **Key routes.** `provider` is `openai`, `openrouter`, `opencode` or `zai`; each is an OpenAI-compatible upstream. `baseUrl` stays on that provider's host,
+  with an `http` loopback override for a local fake.
 - **The child.** It starts through `sh` with umask 077 and `ulimit -c 0`, `GOTRACEBACK=none`, an environment built from nothing (`HOME` in the endpoint
   folder, `GOTRACEBACK`, plus allowed variables from `env`), stdout and stderr in `server.log` (0600), `--local-model` and never `--home-jwt`. Nothing in the
   config opens a store, a panel, a management API, a log of request bodies, mDNS or pprof. The one environment read is `PATH`, to find `cli-proxy-api`
   when `binaryPath` is absent.
 - **Refusals.** `EndpointError` codes: `bad-state-dir` (not absolute), `state-dir-in-git`, `state-dir-symlink` (a link could place the key in a repository), `state-dir-open` (group or world access),
-  `more-than-one-credential`, `bad-credential`, `subscription-provider` (Claude, ChatGPT or Codex, Copilot and the like), `unknown-provider`,
-  `no-models`, `host-not-loopback`, `base-url-refused`, `env-proxy` (proxy or TLS interception variables), `store-variable` (`PGSTORE_*`, `GITSTORE_*`, `OBJECTSTORE_*`, `HOME_JWT` in `env`),
+  `more-than-one-credential`, `bad-credential`, `unknown-provider`, `no-models`, `host-not-loopback`, `base-url-not-provider-host`, `env-proxy` (proxy or certificate-interception variables), `store-variable` (`PGSTORE_*`, `GITSTORE_*`, `OBJECTSTORE_*`, `HOME_JWT` in `env`),
   `binary-missing`, `start-failed`. Each message names the concrete requirement and never holds the key.
 - **Room.** `readEndpointRoom` reads the plan windows of `opencode` and `zai` plan keys with [`@byokit/usage`](../usage) and returns its `Reading`.
   A provider without a usage API (`openai`, `openrouter`) gives `{ ok: false, code: 'no-usage-api', provider }`. It calls the provider directly with
