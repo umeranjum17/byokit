@@ -68,12 +68,34 @@ test('config and log symlinks are refused without writing to their targets', asy
   }
 });
 
-test('room: a plan-key provider reads through @byokit/usage, the rest say there is no usage API', async () => {
+test('room: OpenCode and Z.ai return their provider-shaped readings with the key', async () => {
   const seen: string[] = [];
-  const fakeFetch = (async (url: string | URL | Request, init?: RequestInit) => { seen.push(`${url} ${new Headers(init?.headers).get('authorization')}`); return new Response('{"usage":{}}', { status: 200 }); }) as typeof fetch;
-  const reading = await readEndpointRoom({ credential: { provider: 'opencode', key: 'plan-key' }, fetch: fakeFetch });
-  assert.ok('windows' in reading && reading.provider === 'opencode');
-  assert.deepEqual(seen, ['https://opencode.ai/zen/go/v1/usage Bearer plan-key']);
-  assert.deepEqual(await readEndpointRoom({ credential: { provider: 'openai', key: 'k' }, fetch: fakeFetch }), { ok: false, code: 'no-usage-api', provider: 'openai' });
-  assert.equal(seen.length, 1, 'no request for a provider without a usage API');
+  const fakeFetch = (async (url: string | URL | Request, init?: RequestInit) => {
+    seen.push(`${url} ${new Headers(init?.headers).get('authorization')}`);
+    const body = String(url).includes('opencode.ai')
+      ? { usage: { rolling: { status: 'ok', percent: 33 } } }
+      : { success: true, data: { limits: [{ unit: 3, number: 5, percentage: 4 }] } };
+    return new Response(JSON.stringify(body), { status: 200 });
+  }) as typeof fetch;
+  const opencode = await readEndpointRoom({ credential: { provider: 'opencode', key: 'plan-key' }, fetch: fakeFetch });
+  assert.equal(opencode.provider, 'opencode');
+  assert.deepEqual(opencode.windows, [{ provider: 'opencode', kind: 'rolling', usedPercent: 33, minutes: 300 }]);
+  const zai = await readEndpointRoom({ credential: { provider: 'zai', key: 'zai-key' }, fetch: fakeFetch });
+  assert.equal(zai.provider, 'zai');
+  assert.deepEqual(zai.windows, [{ provider: 'zai', kind: 'session', usedPercent: 4, minutes: 300 }]);
+  assert.deepEqual(seen, [
+    'https://opencode.ai/zen/go/v1/usage Bearer plan-key',
+    'https://api.z.ai/api/monitor/usage/quota/limit Bearer zai-key',
+  ]);
+});
+
+test('room: providers without a usage API return a typed result without requesting or throwing', async () => {
+  let requests = 0;
+  const fakeFetch = (async () => { requests++; throw new Error('unexpected request'); }) as typeof fetch;
+  for (const provider of ['openai', 'openrouter'] as const) {
+    assert.deepEqual(await readEndpointRoom({ credential: { provider, key: 'k' }, fetch: fakeFetch }), {
+      ok: false, code: 'no-usage-api', provider,
+    });
+  }
+  assert.equal(requests, 0);
 });
