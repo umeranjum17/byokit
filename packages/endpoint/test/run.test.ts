@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scratchDir } from '../../test-support.ts';
@@ -35,6 +35,23 @@ test('the child runs private: umask 077, no core dump, a bare environment, a 060
   } finally { await ep.stop(); delete process.env['PGSTORE_DSN']; delete process.env['HOME_JWT']; }
   assert.equal(existsSync(join(state, 'endpoint', 'config.yaml')), false);
   assert.equal(JSON.stringify(logged).includes('sk-fixture'), false);
+});
+
+test('existing endpoint state directories are tightened before writing the provider key', async () => {
+  const dir = scratchDir('endpoint-private-dirs');
+  const bin = join(dir, 'cli-proxy-api');
+  writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`); chmodSync(bin, 0o700);
+  const state = join(dir, 'state');
+  const endpointDir = join(state, 'endpoint');
+  const authsDir = join(endpointDir, 'auths');
+  const homeDir = join(endpointDir, 'home');
+  for (const path of [state, endpointDir, authsDir, homeDir]) mkdirSync(path, { recursive: true });
+  for (const path of [endpointDir, authsDir, homeDir]) chmodSync(path, 0o755);
+  const ep = await startEndpoint({ stateDir: state, credential: { provider: 'openai', key: 'sk-fixture' }, models: ['m'], binaryPath: bin, port: 18418 });
+  try {
+    for (const path of [state, endpointDir, authsDir, homeDir]) assert.equal(statSync(path).mode & 0o777, 0o700);
+    assert.equal(statSync(join(endpointDir, 'config.yaml')).mode & 0o777, 0o600);
+  } finally { await ep.stop(); }
 });
 
 test('room: a plan-key provider reads through @byokit/usage, the rest say there is no usage API', async () => {

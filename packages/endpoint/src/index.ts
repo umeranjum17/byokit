@@ -39,7 +39,9 @@ export async function startEndpoint(options: EndpointOptions): Promise<Endpoint>
   const checked = checkOptions(options);
   const bin = binary(options.binaryPath);
   const dir = join(options.stateDir, 'endpoint');
-  for (const d of [options.stateDir, dir, join(dir, 'auths'), join(dir, 'home')]) mkdirSync(d, { recursive: true, mode: 0o700 });
+  const privateDirs = [options.stateDir, dir, join(dir, 'auths'), join(dir, 'home')];
+  for (const d of privateDirs) mkdirSync(d, { recursive: true, mode: 0o700 });
+  for (const d of privateDirs) chmodSync(d, 0o700);
   const clientKey = newClientKey();
   const config = join(dir, 'config.yaml');
   const logFile = join(dir, 'server.log');
