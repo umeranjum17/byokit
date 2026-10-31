@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "21297878cbb231b0fbc6c73003b7c98409129667",
+  "tree": "768929b54bfa566ca4c4f112228a8d420e96773b",
+  "claim": "@byokit/herdr 0.18.0 (from 0.17.2) is prepared for consumer installation: the packed tarball a consumer installs carries both merged API surfaces, exportConversation with an explicit accountFolder and the hostLaunch opt-in for Pi, and the example pin and lockfile entry move to 0.18.0 with it. Runtime behavior is not claimed.",
+  "result": "pass",
+  "at": "2026-10-31T09:28:36.304Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261031T092810Z-21297878-d59ea4/versions.txt",
+      "sha256": "76dfbe660a6cd7c9ab2014a7e40082d1f3e36dbbbeaf5f8d5c1834793f046e17"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261031T092810Z-21297878-d59ea4",
+      "commit": "21297878cbb231b0fbc6c73003b7c98409129667",
+      "journey": null,
+      "command": "node --input-type=module -e \"$BYK_RELEASE_CAPTURE\"",
+      "tool": "0.6.24",
+      "steps": {
+        "target": {
+          "version": "@byokit/herdr 0.18.0 (packed tarball)"
+        },
+        "start": "origin/main at the merge of #900, @byokit/herdr 0.17.2",
+        "steps": [
+          "Run the release tool prepare for herdr=minor and read the version it wrote",
+          "Read the example pin and the lockfile entry for the same package",
+          "Pack the package the release publishes and read the tarball own package.json",
+          "Read the packed dist for both merged API surfaces, exportConversation with accountFolder and the hostLaunch opt-in"
+        ],
+        "result": "The packed consumer artifact is @byokit/herdr 0.18.0 (from 0.17.2) with the example pin and lockfile entry moved with it, and both merged API surfaces present in the shipped dist."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261031T092810Z-21297878-d59ea4/versions.txt",
+        "sha256": "76dfbe660a6cd7c9ab2014a7e40082d1f3e36dbbbeaf5f8d5c1834793f046e17",
+        "verdict": "pass"
+      }
+    ]
+  }
+}
