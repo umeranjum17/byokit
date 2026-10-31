@@ -23,6 +23,18 @@ test('every refusal is typed, names what is missing and writes nothing', async (
   const target = join(dir, 'target'); mkdirSync(target);
   const ancestorLink = join(dir, 'ancestor-link'); symlinkSync(target, ancestorLink);
   await refuses(base(join(ancestorLink, 'not-created', 'state')), 'state-dir-symlink', /link could place the key inside a repository/);
+  const nestedRepo = join(dir, 'nested-repo'); mkdirSync(join(nestedRepo, '.git'), { recursive: true });
+  for (const nested of ['endpoint', 'auths', 'home']) {
+    const nestedState = join(dir, `nested-${nested}`); mkdirSync(nestedState, { mode: 0o700 });
+    const endpointDir = join(nestedState, 'endpoint');
+    if (nested === 'endpoint') symlinkSync(nestedRepo, endpointDir);
+    else {
+      mkdirSync(endpointDir, { mode: 0o700 });
+      symlinkSync(nestedRepo, join(endpointDir, nested));
+    }
+    await refuses(base(nestedState), 'state-dir-symlink', /link could place the key inside a repository/);
+    assert.equal(existsSync(join(nestedRepo, 'config.yaml')), false);
+  }
   await refuses({ ...base(state), credential: [{ provider: 'openai', key: 'a' }, { provider: 'zai', key: 'b' }] as never }, 'more-than-one-credential', /exactly one/);
   await refuses({ ...base(state), credential: { provider: 'openai', key: ' ' } }, 'bad-credential', /non-empty key/);
   for (const provider of ['claude', 'chatgpt', 'codex', 'openai-codex']) await refuses({ ...base(state), credential: { provider, key: 'x' } as never }, 'subscription-provider', /subscription sign-in/);

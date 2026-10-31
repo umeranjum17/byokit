@@ -20,15 +20,14 @@ const inGitTree = (dir: string): boolean => {
     if (dirname(d) === d) return false;
   }
 };
-/** Refuses a stateDir that is relative, inside a git work tree or open to group or world; nothing is written yet. */
-function checkStateDir(stateDir: string): void {
-  if (typeof stateDir !== 'string' || !isAbsolute(stateDir)) throw new EndpointError('bad-state-dir', 'stateDir must be an absolute path.');
-  const target = resolve(stateDir);
+function checkStatePath(path: string): void {
+  if (typeof path !== 'string' || !isAbsolute(path)) throw new EndpointError('bad-state-dir', 'stateDir must be an absolute path.');
+  const target = resolve(path);
   let current = target;
   let existing: string | undefined;
   while (true) {
     try {
-      if (lstatSync(current).isSymbolicLink()) throw new EndpointError('state-dir-symlink', 'stateDir contains a symbolic link; a link could place the key inside a repository.');
+      if (lstatSync(current).isSymbolicLink()) throw new EndpointError('state-dir-symlink', 'endpoint state contains a symbolic link; a link could place the key inside a repository.');
       existing ??= current;
     } catch (error) {
       if (error instanceof EndpointError) throw error;
@@ -38,7 +37,11 @@ function checkStateDir(stateDir: string): void {
     current = dirname(current);
   }
   const actual = join(realpathSync(existing!), relative(existing!, target));
-  if (inGitTree(actual)) throw new EndpointError('state-dir-in-git', 'stateDir is inside a git work tree, where the key could be committed; use an app data folder.');
+  if (inGitTree(actual)) throw new EndpointError('state-dir-in-git', 'endpoint state is inside a git work tree, where the key could be committed; use an app data folder.');
+}
+/** Refuses a stateDir that is relative, inside a git work tree or open to group or world; nothing is written yet. */
+function checkStateDir(stateDir: string): void {
+  checkStatePath(stateDir);
   if (existsSync(stateDir) && (statSync(stateDir).mode & 0o077) !== 0) throw new EndpointError('state-dir-open', 'stateDir is accessible to its group or others; run chmod 700 on it.');
 }
 function binary(path: string | undefined): string {
@@ -55,7 +58,9 @@ export async function startEndpoint(options: EndpointOptions): Promise<Endpoint>
   const bin = binary(options.binaryPath);
   const dir = join(options.stateDir, 'endpoint');
   const privateDirs = [options.stateDir, dir, join(dir, 'auths'), join(dir, 'home')];
+  for (const d of privateDirs) checkStatePath(d);
   for (const d of privateDirs) mkdirSync(d, { recursive: true, mode: 0o700 });
+  for (const d of privateDirs) checkStatePath(d);
   checkStateDir(options.stateDir);
   for (const d of privateDirs) chmodSync(d, 0o700);
   const clientKey = newClientKey();
