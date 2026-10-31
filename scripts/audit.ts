@@ -67,7 +67,7 @@ export function assessAudit(text: string, status: number | null, bracesMetadata?
     const cached = memo.get(name);
     if (cached) return cached;
     // ponytail: per-node graph walk is O(V*(V+E)); use SCCs if audit size makes this costly.
-    const visited = new Set<string>(), pending = [name], result: Advisory[] = [];
+    const visited = new Set<string>(), pending = [name], result: Advisory[] = [], direct: Advisory[] = [];
     while (pending.length) {
       const current = pending.pop()!;
       if (visited.has(current)) continue;
@@ -80,11 +80,20 @@ export function assessAudit(text: string, status: number | null, bracesMetadata?
             typeof via.dependency !== 'string' || typeof via.range !== 'string' || !Number.isInteger(via.source)) {
           throw new Error('Invalid audit advisory');
         }
-        result.push({ url: via.url, severity: severity(via.severity), name: via.name, dependency: via.dependency, range: via.range });
+        const advisory = { url: via.url, severity: severity(via.severity), name: via.name, dependency: via.dependency, range: via.range };
+        // The first node popped is the one asked about: its advisory objects are its own.
+        if (current === name) direct.push(advisory);
+        result.push(advisory);
       }
     }
-    const node = nodes[name] as Record<string, unknown>;
-    if (Math.max(...result.map(a => levels[a.severity])) !== levels[severity(node.severity)]) {
+    // npm audit v2 sets a node's severity to the worst advisory affecting that node itself: its own
+    // advisory objects plus the metavulns it derives from them (@npmcli/arborist lib/vuln.js addAdvisory).
+    // A via string only names the package a metavuln came from and never repeats that metavuln's severity,
+    // so the walk bounds the node rather than matching it, and a lower node over a worse transitive path
+    // (an expo package at low over glob/minimatch at moderate) is npm's answer, not a broken report.
+    const own = levels[severity((nodes[name] as Record<string, unknown>).severity)];
+    if (own < Math.max(-1, ...direct.map(a => levels[a.severity])) ||
+        own > Math.max(-1, ...result.map(a => levels[a.severity]))) {
       throw new Error('Unexplained audit severity');
     }
     memo.set(name, result);
