@@ -1,0 +1,61 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "e561748745d475d9cc579aa8fb8b8f621d494c24",
+  "tree": "c1329cbe226e6546cab52afad0f39ebb1ea8a4a6",
+  "claim": "Someone following the byokit verify skill's endpoint journey sees the built @byokit/endpoint start the pinned CLIProxyAPI on one loopback address for one API key: a client request through the returned address answers 200, the key file and generated config are 0600 inside a 0700 folder and deleted at stop, retries stay off by default, and a second credential, a non-loopback bind, another provider's host, a proxy variable and a symlink at the config path each refuse with their typed code",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-31T07:32:23.162Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261031T073129Z-e5617487-6c7af7/endpoint-address-drive.txt",
+      "sha256": "234685618aebf6f366765d51a76daab0df1c6e1ba7d8b338f7f6c0de052afbd7"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261031T073129Z-e5617487-6c7af7",
+      "commit": "e561748745d475d9cc579aa8fb8b8f621d494c24",
+      "journey": null,
+      "command": null,
+      "feature": "endpoint-address",
+      "tool": "0.6.24",
+      "steps": {
+        "target": {
+          "version": "0.1.0"
+        },
+        "start": "Clean committed worktree at e5617487 with the SDK built (npm run build exit 0) and the pinned CLIProxyAPI v8.0.48 binary fetched and checksum-verified outside the repo; no endpoint running, no state folder.",
+        "steps": [
+          "Ran the build and downloaded the pinned CLIProxyAPI release, checked its sha256, and extracted the binary into a temp folder outside the repo.",
+          "Wrote a consumer script that imports the built @byokit/endpoint and starts a fake OpenAI-compatible upstream on loopback that fails its first call.",
+          "Ran the consumer in a fresh network namespace with loopback up.",
+          "Started an endpoint for one openai key and sent a chat request through the returned address with its client key; the first request got a 503 after one upstream call (retries off by default).",
+          "Checked the folder modes (0700), the config and log modes (0600), and that the key appears only in the config file while running.",
+          "Stopped the endpoint and checked no file in the endpoint folder still holds the key.",
+          "Started a second endpoint for the same key and sent a chat request through its returned address; it answered 200 with the fake answer.",
+          "Attempted to start endpoints with a second credential, host 0.0.0.0, a z.ai baseUrl on an openai credential, an HTTPS_PROXY variable, and a symlink planted at the config path; each was refused with its typed error and the printed message.",
+          "Confirmed the symlink target was left empty and stopped the upstream server."
+        ],
+        "result": "The drive printed leg 1 (client 503 after 1 upstream call, folders 700/700, files 600/600, key only in config.yaml), leg 2 (client 200 through the returned loopback address with a 39-character client key), each of the five refusals with its typed code and message, and PASS. The key file is gone after stop."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261031T073129Z-e5617487-6c7af7/endpoint-address-drive.txt",
+        "sha256": "234685618aebf6f366765d51a76daab0df1c6e1ba7d8b338f7f6c0de052afbd7",
+        "verdict": "pass",
+        "seen": "I read all 7 capture entries plus the flag record. Leg 1 shows a client 503 after 1 upstream call at 127.0.0.1:41257, with folders 700/700, files 600/600, and the key only in /endpoint/config.yaml. That 503 is consistent with retries being off, not a contradiction. Leg 2 shows 'client 200 through http://127.0.0.1:36731 after 2 upstream calls' with a byokit-... key. The five refusals each carry the expected typed code: more-than-one-credential, host-not-loopback (0.0.0.0), base-url-not-provider-host, env-proxy (HTTPS_PROXY), and state-file-symlink. The flags confirm default-no-retry, private-folders, private-files, key-only-in-config, key-gone-at-stop, answered-200, and symlink-target-untouched, and the result is PASS. The outcome names one journey with several checks rather than separate captures, so no parts are listed."
+      }
+    ]
+  }
+}
