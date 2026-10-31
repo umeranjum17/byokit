@@ -79,9 +79,11 @@ test('room: OpenCode and Z.ai return their provider-shaped readings with the key
   }) as typeof fetch;
   const opencode = await readEndpointRoom({ credential: { provider: 'opencode', key: 'plan-key' }, fetch: fakeFetch });
   assert.equal(opencode.provider, 'opencode');
+  assert.ok('windows' in opencode);
   assert.deepEqual(opencode.windows, [{ provider: 'opencode', kind: 'rolling', usedPercent: 33, minutes: 300 }]);
   const zai = await readEndpointRoom({ credential: { provider: 'zai', key: 'zai-key' }, fetch: fakeFetch });
   assert.equal(zai.provider, 'zai');
+  assert.ok('windows' in zai);
   assert.deepEqual(zai.windows, [{ provider: 'zai', kind: 'session', usedPercent: 4, minutes: 300 }]);
   assert.deepEqual(seen, [
     'https://opencode.ai/zen/go/v1/usage Bearer plan-key',
@@ -93,9 +95,11 @@ test('room: providers without a usage API return a typed result without requesti
   let requests = 0;
   const fakeFetch = (async () => { requests++; throw new Error('unexpected request'); }) as typeof fetch;
   for (const provider of ['openai', 'openrouter'] as const) {
-    assert.deepEqual(await readEndpointRoom({ credential: { provider, key: 'k' }, fetch: fakeFetch }), {
+    const result = await readEndpointRoom({ credential: { provider, key: 'k' }, fetch: fakeFetch });
+    assert.deepEqual(result, {
       ok: false, code: 'no-usage-api', provider,
     });
+    assert.equal('windows' in result, false);
   }
   assert.equal(requests, 0);
 });
