@@ -105,7 +105,7 @@ export async function startEndpoint(options: EndpointOptions): Promise<Endpoint>
   };
   for (let i = 0; i < 80 && !exited; i++) {
     try {
-      if ((await fetch(`${url}/v1/models`, { headers: { authorization: `Bearer ${clientKey}` }, signal: AbortSignal.timeout(1000) })).status === 200) { options.log?.(`endpoint: listening on ${url}`); return { url, port, clientKey, stop }; }
+      if ((await fetch(`${url}/v1/models`, { headers: { authorization: `Bearer ${clientKey}` }, signal: AbortSignal.timeout(1000) })).status === 200) return { url, port, clientKey, stop };
     } catch { /* not listening yet */ }
     await new Promise((r) => setTimeout(r, 250));
   }

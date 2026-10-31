@@ -14,8 +14,7 @@ test('the child runs private: umask 077, no core dump, a bare environment, a 060
   writeFileSync(bin, `#!/bin/sh\nexec "${process.execPath}" "${fake}" "$@"\n`); chmodSync(bin, 0o700);
   const state = join(dir, 'state');
   process.env['PGSTORE_DSN'] = 'host-secret'; process.env['HOME_JWT'] = 'host-secret';
-  const logged: string[] = [];
-  const ep = await startEndpoint({ stateDir: state, credential: { provider: 'openai', key: 'sk-fixture' }, models: ['m'], binaryPath: bin, port: 18417, log: (l) => logged.push(l), env: { BYOKIT_FIXTURE: 'fixture' } });
+  const ep = await startEndpoint({ stateDir: state, credential: { provider: 'openai', key: 'sk-fixture' }, models: ['m'], binaryPath: bin, port: 18417, env: { BYOKIT_FIXTURE: 'fixture' } });
   try {
     assert.equal(ep.url, 'http://127.0.0.1:18417');
     assert.match(ep.clientKey, /^byokit-/);
@@ -32,10 +31,8 @@ test('the child runs private: umask 077, no core dump, a bare environment, a 060
     assert.equal(statSync(join(folder, 'server.log')).mode & 0o777, 0o600);
     assert.equal(statSync(state).mode & 0o777, 0o700);
     assert.match(readFileSync(join(folder, 'server.log'), 'utf8'), /fake server up/);
-    assert.deepEqual(logged, ['endpoint: listening on http://127.0.0.1:18417']);
   } finally { await ep.stop(); delete process.env['PGSTORE_DSN']; delete process.env['HOME_JWT']; }
   assert.equal(existsSync(join(state, 'endpoint', 'config.yaml')), false);
-  assert.equal(JSON.stringify(logged).includes('sk-fixture'), false);
 });
 
 test('existing endpoint state directories are tightened before writing the provider key', async () => {

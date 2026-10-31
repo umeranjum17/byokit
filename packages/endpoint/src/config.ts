@@ -43,7 +43,6 @@ export type EndpointOptions = {
   baseUrl?: string;
   /** Extra child environment. Store, Home, proxy and certificate-interception variables are refused. */
   env?: Readonly<Record<string, string>>;
-  log?: (line: string) => void;
 };
 const STORE_VARIABLE = /^(PGSTORE_|GITSTORE_|OBJECTSTORE_|HOME_JWT$)/i;
 const PROXY_VARIABLE = /(^|_)proxy$/i;
