@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.18.0 (2026-10-31)
+
+- FEATURE: `exportConversation` takes an explicit `accountFolder`; with it the folder comes from the caller and the conversation from the pane's own Herdr `agent_session`, so an agent an overlay launch or a host restart left without a recorded folder exports too. Without it the recorded folder stays the source, so every call that works today is unchanged; a folder that does not hold that conversation answers the store's own refusal code.
+- FEATURE: `startAgent` takes `hostLaunch` for Pi. A host that owns the Pi launch contract starts Pi with `args` passed through and no forced `--model` or complete replacement `env`; a start without the opt-in keeps both refusals (`model_required`, `account_required`) exactly as today, and no other agent kind changes. This additive API is a minor release; versions are assigned only by the trusted release publisher.
+
 ## 0.17.2 (2026-10-29)
 
 - Dependency update: pins @byokit/relay 0.8.4.
