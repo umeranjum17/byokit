@@ -131,8 +131,16 @@ export type StartAgent = {
   kind: string; cwd: string; name?: string;             // name: /^[a-z][a-z0-9_-]{0,31}$/
   place: PlaceTarget;
   worktree?: { branch?: string; base?: string };
-  /** Pi requires one --model and the complete replacement env with HOME and PI_CODING_AGENT_DIR. */
+  /** Pi requires one --model and the complete replacement env with HOME and PI_CODING_AGENT_DIR (unless `hostLaunch`). */
   args?: string[]; env?: Record<string, string> | { env: Record<string, string>; unset: string[] } | { overlay: Record<string, string>; unset?: string[] }; timeoutMs?: number;   // default 60_000
+  /**
+   * Pi only: the host owns Pi's launch contract, so the kit neither forces a `--model` nor a
+   * complete replacement env (neither refusal is raised, `env` may be absent, an overlay or a
+   * replacement). The host then owes what those two guards owed: it chooses the model Pi may
+   * spend on, keeps every Pi start from reaching a paid default model, and confines the launch
+   * so credentials and CLI state stay inside the account the host chose. No other kind changes.
+   */
+  hostLaunch?: boolean;
   onEvent?: (e: AgentStartEvent) => void;   // per-call lifecycle: installing/ready/launchFailed
   installProbe?: AgentInstallProbe;          // install detection overrides (tests use fakes)
 };
