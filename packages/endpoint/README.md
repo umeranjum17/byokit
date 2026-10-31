@@ -37,7 +37,7 @@ console.log('windows' in room ? room.windows : room.code);
   config opens a store, a panel, a management API, a log of request bodies, mDNS or pprof. The one environment read is `PATH`, to find `cli-proxy-api`
   when `binaryPath` is absent.
 - **Refusals.** `EndpointError` codes: `bad-state-dir` (not absolute), `state-dir-in-git`, `state-dir-symlink` (a link could place the key in a repository), `state-dir-open` (group or world access),
-  `more-than-one-credential`, `bad-credential`, `unknown-provider`, `no-models`, `host-not-loopback`, `base-url-not-provider-host`, `env-proxy` (proxy or certificate-interception variables), `store-variable` (`PGSTORE_*`, `GITSTORE_*`, `OBJECTSTORE_*`, `HOME_JWT` in `env`),
+  `more-than-one-credential`, `bad-credential`, `unknown-provider`, `no-models`, `host-not-loopback`, `base-url-not-provider-host`, `state-file-symlink`, `env-proxy` (proxy or certificate-interception variables), `store-variable` (`PGSTORE_*`, `GITSTORE_*`, `OBJECTSTORE_*`, `HOME_JWT` in `env`),
   `binary-missing`, `start-failed`. Each message names the concrete requirement and never holds the key.
 - **Room.** `readEndpointRoom` reads the plan windows of `opencode` and `zai` plan keys with [`@byokit/usage`](../usage) and returns its `Reading`.
   A provider without a usage API (`openai`, `openrouter`) gives `{ ok: false, code: 'no-usage-api', provider }`. It calls the provider directly with

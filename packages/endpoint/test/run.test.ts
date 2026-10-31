@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scratchDir } from '../../test-support.ts';
-import { readEndpointRoom, startEndpoint } from '../src/index.ts';
+import { EndpointError, readEndpointRoom, startEndpoint } from '../src/index.ts';
 
 const fake = join(dirname(fileURLToPath(import.meta.url)), 'fake-cli-proxy-api.mjs');
 
@@ -54,6 +54,21 @@ test('existing endpoint state directories are tightened before writing the provi
     for (const path of [state, endpointDir, authsDir, homeDir]) assert.equal(statSync(path).mode & 0o777, 0o700);
     assert.equal(statSync(join(endpointDir, 'config.yaml')).mode & 0o777, 0o600);
   } finally { await ep.stop(); }
+});
+
+test('config and log symlinks are refused without writing to their targets', async () => {
+  for (const name of ['config.yaml', 'server.log']) {
+    const dir = scratchDir(`endpoint-${name}-symlink`);
+    const state = join(dir, 'state');
+    const endpointDir = join(state, 'endpoint');
+    const target = join(dir, 'outside-target');
+    mkdirSync(state, { mode: 0o700 });
+    mkdirSync(endpointDir, { mode: 0o700 });
+    writeFileSync(target, '');
+    symlinkSync(target, join(endpointDir, name));
+    await assert.rejects(startEndpoint({ stateDir: state, credential: { provider: 'openai', key: 'sk-fixture' }, models: ['m'], binaryPath: '/bin/true' }), (error: unknown) => error instanceof EndpointError && error.code === 'state-file-symlink' && error.message.includes(name));
+    assert.equal(readFileSync(target, 'utf8'), '');
+  }
 });
 
 test('room: a plan-key provider reads through @byokit/usage, the rest say there is no usage API', async () => {

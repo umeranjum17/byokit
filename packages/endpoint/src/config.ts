@@ -4,7 +4,7 @@ import { join } from 'node:path';
 export type EndpointErrorCode =
   | 'bad-state-dir' | 'state-dir-in-git' | 'state-dir-open' | 'bad-credential' | 'more-than-one-credential'
   | 'unknown-provider' | 'no-models' | 'host-not-loopback' | 'base-url-not-provider-host'
-  | 'bad-port' | 'state-dir-symlink' | 'env-proxy' | 'store-variable' | 'binary-missing' | 'start-failed';
+  | 'bad-port' | 'state-dir-symlink' | 'state-file-symlink' | 'env-proxy' | 'store-variable' | 'binary-missing' | 'start-failed';
 export class EndpointError extends Error {
   readonly code: EndpointErrorCode;
   readonly detail?: Record<string, unknown>;

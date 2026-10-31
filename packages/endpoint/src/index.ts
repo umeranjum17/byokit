@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
-import { accessSync, chmodSync, closeSync, constants, existsSync, lstatSync, mkdirSync, openSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { delimiter, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { accessSync, chmodSync, closeSync, constants, existsSync, fchmodSync, lstatSync, mkdirSync, openSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { usage, type Reading } from '@byokit/usage';
 import { EndpointError, KEY_ROUTES, checkOptions, endpointConfig, newClientKey, type EndpointCredential, type EndpointOptions } from './config.ts';
 
@@ -44,6 +44,17 @@ function checkStateDir(stateDir: string): void {
   checkStatePath(stateDir);
   if (existsSync(stateDir) && (statSync(stateDir).mode & 0o077) !== 0) throw new EndpointError('state-dir-open', 'stateDir is accessible to its group or others; run chmod 700 on it.');
 }
+function checkStateFile(path: string): boolean {
+  try {
+    const file = lstatSync(path);
+    if (file.isSymbolicLink() || !file.isFile()) throw new EndpointError('state-file-symlink', `${basename(path)} must be a regular file, not a symbolic link or other file type.`);
+    return true;
+  } catch (error) {
+    if (error instanceof EndpointError) throw error;
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw error;
+  }
+}
 function binary(path: string | undefined): string {
   const candidates = path !== undefined ? [path] : (process.env.PATH ?? '').split(delimiter).filter(Boolean).map((d) => join(d, 'cli-proxy-api'));
   const found = candidates.find((p) => { try { accessSync(p, constants.X_OK); return isAbsolute(p) && statSync(p).isFile(); } catch { return false; } });
@@ -66,11 +77,20 @@ export async function startEndpoint(options: EndpointOptions): Promise<Endpoint>
   const clientKey = newClientKey();
   const config = join(dir, 'config.yaml');
   const logFile = join(dir, 'server.log');
+  const staleConfig = checkStateFile(config);
+  checkStateFile(logFile);
+  if (staleConfig) rmSync(config);
+  checkStateFile(logFile);
+  const out = openSync(logFile, constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
+  fchmodSync(out, 0o600);
   // JSON is YAML, so a key with any character is quoted exactly and cannot add a setting.
-  writeFileSync(config, JSON.stringify(endpointConfig(options, clientKey, dir), null, 2), { mode: 0o600 });
-  chmodSync(config, 0o600);
-  const out = openSync(logFile, 'a', 0o600);
-  chmodSync(logFile, 0o600);
+  try {
+    checkStateFile(config);
+    writeFileSync(config, JSON.stringify(endpointConfig(options, clientKey, dir), null, 2), { flag: 'wx', mode: 0o600 });
+  } catch (error) {
+    closeSync(out);
+    throw error;
+  }
   // The child's environment is built from nothing: no store or Home variable can reach it.
   const env = { ...options.env, HOME: join(dir, 'home'), GOTRACEBACK: 'none' };
   const child = spawn('/bin/sh', ['-c', 'umask 077; ulimit -c 0; exec "$0" "$@"', bin, '--config', config, '--local-model'], { cwd: dir, env, stdio: ['ignore', out, out] });
