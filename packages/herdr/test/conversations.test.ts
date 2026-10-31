@@ -35,6 +35,13 @@ test('carry Pi history between isolated accounts, refusing damaged, unsafe and u
     const bundle = join(root, 'bundle'), exported = await kit.exportConversation(ref, { to: bundle });
     assert.equal(exported.ok, true); if (!exported.ok) return;
     assert.equal(exported.conversation, id); assert.equal(exported.files, 1);
+    // A pane this kit never started exports by the folder it is given: the pane's own Herdr
+    // `agent_session` is the source, so an overlay launch or a host restart does not lose it.
+    const foreign = fake.world.agents.find(x => x.pane_id === 'w1:p2')!;
+    foreign.agent_session = { source: 'fixture', agent: 'pi', kind: 'path', value: join(a, path) };
+    assert.deepEqual(await kit.exportConversation({ paneId: 'w1:p2' }, { to: join(root, 'foreign'), accountFolder: a }), exported);
+    const empty = join(root, 'empty'); mkdirSync(empty);
+    code(await kit.exportConversation({ paneId: 'w1:p2' }, { to: join(root, 'wrong'), accountFolder: empty }), 'unsupported');
     const options = { bundle, accountFolder: b, kind: 'pi', conversation: id };
     assert.deepEqual(await importConversation(options), exported);
     assert.equal(readFileSync(join(b, path), 'utf8'), body);
@@ -62,6 +69,15 @@ test('carry Pi history between isolated accounts, refusing damaged, unsafe and u
     const c = join(root, 'c'); mkdirSync(c); symlinkSync(a, join(c, 'sessions'));
     code(await importConversation({ ...options, accountFolder: c }), 'unsafe-path');
     assert.equal(tree(b), restored); assert.equal(readdirSync(b).some(p => p.startsWith('.conversation-')), false);
+    // Pi's two start guards stay live without the host opt-in; a host that owns the launch
+    // contract starts Pi with neither a model nor an env.
+    const refused = (code: string) => (e: Error) => (e as { code?: string }).code === code;
+    await assert.rejects(kit.startAgent({ kind: 'pi', cwd: a, place: { workspace: 'new' }, installProbe: { path: [] },
+      env: { env: { HOME: a, PI_CODING_AGENT_DIR: a }, unset: [] } }), refused('model_required'));
+    await assert.rejects(kit.startAgent({ kind: 'pi', cwd: a, place: { workspace: 'new' }, installProbe: { path: [] },
+      args: ['--model', 'fixture/offline'] }), refused('account_required'));
+    assert.equal((await kit.startAgent({ kind: 'pi', cwd: a, place: { workspace: 'new' }, installProbe: { path: [] },
+      hostLaunch: true })).created, true);
   } finally { await kit.stop(); await fake.stop(); }
 });
 

@@ -3009,7 +3009,7 @@ no new link/device operation; apps forward the result through their authorized j
 
 ### 6.4 Helpers (`src/agents.ts`, `src/close.ts`, `src/approvals.ts`)
 
-- Pi admission: before probes or placement, `startAgent` requires exactly one nonempty `--model` argument (`model_required`) and a complete replacement `env` with absolute `HOME` and `PI_CODING_AGENT_DIR` (`account_required`). No pane/daemon environment inheritance or additive overlay is accepted for Pi. `openSignInTab`, moves and device starts route through this guard; raw `call`/`cli` pass-throughs are caller-owned and need separate qualification.
+- Pi admission: before probes or placement, `startAgent` requires exactly one nonempty `--model` argument (`model_required`) and a complete replacement `env` with absolute `HOME` and `PI_CODING_AGENT_DIR` (`account_required`). No pane/daemon environment inheritance or additive overlay is accepted for Pi. `openSignInTab`, moves and device starts route through this guard; raw `call`/`cli` pass-throughs are caller-owned and need separate qualification. A host that owns the Pi launch contract passes `hostLaunch: true` for Pi: both refusals are skipped, `args` pass through untouched and `env` may be absent, an overlay or a replacement. That host then owes what the guards owed — the model Pi may spend on, and a launch confined to the account it chose. No other kind's start rules change.
 - `startAgent`: `worktree` → `worktree.create { cwd, focus: false, env?, branch?, base? }` and use its
   checkout as `cwd` (`branch` optional; absent fields are omitted, never sent null). Placement:
   `workspace.create { cwd, label, focus: false }` → `result.root_pane.pane_id`, then `tab.rename` carries a
@@ -3242,7 +3242,7 @@ unknown.
 
 ### 6.6.1 Conversation bundles (host only)
 
-`HerdrKit.exportConversation(target: AgentRef, { to, maxBytes?, maxFiles? })` and
+`HerdrKit.exportConversation(target: AgentRef, { to, maxBytes?, maxFiles?, accountFolder? })` and
 `importConversation({ bundle, accountFolder, kind, conversation, overwrite? })` carry conversation data,
 not sign-ins. Import is exported from `.` and available on the host kit too. Both resolve typed
 `ConversationExport` / `ConversationImport` results: success contains only `ok`, `kind`, the conversation id,
@@ -3252,10 +3252,15 @@ Codes are `unsupported`, `too-large`, `invalid-bundle`, `digest-mismatch`, `unsa
 
 The first slice supports Pi's documented default JSONL store only: `sessions/<encoded cwd>/<timestamp>_<id>.jsonl`
 inside the explicit `PI_CODING_AGENT_DIR`. The adapter table in `src/conversations.ts` cites the tool source.
-The exporting kit must have started the pane with an explicit replacement account environment; adopted panes,
-custom session stores, unsupported kinds and non-idle conversations refuse with `unsupported`. Published Pi
-session ids and paths are resolved inside that recorded folder only; no default HOME is discovered. Claude
-and Codex adapters are a follow-up on the same engine and format, not consumer-owned storage handling.
+The exporting kit resolves the folder from the explicit `accountFolder` when it is given, else from the folder it
+recorded for a pane it started with an explicit replacement account environment. With `accountFolder` the pane's
+`agent_session` is read from Herdr, so an agent this kit instance never started (an overlay launch, or one
+running before a host restart) exports too. Either way the pane's agent kind must match its session's kind, the
+conversation must be idle, and the folder goes through the same validation `importConversation` applies (absolute,
+a real directory, no symlink escape); a folder that does not hold that conversation answers the store's own
+refusal code. Custom session stores, unsupported kinds and non-idle conversations refuse with `unsupported`.
+Published Pi session ids and paths are resolved inside that folder only; no default HOME is discovered. Claude
+and Codex adapters share the same engine and format, not consumer-owned storage handling.
 
 Format one is an opaque binary file: an eight-byte marker, four-byte manifest length, UTF-8 JSON manifest,
 then uncompressed file bytes in manifest order. The versioned manifest contains kind, conversation id,

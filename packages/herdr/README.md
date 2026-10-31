@@ -291,9 +291,12 @@ if (moved.ok) console.log(moved.session); // new pane to follow
 
 ### Carry a conversation to another computer
 
-Use `kit.exportConversation(target, { to, maxBytes?, maxFiles? })`, transfer the opaque file using your own
+Use `kit.exportConversation(target, { to, maxBytes?, maxFiles?, accountFolder? })`, transfer the opaque file using your own
 transport, then call `importConversation({ bundle, accountFolder, kind, conversation, overwrite? })` from
-`@byokit/herdr` on the other host. Import is also available as `kit.importConversation(...)` and needs no
+`@byokit/herdr` on the other host. `accountFolder` is the account folder that holds the conversation: pass it and
+any pane Herdr reports a session for exports, including an agent this kit instance did not start (an overlay
+launch, or one running before a host restart); omit it and the kit uses the folder it recorded when it started
+the pane itself. Import is also available as `kit.importConversation(...)` and needs no
 running Herdr. Pass the successful export's `kind` and `conversation` unchanged. Both return a typed success
 with file/byte counts and the bundle SHA-256, or `{ ok: false, code, message }`; no transcript text or source
 account paths are returned. Bundle contents are private conversation data: protect the file during transfer
@@ -586,6 +589,11 @@ off();
 ```
 
 Pi starts refuse before any probe/placement unless `args` carries exactly one nonempty `--model` (`model_required`) and `env` is the complete replacement form with absolute `HOME` and `PI_CODING_AGENT_DIR` (`account_required`). Plain inheritance/overlays are refused for Pi; only the app-selected environment reaches it, and keys inherited by the daemon or pane are removed. This also applies through `openSignInTab` and device starts. Raw `call`/`cli` pass-throughs remain caller-owned and are not qualified by this guard.
+
+A host that owns its own Pi launch contract opts out of both refusals with `hostLaunch: true` on a Pi start: `args`
+pass through untouched, and `env` may be absent, an overlay or a replacement. That host then owes what the two
+guards owed — the model Pi may spend on, and a launch confined to the account it chose. Nothing changes for a Pi
+start without the opt-in, or for any other agent kind.
 
 ## Placement without an agent
 

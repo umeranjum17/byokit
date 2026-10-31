@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "ac45c995215cf8d85cc3df95bcfd774c1762fb5a",
+  "tree": "eb843cf4889a44b0571d3dff736211fe5ebc4d2a",
+  "claim": "A host exports an agent it never started by naming the account folder, and starts Pi with neither a model nor a replacement env when it passes hostLaunch: true; without the opt-in both Pi refusals still fire.",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-10-31T08:53:05.308Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261031T085257Z-ac45c995-f67314/hostpi-drive.log",
+      "sha256": "21b03be033e625622444fe119b665c832ac6fbb8601c130b70750244282277c0"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261031T085257Z-ac45c995-f67314",
+      "commit": "ac45c995215cf8d85cc3df95bcfd774c1762fb5a",
+      "journey": null,
+      "command": "node .agents/skills/done-done-verify-byokit/capture/hostpi-drive.mjs /tmp/byk-hostpi.uVs3iH",
+      "tool": "0.6.24",
+      "steps": {
+        "target": {
+          "version": "@byokit/herdr 0.17.2 (built packages/herdr/dist)"
+        },
+        "start": "A fake Herdr transport with one agent pane written outside this kit instance, an isolated Pi session store and no agent CLI or model session",
+        "steps": [
+          "Export a conversation from a pane this kit instance never started, naming its account folder",
+          "Ask the same export for a folder that holds no such conversation",
+          "Start Pi without the host opt-in, first with no --model and then with no replacement env",
+          "Start Pi with hostLaunch: true and neither a model nor an env"
+        ],
+        "result": "The unstarted pane exports its conversation by the given folder, the wrong folder answers unsupported, Pi refuses model_required and account_required without the opt-in, and starts with it"
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261031T085257Z-ac45c995-f67314/hostpi-drive.log",
+        "sha256": "21b03be033e625622444fe119b665c832ac6fbb8601c130b70750244282277c0",
+        "verdict": "pass",
+        "seen": "I read all 5 entries in the capture. Entry 1 shows the export of a pane the kit never started by explicit folder: ok true, kind pi, files 1, bytes 131. Entries 3 and 4 show the two Pi refusals without the opt-in: model_required and account_required. Entry 5 shows a hostLaunch: true start with no model and no env succeeding: ref paneId w2:p1, name pi, created true. Entry 2, an explicit folder with no such conversation, returns unsupported, which is an expected negative case and does not contradict the outcome. The outcome names one part, so parts is empty and covers is empty."
+      }
+    ]
+  }
+}

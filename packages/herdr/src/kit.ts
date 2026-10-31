@@ -701,12 +701,22 @@ export class HerdrKit {
     if (folder) this.conversationAccounts.set(ref.paneId, { kind: o.kind, folder });
     return ref;
   }
-  async exportConversation(target: AgentRef, o: { to: string; maxBytes?: number; maxFiles?: number }): Promise<ConversationExport> {
+  /**
+   * Export the conversation Herdr reports for a pane as one opaque bundle. Without
+   * `accountFolder` the folder is the one this kit recorded when it started the pane with a
+   * complete replacement env; with it, the pane's own `agent_session` is read from Herdr and the
+   * folder is given explicitly, so a pane this kit never started (or one started before a host
+   * restart) exports too. The folder is checked exactly as `importConversation` checks its own:
+   * absolute, a real directory, no symlink escape. A folder that does not hold that conversation
+   * answers the store's own refusal code, never a different export.
+   */
+  async exportConversation(target: AgentRef, o: { to: string; maxBytes?: number; maxFiles?: number; accountFolder?: string }): Promise<ConversationExport> {
     try {
-      const account = this.conversationAccounts.get(target.paneId), { agent } = await this.call('agent.get', { target: target.paneId });
-      return account && agent.agent === account.kind && ['idle', 'done'].includes(agent.agent_status)
-        && agent.agent_session?.agent === account.kind && ['id', 'path'].includes(agent.agent_session.kind) && typeof agent.agent_session.value === 'string'
-        ? exportStore(account.kind, account.folder, agent.agent_session.value, o) : conversationFailure('unsupported');
+      const known = this.conversationAccounts.get(target.paneId), { agent } = await this.call('agent.get', { target: target.paneId });
+      const kind = known?.kind ?? agent.agent, folder = o.accountFolder ?? known?.folder;
+      return kind !== undefined && folder !== undefined && agent.agent === kind && ['idle', 'done'].includes(agent.agent_status)
+        && agent.agent_session?.agent === kind && ['id', 'path'].includes(agent.agent_session.kind) && typeof agent.agent_session.value === 'string'
+        ? exportStore(kind, folder, agent.agent_session.value, o) : conversationFailure('unsupported');
     } catch { return conversationFailure('unsupported'); }
   }
   importConversation = importConversation;
