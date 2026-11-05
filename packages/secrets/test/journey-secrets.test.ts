@@ -1009,3 +1009,38 @@ async function idbRead(idb: IDBFactory, key: string, change?: (value: any) => an
     });
   } finally { db.close(); }
 }
+
+test('the automatic host key starts at umask 0002: an empty group-writable state root is tightened, a populated or 0770 one stays refused', { skip: process.platform === 'win32' }, () => {
+  const before = process.umask(0o002);
+  try {
+    // Fresh state root made the way `mkdir -p` makes it under Ubuntu's default login umask.
+    const stateDir = scratchDir('secrets-umask-fresh');
+    chmodSync(stateDir, 0o775);
+    const o = { service: 'byokit-umask', stateDir };
+    const seal = hostKeyFileSeal(o);
+    const sealed = Buffer.from(seal.encryptString(CANARY));
+    assert.equal(hostKeyFileSeal(o).decryptString(sealed), CANARY);
+    const keyPath = onlyKey(stateDir);
+    assert.equal(statSync(keyPath).mode & 0o777, 0o600);
+    assert.equal(statSync(stateDir).mode & 0o777, 0o700, 'the empty state root was tightened');
+
+    // Missing parents the kit creates itself are owner-only whatever the umask.
+    const nested = join(scratchDir('secrets-umask-nested'), 'a', 'b');
+    hostKeyFileSeal({ service: 'byokit-umask', stateDir: nested });
+    assert.equal(statSync(join(nested, '..')).mode & 0o777, 0o700);
+    assert.equal(statSync(nested).mode & 0o777, 0o700);
+
+    // A group-writable root that holds anything else is never accepted or changed.
+    const shared = scratchDir('secrets-umask-shared');
+    writeFileSync(join(shared, 'other-app.log'), 'x');
+    for (const mode of [0o770, 0o775]) {
+      chmodSync(shared, mode);
+      assert.throws(() => hostKeyFileSeal({ service: 'byokit-umask', stateDir: shared }), code('invalid'));
+      assert.equal(statSync(shared).mode & 0o777, mode);
+    }
+    // And an empty one that is world-writable is refused too.
+    const open = scratchDir('secrets-umask-open');
+    chmodSync(open, 0o777);
+    assert.throws(() => hostKeyFileSeal({ service: 'byokit-umask', stateDir: open }), code('invalid'));
+  } finally { process.umask(before); }
+});

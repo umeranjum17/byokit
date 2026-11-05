@@ -1,0 +1,1 @@
+- Fix: the automatic host key now starts under a login umask of 0002 (Ubuntu's default). An empty, group-writable state root that the person owns is tightened to owner-only, with a one-line notice on stderr; a group-writable folder that holds anything else is still refused.
