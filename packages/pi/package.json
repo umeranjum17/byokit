@@ -1,0 +1,39 @@
+{
+  "name": "@byokit/pi",
+  "version": "0.1.0",
+  "private": true,
+  "description": "One Pi process per bot: start, prompt, steer, follow up, abort and stop when idle, with Pi's own shapes kept behind one module.",
+  "keywords": ["pi-package"],
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/umeranjum17/byokit.git",
+    "directory": "packages/pi"
+  },
+  "engines": {
+    "node": ">=22.19"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "prepack": "tsc -b",
+    "test": "sh ../../scripts/test.sh 'test/*.test.ts'"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "1.5.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
