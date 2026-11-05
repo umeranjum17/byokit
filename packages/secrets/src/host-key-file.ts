@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { closeSync, constants, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync, type Stats } from 'node:fs';
+import { chmodSync, closeSync, constants, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, readdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync, type Stats } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -65,7 +65,14 @@ function ensureDirectory(path: string): void {
   const parent = dirname(path);
   if (!existsSync(parent)) ensureDirectory(parent);
   // Platform state roots may be shared/readable, but must not be writable by other users.
-  const stat = lstatSync(parent);
+  let stat = lstatSync(parent);
+  // A login umask of 0002 makes `mkdir -p` leave an EMPTY state root group-writable. Tighten only that:
+  // our own, empty, group-writable directory (never world-writable, never one holding anything else).
+  if (process.platform !== 'win32' && stat.isDirectory() && (stat.mode & 0o022) === 0o020 && process.getuid && stat.uid === process.getuid() && readdirSync(parent).length === 0) {
+    chmodSync(parent, 0o700);
+    process.stderr.write(`Tightened the empty folder ${parent} to owner-only (it was group-writable) so the automatic host key can be stored.\n`);
+    stat = lstatSync(parent);
+  }
   if (!stat.isDirectory() || (process.platform !== 'win32' && ((stat.mode & 0o022) !== 0 || (process.getuid && stat.uid !== process.getuid())))) throw insecure();
   try { mkdirSync(path, { mode: 0o700 }); windowsACL(path, true); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
