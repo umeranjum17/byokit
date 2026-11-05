@@ -1,0 +1,61 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "d7505672f3bd902490d6625712e1eb0f9b863bc2",
+  "tree": "2af691ed0347a930fd0bf98f538b96c4c5b36cd8",
+  "claim": "an app can run two bots as two Pi processes on two sessions, each answering from its own AGENTS.md, with the person's Pi folder unchanged",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-11-05T09:46:44.699Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261105T094600Z-d7505672-fb03a9/two-bots-output.txt",
+      "sha256": "9c4e7f18357c7469cd94310edc5d2dc977276b3738e85df0a1412a7e611d9357"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261105T094600Z-d7505672-fb03a9",
+      "commit": "d7505672f3bd902490d6625712e1eb0f9b863bc2",
+      "journey": null,
+      "command": null,
+      "feature": "pi-bots",
+      "tool": "0.6.24",
+      "steps": {
+        "target": {
+          "version": "@byokit/pi 0.1.0 (commit d7505672)"
+        },
+        "start": "Worktree at commit d7505672 with npm dependencies installed and the workspace built (npm run build exited 0). Scratch HOME was an empty folder, so ~/.pi was a stand-in folder holding one canary AGENTS.md and an auth.json.",
+        "steps": [
+          "Read the done-done verify skill and the pi-bots feature recipe.",
+          "Ran npm run build in the worktree; it exited 0.",
+          "Wrote a node consumer that imports the built @byokit/pi entry, starts a loopback stand-in model server, and creates two bot folders (chief and scout), each with its own AGENTS.md.",
+          "Ran the consumer with HOME set to an empty folder; it created two bots from one kit, sent 'hello chief' and 'hello scout' at the same time, and waited for both replies.",
+          "Checked each bot's model call: each carried its own AGENTS.md text and not the parent canary; each bot had one session file.",
+          "Sent 'hold' to chief, then steered it with 'turn left' while the answer was in progress; read the steered reply.",
+          "Sent 'hold' to chief again and aborted it; read the abort result.",
+          "Waited for scout to go idle, checked that its process was gone, sent 'still there', and read which messages the model saw.",
+          "Closed the kit and the stand-in server, tried to create a kit on the person's Pi folder, and compared the folder's hash before and after the run."
+        ],
+        "result": "The console shows two bots with different process ids answering 'heard: hello chief' and 'heard: hello scout'; each bot's own AGENTS.md is in its context and the parent canary is not. The steer reply is 'heard: turn left', the abort result is { ok: false, aborted: true }, scout stopped idle with its process gone, and its next model call saw 'hello scout' and 'still there'. The person's Pi folder was refused with code person-pi and its hash was the same after the run."
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "ollama-cloud/deepseek-v4.1-flash",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261105T094600Z-d7505672-fb03a9/two-bots-output.txt",
+        "sha256": "9c4e7f18357c7469cd94310edc5d2dc977276b3738e85df0a1412a7e611d9357",
+        "verdict": "pass",
+        "seen": "I read all 9 entries. The capture states \"two-bots pids differ: true\", shows both \"heard: hello chief\" and \"heard: hello scout\", and reports for chief and scout \"own context true\", \"any canary false\", and \"session files 1\". It also reports \"person-pi same hash: true\", supporting that the person's Pi folder was unchanged. The steer-abort and idle-resume lines do not contradict the outcome."
+      }
+    ]
+  }
+}
