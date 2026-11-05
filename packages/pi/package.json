@@ -1,7 +1,6 @@
 {
   "name": "@byokit/pi",
   "version": "0.1.0",
-  "private": true,
   "description": "One Pi process per bot: start, prompt, steer, follow up, abort and stop when idle, with Pi's own shapes kept behind one module.",
   "keywords": ["pi-package"],
   "license": "Apache-2.0",
