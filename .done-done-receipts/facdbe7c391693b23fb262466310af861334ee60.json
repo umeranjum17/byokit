@@ -1,0 +1,64 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "facdbe7c391693b23fb262466310af861334ee60",
+  "tree": "533a2f4af2f837d2c908902b9a91116b22482f3a",
+  "claim": "An app can run two bots as two real Pi processes on two sessions, each answering from its own AGENTS.md, steer and abort them, have an idle bot stop and resume its session, and the person's Pi folder stays unchanged byte for byte.",
+  "result": "pass",
+  "at": "2026-11-05T02:26:20.168Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261105T022608Z-facdbe7c-b0259d/npm-test-pi.log",
+      "sha256": "d1104a2f4aa723124b08c78741fec6859ec572e6162b3365a706e0f29c56803b"
+    },
+    {
+      "path": "<evidence root>/20261105T022608Z-facdbe7c-b0259d/verify-pi.log",
+      "sha256": "992b9f025ded9ceb351649cab75fed110649e8be863c318edeabd5d4cb9a2106"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261105T022608Z-facdbe7c-b0259d",
+      "commit": "facdbe7c391693b23fb262466310af861334ee60",
+      "journey": null,
+      "command": "sh -c 'sh \"$PROVE\"'",
+      "tool": "0.6.24",
+      "steps": {
+        "target": {
+          "version": "@byokit/pi 0.1.0 at facdbe7c, Pi 1.5.0"
+        },
+        "start": "a built checkout, a stand-in person's Pi folder with a canary, and a loopback stand-in model",
+        "steps": [
+          "run npm test -w packages/pi against the real pinned Pi",
+          "from a plain Node consumer of the built package, start two bots on two sessions, each with its own AGENTS.md",
+          "steer one bot, abort it, leave the other idle, then message it again",
+          "hash the person's Pi folder before and after"
+        ],
+        "result": "two bots ran as two processes on two sessions, each answering from its own AGENTS.md, steer, abort and idle resume worked, and the person's Pi folder hashed the same"
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "ollama-cloud/deepseek-v4.1-flash",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261105T022608Z-facdbe7c-b0259d/npm-test-pi.log",
+        "sha256": "d1104a2f4aa723124b08c78741fec6859ec572e6162b3365a706e0f29c56803b",
+        "verdict": "pass",
+        "seen": "Read all 10 test entries. They show the outcome directly: the person's Pi folder is never used with the same hash after; two bots run as two processes on two sessions with their own AGENTS.md; a bot can be steered and aborted; an idle bot stops and resumes the same session; and the summary is pass 10, fail 0, with the Pi folder unchanged byte for byte."
+      },
+      {
+        "path": "<evidence root>/20261105T022608Z-facdbe7c-b0259d/verify-pi.log",
+        "sha256": "992b9f025ded9ceb351649cab75fed110649e8be863c318edeabd5d4cb9a2106",
+        "verdict": "pass",
+        "seen": "Read the whole verify log. It shows two bots with different PIDs, each with its own context and one session file; steering and abort responses; idle process gone with the same session resumed; the person's Pi folder refused; and the same hash plus exit 0. These match the outcome's parts."
+      }
+    ]
+  }
+}
