@@ -2,7 +2,7 @@
 
 One [Pi](https://github.com/earendil-works/pi) process per bot, on macOS and Linux with Node 22.19 or later. A bot's Pi starts when it has work and stops after it has been idle; the app sees bots and events, never Pi.
 
-`private` until its first public release, so it runs from this repository for now. Once published, install it with the one Pi version it is pinned to: `npm i @byokit/pi @earendil-works/pi-coding-agent@1.5.0`.
+Install it with the one Pi version it is pinned to: `npm i @byokit/pi @earendil-works/pi-coding-agent@1.5.0`.
 
 ```ts
 import { createPiKit, PiError } from '@byokit/pi';
