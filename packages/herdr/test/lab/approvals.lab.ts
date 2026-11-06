@@ -47,14 +47,12 @@ test('real Cursor: a blocked question is answered through the kit, and a stale a
     }
     return undefined;
   };
-  const untilBlocked = async (paneId: string): Promise<{ revision: number; prompt: string }> => {
-    const deadline = Date.now() + 120_000;
+  const blockedWithin = async (paneId: string, ms: number): Promise<{ revision: number; prompt: string } | undefined> => {
+    const deadline = Date.now() + ms;
     for (;;) {
       const hit = kit.blocked().find((b) => b.paneId === paneId);
       if (hit) return hit;
-      if (Date.now() >= deadline) {
-        assert.fail(`Herdr never reported ${paneId} blocked; pane says:\n${(await kit.read(paneId, { source: 'visible' })).text}`);
-      }
+      if (Date.now() >= deadline) return undefined;
       await sleep(500);
     }
   };
@@ -93,11 +91,21 @@ test('real Cursor: a blocked question is answered through the kit, and a stale a
     place: { workspace: 'new', label: 'approvals' },
     env: { HOME: agentHome }, args: ['--model', 'auto', '--trust'] });
   await kit.waitPromptable(ref, { timeoutMs: 180_000 });
+  await sleep(2000);   // let the agent's own first render finish before the first prompt
 
   // One prompt, one question: the command's own side effect says whether it ran.
   const ask = async (leg: string, name: string): Promise<Leg> => {
     await kit.prompt(ref, `Run exactly this shell command and report its output: echo ${name} > ${name}.txt`);
-    const b = await untilBlocked(ref.paneId);
+    // Cursor's first render can swallow the submit and leave the prompt sitting in its input box; Enter
+    // sends what is already there, so a quiet pane gets three chances before the leg is called lost.
+    let b = await blockedWithin(ref.paneId, 45_000);
+    for (let attempt = 0; b === undefined && attempt < 3; attempt += 1) {
+      await kit.sendKeys({ paneId: ref.paneId }, ['enter']);
+      b = await blockedWithin(ref.paneId, 30_000);
+    }
+    if (b === undefined) {
+      assert.fail(`Herdr never reported ${ref.paneId} blocked; pane says:\n${(await kit.read(ref.paneId, { source: 'visible' })).text}`);
+    }
     const pane = (await kit.call('pane.get', { pane_id: ref.paneId })) as { pane?: { revision?: number } };
     const entry: Leg = { leg, prompt: b.prompt, keys: [], revision: b.revision,
       paneRevision: pane.pane?.revision, statusWhileBlocked: status(ref.paneId) };
