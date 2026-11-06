@@ -396,6 +396,35 @@ test('a shipped speech detector decides live turns and offline ranges, and is di
   await expected.release();
   assert.equal(offline.leaked(), 0, 'offline segmentation disposes every session it consumed');
 
+  // Every decode pays a full Whisper encode, so gating a long take must not read it in more pieces than leaving it ungated:
+  // 83 short ranges took 2.1x the 24 ungated windows on the real decoder. A gated take reads the ungated windows, byte for
+  // byte, and only skips the ones with no speech; each burst below carries its own level, which the decoder reads back as a word.
+  const take = new Int16Array(180 * 16000);
+  for (const [from, to] of [[0, 70], [145, 175]]) for (let second = from; second < to; second += 3) take.fill(1000 + second * 10, second * 16000, (second + 1) * 16000);
+  const readTake = async (pcm: Int16Array, o: { vad?: boolean; neural?: boolean }) => {
+    const windows: Int16Array[] = [];
+    const engine = whisperRnEngine({ model: 'base.en-q5_1', settings: { vad: { enabled: !!o.vad } },
+      vad: o.neural ? async () => ({ async run(window: Float32Array) { return { probability: window.subarray(64).some(Boolean) ? 0.95 : 0.05, state: new Float32Array(VAD_STATE) }; } }) : undefined,
+      initWhisper: async () => ({ release: async () => {}, transcribeData(bytes) {
+        const samples = new Int16Array(bytes); windows.push(samples);
+        const words = [...new Set(samples)].filter(Boolean).map(level => `w${level}`).join(' ');
+        return { stop: async () => {}, promise: Promise.resolve({ result: words, segments: words ? [{ text: words, t0: 0, t1: samples.length / 160 }] : [] }) };
+      } }) });
+    return { text: (await new Dictation({ engine }).transcribe(wav([pcm]))).text, windows };
+  };
+  const ungated = await readTake(take, {});
+  assert.ok(ungated.text.includes('w1000') && ungated.text.includes('w2720'), 'the first and last bursts are read');
+  for (const gate of [{ vad: true }, { vad: true, neural: true }]) {
+    const gated = await readTake(take, gate);
+    assert.equal(gated.text, ungated.text, 'the gate changes no word of the take');
+    assert.ok(gated.windows.length < ungated.windows.length, 'the gate reads fewer windows than leaving it off, never more');
+    assert.ok(gated.windows.every(read => read.some(Boolean)), 'no window of pure silence reaches the decoder');
+    assert.ok(gated.windows.every(read => ungated.windows.some(other => other.length === read.length && other.every((sample, i) => sample === read[i]))), 'every read is an ungated window');
+  }
+  // A take within one window stays one read, from first speech to last, however many pauses it holds.
+  const short = await readTake(take.slice(16000, 21 * 16000), { vad: true });
+  assert.equal(short.windows.length, 1); assert.ok(short.windows[0].length < 20 * 16000, 'the lead and tail silence are dropped');
+
   // A supplied detector decides live turns: a loud frame it rejects opens nothing; the next opens the turn.
   const live = detector(1), liveEngine = engineOf({ handOut: live.handOut });
   assert.ok(liveEngine.capture?.detect, 'the factory is exposed to the live gate');
