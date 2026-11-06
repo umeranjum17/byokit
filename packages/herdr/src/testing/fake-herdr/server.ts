@@ -86,6 +86,9 @@ export type FakeHerdr = {
   sentTexts: string[];                 // every `pane.send_text` text, in order (launch env, agent hint)
   emit(event: { type: string } & Record<string, unknown>): void;
   setStatus(paneId: string, status: string): void;
+  // The next question on a pane that stays blocked: new detection text at the same revision, as the
+  // pinned Herdr reported four consecutive Cursor dialogs.
+  setQuestion(paneId: string, text: string): void;
   // Panes with a held filtered subscription (`pane.agent_status_changed`, `pane.output_matched`
   // or `pane.scroll_changed`): the full watched set, or whether one pane is watched.
   watching(): string[];
@@ -1083,6 +1086,14 @@ export async function startFakeHerdr(options: FakeHerdrOptions): Promise<FakeHer
     setStatus(paneId, status) {
       const pane = live.panes.find((row) => row.pane_id === paneId);
       if (pane !== undefined) transition(pane, status);
+    },
+    setQuestion(paneId, text) {
+      const pane = live.panes.find((row) => row.pane_id === paneId);
+      if (pane === undefined) return;
+      const agent = agentOf(pane);
+      if (agent === undefined) return;
+      agent.detection = text;
+      emitStatus(pane.pane_id, agent.agent_status, agent.revision);
     },
     watching: ((paneId?: string): string[] | boolean => {
       const watched = [...new Set([...filteredSubs].map((sub) => sub.paneId))].sort();
