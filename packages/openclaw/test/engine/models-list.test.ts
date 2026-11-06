@@ -46,6 +46,20 @@ const a = process.argv.slice(2).join(' ');
 if (a === '--version') console.log('2.1.0 (Claude Code)');
 else if (a === 'auth status --text') console.log('Login method: Claude Max Account');
 else if (a === 'auth status --json') console.log(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'max' }));
+else if (process.argv.includes('--input-format')) {
+  // 11.1 reads the model menu from the native initialize reply; it never submits a turn here.
+  let rest = '';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (chunk) => {
+    rest += chunk;
+    for (let at = rest.indexOf('\\n'); at >= 0; at = rest.indexOf('\\n')) {
+      const message = JSON.parse(rest.slice(0, at)); rest = rest.slice(at + 1);
+      if (message.type === 'control_request') console.log(JSON.stringify({ type: 'control_response', response: { subtype: 'success',
+        request_id: message.request_id, response: { models: [{ value: 'default', resolvedModel: 'claude-sonnet-5', displayName: 'Sonnet 5', supportedEffortLevels: ['low', 'high'] }] } } }));
+    }
+  });
+  process.stdin.on('end', () => process.exit(0));
+}
 else process.exit(2);
 `, { mode: 0o700 });
   const kit = new OpenClawKit({ stateDir: join(dir, 'state'), engineDir: sharedEngineDir(), enginePath: [bin], callbackPort: 0 });

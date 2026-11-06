@@ -59,6 +59,9 @@ const reply = () => {
       result: "You've hit your usage limit. Try again in 3h." }));
     process.exit(0);
   }
+  // A file-writing tool call streams its input first: the engine turns these into tool-input progress events.
+  console.log(JSON.stringify({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'toolu_1', name: 'Write', input: {} } } }));
+  console.log(JSON.stringify({ type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify({ file_path: 'notes.md', content: 'Hello\\nUmer\\n' }) } } }));
   console.log(JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Hello Umer' }] } }));
   console.log(JSON.stringify({ type: 'result', subtype: 'success', is_error: false, result: 'Hello Umer' }));
   process.exit(0);
@@ -77,7 +80,7 @@ process.stdin.on('data', (chunk) => {
     // The stream-json session is initialized by a control request: answer it, then answer the user turn.
     if (message.type === 'control_request') {
       console.log(JSON.stringify({ type: 'control_response', response: { subtype: 'success',
-        request_id: message.request_id, response: {} } }));
+        request_id: message.request_id, response: { models: [{ value: 'default', resolvedModel: 'claude-sonnet-5', displayName: 'Sonnet 5', supportedEffortLevels: ['low', 'high'] }] } } }));
       continue;
     }
     if (message.type === 'user') answer();
@@ -148,9 +151,18 @@ process.stdin.on('end', answer);
     assert.equal(published[b.agent]!.dir, b.folder, 'each row names that account\'s own folder');
 
     // 3. Execution: each run launches in its own account's folder with no conflicting billing key.
+    assert.ok((await kit.models('m1', a.id)).some((m) => m.id === 'claude-cli/claude-sonnet-5' && m.available),
+      'the bound account lists its Claude Code models');
+    const toolInput: unknown[] = [];
+    const stopWatching = kit.onEvent('agent', (payload) => {
+      const event = payload as { stream?: string; data?: { phase?: string } };
+      if (event.stream === 'tool' && event.data?.phase === 'input_delta') toolInput.push(event.data);
+    });
     const endA = await kit.run({ member: 'm1', sessionKey: 'agent:m1:native:k2-a', account: a.id, message: 'Say hello' });
     assert.ok(endA.ok, JSON.stringify(endA));
     assert.equal(endA.text, 'Hello Umer');
+    stopWatching();
+    assert.ok(toolInput.length > 0, 'a file-writing tool call reports its input as it streams');
     const endB = await kit.run({ member: 'm1', sessionKey: 'agent:m1:native:k2-b', account: b.id, message: 'Say hello' });
     assert.ok(endB.ok, JSON.stringify(endB));
     const runs = () => log().filter((call) => call.argv[0] !== 'auth' && call.argv[0] !== '--version');

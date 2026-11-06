@@ -20,6 +20,9 @@ journeys:
   accounts-cli-installed-opencode:
     command: node .agents/skills/done-done-verify-byokit/capture/accounts-cli-installed-opencode.mjs
     timeout: 2m
+  openclaw-engine-pin:
+    command: node .agents/skills/done-done-verify-byokit/capture/openclaw-engine-pin.mjs --gates
+    timeout: 20m
   openclaw-native-binding:
     command: node .agents/skills/done-done-verify-byokit/capture/openclaw-native-binding.mjs
     timeout: 2m

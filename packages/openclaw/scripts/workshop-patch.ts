@@ -28,16 +28,11 @@ function byokitUsageFact(fact) {
 }
 `;
 export const workshopEdits: PatchFile['edits'] = [
-  { find: 'import { r as getRuntimeConfig } from "./io.runtime-FunTy0y1.mjs";\n',
-    replace: 'import { r as getRuntimeConfig } from "./io.runtime-FunTy0y1.mjs";\nimport { openSync as byokitOpen, writeSync as byokitWrite, fsyncSync as byokitFsync, closeSync as byokitClose } from "node:fs";\nimport { join as byokitJoin } from "node:path";\n' },
+  { find: 'import { randomUUID } from "node:crypto";\n',
+    replace: 'import { randomUUID } from "node:crypto";\nimport { openSync as byokitOpen, writeSync as byokitWrite, fsyncSync as byokitFsync, closeSync as byokitClose } from "node:fs";\nimport { join as byokitJoin } from "node:path";\n' },
   { find: 'async function runSkillExperienceReviewInner(candidate) {\n', replace: helper + 'async function runSkillExperienceReviewInner(candidate) {\n' },
-  { find: '\tlet outcome;\n\tlet proposalId;\n\tlet usage;\n', replace: '\tlet outcome;\n\tlet proposalId;\n\tlet usage;\n\tlet byokitRunUsage;\n\tconst byokitFact = { chargeId: runId, agentId: foregroundPromptContext.agentId, kind: "workshop-review", provider: candidate.ctx.modelProviderId, model: candidate.ctx.modelId, ...candidate.ctx.authProfileId ? { authProfileId: candidate.ctx.authProfileId } : {}, startedAt: attemptedAtMs, origin: { sessionKey, ...candidate.ctx.runId ? { runId: candidate.ctx.runId } : {} } };\n' },
-  { find: '\t\tconst embeddedResult = capability ? await runWithCronCreatorAuthorityCapability(capability, run) : await run();\n',
-    replace: '\t\tbyokitUsageFact({ ...byokitFact, phase: "started", at: attemptedAtMs });\n\t\tconst embeddedResult = capability ? await runWithCronCreatorAuthorityCapability(capability, run) : await run();\n\t\tbyokitRunUsage = embeddedResult?.meta?.agentMeta?.usage;\n' },
-  { find: '\t} catch (error) {\n\t\tawait recordSkillExperienceReviewOutcome(foregroundPromptContext.agentId, workspaceDir, {\n',
-    replace: '\t} catch (error) {\n\t\tbyokitUsageFact({ ...byokitFact, phase: "ended", at: Date.now(), outcome: "failed", ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\t\tawait recordSkillExperienceReviewOutcome(foregroundPromptContext.agentId, workspaceDir, {\n' },
-  { find: '\t\tclearAgentRunContext(runId);\n\t}\n\tawait recordSkillExperienceReviewOutcome(foregroundPromptContext.agentId, workspaceDir, {\n',
-    replace: '\t\tclearAgentRunContext(runId);\n\t}\n\tbyokitUsageFact({ ...byokitFact, phase: "ended", at: Date.now(), outcome, ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\tawait recordSkillExperienceReviewOutcome(foregroundPromptContext.agentId, workspaceDir, {\n' },
+  { find: '\t\ttry {\n\t\t\tassertSkillReviewRunSucceeded(capability ? await runWithCronCreatorAuthorityCapability(capability, run) : await run());\n\t\t} finally {\n',
+    replace: '\t\tconst byokitStartedAt = Date.now();\n\t\tconst byokitFact = { chargeId: runId, agentId, kind: "workshop-review", provider: candidate.ctx.modelProviderId, model: candidate.ctx.modelId, ...candidate.ctx.authProfileId ? { authProfileId: candidate.ctx.authProfileId } : {}, startedAt: byokitStartedAt, origin: { sessionKey, ...candidate.ctx.runId ? { runId: candidate.ctx.runId } : {} } };\n\t\tlet byokitRunUsage;\n\t\tlet byokitOutcome = "failed";\n\t\tbyokitUsageFact({ ...byokitFact, phase: "started", at: byokitStartedAt });\n\t\ttry {\n\t\t\tconst byokitRun = capability ? await runWithCronCreatorAuthorityCapability(capability, run) : await run();\n\t\t\tbyokitRunUsage = byokitRun?.meta?.agentMeta?.usage;\n\t\t\tassertSkillReviewRunSucceeded(byokitRun);\n\t\t\tbyokitOutcome = "completed";\n\t\t} finally {\n\t\t\tbyokitUsageFact({ ...byokitFact, phase: "ended", at: Date.now(), outcome: byokitOutcome, ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n' },
 ];
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
 const path = fileURLToPath(new URL('../engine/patches.json', import.meta.url));
@@ -47,10 +42,10 @@ if (!stock || stock.startsWith('--')) throw new Error('Pass stock package direct
 assert.equal(JSON.parse(readFileSync(join(stock, 'package.json'), 'utf8')).version, set.upstream.version);
 assert.equal(JSON.parse(readFileSync(join(stock, 'dist/build-info.json'), 'utf8')).commit, set.upstream.commit);
 assert.equal(readFileSync(join(stock, 'LICENSE'), 'utf8'), readFileSync(new URL('../engine/OPENCLAW-LICENSE', import.meta.url), 'utf8'));
-const file: PatchFile = { path: 'dist/experience-review-ClLYopea.mjs', before: '', after: '', edits: workshopEdits };
+const file: PatchFile = { path: 'dist/experience-review-D4E30NcE.mjs', before: '', after: '', edits: workshopEdits };
 const text = readFileSync(join(stock, file.path), 'utf8');
 file.before = sha256(text);
-assert.equal(file.before, '61abd547073af49bf5766c8e8679dd7e72089093edd4010cd5c4c50dde2ddd52', 'Stock pinned Workshop source changed');
+assert.equal(file.before, 'afc6c16e2a8281fcca601275f9adc541ec78f1e0c4b1f67431ec8d88824635a9', 'Stock pinned Workshop source changed');
 file.after = sha256(editText(text, file));
 const files = set.files.map(f => f.path === file.path ? file : f);
 if (!files.some(f => f.path === file.path)) files.push(file);

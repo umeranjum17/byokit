@@ -44,6 +44,9 @@ export function reconcileConfig(saved: object | undefined, o: {
   channels?: KitOptions['channels'];
 }): object {
   const c: Obj = merge(merge({}, object(saved) ? saved : {}), object(o.app) ? o.app : {});
+  // 11.1 retired `propose` and reads any value it does not know as `auto`: follow its own Doctor rule to `off`, so a
+  // person who chose review-first never starts applying changes unasked.
+  if (c.skills?.workshop?.autonomous?.mode === 'propose') c.skills.workshop.autonomous.mode = 'off';
   merge(c, {
     gateway: { mode: 'local', bind: 'loopback', port: o.port, auth: { mode: 'token' }, controlUi: { enabled: false }, tailscale: { mode: 'off' } },
     discovery: { mdns: { mode: 'off' } }, env: { shellEnv: { enabled: false } },
@@ -95,6 +98,8 @@ export function reconcileConfig(saved: object | undefined, o: {
   c.plugins.load ??= {};
   c.plugins.load.paths = [...new Set([...(c.plugins.load.paths ?? []).filter((p: string) => !p.includes('byokit-openclaw-bridge')), o.pluginDir])];
   c.plugins.allow = [...new Set([...(c.plugins.allow ?? []), o.pluginId,
+    // 11.1 applies the allowlist to the memory slot's tools too: without this, keyword memory_search/memory_get vanish.
+    'memory-core',
     // Every default-eligible bundled route, not only the ready ones: anthropic-cli waits on its binary and
     // shares its plugin with the explicit apiKey route, so neither may depend on another route being offered.
     ...routes().filter(route => route.offerPolicy === 'default' && !route.needs?.plugin && route.plugin)

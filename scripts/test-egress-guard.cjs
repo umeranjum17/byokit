@@ -13,7 +13,9 @@ if (!globalThis.__byokitEgressGuard) {
   for (const method of ['spawn', 'spawnSync']) {
     const original = childProcess[method];
     childProcess[method] = function (file, args, ...rest) {
-      if (file === process.execPath || file === 'node') {
+      // The pinned engine's Linux process owner refuses any preload and dials nothing itself.
+      const owner = Array.isArray(args) && args.some(arg => String(arg).endsWith('/service-child-group-anchor.js'));
+      if ((file === process.execPath || file === 'node') && !owner) {
         if (Array.isArray(args)) args = ['--require', __filename, ...args];
         else { rest.unshift(args); args = ['--require', __filename]; }
       }

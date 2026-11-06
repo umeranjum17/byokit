@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Route } from '../src/types.ts';
 
-export const PIN = '2026.9.33';
-export const REVISION = '5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82';
+export const PIN = '2026.11.1';
+export const REVISION = '4ffdd2047d192dd65554de3c8c46c0e0197c6e2a';
 export type Choice = {
   provider: string; method: string; choiceId: string; choiceLabel: string;
   choiceHint?: string; groupLabel?: string; appGuidedAuth?: string; appGuidedSecret?: boolean;
@@ -138,7 +138,7 @@ export function generateRoutes(snapshot: PinSnapshot): Route[] {
     }
   }
   rows.push(row({ id: '' }, { provider: 'custom', method: 'custom', choiceId: 'custom-api-key', choiceLabel: 'Custom endpoint' }));
-  if (rows.filter(route => route.choice).length !== 97 || rows.length !== 102 || new Set(rows.map(route => route.id)).size !== rows.length) {
+  if (rows.filter(route => route.choice).length !== 99 || rows.length !== 104 || new Set(rows.map(route => route.id)).size !== rows.length) {
     throw new Error('Pin route inventory changed; reconcile source before generating');
   }
   return rows; // Sorted manifest directories, choice order preserved (legacy routeFor preference).
@@ -156,7 +156,7 @@ export function readSnapshot(packageRoot: string, sourceRoot: string): PinSnapsh
   }
   const source = manifests(join(sourceRoot, 'extensions'));
   const tarball = manifests(join(packageRoot, 'dist/extensions'));
-  if (source.length !== 162) throw new Error('Expected all 162 real pin manifests');
+  if (source.length !== 169) throw new Error('Expected all 169 real pin manifests');
   const all = new Map(source.map(manifest => [manifest.id, manifest]));
   for (const manifest of tarball) {
     const original = all.get(manifest.id);

@@ -539,7 +539,8 @@ test('move: the transcript (user and tool rows) carries to the target agent and 
     assert.ok(next.ok && next.account === 'openai.bbbbbb', JSON.stringify(next));
     const sent = stub.calls.slice(from);
     assert.ok(sent.length > 0 && sent.every((c) => c.authorization === `Bearer ${keys.bbbbbb}`), 'billed on the target\'s own key');
-    const messages = sent[0]!.body.messages ?? [];
+    // 11.1 may put its Activity recap request first: the turn is the one carrying the tool row.
+    const messages = sent.find((c) => c.body.messages?.some((m) => m.role === 'tool'))?.body.messages ?? [];
     const text = (m: { content?: unknown }) => JSON.stringify(m.content ?? '');
     assert.ok(messages.some((m) => m.role === 'user' && text(m).includes('[tool report')), JSON.stringify(messages));
     assert.ok(messages.some((m) => m.role === 'tool' && text(m).includes('Progress: Working')), JSON.stringify(messages));
