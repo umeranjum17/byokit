@@ -11,7 +11,8 @@ const words = (m: Message) => typeof m.content === 'string' ? m.content : m.cont
 const chunk = (res: ServerResponse, delta: object, finish: string | null = null) => res.write(
   `data: ${JSON.stringify({ id: 'fake', object: 'chat.completion.chunk', model: 'fake', choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);
 
-/** Answers `answer: <text>` with that text, `hold` with one word until `release()`, and `fail` with a refusal Pi does not retry. */
+/** Answers `answer: <text>` with that text, `hold` with one word until `release()`, and `fail` with a refusal Pi does not retry.
+ * `loop` calls `only_this_bot` every time it is asked, and `steps: <n>` calls it n times, then answers `did <n>`. */
 export async function fakeModel() {
   const seen: Seen[] = [];
   const held: (() => void)[] = [];
@@ -26,11 +27,21 @@ export async function fakeModel() {
       seen.push({ system: request.messages.filter((m) => m.role === 'system' || m.role === 'developer').map(words).join('\n'),
         said, tools: (request.tools ?? []).map((tool) => tool.function.name) });
       const last = said.at(-1) ?? '';
+      const results = request.messages.length - 1 - request.messages.findLastIndex((m) => m.role === 'user');
+      const steps = /^steps: (\d+)$/.exec(last)?.[1];
+      if (last === 'loop' || (steps !== undefined && results / 2 < Number(steps))) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        chunk(res, { role: 'assistant', content: '' });
+        chunk(res, { tool_calls: [{ index: 0, id: `call-${seen.length}`, type: 'function', function: { name: 'only_this_bot', arguments: '{}' } }] });
+        chunk(res, {}, 'tool_calls');
+        res.end('data: [DONE]\n\n');
+        return;
+      }
       if (last === 'fail') { res.writeHead(400, { 'content-type': 'application/json' }); res.end('{"error":{"message":"the fake model refused"}}'); return; }
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       chunk(res, { role: 'assistant', content: '' });
       if (last === 'hold') { chunk(res, { content: 'holding' }); holding(); await new Promise<void>((resolve) => { held.push(resolve); res.on('close', resolve); }); }
-      chunk(res, { content: last.startsWith('answer: ') ? last.slice(8) : `heard ${said.length}` });
+      chunk(res, { content: last.startsWith('answer: ') ? last.slice(8) : steps !== undefined ? `did ${steps}` : `heard ${said.length}` });
       chunk(res, {}, 'stop');
       res.end('data: [DONE]\n\n');
     });

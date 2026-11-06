@@ -5,6 +5,11 @@ export type KitOptions = {
   stateDir: string;
   /** How long a bot with no work keeps its Pi running. Default: five minutes. */
   idleMs?: number;
+  /**
+   * Most tool calls a bot may make in one turn (one prompt, with whatever steering rode along), a whole number above zero.
+   * A model that would make one more is stopped, so a model repeating itself cannot spend without bound. Default: 30.
+   */
+  maxToolCalls?: number;
 };
 
 /** A command and its arguments. */
@@ -36,6 +41,8 @@ export type BotEvent =
   | { type: 'text'; text: string }
   | { type: 'tool'; name: string; phase: 'start' | 'end'; error?: boolean }
   | { type: 'usage'; tokens: number }
+  /** The turn hit `maxToolCalls`: the model's next call was not run, and `end` follows as a failure naming the limit. `toolCalls` is how many ran. */
+  | { type: 'limit'; toolCalls: number; limit: number }
   | { type: 'end'; end: RunEnd }
   /** The bot's process is gone: it was idle, the app asked, or it crashed (`detail` says why). The next message restarts it. */
   | { type: 'stopped'; reason: 'idle' | 'asked' | 'crashed'; detail?: string };
@@ -64,7 +71,7 @@ export type PiKit = {
   close(): Promise<void>;
 };
 
-export type PiErrorCode = 'bad-state-dir' | 'bad-idle' | 'bad-id' | 'bad-session' | 'bad-folder' | 'bad-extension' | 'bad-launch' | 'person-pi'
+export type PiErrorCode = 'bad-state-dir' | 'bad-idle' | 'bad-limit' | 'bad-id' | 'bad-session' | 'bad-folder' | 'bad-extension' | 'bad-launch' | 'person-pi'
   | 'bot-running' | 'pi-missing' | 'pi-version' | 'pi-refused' | 'pi-exited';
 
 export class PiError extends Error {

@@ -9,6 +9,7 @@
 - `idle-resume`: an idle bot's process is gone, and its next message reaches the model with the earlier one still in the session.
 - `person-pi`: a stand-in `~/.pi` hashes the same before and after, and `stateDir` inside it is refused with `person-pi`.
 - `launch`: `BotSpec.launch` wraps the command the kit would run. With none, Pi gets the same argv as always; with one, that command runs instead at every start, after a crash too; a `launch` that throws is refused with `bad-launch` and a missing command with `pi-exited`, and neither starts Pi.
+- `tool-cap`: `createPiKit({ maxToolCalls })` (default 30) stops a turn whose model keeps calling tools: a `limit` event with the count, then one `end` of `{ ok: false, message }` naming the limit, with the process still up; a normal turn under the cap is untouched, and `0`, a negative or a fractional cap is refused with `bad-limit`. Drive it with `npm test -w packages/pi` (the `repeats one tool call` journey in `two-bots.test.ts`, against the loopback stand-in's `loop` and `steps: <n>` answers).
 
 ## How to get to it (user POV)
 

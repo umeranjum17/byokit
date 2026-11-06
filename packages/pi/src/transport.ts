@@ -65,7 +65,7 @@ function launched(spec: BotSpec, pi: Launch): Launch {
 const textOf = (message: Message) => Array.isArray(message.content)
   ? (message.content as { type?: string; text?: string }[]).filter((part) => part.type === 'text').map((part) => part.text).join('') : '';
 
-export function openPi(spec: BotSpec, stateDir: string, on: (event: BotEvent) => void, exited: (detail: string) => void): PiLink {
+export function openPi(spec: BotSpec, stateDir: string, on: (event: BotEvent) => void, maxToolCalls: number, exited: (detail: string) => void): PiLink {
   const entry = piEntry();
   const home = join(stateDir, 'pi', spec.id);
   const sessions = join(spec.folder, 'sessions');
@@ -84,6 +84,8 @@ export function openPi(spec: BotSpec, stateDir: string, on: (event: BotEvent) =>
   let closing = false;
   let text = '';
   let failure: string | undefined;
+  let toolCalls = 0;
+  let capped: string | undefined;
   let diagnostics = '';
   const note = (part: string) => { diagnostics = (diagnostics + part).slice(-2000); };
   const write = (record: object) => { child.stdin.write(`${JSON.stringify(record)}\n`); };
@@ -103,7 +105,7 @@ export function openPi(spec: BotSpec, stateDir: string, on: (event: BotEvent) =>
         else waiter.reject(new PiError('pi-refused', String(record.error)));
         return;
       }
-      case 'agent_start': running = true; on({ type: 'started' }); return;
+      case 'agent_start': running = true; toolCalls = 0; capped = undefined; on({ type: 'started' }); return;
       case 'message_update': {
         const update = record.assistantMessageEvent as { type?: string; delta?: string };
         if (update.type === 'text_delta') on({ type: 'text', text: update.delta ?? '' });
@@ -118,12 +120,19 @@ export function openPi(spec: BotSpec, stateDir: string, on: (event: BotEvent) =>
         text = textOf(message);
         failure = message.stopReason === 'error' ? message.errorMessage ?? 'The model call failed.' : undefined;
         if (message.usage?.totalTokens) on({ type: 'usage', tokens: message.usage.totalTokens });
+        // Judged when the model asks, so the call that trips the cap may already be running and still finishes. Both stops go out at once, queue first, as abort() does.
+        const wanted = Array.isArray(message.content) ? (message.content as { type?: string }[]).filter((part) => part.type === 'toolCall').length : 0;
+        if (wanted > 0 && capped === undefined && toolCalls + wanted > maxToolCalls) {
+          capped = `Stopped: this turn used its limit of ${maxToolCalls} tool calls (maxToolCalls) and the next one was not run. Nothing further was done.`;
+          on({ type: 'limit', toolCalls, limit: maxToolCalls });
+          for (const stop of ['clear_queue', 'abort']) ask({ type: stop }).catch(() => {});
+        } else toolCalls += wanted;
         return;
       }
       case 'agent_settled':
         running = false;
-        on({ type: 'end', end: record.aborted === true ? { ok: false, aborted: true } : failure !== undefined ? { ok: false, message: failure } : { ok: true, text } });
-        text = ''; failure = undefined;
+        on({ type: 'end', end: capped !== undefined ? { ok: false, message: capped } : record.aborted === true ? { ok: false, aborted: true } : failure !== undefined ? { ok: false, message: failure } : { ok: true, text } });
+        text = ''; failure = undefined; capped = undefined;
         return;
       // Nobody can answer a dialog yet, and an unanswered one blocks the bot for good.
       case 'extension_ui_request':

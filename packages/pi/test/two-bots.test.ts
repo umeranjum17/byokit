@@ -264,3 +264,36 @@ test('a launch that fails is refused with its cause, Pi never starts without it,
   await late.prompt('answer: wall up');
   assert.deepEqual((await done).end, { ok: true, text: 'wall up' });
 });
+
+test('a model that repeats one tool call is stopped at the cap with a plain result, and a normal turn is untouched', async (t) => {
+  assert.throws(() => createPiKit({ stateDir: crew.stateDir, maxToolCalls: 0 }), (error: PiError) => error.code === 'bad-limit');
+  assert.throws(() => createPiKit({ stateDir: crew.stateDir, maxToolCalls: -3 }), (error: PiError) => error.code === 'bad-limit');
+  assert.throws(() => createPiKit({ stateDir: crew.stateDir, maxToolCalls: 1.5 }), (error: PiError) => error.code === 'bad-limit');
+
+  const kit = createPiKit({ stateDir: crew.stateDir, maxToolCalls: 4 });
+  t.after(() => kit.close());
+  const bot = kit.bot({ ...crew.bot('looper'), extensions: [join(import.meta.dirname, 'fixtures', 'extension.ts')] });
+  const events: BotEvent[] = [];
+  bot.on((event) => { events.push(event); });
+
+  const done = next(bot, ended);
+  await bot.prompt('loop');
+  const { end } = await done;
+  assert.equal(end.ok, false);
+  assert.match((end as { message: string }).message, /limit of 4 tool calls/);
+  assert.deepEqual(events.filter((event) => event.type === 'limit'), [{ type: 'limit', toolCalls: 4, limit: 4 }]);
+  // The call that trips the cap was already on its way, so one may run past it; a request already sent is cut, and nothing after it runs.
+  const ran = events.filter((event) => event.type === 'tool' && event.phase === 'end').length;
+  assert.ok(ran === 4 || ran === 5, `${ran} tool calls ran`);
+  assert.ok(model.seen.filter((call) => call.said.at(-1) === 'loop').length <= 6);
+  assert.equal(events.filter((event) => event.type === 'end').length, 1);
+  assert.notEqual(bot.pid, undefined);
+
+  // The count is per turn: the next turn starts from zero, and one that stays under the cap is not cut.
+  events.length = 0;
+  const again = next(bot, ended);
+  await bot.prompt('steps: 4');
+  assert.deepEqual((await again).end, { ok: true, text: 'did 4' });
+  assert.ok(!events.some((event) => event.type === 'limit'));
+  assert.equal(events.filter((event) => event.type === 'tool' && event.phase === 'end').length, 4);
+});

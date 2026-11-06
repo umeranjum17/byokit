@@ -20,7 +20,7 @@ function checked(spec: BotSpec): BotSpec {
   return spec;
 }
 
-function startBot(spec: BotSpec, stateDir: string, idleMs: number): Bot {
+function startBot(spec: BotSpec, stateDir: string, idleMs: number, maxToolCalls: number): Bot {
   const listeners = new Set<(event: BotEvent) => void>();
   const emit = (event: BotEvent) => { for (const listener of listeners) listener(event); };
   let link: PiLink | undefined;
@@ -48,7 +48,7 @@ function startBot(spec: BotSpec, stateDir: string, idleMs: number): Bot {
   const start = () => openPi(spec, stateDir, (event) => {
     emit(event);
     if (event.type === 'end') arm();
-  }, (detail) => {
+  }, maxToolCalls, (detail) => {
     clearTimeout(timer);
     const reason = why ?? 'crashed';
     link = undefined; stopping = undefined; why = undefined;
@@ -78,16 +78,17 @@ function startBot(spec: BotSpec, stateDir: string, idleMs: number): Bot {
 
 /** One Pi process per bot, each in its own Pi home, session folder and extension list. */
 export function createPiKit(options: KitOptions): PiKit {
-  const { stateDir, idleMs = 300_000 } = options;
+  const { stateDir, idleMs = 300_000, maxToolCalls = 30 } = options;
   if (!isAbsolute(stateDir)) throw new PiError('bad-state-dir', `stateDir must be an absolute path, not ${JSON.stringify(stateDir)}.`);
   if (!(idleMs > 0)) throw new PiError('bad-idle', `idleMs must be above zero, not ${idleMs}.`);
+  if (!Number.isInteger(maxToolCalls) || maxToolCalls < 1) throw new PiError('bad-limit', `maxToolCalls must be a whole number above zero, not ${maxToolCalls}.`);
   refuseThePersonsPi(stateDir);
   const bots = new Map<string, Bot>();
   return {
     bot(spec) {
       const open = checked(spec);
       if (bots.get(open.id)?.pid !== undefined) throw new PiError('bot-running', `Bot ${open.id} is running: stop it before replacing it.`);
-      const bot = startBot(open, stateDir, idleMs);
+      const bot = startBot(open, stateDir, idleMs, maxToolCalls);
       bots.set(open.id, bot);
       return bot;
     },
