@@ -1,0 +1,56 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "ab4e268483b70f61ee4684b409812a437a6188bb",
+  "tree": "4854e7719a12e9e808801351ef7dcb0f66057395",
+  "claim": "a bot's turn now stops at maxToolCalls (default 30) with a limit event and one plain failed end, so a model repeating a tool call cannot spend without bound",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-11-06T01:56:09.267Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261106T015504Z-ab4e2684-d45db6/pi-tests.log",
+      "sha256": "1869c605384b9b71ef1e300dea093021c4d716de49288f071f06e6ff92555d30"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261106T015504Z-ab4e2684-d45db6",
+      "commit": "ab4e268483b70f61ee4684b409812a437a6188bb",
+      "journey": "pi-launch",
+      "command": "npx tsc -b packages/pi > \"$DONE_DONE_EVIDENCE_ROOT/build.log\" 2>&1 && sh scripts/test.sh 'packages/pi/test/*.test.ts' > \"$DONE_DONE_EVIDENCE_ROOT/pi-tests.log\" 2>&1 && node .agents/skills/done-done-verify-byokit/capture/pi-launch.mjs",
+      "tool": "0.6.24",
+      "steps": {
+        "target": {
+          "version": "@byokit/pi 0.1.1"
+        },
+        "start": "A built checkout, a bot with its own folder and Pi home, a file outside them, and a loopback stand-in model",
+        "steps": [
+          "Run a bot with no launch and read the argv Pi got",
+          "Run the same bot with a launch that puts Pi in a bubblewrap sandbox",
+          "Kill the walled process and send another message",
+          "Stop the bot",
+          "Start a bot whose launch throws, then one whose command is missing"
+        ],
+        "result": "Pi answered from inside the wall with the same argv and could not see or write the outside file, came back inside it after a crash, and a throwing launch or a missing wall started nothing"
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "claude-bridge/claude-sonnet-5-5",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261106T015504Z-ab4e2684-d45db6/pi-tests.log",
+        "sha256": "1869c605384b9b71ef1e300dea093021c4d716de49288f071f06e6ff92555d30",
+        "verdict": "pass",
+        "seen": "Read 13 test entries plus summary (pass 13, fail 0). The relevant line is '✔ a model that repeats one tool call is stopped at the cap with a plain result, and a normal turn is untouched (323.469264ms)', which matches the outcome of a turn stopping at maxToolCalls with a plain failed end. All tests pass with no contradiction. The log does not show the limit event or the default 30 directly, but the passing test named for this behavior supports the outcome."
+      }
+    ]
+  }
+}
