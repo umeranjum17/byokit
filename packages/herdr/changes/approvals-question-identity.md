@@ -1,1 +1,0 @@
-- FIX: Name each blocked question with a kit-issued revision and read the question text back, so an answer that arrives after the agent moved on is refused as `approval-stale` instead of typing into the next question's dialog (the pinned Herdr reports one pane revision for consecutive questions).

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.19.0 (2026-11-06)
+
+- FIX: Name each blocked question with a kit-issued revision and read the question text back, so an answer that arrives after the agent moved on is refused as `approval-stale` instead of typing into the next question's dialog (the pinned Herdr reports one pane revision for consecutive questions).
+
 ## 0.18.0 (2026-10-31)
 
 - FEATURE: `exportConversation` takes an explicit `accountFolder`; with it the folder comes from the caller and the conversation from the pane's own Herdr `agent_session`, so an agent an overlay launch or a host restart left without a recorded folder exports too. Without it the recorded folder stays the source, so every call that works today is unchanged; a folder that does not hold that conversation answers the store's own refusal code.
