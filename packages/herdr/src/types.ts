@@ -191,6 +191,8 @@ export type AgentTurnEnd<T = unknown> = {
   changedFiles: { path: string; change: 'added' | 'modified' | 'deleted' }[];
   result: AgentTurnResult<T>;
 };
+// `revision` identifies the question the kit published, not the pane's own revision: the pinned Herdr can
+// report one pane revision for consecutive questions, so only the kit's value can be stale when it moves on.
 export type BlockedAgent = { paneId: string; workspaceId: string; tabId: string; kind?: string; revision: number; prompt: string; since: number };
 export type AgentSessionRef = { source: string; agent: string; kind: string; value: string };
 // Herdr reports partial worktree records: only `checkoutPath` is guaranteed.

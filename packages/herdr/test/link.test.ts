@@ -119,6 +119,17 @@ test('every op round-trips for a control device with full scope', async () => {
     await assert.rejects(hd.answer('w1:p2', ['y'], entry.revision + 1000), /That question already changed/);
     await hd.answer('w1:p2', ['y'], entry.revision);
     await until(() => hd.blocked(), (list) => list.length === 0);
+    // A question that changes while the pane stays blocked: the pinned Herdr reported the same pane
+    // revision for four consecutive Cursor questions (H9), so the kit names each question itself and
+    // also reads the question back. An answer for the old one is refused, and the live one replaces it.
+    await hd.prompt('w1:p2', 'ask permission');
+    const [asked] = await until(() => hd.blocked(), (list) => list.length === 1);
+    fake.setQuestion('w1:p2', 'Write to this file? (y)');
+    await assert.rejects(hd.answer('w1:p2', ['y'], asked.revision), /That question already changed/);
+    const [live] = await until(() => hd.blocked(), (list) => list[0]?.prompt === 'Write to this file? (y)');
+    assert.notEqual(live.revision, asked.revision, 'the live question is published under its own identity');
+    await hd.answer('w1:p2', ['y'], live.revision);
+    await until(() => hd.blocked(), (list) => list.length === 0);
     // New workspaces are creatable; the only tab refuses a widening close.
     const placed = await hd.startAgent({ kind: 'codex', cwd: '/tmp', place: { workspace: 'new', label: 'side' } });
     assert.match(placed.paneId, /^w2:/);
