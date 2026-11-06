@@ -536,9 +536,7 @@ export async function signOut(ctx: SignInCtx, member: Member, provider: string):
   const { agentId } = await ctx.ensure(member);
   // Without profileIds the pin removes the provider's profiles from every owner store, another member's included.
   // The inherited base is empty (5.15), so every profile this agent's status lists is its own.
-  const read = (refresh: boolean) => ctx.authStatus ? ctx.authStatus(agentId, refresh, false) : authStatus(ctx.request, agentId, refresh);
-  let status = await read(false);
-  if (status.unavailable) status = await read(true); // no prepared snapshot yet: build it once
+  const status = await (ctx.authStatus ? ctx.authStatus(agentId, false, false) : authStatus(ctx.request, agentId));
   if (status.unavailable) throw new Error(String(status.unavailable.message ?? 'account status unavailable'));
   const profileIds = (status.providers ?? []).flatMap((row) => typeof row === 'string' || row.provider !== provider ? []
     : (row.profiles ?? []).map((p) => p.profileId).filter((id): id is string => typeof id === 'string' && id !== ''));

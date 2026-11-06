@@ -23,6 +23,9 @@ journeys:
   openclaw-engine-pin:
     command: node .agents/skills/done-done-verify-byokit/capture/openclaw-engine-pin.mjs --gates
     timeout: 20m
+  openclaw-restart-signin:
+    command: node .agents/skills/done-done-verify-byokit/capture/openclaw-restart-signin.mjs
+    timeout: 10m
   openclaw-native-binding:
     command: node .agents/skills/done-done-verify-byokit/capture/openclaw-native-binding.mjs
     timeout: 2m
