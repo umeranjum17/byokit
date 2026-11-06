@@ -59,8 +59,12 @@ if (code !== 0 || !existsSync(captured)) {
   console.error(`the approvals journey exited ${code}; no captured questions in ${captured}`);
   process.exit(1);
 }
+const version = (bin: string, args: string[]): string => {
+  try { return execFileSync(bin, args, { encoding: 'utf8' }).trim().split('\n')[0] ?? ''; } catch { return 'unknown'; }
+};
+const kit = JSON.parse(readFileSync('packages/herdr/package.json', 'utf8')) as { version?: string };
 const evidenceOf = JSON.parse(readFileSync(captured, 'utf8')) as {
-  legs?: { leg?: string; revision?: number; paneRevision?: number; keys?: string[]; statusWhileBlocked?: string; statusAfter?: string; effect?: string }[];
+  legs?: { leg?: string; prompt?: string; revision?: number; paneRevision?: number; keys?: string[]; statusWhileBlocked?: string; statusAfter?: string; effect?: string }[];
   stale?: Record<string, unknown>;
 };
 for (const leg of evidenceOf.legs ?? []) {
@@ -68,4 +72,15 @@ for (const leg of evidenceOf.legs ?? []) {
     + `${leg.statusWhileBlocked} -> ${leg.statusAfter}, command ${leg.effect}`);
 }
 console.log(`stale: ${JSON.stringify(evidenceOf.stale)}`);
-console.log(`captured ${captured} and ${join(evidence, 'approvals.log')}`);
+// The step record done-done's check reads beside the captures.
+const legs = evidenceOf.legs ?? [];
+const stepRecord = {
+  target: { version: `@byokit/herdr ${kit.version ?? 'unknown'}, ${version('herdr', ['--version'])}, cursor-agent ${version('cursor-agent', ['--version'])}` },
+  start: 'a Cursor agent pane at idle in a disposable Herdr lab session, prompted into its own run-command approval',
+  steps: legs.map((leg) => `${leg.leg}: listed "${String(leg.prompt ?? '').trim().split('\n').slice(-6)[0] ?? ''}" as blocked and answered ${JSON.stringify(leg.keys)}`),
+  result: `Allow ran the command (${legs.find((l) => l.leg === 'allow')?.effect ?? 'unknown'}), Deny and Skip refused it `
+    + `(${legs.find((l) => l.leg === 'deny')?.effect ?? 'unknown'} / ${legs.find((l) => l.leg === 'skip')?.effect ?? 'unknown'}), `
+    + `and the answer for the question that moved on was refused (${JSON.stringify(evidenceOf.stale)})`,
+};
+writeFileSync(join(evidence, 'steps.json'), JSON.stringify(stepRecord, null, 2));
+console.log(`captured ${captured}, ${join(evidence, 'approvals.log')} and ${join(evidence, 'steps.json')}`);
