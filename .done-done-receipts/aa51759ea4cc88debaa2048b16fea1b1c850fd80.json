@@ -1,0 +1,64 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "aa51759ea4cc88debaa2048b16fea1b1c850fd80",
+  "tree": "4a801f8b1d183635207dc08955c4e2e401fd6981",
+  "claim": "On the pinned 2026.11.1 engine, an app lists Claude Code models and runs them, and a file-writing tool call streams live tool input progress, proved with a deterministic stand-in Claude Code.",
+  "result": "pass",
+  "at": "2026-11-06T02:01:53.247Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261106T015516Z-aa51759e-7c4252/summary.txt",
+      "sha256": "8f3f2168b2cf77c21eec453f3b389037635e7e6cb2fa43dd0fc7e775110ecbaa"
+    },
+    {
+      "path": "<evidence root>/20261106T015516Z-aa51759e-7c4252/engine-journeys.log",
+      "sha256": "6120d122e069246e589d55bea9f194073d9fc00d7f09c3ec32ddd0c898c2dc69"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261106T015516Z-aa51759e-7c4252",
+      "commit": "aa51759ea4cc88debaa2048b16fea1b1c850fd80",
+      "journey": "openclaw-engine-pin",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/openclaw-engine-pin.mjs --gates",
+      "tool": "0.6.24",
+      "steps": {
+        "target": {
+          "version": "2026.11.1"
+        },
+        "start": "A fresh app home with no account, on the pinned engine the kit installs from the patched set",
+        "steps": [
+          "The kit starts the real pinned engine with a stand-in Claude Code login",
+          "The app lists Claude Code models and sees claude-cli ids available",
+          "The app runs Claude Code on a file-writing tool call and sees live tool input progress as input_delta events",
+          "The app keeps the memory tools, learning off and auto, and lease contention working on the new pin"
+        ],
+        "result": "PASS: a Claude Code account lists claude-cli models, runs in its own folder, and a file-writing tool call streamed input_delta progress"
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "claude-bridge/claude-sonnet-5-5",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261106T015516Z-aa51759e-7c4252/summary.txt",
+        "sha256": "8f3f2168b2cf77c21eec453f3b389037635e7e6cb2fa43dd0fc7e775110ecbaa",
+        "verdict": "pass",
+        "seen": "Read 3 lines in summary.txt. Quoted: 'PASS: the kit started the real pinned engine 2026.11.1 and ran native-binding, models-list, run, learning, sqlite-contention' and 'PASS: a Claude Code account lists claude-cli models, runs in its own folder, and a file-writing tool call streamed input_delta progress'. This directly shows the outcome: pinned engine, models listed, run, and streamed tool input progress. No failures."
+      },
+      {
+        "path": "<evidence root>/20261106T015516Z-aa51759e-7c4252/engine-journeys.log",
+        "sha256": "6120d122e069246e589d55bea9f194073d9fc00d7f09c3ec32ddd0c898c2dc69",
+        "verdict": "pass",
+        "seen": "Read 9 test results, all passing (tests 9, pass 9, fail 0). Relevant line: '✔ a signed-in Claude Code login is a kit account, and its Claude CLI models are listed' and 'native accounts: each launch, reuse and probe uses its own folder'. No failures or cancellations. It does not explicitly show streamed tool input progress, but it is not wrong for lacking that part, and the visible parts support the outcome. The tool-call test is about the fail-closed gate, not streaming."
+      }
+    ]
+  }
+}
