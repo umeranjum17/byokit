@@ -41,7 +41,7 @@ export type BotEvent =
   | { type: 'text'; text: string }
   | { type: 'tool'; name: string; phase: 'start' | 'end'; error?: boolean }
   | { type: 'usage'; tokens: number }
-  /** The turn hit `maxToolCalls`: the model's next call was not run, and `end` follows as a failure naming the limit. `toolCalls` is how many ran. */
+  /** The turn hit `maxToolCalls`: the run is aborted and `end` follows as a failure naming the limit. `toolCalls` is how many calls the model had made before the one that tripped it. */
   | { type: 'limit'; toolCalls: number; limit: number }
   | { type: 'end'; end: RunEnd }
   /** The bot's process is gone: it was idle, the app asked, or it crashed (`detail` says why). The next message restarts it. */

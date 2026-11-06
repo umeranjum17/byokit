@@ -123,7 +123,7 @@ export function openPi(spec: BotSpec, stateDir: string, on: (event: BotEvent) =>
         // Judged when the model asks, so the call that trips the cap may already be running and still finishes. Both stops go out at once, queue first, as abort() does.
         const wanted = Array.isArray(message.content) ? (message.content as { type?: string }[]).filter((part) => part.type === 'toolCall').length : 0;
         if (wanted > 0 && capped === undefined && toolCalls + wanted > maxToolCalls) {
-          capped = `Stopped: this turn used its limit of ${maxToolCalls} tool calls (maxToolCalls) and the next one was not run. Nothing further was done.`;
+          capped = `Stopped: this turn reached its limit of ${maxToolCalls} tool calls (maxToolCalls), so the run was ended.`;
           on({ type: 'limit', toolCalls, limit: maxToolCalls });
           for (const stop of ['clear_queue', 'abort']) ask({ type: stop }).catch(() => {});
         } else toolCalls += wanted;

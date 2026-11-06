@@ -34,6 +34,9 @@ journeys:
   pi-launch:
     command: npx tsc -b packages/pi > "$DONE_DONE_EVIDENCE_ROOT/build.log" 2>&1 && sh scripts/test.sh 'packages/pi/test/*.test.ts' > "$DONE_DONE_EVIDENCE_ROOT/pi-tests.log" 2>&1 && node .agents/skills/done-done-verify-byokit/capture/pi-launch.mjs
     timeout: 5m
+  pi-tool-cap:
+    command: npx tsc -b packages/pi > "$DONE_DONE_EVIDENCE_ROOT/build.log" 2>&1 && sh scripts/test.sh 'packages/pi/test/*.test.ts' > "$DONE_DONE_EVIDENCE_ROOT/pi-tests.log" 2>&1 && node .agents/skills/done-done-verify-byokit/capture/pi-tool-cap.mjs
+    timeout: 5m
   build:
     command: npm run build > "$DONE_DONE_EVIDENCE_ROOT/build.log" 2>&1 && echo "npm run build exited 0 and every package built (run $DONE_DONE_RUN_ID)" >> "$DONE_DONE_EVIDENCE_ROOT/build.log" && node --input-type=module -e "import { createRequire } from 'node:module'; const require = createRequire(process.cwd() + '/'); const pkg = require('./packages/accounts/package.json'); const acc = await import('@byokit/accounts'); const testing = await import('@byokit/accounts/testing'); if (!acc.Accounts || !acc.portable || typeof testing.mockOpenAI !== 'function') throw new Error('built entry incomplete'); console.log('doctor ok:', pkg.name, pkg.version, 'resolves', require.resolve('@byokit/accounts'));" > "$DONE_DONE_EVIDENCE_ROOT/doctor.log" 2>&1 && node scripts/done-done-steps.ts build
   gate:
