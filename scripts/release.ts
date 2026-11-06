@@ -719,10 +719,19 @@ function cmdPublish(rest: string[]): void {
   }
   const publishedNow: { pkg: string; version: string }[] = [];
   const publishFailed: { pkg: string; version: string; line: string }[] = [];
+  const publishSkipped: { pkg: string; version: string }[] = [];
   for (const d of pendingOrder) {
     const p = byDir.get(d) as WSPkg;
     const tag = `${d}-v${p.version}`;
-    if ((npmVersions(p.name) ?? []).includes(p.version)) {
+    const onNpmNow = npmVersions(p.name);
+    // The registry answers E404 on read for a name never published: nobody can publish it
+    // from here (its first publish needs a one-time trusted-publisher approval), so skip it
+    // and name it in the summary. A name that exists publishes, and any failure there fails the run.
+    if (onNpmNow === null) {
+      publishSkipped.push({ pkg: p.name, version: p.version });
+      continue;
+    }
+    if (onNpmNow.includes(p.version)) {
       console.log(`${p.name}@${p.version} appeared on npm, skipping publish`);
       continue;
     }
@@ -740,8 +749,7 @@ function cmdPublish(rest: string[]): void {
         process.stderr.write(out);
         const line = out.split("\n").map((l) => l.trim()).find((l) => l !== "") ?? `npm publish exited ${r.status ?? r.signal}`;
         publishFailed.push({ pkg: p.name, version: p.version, line });
-        // One refused name (a new package with no trusted publisher yet) must not
-        // stop the packages after it in the order.
+        // One failed package must not stop the packages after it in the order.
         continue;
       }
       process.stdout.write(r.stdout ?? "");
@@ -753,10 +761,17 @@ function cmdPublish(rest: string[]): void {
     doRelease(tag, `${p.name} ${p.version}`, notes, head);
     if (dryRun) publishedNow.push({ pkg: p.name, version: p.version });
   }
+  const skippedLines = publishSkipped.map((s) => `skipped ${s.pkg}@${s.version}: name never published to npm (registry read answers E404)`);
   if (publishFailed.length > 0) {
     const failed = publishFailed.map((f) => `${f.pkg}@${f.version}: ${f.line}`).join("\n");
     const published = publishedNow.map((r) => `${r.pkg}@${r.version}`).join(", ") || "none";
-    throw new Error(`npm publish failed for ${publishFailed.length} package(s):\n${failed}\npublished this run: ${published}`);
+    const skipped = skippedLines.length > 0 ? `\n${skippedLines.join("\n")}` : "";
+    throw new Error(`npm publish failed for ${publishFailed.length} package(s):\n${failed}${skipped}\npublished this run: ${published}`);
+  }
+  if (skippedLines.length > 0) {
+    console.log(`${skippedLines.join("\n")}`);
+    const published = publishedNow.map((r) => `${r.pkg}@${r.version}`).join(", ");
+    console.log(published === "" ? `published this run: none (all ${publishSkipped.length} pending package(s) skipped, nothing was published)` : `published this run: ${published}`);
   }
   // Backfill: versions on npm with no GitHub release yet.
   for (const p of pkgs) {
