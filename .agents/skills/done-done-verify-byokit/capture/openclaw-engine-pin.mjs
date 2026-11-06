@@ -33,5 +33,15 @@ const lines = [
   'PASS: a Claude Code account lists claude-cli models, runs in its own folder, and a file-writing tool call streamed input_delta progress',
 ];
 writeFileSync(join(evidence, 'summary.txt'), lines.join('\n') + '\n');
-writeFileSync(join(evidence, 'steps.json'), JSON.stringify({ target: { engine: version }, journeys }, null, 2) + '\n');
+writeFileSync(join(evidence, 'steps.json'), JSON.stringify({
+  target: { version },
+  start: 'A fresh app home with no account, on the pinned engine the kit installs from the patched set',
+  steps: [
+    'The kit starts the real pinned engine with a stand-in Claude Code login',
+    'The app lists Claude Code models and sees claude-cli ids available',
+    'The app runs Claude Code on a file-writing tool call and sees live tool input progress as input_delta events',
+    'The app keeps the memory tools, learning off and auto, and lease contention working on the new pin',
+  ],
+  result: lines.at(-1),
+}, null, 2) + '\n');
 for (const line of lines) console.log(line);

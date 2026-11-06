@@ -4,9 +4,9 @@ Surface: the engine `packages/openclaw/src/constants.ts` pins, started by the ki
 
 ## Drive and capture
 
-Run `done-done run openclaw-engine-pin -- node .agents/skills/done-done-verify-byokit/capture/openclaw-engine-pin.mjs --gates`. Set `BYOKIT_TEST_ENGINE_DIR` to reuse one engine across runs. The capture starts the real pinned engine through the kit with a stand-in `claude` and a scripted model.
+Run `done-done run openclaw-engine-pin`. Set `BYOKIT_TEST_ENGINE_DIR` to reuse one engine across runs. The capture starts the real pinned engine through the kit with a stand-in `claude` and a scripted model.
 
-Evidence: `engine-journeys.log`, `steps.json`, `summary.txt` and (with `--gates`) `checks.log`, all from the same done-done run. No screen exists for this SDK-only surface.
+Evidence: `engine-journeys.log`, `steps.json`, `summary.txt` and `checks.log`, all from the same done-done run. No screen exists for this SDK-only surface.
 
 ## Boundaries
 
