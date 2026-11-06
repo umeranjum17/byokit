@@ -340,9 +340,10 @@ test("publish CLI still fails every other HEAD mismatch", () => {
   } finally { rmSync(repo.dir, { recursive: true, force: true }); }
 });
 
-// A new package name that npm refuses (no trusted publisher yet) must not stop
-// the packages after it in the publish order.
-test("publish continues past a failed package, then names it", () => {
+// Fixture for the publish step over a fake registry: `exists` names answer a version list on
+// read, every other name answers E404 (never published). A publish of `refused` fails with a
+// 404 on the PUT, the way npm answers a name that exists but is not configured for this publisher.
+function publishFixture(names: string[], exists: string[], refused: string[]): { r: SpawnSyncReturns<string>; publishes: string[] } {
   const parent = mkdtempSync(join(tmpdir(), "release-publish-continue-"));
   const dir = join(parent, "repo");
   const bare = join(parent, "origin.git");
@@ -358,22 +359,26 @@ test("publish continues past a failed package, then names it", () => {
     return r.stdout;
   };
   try {
-    for (const path of ["scripts", "bin", "packages/a-first", "packages/b-middle", "packages/c-last"]) mkdirSync(join(dir, path), { recursive: true });
+    for (const path of ["scripts", "bin", ...names.map((n) => `packages/${n}`)]) mkdirSync(join(dir, path), { recursive: true });
     copyFileSync(join(root, "scripts/release.ts"), join(dir, "scripts/release.ts"));
-    for (const [d, name] of [["a-first", "@byokit/a-first"], ["b-middle", "@byokit/b-middle"], ["c-last", "@byokit/c-last"]]) {
-      writeFileSync(join(dir, `packages/${d}/package.json`), JSON.stringify({ name, version: "0.1.0" }, null, 2));
-      writeFileSync(join(dir, `packages/${d}/CHANGELOG.md`), "# Changelog\n\n## 0.1.0\n\n- First release.\n");
+    for (const n of names) {
+      writeFileSync(join(dir, `packages/${n}/package.json`), JSON.stringify({ name: `@byokit/${n}`, version: "0.1.0" }, null, 2));
+      writeFileSync(join(dir, `packages/${n}/CHANGELOG.md`), "# Changelog\n\n## 0.1.0\n\n- First release.\n");
     }
-    // Every name is new to npm (E404). The gates pass offline, and the middle
-    // publish is refused the way npm refuses an unconfigured trusted publisher.
+    const pat = (list: string[]): string => list.map((n) => `*@byokit/${n}*`).join("|") || "__none__";
     writeFileSync(join(dir, "bin/npm"), `#!/bin/sh
-if [ "$1" = view ]; then echo '{"error":{"code":"E404"}}'; exit 1; fi
+if [ "$1" = view ]; then
+  case "$2" in
+    ${pat(exists)}) echo '["0.0.9"]'; exit 0 ;;
+  esac
+  echo '{"error":{"code":"E404"}}'; exit 1
+fi
 case "$1" in
   ci|run|test) exit 0 ;;
   publish)
     echo "$*" >> '${publishLog}'
     case "$*" in
-      *@byokit/b-middle*) echo 'npm error 404 Not Found - PUT https://registry.npmjs.org/@byokit%2fb-middle' >&2; exit 1 ;;
+      ${pat(refused)}) echo 'npm error 404 Not Found - PUT https://registry.npmjs.org/refused' >&2; exit 1 ;;
     esac
     exit 0 ;;
 esac
@@ -395,14 +400,36 @@ exit 1
     git("commit", "-qm", "fixture");
     git("push", "-q", "origin", "main");
     const r = run(process.execPath, ["scripts/release.ts", "publish"]);
-    assert.equal(r.status, 1, "a failed package keeps the exit nonzero");
-    assert.match(r.stderr, /npm publish failed for 1 package\(s\)/);
-    assert.match(r.stderr, /@byokit\/b-middle@0\.1\.0: npm error 404 Not Found/);
-    assert.match(r.stderr, /published this run: @byokit\/a-first@0\.1\.0, @byokit\/c-last@0\.1\.0/);
-    const publishes = readFileSync(publishLog, "utf8").trim().split("\n");
-    assert.equal(publishes.length, 3);
-    assert.match(publishes[0], /@byokit\/a-first/);
-    assert.match(publishes[1], /@byokit\/b-middle/);
-    assert.match(publishes[2], /@byokit\/c-last/, "the package after the failure still publishes");
+    const publishes = existsSync(publishLog) ? readFileSync(publishLog, "utf8").trim().split("\n").filter((l) => l !== "") : [];
+    return { r, publishes };
   } finally { rmSync(parent, { recursive: true, force: true }); }
+}
+
+// A name the registry has never had is skipped and named; a name it has still fails the run
+// on a refused publish, and the packages after either still publish.
+test("publish skips a never-published name, names it, and still fails a refused existing name", () => {
+  const { r, publishes } = publishFixture(["a-first", "b-middle", "c-last", "d-new"], ["a-first", "b-middle", "c-last"], ["b-middle"]);
+  assert.equal(r.status, 1, "a failed existing package keeps the exit nonzero");
+  assert.match(r.stderr, /npm publish failed for 1 package\(s\)/);
+  assert.match(r.stderr, /@byokit\/b-middle@0\.1\.0: npm error 404 Not Found/);
+  assert.match(r.stderr, /skipped @byokit\/d-new@0\.1\.0: name never published to npm/);
+  assert.match(r.stderr, /published this run: @byokit\/a-first@0\.1\.0, @byokit\/c-last@0\.1\.0/);
+  assert.equal(publishes.length, 3, "the skipped name is never sent to npm publish");
+  assert.match(publishes[0], /@byokit\/a-first/);
+  assert.match(publishes[1], /@byokit\/b-middle/);
+  assert.match(publishes[2], /@byokit\/c-last/, "the package after the failure still publishes");
+});
+
+test("publish exits clean when the only pending names are skipped, naming each", () => {
+  const some = publishFixture(["a-first", "b-new"], ["a-first"], []);
+  assert.equal(some.r.status, 0, some.r.stderr);
+  assert.match(some.r.stdout, /skipped @byokit\/b-new@0\.1\.0: name never published to npm/);
+  assert.match(some.r.stdout, /published this run: @byokit\/a-first@0\.1\.0/);
+  assert.equal(some.publishes.length, 1);
+  const all = publishFixture(["a-new", "b-new"], [], []);
+  assert.equal(all.r.status, 0, all.r.stderr);
+  assert.match(all.r.stdout, /skipped @byokit\/a-new@0\.1\.0/);
+  assert.match(all.r.stdout, /skipped @byokit\/b-new@0\.1\.0/);
+  assert.match(all.r.stdout, /published this run: none \(all 2 pending package\(s\) skipped, nothing was published\)/);
+  assert.equal(all.publishes.length, 0, "an all-skipped run publishes nothing");
 });
