@@ -1,0 +1,2 @@
+- FIX: A process that cannot start now ends the bot once, not twice, so a retry cannot have its new process forgotten by the failed one's late exit.
+- `BotSpec.launch` chooses what actually runs: it gets the command the kit would run and returns the one to run, at every start, so an app can wrap Pi in its own sandbox. A `launch` that throws or returns anything else is refused with the new `bad-launch` error and Pi does not start. Without it Pi starts exactly as before.
