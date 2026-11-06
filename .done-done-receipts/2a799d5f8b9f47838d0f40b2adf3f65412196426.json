@@ -1,0 +1,55 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "2a799d5f8b9f47838d0f40b2adf3f65412196426",
+  "tree": "254e9b354314e89907ddda108708cf8664ce84d4",
+  "claim": "An app can pass a launch on a bot's spec so the kit runs Pi inside the app's own wall at every start: Pi answers from inside a real bubblewrap wall with the same argv it gets with no launch and cannot see a file outside the wall, and a launch that throws or a missing wall command starts nothing.",
+  "result": "pass",
+  "at": "2026-11-06T00:54:34.558Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261106T005415Z-2a799d5f-abd8cd/pi-launch.log",
+      "sha256": "85c8776b5b5e14b6797f3b4cb5df9f455e953d86cb61f36bbf179dd912652d12"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261106T005415Z-2a799d5f-abd8cd",
+      "commit": "2a799d5f8b9f47838d0f40b2adf3f65412196426",
+      "journey": "pi-launch",
+      "command": "npx tsc -b packages/pi > \"$DONE_DONE_EVIDENCE_ROOT/build.log\" 2>&1 && sh scripts/test.sh 'packages/pi/test/*.test.ts' > \"$DONE_DONE_EVIDENCE_ROOT/pi-tests.log\" 2>&1 && node .agents/skills/done-done-verify-byokit/capture/pi-launch.mjs",
+      "tool": "0.6.24",
+      "steps": {
+        "target": {
+          "version": "@byokit/pi 0.1.1"
+        },
+        "start": "A built checkout, a bot with its own folder and Pi home, a file outside them, and a loopback stand-in model",
+        "steps": [
+          "Run a bot with no launch and read the argv Pi got",
+          "Run the same bot with a launch that puts Pi in a bubblewrap sandbox",
+          "Kill the walled process and send another message",
+          "Stop the bot",
+          "Start a bot whose launch throws, then one whose command is missing"
+        ],
+        "result": "Pi answered from inside the wall with the same argv and could not see or write the outside file, came back inside it after a crash, and a throwing launch or a missing wall started nothing"
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "claude-bridge/claude-sonnet-5-5",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261106T005415Z-2a799d5f-abd8cd/pi-launch.log",
+        "sha256": "85c8776b5b5e14b6797f3b4cb5df9f455e953d86cb61f36bbf179dd912652d12",
+        "verdict": "pass",
+        "seen": "Read the whole capture (no-launch, launch, crash, stop, throwing launch, missing wall, model-asked lines). Launch line: text \"behind the wall\", process bwrap, \"launch got the same argv as no launch: true\", \"Pi sees the outside file: false\", \"its write reached the real disk: false\". The no-launch baseline shows the outside file visible and the write reaching disk. The crash line shows a restart: \"back behind it\" and \"launch ran 2 times\". The stop line shows \"the walled process is gone in 10 ms\". The throwing launch gives \"bad-launch: ... its launch failed\" with \"process: undefined\". The missing wall gives \"pi-exited: ... ENOENT\" with \"process: undefined\". \"the model was asked nothing by either refused start: true\". Every clause of the outcome is shown and nothing contradicts it."
+      }
+    ]
+  }
+}
