@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "ebe6329ba56c7ff4360fb1f5977b4b2488731c17",
+  "tree": "02766b244f9a6a5e8d5e3565d426aa0304151875",
+  "claim": "@byokit/herdr 0.19.0 (from 0.18.0) is prepared for consumer installation: the packed tarball carries the merged blocked-question fix (a stale answer is refused as approval-stale) and the example pin and lockfile entry move to 0.19.0 with it. Runtime behavior is not claimed.",
+  "result": "pass",
+  "at": "2026-11-06T08:01:08.698Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261106T080053Z-ebe6329b-497fa2/versions.txt",
+      "sha256": "90cd0f81710159ce9927f2bae58d4e46bac824615640e91162ba8f0fe56d85d2"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261106T080053Z-ebe6329b-497fa2",
+      "commit": "ebe6329ba56c7ff4360fb1f5977b4b2488731c17",
+      "journey": null,
+      "command": "sh /tmp/claude-1000/-home-umer--treehouse-byokit-48ee6a-1-byokit/a01058d0-da6a-4602-8388-2833de58b77e/scratchpad/capture.sh",
+      "tool": "0.6.24",
+      "steps": {
+        "target": {
+          "version": "@byokit/herdr 0.19.0 (packed tarball)"
+        },
+        "start": "origin/main at the merge of #914, @byokit/herdr 0.18.0",
+        "steps": [
+          "Run the release tool prepare for herdr=minor and read the version it wrote",
+          "Read the example pin and the lockfile entry for the same package",
+          "Pack the package the release publishes and read the tarball own package.json",
+          "Read the packed dist for the stale-answer refusal code from the merged fix"
+        ],
+        "result": "The packed consumer artifact is @byokit/herdr 0.19.0 (from 0.18.0) with the example pin and lockfile entry moved with it, and the stale-answer refusal present in the shipped dist."
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "claude-bridge/claude-sonnet-5-5",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261106T080053Z-ebe6329b-497fa2/versions.txt",
+        "sha256": "90cd0f81710159ce9927f2bae58d4e46bac824615640e91162ba8f0fe56d85d2",
+        "verdict": "pass",
+        "seen": "Read 7 capture lines. Tarball 'byokit-herdr-0.19.0.tgz', packed package.json '@byokit/herdr 0.19.0', 'example pin: 0.19.0', 'lockfile entry: 0.19.0', 'changelog head: ## 0.19.0 (2026-11-06)', a FIX line about kit-issued revision for blocked questions, and 'stale-answer refusal in shipped dist: dist/link.js dist/testing/contract.js dist/approvals.js'. All match the outcome (version bump, pin, lockfile, fix in tarball). Runtime behavior is not claimed, so no contradiction."
+      }
+    ]
+  }
+}
