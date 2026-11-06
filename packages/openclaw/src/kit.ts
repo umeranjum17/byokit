@@ -1194,14 +1194,18 @@ export class OpenClawKit {
   learning(): LearningCapture {
     const value = this.getConfigKey(LEARNING_KEY);
     if (value === undefined) return { present: false };
-    if (value !== 'off' && value !== 'propose' && value !== 'auto')
-      throw new Error(`learning: stored ${LEARNING_KEY} is ${JSON.stringify(value)}, not one of off|propose|auto`);
+    // A home from before 11.1 may still store the retired `propose`; the next boot writes `off`, so that is what it means.
+    if (value === 'propose') return { present: true, mode: 'off' };
+    if (value !== 'off' && value !== 'auto')
+      throw new Error(`learning: stored ${LEARNING_KEY} is ${JSON.stringify(value)}, not one of off|auto`);
     return { present: true, mode: value };
   }
 
   setLearning(mode: LearningMode | 'default'): LearningCapture {
-    if (mode !== 'off' && mode !== 'propose' && mode !== 'auto' && mode !== 'default')
-      throw new Error(`setLearning: unknown learning mode ${JSON.stringify(mode)}, expected off|propose|auto|default`);
+    if ((mode as string) === 'propose')
+      throw new Error('setLearning: the engine retired "propose" in 2026.11.1 (Workshop changes now apply at once and are undoable), expected off|auto|default');
+    if (mode !== 'off' && mode !== 'auto' && mode !== 'default')
+      throw new Error(`setLearning: unknown learning mode ${JSON.stringify(mode)}, expected off|auto|default`);
     this.assertLearningWritable('setLearning');
     const previous = this.learning();
     this.setConfigKey(LEARNING_KEY, mode === 'default' ? undefined : mode);
@@ -1209,12 +1213,14 @@ export class OpenClawKit {
   }
 
   restoreLearning(captured: LearningCapture): LearningCapture {
-    if (captured.present && captured.mode !== 'off' && captured.mode !== 'propose' && captured.mode !== 'auto')
-      throw new Error(`restoreLearning: unknown learning mode ${JSON.stringify(captured.mode)}, expected off|propose|auto`);
+    // A capture saved before 11.1 may hold `propose`: it restores as `off`, never as the engine's fallback `auto`.
+    const mode = !captured.present ? undefined : (captured.mode as string) === 'propose' ? 'off' : captured.mode;
+    if (captured.present && mode !== 'off' && mode !== 'auto')
+      throw new Error(`restoreLearning: unknown learning mode ${JSON.stringify(captured.mode)}, expected off|auto`);
     this.assertLearningWritable('restoreLearning');
-    this.setConfigKey(LEARNING_KEY, captured.present ? captured.mode : undefined);
+    this.setConfigKey(LEARNING_KEY, mode);
     const read = this.learning();
-    if (read.present !== captured.present || (read.present && captured.present && read.mode !== captured.mode))
+    if (read.present !== captured.present || (read.present && read.mode !== mode))
       throw new Error(`learning restore readback mismatch: captured ${JSON.stringify(captured)}, read ${JSON.stringify(read)}`);
     return read;
   }

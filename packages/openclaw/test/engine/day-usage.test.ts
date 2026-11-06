@@ -29,7 +29,7 @@ test('O16 real Workshop, cold cache, failed writes, crash interruption and bound
     const chunks: Buffer[] = []; for await (const c of req) chunks.push(c);
     const body = JSON.parse(Buffer.concat(chunks).toString());
     const review = body.messages.some((m: any) => m.role === 'user' && (typeof m.content === 'string' ? m.content :
-      Array.isArray(m.content) ? m.content.map((part: any) => part.text ?? '').join('\n') : '').includes('Skill review. Distill new durable learning from the full retained conversation.'));
+      Array.isArray(m.content) ? m.content.map((part: any) => part.text ?? '').join('\n') : '').includes('Background skill review.'));
     if (review) reviews++; else foreground++;
     if (review && holdReviews) await new Promise<void>(resolve => { releaseReview = resolve; res.once('close', resolve); });
     const tool = !review && body.messages.filter((m: any) => m.role === 'tool').length < 9;
@@ -81,8 +81,9 @@ test('O16 real Workshop, cold cache, failed writes, crash interruption and bound
     }
     await delay(35_000);
     cold = await readAgentDayUsage(kit, 'm1', window);
-    assert.equal(cold.transcripts.state, 'unavailable', 'first sessions.usage must honestly surface the cold cache');
-    assert.equal(cold.knownTotalTokens, undefined);
+    // 11.1 may finish the summary within the first read; a read still warming stays unavailable. Neither may be a wrong number.
+    if (cold.transcripts.state === 'available') assert.equal(cold.transcripts.totals?.totalTokens, 180, 'a cold read that answers must be exact');
+    else assert.equal(cold.knownTotalTokens, undefined, 'first sessions.usage must honestly surface the cold cache');
     const freshBy = Date.now() + 60_000;
     do { await delay(1500); first = await readAgentDayUsage(kit, 'm1', window); }
     while (first.transcripts.state !== 'available' && Date.now() < freshBy);
@@ -235,7 +236,7 @@ test('O16 real crash recovery resumes are counted through retained transcripts o
     const chunks: Buffer[] = []; for await (const c of req) chunks.push(c);
     const body = JSON.parse(Buffer.concat(chunks).toString());
     const texts = body.messages.map((m: any) => typeof m.content === 'string' ? m.content : Array.isArray(m.content) ? m.content.map((p: any) => p.text ?? '').join('\n') : '');
-    const recovery = texts.some((text: string) => text.includes('previous turn was interrupted by a gateway restart'));
+    const recovery = texts.some((text: string) => text.includes('previous turn was interrupted'));
     const held = !recovery && body.messages.some((m: any) => m.role === 'tool');
     const call: { recovery: boolean; held: boolean; reported?: number } = { recovery, held }; calls.push(call);
     if (held) { await new Promise<void>(resolve => { release = resolve; res.once('close', resolve); }); return; }

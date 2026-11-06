@@ -7,7 +7,7 @@
 </p>
 
 <p align="center"><strong>The OpenClaw runtime kit: one object that runs the pinned engine for your app.</strong><br/>
-It drives the pinned OpenClaw engine (<code>openclaw@2026.9.33</code>, protocol 4) through one kit object. The
+It drives the pinned OpenClaw engine (<code>openclaw@2026.11.1</code>, protocol 4) through one kit object. The
 aggregator's full operator surface stays available as typed pass-through calls (<code>call</code> for every operator
 method, <code>callDynamic</code> for the rest), with plain-words helpers for members, sign-in, runs, approvals and
 config. For apps built on OpenClaw, where the engine holds the subscriptions.</p>
@@ -34,6 +34,8 @@ The Claude CLI route also uses the bundled [Tooling-name correction](../../docs/
 apps do not need consumer tool aliases.
 A key setup plan patch lets an OpenRouter API key activate: stock plans the key's live test on a route other than the
 one it stages and refuses every OpenRouter key before sending it.
+A startup patch retries an agent's database publication when a model-runtime publication supersedes it, so that agent
+is not refused until a Gateway restart.
 The full upstream MIT notice ships in [engine/OPENCLAW-LICENSE](engine/OPENCLAW-LICENSE).
 
 Each `prepare()` verifies the **entire** selected engine tree, including unpatched files. The kit installs stock
@@ -98,7 +100,7 @@ async function dispatch(kit: OpenClawKit, taskId: string, attempt: number, messa
 ```
 
 Omitting `idempotencyKey` preserves a fresh UUID per call. Supplied keys are non-empty strings passed unchanged.
-**Not exactly-once:** engine 2026.9.33 caches `agent` keys gateway-wide, across agents and sessions, without comparing
+**Not exactly-once:** the pinned engine caches `agent` keys gateway-wide, across agents and sessions, without comparing
 inputs. A collision silently returns the first run's result/error; a task id alone is not a safe key. Reconnects
 retain the in-memory cache; engine process restarts lose it. Inactive entries expire after five minutes (60-second
 cleanup tick), or earlier under the 1,000-entry cache limit; active and pending accepted runs are exempt.
@@ -276,7 +278,7 @@ RPC data is retained; existing typed `call` pass-through is unchanged. Windows a
 refresh it. The engine response cache lasts 30 seconds; pending/stale/unknown data leaves `totals` absent.
 An absent agent row is unavailable, not proof of zero usage. Reset/deletion/retention can reduce counters.
 
-**Coverage is always `retained-transcripts-only`.** Stock 2026.9.33's detached Skill Workshop reviews are omitted
+**Coverage is always `retained-transcripts-only`.** Stock 2026.11.1's detached Skill Workshop reviews are omitted
 from its ledger. Crash-recovery resumes count only where their usage is persisted. Unlike 8.35, 9.33 also runs
 threshold memory flushes detached: their provider tokens are absent from the observed transcript/day usage RPCs,
 even when the flush succeeds. No second side total is guessed. This reader cannot enforce a complete all-turn budget. The app owns budget,
@@ -454,8 +456,8 @@ Entries:
 
 Every method and event the pin publishes has a real type: `kit.call('sessions.list', params)` is checked in and
 returns the engine's declared result, with no cast. For the slots the pin itself leaves undeclared the table stays
-`unknown`, and `src/generated/report.json` names every one of them per release. On `openclaw@2026.9.33` that is 370
-of 487 methods' params and 241 of their results, plus 29 of 64 event payloads; the other slots are not missing from
+`unknown`, and `src/generated/report.json` names every one of them per release. On `openclaw@2026.11.1` that is 378
+of 533 methods' params and 252 of their results, plus 30 of 66 event payloads; the other slots are not missing from
 the kit, they are not published by the engine, and typing them here would be a guess that does not match the
 gateway. `callDynamic` stays the same shape for a method the pin never declared.
 
@@ -609,10 +611,10 @@ wins. Don't interleave a narrow set with `patchConfig`, which rewrites the whole
 
 ## Engine learning state
 
-The engine's learning switch is the config key `skills.workshop.autonomous.mode` (`off | propose | auto`; engine
-default `auto` when absent). `off` keeps only the suggestion nudge, `propose` creates pending proposals, `auto`
-applies captured proposals and runs the scanner-gated cleanup; the engine projects a system-owned cron job
-`skill-collection-review-<agentId>` per workspace agent, enabled only on `auto`. The kit names it — file-backed like
+The engine's learning switch is the config key `skills.workshop.autonomous.mode` (`off | auto`; engine default `auto`
+when absent). `off` keeps only the suggestion nudge, `auto` applies captured changes at once, undoably, through a
+background review. `openclaw@2026.11.1` retired `propose`, so a saved or restored `propose` becomes `off` (never
+the engine's `auto` fallback) and `setLearning('propose')` throws. The kit names it — file-backed like
 the pair above, so it works on a stopped home, before boot and after `stop()`:
 
 ```ts
@@ -620,7 +622,7 @@ import { OpenClawKit } from '@byokit/openclaw';
 
 const kit = new OpenClawKit({ stateDir: './openclaw-state' });
 
-kit.learning();                                  // { present: false } | { present: true, mode: 'off' | 'propose' | 'auto' }
+kit.learning();                                  // { present: false } | { present: true, mode: 'off' | 'auto' }
 const before = kit.learning();                   // capture before maintenance
 kit.setLearning('off');                          // returns the state it replaced
 kit.setLearning('default');                      // remove the key: the engine default (auto) applies again
@@ -628,7 +630,7 @@ kit.restoreLearning(before);                     // writes the capture, reads it
 ```
 
 Absence is a value (`{ present: false }`), never "probably default". An unknown mode throws listing the accepted
-values (`off|propose|auto`, plus `default` for `setLearning`), a stored value outside the enum makes `learning()`
+values (`off|auto`, plus `default` for `setLearning`), a stored value outside the enum makes `learning()`
 throw naming it, and both writers throw when the app also passes a `skills` key in `KitOptions.config` (that option
 wins at every boot). A home that was never prepared surfaces the file read's ENOENT: `prepare()` once first.
 
@@ -863,7 +865,7 @@ retained-login cleanup and sealed approval limits.
 
 Linux and macOS x64/arm64 are supported; Windows is unsupported.
 
-Pinned to OpenClaw `2026.9.33` (protocol 4); `ENGINE_VERSION` and `PROTOCOL_VERSION` carry the pin. Signatures are
+Pinned to OpenClaw `2026.11.1` (protocol 4); `ENGINE_VERSION` and `PROTOCOL_VERSION` carry the pin. Signatures are
 frozen (docs/runtime-kits.md §5).
 
 ## Links

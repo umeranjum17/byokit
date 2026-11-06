@@ -9,8 +9,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "The pinned Gateway has no app-guided setup for this choice.",
-    "source": "extensions/alibaba/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/alibaba/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Alibaba Model Studio API key",
     "keyEntry": true,
@@ -32,7 +32,7 @@
       "surface": "openclaw",
       "id": "alibaba",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -46,8 +46,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Cloud credentials (billed per use); configured by the host, not a wizard sign-in choice.",
-    "source": "extensions/amazon-bedrock/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/amazon-bedrock/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "amazon-bedrock",
     "keyEntry": false,
@@ -75,7 +75,7 @@
       "surface": "openclaw",
       "id": "amazon-bedrock",
       "method": "cloud",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -89,8 +89,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Cloud credentials (billed per use); configured by the host, not a wizard sign-in choice.",
-    "source": "extensions/amazon-bedrock-mantle/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/amazon-bedrock-mantle/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "amazon-bedrock-mantle",
     "keyEntry": false,
@@ -118,7 +118,7 @@
       "surface": "openclaw",
       "id": "amazon-bedrock-mantle",
       "method": "cloud",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -138,8 +138,8 @@
     },
     "deprecatedProvider": "anthropic",
     "reason": "Anthropic Claude CLI: subscription sign-in.",
-    "source": "extensions/anthropic/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/anthropic/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Anthropic Claude CLI",
     "keyEntry": false,
@@ -164,7 +164,7 @@
       "surface": "openclaw",
       "id": "anthropic",
       "method": "cli",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -179,8 +179,8 @@
     "offer": true,
     "offerPolicy": "default",
     "reason": "Anthropic setup-token: subscription sign-in.",
-    "source": "extensions/anthropic/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/anthropic/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Anthropic setup-token",
     "keyEntry": false,
@@ -199,7 +199,7 @@
       "surface": "openclaw",
       "id": "anthropic",
       "method": "setup-token",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -214,8 +214,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Anthropic: API key (billed per use).",
-    "source": "extensions/anthropic/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/anthropic/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Anthropic API key",
     "keyEntry": true,
@@ -237,7 +237,7 @@
       "surface": "openclaw",
       "id": "anthropic",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -251,8 +251,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Cloud credentials (billed per use); configured by the host, not a wizard sign-in choice.",
-    "source": "extensions/anthropic-vertex/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/anthropic-vertex/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "anthropic-vertex",
     "keyEntry": false,
@@ -280,7 +280,7 @@
       "surface": "openclaw",
       "id": "anthropic-vertex",
       "method": "cloud",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -294,8 +294,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "The pinned Gateway has no app-guided setup for this choice.",
-    "source": "extensions/apple-fm/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/apple-fm/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Apple Foundation Models (on-device)",
     "keyEntry": true,
@@ -317,7 +317,7 @@
       "surface": "openclaw",
       "id": "apple-fm",
       "method": "local",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -331,8 +331,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Arcee AI: API key (billed per use).",
-    "source": "extensions/arcee/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/arcee/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Arcee AI API key",
     "keyEntry": true,
@@ -363,7 +363,7 @@
       "surface": "openclaw",
       "id": "arcee",
       "method": "arcee-platform",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -377,8 +377,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Arcee AI: API key (billed per use).",
-    "source": "extensions/arcee/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/arcee/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "OpenRouter API key",
     "keyEntry": true,
@@ -409,7 +409,7 @@
       "surface": "openclaw",
       "id": "arcee",
       "method": "openrouter",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -423,8 +423,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Baseten: API key (billed per use).",
-    "source": "extensions/baseten/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/baseten/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Baseten API key",
     "keyEntry": true,
@@ -455,7 +455,7 @@
       "surface": "openclaw",
       "id": "baseten",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -469,8 +469,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "BytePlus: API key (billed per use).",
-    "source": "extensions/byteplus/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/byteplus/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "BytePlus API key",
     "keyEntry": true,
@@ -501,7 +501,7 @@
       "surface": "openclaw",
       "id": "byteplus",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -515,8 +515,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Cerebras: API key (billed per use).",
-    "source": "extensions/cerebras/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/cerebras/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Cerebras API key",
     "keyEntry": true,
@@ -547,7 +547,7 @@
       "surface": "openclaw",
       "id": "cerebras",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -561,8 +561,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Chutes: OAuth (billed per use).",
-    "source": "extensions/chutes/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/chutes/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Chutes (OAuth)",
     "keyEntry": false,
@@ -591,7 +591,7 @@
       "surface": "openclaw",
       "id": "chutes",
       "method": "oauth",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -605,8 +605,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Chutes: API key (billed per use).",
-    "source": "extensions/chutes/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/chutes/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Chutes API key",
     "keyEntry": true,
@@ -637,7 +637,7 @@
       "surface": "openclaw",
       "id": "chutes",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -651,8 +651,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "The pinned Gateway has no app-guided setup for this choice.",
-    "source": "extensions/clawrouter/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/clawrouter/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "ClawRouter proxy key",
     "keyEntry": true,
@@ -674,7 +674,7 @@
       "surface": "openclaw",
       "id": "clawrouter",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -688,8 +688,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "The pinned Gateway has no app-guided setup for this choice.",
-    "source": "extensions/cloudflare-ai-gateway/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/cloudflare-ai-gateway/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Cloudflare AI Gateway",
     "keyEntry": true,
@@ -720,7 +720,7 @@
       "surface": "openclaw",
       "id": "cloudflare-ai-gateway",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -734,8 +734,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Cohere: API key (billed per use).",
-    "source": "extensions/cohere/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/cohere/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Cohere API key",
     "keyEntry": true,
@@ -766,7 +766,7 @@
       "surface": "openclaw",
       "id": "cohere",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -780,8 +780,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "The pinned Gateway has no app-guided setup for this choice.",
-    "source": "extensions/comfy/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/comfy/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Comfy Cloud API key",
     "keyEntry": true,
@@ -812,7 +812,7 @@
       "surface": "openclaw",
       "id": "comfy",
       "method": "cloud-api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -826,8 +826,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Billing must be supplied by the host; a server address does not determine billing.",
-    "source": "extensions/copilot-proxy/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/copilot-proxy/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Copilot Proxy",
     "keyEntry": false,
@@ -846,7 +846,7 @@
       "surface": "openclaw",
       "id": "copilot-proxy",
       "method": "local",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -860,8 +860,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "DeepInfra: API key (billed per use).",
-    "source": "extensions/deepinfra/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/deepinfra/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "DeepInfra API key",
     "keyEntry": true,
@@ -892,7 +892,7 @@
       "surface": "openclaw",
       "id": "deepinfra",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -906,8 +906,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "DeepSeek: API key (billed per use).",
-    "source": "extensions/deepseek/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/deepseek/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "DeepSeek API key",
     "keyEntry": true,
@@ -938,7 +938,7 @@
       "surface": "openclaw",
       "id": "deepseek",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -952,8 +952,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "The pinned Gateway has no app-guided setup for this choice.",
-    "source": "extensions/fal/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/fal/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "fal API key",
     "keyEntry": true,
@@ -975,7 +975,7 @@
       "surface": "openclaw",
       "id": "fal",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -989,8 +989,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Featherless AI: API key (billed per use).",
-    "source": "extensions/featherless/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/featherless/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Featherless AI API key",
     "keyEntry": true,
@@ -1021,7 +1021,7 @@
       "surface": "openclaw",
       "id": "featherless",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1035,8 +1035,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Fireworks: API key (billed per use).",
-    "source": "extensions/fireworks/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/fireworks/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Fireworks API key",
     "keyEntry": true,
@@ -1067,7 +1067,7 @@
       "surface": "openclaw",
       "id": "fireworks",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1081,8 +1081,8 @@
     "offer": true,
     "offerPolicy": "default",
     "reason": "GitHub Copilot: subscription sign-in.",
-    "source": "extensions/github-copilot/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/github-copilot/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "GitHub Copilot",
     "keyEntry": false,
@@ -1101,7 +1101,7 @@
       "surface": "openclaw",
       "id": "github-copilot",
       "method": "device",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1115,8 +1115,8 @@
     "offer": true,
     "offerPolicy": "default",
     "reason": "GitHub Copilot (Enterprise / data residency): subscription sign-in.",
-    "source": "extensions/github-copilot/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/github-copilot/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "GitHub Copilot (Enterprise / data residency)",
     "keyEntry": false,
@@ -1135,7 +1135,7 @@
       "surface": "openclaw",
       "id": "github-copilot",
       "method": "device-enterprise",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1149,8 +1149,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "GMI Cloud: API key (billed per use).",
-    "source": "extensions/gmi/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/gmi/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "GMI Cloud API key",
     "keyEntry": true,
@@ -1181,7 +1181,7 @@
       "surface": "openclaw",
       "id": "gmi",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1195,8 +1195,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Google: API key (billed per use).",
-    "source": "extensions/google/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/google/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Google AI Studio API key",
     "keyEntry": true,
@@ -1218,7 +1218,7 @@
       "surface": "openclaw",
       "id": "google",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1232,8 +1232,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Native CLI runtime; billing is unverified. No wizard sign-in choice.",
-    "source": "extensions/google/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/google/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "google-gemini-cli",
     "keyEntry": false,
@@ -1255,7 +1255,7 @@
       "surface": "openclaw",
       "id": "google-gemini-cli",
       "method": "cli",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -1269,8 +1269,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Cloud credentials (billed per use); configured by the host, not a wizard sign-in choice.",
-    "source": "extensions/google/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/google/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "google-vertex",
     "keyEntry": false,
@@ -1289,7 +1289,7 @@
       "surface": "openclaw",
       "id": "google-vertex",
       "method": "cloud",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -1303,8 +1303,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Groq: API key (billed per use).",
-    "source": "extensions/groq/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/groq/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Groq API key",
     "keyEntry": true,
@@ -1335,7 +1335,7 @@
       "surface": "openclaw",
       "id": "groq",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1349,8 +1349,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Hugging Face: API key (billed per use).",
-    "source": "extensions/huggingface/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/huggingface/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Hugging Face API key",
     "keyEntry": true,
@@ -1372,7 +1372,7 @@
       "surface": "openclaw",
       "id": "huggingface",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1386,8 +1386,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "The pinned Gateway has no app-guided setup for this choice.",
-    "source": "extensions/kie/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/kie/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Kie AI API key",
     "keyEntry": true,
@@ -1409,7 +1409,7 @@
       "surface": "openclaw",
       "id": "kie",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -1423,8 +1423,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Kilo Gateway: API key (billed per use).",
-    "source": "extensions/kilocode/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/kilocode/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Kilo Gateway API key",
     "keyEntry": true,
@@ -1455,7 +1455,7 @@
       "surface": "openclaw",
       "id": "kilocode",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1469,8 +1469,8 @@
     "offer": false,
     "offerPolicy": "default",
     "reason": "Kimi Code API key (subscription): subscription sign-in.",
-    "source": "extensions/kimi/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/kimi/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Kimi Code API key (subscription)",
     "keyEntry": true,
@@ -1501,7 +1501,7 @@
       "surface": "openclaw",
       "id": "kimi",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1515,8 +1515,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "LiteLLM: API key (billed per use).",
-    "source": "extensions/litellm/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/litellm/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "LiteLLM API key",
     "keyEntry": true,
@@ -1538,7 +1538,7 @@
       "surface": "openclaw",
       "id": "litellm",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1552,8 +1552,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Local runtime; explicitly select this route.",
-    "source": "extensions/llama-cpp/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/llama-cpp/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Managed local server",
     "keyEntry": false,
@@ -1575,7 +1575,7 @@
       "surface": "openclaw",
       "id": "llama-cpp",
       "method": "local",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1589,8 +1589,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Billing must be supplied by the host; a server address does not determine billing.",
-    "source": "extensions/llama-cpp/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/llama-cpp/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Existing llama-server",
     "keyEntry": true,
@@ -1615,7 +1615,7 @@
       "surface": "openclaw",
       "id": "llama-cpp",
       "method": "existing-server",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1629,8 +1629,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Local runtime; explicitly select this route.",
-    "source": "extensions/lmstudio/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/lmstudio/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "LM Studio",
     "keyEntry": false,
@@ -1649,7 +1649,7 @@
       "surface": "openclaw",
       "id": "lmstudio",
       "method": "custom",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1663,8 +1663,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "The pinned Gateway has no app-guided setup for this choice.",
-    "source": "extensions/longcat/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/longcat/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "LongCat API key",
     "keyEntry": true,
@@ -1695,7 +1695,7 @@
       "surface": "openclaw",
       "id": "longcat",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -1709,8 +1709,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Meta: API key (billed per use).",
-    "source": "extensions/meta/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/meta/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Meta API key",
     "keyEntry": true,
@@ -1741,7 +1741,50 @@
       "surface": "openclaw",
       "id": "meta",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "muse-code",
+    "provider": "meta",
+    "plugin": "meta",
+    "billing": "api",
+    "via": "code",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Meta: OAuth (billed per use).",
+    "source": "extensions/meta/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
+    "checked": "2026-10-21",
+    "label": "Muse Code",
+    "keyEntry": false,
+    "keyErrors": null,
+    "id": "meta:code:muse-code",
+    "name": "Meta",
+    "company": "Meta",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "meta"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/meta-provider",
+      "npmSpec": "@openclaw/meta-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.6.11"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "meta",
+      "method": "muse-code",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1755,8 +1798,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Microsoft Foundry: Cloud credentials (billed per use).",
-    "source": "extensions/microsoft-foundry/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/microsoft-foundry/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Microsoft Foundry (Entra ID / az login)",
     "keyEntry": false,
@@ -1775,7 +1818,7 @@
       "surface": "openclaw",
       "id": "microsoft-foundry",
       "method": "entra-id",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1789,8 +1832,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "The pinned Gateway has no app-guided setup for this choice.",
-    "source": "extensions/microsoft-foundry/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/microsoft-foundry/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Microsoft Foundry (API key)",
     "keyEntry": true,
@@ -1812,7 +1855,7 @@
       "surface": "openclaw",
       "id": "microsoft-foundry",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -1830,8 +1873,8 @@
       "via": "code"
     },
     "reason": "MiniMax OAuth (Global): subscription sign-in.",
-    "source": "extensions/minimax/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/minimax/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "MiniMax OAuth (Global)",
     "keyEntry": false,
@@ -1850,7 +1893,7 @@
       "surface": "openclaw",
       "id": "minimax-portal",
       "method": "oauth",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1864,8 +1907,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "MiniMax: API key (billed per use).",
-    "source": "extensions/minimax/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/minimax/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "MiniMax API key (Global)",
     "keyEntry": true,
@@ -1893,7 +1936,7 @@
       "surface": "openclaw",
       "id": "minimax",
       "method": "api-global",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1911,8 +1954,8 @@
       "via": "code"
     },
     "reason": "MiniMax OAuth (CN): subscription sign-in.",
-    "source": "extensions/minimax/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/minimax/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "MiniMax OAuth (CN)",
     "keyEntry": false,
@@ -1931,7 +1974,7 @@
       "surface": "openclaw",
       "id": "minimax-portal",
       "method": "oauth-cn",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1945,8 +1988,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "MiniMax: API key (billed per use).",
-    "source": "extensions/minimax/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/minimax/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "MiniMax API key (CN)",
     "keyEntry": true,
@@ -1971,7 +2014,7 @@
       "surface": "openclaw",
       "id": "minimax",
       "method": "api-cn",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -1985,8 +2028,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Mistral AI: API key (billed per use).",
-    "source": "extensions/mistral/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/mistral/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Mistral API key",
     "keyEntry": true,
@@ -2017,7 +2060,7 @@
       "surface": "openclaw",
       "id": "mistral",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2031,8 +2074,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Moonshot AI (Kimi): API key (billed per use).",
-    "source": "extensions/moonshot/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/moonshot/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Moonshot API key (.ai)",
     "keyEntry": true,
@@ -2063,7 +2106,7 @@
       "surface": "openclaw",
       "id": "moonshot",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2077,8 +2120,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Moonshot AI (Kimi): API key (billed per use).",
-    "source": "extensions/moonshot/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/moonshot/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Moonshot API key (.cn)",
     "keyEntry": true,
@@ -2109,7 +2152,7 @@
       "surface": "openclaw",
       "id": "moonshot",
       "method": "api-key-cn",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2123,8 +2166,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "NovitaAI: API key (billed per use).",
-    "source": "extensions/novita/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/novita/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "NovitaAI API key",
     "keyEntry": true,
@@ -2155,7 +2198,7 @@
       "surface": "openclaw",
       "id": "novita",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2169,8 +2212,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "NVIDIA: API key (billed per use).",
-    "source": "extensions/nvidia/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/nvidia/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "NVIDIA API key",
     "keyEntry": true,
@@ -2192,7 +2235,7 @@
       "surface": "openclaw",
       "id": "nvidia",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2206,8 +2249,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Local runtime; explicitly select this route.",
-    "source": "extensions/ollama/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/ollama/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Ollama",
     "keyEntry": false,
@@ -2226,7 +2269,7 @@
       "surface": "openclaw",
       "id": "ollama",
       "method": "local",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2240,8 +2283,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Ollama: API key (billed per use).",
-    "source": "extensions/ollama/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/ollama/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Ollama Cloud",
     "keyEntry": true,
@@ -2263,7 +2306,7 @@
       "surface": "openclaw",
       "id": "ollama-cloud",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2277,8 +2320,8 @@
     "offer": true,
     "offerPolicy": "default",
     "reason": "Codex login (browser): subscription sign-in.",
-    "source": "extensions/openai/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/openai/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Codex login (browser)",
     "keyEntry": false,
@@ -2297,7 +2340,7 @@
       "surface": "openclaw",
       "id": "openai",
       "method": "oauth",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2311,8 +2354,8 @@
     "offer": true,
     "offerPolicy": "default",
     "reason": "Codex login (device code): subscription sign-in.",
-    "source": "extensions/openai/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/openai/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Codex login (device code)",
     "keyEntry": false,
@@ -2331,7 +2374,7 @@
       "surface": "openclaw",
       "id": "openai",
       "method": "device-code",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2345,8 +2388,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "OpenAI: OAuth (billed per use).",
-    "source": "extensions/openai/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/openai/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Sign in with ChatGPT (Beta)",
     "keyEntry": false,
@@ -2365,7 +2408,7 @@
       "surface": "openclaw",
       "id": "openai",
       "method": "siwc",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2379,8 +2422,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "OpenAI: API key (billed per use).",
-    "source": "extensions/openai/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/openai/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "OpenAI API Key",
     "keyEntry": true,
@@ -2402,7 +2445,7 @@
       "surface": "openclaw",
       "id": "openai",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2416,8 +2459,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "OpenCode: API key (billed per use).",
-    "source": "extensions/opencode/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/opencode/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "OpenCode Zen catalog",
     "keyEntry": true,
@@ -2448,7 +2491,7 @@
       "surface": "openclaw",
       "id": "opencode",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2462,8 +2505,8 @@
     "offer": true,
     "offerPolicy": "default",
     "reason": "OpenCode Go catalog: subscription sign-in.",
-    "source": "extensions/opencode-go/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/opencode-go/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "OpenCode Go catalog",
     "keyEntry": true,
@@ -2485,7 +2528,7 @@
       "surface": "openclaw",
       "id": "opencode-go",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2499,8 +2542,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "OpenRouter: API key (billed per use).",
-    "source": "extensions/openrouter/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/openrouter/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "OpenRouter API key",
     "keyEntry": true,
@@ -2522,7 +2565,7 @@
       "surface": "openclaw",
       "id": "openrouter",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2536,8 +2579,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "OpenRouter: OAuth (billed per use).",
-    "source": "extensions/openrouter/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/openrouter/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "OpenRouter OAuth",
     "keyEntry": false,
@@ -2556,7 +2599,53 @@
       "surface": "openclaw",
       "id": "openrouter",
       "method": "oauth",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
+      "flow": "present"
+    }
+  },
+  {
+    "choice": "particle-api-key",
+    "provider": "particle",
+    "plugin": "particle",
+    "billing": "api",
+    "via": "key",
+    "prerequisite": null,
+    "offer": false,
+    "offerPolicy": "explicit",
+    "reason": "Particle: API key (billed per use).",
+    "source": "extensions/particle/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
+    "checked": "2026-10-21",
+    "label": "Particle API key",
+    "keyEntry": true,
+    "keyErrors": {
+      "invalid": "key.invalid",
+      "not_included": "key.notIncluded"
+    },
+    "id": "particle:key:particle-api-key",
+    "name": "Particle",
+    "company": "Particle",
+    "billingFrom": "source",
+    "group": "models",
+    "platforms": {
+      "node": "yes",
+      "browser": "host",
+      "rn": "host"
+    },
+    "needs": {
+      "plugin": "particle"
+    },
+    "install": {
+      "clawhubSpec": "clawhub:@openclaw/particle-provider",
+      "npmSpec": "@openclaw/particle-provider",
+      "defaultChoice": "npm",
+      "minHostVersion": ">=2026.10.8"
+    },
+    "upstream": {
+      "surface": "openclaw",
+      "id": "particle",
+      "method": "api-key",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2570,8 +2659,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "The pinned Gateway has no app-guided setup for this choice.",
-    "source": "extensions/pixverse/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/pixverse/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "PixVerse API key",
     "keyEntry": true,
@@ -2602,7 +2691,7 @@
       "surface": "openclaw",
       "id": "pixverse",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -2616,8 +2705,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Qianfan: API key (billed per use).",
-    "source": "extensions/qianfan/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/qianfan/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Qianfan API key",
     "keyEntry": true,
@@ -2648,7 +2737,7 @@
       "surface": "openclaw",
       "id": "qianfan",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2662,8 +2751,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Qwen Cloud: API key (billed per use).",
-    "source": "extensions/qwen/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/qwen/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Standard API Key for China (pay-as-you-go)",
     "keyEntry": true,
@@ -2697,7 +2786,7 @@
       "surface": "openclaw",
       "id": "qwen",
       "method": "standard-api-key-cn",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2711,8 +2800,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Qwen Cloud: API key (billed per use).",
-    "source": "extensions/qwen/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/qwen/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Standard API Key for Global/Intl (pay-as-you-go)",
     "keyEntry": true,
@@ -2746,7 +2835,7 @@
       "surface": "openclaw",
       "id": "qwen",
       "method": "standard-api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2760,8 +2849,8 @@
     "offer": false,
     "offerPolicy": "default",
     "reason": "Coding Plan API Key for China (subscription): subscription sign-in.",
-    "source": "extensions/qwen/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/qwen/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Coding Plan API Key for China (subscription)",
     "keyEntry": true,
@@ -2795,7 +2884,7 @@
       "surface": "openclaw",
       "id": "qwen",
       "method": "api-key-cn",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2809,8 +2898,8 @@
     "offer": false,
     "offerPolicy": "default",
     "reason": "Coding Plan API Key for Global/Intl (subscription): subscription sign-in.",
-    "source": "extensions/qwen/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/qwen/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Coding Plan API Key for Global/Intl (subscription)",
     "keyEntry": true,
@@ -2844,7 +2933,7 @@
       "surface": "openclaw",
       "id": "qwen",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2858,8 +2947,8 @@
     "offer": false,
     "offerPolicy": "default",
     "reason": "Qwen Token Plan (Global/Intl): subscription sign-in.",
-    "source": "extensions/qwen/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/qwen/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Qwen Token Plan (Global/Intl)",
     "keyEntry": true,
@@ -2890,7 +2979,7 @@
       "surface": "openclaw",
       "id": "qwen-token-plan",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2904,8 +2993,8 @@
     "offer": false,
     "offerPolicy": "default",
     "reason": "Qwen Token Plan (China): subscription sign-in.",
-    "source": "extensions/qwen/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/qwen/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Qwen Token Plan (China)",
     "keyEntry": true,
@@ -2936,7 +3025,7 @@
       "surface": "openclaw",
       "id": "qwen-token-plan",
       "method": "api-key-cn",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2950,8 +3039,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Radius: OAuth (billed per use).",
-    "source": "extensions/radius/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/radius/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Radius (browser sign-in)",
     "keyEntry": false,
@@ -2979,7 +3068,7 @@
       "surface": "openclaw",
       "id": "radius",
       "method": "oauth",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -2993,8 +3082,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Radius: API key (billed per use).",
-    "source": "extensions/radius/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/radius/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Radius API key",
     "keyEntry": true,
@@ -3025,7 +3114,7 @@
       "surface": "openclaw",
       "id": "radius",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3039,8 +3128,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "The pinned Gateway has no app-guided setup for this choice.",
-    "source": "extensions/runway/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/runway/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Runway API key",
     "keyEntry": true,
@@ -3062,7 +3151,7 @@
       "surface": "openclaw",
       "id": "runway",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -3076,8 +3165,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Local runtime; explicitly select this route.",
-    "source": "extensions/sglang/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/sglang/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "SGLang",
     "keyEntry": false,
@@ -3096,7 +3185,7 @@
       "surface": "openclaw",
       "id": "sglang",
       "method": "custom",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3110,8 +3199,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "StepFun: API key (billed per use).",
-    "source": "extensions/stepfun/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/stepfun/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "StepFun Standard API key (China)",
     "keyEntry": true,
@@ -3142,7 +3231,7 @@
       "surface": "openclaw",
       "id": "stepfun",
       "method": "standard-api-key-cn",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3156,8 +3245,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "StepFun: API key (billed per use).",
-    "source": "extensions/stepfun/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/stepfun/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "StepFun Standard API key (Global/Intl)",
     "keyEntry": true,
@@ -3188,7 +3277,7 @@
       "surface": "openclaw",
       "id": "stepfun",
       "method": "standard-api-key-intl",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3202,8 +3291,8 @@
     "offer": false,
     "offerPolicy": "default",
     "reason": "StepFun Step Plan API key (China): subscription sign-in.",
-    "source": "extensions/stepfun/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/stepfun/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "StepFun Step Plan API key (China)",
     "keyEntry": true,
@@ -3234,7 +3323,7 @@
       "surface": "openclaw",
       "id": "stepfun-plan",
       "method": "plan-api-key-cn",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3248,8 +3337,8 @@
     "offer": false,
     "offerPolicy": "default",
     "reason": "StepFun Step Plan API key (Global/Intl): subscription sign-in.",
-    "source": "extensions/stepfun/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/stepfun/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "StepFun Step Plan API key (Global/Intl)",
     "keyEntry": true,
@@ -3280,7 +3369,7 @@
       "surface": "openclaw",
       "id": "stepfun-plan",
       "method": "plan-api-key-intl",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3294,8 +3383,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Synthetic: API key (billed per use).",
-    "source": "extensions/synthetic/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/synthetic/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Synthetic API key",
     "keyEntry": true,
@@ -3326,7 +3415,7 @@
       "surface": "openclaw",
       "id": "synthetic",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3340,8 +3429,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Tencent Cloud: API key (billed per use).",
-    "source": "extensions/tencent/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/tencent/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Tencent TokenHub",
     "keyEntry": true,
@@ -3372,7 +3461,7 @@
       "surface": "openclaw",
       "id": "tencent-tokenhub",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3386,8 +3475,8 @@
     "offer": false,
     "offerPolicy": "default",
     "reason": "Tencent TokenPlan: subscription sign-in.",
-    "source": "extensions/tencent/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/tencent/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Tencent TokenPlan",
     "keyEntry": true,
@@ -3418,7 +3507,7 @@
       "surface": "openclaw",
       "id": "tencent-tokenplan",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3432,8 +3521,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Together AI: API key (billed per use).",
-    "source": "extensions/together/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/together/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Together AI API key",
     "keyEntry": true,
@@ -3455,7 +3544,7 @@
       "surface": "openclaw",
       "id": "together",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3469,8 +3558,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Venice AI: API key (billed per use).",
-    "source": "extensions/venice/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/venice/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Venice AI API key",
     "keyEntry": true,
@@ -3501,7 +3590,7 @@
       "surface": "openclaw",
       "id": "venice",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3515,8 +3604,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Vercel AI Gateway: API key (billed per use).",
-    "source": "extensions/vercel-ai-gateway/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/vercel-ai-gateway/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Vercel AI Gateway API key",
     "keyEntry": true,
@@ -3547,7 +3636,7 @@
       "surface": "openclaw",
       "id": "vercel-ai-gateway",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3561,8 +3650,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Local runtime; explicitly select this route.",
-    "source": "extensions/vllm/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/vllm/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "vLLM",
     "keyEntry": false,
@@ -3581,7 +3670,7 @@
       "surface": "openclaw",
       "id": "vllm",
       "method": "custom",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3595,8 +3684,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Volcano Engine: API key (billed per use).",
-    "source": "extensions/volcengine/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/volcengine/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Volcano Engine API key",
     "keyEntry": true,
@@ -3627,7 +3716,7 @@
       "surface": "openclaw",
       "id": "volcengine",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3641,8 +3730,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "The pinned Gateway has no app-guided setup for this choice.",
-    "source": "extensions/vydra/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/vydra/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Vydra API key",
     "keyEntry": true,
@@ -3673,7 +3762,7 @@
       "surface": "openclaw",
       "id": "vydra",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -3687,8 +3776,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "xAI (Grok): API key (billed per use).",
-    "source": "extensions/xai/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/xai/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "xAI API key",
     "keyEntry": true,
@@ -3710,7 +3799,7 @@
       "surface": "openclaw",
       "id": "xai",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3724,8 +3813,8 @@
     "offer": true,
     "offerPolicy": "default",
     "reason": "xAI OAuth: subscription sign-in.",
-    "source": "extensions/xai/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/xai/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "xAI OAuth",
     "keyEntry": false,
@@ -3744,7 +3833,7 @@
       "surface": "openclaw",
       "id": "xai",
       "method": "oauth",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3758,8 +3847,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Compatibility alias the Gateway does not offer; use xai-oauth.",
-    "source": "extensions/xai/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/xai/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "xAI device code",
     "keyEntry": false,
@@ -3778,7 +3867,7 @@
       "surface": "openclaw",
       "id": "xai",
       "method": "device-code",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -3792,8 +3881,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Xiaomi: API key (billed per use).",
-    "source": "extensions/xiaomi/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/xiaomi/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Xiaomi API key (Pay-as-you-go)",
     "keyEntry": true,
@@ -3824,7 +3913,7 @@
       "surface": "openclaw",
       "id": "xiaomi",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3838,8 +3927,8 @@
     "offer": false,
     "offerPolicy": "default",
     "reason": "Xiaomi Token Plan (Europe): subscription sign-in.",
-    "source": "extensions/xiaomi/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/xiaomi/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Xiaomi Token Plan (Europe)",
     "keyEntry": true,
@@ -3870,7 +3959,7 @@
       "surface": "openclaw",
       "id": "xiaomi-token-plan",
       "method": "token-plan-ams",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3884,8 +3973,8 @@
     "offer": false,
     "offerPolicy": "default",
     "reason": "Xiaomi Token Plan (China): subscription sign-in.",
-    "source": "extensions/xiaomi/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/xiaomi/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Xiaomi Token Plan (China)",
     "keyEntry": true,
@@ -3916,7 +4005,7 @@
       "surface": "openclaw",
       "id": "xiaomi-token-plan",
       "method": "token-plan-cn",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3930,8 +4019,8 @@
     "offer": false,
     "offerPolicy": "default",
     "reason": "Xiaomi Token Plan (Singapore): subscription sign-in.",
-    "source": "extensions/xiaomi/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/xiaomi/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Xiaomi Token Plan (Singapore)",
     "keyEntry": true,
@@ -3962,7 +4051,7 @@
       "surface": "openclaw",
       "id": "xiaomi-token-plan",
       "method": "token-plan-sgp",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -3976,8 +4065,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Z.AI: API key (billed per use).",
-    "source": "extensions/zai/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/zai/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Z.AI API key",
     "keyEntry": true,
@@ -4008,7 +4097,7 @@
       "surface": "openclaw",
       "id": "zai",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -4022,8 +4111,8 @@
     "offer": false,
     "offerPolicy": "default",
     "reason": "Coding-Plan-Global: subscription sign-in.",
-    "source": "extensions/zai/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/zai/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Coding-Plan-Global",
     "keyEntry": true,
@@ -4054,7 +4143,7 @@
       "surface": "openclaw",
       "id": "zai",
       "method": "coding-global",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -4068,8 +4157,8 @@
     "offer": false,
     "offerPolicy": "default",
     "reason": "Coding-Plan-CN: subscription sign-in.",
-    "source": "extensions/zai/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/zai/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Coding-Plan-CN",
     "keyEntry": true,
@@ -4100,7 +4189,7 @@
       "surface": "openclaw",
       "id": "zai",
       "method": "coding-cn",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -4114,8 +4203,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Z.AI: API key (billed per use).",
-    "source": "extensions/zai/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/zai/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Global",
     "keyEntry": true,
@@ -4146,7 +4235,7 @@
       "surface": "openclaw",
       "id": "zai",
       "method": "global",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -4160,8 +4249,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Z.AI: API key (billed per use).",
-    "source": "extensions/zai/openclaw.plugin.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "extensions/zai/openclaw.plugin.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "CN",
     "keyEntry": true,
@@ -4192,7 +4281,7 @@
       "surface": "openclaw",
       "id": "zai",
       "method": "cn",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "present"
     }
   },
@@ -4206,8 +4295,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "Third-party provider plugins are not supported by this kit.",
-    "source": "scripts/lib/official-external-provider-catalog.json (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "scripts/lib/official-external-provider-catalog.json (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Telnyx API key",
     "keyEntry": true,
@@ -4239,7 +4328,7 @@
       "surface": "openclaw",
       "id": "telnyx",
       "method": "api-key",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   },
@@ -4253,8 +4342,8 @@
     "offer": false,
     "offerPolicy": "explicit",
     "reason": "The pinned Gateway has no app-guided setup for this choice.",
-    "source": "src/commands/auth-choice-options.static.ts (2026.9.33)",
-    "revision": "2026.9.33",
+    "source": "src/commands/auth-choice-options.static.ts (2026.11.1)",
+    "revision": "2026.11.1",
     "checked": "2026-10-21",
     "label": "Custom endpoint",
     "keyEntry": true,
@@ -4276,7 +4365,7 @@
       "surface": "openclaw",
       "id": "custom",
       "method": "custom",
-      "revision": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+      "revision": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
       "flow": "absent"
     }
   }

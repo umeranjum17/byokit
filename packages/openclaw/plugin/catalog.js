@@ -6,7 +6,7 @@ export function registerCatalog(api) {
     try {
       const provider = String(params?.provider ?? '');
       const { resolveAgentDir } = await import('openclaw/plugin-sdk/agent-scope-runtime');
-      const { getRuntimeConfig } = await import('openclaw/plugin-sdk/config-runtime');
+      const { getRuntimeConfig } = await import('openclaw/plugin-sdk/runtime-config-snapshot');
       const { resolvePluginProviders } = await import('openclaw/plugin-sdk/provider-catalog-runtime');
       const { resolveApiKeyForProvider } = await import('openclaw/plugin-sdk/provider-auth-runtime');
       const config = getRuntimeConfig();

@@ -21,8 +21,9 @@ try {
   const owned = readFileSync(file, 'utf8');
   console.log('after setLearning(off):', JSON.stringify(kit.learning()));
 
-  assert.deepEqual(kit.setLearning('propose'), { present: true, mode: 'off' });
-  assert.deepEqual(kit.learning(), { present: true, mode: 'propose' }, 'propose must be visible, not folded into on');
+  assert.throws(() => kit.setLearning('propose'), /retired "propose"/);
+  assert.deepEqual(kit.setLearning('auto'), { present: true, mode: 'off' });
+  assert.deepEqual(kit.learning(), { present: true, mode: 'auto' });
   assert.deepEqual(kit.restoreLearning({ present: true, mode: 'off' }), { present: true, mode: 'off' });
   assert.equal(readFileSync(file, 'utf8'), owned, 'restore is byte for byte');
   console.log('capture/restore round trip: byte for byte');

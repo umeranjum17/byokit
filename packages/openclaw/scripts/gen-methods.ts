@@ -1,5 +1,5 @@
 // O2 generator (docs/runtime-kits.md 5.10): builds src/generated/methods.ts, events.ts and report.json from the
-// pinned openclaw@2026.9.33 tarball (npm pack + extract; network at generation time only) and the installed
+// pinned openclaw@2026.11.1 tarball (npm pack + extract; network at generation time only) and the installed
 // @openclaw/gateway-protocol types. Run with `npm run gen:openclaw`. Output is committed and deterministic
 // (sorted); it is never hand-edited. Environment: explicit env only, a throwaway HOME and npm cache (D13) —
 // the person's ~, credentials and caches are never touched.
@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, wr
 import { join, dirname, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 
-const ENGINE_VERSION = '2026.9.33';
+const ENGINE_VERSION = '2026.11.1';
 const PROTOCOL_VERSION = 4;
 const PACKAGE = 'openclaw';
 
@@ -94,7 +94,10 @@ try {
 
   // 9.x keeps the complete handler policy (including dynamic/node and hidden methods) in core-descriptors.
   const coreLiteral = arrayLiteralAfter(readDist('const CORE_GATEWAY_METHOD_SPECS = ['), 'const CORE_GATEWAY_METHOD_SPECS = [');
-  const coreList = eval(coreLiteral.replaceAll('CONTROL_PLANE_WRITE', '{ controlPlaneWrite: true }')) as unknown[][];
+  // Rows end in policy values that name module-local bindings (CONTROL_PLANE_WRITE, modelsListShareKey, ...). Only name,
+  // group and scope are read, so every free identifier evaluates to an empty stand-in.
+  const standIns = new Proxy({}, { has: (_, key) => typeof key === 'string', get: () => ({}) });
+  const coreList = new Function('standIns', `with (standIns) { return ${coreLiteral}; }`)(standIns) as unknown[][];
   const eventsSrc = readDist('const GATEWAY_EVENTS = [');
   let eventsLiteral = arrayLiteralAfter(eventsSrc, 'const GATEWAY_EVENTS = [');
   // Named constants (e.g. GATEWAY_EVENT_UPDATE_AVAILABLE) resolve from their `const X = "…"` definitions (5.10).
@@ -187,6 +190,8 @@ try {
   for (const name of schemaOnly) exported.add(name);
 
   function matchSlot(row: Row, slot: 'params' | 'result'): string | null {
+    // 11.1 keeps these registered only to refuse them (skills-retired.ts); the group rule would match unrelated types.
+    if (/^skills\.(proposals|curator)\./.test(row.name)) return null;
     const overridden = overrideName(row, slot);
     if (overridden && exported.has(overridden)) return overridden;
     for (const base of ruleBases(row)) {
