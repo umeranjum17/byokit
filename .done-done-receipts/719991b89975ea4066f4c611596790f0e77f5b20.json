@@ -1,0 +1,85 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "719991b89975ea4066f4c611596790f0e77f5b20",
+  "tree": "aa39a679d3e4c2924a49358184f585e841defa98",
+  "claim": "@byokit/openclaw 0.29.0 is prepared for consumer installation: the packed tarball installs into a fresh app, imports, and pins engine openclaw 2026.11.1, and the kit on that real pinned engine streams input_delta tool-input progress during a file-writing tool call driven by a deterministic Claude CLI stand-in. Nothing is published yet, and no real account or model was used.",
+  "result": "pass",
+  "at": "2026-11-06T02:48:26.800Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261106T024048Z-719991b8-a2c1d3/summary.txt",
+      "sha256": "8f3f2168b2cf77c21eec453f3b389037635e7e6cb2fa43dd0fc7e775110ecbaa"
+    },
+    {
+      "path": "<evidence root>/20261106T024747Z-719991b8-7b0f5f/openclaw-pack-install.txt",
+      "sha256": "568871e48927f7d50bc4780e62e781c20d8ed2d4bda4c911f6b4735cb4ddc2c1"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261106T024048Z-719991b8-a2c1d3",
+      "commit": "719991b89975ea4066f4c611596790f0e77f5b20",
+      "journey": "openclaw-engine-pin",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/openclaw-engine-pin.mjs --gates",
+      "tool": "0.6.24",
+      "steps": {
+        "target": {
+          "version": "2026.11.1"
+        },
+        "start": "A fresh app home with no account, on the pinned engine the kit installs from the patched set",
+        "steps": [
+          "The kit starts the real pinned engine with a stand-in Claude Code login",
+          "The app lists Claude Code models and sees claude-cli ids available",
+          "The app runs Claude Code on a file-writing tool call and sees live tool input progress as input_delta events",
+          "The app keeps the memory tools, learning off and auto, and lease contention working on the new pin"
+        ],
+        "result": "PASS: a Claude Code account lists claude-cli models, runs in its own folder, and a file-writing tool call streamed input_delta progress"
+      }
+    },
+    {
+      "run_id": "20261106T024747Z-719991b8-7b0f5f",
+      "commit": "719991b89975ea4066f4c611596790f0e77f5b20",
+      "journey": null,
+      "command": "sh -c 'exec node \"$PACK_CAPTURE\"'",
+      "tool": "0.6.24",
+      "steps": {
+        "target": {
+          "version": "@byokit/openclaw 0.29.0 (packed tarball), engine openclaw 2026.11.1"
+        },
+        "start": "The release branch with the version bump; nothing published",
+        "steps": [
+          "Pack @byokit/openclaw with npm pack",
+          "Install the tarball into a fresh consumer app with an empty HOME",
+          "Read the installed version and engine pin",
+          "Import @byokit/openclaw from the installed copy",
+          "Read the 0.29.0 changelog section"
+        ],
+        "result": "A fresh app that installs the tarball gets @byokit/openclaw 0.29.0 pinned to engine 2026.11.1, and it imports."
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "claude-bridge/claude-sonnet-5-5",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261106T024048Z-719991b8-a2c1d3/summary.txt",
+        "sha256": "8f3f2168b2cf77c21eec453f3b389037635e7e6cb2fa43dd0fc7e775110ecbaa",
+        "verdict": "pass",
+        "seen": "Read 3 PASS lines. Gates pass; the kit started the real pinned engine 2026.11.1; a Claude Code account lists claude-cli models, runs in its own folder, and a file-writing tool call streamed input_delta progress. This matches the outcome's engine and streaming claims, with no errors."
+      },
+      {
+        "path": "<evidence root>/20261106T024747Z-719991b8-7b0f5f/openclaw-pack-install.txt",
+        "sha256": "568871e48927f7d50bc4780e62e781c20d8ed2d4bda4c911f6b4735cb4ddc2c1",
+        "verdict": "pass",
+        "seen": "Read 9 lines. Tarball byokit-openclaw-0.29.0.tgz, installed version 0.29.0, engine pin openclaw 2026.11.1, changelog entries including the engine upgrade for live tool-input progress, and the import from the installed copy lists exports such as OpenClawKit and ENGINE_VERSION. This matches the install, import and pin claims."
+      }
+    ]
+  }
+}
