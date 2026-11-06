@@ -1,6 +1,6 @@
 {
   "name": "@byokit/openclaw",
-  "version": "0.28.3",
+  "version": "0.29.0",
   "description": "TypeScript kits that let people sign in to your app with the AI plans they already pay for, on web, phone and desktop.",
   "license": "Apache-2.0",
   "type": "module",

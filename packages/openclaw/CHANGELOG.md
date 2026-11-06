@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.29.0 (2026-11-06)
+
+- SECURITY: The bundled patch that stops an agent-local OAuth refresh from creating a shared credential still applies on 2026.11.1 (OAuth shared-base isolation, GHSA-2g8x-r8f8-c89c), so one agent's login never becomes available to other agents.
+- FIX: Upgrade the pinned OpenClaw engine to 2026.11.1 for live tool-input progress: while the Claude CLI route is writing a file, the Gateway now streams `tool` events with phase `input_delta` carrying added and removed line counts for file-changing tools, instead of showing nothing until the tool finishes. The kit's typed `RunEvent` still reports only tool start and end; read the raw `agent` event for the progress.
+- FIX: Keep keyword memory working on 2026.11.1: the engine now applies `plugins.allow` to the memory slot's tools, so the kit adds `memory-core` and `memory_search`/`memory_get` stay available.
+- FIX: An agent on an existing home is no longer refused until a Gateway restart when a model-runtime publication lands during its boot preparation: a new bundled patch retries it on 2026.11.1. OpenRouter keys keep activating: the setup plan patch no longer doubles `openrouter/auto` into `openrouter/openrouter/auto`.
+- Breaking: the engine retired learning mode `propose` and the proposal queue. `LearningMode` is now `'off' | 'auto'`; `setLearning('propose')` throws, and a saved or restored `propose` becomes `off`, never the engine's `auto` fallback.
+- Breaking: the 17 `skills.proposals.*` and `skills.curator.*` methods stay in the tables but the engine refuses them with `INVALID_REQUEST`; use `skills.workshop.list`, `changes`, `read`, `archive`, `restore` and `undo`. Their params and results are `unknown`.
+- Claude Code model lists keep their `claude-cli/` ids: 2026.11.1 retired the `claude-cli` catalog for the CLI's own initialize reply, so a `claude-cli` account reads `models.list` scoped to `anthropic` and the kit maps those rows back. `setup.detect` keeps verified Claude and Codex login state through a re-authored bundled patch, because 2026.11.1 removed that seam.
+- Generated tables: 487 to 533 methods (operator 476 to 522, node 11), 64 to 66 events, 370 to 378 matched params, 241 to 252 results, 29 to 30 event payloads. Added methods: backup.recordOutcome, backup.status, catalog.browse, catalog.searchKeywords, claws.removalJournal, debugProxy.capture, environments.adoptSuggestedProfile, mcp.app.discover, mcp.app.formResource, mcp.app.launch, mcp.app.mention, mcp.app.modelContext, mcp.app.onboard, mcp.app.openFile, mcp.app.removeModelContext, mcp.app.settings, mcp.app.subscribeResource, mcp.app.unsubscribeResource, mcp.app.writeResource, mcp.events.list, memory.get, memory.search.owner, memory.status, openclaw.setup.auto, projects.checkoutOptions, secrets.store.allowedHosts, secrets.store.import, session.reactions.list, session.reactions.set, sessions.catalog.import, sessions.files.assets, sessions.processes.list, sessions.processes.stop, skills.workshop.archive, skills.workshop.changes, skills.workshop.list, skills.workshop.restore, skills.workshop.undo, storage.locations.list, storage.locations.probe, ui.command.result, users.background.get, users.background.remove, users.background.upload, worktrees.recoverRemoval, worktrees.retireSnapshot. Removed methods: none. Added events: agent.identity.changed, session.reaction. `users.prefs.set` moved from `operator.write` to `operator.read`.
+- Routes: adds `meta:code:muse-code` and `particle:key:particle-api-key`; the default offered set is unchanged. B7 plugins: 38 to 39 entries (adds `particle`).
+
 ## 0.28.3 (2026-10-29)
 
 - Dependency update: pins @byokit/relay 0.8.4.
