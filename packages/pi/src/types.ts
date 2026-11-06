@@ -7,6 +7,9 @@ export type KitOptions = {
   idleMs?: number;
 };
 
+/** A command and its arguments. */
+export type Launch = { command: string; args: readonly string[] };
+
 export type BotSpec = {
   /** Letters, numbers, `.`, `_` and `-`, starting and ending with a letter or number. */
   id: string;
@@ -18,6 +21,12 @@ export type BotSpec = {
   extensions?: readonly string[];
   /** Extra variables for this bot. The environment is otherwise built from nothing but `PATH`. */
   env?: Readonly<Record<string, string>>;
+  /**
+   * Chooses what actually runs, at every start: it gets the command the kit would run and returns the one to run, such as
+   * that command inside a sandbox. The kit talks to it over stdin and stdout, and the bot's `pid` and the kit's stop signals
+   * reach it, not Pi, so it must pass those through. If it throws or returns anything else, nothing starts (`bad-launch`).
+   */
+  launch?: (pi: Launch) => Launch;
 };
 
 export type RunEnd = { ok: true; text: string } | { ok: false; aborted: true } | { ok: false; message: string };
@@ -55,7 +64,7 @@ export type PiKit = {
   close(): Promise<void>;
 };
 
-export type PiErrorCode = 'bad-state-dir' | 'bad-idle' | 'bad-id' | 'bad-session' | 'bad-folder' | 'bad-extension' | 'person-pi'
+export type PiErrorCode = 'bad-state-dir' | 'bad-idle' | 'bad-id' | 'bad-session' | 'bad-folder' | 'bad-extension' | 'bad-launch' | 'person-pi'
   | 'bot-running' | 'pi-missing' | 'pi-version' | 'pi-refused' | 'pi-exited';
 
 export class PiError extends Error {

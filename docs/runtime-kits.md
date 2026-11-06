@@ -31,7 +31,8 @@ aggregator" and exposes the aggregator's **full** power:
 checksum-pinned CLIProxyAPI on loopback for one API key (key routes only, no sign-in, no pool) and serves it as one local address.
 
 `@byokit/pi` runs one exactly pinned Pi process per bot, each in its own Pi home, session folder and extension list. Its public API is
-the app's port: only `packages/pi/src/transport.ts` knows Pi, so no Pi type or record reaches an app.
+the app's port: only `packages/pi/src/transport.ts` knows Pi, so no Pi type or record reaches an app. A bot's optional `launch` maps the
+command the kit would run to the command it runs, so an app can wall the whole process; a `launch` that fails starts nothing.
 
 The two aggregators: typed helpers for the common paths **plus** a first-class typed pass-through to the complete supported
 surface (OpenClaw Gateway operator protocol; Herdr socket API and CLI), so no consumer forks or bypasses the kit.

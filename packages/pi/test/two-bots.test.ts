@@ -1,9 +1,10 @@
 // Journeys on the real pinned Pi against a loopback stand-in model: no account, no network.
 import assert from 'node:assert/strict';
-import { readdirSync, rmSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { createPiKit, PiError, type BotEvent } from '../src/index.ts';
+import { fileURLToPath } from 'node:url';
+import { createPiKit, PiError, type Bot, type BotEvent, type BotSpec, type Launch } from '../src/index.ts';
 import { scratchDir } from '../../test-support.ts';
 import { ended, fakeModel, next, scene, stopped, type Scene } from './fake-model.ts';
 
@@ -184,4 +185,82 @@ test('a running bot cannot be doubled, and a stopped one can move to another ses
   await fresh;
   assert.deepEqual(model.seen.at(-1)!.said, ['answer: second session']);
   assert.equal(sessionFiles(spec.folder).length, 2);
+});
+
+test('with no launch Pi runs exactly as it always has, and a launch runs instead, at every start', async (t) => {
+  const kit = createPiKit({ stateDir: crew.stateDir });
+  t.after(() => kit.close());
+  const extension = join(import.meta.dirname, 'fixtures', 'extension.ts');
+  const spec = { ...crew.bot('walled'), extensions: [extension] };
+  const argv = () => JSON.parse(readFileSync(join(crew.stateDir, 'pi', 'walled', 'seen-argv.json'), 'utf8')) as string[];
+  const ask = async (bot: Bot, text: string) => {
+    const done = next(bot, ended);
+    await bot.prompt(text);
+    assert.deepEqual((await done).end, { ok: true, text: text.slice('answer: '.length) });
+  };
+
+  const plain = kit.bot(spec);
+  await ask(plain, 'answer: bare');
+  await plain.stop();
+  const bare = argv();
+  assert.deepEqual(bare, [process.execPath, fileURLToPath(import.meta.resolve('@earendil-works/pi-coding-agent/rpc-entry')),
+    '--session-dir', join(spec.folder, 'sessions'), '--session-id', 'walled-task',
+    '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files', '--no-mcp', '--no-approve',
+    '--exclude-tools', 'bash', '--extension', extension, '--append-system-prompt', join(spec.folder, 'AGENTS.md')]);
+
+  // A stand-in wall: a real process of the consumer's that notes its pid, then becomes what it was asked to run.
+  const marks = join(crew.root, 'wall-pids');
+  const given: Launch[] = [];
+  const walled = kit.bot({ ...spec, launch: (pi) => {
+    given.push(pi);
+    return { command: '/bin/sh', args: ['-c', 'echo $$ >> "$0"; exec "$@"', marks, pi.command, ...pi.args] };
+  } });
+  const pids = () => readFileSync(marks, 'utf8').trim().split('\n').map(Number);
+  await ask(walled, 'answer: behind the wall');
+  assert.deepEqual([given[0]!.command, ...given[0]!.args], bare);
+  assert.deepEqual(argv(), bare);
+  assert.deepEqual(pids(), [walled.pid]);
+
+  // A Pi that dies comes back behind the same wall, never outside it.
+  const down = next(walled, stopped);
+  process.kill(walled.pid!, 'SIGKILL');
+  await down;
+  await ask(walled, 'answer: still walled');
+  assert.equal(given.length, 2);
+  assert.deepEqual(pids().at(-1), walled.pid);
+});
+
+test('a launch that fails is refused with its cause, Pi never starts without it, and the bot recovers', async (t) => {
+  const kit = createPiKit({ stateDir: crew.stateDir });
+  t.after(() => kit.close());
+  const spec = crew.bot('unwalled');
+  const refused = async (launch: BotSpec['launch'], words: RegExp) => {
+    const bot = kit.bot({ ...spec, launch });
+    await assert.rejects(bot.prompt('answer: must never run'), (error: PiError) => error.code === 'bad-launch' && words.test(error.message));
+    assert.equal(bot.pid, undefined);
+  };
+  await refused(() => { throw new Error('the wall is not ready'); }, /the wall is not ready/);
+  for (const wrong of [undefined, {}, { command: '', args: [] }, { command: 'wall' }, { command: 'wall', args: ['ok', 1] }, Promise.resolve({ command: 'wall', args: [] })]) {
+    await refused(() => wrong as never, /command and its args/);
+  }
+  await refused(null as never, /not a function/);
+  await refused('wall' as never, /not a function/);
+
+  // A wall that is gone stops the start in Pi's own words, once, and leaves the bot free to start.
+  const gone = kit.bot({ ...spec, launch: () => ({ command: join(crew.root, 'no-such-wall'), args: [] }) });
+  const seen: BotEvent[] = [];
+  gone.on((event) => { seen.push(event); });
+  await assert.rejects(gone.prompt('answer: must never run'), (error: PiError) => error.code === 'pi-exited' && /did not start.*ENOENT/.test(error.message));
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.deepEqual(seen.map((event) => event.type), ['stopped']);
+  assert.equal(gone.pid, undefined);
+  assert.ok(!model.seen.some((call) => call.said.includes('answer: must never run')));
+
+  let ready = false;
+  const late = kit.bot({ ...spec, launch: (pi) => { if (!ready) throw new Error('not yet'); return pi; } });
+  await assert.rejects(late.prompt('answer: too soon'), (error: PiError) => error.code === 'bad-launch');
+  ready = true;
+  const done = next(late, ended);
+  await late.prompt('answer: wall up');
+  assert.deepEqual((await done).end, { ok: true, text: 'wall up' });
 });

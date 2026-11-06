@@ -8,6 +8,7 @@
 - `steer-abort`: a steer reaches the model on the next call; an abort ends the run as `{ ok: false, aborted: true }`.
 - `idle-resume`: an idle bot's process is gone, and its next message reaches the model with the earlier one still in the session.
 - `person-pi`: a stand-in `~/.pi` hashes the same before and after, and `stateDir` inside it is refused with `person-pi`.
+- `launch`: `BotSpec.launch` wraps the command the kit would run. With none, Pi gets the same argv as always; with one, that command runs instead at every start, after a crash too; a `launch` that throws is refused with `bad-launch` and a missing command with `pi-exited`, and neither starts Pi.
 
 ## How to get to it (user POV)
 
@@ -76,6 +77,14 @@ rmSync(root, { recursive: true, force: true });
 ```
 
 Pass: `pids differ: true`, each bot's own context `true`, any canary `false`, one session file each, a steered reply of `heard: turn left`, `{ ok: false, aborted: true }`, `idle` with the process gone, the model seeing `hello scout` and `still there` together, `person-pi` refused and the same hash.
+
+## Driving `launch`
+
+After building and committing, run `done-done run pi-launch`. It builds the kit, runs `packages/pi/test/*.test.ts` and then the maintained capture `capture/pi-launch.mjs`, which imports the built `@byokit/pi` and runs the real pinned Pi against the loopback stand-in. The wall is real bubblewrap (`/usr/bin/bwrap`), owned by the capture: the kit ships none.
+
+Evidence: `pi-launch.log`, `pi-tests.log`, `build.log` and `steps.json`, all from the same run.
+
+Pass: the log's `launch` line shows `process bwrap`, the same argv as the `no launch` line, and `Pi sees the outside file: false` and `its write reached the real disk: false` where `no launch` shows `true`; the `crash` line shows the launch ran twice and the file is still hidden; `throwing launch` shows `bad-launch`, `missing wall` shows `pi-exited` with `ENOENT`, and the model was asked nothing by either.
 
 ## Not provable here
 

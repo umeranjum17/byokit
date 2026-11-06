@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PiError, type BotEvent, type BotSpec } from './types.ts';
+import { PiError, type BotEvent, type BotSpec, type Launch } from './types.ts';
 
 const PI = '@earendil-works/pi-coding-agent';
 const PINNED = (createRequire(import.meta.url)('../package.json') as { peerDependencies: Record<string, string> }).peerDependencies[PI]!;
@@ -48,6 +48,20 @@ function launchArgs(spec: BotSpec, sessions: string): string[] {
     ...existsSync(context) ? ['--append-system-prompt', context] : []];
 }
 
+/** What runs: the kit's own command, or what the bot's `launch` makes of it. A launch that fails stops the start, so Pi never runs without it. */
+function launched(spec: BotSpec, pi: Launch): Launch {
+  if (spec.launch === undefined) return pi;
+  let answer: Launch;
+  try { answer = spec.launch(pi); } catch (error) {
+    throw new PiError('bad-launch', `Bot ${spec.id} did not start: its launch failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  const { command, args } = (answer ?? {}) as Partial<Launch>;
+  if (typeof command !== 'string' || !command || !Array.isArray(args) || !args.every((arg) => typeof arg === 'string')) {
+    throw new PiError('bad-launch', `Bot ${spec.id} did not start: its launch must return a command and its args.`);
+  }
+  return { command, args };
+}
+
 const textOf = (message: Message) => Array.isArray(message.content)
   ? (message.content as { type?: string; text?: string }[]).filter((part) => part.type === 'text').map((part) => part.text).join('') : '';
 
@@ -57,7 +71,8 @@ export function openPi(spec: BotSpec, stateDir: string, on: (event: BotEvent) =>
   const sessions = join(spec.folder, 'sessions');
   mkdirSync(home, { recursive: true, mode: 0o700 });
   mkdirSync(sessions, { recursive: true, mode: 0o700 });
-  const child = spawn(process.execPath, [entry, ...launchArgs(spec, sessions)], {
+  const { command, args } = launched(spec, { command: process.execPath, args: [entry, ...launchArgs(spec, sessions)] });
+  const child = spawn(command, args, {
     cwd: spec.folder,
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { PATH: process.env.PATH ?? '', ...spec.env, HOME: home, PI_CODING_AGENT_DIR: home, PI_OFFLINE: '1', PI_SKIP_VERSION_CHECK: '1', PI_TELEMETRY: '0' },
@@ -137,7 +152,10 @@ export function openPi(spec: BotSpec, stateDir: string, on: (event: BotEvent) =>
 
   let gone: () => void = () => {};
   const closed = new Promise<void>((resolve) => { gone = resolve; });
+  let finished = false;
   const finish = (detail: string) => {
+    if (finished) return; // A command that cannot start emits both error and close, and a late close must not touch the bot's next process.
+    finished = true;
     for (const waiter of waiting.values()) waiter.reject(new PiError('pi-exited', detail));
     waiting.clear();
     if (running) on({ type: 'end', end: closing ? { ok: false, aborted: true } : { ok: false, message: detail } });
