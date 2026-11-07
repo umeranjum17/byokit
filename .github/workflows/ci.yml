@@ -32,7 +32,6 @@ jobs:
     outputs:
       code: ${{ steps.areas.outputs.code }}
       receipt: ${{ steps.areas.outputs.receipt }}
-      openclaw: ${{ steps.areas.outputs.openclaw }}
       write: ${{ steps.areas.outputs.write }}
       endpoint: ${{ steps.areas.outputs.endpoint }}
       record: ${{ steps.areas.outputs.record }}
@@ -106,7 +105,7 @@ jobs:
           RELEASE_BASE: ${{ github.event.before }}
         run: npm run release -- lint --base "$RELEASE_BASE" --direct
 
-  # macOS coverage for the Herdr and OpenClaw kits: the stale-server restart reads live process
+  # macOS coverage for the Herdr kit: the stale-server restart reads live process
   # state (/proc on Linux, `ps` elsewhere), and /tmp there is a symlink, so canonical-path rules
   # only run green on Darwin here.
   herdr-macos:
@@ -125,7 +124,6 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: npm run build
       - run: sh scripts/test.sh 'packages/herdr/test/*.test.ts'
-      - run: sh scripts/test.sh 'packages/openclaw/test/*.test.ts'
 
   # The service kit's real-host journey (docs/service-kit.md 7) on a disposable runner's own systemd --user manager.
   # Outside scripts/test.sh: its throwaway HOME hides the user manager. sudo below is setup only; the kit never runs it.
@@ -278,8 +276,8 @@ jobs:
       - name: Native Secret Service round trip and rotation
         run: sh scripts/test-keyring.sh
 
-  # Real browsers (headless Chromium): the PWA example's sign-in against a stand-in OpenAI, the Herdr and OpenClaw
-  # kit examples, and the realtime-voice screen offline.
+  # Real browsers (headless Chromium): the PWA example's sign-in against a stand-in OpenAI, the Herdr
+  # kit example, and the realtime-voice screen offline.
   browser:
     needs: changes
     if: needs.changes.outputs.code == 'true'
@@ -297,92 +295,8 @@ jobs:
       - run: npm run test:browser
       # The Herdr kit example as someone installs it (packed packages) against the kit's fake Herdr, on a phone-sized page.
       - run: sh scripts/test.sh examples/herdr-kit/e2e.test.ts
-      # The OpenClaw kit example the same way, against the kit's fake Gateway.
-      - run: sh scripts/test.sh examples/openclaw-kit/e2e.test.ts
       # The voice screen offline: a stand-in sign-in and a stand-in voice peer over loopback WebRTC.
       - run: sh scripts/test.sh examples/realtime-voice/e2e.test.ts
-
-  # The real-engine journeys, split into parallel parts by measured duration (the whole set ran ~18 min in one job).
-  # The last part runs every engine test file the others do not name, so a new file is never left out.
-  openclaw-engine:
-    name: openclaw-engine (${{ matrix.part }})
-    needs: changes
-    if: needs.changes.outputs.openclaw == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        part: [day-usage, accounts, contract-signin, generated-learning-migrate, rest, packed]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '24.16.0'
-          cache: npm
-      - run: npm ci --no-audit --no-fund
-      - run: npm run build
-      # Hosted Ubuntu restricts unprivileged user namespaces, which Chromium's sandbox needs; this runner is ephemeral.
-      - run: if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
-      - if: matrix.part != 'packed'
-        env:
-          PART: ${{ matrix.part }}
-        run: |
-          dir=packages/openclaw/test/engine
-          case "$PART" in
-            day-usage) files="$dir/day-usage.test.ts" ;;
-            accounts) files="$dir/accounts.test.ts" ;;
-            contract-signin) files="$dir/contract.test.ts $dir/signin.test.ts" ;;
-            generated-learning-migrate) files="$dir/generated.test.ts $dir/learning.test.ts $dir/migrate.test.ts" ;;
-            rest) files=$(find "$dir" -name '*.test.ts' ! -name 'browser-*.test.ts' ! -name day-usage.test.ts ! -name accounts.test.ts ! -name contract.test.ts \
-              ! -name signin.test.ts ! -name generated.test.ts ! -name learning.test.ts ! -name migrate.test.ts | sort) ;;
-          esac
-          # shellcheck disable=SC2086
-          sh scripts/test.sh $files
-      # Exact candidate internal runtime closure; external registry pins, real old/new Gateways, no accounts/models.
-      # Source qualification, not proof that public consumers adopted these candidate package versions.
-      - if: matrix.part == 'packed'
-        run: |
-          scratch=$(mktemp -d /tmp/oc.XXXX)
-          trap 'rm -rf "$scratch"' EXIT
-          mkdir "$scratch/home" "$scratch/t"
-          HOME="$scratch/home" TMPDIR="$scratch/t" npm run smoke:pack -- --openclaw-engine
-
-  # Stock published Gateway + kit-owned pipe Chromium. No accounts, personal browser, engine patch or real site.
-  openclaw-browser:
-    needs: changes
-    if: needs.changes.outputs.openclaw == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '24.16.0'
-          cache: npm
-      - run: npm ci --no-audit --no-fund
-      - run: npm run build
-      - run: npx playwright install --with-deps chromium
-      # Chromium keeps its own sandbox, so the runner needs unprivileged user namespaces. This runner is ephemeral.
-      - run: if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0; fi
-      - name: Install only the published stock lock (no kit patch application)
-        run: |
-          mkdir -p "$RUNNER_TEMP/stock" "$RUNNER_TEMP/browser-home"
-          cp packages/openclaw/engine/package{,-lock}.json "$RUNNER_TEMP/stock/"
-          HOME="$RUNNER_TEMP/browser-home" npm ci --prefix "$RUNNER_TEMP/stock" --ignore-scripts --no-audit --no-fund
-      - name: Scoped offline browser/engine qualification
-        env:
-          BYOKIT_BROWSER_REQUIRED: '1'
-        run: |
-          export BYOKIT_BROWSER_STOCK_ENTRY="$RUNNER_TEMP/stock/node_modules/openclaw/openclaw.mjs"
-          export BYOKIT_BROWSER_RECEIPT="$RUNNER_TEMP/browser-receipt.json"
-          npm run test:browser-engine
-      - if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: stock-browser-qualification
-          path: ${{ runner.temp }}/browser-receipt.json*
-          if-no-files-found: warn
 
   # @byokit/write against its exactly pinned npm engine, in process and through the engine bin.
   write-engine:
@@ -809,7 +723,7 @@ jobs:
   ci-ok:
     if: always() && (github.event_name != 'pull_request' || !github.event.pull_request.draft)
     needs: [changes, check, herdr-macos, service-linux, service-macos, done-done, pack, seal-swift, secrets-keyring, browser,
-      openclaw-engine, openclaw-browser, write-engine, endpoint-engine, record-recorder, react-native, android, overlay-android, share-android,
+      write-engine, endpoint-engine, record-recorder, react-native, android, overlay-android, share-android,
       share-android-app, share-ios-prebuild, statusbar-android, audit, push-android, push-ios]
     runs-on: ubuntu-latest
     timeout-minutes: 2
