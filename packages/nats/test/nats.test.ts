@@ -23,10 +23,11 @@ describe('the pinned download', () => {
   writeFileSync(join(pack, 'nats-server'), '#!/bin/sh\necho "fixture refuses to serve" >&2\nexit 3\n');
   execFileSync('tar', ['-czf', join(root, 'fx.tgz'), '-C', join(root, 'pack'), 'nats-server-fixture']);
   const body = readFileSync(join(root, 'fx.tgz')), sha256 = createHash('sha256').update(body).digest('hex');
-  let hits = 0, srv: Server;
-  const listening = new Promise<string>((res) => { srv = createServer((_q, r) => { hits++; r.end(body); }).listen(0, '127.0.0.1', () => res(`http://127.0.0.1:${(srv.address() as { port: number }).port}/a.tgz`)); });
-  after(() => srv.close());
-  const source = async (over = {}) => ({ url: await listening, sha256, folder: 'nats-server-fixture', ...over });
+  let hits = 0, srv: Server | undefined, starting: Promise<string> | undefined;
+  // Started by the first test that needs it, so a run that skips these tests leaves no listener behind.
+  const serve = () => starting ??= new Promise<string>((res) => { const s = srv = createServer((_q, r) => { hits++; r.end(body); }).listen(0, '127.0.0.1', () => res(`http://127.0.0.1:${(s.address() as { port: number }).port}/a.tgz`)); });
+  after(() => { srv?.closeAllConnections(); srv?.close(); }); // fetch keeps its connection alive; close() alone would wait for it
+  const source = async (over = {}) => ({ url: await serve(), sha256, folder: 'nats-server-fixture', ...over });
 
   test('every platform is pinned to the GitHub release of NATS_VERSION and a 64-hex hash', () => {
     assert.equal(NATS_VERSION, '2.15.2');
@@ -127,12 +128,13 @@ real('the real server', () => {
     } finally { await b.close(); await s.stop(); }
   });
   test('a saved port taken by another program is named, never moved', async () => {
-    const state = tmp(), dir = join(state, 'nats'), hog = tcp();
+    const state = tmp(), dir = join(state, 'nats'), socks = new Set<import('node:net').Socket>(), hog = tcp((c) => { socks.add(c); c.on('error', () => {}); });
     await new Promise<void>((r) => hog.listen(0, '127.0.0.1', r));
     const port = String((hog.address() as { port: number }).port);
     mkdirSync(dir, { recursive: true }); writeFileSync(join(dir, 'port'), port);
     await assert.rejects(up(state), (e: unknown) => e instanceof NatsError && e.code === 'port-taken');
     assert.equal(readFileSync(join(dir, 'port'), 'utf8'), port);
+    for (const c of socks) c.destroy(); // the probe's half-open connection would keep close() waiting
     hog.close();
   });
   test('closing never hangs: a handler that never settles, and a pending ack on a dead server', async () => {
