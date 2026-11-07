@@ -181,7 +181,7 @@ async function adopt(params, config, resolveAgentDir, updateAuthProfileStoreWith
   if (typeof target !== 'string') return { ok: false };
   const cut = target.lastIndexOf('@');
   const base = cut > 0 ? target.slice(0, cut) : target;
-  const { updateConfig } = await import('openclaw/plugin-sdk/config-runtime');
+  const { updateConfig } = await import('openclaw/plugin-sdk/config-mutation');
   const { setAgentEffectiveModelPrimary } = await import('openclaw/plugin-sdk/agent-runtime');
   const pin = (primary) => updateConfig((cfg) => { setAgentEffectiveModelPrimary(cfg, to, primary, { forceAgent: true }); return cfg; });
 

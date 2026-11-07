@@ -1,0 +1,9 @@
+{
+  "nats.unsupportedPlatform": "This computer isn't supported by the message bus yet.",
+  "nats.downloadFailed": "Couldn't download the message bus. Check the connection and try again.",
+  "nats.checksumFailed": "The downloaded message bus failed its safety check, so it was not kept. Try again later.",
+  "nats.unpackFailed": "Couldn't unpack the message bus.",
+  "nats.portTaken": "Another program is using the message bus's saved port.",
+  "nats.startFailed": "The message bus didn't start.",
+  "nats.closed": "The message bus is closed."
+}

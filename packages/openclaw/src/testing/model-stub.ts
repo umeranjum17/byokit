@@ -45,7 +45,8 @@ export function toolCalls(text: string): { name: string; input: Record<string, u
       if (c === '{') depth++;
       else if (c === '}' && !--depth) break;
     }
-    out.push({ name: m[1], input: JSON.parse(text.slice(from, i + 1)) });
+    // A prompt can quote an earlier tool line with its quotes escaped: that is text, not a scripted call.
+    try { out.push({ name: m[1], input: JSON.parse(text.slice(from, i + 1)) }); } catch { /* quoted */ }
   }
   return out;
 }

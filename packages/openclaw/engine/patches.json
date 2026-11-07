@@ -1,49 +1,37 @@
 {
   "v": 1,
-  "id": "7b7da60de6ed790d",
+  "id": "a66a3d407eb7c4db",
   "upstream": {
     "name": "openclaw",
-    "version": "2026.9.33",
-    "integrity": "sha512-gCwhh7Ej5/k4+/SzgHDi6HEHxw1ppDbIza3v6uSNa0JVB011m5YJ+AKmUbEFI0m4Au0pCRLK0ogL/GtUMDFMiw==",
-    "commit": "5873f8174e0b2866a2b8bc0dbf4c4c8164d8dc82",
+    "version": "2026.11.1",
+    "integrity": "sha512-2pSbt/taBKM/ofPXsiOEmVefgUdVHYRZOmcWNDyx67WUfeGFXqtfqLvtwYOiH4NcLolDSLMUgsno2oYhTVXptw==",
+    "commit": "4ffdd2047d192dd65554de3c8c46c0e0197c6e2a",
     "license": "MIT"
   },
   "files": [
     {
-      "path": "dist/experience-review-ClLYopea.mjs",
-      "before": "61abd547073af49bf5766c8e8679dd7e72089093edd4010cd5c4c50dde2ddd52",
-      "after": "5c55b02a320b5f06d78eaba6d670bed2557564b5c21c6dfac0bc65069b98b046",
+      "path": "dist/experience-review-D4E30NcE.mjs",
+      "before": "afc6c16e2a8281fcca601275f9adc541ec78f1e0c4b1f67431ec8d88824635a9",
+      "after": "e0c05dbefde5ea5eef874faf0c388d54e202458feb4feb5a96156b1f51101b08",
       "edits": [
         {
-          "find": "import { r as getRuntimeConfig } from \"./io.runtime-FunTy0y1.mjs\";\n",
-          "replace": "import { r as getRuntimeConfig } from \"./io.runtime-FunTy0y1.mjs\";\nimport { openSync as byokitOpen, writeSync as byokitWrite, fsyncSync as byokitFsync, closeSync as byokitClose } from \"node:fs\";\nimport { join as byokitJoin } from \"node:path\";\n"
+          "find": "import { randomUUID } from \"node:crypto\";\n",
+          "replace": "import { randomUUID } from \"node:crypto\";\nimport { openSync as byokitOpen, writeSync as byokitWrite, fsyncSync as byokitFsync, closeSync as byokitClose } from \"node:fs\";\nimport { join as byokitJoin } from \"node:path\";\n"
         },
         {
           "find": "async function runSkillExperienceReviewInner(candidate) {\n",
           "replace": "/** BYOKit R4-1: content-free durable Gateway Workshop facts, inert without kit env. */\nfunction byokitUsageFact(fact) {\n\tconst dir = process.env.BYOKIT_ENGINE_USAGE_LEDGER;\n\tconst bootId = process.env.BYOKIT_ENGINE_BOOT;\n\tif (!dir || !bootId) return;\n\tconst key = Symbol.for(\"byokit.engine-usage.v1\");\n\tconst live = globalThis[key] ??= { bootId, months: {}, inFlight: {} };\n\tconst month = new Date(fact.at).toISOString().slice(0, 7);\n\tconst counter = live.months[month] ??= { lastSeq: 0, failed: 0 };\n\tconst seq = ++counter.lastSeq;\n\tif (fact.phase === \"started\") live.inFlight[fact.chargeId] = { startedAt: fact.startedAt };\n\telse delete live.inFlight[fact.chargeId];\n\ttry {\n\t\tconst fd = byokitOpen(byokitJoin(dir, \"engine-started-\" + month + \".jsonl\"), \"a\", 0o600);\n\t\ttry {\n\t\t\tconst line = Buffer.from(JSON.stringify({ v: 1, ...fact, bootId, seq }) + \"\\n\");\n\t\t\tif (byokitWrite(fd, line) !== line.length) throw new Error(\"short accounting write\");\n\t\t\tbyokitFsync(fd);\n\t\t} finally { byokitClose(fd); }\n\t} catch { counter.failed++; }\n}\nasync function runSkillExperienceReviewInner(candidate) {\n"
         },
         {
-          "find": "\tlet outcome;\n\tlet proposalId;\n\tlet usage;\n",
-          "replace": "\tlet outcome;\n\tlet proposalId;\n\tlet usage;\n\tlet byokitRunUsage;\n\tconst byokitFact = { chargeId: runId, agentId: foregroundPromptContext.agentId, kind: \"workshop-review\", provider: candidate.ctx.modelProviderId, model: candidate.ctx.modelId, ...candidate.ctx.authProfileId ? { authProfileId: candidate.ctx.authProfileId } : {}, startedAt: attemptedAtMs, origin: { sessionKey, ...candidate.ctx.runId ? { runId: candidate.ctx.runId } : {} } };\n"
-        },
-        {
-          "find": "\t\tconst embeddedResult = capability ? await runWithCronCreatorAuthorityCapability(capability, run) : await run();\n",
-          "replace": "\t\tbyokitUsageFact({ ...byokitFact, phase: \"started\", at: attemptedAtMs });\n\t\tconst embeddedResult = capability ? await runWithCronCreatorAuthorityCapability(capability, run) : await run();\n\t\tbyokitRunUsage = embeddedResult?.meta?.agentMeta?.usage;\n"
-        },
-        {
-          "find": "\t} catch (error) {\n\t\tawait recordSkillExperienceReviewOutcome(foregroundPromptContext.agentId, workspaceDir, {\n",
-          "replace": "\t} catch (error) {\n\t\tbyokitUsageFact({ ...byokitFact, phase: \"ended\", at: Date.now(), outcome: \"failed\", ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\t\tawait recordSkillExperienceReviewOutcome(foregroundPromptContext.agentId, workspaceDir, {\n"
-        },
-        {
-          "find": "\t\tclearAgentRunContext(runId);\n\t}\n\tawait recordSkillExperienceReviewOutcome(foregroundPromptContext.agentId, workspaceDir, {\n",
-          "replace": "\t\tclearAgentRunContext(runId);\n\t}\n\tbyokitUsageFact({ ...byokitFact, phase: \"ended\", at: Date.now(), outcome, ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n\tawait recordSkillExperienceReviewOutcome(foregroundPromptContext.agentId, workspaceDir, {\n"
+          "find": "\t\ttry {\n\t\t\tassertSkillReviewRunSucceeded(capability ? await runWithCronCreatorAuthorityCapability(capability, run) : await run());\n\t\t} finally {\n",
+          "replace": "\t\tconst byokitStartedAt = Date.now();\n\t\tconst byokitFact = { chargeId: runId, agentId, kind: \"workshop-review\", provider: candidate.ctx.modelProviderId, model: candidate.ctx.modelId, ...candidate.ctx.authProfileId ? { authProfileId: candidate.ctx.authProfileId } : {}, startedAt: byokitStartedAt, origin: { sessionKey, ...candidate.ctx.runId ? { runId: candidate.ctx.runId } : {} } };\n\t\tlet byokitRunUsage;\n\t\tlet byokitOutcome = \"failed\";\n\t\tbyokitUsageFact({ ...byokitFact, phase: \"started\", at: byokitStartedAt });\n\t\ttry {\n\t\t\tconst byokitRun = capability ? await runWithCronCreatorAuthorityCapability(capability, run) : await run();\n\t\t\tbyokitRunUsage = byokitRun?.meta?.agentMeta?.usage;\n\t\t\tassertSkillReviewRunSucceeded(byokitRun);\n\t\t\tbyokitOutcome = \"completed\";\n\t\t} finally {\n\t\t\tbyokitUsageFact({ ...byokitFact, phase: \"ended\", at: Date.now(), outcome: byokitOutcome, ...byokitRunUsage ? { usage: byokitRunUsage } : {} });\n"
         }
       ]
     },
     {
-      "path": "dist/main-session-recovery-state-BJukJiIA.mjs",
-      "before": "8c68ab121b8145f960ad401597b812c988368a86f4a9d66e161413a1bffa27b7",
-      "after": "c158b3f93bf73f262b1d2e4235904eaa76ef88ca6dcf82fc0cf556ce024d40e3",
+      "path": "dist/store-maintenance-B-5gU6tB.mjs",
+      "before": "765046d9441036d836fc467f09afb4453354cae7f174d900e7ab9ab257b120d1",
+      "after": "c49d7d189c7bde40d34a6da29781dc26b68288cc7389e90bbb5081bf149190e3",
       "edits": [
         {
           "find": "function isMainRestartRecoveryCandidate(entry, sessionKey) {",
@@ -52,43 +40,62 @@
       ]
     },
     {
-      "path": "dist/prepare.runtime--y1-AtS2.mjs",
+      "path": "dist/prepare.runtime-_N6IgijZ.mjs",
       "edits": [
         {
-          "find": "\t\tlet systemPrompt = turnRuntimeFacts?.remainingPrompt ?? transformedSystemPrompt;\n",
-          "replace": "\t\tlet systemPrompt = turnRuntimeFacts?.remainingPrompt ?? transformedSystemPrompt;\n\t\t// BYOKit: Claude wire names for the Tooling list (ch-cli-tool-prefix). The Claude wire catalog\n\t\t// exposes OpenClaw tools as mcp__openclaw__<name>, so the printed Tooling list on that route must\n\t\t// use those exact names. Every other route keeps the stock prompt byte-identical; already-prefixed\n\t\t// names are never prefixed again. Order, summaries and error semantics are unchanged.\n\t\tif (!skipsTurnPreparation && isClaudeCli && promptTools.length > 0) {\n\t\t\tconst byokitBareNames = new Set(promptTools.map((tool) => tool?.name).filter((name) => typeof name === \"string\" && name.length > 0 && !name.startsWith(\"mcp__openclaw__\")));\n\t\t\tif (byokitBareNames.size > 0) {\n\t\t\t\tconst byokitLines = systemPrompt.split(\"\\n\");\n\t\t\t\tlet byokitInTooling = false;\n\t\t\t\tlet byokitToolingArmed = false;\n\t\t\t\tfor (let byokitI = 0; byokitI < byokitLines.length; byokitI++) {\n\t\t\t\t\tconst byokitLine = byokitLines[byokitI];\n\t\t\t\t\tif (byokitLine.startsWith(\"## \")) {\n\t\t\t\t\t\tbyokitInTooling = byokitLine === \"## Tooling\";\n\t\t\t\t\t\tbyokitToolingArmed = false;\n\t\t\t\t\t} else if (byokitInTooling && !byokitToolingArmed) {\n\t\t\t\t\t\tif (byokitLine === \"Tools policy-filtered. Names case-sensitive; call exact.\") byokitToolingArmed = true;\n\t\t\t\t\t} else if (byokitInTooling && byokitToolingArmed && byokitLine.startsWith(\"- \")) {\n\t\t\t\t\t\tconst byokitMatch = /^- (\\S+?)(:.*)?$/.exec(byokitLine);\n\t\t\t\t\t\tif (byokitMatch && byokitBareNames.has(byokitMatch[1])) byokitLines[byokitI] = `- mcp__openclaw__${byokitMatch[1]}${byokitMatch[2] ?? \"\"}`;\n\t\t\t\t\t}\n\t\t\t\t}\n\t\t\t\tsystemPrompt = byokitLines.join(\"\\n\");\n\t\t\t}\n\t\t}\n"
+          "find": "\t\t\t}) ?? builtSystemPrompt : builtSystemPrompt;\n",
+          "replace": "\t\t\t}) ?? builtSystemPrompt : builtSystemPrompt;\n\t\t\t// BYOKit: Claude wire names for the Tooling list (ch-cli-tool-prefix). The Claude wire catalog\n\t\t\t// exposes OpenClaw tools as mcp__openclaw__<name>, so the printed Tooling list on that route must\n\t\t\t// use those exact names. Every other route keeps the stock prompt byte-identical; already-prefixed\n\t\t\t// names are never prefixed again. Order, summaries and error semantics are unchanged.\n\t\t\tif (!skipsTurnPreparation && isClaudeCliBackendId(params.provider) && promptTools.length > 0) {\n\t\t\t\tconst byokitBareNames = new Set(promptTools.map((tool) => tool?.name).filter((name) => typeof name === \"string\" && name.length > 0 && !name.startsWith(\"mcp__openclaw__\")));\n\t\t\t\tif (byokitBareNames.size > 0) {\n\t\t\t\t\tconst byokitLines = systemPrompt.split(\"\\n\");\n\t\t\t\t\tlet byokitInTooling = false;\n\t\t\t\t\tlet byokitToolingArmed = false;\n\t\t\t\t\tfor (let byokitI = 0; byokitI < byokitLines.length; byokitI++) {\n\t\t\t\t\t\tconst byokitLine = byokitLines[byokitI];\n\t\t\t\t\t\tif (byokitLine.startsWith(\"## \")) {\n\t\t\t\t\t\t\tbyokitInTooling = byokitLine === \"## Tooling\";\n\t\t\t\t\t\t\tbyokitToolingArmed = false;\n\t\t\t\t\t\t} else if (byokitInTooling && !byokitToolingArmed) {\n\t\t\t\t\t\t\tif (byokitLine === \"Tools policy-filtered. Names case-sensitive; call exact.\") byokitToolingArmed = true;\n\t\t\t\t\t\t} else if (byokitInTooling && byokitToolingArmed && byokitLine.startsWith(\"- \")) {\n\t\t\t\t\t\t\tconst byokitMatch = /^- (\\S+?)(:.*)?$/.exec(byokitLine);\n\t\t\t\t\t\t\tif (byokitMatch && byokitBareNames.has(byokitMatch[1])) byokitLines[byokitI] = `- mcp__openclaw__${byokitMatch[1]}${byokitMatch[2] ?? \"\"}`;\n\t\t\t\t\t\t}\n\t\t\t\t\t}\n\t\t\t\t\tsystemPrompt = byokitLines.join(\"\\n\");\n\t\t\t\t}\n\t\t\t}\n"
         },
         {
-          "find": "import { accessSync } from \"node:fs\";\n",
-          "replace": "import { accessSync, readFileSync as byokitReadFileSync } from \"node:fs\";\n\nconst BYOKIT_NATIVE_CONFLICT_ENV = [\"AI_GATEWAY_API_KEY\", \"ANTHROPIC_API_KEY\", \"AZURE_OPENAI_API_KEY\", \"DEEPSEEK_API_KEY\", \"GEMINI_API_KEY\", \"GOOGLE_GENERATIVE_AI_API_KEY\", \"GROQ_API_KEY\", \"MISTRAL_API_KEY\", \"OPENAI_API_BASE\", \"OPENAI_API_KEY\", \"OPENAI_BASE_URL\", \"OPENROUTER_API_KEY\", \"XAI_API_KEY\"];\n/** BYOKit K2: the managed native folder a bound account agent's CLI work must use, or undefined (unbound, or no table). */\nfunction byokitNativeEnv(agentId) {\n\tconst file = process.env.BYOKIT_NATIVE_ENV;\n\tif (!file || typeof agentId !== \"string\" || !agentId) return;\n\ttry {\n\t\tconst table = JSON.parse(byokitReadFileSync(file, \"utf8\"));\n\t\tconst row = table && table.v === 1 && table.accounts && typeof table.accounts === \"object\" ? table.accounts[agentId] : void 0;\n\t\treturn row && row.cli === \"claude\" && typeof row.dir === \"string\" && row.dir.startsWith(\"/\") ? row.dir : void 0;\n\t} catch {\n\t\treturn;\n\t}\n}\n"
+          "find": "import { existsSync } from \"node:fs\";\n",
+          "replace": "import { existsSync, readFileSync as byokitReadFileSync } from \"node:fs\";\n\nconst BYOKIT_NATIVE_CONFLICT_ENV = [\"AI_GATEWAY_API_KEY\", \"ANTHROPIC_API_KEY\", \"AZURE_OPENAI_API_KEY\", \"DEEPSEEK_API_KEY\", \"GEMINI_API_KEY\", \"GOOGLE_GENERATIVE_AI_API_KEY\", \"GROQ_API_KEY\", \"MISTRAL_API_KEY\", \"OPENAI_API_BASE\", \"OPENAI_API_KEY\", \"OPENAI_BASE_URL\", \"OPENROUTER_API_KEY\", \"XAI_API_KEY\"];\n/** BYOKit K2: the managed native folder a bound account agent's CLI work must use, or undefined (unbound, or no table). */\nfunction byokitNativeEnv(agentId) {\n\tconst file = process.env.BYOKIT_NATIVE_ENV;\n\tif (!file || typeof agentId !== \"string\" || !agentId) return;\n\ttry {\n\t\tconst table = JSON.parse(byokitReadFileSync(file, \"utf8\"));\n\t\tconst row = table && table.v === 1 && table.accounts && typeof table.accounts === \"object\" ? table.accounts[agentId] : void 0;\n\t\treturn row && row.cli === \"claude\" && typeof row.dir === \"string\" && row.dir.startsWith(\"/\") ? row.dir : void 0;\n\t} catch {\n\t\treturn;\n\t}\n}\n"
         },
         {
-          "find": "\tconst backendResolved = resolveCliBackendConfig(params.provider, params.config, { agentId: workspaceResolution.agentId });\n",
-          "replace": "\tconst backendResolved = resolveCliBackendConfig(params.provider, params.config, { agentId: workspaceResolution.agentId });\n\t// BYOKit K2: a bound account runs its own native CLI folder from the kit's non-secret table. Every other run resolves\n\t// exactly as stock; the folder is set for this child only, the process environment is never touched, and another\n\t// provider's key or billing endpoint is cleared from it.\n\tconst byokitNative = backendResolved.id === \"claude-cli\" ? byokitNativeEnv(workspaceResolution.agentId) : void 0;\n\tif (byokitNative) backendResolved.config = {\n\t\t...backendResolved.config,\n\t\tenv: { ...backendResolved.config.env, CLAUDE_CONFIG_DIR: byokitNative },\n\t\tclearEnv: [...new Set([...backendResolved.config.clearEnv ?? [], ...BYOKIT_NATIVE_CONFLICT_ENV])]\n\t};\n"
+          "find": "\t\tconst backendResolved = resolveCliBackendConfig(params.provider, params.config, { agentId: workspaceResolution.agentId });\n\t\tif (!backendResolved) throw new Error(`Unknown CLI backend: ${params.provider}`);\n",
+          "replace": "\t\tconst backendResolved = resolveCliBackendConfig(params.provider, params.config, { agentId: workspaceResolution.agentId });\n\t\t// BYOKit K2: a bound account runs its own native CLI folder from the kit's non-secret table. Every other run resolves\n\t\t// exactly as stock; the folder is set for this child only, the process environment is never touched, and another\n\t\t// provider's key or billing endpoint is cleared from it.\n\t\tif (!backendResolved) throw new Error(`Unknown CLI backend: ${params.provider}`);\n\t\tconst byokitNative = backendResolved.id === \"claude-cli\" ? byokitNativeEnv(workspaceResolution.agentId) : void 0;\n\t\tif (byokitNative) backendResolved.config = {\n\t\t\t...backendResolved.config,\n\t\t\tenv: { ...backendResolved.config.env, CLAUDE_CONFIG_DIR: byokitNative },\n\t\t\tclearEnv: [...new Set([...backendResolved.config.clearEnv ?? [], ...BYOKIT_NATIVE_CONFLICT_ENV])]\n\t\t};\n"
         }
       ],
-      "before": "4ac1b35a78ce33207105c442b9008dc6866aef3c160366e37854b5b31549aa59",
-      "after": "780b92728ddac5b3799bc2051ca0cfcba98c570bef37f79b356db77a99d679ef"
+      "before": "9eb1238b578aa1514f4d2318ed914c4fa31092f51ea1ef51ff101bd78e6f9d3c",
+      "after": "fe2b7608188ed7cbfd1857b71dbe3b8a02726063f934b8abaad12d2a260ec7fd"
     },
     {
-      "path": "dist/setup-inference-ur2QGopt.mjs",
+      "path": "dist/setup-inference-codex-BhHJSW4W.mjs",
       "edits": [
         {
-          "find": "import { u as toErrorObject } from \"./error-coercion-1P2One0X.mjs\";\n",
-          "replace": "import { u as toErrorObject } from \"./error-coercion-1P2One0X.mjs\";\nimport { t as byokitProbeClaudeAuth } from \"./cli-auth-seam-CDPu8dne.mjs\";\nimport { a as byokitRunUtf8 } from \"./exec-DkOImFhW.mjs\";\nimport { readFileSync as byokitReadFileSync } from \"node:fs\";\n/** BYOKit K2: the detection probe for a bound account agent reads that account's own native folder. */\nfunction byokitNativeDetectEnv(agentId) {\n\tconst file = process.env.BYOKIT_NATIVE_ENV;\n\tif (!file || typeof agentId !== \"string\" || !agentId) return;\n\ttry {\n\t\tconst table = JSON.parse(byokitReadFileSync(file, \"utf8\"));\n\t\tconst row = table && table.v === 1 && table.accounts && typeof table.accounts === \"object\" ? table.accounts[agentId] : void 0;\n\t\tif (!row || row.cli !== \"claude\" || typeof row.dir !== \"string\" || !row.dir.startsWith(\"/\")) return;\n\t\treturn { ...process.env, CLAUDE_CONFIG_DIR: row.dir };\n\t} catch {\n\t\treturn;\n\t}\n}\n"
+          "find": "import { d as toErrorObject } from \"./error-coercion-BwMr25F8.mjs\";\n",
+          "replace": "import { d as toErrorObject } from \"./error-coercion-BwMr25F8.mjs\";\nimport { t as byokitProbeClaudeAuth } from \"./cli-auth-seam-DQFvPYL9.mjs\";\nimport { a as byokitRunUtf8 } from \"./exec-DG8vr0Fp.mjs\";\nimport { readFileSync as byokitReadFileSync } from \"node:fs\";\n/** BYOKit K2: the detection probe for a bound account agent reads that account's own native folder. */\nfunction byokitNativeDetectEnv(agentId) {\n\tconst file = process.env.BYOKIT_NATIVE_ENV;\n\tif (!file || typeof agentId !== \"string\" || !agentId) return;\n\ttry {\n\t\tconst table = JSON.parse(byokitReadFileSync(file, \"utf8\"));\n\t\tconst row = table && table.v === 1 && table.accounts && typeof table.accounts === \"object\" ? table.accounts[agentId] : void 0;\n\t\tif (!row || row.cli !== \"claude\" || typeof row.dir !== \"string\" || !row.dir.startsWith(\"/\")) return;\n\t\treturn { ...process.env, CLAUDE_CONFIG_DIR: row.dir };\n\t} catch {\n\t\treturn;\n\t}\n}\n"
         },
         {
-          "find": "\t\tconfig: cfg,\n\t\tagentId: targetAgentId\n\t});\n\tsignal.throwIfAborted();\n\tconst configuredModel = detected.find",
-          "replace": "\t\tconfig: cfg,\n\t\tagentId: targetAgentId,\n\t\t// BYOKit: restore native verified login detection; never return CLI output or credentials.\n\t\tdeps: {\n\t\t\tdetectClaudeLoginState: async (_probe, command) => {\n\t\t\t\tconst auth = await byokitProbeClaudeAuth({ command, signal, env: byokitNativeDetectEnv(targetAgentId) });\n\t\t\t\treturn { credentials: auth.status === \"available\" ? true : auth.status === \"missing\" ? false : void 0,\n\t\t\t\t\t...auth.authMethod === \"claude.ai\" ? { authKind: \"claude-subscription\" } : {} };\n\t\t\t},\n\t\t\tdetectCodexLoginState: async (_probe, command) => {\n\t\t\t\tconst env = { ...process.env };\n\t\t\t\tfor (const name of [\"CODEX_HOME\", \"OPENAI_API_KEY\", \"OPENAI_BASE_URL\", \"CODEX_OSS_BASE_URL\"]) delete env[name];\n\t\t\t\ttry {\n\t\t\t\t\tconst auth = await byokitRunUtf8([command, \"login\", \"status\"], { baseEnv: env, signal,\n\t\t\t\t\t\ttimeoutMs: 3000, maxOutputBytes: 65536, maxCombinedOutputBytes: 65536,\n\t\t\t\t\t\tterminateOnOutputLimit: true, killProcessTree: true });\n\t\t\t\t\tif (auth.termination !== \"exit\") return void 0;\n\t\t\t\t\tconst text = auth.stdout + \"\\n\" + auth.stderr;\n\t\t\t\t\tif (auth.code === 0 && /^Logged in using ChatGPT\\b/m.test(text)) return true;\n\t\t\t\t\tif (/Not logged in|signed out|Logged in using an API key/i.test(text)) return false;\n\t\t\t\t} catch { signal.throwIfAborted(); }\n\t\t\t\treturn void 0;\n\t\t\t}\n\t\t}\n\t});\n\tsignal.throwIfAborted();\n\tconst configuredModel = detected.find"
+          "find": "\t\t\tconfig: cfg,\n\t\t\tagentId: targetAgentId\n\t\t});\n\t})()]);\n",
+          "replace": "\t\t\tconfig: cfg,\n\t\t\tagentId: targetAgentId,\n\t\t\t// BYOKit: restore native verified login detection; never return CLI output or credentials.\n\t\t\tdeps: {\n\t\t\t\tdetectClaudeLoginState: async (_probe, command) => {\n\t\t\t\t\tconst auth = await byokitProbeClaudeAuth({ command, signal, env: byokitNativeDetectEnv(targetAgentId) });\n\t\t\t\t\treturn { credentials: auth.status === \"available\" ? true : auth.status === \"missing\" ? false : void 0,\n\t\t\t\t\t\t...auth.authMethod === \"claude.ai\" ? { authKind: \"claude-subscription\" } : {} };\n\t\t\t\t},\n\t\t\t\tdetectCodexLoginState: async (_probe, command) => {\n\t\t\t\t\tconst env = { ...process.env };\n\t\t\t\t\tfor (const name of [\"CODEX_HOME\", \"OPENAI_API_KEY\", \"OPENAI_BASE_URL\", \"CODEX_OSS_BASE_URL\"]) delete env[name];\n\t\t\t\t\ttry {\n\t\t\t\t\t\tconst auth = await byokitRunUtf8([command, \"login\", \"status\"], { baseEnv: env, signal,\n\t\t\t\t\t\t\ttimeoutMs: 3000, maxOutputBytes: 65536, maxCombinedOutputBytes: 65536,\n\t\t\t\t\t\t\tterminateOnOutputLimit: true, killProcessTree: true });\n\t\t\t\t\t\tif (auth.termination !== \"exit\") return void 0;\n\t\t\t\t\t\tconst text = auth.stdout + \"\\n\" + auth.stderr;\n\t\t\t\t\t\tif (auth.code === 0 && /^Logged in using ChatGPT\\b/m.test(text)) return true;\n\t\t\t\t\t\tif (/Not logged in|signed out|Logged in using an API key/i.test(text)) return false;\n\t\t\t\t\t} catch { signal.throwIfAborted(); }\n\t\t\t\t\treturn void 0;\n\t\t\t\t}\n\t\t\t}\n\t\t});\n\t})()]);\n"
         }
       ],
-      "before": "ac3585f5a463905bbffbab5032fd3104f0d46ea4bab955a8193fe62db38f7fe2",
-      "after": "7601eb1be3724bb9f4f97e3bcd54f817106a9742b5de7e39c7767200fa51ff49"
+      "before": "c299ab373cc77e890d889520c9f54d1a1aba6e924ce1672a9c5ea8f3bc816cbb",
+      "after": "d2dbc6e7b9c9065b4cc13ba0e65cddca75d469938a7ab53db330667e03d80e07"
     },
     {
-      "path": "dist/oauth-Dqmi6EU2.mjs",
-      "before": "938fce0facb326f57308970dde2d7fe15729b6197943bdbc86192394b8866032",
-      "after": "62a2b8fa3dc4cd58194a8d4fd27429c247e0d2fae149215e7d0969eb91f0c42e",
+      "path": "dist/onboard-inference-BYNRh5dl.mjs",
+      "before": "5da3b85838933dc187d7b4a638b04b15a6b08c5428e714298199772b74e60274",
+      "after": "506c11a4d22abbc664be7671f4e903549d9d933fbc09bb5847cbfabce935b28b",
+      "edits": [
+        {
+          "find": "async function detectInferenceBackends(options = {}) {\n",
+          "replace": "function byokitCliDetail(credentials, loginHint) {\n\tif (credentials === true) return \"logged in\";\n\tif (credentials === false) return `installed, not logged in — ${loginHint}, then check again`;\n\treturn \"installed; login status unverified\";\n}\nasync function detectInferenceBackends(options = {}) {\n"
+        },
+        {
+          "find": "\tif (claudeProbe.found && !claudeProbe.timedOut) cliCandidates.push({\n\t\tkind: \"claude-cli\",\n\t\tmodelRef: CLAUDE_CLI_DEFAULT_MODEL_REF,\n\t\tlabel: \"Claude Code\",\n\t\tdetail: \"installed; login status unverified\"\n\t});\n",
+          "replace": "\tif (claudeProbe.found && !claudeProbe.timedOut) {\n\t\t// BYOKit: restore the verified login seam; only a boolean state returns, never CLI output or credentials.\n\t\tconst byokitClaudeLogin = options.deps?.detectClaudeLoginState ? await options.deps.detectClaudeLoginState(probe, claudeProbe.command) : { credentials: void 0 };\n\t\tcliCandidates.push({\n\t\t\tkind: \"claude-cli\",\n\t\t\tmodelRef: CLAUDE_CLI_DEFAULT_MODEL_REF,\n\t\t\tlabel: \"Claude Code\",\n\t\t\tdetail: byokitCliDetail(byokitClaudeLogin.credentials, \"run `claude auth login`\"),\n\t\t\t...byokitClaudeLogin.credentials === void 0 ? {} : { credentials: byokitClaudeLogin.credentials }\n\t\t});\n\t}\n"
+        },
+        {
+          "find": "\tconst storedCodexCredentials = hasCodexLogin();\n\tif (codexProbe.found && !codexProbe.timedOut || storedCodexCredentials) cliCandidates.push({\n\t\tkind: \"codex-cli\",\n\t\tmodelRef: CODEX_APP_SERVER_DEFAULT_MODEL_REF,\n\t\tlabel: \"Codex\",\n\t\tdetail: storedCodexCredentials ? codexProbe.found && !codexProbe.timedOut ? \"installed; stored credentials found; login status unverified\" : \"stored credentials found; runtime installation required\" : \"installed; login status unverified\",\n\t\tcredentials: storedCodexCredentials\n\t});\n",
+          "replace": "\tconst storedCodexCredentials = hasCodexLogin();\n\t// BYOKit: an installed Codex answers its own login check; a stored file alone stays the stock fallback.\n\tconst byokitCodexVerifiable = options.deps?.detectCodexLoginState && codexProbe.found && !codexProbe.timedOut;\n\tconst byokitCodexLogin = byokitCodexVerifiable ? await options.deps.detectCodexLoginState(probe, codexProbe.command) : void 0;\n\tif (codexProbe.found && !codexProbe.timedOut || storedCodexCredentials) cliCandidates.push({\n\t\tkind: \"codex-cli\",\n\t\tmodelRef: CODEX_APP_SERVER_DEFAULT_MODEL_REF,\n\t\tlabel: \"Codex\",\n\t\tdetail: byokitCodexVerifiable ? byokitCliDetail(byokitCodexLogin, \"run `codex login`\") : storedCodexCredentials ? codexProbe.found && !codexProbe.timedOut ? \"installed; stored credentials found; login status unverified\" : \"stored credentials found; runtime installation required\" : \"installed; login status unverified\",\n\t\t...byokitCodexVerifiable ? byokitCodexLogin === void 0 ? {} : { credentials: byokitCodexLogin } : { credentials: storedCodexCredentials }\n\t});\n"
+        }
+      ]
+    },
+    {
+      "path": "dist/oauth-Da8CUSLq.mjs",
+      "before": "a78dc16ee311f050d81a6cf913411e69b63981dfb5befb7047da7e7ca0795833",
+      "after": "90acb56ccd3e5ac60a9aea773731588442f4a0b3ec2cffd73563173029509927",
       "edits": [
         {
           "find": "\tasync function resolveAuthoritativeSharedOAuthCredentialUnderLock(params) {\n\t\tlet validatedAuthoritative = false;\n\t\tconst acceptAuthoritative = (credential) => {\n\t\t\ttry {\n\t\t\t\tvalidateSettlementCredential(params.validateCredential, credential);\n\t\t\t\tvalidatedAuthoritative = true;\n\t\t\t\treturn true;\n\t\t\t} catch {\n\t\t\t\tauthProfilesLog.warn(\"refused shared OAuth credential during settlement: credential validation failed\", { profileId: params.profileId });\n\t\t\t\treturn false;\n\t\t\t}\n\t\t};\n\t\tconst updated = await updateAuthProfileStoreWithLock({\n\t\t\tagentDir: void 0,\n\t\t\tprofileId: params.profileId,\n\t\t\tsharedStoreWrite: true,\n\t\t\tupdater: (store) => {\n\t\t\t\tconst existing = store.profiles[params.profileId];\n",
@@ -97,32 +104,43 @@
       ]
     },
     {
-      "path": "dist/setup-inference-credentials-D4Y52_FC.mjs",
-      "before": "2e313b296d28ad28417e187926f17d99f3b37cad98688315d3309575928734b8",
-      "after": "bcf388ef12042195cb5621190b94eb19e22baba013d93a892691d1405b9f3d7e",
+      "path": "dist/setup-inference-credentials-CgFIlu9V.mjs",
+      "before": "1c2d3c768f99a44fc93e25e02c5fbe5ead474f67a0bdecc6a74d3a7fb9bf0966",
+      "after": "fb975087f10c71639cd09b15e94a63c8cf588b32de61f6f65fb9bca0f5e47bc6",
       "edits": [
         {
-          "find": "function isSetupCredentialReplacement(params) {\n\tconst store = loadAuthProfileStoreWithoutExternalProfiles(params.agentDir);\n\tconst provider = resolveProviderIdForAuth(params.provider, {\n\t\tconfig: params.baseConfig,\n\t\tstoredCredential: true\n\t});\n\treturn Object.values(store.profiles).some((credential) => !credential.setup && resolveProviderIdForAuth(credential.provider, {\n\t\tconfig: params.baseConfig,\n\t\tstoredCredential: true\n\t}) === provider) || Boolean(params.baseConfig.models?.providers?.[provider]?.apiKey) || parseInferenceRef(resolveAgentEffectiveModelPrimary(params.baseConfig, resolveAmbientOwnerAgentId(params.baseConfig)) ?? \"\").provider === provider;\n}",
-          "replace": "function isSetupCredentialReplacement(params) {\n\tconst store = loadAuthProfileStoreWithoutExternalProfiles(params.agentDir);\n\tconst provider = resolveProviderIdForAuth(params.provider, {\n\t\tconfig: params.baseConfig,\n\t\tstoredCredential: true\n\t});\n\t// BYOKit: inherited model selection alone is not an existing credential source.\n\treturn Object.values(store.profiles).some((credential) => !credential.setup && resolveProviderIdForAuth(credential.provider, {\n\t\tconfig: params.baseConfig,\n\t\tstoredCredential: true\n\t}) === provider) || Boolean(params.baseConfig.models?.providers?.[provider]?.apiKey);\n}"
+          "find": "function isSetupCredentialReplacement(params) {\n\tconst store = await loadAuthProfileStoreWithoutExternalProfilesAsync(params.agentDir);\n\tconst provider = resolveProviderIdForAuth(params.provider, {\n\t\tconfig: params.baseConfig,\n\t\tstoredCredential: true\n\t});\n\treturn Object.values(store.profiles).some((credential) => !credential.setup && resolveProviderIdForAuth(credential.provider, {\n\t\tconfig: params.baseConfig,\n\t\tstoredCredential: true\n\t}) === provider) || Boolean(params.baseConfig.models?.providers?.[provider]?.apiKey) || parseInferenceRef(resolveAgentEffectiveModelPrimary(params.baseConfig, resolveAmbientOwnerAgentId(params.baseConfig)) ?? \"\").provider === provider;\n}",
+          "replace": "function isSetupCredentialReplacement(params) {\n\tconst store = await loadAuthProfileStoreWithoutExternalProfilesAsync(params.agentDir);\n\tconst provider = resolveProviderIdForAuth(params.provider, {\n\t\tconfig: params.baseConfig,\n\t\tstoredCredential: true\n\t});\n\t// BYOKit: inherited model selection alone is not an existing credential source.\n\treturn Object.values(store.profiles).some((credential) => !credential.setup && resolveProviderIdForAuth(credential.provider, {\n\t\tconfig: params.baseConfig,\n\t\tstoredCredential: true\n\t}) === provider) || Boolean(params.baseConfig.models?.providers?.[provider]?.apiKey);\n}"
         },
         {
-          "find": "import { r as normalizeProviderId } from \"./provider-id-BIyeXQag.mjs\";\n",
-          "replace": "import { r as normalizeProviderId } from \"./provider-id-BIyeXQag.mjs\";\nimport { n as byokitParseSetupModelRef } from \"./model-selection-normalize-DVk7nZbI.mjs\";\nimport { u as byokitSetupMetadata } from \"./plugin-metadata-snapshot-D_ni58BI.mjs\";\n"
+          "find": "import { r as normalizeProviderId } from \"./provider-id-D1VImdKk.mjs\";\n",
+          "replace": "import { r as normalizeProviderId } from \"./provider-id-D1VImdKk.mjs\";\nimport { n as byokitParseSetupModelRef } from \"./model-selection-normalize-DulZGI4S.mjs\";\nimport { u as byokitSetupMetadata } from \"./plugin-metadata-snapshot-DFv9QYkl.mjs\";\n"
         },
         {
           "find": "\tconst normalizedModel = params.provider?.normalizeModelId?.({\n\t\tprovider: ref.provider,\n\t\tmodelId: ref.model\n\t})?.trim();\n\tconst modelRef = normalizedModel ? `${ref.provider}/${normalizedModel}` : resolvedModel;\n",
-          "replace": "\t// BYOKit: use the same manifest policies as the exact configured-route witness; direct hooks still win.\n\tconst normalizedModel = params.provider?.normalizeModelId?.({\n\t\tprovider: ref.provider,\n\t\tmodelId: ref.model\n\t})?.trim() || byokitParseSetupModelRef(resolvedModel, ref.provider, {\n\t\tmanifestPlugins: byokitSetupMetadata({ config: params.config, workspaceDir: ctx.workspace, env: process.env }).plugins,\n\t\tallowPluginNormalization: false\n\t})?.model;\n\tconst modelRef = normalizedModel ? `${ref.provider}/${normalizedModel}` : resolvedModel;\n"
+          "replace": "\t// BYOKit: use the same manifest policies as the exact configured-route witness; direct hooks still win.\n\tconst normalizedModel = params.provider?.normalizeModelId?.({\n\t\tprovider: ref.provider,\n\t\tmodelId: ref.model\n\t})?.trim() || byokitParseSetupModelRef(resolvedModel, ref.provider, {\n\t\tmanifestPlugins: byokitSetupMetadata({ config: params.config, workspaceDir: ctx.workspace, env: process.env }).plugins,\n\t\tallowPluginNormalization: false\n\t})?.model;\n\t// BYOKit: the witness keeps a provider-named id whole (openrouter/auto), so never prefix it twice.\n\tconst modelRef = normalizedModel ? normalizedModel.startsWith(`${ref.provider}/`) ? normalizedModel : `${ref.provider}/${normalizedModel}` : resolvedModel;\n"
         }
       ]
     },
     {
-      "path": "dist/openclaw-state-lease-worker-BLSJkljd.mjs",
-      "before": "fadbfceba58e2fa5e7b6d141d3a5a4352e851ad7cb3d427203680725bea45c20",
-      "after": "0b28d0641f22696c39e6345c0157232e872fcbfeff21bf030fa2f19b25bfb913",
+      "path": "dist/openclaw-state-lease-worker-DUSVZJAm.mjs",
+      "before": "8cd615c8d315aab60f155753d8a9f05865cba1c21a036f59ced1c0eb947974f6",
+      "after": "2ffc4352731b603903d879d716712f2d69a0951631ace06d638038e0060c52d1",
       "edits": [
         {
           "find": "\t\t}, OPENCLAW_SQLITE_BUSY_TIMEOUT_MS);\n",
-          "replace": "\t\t}, 30000); /* BYOKit: a state lease attempt waits out another writer on the same state database instead of failing at the 5 s busy timeout; a workshop apply takes this lease. */\n"
+          "replace": "\t\t}, 30000); /* BYOKit: a state lease attempt waits out another writer on the same state database instead of failing at the 5 s busy timeout; agent creation takes this lease. */\n"
+        }
+      ]
+    },
+    {
+      "path": "dist/agent-database-startup-DQcdo5D6.mjs",
+      "before": "7010f75b41efc7bc5eba1c23f61f4aeb1ca2828805fd1f7aa091a622e49835a0",
+      "after": "7da639d9d076e3d061920da7a6980fb426bd8de9e9a07fc9b229da06a918f376",
+      "edits": [
+        {
+          "find": "if (!(error instanceof AgentDatabaseStartupSupersededError) || attempt >= STARTUP_PUBLICATION_ATTEMPTS) throw error;",
+          "replace": "/* BYOKit: a concurrent model-runtime publication supersedes this agent's publication; upstream retries only its own class, and an unretried refusal holds the agent until a Gateway restart. */ if (!(error instanceof AgentDatabaseStartupSupersededError || String(error?.message).startsWith(\"prepared model runtime publication was superseded\")) || attempt >= STARTUP_PUBLICATION_ATTEMPTS) throw error; await new Promise((resolve) => setTimeout(resolve, 250 * attempt));"
         }
       ]
     }

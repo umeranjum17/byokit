@@ -91,11 +91,22 @@ export const modelsOf = (provider: string, answer: unknown): ModelInfo[] => {
   return out;
 };
 
-// The account's models: its provider's rows, plus the Codex CLI route's rows when the account is ready. The pin reports
-// those as missing-auth (no auth reaches the Codex route from the ChatGPT login), so the kit, which holds the login, is the
-// signal for them.
+// 2026.11.1 has no claude-cli catalog: Claude Code's own initialize answer is the menu, and only a read scoped to
+// `anthropic` asks it, so a Claude Code account reads with this scope.
+const modelScope = (row: Pick<Account, 'provider'>) => row.provider === 'claude-cli' ? { provider: 'anthropic' } : {};
+// The account's models: its provider's rows, plus the Codex CLI route's rows when the account is ready, or Claude Code's
+// menu. The pin reports both as missing-auth (no auth profile reaches those routes from the CLI login), so the kit, which
+// holds the login, is the signal for them.
 export const modelsOfAccount = (row: Pick<Account, 'provider' | 'state'>, answer: unknown): ModelInfo[] => {
   const own = modelsOf(row.provider, answer);
+  if (row.provider === 'claude-cli') {
+    const menu = modelsOf('anthropic', answer).map(({ why, ...m }) => {
+      const id = `claude-cli/${m.id.slice(m.id.indexOf('/') + 1)}`;
+      if (row.state === 'ready') return { ...m, id, available: true };
+      return { ...m, id, available: false, why: row.state === 'resting' ? 'resting' as const : why };
+    });
+    return [...own, ...menu.filter((m) => !own.some((listed) => listed.id === m.id))];
+  }
   if (row.provider !== 'openai' || row.state !== 'ready') return own;
   const codex = modelsOf('openai-codex', answer).map(({ why: _why, ...m }) => ({ ...m, available: true }));
   return [...own, ...codex];
@@ -716,27 +727,28 @@ export function createAccounts(ctx: {
   const preparedModels = new Map<string, { stamp: string; pending?: Promise<unknown> }>();
   // The shared hold covers the read, so no kit read of the agent is in flight while it is removed.
   const readModels = (row: Account, entry: IndexEntry): Promise<ModelInfo[]> => ctx.locks.shared(entry.agent, async () => {
+    const scope = modelScope(row), key = `${entry.agent}\0${scope.provider ?? ''}`;
     let stamp: string | undefined;
     try {
       const s = statSync(join(ctx.root, 'openclaw.json'), { bigint: true });
       stamp = [s.dev, s.ino, s.size, s.mtimeNs, s.ctimeNs].join(':');
     } catch { /* an unreadable witness never reuses preparation */ }
-    let prepared = stamp === undefined ? undefined : preparedModels.get(entry.agent);
+    let prepared = stamp === undefined ? undefined : preparedModels.get(key);
     let answer: unknown;
     if (!prepared || prepared.stamp !== stamp) {
-      const pending = ctx.request('models.list', { agentId: entry.agent, view: 'all', refresh: true }, { timeoutMs: 120_000 });
+      const pending = ctx.request('models.list', { agentId: entry.agent, view: 'all', ...scope, refresh: true }, { timeoutMs: 120_000 });
       prepared = { stamp: stamp ?? '', pending };
-      if (stamp !== undefined) preparedModels.set(entry.agent, prepared);
+      if (stamp !== undefined) preparedModels.set(key, prepared);
       try {
         answer = await pending;
         if (!record(answer) || answer.refreshFailed === true) {
-          if (preparedModels.get(entry.agent) === prepared) preparedModels.delete(entry.agent);
+          if (preparedModels.get(key) === prepared) preparedModels.delete(key);
         } else delete prepared.pending;
       } catch (error) {
-        if (preparedModels.get(entry.agent) === prepared) preparedModels.delete(entry.agent);
+        if (preparedModels.get(key) === prepared) preparedModels.delete(key);
         throw error;
       }
-    } else answer = await (prepared.pending ?? ctx.request('models.list', { agentId: entry.agent, view: 'all' }));
+    } else answer = await (prepared.pending ?? ctx.request('models.list', { agentId: entry.agent, view: 'all', ...scope }));
     return withCatalog(row, modelsOfAccount(row, answer));
   });
 
@@ -902,7 +914,7 @@ export function createAccounts(ctx: {
       if (taken.key !== undefined) return failed('start_failed', words('move.taken', { name: row.name }));
       // The session's model when the target lists it, else the target's first available; the read takes no shared
       // hold (this move holds the target exclusively). With no answer the fork keeps the parent's own selection.
-      const answer = await ctx.request('models.list', { agentId: entry.agent, view: 'all' }).catch(() => undefined);
+      const answer = await ctx.request('models.list', { agentId: entry.agent, view: 'all', ...modelScope(row) }).catch(() => undefined);
       const models = answer === undefined ? [] : modelsOfAccount(row, answer);
       const sessionProvider = typeof session.modelProvider === 'string' ? session.modelProvider.toLowerCase() : undefined;
       const current = typeof session.model !== 'string' ? undefined

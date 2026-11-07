@@ -209,7 +209,15 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
   const segments: DictateSegment[] = [];
   let text = '', language: string | undefined;
   const chunkSamples = (s.chunkMs || 30_000) * 16;
-  for (const [start, end] of await segmentRanges(pcm, s, session)) {
+  // Every decode pays one full Whisper encode however short its audio: reading a take range by
+  // range took twice as long as reading it ungated, 83 short decodes against 24 windows. So the
+  // ranges only say which windows hold speech. A take that spans several windows reads exactly the
+  // ungated windows, which also keeps its text, and a shorter one is a single read from first
+  // speech to last.
+  const ranges = await segmentRanges(pcm, s, session);
+  const spans = !ranges.length ? [] : [pcm.length > chunkSamples ? [0, pcm.length] : [ranges[0][0], ranges.at(-1)![1]]];
+  const holdsSpeech = (from: number, to: number) => ranges.some(([a, b]) => a < to && from < b);
+  for (const [start, end] of spans) {
     const prefix = segments.map(segment => segment.text).join(' ');
     const overlap = !s.chunkMs && end - start > chunkSamples ? 5_000 * 16 : 0;
     const stepSamples = chunkSamples - overlap;
@@ -217,7 +225,7 @@ export async function transcribeWhisper(input: DictateInput, s: ResolvedWhisperS
     for (let at = start; at < end;) {
       checkAbort(o.signal);
       const chunkEnd = Math.min(end, at + chunkSamples);
-      if (!await speaks(at, chunkEnd)) {
+      if (!holdsSpeech(at, chunkEnd) || !await speaks(at, chunkEnd)) {
         if (chunkEnd >= end) break;
         at += stepSamples;
         continue;

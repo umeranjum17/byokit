@@ -5,7 +5,8 @@ set -eu
 # Each invocation owns a short scratch folder, even if callers share TMPDIR, and it is created
 # directly under /tmp rather than under an inherited TMPDIR or another mktemp level: a deep parent
 # overflows Unix socket paths (EINVAL on listen) and reads as a product failure, not an environment one.
-scratch_parent=/tmp
+# BYOKIT_TEST_SCRATCH_PARENT moves it for a host whose /tmp is full; keep that path short for the same reason.
+scratch_parent=${BYOKIT_TEST_SCRATCH_PARENT:-/tmp}
 run_tmp=$(mktemp -d "$scratch_parent/bt.XXXXXX")
 export TMPDIR="$run_tmp"
 # One engine-set install per job, shared by every real-engine test file through BYOKIT_TEST_ENGINE_DIR: each

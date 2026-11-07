@@ -1,0 +1,75 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "1cfbd779a2a39224521dcd4ede5529003b7732f5",
+  "tree": "103af7e275aaaa2262f58300dffd03ccc9046fd5",
+  "claim": "A person can answer a blocked Cursor agent from their phone: Allow runs the pending command, Deny and Skip leave it refused, and an answer that arrives after the agent moved on is refused as approval-stale instead of typing into the next question's dialog.",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-11-06T07:36:13.854Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261106T073303Z-1cfbd779-35344e/approvals.json",
+      "sha256": "f82d46315c0ba6b4a195e790cffbf03d3673dded1114ba6fc250d63a14afbfea"
+    },
+    {
+      "path": "<evidence root>/20261106T073303Z-1cfbd779-35344e/approvals.log",
+      "sha256": "a531f5938505f210e2171fe6594533db4da53500a098fe0e1ed95c81ef34dfb5"
+    },
+    {
+      "path": "<evidence root>/20261106T073303Z-1cfbd779-35344e/agent-cwd/allow-ok.txt",
+      "sha256": "641cf2b5dc1d7d348816827ce8d81e2dab3f0146e349975b83d9c66dea2b73c3"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261106T073303Z-1cfbd779-35344e",
+      "commit": "1cfbd779a2a39224521dcd4ede5529003b7732f5",
+      "journey": null,
+      "command": "node .agents/skills/done-done-verify-byokit/capture/herdr-blocked-approvals.ts",
+      "tool": "0.6.24",
+      "steps": {
+        "target": {
+          "version": "@byokit/herdr 0.18.0, herdr 0.9.1, cursor-agent 2026.11.05-86047df"
+        },
+        "start": "a Cursor agent pane at idle in a disposable Herdr lab session, prompted into its own run-command approval",
+        "steps": [
+          "allow: listed \" Run this command?\" as blocked and answered [\"y\"]",
+          "deny: listed \" Run this command?\" as blocked and answered [\"n\"]",
+          "skip: listed \" Run this command?\" as blocked and answered [\"esc\"]",
+          "stale-refused: listed \" Run this command?\" as blocked and answered [\"y\"]"
+        ],
+        "result": "Allow ran the command (ran), Deny and Skip refused it (not run / not run), and the answer for the question that moved on was refused ({\"refusedRevision\":3,\"currentRevision\":4,\"paneRevisionOfAnswered\":3,\"paneRevisionOfLive\":3,\"stillBlocked\":true,\"dialogUnchanged\":true,\"commandRan\":false})"
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "claude-bridge/claude-sonnet-5-5",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261106T073303Z-1cfbd779-35344e/approvals.json",
+        "sha256": "f82d46315c0ba6b4a195e790cffbf03d3673dded1114ba6fc250d63a14afbfea",
+        "verdict": "pass",
+        "seen": "Read 4 legs. allow: keys y, effect ran, paneAfter 'Exit code: 0'. deny: keys n, effect 'not run', 'Rejected'. skip: keys esc, effect 'not run', 'Rejected'. stale-refused: stale {refusedRevision 3, currentRevision 4, stillBlocked true, dialogUnchanged true, commandRan false}. All match the outcome. However, the stale-refused leg itself shows keys y, effect ran, revision 4, which is the follow-up live answer after the stale one was refused (stale block covers refusal), so consistent."
+      },
+      {
+        "path": "<evidence root>/20261106T073303Z-1cfbd779-35344e/approvals.log",
+        "sha256": "a531f5938505f210e2171fe6594533db4da53500a098fe0e1ed95c81ef34dfb5",
+        "verdict": "pass",
+        "seen": "Log contains the same JSON as approvals.json plus test output: tests 2, pass 2, fail 0. Allow ran, deny and skip 'not run', stale refused with commandRan false and stillBlocked true. Consistent with the outcome."
+      },
+      {
+        "path": "<evidence root>/20261106T073303Z-1cfbd779-35344e/agent-cwd/allow-ok.txt",
+        "sha256": "641cf2b5dc1d7d348816827ce8d81e2dab3f0146e349975b83d9c66dea2b73c3",
+        "verdict": "pass",
+        "seen": "allow-ok.txt contains 'allow-ok', showing the Allow leg's command actually ran and wrote its file. It says nothing about deny, skip or stale."
+      }
+    ]
+  }
+}

@@ -1,18 +1,20 @@
 {
-  "engine": "2026.9.33",
+  "engine": "2026.11.1",
   "protocol": 4,
   "package": "openclaw",
-  "methods": 487,
-  "operatorMethods": 476,
+  "methods": 533,
+  "operatorMethods": 522,
   "nodeMethods": 11,
-  "events": 64,
-  "matchedParams": 370,
-  "matchedResults": 241,
-  "matchedEvents": 29,
+  "events": 66,
+  "matchedParams": 378,
+  "matchedResults": 252,
+  "matchedEvents": 30,
   "patchedTypes": [
     "AuditRunInspectParams",
     "BoardActionParams",
     "BoardEventParams",
+    "ChannelsPairingApproveParams",
+    "ChannelsPairingListParams",
     "ChatEvent",
     "ChatStartupParams",
     "ConversationTurnResult",
@@ -28,6 +30,7 @@
     "ExecApprovalsNodeSetParams",
     "GatewaySuspendPrepareResult",
     "GatewaySuspendStatusResult",
+    "PluginsInspectParams",
     "PluginsInstallParams",
     "PluginsSessionActionResult",
     "QuestionResolveParams",
@@ -59,6 +62,10 @@
     {
       "method": "agent",
       "slot": "result"
+    },
+    {
+      "event": "agent.identity.changed",
+      "slot": "payload"
     },
     {
       "method": "agent.identity.get",
@@ -94,6 +101,10 @@
     },
     {
       "method": "attach.revoke",
+      "slot": "result"
+    },
+    {
+      "method": "backup.recordOutcome",
       "slot": "result"
     },
     {
@@ -190,6 +201,14 @@
     },
     {
       "method": "claws.packages.remove",
+      "slot": "result"
+    },
+    {
+      "method": "claws.removalJournal",
+      "slot": "params"
+    },
+    {
+      "method": "claws.removalJournal",
       "slot": "result"
     },
     {
@@ -318,6 +337,14 @@
     },
     {
       "method": "cron.update",
+      "slot": "result"
+    },
+    {
+      "method": "debugProxy.capture",
+      "slot": "params"
+    },
+    {
+      "method": "debugProxy.capture",
       "slot": "result"
     },
     {
@@ -601,6 +628,30 @@
       "slot": "result"
     },
     {
+      "method": "mcp.app.discover",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.discover",
+      "slot": "result"
+    },
+    {
+      "method": "mcp.app.formResource",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.formResource",
+      "slot": "result"
+    },
+    {
+      "method": "mcp.app.launch",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.launch",
+      "slot": "result"
+    },
+    {
       "method": "mcp.app.listResources",
       "slot": "params"
     },
@@ -625,11 +676,75 @@
       "slot": "result"
     },
     {
+      "method": "mcp.app.mention",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.mention",
+      "slot": "result"
+    },
+    {
+      "method": "mcp.app.modelContext",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.modelContext",
+      "slot": "result"
+    },
+    {
+      "method": "mcp.app.onboard",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.onboard",
+      "slot": "result"
+    },
+    {
+      "method": "mcp.app.openFile",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.openFile",
+      "slot": "result"
+    },
+    {
       "method": "mcp.app.readResource",
       "slot": "params"
     },
     {
       "method": "mcp.app.readResource",
+      "slot": "result"
+    },
+    {
+      "method": "mcp.app.removeModelContext",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.removeModelContext",
+      "slot": "result"
+    },
+    {
+      "method": "mcp.app.settings",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.settings",
+      "slot": "result"
+    },
+    {
+      "method": "mcp.app.subscribeResource",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.subscribeResource",
+      "slot": "result"
+    },
+    {
+      "method": "mcp.app.unsubscribeResource",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.unsubscribeResource",
       "slot": "result"
     },
     {
@@ -646,6 +761,14 @@
     },
     {
       "method": "mcp.app.view",
+      "slot": "result"
+    },
+    {
+      "method": "mcp.app.writeResource",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.app.writeResource",
       "slot": "result"
     },
     {
@@ -653,11 +776,43 @@
       "slot": "result"
     },
     {
+      "method": "mcp.events.list",
+      "slot": "params"
+    },
+    {
+      "method": "mcp.events.list",
+      "slot": "result"
+    },
+    {
+      "method": "memory.get",
+      "slot": "params"
+    },
+    {
+      "method": "memory.get",
+      "slot": "result"
+    },
+    {
       "method": "memory.search",
       "slot": "params"
     },
     {
       "method": "memory.search",
+      "slot": "result"
+    },
+    {
+      "method": "memory.search.owner",
+      "slot": "params"
+    },
+    {
+      "method": "memory.search.owner",
+      "slot": "result"
+    },
+    {
+      "method": "memory.status",
+      "slot": "params"
+    },
+    {
+      "method": "memory.status",
       "slot": "result"
     },
     {
@@ -825,6 +980,14 @@
       "slot": "payload"
     },
     {
+      "method": "openclaw.setup.auto",
+      "slot": "params"
+    },
+    {
+      "method": "openclaw.setup.auto",
+      "slot": "result"
+    },
+    {
       "method": "openclaw.setup.prepare.start",
       "slot": "result"
     },
@@ -937,6 +1100,10 @@
       "slot": "result"
     },
     {
+      "method": "projects.checkoutOptions",
+      "slot": "params"
+    },
+    {
       "method": "push.web.preferences.get",
       "slot": "params"
     },
@@ -982,10 +1149,26 @@
     },
     {
       "method": "secrets.reload",
+      "slot": "result"
+    },
+    {
+      "method": "secrets.store.allowedHosts",
+      "slot": "params"
+    },
+    {
+      "method": "secrets.store.allowedHosts",
       "slot": "result"
     },
     {
       "method": "secrets.store.delete",
+      "slot": "result"
+    },
+    {
+      "method": "secrets.store.import",
+      "slot": "params"
+    },
+    {
+      "method": "secrets.store.import",
       "slot": "result"
     },
     {
@@ -1233,6 +1416,14 @@
       "slot": "result"
     },
     {
+      "method": "skills.curator.status",
+      "slot": "params"
+    },
+    {
+      "method": "skills.curator.status",
+      "slot": "result"
+    },
+    {
       "method": "skills.curator.unpin",
       "slot": "params"
     },
@@ -1258,15 +1449,71 @@
     },
     {
       "method": "skills.proposals.apply",
+      "slot": "params"
+    },
+    {
+      "method": "skills.proposals.apply",
       "slot": "result"
+    },
+    {
+      "method": "skills.proposals.create",
+      "slot": "params"
     },
     {
       "method": "skills.proposals.create",
       "slot": "result"
     },
     {
+      "method": "skills.proposals.evaluate",
+      "slot": "params"
+    },
+    {
+      "method": "skills.proposals.evaluate",
+      "slot": "result"
+    },
+    {
+      "method": "skills.proposals.events.list",
+      "slot": "params"
+    },
+    {
+      "method": "skills.proposals.events.list",
+      "slot": "result"
+    },
+    {
+      "method": "skills.proposals.historyScan",
+      "slot": "params"
+    },
+    {
+      "method": "skills.proposals.historyScan",
+      "slot": "result"
+    },
+    {
+      "method": "skills.proposals.historyStatus",
+      "slot": "params"
+    },
+    {
       "method": "skills.proposals.historyStatus",
       "slot": "result"
+    },
+    {
+      "method": "skills.proposals.inspect",
+      "slot": "params"
+    },
+    {
+      "method": "skills.proposals.inspect",
+      "slot": "result"
+    },
+    {
+      "method": "skills.proposals.list",
+      "slot": "params"
+    },
+    {
+      "method": "skills.proposals.list",
+      "slot": "result"
+    },
+    {
+      "method": "skills.proposals.quarantine",
+      "slot": "params"
     },
     {
       "method": "skills.proposals.quarantine",
@@ -1274,11 +1521,31 @@
     },
     {
       "method": "skills.proposals.reject",
+      "slot": "params"
+    },
+    {
+      "method": "skills.proposals.reject",
+      "slot": "result"
+    },
+    {
+      "method": "skills.proposals.requestRevision",
+      "slot": "params"
+    },
+    {
+      "method": "skills.proposals.requestRevision",
       "slot": "result"
     },
     {
       "method": "skills.proposals.revise",
+      "slot": "params"
+    },
+    {
+      "method": "skills.proposals.revise",
       "slot": "result"
+    },
+    {
+      "method": "skills.proposals.update",
+      "slot": "params"
     },
     {
       "method": "skills.proposals.update",
@@ -1302,6 +1569,14 @@
     },
     {
       "method": "skills.upload.commit",
+      "slot": "result"
+    },
+    {
+      "method": "skills.workshop.archive",
+      "slot": "result"
+    },
+    {
+      "method": "skills.workshop.restore",
       "slot": "result"
     },
     {
@@ -1521,6 +1796,14 @@
       "slot": "payload"
     },
     {
+      "method": "ui.command.result",
+      "slot": "params"
+    },
+    {
+      "method": "ui.command.result",
+      "slot": "result"
+    },
+    {
       "event": "update.available",
       "slot": "payload"
     },
@@ -1546,6 +1829,22 @@
     },
     {
       "method": "users.authConnect.cancel",
+      "slot": "result"
+    },
+    {
+      "method": "users.background.get",
+      "slot": "params"
+    },
+    {
+      "method": "users.background.get",
+      "slot": "result"
+    },
+    {
+      "method": "users.background.remove",
+      "slot": "result"
+    },
+    {
+      "method": "users.background.upload",
       "slot": "result"
     },
     {

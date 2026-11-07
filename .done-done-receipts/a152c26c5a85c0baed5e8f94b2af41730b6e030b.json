@@ -1,0 +1,59 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "a152c26c5a85c0baed5e8f94b2af41730b6e030b",
+  "tree": "0427a8204eb3717c1e5ba328fe621d6768f1104b",
+  "claim": "A person on a default Ubuntu login (umask 0002) can start the automatic host key: an empty group-writable state folder is tightened to owner-only and the key loads, while a folder holding other files stays refused",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-11-05T04:26:37.574Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261105T042552Z-a152c26c-c24274/secrets-host-key-umask.txt",
+      "sha256": "ba36bf9fb9a57d24ea51ad50782847a56da1e232b94748e647951a70f3d95914"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261105T042552Z-a152c26c-c24274",
+      "commit": "a152c26c5a85c0baed5e8f94b2af41730b6e030b",
+      "journey": null,
+      "command": null,
+      "feature": "secrets-host-key-umask",
+      "tool": "0.6.24",
+      "steps": {
+        "target": {
+          "version": "@byokit/secrets 0.5.3 (commit a152c26c)"
+        },
+        "start": "Worktree of byokit at commit a152c26c, built with npm run build; empty state root (stateDir) created in a scratch folder under a shell with umask 0002, so it is group-writable (775).",
+        "steps": [
+          "Set the shell umask to 0002 and confirmed it with umask.",
+          "Created an empty state folder with mkdir and printed its mode (775).",
+          "Ran a consumer script that imports the built @byokit/secrets and calls hostKeyFileSeal on that folder.",
+          "Printed the state folder, host-key folder and key file modes after the call.",
+          "Encrypted a canary string, called hostKeyFileSeal a second time on the same folder, and decrypted it.",
+          "Created a second state folder at 775 that already holds a notes.txt file, and called hostKeyFileSeal on it.",
+          "Printed the refusal error and the folder mode afterwards."
+        ],
+        "result": "The empty 775 state folder reads 700 after the first call, the host-key folder reads 700 and the key file 600, and the second call decrypts the round trip. The 775 folder holding another file is refused with 'Automatic host key requires owner-only files and directories owned by the current user' and stays 775."
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "ollama-cloud/deepseek-v4.1-flash",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261105T042552Z-a152c26c-c24274/secrets-host-key-umask.txt",
+        "sha256": "ba36bf9fb9a57d24ea51ad50782847a56da1e232b94748e647951a70f3d95914",
+        "verdict": "pass",
+        "seen": "I read the whole capture. It records umask (process): 0002; state root before: 775; an empty group-writable state folder tightened to owner-only; state root after first hostKeyFileSeal: 700; host-key folder: 700; key file: 600; round trip after second hostKeyFileSeal on same folder: matches; a second state root: 775 holding notes.txt; and second root refused with KeystoreError code=invalid, with second state root after refusal: 775. These fields directly support the stated outcome."
+      }
+    ]
+  }
+}
