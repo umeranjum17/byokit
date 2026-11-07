@@ -34,7 +34,7 @@
     "node-forge": "1.4.2"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
+    "@types/node": "^26.6.6",
     "@types/ws": "^8.18.2",
     "abort-controller": "3.0.0",
     "esbuild": "0.28.2",
@@ -43,6 +43,6 @@
     "playwright": "^1.64.0",
     "tweetnacl": "1.0.3",
     "typescript": "^7.0.2",
-    "ws": "^8.22.0"
+    "ws": "^8.22.1"
   }
 }

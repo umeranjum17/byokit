@@ -68,7 +68,7 @@
     "@byokit/secrets": "0.5.3",
     "@openclaw/gateway-client": "2026.11.1",
     "@openclaw/gateway-protocol": "2026.11.1",
-    "ws": "8.22.0"
+    "ws": "8.22.1"
   },
   "devDependencies": {
     "@byokit/ui": "1.1.0"
