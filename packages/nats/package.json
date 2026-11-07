@@ -1,6 +1,7 @@
 {
   "name": "@byokit/nats",
   "version": "0.1.0",
+  "private": true,
   "description": "A local NATS JetStream bus for an app: the pinned, hash-checked server, one supervised child on loopback with a token, and publish and durable readers with explicit acks.",
   "license": "Apache-2.0",
   "type": "module",

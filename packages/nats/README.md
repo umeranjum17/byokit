@@ -4,6 +4,8 @@ A local message bus for an app: the pinned, hash-checked `nats-server` as one su
 token with JetStream on, plus publish and durable readers with explicit acks. Node and Electron only. The kit knows no
 subjects and no policy; the app names its streams, subjects and durables.
 
+Status: `private: true` until its first publish (the maintainer removes it, then `npm trust github`; see CONTRIBUTING.md).
+
 ## Use it
 
 ```ts
