@@ -1,0 +1,19 @@
+{
+  "name": "@byokit/nats",
+  "version": "0.1.0",
+  "description": "A local NATS JetStream bus for an app: the pinned, hash-checked server, one supervised child on loopback with a token, and publish and durable readers with explicit acks.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": { "type": "git", "url": "git+https://github.com/umeranjum17/byokit.git", "directory": "packages/nats" },
+  "engines": { "node": ">=22.18" },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" }
+  },
+  "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md"],
+  "dependencies": {
+    "@nats-io/jetstream": "3.4.0",
+    "@nats-io/transport-node": "3.4.0"
+  },
+  "scripts": { "prepack": "tsc -b" },
+  "publishConfig": { "access": "public" }
+}
