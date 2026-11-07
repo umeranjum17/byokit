@@ -72,6 +72,8 @@ jobs:
         run: npm run check
       - run: node scripts/readme-check.ts
       - run: node scripts/check-accounts-pi.ts
+      - name: Pinned nats-server for the @byokit/nats tests (hash-checked download)
+        run: echo "BYOKIT_NATS_BIN=$(node scripts/fetch-nats.ts "$RUNNER_TEMP/nats")" >> "$GITHUB_ENV"
       - name: Isolated tests (including hosted MCP HTTP round trip)
         if: needs.changes.outputs.code == 'true'
         env:

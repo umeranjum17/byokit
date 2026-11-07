@@ -1,0 +1,56 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "8e82d779773981afd4339394136b5218c2a7f9d6",
+  "tree": "75319ef2f63653a020ff34cd29ba618a4ca30b31",
+  "claim": "an app can start one local, token-protected NATS JetStream server from a hash-checked pinned download, publish to a durable stream and read it with explicit acks, and shut down without a hung process",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-11-07T10:06:24.413Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261107T100604Z-8e82d779-d70e8f/nats-bus.txt",
+      "sha256": "03e6f94da6450386f78c7975d2535b60dae7b6323ef6b79e6aff8bc7f528bfec"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261107T100604Z-8e82d779-d70e8f",
+      "commit": "8e82d779773981afd4339394136b5218c2a7f9d6",
+      "journey": null,
+      "command": "/tmp/jg-byokit-nats-kit/vd/run.sh",
+      "tool": "0.6.26",
+      "steps": {
+        "target": {
+          "version": "@byokit/nats 0.1.0 with nats-server 2.15.2"
+        },
+        "start": "an empty app state folder",
+        "steps": [
+          "start a local, token-protected NATS JetStream server with ensureNats from the pinned, hash-checked download and check health",
+          "publish a message twice to a durable stream with one id",
+          "read it with an explicit ack reader that naks once then acks",
+          "close the bus and start ensureNats again on the same folder: only the unacked message is read",
+          "shut down a bus holding a reader whose handler never settles, without a hung process, then stop the server"
+        ],
+        "result": "an app can run a local, token-protected NATS JetStream server, publish to a durable stream, read with explicit acks, and shut down without a hung process"
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "claude-bridge/claude-sonnet-5-5",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261107T100604Z-8e82d779-d70e8f/nats-bus.txt",
+        "sha256": "03e6f94da6450386f78c7975d2535b60dae7b6323ef6b79e6aff8bc7f528bfec",
+        "verdict": "pass",
+        "seen": "Read 7 capture lines. Start: 'started true nats://127.0.0.1:32847 health true' with a store path. Replay: 'duplicate true' and 'seen [[\"one\",1],[\"one\",2]]'. Resume: 'started false same url true' and 'only unacked [\"two\"]'. Clean exit: 'close returned in ms 5004', then 'stop: health false' and 'EXIT=0'. This matches the outcome: local server start, durable publish and read, ack-based resume, and shutdown without a hang. Not shown: token protection and the hash-checked download. Other captures may cover those parts. The 5004 ms close is slow but it returned and the process exited with 0, so it does not contradict the outcome."
+      }
+    ]
+  }
+}
