@@ -1,0 +1,53 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "e1226ac5c40d0ffd4db9794d3c0a1926af38a72f",
+  "tree": "b7367e2e7849030f1c7940e46ca6c15dc1a3e734",
+  "claim": "The OpenClaw kit example sources and its CI jobs are gone: the repository builds, type-checks and passes release lint without the example's code or the openclaw CI area",
+  "result": "pass",
+  "at": "2026-11-07T17:43:26.442Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261107T174314Z-e1226ac5-792e8b/summary.txt",
+      "sha256": "490ff0187aab2bb34f2c640655125322777cea9f3a0dae149b3fa09dadcbbb2a"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261107T174314Z-e1226ac5-792e8b",
+      "commit": "e1226ac5c40d0ffd4db9794d3c0a1926af38a72f",
+      "journey": null,
+      "command": "sh -c 'sh \"$PROOF\"'",
+      "tool": "0.6.26",
+      "steps": {
+        "target": {
+          "version": "0.34.0"
+        },
+        "start": "main at the parent of this commit, with examples/openclaw-kit and the openclaw CI jobs present",
+        "steps": [
+          "delete examples/openclaw-kit",
+          "remove the openclaw-engine and openclaw-browser jobs, the openclaw change area and the example's browser step from CI",
+          "run build, tsc check, readme-check, release lint and the release test"
+        ],
+        "result": "everything exits 0 and no file named in the summary mentions OpenClaw"
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "claude-bridge/claude-sonnet-5-5",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261107T174314Z-e1226ac5-792e8b/summary.txt",
+        "sha256": "490ff0187aab2bb34f2c640655125322777cea9f3a0dae149b3fa09dadcbbb2a",
+        "verdict": "pass",
+        "seen": "Read the single capture (4 lines of content). The outcome says the example sources and OpenClaw CI jobs are gone and build, tsc, and release lint pass. The capture shows only the two UI files left (favicon.svg, index.html), 'OpenClaw mentions left in .github/workflows/ci.yml, scripts/ci-changes.ts, tsconfig.json: 0 files', ci-changes areas listing no openclaw area, and 'build, tsc check, readme-check, release lint and scripts/release.test.ts all exited 0'. This matches the outcome, and the two UI files are planned for later slices. No contradictions."
+      }
+    ]
+  }
+}
