@@ -31,6 +31,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       code: ${{ steps.areas.outputs.code }}
+      receipt: ${{ steps.areas.outputs.receipt }}
       openclaw: ${{ steps.areas.outputs.openclaw }}
       write: ${{ steps.areas.outputs.write }}
       endpoint: ${{ steps.areas.outputs.endpoint }}
@@ -192,6 +193,8 @@ jobs:
   # done-done-axi 0.6.0 is the version that refuses a receipt whose capture runs only checked the
   # code (a test, a build) or that carry no step record, so the gate holds the same bar the
   # journeys in .done-done.yaml now set: the receipt must come from a run that drove the product.
+  # A change that touches only dependency manifests or workflow files (receipt=false) has no product to prove:
+  # the job still runs, says so in its log and skips the gate, so the skip is never silent.
   done-done:
     needs: changes
     if: needs.changes.outputs.code == 'true' && github.event_name == 'pull_request'
@@ -204,8 +207,12 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.16.0'
-      - run: npm install -g done-done-axi@0.6.0
-      - run: done-done gate
+      - if: needs.changes.outputs.receipt != 'true'
+        run: echo "done-done gate skipped - this change touches only dependency manifests or workflow files, so no receipt is required"
+      - if: needs.changes.outputs.receipt == 'true'
+        run: npm install -g done-done-axi@0.6.0
+      - if: needs.changes.outputs.receipt == 'true'
+        run: done-done gate
 
   # Pack consumers get their own budget; the isolated suite above can use most of check's fifteen minutes.
   pack:

@@ -4,6 +4,8 @@
 // Each area lists its job's packages with their @byokit dependencies, so a change in a dependency still runs the job.
 // `code` is false only for a docs-only or evidence-only change (Markdown, docs/, LICENSE files, proof/ and done-done receipts):
 // the every-PR jobs then skip their tests.
+// `receipt` is false when every changed file is also a dependency manifest or workflow file (a bump has no journey to prove):
+// the done-done job then logs why it skips its gate. Anything else, packages/ manifests included, still needs a receipt.
 import { execFileSync } from 'node:child_process';
 
 const kits = (...names: string[]): string[] => names.map((n) => `packages/${n}/`);
@@ -23,6 +25,7 @@ const AREAS: Record<string, string[]> = {
 };
 const SHARED = ['package.json', 'package-lock.json', 'tsconfig.json', 'tsconfig.base.json', '.github/workflows/ci.yml', 'scripts/fix-words-dts.cjs', 'scripts/test.sh', 'scripts/test-egress-guard.cjs', 'packages/test-support.ts'];
 
+const NO_RECEIPT = /^(package(-lock)?\.json|examples\/[^/]+\/package(-lock)?\.json|\.github\/workflows\/.+|\.github\/dependabot\.yml)$/;
 const NOT_CODE = /^(docs|proof|\.done-done-receipts)\/|(^|\/)LICENSE[^/]*$/;
 
 // A new branch's push has an all-zero previous tip, and a force-pushed one may be gone: no usable base runs everything.
@@ -36,6 +39,7 @@ if (base) {
   }
 }
 console.log(`code=${changed === null || changed.some((f) => !NOT_CODE.test(f))}`);
+console.log(`receipt=${changed === null || changed.some((f) => !NOT_CODE.test(f) && !NO_RECEIPT.test(f))}`);
 const shared = changed === null || changed.some((f) => SHARED.includes(f));
 for (const [area, paths] of Object.entries(AREAS)) {
   const run = shared || changed!.some((f) => paths.some((p) => f.startsWith(p)));
