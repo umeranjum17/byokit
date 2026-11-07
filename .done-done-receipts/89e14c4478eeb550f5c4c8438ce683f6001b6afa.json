@@ -1,0 +1,56 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "89e14c4478eeb550f5c4c8438ce683f6001b6afa",
+  "tree": "75319ef2f63653a020ff34cd29ba618a4ca30b31",
+  "claim": "an app can start one local, token-protected NATS JetStream server from a hash-checked pinned download, publish to a durable stream and read it with explicit acks, and shut down without a hung process",
+  "skill": "done-done-verify-byokit",
+  "result": "pass",
+  "at": "2026-11-07T10:00:45.110Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261107T094234Z-89e14c44-b4bc73/nats-bus.txt",
+      "sha256": "10f09552e25644cfe9fc4a738704b0049d23949b8f778e631bde140871110b00"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261107T094234Z-89e14c44-b4bc73",
+      "commit": "89e14c4478eeb550f5c4c8438ce683f6001b6afa",
+      "journey": null,
+      "command": "/tmp/jg-byokit-nats-kit/vd/run.sh",
+      "tool": "0.6.26",
+      "steps": {
+        "target": {
+          "version": "@byokit/nats 0.1.0 with nats-server 2.15.2"
+        },
+        "start": "an empty app state folder",
+        "steps": [
+          "start the server with ensureNats and check health",
+          "publish a message twice with one id",
+          "read it with a durable reader that naks once then acks",
+          "close the bus, start ensureNats again on the same folder and read only the unacked message",
+          "close a bus holding a reader whose handler never settles, then stop the server"
+        ],
+        "result": "the second start adopts the same server, only the unacked message arrives, close returns in about 5 s, and health is false after stop"
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "claude-bridge/claude-sonnet-5-5",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261107T094234Z-89e14c44-b4bc73/nats-bus.txt",
+        "sha256": "10f09552e25644cfe9fc4a738704b0049d23949b8f778e631bde140871110b00",
+        "verdict": "pass",
+        "seen": "Read 7 capture lines plus EXIT. Start: 'started true nats://127.0.0.1:45573 health true' with a store path. Publish/replay: 'duplicate true' (dedupe) and 'seen [[\"one\",1],[\"one\",2]]'. Resume: 'only unacked [\"two\"]' shows explicit acks. Shutdown: 'close returned in ms 5004', 'stop: health false', 'EXIT=0'. The 5004 ms close is slowish but returned and the process exited cleanly, so no hang. Token protection and hash-checked download are not shown here, but other captures can cover those. Nothing contradicts the outcome."
+      }
+    ]
+  }
+}
