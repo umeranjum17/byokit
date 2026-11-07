@@ -27,6 +27,7 @@ test('a lease-taking agent create waits out another writer on the shared state d
   const stateDir = scratchDir('o-sqlite-contention');
   const kit = new OpenClawKit({ stateDir, engineDir, tools: [] });
   let writer: DatabaseSync | undefined;
+  let releaseTimer: NodeJS.Timeout | undefined;
   try {
     await kit.start();
     assert.equal(kit.state.phase, 'ready');
@@ -44,7 +45,7 @@ test('a lease-taking agent create waits out another writer on the shared state d
     writer.exec('CREATE TABLE IF NOT EXISTS byokit_contention_probe (x INTEGER)');
     writer.prepare('INSERT INTO byokit_contention_probe (x) VALUES (1)').run();
     // Held on a timer: the create below is awaited, so this release lands mid-flight.
-    const release = new Promise<void>(resolve => setTimeout(() => {
+    const release = new Promise<void>(resolve => releaseTimer = setTimeout(() => {
       writer!.exec('COMMIT');
       resolve();
     }, HOLD_MS));
@@ -58,6 +59,7 @@ test('a lease-taking agent create waits out another writer on the shared state d
     const listed = await kit.call('agents.list', {}) as { agents: { id: string }[] };
     assert.ok(listed.agents.some(agent => agent.id === 'm2'));
   } finally {
+    clearTimeout(releaseTimer); // a failed create must not leave the release to fire on a closed handle and bury its error
     try { if (writer) { if (writer.isTransaction) writer.exec('ROLLBACK'); writer.close(); } } catch { /* the probe writer is disposable */ }
     await kit.stop().catch(() => {});
   }

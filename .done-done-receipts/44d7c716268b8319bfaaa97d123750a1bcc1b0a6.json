@@ -1,0 +1,64 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "44d7c716268b8319bfaaa97d123750a1bcc1b0a6",
+  "tree": "69ccde879cce7cc8f74a592d4933fa34e920b987",
+  "claim": "A sealed sign-in still reads signed in right after a real Gateway restart on a busy host, and a publication that never lands reads unknown, not signed out",
+  "result": "pass",
+  "at": "2026-11-06T10:52:42.814Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261106T105051Z-44d7c716-3030ef/summary.txt",
+      "sha256": "306962b44c01d49cbccb0a9d03e289d24426b849d2ab4852d7ea4594559ec6c2"
+    },
+    {
+      "path": "<evidence root>/20261106T105051Z-44d7c716-3030ef/gap.log",
+      "sha256": "2978bc4461911821012dc777ec55b6801b751ed3473d07fb7fa602a9fe6789e6"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261106T105051Z-44d7c716-3030ef",
+      "commit": "44d7c716268b8319bfaaa97d123750a1bcc1b0a6",
+      "journey": "openclaw-restart-signin",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/openclaw-restart-signin.mjs",
+      "tool": "0.6.24",
+      "steps": {
+        "target": {
+          "version": "2026.11.1"
+        },
+        "start": "A fresh app home holding a synthetic preserved sign-in, on the pinned engine the kit installs from the patched set",
+        "steps": [
+          "The kit imports the preserved sign-in, starts the real pinned engine and confirms the sign-in",
+          "The kit stops the engine, which seals the store, and starts it again on a busy host",
+          "The app asks which providers are signed in straight after the restart and sees openai",
+          "With the post-boot gap held open, the app reads signed in once the engine publishes and unknown if it never does"
+        ],
+        "result": "PASS: with the gap held open, the sign-in read signed in once the engine published, and a publication that never landed read unknown, not signed out"
+      }
+    }
+  ],
+  "judge": {
+    "route": "answerer:pi",
+    "model": "claude-bridge/claude-sonnet-5-5",
+    "independence": "agent",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261106T105051Z-44d7c716-3030ef/summary.txt",
+        "sha256": "306962b44c01d49cbccb0a9d03e289d24426b849d2ab4852d7ea4594559ec6c2",
+        "verdict": "pass",
+        "seen": "Read 2 PASS lines. First: '6 copies at once on the real pinned engine 2026.11.1: each sealed sign-in was still signed in right after a real Gateway restart' matches the first clause. Second: 'with the gap held open, the sign-in read signed in once the engine published, and a publication that never landed read unknown, not signed out' matches the second clause. Both parts of the outcome are shown."
+      },
+      {
+        "path": "<evidence root>/20261106T105051Z-44d7c716-3030ef/gap.log",
+        "sha256": "2978bc4461911821012dc777ec55b6801b751ed3473d07fb7fa602a9fe6789e6",
+        "verdict": "pass",
+        "seen": "Read the one test line and summary: 'a status read while the engine publishes after boot waits for its answer, and one that never comes is unknown' with pass 1, fail 0. This shows the second part (publication gap, unknown not signed out). It does not show the real restart part, which capture_0 covers. Also '~/.pi ... unchanged' is consistent and not contradictory."
+      }
+    ]
+  }
+}

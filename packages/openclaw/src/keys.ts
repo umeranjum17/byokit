@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { KeyRouteError } from '@byokit/accounts';
 import { openCodeWorkspaces, type OpenCodeGoWorkspace } from '@byokit/accounts/opencode-go';
 import { activate, type ActivationCtx } from './activation.ts';
+import { authStatus } from './auth-status.ts';
 import { keyAgentId, MEMBER_ID, KEY_PREFIX, untilListed } from './members.ts';
 import { providerOf } from './pick.ts';
 import type { RouteView } from './routes.ts';
@@ -133,10 +134,8 @@ export function createKeys(ctx: ActivationCtx & {
     catch (error) {
       // The engine answers `failed` when no agent holds a key: a lane without the provider's profile lists nothing,
       // a saved one is a real failure.
-      const held = await ctx.request('models.authStatus', { agentId: keyAgentId(member) }).then((answer) => {
-        const rows = (answer as { providers?: ({ provider?: string } | string)[] }).providers ?? [];
-        return rows.some((row) => (typeof row === 'string' ? row : row?.provider) === route.provider);
-      }, () => undefined);
+      const held = await authStatus(ctx.request, keyAgentId(member)).then((answer) => answer.unavailable ? undefined
+        : (answer.providers ?? []).some((row) => (typeof row === 'string' ? row : row?.provider) === route.provider), () => undefined);
       if (held !== false) throw error;
       return [];
     }

@@ -386,11 +386,8 @@ export function createRuns(ctx: {
         // The picked account must be the one called: check it is signed in for this member before the run, since
         // the engine would otherwise fail the run only after admitting it. An explicit provider/model is strict on
         // the pinned engine (never another provider or model), so this check plus the override is the guarantee.
-        const status = (refresh: boolean) =>
-          ctx.authStatus ? ctx.authStatus(agentId, refresh, picked.provider === 'claude-cli')
-            : authStatus(ctx.request, agentId, refresh, picked.provider === 'claude-cli');
-        let auth = await status(false);
-        if (auth.unavailable) auth = await status(true); // no prepared snapshot yet: build it once
+        const native = picked.provider === 'claude-cli';
+        const auth = await (ctx.authStatus ? ctx.authStatus(agentId, false, native) : authStatus(ctx.request, agentId, false, native));
         if (auth.unavailable)
           return { ok: false, kind: 'other', message: String(auth.unavailable.message ?? 'account status unavailable') };
         const row = (auth.providers ?? []).find((e) => (typeof e === 'string' ? e : e?.provider) === picked.provider);

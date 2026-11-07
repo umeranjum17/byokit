@@ -982,6 +982,24 @@ test('readiness warms profile admission with or without native auth despite unus
 
 // The engine probes the installed Claude Code (`claude auth status`) with a hard 3 s limit and answers inside a 10 s
 // window; a probe that takes longer is an error, which admission once read as "not signed in".
+test('a status read while the engine publishes after boot waits for its answer, and one that never comes is unknown', async (t) => withKit(async (kit, fake) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+  let pumping = true, published = false, refreshes = 0;
+  const pump = (async () => { while (pumping) { await new Promise((resolve) => setImmediate(resolve)); t.mock.timers.tick(250); } })();
+  fake.handle('models.authStatus', (p) => {
+    if (published) return { providers: [{ provider: 'openai', status: 'ok', profiles: [{ status: 'ok' }] }] };
+    if (!p.refresh) return { providers: [], unavailable: { code: 'PREPARED_MODEL_AUTH_UNAVAILABLE', message: 'not prepared' } };
+    if (++refreshes === 3) published = true;
+    throw new Error('prepared model runtime publication was superseded for /agents/umer/agent');
+  });
+  try {
+    assert.equal(await kit.signInState('umer', 'openai'), 'signed-in', 'the sign-in the engine had not loaded yet is still there');
+    assert.deepEqual(await kit.providers('umer'), ['openai']);
+    published = false; refreshes = -1_000;
+    assert.equal(await kit.signInState('umer', 'openai'), 'unknown', 'a publication that never lands is not a sign-out');
+  } finally { pumping = false; await pump; }
+}));
+
 for (const [name, probe, state, run] of [
   ['stays slow past the 3 s limit and the 10 s window', 'slow', 'unknown', 'network'],
   ['is slow twice, then answers signed in', 'recovers', 'signed-in', 'ok'],

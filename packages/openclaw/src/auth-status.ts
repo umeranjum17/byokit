@@ -15,6 +15,12 @@ export type AuthStatus = { providers?: (string | {
  *  gets a second full chance before the answer is given up as unknown. */
 export const PROBE_WINDOW_MS = 12_000;
 const PROBE_GAP_MS = 1_000;
+/** The engine opens its socket before it publishes each agent's model runtime. In that gap a plain status read answers
+ *  `unavailable` and a refresh throws one of these, so neither says anything about a sign-in. It closed within 3 s on a
+ *  starved host; the window is what a slower boot gets before the error stands. */
+const PUBLISHING = /prepared model runtime/i;
+const PUBLISH_WINDOW_MS = 15_000;
+const PUBLISH_GAP_MS = 250;
 
 /** The native Claude Code probe, retried (fresh, never the cached failure) until the window has passed and at least two
  *  attempts ran. Undefined is unknown: a thrown or timed-out probe is never an answer about the login. */
@@ -41,6 +47,23 @@ export const detection = async (
     { timeoutMs: o?.timeoutMs ?? 20_000, ...(o?.signal ? { signal: o.signal } : {}) }) as Detection;
 };
 
+/** The engine's status for one agent. A plain read with no prepared snapshot builds it once; a read that lands while the
+ *  engine is still publishing asks again rather than answering for a sign-in the engine has not loaded yet. */
+async function engineStatus(request: GatewayTransport['request'], agentId: string, refresh: boolean): Promise<AuthStatus> {
+  const read = (fresh: boolean) => request('models.authStatus', { agentId, ...(fresh ? { refresh: true } : {}) },
+    { timeoutMs: 20_000 }) as Promise<AuthStatus>;
+  const start = Date.now();
+  for (;;) {
+    try {
+      const status = await read(refresh);
+      return status.unavailable && !refresh ? await read(true) : status;
+    } catch (error) {
+      if (!PUBLISHING.test(String(error)) || Date.now() - start >= PUBLISH_WINDOW_MS) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, PUBLISH_GAP_MS));
+  }
+}
+
 /** Native Claude login stays in Claude Code. The pin's profile status does not include this synthetic auth;
  * setup detection asks the CLI itself, without handing credentials to the kit. The detection and the pin's own status
  * are independent reads, so they run together rather than one after the other. */
@@ -48,7 +71,7 @@ export async function authStatus(
   request: GatewayTransport['request'], agentId: string, refresh = false, native = false, detect?: Detector,
 ): Promise<AuthStatus> {
   const [status, detected] = await Promise.all([
-    request('models.authStatus', { agentId, ...(refresh ? { refresh: true } : {}) }, { timeoutMs: 20_000 }) as Promise<AuthStatus>,
+    engineStatus(request, agentId, refresh),
     native ? probe(request, agentId, detect) : undefined,
   ]);
   return native ? nativeStatus(status, detected) : status;
