@@ -1,5 +1,5 @@
 // One agent run as a person sees it: the reply streaming in, the tools it uses, and how it ended in plain words.
-// Framework-free; typed structurally against `@byokit/openclaw/device`'s `run()`, so nothing here imports a kit.
+// Framework-free; typed structurally, so nothing here imports a kit.
 //   idle      nothing sent yet          running   the reply is streaming in
 //   done      the reply is complete     stopped   stopped before the end (here, or aborted on the computer)
 //   failed    it ended with a problem: `words` says which, in the kit's own sentence
@@ -51,7 +51,7 @@ export function runStep(s: RunState, a: RunAction): RunState {
   }
 }
 
-/** The kit's sentences a failed run needs (`@byokit/openclaw/device`'s `words` fits). */
+/** The kit's sentences a failed run needs. */
 export type RunWords = (key: 'member.signedOut' | 'member.resting' | 'member.plan' | 'member.network' | 'member.output',
   vars: { name: string; time: string }) => string;
 export type RunWordsOptions = {
@@ -79,7 +79,7 @@ export function runView(s: RunState, { words, name, time = clock }: RunWordsOpti
   };
 }
 
-/** What `runStore` needs from a device client: `openclawDevice(link)` fits. */
+/** What `runStore` needs from a device client. */
 export type RunSource = { run(message: string, o?: { sessionKey?: string }): AsyncIterable<RunFrame> };
 
 /**

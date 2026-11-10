@@ -121,13 +121,13 @@ export function useChatGptSheet() {
 | `herdrStore(hd)`, `herdrTreeView(tree)`, `blockedView(state)` | Herdr's agents by where they run, and the ones waiting for an answer, live |
 | `cloudSource(provider, o?)`, `cloudStore(source)`, `cloudView(state, { now, words })` | Your cloud computers: the list, each one's state, newest copy and cost in plain words, the search, the pick, and what the host answered when it woke one |
 | `useCloud(source)` | React hook over that store |
-| `signInsStore(oc)`, `signInSheetView(request, { name, holder })`, `livePanelView(state)` | The browser sign-in sheet (sentence, buttons, chat chip) and live panel for the OpenClaw kit's handoff |
+| `signInsStore(oc)`, `signInSheetView(request, { name, holder })`, `livePanelView(state)` | The browser sign-in sheet (sentence, buttons, chat chip) and live panel for a kit's handoff |
 | `useRun`, `useApprovals`, `useHerdrTree`, `useBlocked` | React hooks over those stores |
 | `connectView(routes, step?)`, `connectStep(step, action)` | Every account route the kits list, grouped by how the person pays, with the picked row and its key card |
 | `signInFor(view, { read, start?, cancel })`, `useConnect({ routes, read, start?, cancel })` | `useSignIn`'s options for the picked sign-in row; the hook holds the step |
 | `accountRows(accounts, room, now, windows?)`, `rowsOf(source, now)`, `nameSuggestions(email, taken, provider?)` | One plain-words row per account (`ChatGPT · Work` / `Plus · 72% left this week`), the honest words for every sign-in state, and untaken account-name suggestions |
 | `agentView(agent, accounts, defaults?, models?)` | One agent's sign-in methods (an Agent tab): its plans counted as `1 of 3 enabled`, the one account in use, its default model, pay-per-use keys listed apart and never chosen |
-| `useAccounts(source)`, `useModelPicker(source, initial?)` | React hooks: the rows live with `refresh()` and `remove()` (a failing room leaves only its row unknown; a mid-refresh remove still drops it), and the run picker with `select()` keeping the caller's selection across refreshes; `accountsSource(accounts, member, room?)` and `cliSource(cli, room?)` fill the source with one line per member (the openclaw adapter stays pending O14) |
+| `useAccounts(source)`, `useModelPicker(source, initial?)` | React hooks: the rows live with `refresh()` and `remove()` (a failing room leaves only its row unknown; a mid-refresh remove still drops it), and the run picker with `select()` keeping the caller's selection across refreshes; `accountsSource(accounts, member, room?)` and `cliSource(cli, room?)` fill the source with one line per member |
 | Types | `Phase`, `SignInView`, `AccountView`, `UseSignIn`, `Route`, `RouteChoice`, `RouteCode`, `PairPhase`, `Role`, `DeviceKind`, `LinkStatus`; `RouteKind` from `@byokit/ui/route`; `Account`, `AccountRow`, `AccountAction`, `AccountsSource`, `AgentSpec`, `AgentView`, `AgentWay`, `AsOf`, `Billing`, `Room`, `RoomSpan`, `SignInState`, `UsageWindow`, `UsageWindows` from `@byokit/ui/accounts` |
 
 Entry points: `@byokit/ui` (everything, including the React hooks), `@byokit/ui/phase`,
@@ -179,8 +179,7 @@ console.log(routeChoices().map((c) => `${c.title}: ${c.sentence}`));
 ## Connect an account
 
 `connectView(routes, step?)` (also `@byokit/ui/connect`, no React) draws the "Connect an AI account" list from
-the routes the kits discover (D18 in `docs/runtime-kits.md`): pass `@byokit/accounts` `routes(host)` and
-`@byokit/openclaw` `routes(facts)` together, unfiltered. Every route is listed, unavailable ones too, in these groups
+the routes the kits discover (D18 in `docs/runtime-kits.md`): pass `@byokit/accounts` `routes(host)`, unfiltered. Every route is listed, unavailable ones too, in these groups
 (empty ones left out):
 
 | Group | Rows | Offered by default |
@@ -231,7 +230,7 @@ Pass `windows`, the account's `windowsView(reading, now)` from `@byokit/usage/vi
 row also carries `windows` (each usage window, tightest first: `Week: 72% left` with `resets in 4d`) and `asOf`
 (`Read 2 minutes ago`, or `Read 2 days ago (stale)` past a day). A window whose reset is already past reads
 `Session: reset since this reading`, with no percent or countdown, and the room line `Reset since this reading`. A stale row is never `low`; a reading without its own
-time, such as an openclaw room, shows its resets and no `asOf`, never a made-up age.
+time, such as a room read from a source without one, shows its resets and no `asOf`, never a made-up age.
 
 `AccountsSource` is the shape an app fills from its own back end — `accounts()`, `room(account)` and optionally
 `windows(account)` — and `rowsOf(source, now)` awaits them and builds the same rows; `@byokit/accounts` `list()` and a room reading fit it with one line per member.
@@ -252,7 +251,7 @@ In React, `useAccounts(source)` keeps those rows live (`refresh()` re-reads; `re
 the back end and drops the row even mid-refresh), and `useModelPicker(source)` keeps the run picker live
 (`select()` marks the selection at once and keeps it across refreshes). `accountsSource(accounts, member,
 room?)` fills the source from a live `@byokit/accounts` member and `cliSource(cli, room?)` from a live
-`cliAccounts()` kit, each with one line per member; the openclaw adapter stays pending O14:
+`cliAccounts()` kit, each with one line per member:
 
 ```ts
 import { accountsSource, cliSource, useAccounts, useModelPicker } from '@byokit/ui';
@@ -364,13 +363,11 @@ Checking this computer
 
 ## Runtime kits' state
 
-Runtime kits' state, from `@byokit/ui/kits` (no React), typed to fit `@byokit/openclaw/device` and
-`@byokit/herdr/device` as they are:
+Runtime kits' state, from `@byokit/ui/kits` (no React), typed to fit `@byokit/herdr/device` as it is:
 
 - Runs: `runStore(oc)` with `send(message)` and `stop()`; `runView(state, { words, name })` gives the reply so far, the
-  tool at work and, for a failed run, the kit's sentence (`words` from `@byokit/openclaw/device`, `name` "ChatGPT").
-  OpenClaw's `started`, `thinking` and `account` frames are accepted without changing the reply, tools or rendered state;
-  the running phase begins at `send`, not Gateway acceptance.
+  tool at work and, for a failed run, the kit's sentence (`words` from the kit, `name` "ChatGPT").
+  The running phase begins at `send`, not at the host's acceptance.
 - Approvals: `approvalsStore(oc)` keeps the waiting list live (each leaves when answered anywhere or when it expires);
   `approvalWords(approval, words, 'Your helper')` asks the question.
 - Herdr: `herdrStore(hd)` keeps the tree and the agents waiting for an answer live from one stream;
@@ -379,7 +376,7 @@ Runtime kits' state, from `@byokit/ui/kits` (no React), typed to fit `@byokit/op
 - Cloud computers: `cloudStore(source)` keeps the list live and `cloudView(state)` gives the rows — each machine's
   state, its newest copy and what it costs, in plain words — with the host's answer to an action in the row that
   asked for it.
-- Browser sign-in (`@byokit/openclaw` spec 5.17): `signInsStore(oc)` keeps the requests live from sign-in pings;
+- Browser sign-in: `signInsStore(oc)` keeps the requests live from sign-in pings;
   `signInSheetView(request, { name, holder })` gives the sentence (a kit word key and its values), the buttons and the
   chat chip, which reads "entered" until a verified sign-in; `livePanelView(state)` says when to draw frames, take
   input, show "Reconnecting…", or ask to confirm an address the person didn't expect. Watching asks the helper nothing.
@@ -455,6 +452,6 @@ Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](../../NOTICE).
 
 `@byokit/ui/kits` also exports `keyStep(state, action)` and `keyView(state, words)` for an explicit
 **API key (billed per use)** entry card. States are `entry`, `checking`, `workspace`, `ok`, `invalid`, `not_included`;
-actions are `submit`, `edit`, and `result` with the kit's add-key outcome. Supply the OpenClaw kit's `words`
+actions are `submit`, `edit`, and `result` with the kit's add-key outcome. Supply the kit's `words`
 function for the label and sentences. These views never contain the entered key; submit it directly to the host
 and clear the input afterwards.

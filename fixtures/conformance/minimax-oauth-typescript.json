@@ -1,8 +1,6 @@
 {
-  "rule": "MiniMax's user-code device sign-in, stood in for offline. The code step POSTs response_type, client_id, scope, code_challenge (S256) and state, and answers user_code, verification_uri and an absolute expired_in. The token step POSTs grant_type=urn:ietf:params:oauth:grant-type:user_code, client_id, user_code and code_verifier: a code_verifier that does not match the challenge answers status 'error'; an unapproved code answers status 'pending'; an approved code answers status 'success' with access_token, refresh_token and expired_in; an expired code answers a non-ok body whose base_resp.status_msg is the reason. The pinned source has no refresh_token grant.",
-  "revision": "openclaw@2026.8.1",
-  "source": "extensions/minimax/oauth.ts, shipped as dist/oauth-CSi0HOvm.js in the published package",
-  "refresh": { "at": "none at pin", "cite": "extensions/minimax/oauth.ts:108-135 (the token step handles only the user_code grant; no refresh_token branch)" },
+  "rule": "MiniMax's user-code device sign-in, stood in for offline. The code step POSTs response_type, client_id, scope, code_challenge (S256) and state, and answers user_code, verification_uri and an absolute expired_in. The token step POSTs grant_type=urn:ietf:params:oauth:grant-type:user_code, client_id, user_code and code_verifier: a code_verifier that does not match the challenge answers status 'error'; an unapproved code answers status 'pending'; an approved code answers status 'success' with access_token, refresh_token and expired_in; an expired code answers a non-ok body whose base_resp.status_msg is the reason. The sign-in has no refresh_token grant.",
+  "refresh": { "at": "none" },
   "grantType": "urn:ietf:params:oauth:grant-type:user_code",
   "scope": "group_id profile model.completion",
   "codeChallengeMethod": "S256",

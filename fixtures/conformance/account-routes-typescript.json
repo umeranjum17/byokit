@@ -7,7 +7,7 @@
     "offer": ["default", "explicit"],
     "support": ["yes", "host", "no"],
     "platform": ["node", "browser", "rn"],
-    "surface": ["accounts", "openclaw", "herdr"],
+    "surface": ["accounts", "herdr"],
     "flow": ["present", "absent"],
     "readiness": ["ready", "needs_binary", "needs_plugin", "needs_host", "needs_client", "unsupported_platform", "no_upstream_flow"],
     "excluded": ["credential_import", "pooling_proxy", "per_request_rotation", "token_off_device", "identity_borrowing"]
@@ -36,19 +36,6 @@
       "via": "key", "billing": "api", "billingFrom": "source", "offer": "explicit",
       "platforms": { "node": "yes", "browser": "yes", "rn": "yes" },
       "upstream": { "surface": "accounts", "id": "openrouter", "method": "api_key", "revision": "@earendil-works/pi-ai@0.87.1", "flow": "present" }
-    },
-    {
-      "id": "zai:plan_key:global", "provider": "zai", "name": "Z.AI Coding Plan", "company": "Z.AI", "label": "Uses your Z.AI coding plan",
-      "via": "plan_key", "billing": "subscription", "billingFrom": "source", "offer": "default",
-      "platforms": { "node": "host", "browser": "host", "rn": "host" },
-      "needs": { "plugin": "zai" },
-      "upstream": { "surface": "openclaw", "id": "zai-coding-global", "revision": "openclaw@2026.8.1", "flow": "present" }
-    },
-    {
-      "id": "anthropic:setup_token", "provider": "anthropic", "name": "Claude", "company": "Anthropic", "label": "Uses your Claude plan",
-      "via": "setup_token", "billing": "subscription", "billingFrom": "source", "offer": "default",
-      "platforms": { "node": "host", "browser": "host", "rn": "host" },
-      "upstream": { "surface": "openclaw", "id": "setup-token", "revision": "openclaw@2026.8.1", "flow": "absent" }
     },
     {
       "id": "aws-bedrock:cloud:profile", "provider": "aws-bedrock", "name": "Amazon Bedrock", "company": "Amazon Web Services", "label": "Cloud account (billed per use by Amazon Web Services)",
@@ -96,13 +83,6 @@
       "upstream": { "surface": "accounts", "id": "acme", "method": "device", "revision": "synthetic", "flow": "present" }
     },
     {
-      "id": "acme:key:extra", "provider": "acme", "name": "Acme", "company": "Acme", "label": "API key (billed per use by Acme)",
-      "via": "key", "billing": "api", "billingFrom": "source", "offer": "explicit",
-      "platforms": { "node": "host", "browser": "host", "rn": "host" },
-      "needs": { "plugin": "acme" },
-      "upstream": { "surface": "openclaw", "id": "acme-api-key", "revision": "synthetic", "flow": "present" }
-    },
-    {
       "id": "acme:key:free", "provider": "acme", "name": "Acme free tier", "company": "Acme", "label": "Free tier from Acme",
       "via": "key", "billing": "free", "billingFrom": "source", "offer": "explicit",
       "platforms": { "node": "yes", "browser": "yes", "rn": "yes" },
@@ -115,7 +95,6 @@
     { "name": "unknown billing offered by default", "code": "default_not_subscription", "base": "google:cli:gemini", "set": { "offer": "default" } },
     { "name": "local runtime offered by default", "code": "default_not_subscription", "base": "ollama:local", "set": { "offer": "default" } },
     { "name": "subscription hidden behind opt-in", "code": "subscription_not_default", "base": "openai:code", "set": { "offer": "explicit" } },
-    { "name": "plan key hidden behind opt-in", "code": "subscription_not_default", "base": "zai:plan_key:global", "set": { "offer": "explicit" } },
     { "name": "billing inferred from a loopback hostname", "code": "billing_inferred", "base": "custom:endpoint", "set": { "billing": "local", "billingFrom": "hostname" } },
     { "name": "endpoint billing fixed in data", "code": "endpoint_billing_not_explicit", "base": "custom:endpoint", "set": { "billingFrom": "source" } },
     { "name": "API label hides per-use billing", "code": "label_billing_mismatch", "base": "openrouter:key", "set": { "label": "Sign in with OpenRouter" } },
@@ -143,12 +122,10 @@
     { "name": "browser paste with the app's host side", "route": "anthropic:paste", "host": { "platform": "browser", "hostSide": true }, "expected": "ready" },
     { "name": "missing CLI binary, before any credential", "route": "anthropic:cli:claude", "host": { "platform": "node" }, "expected": "needs_binary" },
     { "name": "CLI binary present", "route": "anthropic:cli:claude", "host": { "platform": "node", "binaries": ["claude"] }, "expected": "ready" },
-    { "name": "external provider plugin not installed", "route": "acme:key:extra", "host": { "platform": "node", "hostSide": true }, "expected": "needs_plugin" },
     { "name": "client registration the app does not hold", "route": "acme:code", "host": { "platform": "rn" }, "expected": "needs_client" },
     { "name": "client registration supplied", "route": "acme:code", "host": { "platform": "rn", "clients": ["acme-device"] }, "expected": "ready" },
     { "name": "no flow in the pinned upstream beats every host fact", "route": "qwen:browser", "host": { "platform": "node" }, "expected": "no_upstream_flow" },
-    { "name": "cloud credentials are Node only", "route": "aws-bedrock:cloud:profile", "host": { "platform": "browser", "hostSide": true }, "expected": "unsupported_platform" },
-    { "name": "host-only route on a host", "route": "zai:plan_key:global", "host": { "platform": "node", "hostSide": true, "plugins": ["zai"] }, "expected": "ready" }
+    { "name": "cloud credentials are Node only", "route": "aws-bedrock:cloud:profile", "host": { "platform": "browser", "hostSide": true }, "expected": "unsupported_platform" }
   ],
   "discovery": [
     {

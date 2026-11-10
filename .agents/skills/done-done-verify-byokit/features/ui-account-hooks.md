@@ -1,6 +1,6 @@
 # UI account hooks over live back ends (WP10-S3)
 
-The built `@byokit/ui` keeps the account rows and the run picker live in React: `useAccounts(source)` re-reads with `refresh()` and removes through the back end with `remove(id)`, and `useModelPicker(source)` marks `select()` at once and keeps the caller's selection across refreshes. `accountsSource(accounts, member, room?)` fills the source from a live `@byokit/accounts` member and `cliSource(cli, room?)` from a live `cliAccounts()` kit, each with one line per member; the openclaw adapter stays pending O14. It is headless: the app draws the rows its own way. No credential, engine, network or spend is involved.
+The built `@byokit/ui` keeps the account rows and the run picker live in React: `useAccounts(source)` re-reads with `refresh()` and removes through the back end with `remove(id)`, and `useModelPicker(source)` marks `select()` at once and keeps the caller's selection across refreshes. `accountsSource(accounts, member, room?)` fills the source from a live `@byokit/accounts` member and `cliSource(cli, room?)` from a live `cliAccounts()` kit, each with one line per member. It is headless: the app draws the rows its own way. No credential, engine, network or spend is involved.
 
 ## Sub-features
 
@@ -113,4 +113,3 @@ Run it from a `$scratch_dir` (see the parent skill) so the bare imports resolve 
 - This is not a visual change: there is no screen, so there are no narrow/larger-text screenshots — the consumer's exact rendered text in the drive output is the proof.
 - `@byokit/ui/accounts` stays a portable entry: the hooks live in `@byokit/ui` (which already depends on React) and the adapters restate `@byokit/accounts` structurally, so no account import reaches the portable bundle.
 - A `remove()` that fails unpins the id and rethrows, so a later `refresh()` brings the row back; call `refresh()` after a successful remove when other rows' rooms must be fresh.
-- The openclaw adapter is pending O14: do not stub one that pretends to work.

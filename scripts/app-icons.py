@@ -30,7 +30,7 @@ def web(directory, title):
         icons=[dict(src=f'icon-{n}.png',sizes=f'{n}x{n}',type='image/png',purpose='any') for n in (192,512)] + [dict(src='icon-maskable-512.png',sizes='512x512',type='image/png',purpose='maskable')])
     (d/'manifest.webmanifest').write_text(json.dumps(manifest,indent=2)+'\n')
 
-for d, title in [('examples/pwa','byokit example'),('examples/herdr-kit/web','byokit Agents'),('examples/openclaw-kit/web','byokit Helper')]: web(d,title)
+for d, title in [('examples/pwa','byokit example'),('examples/herdr-kit/web','byokit Agents')]: web(d,title)
 A = 'examples/expo/assets'
 for master,name in [('icon.svg','icon.png'),('foreground.svg','android-icon-foreground.png'),('monochrome.svg','android-icon-monochrome.png'),('foreground.svg','splash-icon.png')]: png(master,f'{A}/{name}',1024,master=='icon.svg')
 png('icon.svg',f'{A}/favicon.png',48,True)

@@ -7,7 +7,7 @@ export const REST_MS: Record<Kind, number> = { rate_limit: 60 * 60_000, overload
 export type Failure = { kind: Kind; until: number };
 /** Pure when the host passes its clock. REST_MS supplies the fallback rest duration. */
 export function classifyFailure(error: string, nowMs: number = Date.now()): Failure | null {
-  // Kept in step with @byokit/openclaw's classify: both read the retry delay from either wording.
+  // Both wordings carry the retry delay.
   const m = /(?:try again in|next reset in)\s*~?(\d+)\s*(min|h)/i.exec(error);
   const until = m ? nowMs + Number(m[1]) * (m[2].toLowerCase() === 'h' ? 3_600_000 : 60_000) : 0;
   // The KeyRouteError words and the gateway's own refusal: the app asks the person to pick a workspace, nothing rests.

@@ -16,4 +16,4 @@ The built public Accounts, native descriptor, Decide and Herdr preflight APIs re
 
 `pi-admission.txt`, `summary.txt` and `steps.json` are written into the same done-done run. `screen: none`: CLI/SDK only. Read both text captures before sealing. No secret value may appear in either capture.
 
-Named follow-ups, not claimed covered: native Herdr start/sign-in/move and device lifecycle with the guarded environment; the herdr-kit example's Pi model/account picker (currently refuses safely); raw Herdr `call`/`cli` escape hatches. OpenClaw uses its own engine model selector, not a Pi child launch; this guard does not change its configured account/model defaults. No release or daemon/process-alarm changes.
+Named follow-ups, not claimed covered: native Herdr start/sign-in/move and device lifecycle with the guarded environment; the herdr-kit example's Pi model/account picker (currently refuses safely); raw Herdr `call`/`cli` escape hatches. No release or daemon/process-alarm changes.

@@ -5,7 +5,7 @@ plain (no commands, paths, model ids or error codes), and nothing may touch thei
 
 ## Setup
 
-Node 24.16+ on 24.x, or Node 26.1+ (recommended). The pinned OpenClaw engine does not support Node 22 or 25.
+Node 24.16+ on 24.x, or Node 26.1+ (recommended).
 
 ```sh
 npm ci
@@ -16,7 +16,6 @@ npm run test:browser   # the PWA example in headless Chromium (npx playwright in
 # BYOKIT_CHROME is the one documented key for a test browser: an absolute path or a PATH name of an
 # installed Chromium. Unset, the first Chromium on PATH is used; with none, the browser tests skip.
 sh scripts/test.sh examples/herdr-kit/e2e.test.ts   # the Herdr kit example, packed, against the fake Herdr
-sh scripts/test.sh examples/openclaw-kit/e2e.test.ts   # the OpenClaw kit example, packed, against the fake Gateway
 sh scripts/test.sh examples/realtime-voice/e2e.test.ts   # the tap-to-talk voice screen offline, in headless Chromium
 ```
 
@@ -74,8 +73,8 @@ unfixed vulnerability; no dependency override or product artifact fix is implied
 
 - **Isolation first.** byokit never reads or writes a person's `~/.pi`, `~/.codex`, `~/.claude` or cloud credential files,
   never uses their environment's API keys (except the explicitly invoked [live eval CLI](packages/decide#evals)), and
-  never runs their CLIs. Runtime kits drive only the aggregator the app names explicitly (the OpenClaw engine the kit
-  installs, the Herdr binary and socket the app passes); byokit tests use fakes and never a person's Herdr. Capability
+  never runs their CLIs. Runtime kits drive only the aggregator the app names explicitly (the Herdr binary and socket the app
+  passes); byokit tests use fakes and never a person's Herdr. Capability
   kits ([docs/capability-kits.md](docs/capability-kits.md)) have their own carve-out: `@byokit/write` may load only
   its exactly pinned public engine package, and `@byokit/record` may spawn only a recorder implementing recorder
   protocol v1 that the app passes by absolute path, or the bundled Linux X11 recorder; their ordinary tests use fakes; the bundled recorder smoke uses an isolated Xvfb.

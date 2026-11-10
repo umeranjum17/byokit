@@ -2,10 +2,6 @@
 // byk-pin-watch: upstream pin drift watch (gap G2).
 //
 // Compares the pinned upstream versions with what's published now:
-// - the engine pin (packages/openclaw/engine/package.json) against the npm
-//   dist-tags `extended-stable` and `latest`, diffing gateway method/event
-//   names from the public protocol.schema.json (methods) and the engine
-//   tarball's GATEWAY_EVENTS list (events, the same source scripts/gen-methods.ts reads);
 // - the companion-app pin (HERDR_VERSION/HERDR_PROTOCOL in
 //   packages/herdr/src/constants.ts) against https://herdr.dev/latest.json,
 //   diffing request methods and subscription kinds from the new release's
@@ -18,24 +14,20 @@
 //   node scripts/pin-watch.mjs [--format summary|issue-body|json] [--fixtures DIR]
 //
 // --fixtures DIR is the offline dry-run mode used by npm test (which blocks
-// outbound network): DIR holds recorded docs (pins.json, openclaw-*.json,
-// herdr-*.json) instead of any fetch. Live mode needs network and stays out
+// outbound network): DIR holds recorded docs (pins.json,
+// herdr-*.json, write-latest.json) instead of any fetch. Live mode needs network and stays out
 // of `npm test`; it runs in the weekly pin-watch workflow. Exit 0 always:
 // drift is reported in the output, not as a failure.
 //
 // Throwaway dirs are removed on success (finally), on failure (die exits, and
 // the exit handler below removes what is tracked) and on abort (SIGINT and
-// SIGTERM remove and re-raise). npm's download cache is shared outside /tmp
-// (PIN_WATCH_NPM_CACHE overrides the default ~/.cache/byokit-pin-watch/npm-cache)
-// because /tmp is a size-limited tmpfs on some hosts; only the tarball entries
-// actually read are ever extracted, and the tarball itself is deleted right
-// after extraction.
+// SIGTERM remove and re-raise).
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { homedir, tmpdir } from 'node:os';
+import { tmpdir } from 'node:os';
 
 const scriptDir = dirname(new URL(import.meta.url).pathname);
 const repoDir = join(scriptDir, '..');
@@ -67,35 +59,8 @@ function diffLists(oldArr, newArr) {
 }
 
 // --- doc shapes -----------------------------------------------------------
-// openclaw doc: { version, methods: string[], events?: string[] }
 // herdr doc:    { version, protocol, methods: string[], events: string[] }
 // write doc:  { version: string | null }  (null: not on npm)
-
-function summarizePair(label, oldDoc, newDoc) {
-  const methods = diffLists(oldDoc.methods, newDoc.methods);
-  const out = {
-    label,
-    from: oldDoc.version,
-    to: newDoc.version,
-    methods: {
-      from: oldDoc.methods.length,
-      to: newDoc.methods.length,
-      added: methods.added,
-      removed: methods.removed,
-    },
-    events: null,
-  };
-  if (oldDoc.events && newDoc.events) {
-    const events = diffLists(oldDoc.events, newDoc.events);
-    out.events = {
-      from: oldDoc.events.length,
-      to: newDoc.events.length,
-      added: events.added,
-      removed: events.removed,
-    };
-  }
-  return out;
-}
 
 // --- fixtures (offline) mode ----------------------------------------------
 
@@ -104,9 +69,6 @@ function readFixtures(dir) {
   const pins = read('pins.json');
   return {
     pins,
-    ocPinned: read('openclaw-pinned.json'),
-    ocStable: read('openclaw-extended-stable.json'),
-    ocLatest: read('openclaw-latest.json'),
     herdrPinned: read('herdr-pinned.json'),
     herdrLatest: read('herdr-latest.json'),
     writeLatest: read('write-latest.json'),
@@ -114,17 +76,6 @@ function readFixtures(dir) {
 }
 
 // --- live mode ------------------------------------------------------------
-
-function npmJson(cmdArgs, cwd) {
-  const out = execFileSync('npm', cmdArgs, {
-    cwd: cwd ?? repoDir,
-    env: { ...process.env, HOME: process.env.HOME ?? tmpdir() },
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  const parsed = JSON.parse(out);
-  return Array.isArray(parsed) && parsed.length === 1 ? parsed[0] : parsed;
-}
 
 // Every throwaway dir registers here so success, failure and abort all remove
 // it: callers remove theirs promptly in a finally, and the handlers below catch
@@ -149,125 +100,16 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
   });
 }
 
-// npm's download cache lives outside /tmp (size-limited tmpfs on some hosts):
-// content-addressed, so sharing it across runs is safe and avoids re-download.
-function npmCacheDir() {
-  const dir = process.env.PIN_WATCH_NPM_CACHE ?? join(homedir(), '.cache', 'byokit-pin-watch', 'npm-cache');
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-// Pack one npm tarball into an isolated throwaway dir (isolated HOME, same
-// hygiene as packages/openclaw/scripts/gen-methods.ts) and return the
-// extracted package dir plus the throwaway root for the caller's finally.
-// Only the entries pick() selects from the tarball listing are materialised —
-// the protocol check needs one JSON file, not the whole package — and the
-// tarball itself is deleted right after extraction.
-function packTarball(spec, pick) {
-  const tmp = trackTmp(mkdtempSync(join(tmpdir(), 'byokit-pin-watch-')));
-  const pack = spawnSync('npm', ['pack', spec, '--pack-destination', tmp], {
-    cwd: tmp,
-    env: { PATH: process.env.PATH ?? '', HOME: tmp, npm_config_cache: npmCacheDir() },
-    encoding: 'utf8',
-  });
-  if (pack.status !== 0) die(`npm pack ${spec} failed: ${pack.stderr}`);
-  const tgz = readdirSync(tmp).find((f) => f.endsWith('.tgz'));
-  if (!tgz) die(`npm pack ${spec} produced no tarball`);
-  const tgzPath = join(tmp, tgz);
-  const list = spawnSync('tar', ['-tzf', tgzPath], { encoding: 'utf8' });
-  if (list.status !== 0) die(`tar list failed for ${spec}`);
-  const wanted = pick(list.stdout.split('\n').filter(Boolean));
-  if (wanted.length === 0) die(`tarball for ${spec} holds nothing needed`);
-  const untar = spawnSync('tar', ['-xzf', tgzPath, '-C', tmp, ...wanted], { encoding: 'utf8' });
-  if (untar.status !== 0) die(`tar extract failed for ${spec}`);
-  rmSync(tgzPath, { force: true });
-  return { dir: join(tmp, 'package'), tmp };
-}
-
-// Methods straight from the public protocol.schema.json of a protocol package version.
-function protocolMethods(version) {
-  const { dir, tmp } = packTarball(`@openclaw/gateway-protocol@${version}`,
-    (entries) => entries.filter((e) => e === 'package/protocol.schema.json'));
-  try {
-    const schema = JSON.parse(readFileSync(join(dir, 'protocol.schema.json'), 'utf8'));
-    return { version, methods: Object.keys(schema.methods ?? {}).sort() };
-  } finally {
-    removeTmp(tmp);
-  }
-}
-
-function walkFiles(dir, exts) {
-  const out = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...walkFiles(p, exts));
-    else if (exts.some((e) => p.endsWith(e))) out.push(p);
-  }
-  return out;
-}
-
-// The bracketed array literal after `const MARKER = [`, skipping string
-// contents so brackets inside strings cannot unbalance the depth count.
-function arrayLiteralAfter(src, marker) {
-  const at = src.indexOf(`const ${marker} = [`);
-  if (at < 0) return null;
-  let open = src.indexOf('[', at);
-  let depth = 0;
-  let str = null;
-  for (let i = open; i < src.length; i++) {
-    const c = src[i];
-    if (str) {
-      if (c === '\\') i++;
-      else if (c === str) str = null;
-      continue;
-    }
-    if (c === '"' || c === "'" || c === '`') str = c;
-    else if (c === '[') depth++;
-    else if (c === ']') {
-      depth--;
-      if (depth === 0) return src.slice(open, i + 1);
-    }
-  }
-  return null;
-}
-
-// Event names from an engine tarball's GATEWAY_EVENTS list; named constants
-// resolve from their `const X = "…"` definitions anywhere in dist.
-function engineEvents(version) {
-  // Only dist .js/.mjs are ever read below, so only those are extracted: docs,
-  // skills, node_modules and maps stay out of /tmp.
-  const { dir, tmp } = packTarball(`openclaw@${version}`,
-    (entries) => entries.filter((e) => e.startsWith('package/dist/') && (e.endsWith('.js') || e.endsWith('.mjs'))));
-  try {
-    const files = walkFiles(join(dir, 'dist'), ['.js', '.mjs']);
-    const holder = files.map((f) => ({ f, src: readFileSync(f, 'utf8') })).find(({ src }) => src.includes('const GATEWAY_EVENTS = ['));
-    if (!holder) die(`no GATEWAY_EVENTS in openclaw@${version} dist`);
-    let lit = arrayLiteralAfter(holder.src, 'GATEWAY_EVENTS');
-    if (!lit) die(`unterminated GATEWAY_EVENTS in openclaw@${version}`);
-    const consts = new Map();
-    for (const { src } of files.map((f) => ({ f, src: readFileSync(f, 'utf8') }))) {
-      for (const m of src.matchAll(/const ([A-Z][A-Z0-9_]+) = "([^"]+)"/g)) consts.set(m[1], m[2]);
-    }
-    for (const [k, v] of consts) {
-      lit = lit.replace(new RegExp(`(?<![\\w'"\`])${k}(?![\\w'"\`])`, 'g'), JSON.stringify(v));
-    }
-    return Function(`"use strict"; return (${lit});`)();
-  } finally {
-    removeTmp(tmp);
-  }
-}
-
 function readPins() {
-  const engine = JSON.parse(readFileSync(join(repoDir, 'packages/openclaw/engine/package.json'), 'utf8'));
   const constants = readFileSync(join(repoDir, 'packages/herdr/src/constants.ts'), 'utf8');
   const herdrVersion = constants.match(/HERDR_VERSION = '([^']+)'/)?.[1];
   const herdrProtocol = Number(constants.match(/HERDR_PROTOCOL(?:: number)? = (\d+)/)?.[1]);
   const write = readFileSync(join(repoDir, 'packages/write/src/constants.ts'), 'utf8')
     .match(/ENGINE_VERSION(?:: string)? = '([^']+)'/)?.[1];
-  if (!engine.dependencies?.openclaw || !herdrVersion || !Number.isFinite(herdrProtocol) || !write) {
-    die('could not read pins from engine/package.json and the herdr and write constants.ts');
+  if (!herdrVersion || !Number.isFinite(herdrProtocol) || !write) {
+    die('could not read pins from the herdr and write constants.ts');
   }
-  return { openclaw: engine.dependencies.openclaw, herdr: herdrVersion, herdrProtocol, write };
+  return { herdr: herdrVersion, herdrProtocol, write };
 }
 
 function curlJson(url) {
@@ -340,30 +182,6 @@ function writeLatestDoc() {
 
 function liveDocs() {
   const pins = readPins();
-  const tags = npmJson(['view', 'openclaw', 'dist-tags', '--json']);
-  const latest = tags.latest;
-  const stable = tags['extended-stable'];
-  if (!latest || !stable) die(`unexpected dist-tags: ${JSON.stringify(tags)}`);
-
-  const ocPinned = { ...protocolMethods(pins.openclaw), events: undefined };
-  // Pinned events are the committed generated table (built from this exact
-  // tarball by gen-methods.ts); refetching the 60MB engine tarball weekly for
-  // an identical list is waste.
-  const genEvents = readFileSync(join(repoDir, 'packages/openclaw/src/generated/events.ts'), 'utf8');
-  ocPinned.events = [...new Set([...genEvents.matchAll(/^  '([^']+)':/gm)].map((m) => m[1]))].sort();
-
-  const ocStable = protocolMethods(stable);
-  const ocLatest = protocolMethods(latest);
-  // Event lists come from the engine tarballs; skip a second huge download
-  // when a channel matches one already fetched.
-  const eventCache = new Map();
-  const withEvents = (doc) => {
-    if (!eventCache.has(doc.version)) eventCache.set(doc.version, engineEvents(doc.version));
-    return { ...doc, events: eventCache.get(doc.version) };
-  };
-  const ocLatestFull = withEvents(ocLatest);
-  const ocStableFull = stable === latest ? ocLatestFull : { ...ocStable, events: undefined };
-
   const manifest = curlJson('https://herdr.dev/latest.json');
   const herdrReport = JSON.parse(readFileSync(join(repoDir, 'packages/herdr/src/generated/report.json'), 'utf8'));
   const herdrPinned = {
@@ -380,7 +198,7 @@ function liveDocs() {
     : null;
   if (schemaDoc) herdrLatest = schemaDoc;
 
-  return { pins, ocPinned, ocStable: ocStableFull, ocLatest: ocLatestFull, herdrPinned, herdrLatest, writeLatest: writeLatestDoc() };
+  return { pins, herdrPinned, herdrLatest, writeLatest: writeLatestDoc() };
 }
 
 // --- report ---------------------------------------------------------------
@@ -391,8 +209,6 @@ function countOf(doc) {
 }
 
 function buildReport(d) {
-  const toLatest = summarizePair('latest', d.ocPinned, d.ocLatest);
-  const toStable = summarizePair('extended-stable', d.ocPinned, d.ocStable);
   const herdrDrift = d.herdrLatest.version !== d.herdrPinned.version
     || d.herdrLatest.protocol !== d.herdrPinned.protocol;
   let herdrDiff = null;
@@ -403,13 +219,9 @@ function buildReport(d) {
     };
   }
   const writeDrift = d.writeLatest.version !== null && d.writeLatest.version !== d.pins.write;
-  const drift = writeDrift || toLatest.methods.added.length > 0 || toLatest.methods.removed.length > 0
-    || (toLatest.events !== null && (toLatest.events.added.length > 0 || toLatest.events.removed.length > 0))
-    || toStable.methods.added.length > 0 || toStable.methods.removed.length > 0
-    || herdrDrift;
+  const drift = writeDrift || herdrDrift;
   return {
     pins: d.pins,
-    openclaw: { pin: d.ocPinned.version, latest: d.ocLatest.version, extendedStable: d.ocStable.version, toLatest, toStable },
     herdr: {
       pin: d.herdrPinned.version,
       pinProtocol: d.herdrPinned.protocol ?? d.pins.herdrProtocol,
@@ -427,10 +239,6 @@ function buildReport(d) {
   };
 }
 
-function fmtCount(from, to, added, removed) {
-  return `+${added}/-${removed} (${from} -> ${to})`;
-}
-
 function writeLine(c) {
   if (c.latest === null) return `ownvoice-engine pin ${c.pin}: not on npm yet`;
   return c.drift
@@ -440,13 +248,6 @@ function writeLine(c) {
 
 function renderSummary(r) {
   const lines = [];
-  const t = r.openclaw.toLatest;
-  lines.push(`openclaw pin ${t.from} -> latest ${t.to}: methods ${fmtCount(t.methods.from, t.methods.to, t.methods.added.length, t.methods.removed.length)}`
-    + (t.events ? `, events ${fmtCount(t.events.from, t.events.to, t.events.added.length, t.events.removed.length)}` : ', events: n/a'));
-  if (t.methods.removed.length) lines.push(`  removed methods: ${t.methods.removed.join(', ')}`);
-  const s = r.openclaw.toStable;
-  lines.push(`openclaw pin ${s.from} -> extended-stable ${s.to}: methods ${fmtCount(s.methods.from, s.methods.to, s.methods.added.length, s.methods.removed.length)}`);
-  if (s.methods.added.length) lines.push(`  added methods: ${s.methods.added.join(', ')}`);
   const h = r.herdr;
   if (h.drift) {
     lines.push(`herdr pin ${h.pin} (protocol ${h.pinProtocol}) -> latest ${h.latest} (protocol ${h.latestProtocol}): DRIFT`);
@@ -464,26 +265,11 @@ function renderSummary(r) {
 }
 
 function renderIssueBody(r) {
-  const t = r.openclaw.toLatest;
-  const s = r.openclaw.toStable;
   const h = r.herdr;
   const list = (items) => items.length ? items.map((m) => `- \`${m}\``).join('\n') : '_none_';
   let body = `<!-- byk-pin-watch: upstream pin drift report. Updated by the weekly watch workflow; do not edit by hand. -->\n`
     + `# Upstream pin drift\n\n`
-    + `Engine pin \`${t.from}\` vs \`latest\` \`${t.to}\` and \`extended-stable\` \`${s.to}\`; `
-    + `companion-app pin \`${h.pin}\` (protocol ${h.pinProtocol}) vs latest \`${h.latest}\` (protocol ${h.latestProtocol}).\n\n`
-    + `## Engine: ${t.from} -> ${t.to} (latest)\n\n`
-    + `Methods ${fmtCount(t.methods.from, t.methods.to, t.methods.added.length, t.methods.removed.length)}`;
-  body += t.events
-    ? `, events ${fmtCount(t.events.from, t.events.to, t.events.added.length, t.events.removed.length)}.\n`
-    : `, events not compared for this channel.\n`;
-  body += `\n### Added methods (${t.methods.added.length})\n\n${list(t.methods.added)}\n\n### Removed methods (${t.methods.removed.length})\n\n${list(t.methods.removed)}\n`;
-  if (t.events && (t.events.added.length || t.events.removed.length)) {
-    body += `\n### Added events (${t.events.added.length})\n\n${list(t.events.added)}\n\n### Removed events (${t.events.removed.length})\n\n${list(t.events.removed)}\n`;
-  }
-  body += `\n## Engine: ${s.from} -> ${s.to} (extended-stable)\n\n`
-    + `Methods ${fmtCount(s.methods.from, s.methods.to, s.methods.added.length, s.methods.removed.length)}.\n`
-    + `\n### Added methods (${s.methods.added.length})\n\n${list(s.methods.added)}\n\n### Removed methods (${s.methods.removed.length})\n\n${list(s.methods.removed)}\n`;
+    + `Companion-app pin \`${h.pin}\` (protocol ${h.pinProtocol}) vs latest \`${h.latest}\` (protocol ${h.latestProtocol}).\n`;
   body += `\n## Companion app: ${h.pin} -> ${h.latest}\n\n`;
   if (!h.drift) {
     body += `Pin is current (${h.pinnedMethods} methods, ${h.pinnedEvents} events).\n`;
@@ -509,9 +295,6 @@ if (FIXTURES) {
   const f = readFixtures(FIXTURES);
   docs = {
     pins: f.pins,
-    ocPinned: f.ocPinned,
-    ocStable: f.ocStable,
-    ocLatest: f.ocLatest,
     herdrPinned: f.herdrPinned,
     herdrLatest: f.herdrLatest,
     writeLatest: f.writeLatest,

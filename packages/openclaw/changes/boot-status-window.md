@@ -1,1 +1,0 @@
-- FIX: A sign-in no longer reads as signed out for the first seconds after a Gateway restart. The engine answers before it has published each agent's model runtime, so status reads now wait for that publication, and one that never lands reads as unknown instead of signed out. This also covers run admission, sign-out and the retained-login check, which could fail in the same gap.

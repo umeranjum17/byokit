@@ -44,7 +44,7 @@
 - FIX: pairing links parse on React Native, where `URL.canParse` is missing and `hostname` is empty for `ws://`:
   `describeRoute` reads the scheme and host itself.
 - `@byokit/ui-core/kits` (no React): view state for the runtime kits, typed structurally against
-  `@byokit/openclaw/device` and `@byokit/herdr/device` so neither kit is a dependency. Reducers `runStep`,
+  `@byokit/herdr/device` so the kit is not a dependency. Reducers `runStep`,
   `approvalsStep` and `herdrStep`; views `runView` (the reply, the tool at work, and how a run ended in the kit's own
   sentence), `approvalWords`, `herdrTreeView`, `agentIn` and `blockedView`; live stores `runStore`, `approvalsStore`
   (listed once the event stream is open, dropped as each approval expires) and `herdrStore` (one `hd.events` stream

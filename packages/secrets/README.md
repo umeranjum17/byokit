@@ -130,8 +130,7 @@ for new writes to that service even if a keyring becomes available later. **Read
 header**: mode 1 uses the keyring, mode 2 uses the host file key, regardless of the write mode or an
 existing fallback directory. A mode-1 store opened while the keyring is locked or unresponsive throws
 sanitized `KeystoreError` code `keyring-locked`, not `auth-failed`; it stays unchanged. Retry the read
-after unlock (the same adapter works). `@byokit/openclaw` resolves `prepare()`/`start()` in a `locked`
-state with plain words, and a later `start()` retries. It does not launch the helper with an empty store.
+after unlock (the same adapter works).
 Provider credentials remain in the sealed accounts file.
 Automatic keyring selection runs operations in a short-lived helper with a 1000 ms timeout
 (`timeoutMs`, 100–5000 ms). Key material travels over private stdin/stdout pipes, never arguments or
@@ -160,7 +159,7 @@ directory from backups/exposure boundaries containing ciphertext; same-user code
 copies containing both key and store can decrypt it. `dualWrap: true` with `fallback: false` is invalid.
 
 Reading an existing keyring-only store while unlocked upgrades it to dual-wrap atomically through
-accounts `fileStore` or OpenClaw's `authSeal`. Authentication/validation and a decrypt-equality check
+accounts `fileStore`. Authentication/validation and a decrypt-equality check
 precede replacement; a failure or interrupted replacement leaves the original key/store usable.
 Hold the app's exclusive writer lock when multiple processes share a store. Other consumers of the
 adapter must call its optional `upgrade(bytes)` after validating decrypted contents, verify equality,

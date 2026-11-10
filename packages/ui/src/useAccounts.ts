@@ -1,7 +1,6 @@
 // Live account rows and the run picker as React hooks over `./accounts.ts`. An app fills an `AccountsSource`
 // (or the fuller `ModelPickerSource`) from its own back end — one line per member — and draws the rows its own
-// way. A failing room leaves only its row unknown; a mid-refresh `remove()` still drops the row. No openclaw
-// adapter yet (pending O14).
+// way. A failing room leaves only its row unknown; a mid-refresh `remove()` still drops the row.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { accountRows, modelPicker, rowsOf, type Account, type AccountRow, type AccountsSource, type ModelInfo, type Pick, type PickerView, type Room, type RunSelection } from './accounts.ts';
 

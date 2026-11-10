@@ -13,9 +13,8 @@ Requires Python 3, librsvg (`rsvg-convert`) and ImageMagick 7 (`magick`), the sa
 | Expo | 1024 RGB app/iOS store icon and 512 RGB Google Play icon; full iPhone/iPad AppIcon set; Android legacy launcher 36–192 px, adaptive foreground/monochrome 81–432 px, notification 18–96 px; favicon; overlay moods | `app.json`, `icon-plugin.cjs`, status example's `byokit_notification` drawable |
 | PWA | ICO 16/32, SVG favicon, 180 touch icon, 192/512 regular and 512 maskable manifest icons | Both HTML entry pages, manifest, static server MIME types and service-worker shell |
 | Herdr-kit | Same web set | HTML, manifest and explicit host routes |
-| OpenClaw-kit | Same web set | HTML, manifest and explicit host routes |
 
-There are no Electron/desktop binaries, tray applications, browser extensions or separate store-listing apps in `examples/`. The two kit hosts are terminal processes with browser phone pages. `android/` is a library, not an app. Expo's web setting supplies a favicon; its runnable native targets are Android/iOS (no React DOM/React Native Web dependencies).
+There are no Electron/desktop binaries, tray applications, browser extensions or separate store-listing apps in `examples/`. The kit host is a terminal process with a browser phone page. `android/` is a library, not an app. Expo's web setting supplies a favicon; its runnable native targets are Android/iOS (no React DOM/React Native Web dependencies).
 
 Native directories remain generated and ignored. The Expo config plugin copies committed Android drawables/mipmaps and the iOS AppIcon catalog on every prebuild. Adaptive XML has a monochrome layer on API 33+; older devices use the API 26 layers or density-specific legacy PNGs. Overlay and status notifications explicitly select the white-on-transparent drawable rather than falling back to a full-color launcher bitmap.
 
