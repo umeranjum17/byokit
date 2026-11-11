@@ -12,11 +12,11 @@ Every new app rebuilds its own sign-in and its own way to reach the person's com
 
 A good set of packages any app can later use, that can be installed in any project and works seamlessly through the kit.
 
-- **Runtime kits.** One wrapper per aggregator: [`@byokit/openclaw`](packages/openclaw) for products built on OpenClaw, and [`@byokit/herdr`](packages/herdr) for products built on Herdr. Each gives the app the full power of the aggregator underneath, so the customer's subscriptions are used by tools that already do the hard work of working across them.
-- **Connection kits.** Pairing, relay, discovery, sealed data and headless UI states that work with either runtime kit rather than being rebuilt for every product.
-- **Niche products on top.** A new product (a squad, a diagramming agent, a design agent) picks one runtime kit, reuses the connection kits, and writes only its own workflow and UI.
+- **Runtime kits.** One wrapper per aggregator: [`@byokit/herdr`](packages/herdr) for products built on Herdr. It gives the app the full power of the aggregator underneath, so the customer's subscriptions are used by tools that already do the hard work of working across them.
+- **Connection kits.** Pairing, relay, discovery, sealed data and headless UI states that work with the runtime kit rather than being rebuilt for every product.
+- **Niche products on top.** A new product (a squad, a diagramming agent, a design agent) picks a runtime kit, reuses the connection kits, and writes only its own workflow and UI.
 
-Success is a new application choosing the Herdr or OpenClaw integration and reusing the connection and account pieces it needs while owning its niche workflow, not another custom login and transport stack per app.
+Success is a new application choosing the Herdr integration and reusing the connection and account pieces it needs while owning its niche workflow, not another custom login and transport stack per app.
 
 ## Principles and quality bar
 
@@ -43,5 +43,4 @@ Success is a new application choosing the Herdr or OpenClaw integration and reus
 
 Each lands as a small release; see [Releases](https://github.com/umeranjum17/byokit/releases).
 
-1. **Chat keeps moving while a tool streams its input.** Move `@byokit/openclaw` to the first stable OpenClaw release that carries the upstream fix.
-2. **Answer an agent's permission question from your phone.** Allow, Deny or Skip a blocked agent through `@byokit/herdr`, once a supported agent kind reports that it is waiting.
+1. **Answer an agent's permission question from your phone.** Allow, Deny or Skip a blocked agent through `@byokit/herdr`, once a supported agent kind reports that it is waiting.

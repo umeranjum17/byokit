@@ -1,8 +1,8 @@
 // What is waiting for a person's yes: the approvals list kept current from the kit's event stream, each dropped when
-// it is answered anywhere or runs out of time. Framework-free; typed structurally against `@byokit/openclaw/device`.
+// it is answered anywhere or runs out of time. Framework-free, typed structurally.
 import { retrying, store, type Stop, type Store } from './follow.ts';
 
-/** One approval as the OpenClaw kit reports it. */
+/** One approval as a kit reports it. */
 export type Approval = {
   id: string;
   source: 'gate' | 'exec' | 'plugin' | 'question';
@@ -34,11 +34,11 @@ export function approvalsStep(list: Approval[], a: ApprovalsAction): Approval[] 
   return at < 0 ? [...list, a.approval] : list.map((x, i) => (i === at ? a.approval! : x));
 }
 
-/** The question for one approval, in the kit's own sentence (`@byokit/openclaw/device`'s `words` fits). */
+/** The question for one approval, in the kit's own sentence. */
 export const approvalWords = (a: Approval, words: (key: 'approval.ask', vars: { helper: string; summary: string }) => string,
   helper: string) => words('approval.ask', { helper, summary: a.summary });
 
-/** What `approvalsStore` needs from a device client: `openclawDevice(link)` fits. */
+/** What `approvalsStore` needs from a device client. */
 export type ApprovalsSource = { approvals(): Promise<Approval[]>; events(): AsyncIterable<ApprovalFrame> };
 export type FollowOptions = { retryMs?: number; now?: () => number };
 

@@ -1,0 +1,1 @@
+- FIX: Pull-request proof checks now select receipts for the pull request, so unrelated historical receipts no longer block releases.

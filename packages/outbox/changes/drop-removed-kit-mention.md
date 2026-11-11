@@ -1,0 +1,1 @@
+- A source comment no longer names a removed runtime kit; no behavior change.

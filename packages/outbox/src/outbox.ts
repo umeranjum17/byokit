@@ -87,7 +87,7 @@ const text = (v: unknown): v is string => typeof v === 'string' && v.length > 0 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const STATES: readonly OutboxState[] = ['queued', 'sending', 'sent', 'cancelled', 'failed'];
 
-// Same durability contract as packages/secrets/src/atomic.ts writeFileAtomic and openclaw's auth-store `put`:
+// Same durability contract as packages/secrets/src/atomic.ts writeFileAtomic:
 // neither exported writer fsyncs, and a queue that lost a durable 'sending' claim to a crash after the sender
 // was invoked would redispatch a message it may already have sent. The fsynced writer lives here instead.
 let tempCounter = 0;

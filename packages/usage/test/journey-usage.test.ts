@@ -1,7 +1,7 @@
 // Consumer journeys for the published @byokit/usage surface, driven the way a host app uses it: the host owns
 // sign-in, passes a token/key or the exact files it already selected, injects its own `fetch`, and reads room left.
 // Every import is a published entry — `@byokit/usage`, `@byokit/usage/view` and `@byokit/usage/testing`, plus the
-// consumer packages `@byokit/accounts`, `@byokit/decide` and `@byokit/openclaw` — never `../src`. The security and
+// consumer packages `@byokit/accounts` and `@byokit/decide` — never `../src`. The security and
 // correctness contracts the old unit, mock-heavy and internal suites held survive as assertions inside a journey:
 //   - usage-reading: which account is read — `read`/`account`/`lastKnown` per provider and per host identity, one
 //     concurrent operation, the freshness floor, restart, and refusals that never return a provider body;
@@ -27,7 +27,6 @@ import { planView, planLabel, modelLabel } from '@byokit/usage/view';
 import { fakeCodex, fakeFetch } from '@byokit/usage/testing';
 import { anthropic } from '@byokit/accounts';
 import { decide, MemoryCache } from '@byokit/decide';
-import type { RunEnd } from '@byokit/openclaw';
 import { decoy, traceFs, CANARY } from '@byokit/accounts/testing';
 import payloads from './usage-payloads.json' with { type: 'json' };
 import edge from '../../../fixtures/conformance/usage-typescript.json' with { type: 'json' };
@@ -605,9 +604,8 @@ test('a host records runtime calls and measured tokens with honest billing label
     messages: [{ role: 'user', content: 'never-store-prompt' }], result: true });
   const billed = calls.record('alice', { ...base, route: 'anthropic', billing: 'api', usage: direct });
   assert.equal(billed.billingLabel, "Person's API bill");
-  const end: RunEnd = { ...payloads.hostRuns.openclaw, ok: true };
-  assert.ok(end.ok);
-  const subscription = calls.record('alice', { ...base, time: nowMs + 1, usage: end, usageFormat: 'openclaw' });
+  const end = { ...payloads.hostRuns.pi, ok: true };
+  const subscription = calls.record('alice', { ...base, time: nowMs + 1, usage: end, usageFormat: 'pi' });
   assert.equal(subscription.billing, 'subscription');
   assert.equal(subscription.billingLabel, "Person's own plan");
   assert.deepEqual(subscription.tokens, payloads.runtime[1].tokens);
@@ -652,13 +650,13 @@ test('a host records runtime calls and measured tokens with honest billing label
   calls.record('alice', { ...base, time: nowMs + 4, state: 'failed' });
   assert.equal(restarted.queryRun('alice', 'run-one', nowMs, nowMs + 5).tokens.total, undefined);
   assert.equal(tokenLedger({ store, cap: 500 }).query('alice', nowMs, nowMs + 5).week.remaining, undefined);
-  assert.deepEqual(normalizeTokens('anthropic', {}, 'openclaw'), { provenance: 'unknown' });
-  assert.deepEqual(normalizeTokens('anthropic', { usage: { output: 7 } }, 'openclaw'),
+  assert.deepEqual(normalizeTokens('anthropic', {}, 'pi'), { provenance: 'unknown' });
+  assert.deepEqual(normalizeTokens('anthropic', { usage: { output: 7 } }, 'pi'),
     { output: 7, cachedInput: 0, cacheWrite: 0, provenance: 'partial' });
-  assert.deepEqual(normalizeTokens('anthropic', { input: 10, output: 5, cacheRead: 2, total: 15 }, 'openclaw'), { provenance: 'unknown' });
+  assert.deepEqual(normalizeTokens('anthropic', { input: 10, output: 5, cacheRead: 2, total: 15 }, 'pi'), { provenance: 'unknown' });
   assert.throws(() => calls.record('alice', { ...base, lane: 'host\nsecret' }), TokenLedgerError);
   assert.throws(() => calls.record('alice', { ...base, route: '' }), TokenLedgerError);
-  assert.throws(() => calls.record('alice', { ...base, usageFormat: 'other' as 'openclaw' }), TokenLedgerError);
+  assert.throws(() => calls.record('alice', { ...base, usageFormat: 'other' as 'pi' }), TokenLedgerError);
   assert.throws(() => restarted.queryRun('alice', '', nowMs, nowMs + 5), TokenLedgerError);
   assert.throws(() => restarted.runs('alice', nowMs + 5, nowMs), TokenLedgerError);
   assert.throws(() => restarted.queryRun('alice', 'run-one', nowMs + 5, nowMs), TokenLedgerError);

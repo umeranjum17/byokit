@@ -13,7 +13,7 @@ export type Route = {
   via: RouteVia; billing: Billing; billingFrom: 'source' | 'host'; offer: 'default' | 'explicit';
   platforms: { node: Support; browser: Support; rn: Support };
   needs?: { binary?: string; plugin?: string; client?: string };
-  upstream: { surface: 'accounts' | 'openclaw' | 'herdr'; id: string; method?: string; revision: string; flow: 'present' | 'absent' };
+  upstream: { surface: 'accounts' | 'herdr'; id: string; method?: string; revision: string; flow: 'present' | 'absent' };
   /** Where the vendor lists its own models (`GET {baseUrl}/models`, Anthropic Messages at `/v1/models`): the one API and
    *  base URL every pinned row of the provider shares, with the route's aggregate input/reasoning capabilities.
    *  Absent when the route has no single list to read. */

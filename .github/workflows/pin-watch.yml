@@ -32,7 +32,6 @@ jobs:
           node scripts/pin-watch.mjs --format issue-body > /tmp/pinwatch-body.md
           node scripts/pin-watch.mjs --format summary
           echo "drift=$(node -p "require('/tmp/pinwatch.json').drift ? 'yes' : 'no'")" >> "$GITHUB_OUTPUT"
-          echo "pin=$(node -p "require('/tmp/pinwatch.json').openclaw.pin")" >> "$GITHUB_OUTPUT"
       - name: Open or refresh the drift issue
         if: steps.watch.outputs.drift == 'yes'
         env:

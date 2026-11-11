@@ -54,7 +54,7 @@
 - Share the bounded Codex app-server client between identity and subscription usage reads.
 - Apply shared poll health, scoped quota and hard-limit semantics to managed Claude usage, including cancellable host pacing.
 - Add host lane/route attribution and member-scoped per-run token queries to `callLedger`, sharing existing limits and app-owned cap policy.
-- Accept OpenClaw run usage with separate cache buckets alongside accounts and decide results, without provider calls or logging. Subscription attribution defaults on; API key (billed per use) attribution stays explicit and labelled.
+- Accept run usage with separate cache buckets alongside accounts and decide results, without provider calls or logging. Subscription attribution defaults on; API key (billed per use) attribution stays explicit and labelled.
 
 ## 0.3.0 (2026-10-01)
 

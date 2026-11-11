@@ -42,14 +42,10 @@ function cascadeFixture(): CascadePkg[] {
     }),
     mk("relay", "0.1.3", { dependencies: { "@byokit/link": "0.3.1" } }),
     mk("ui-core", "0.2.0"),
-    mk("openclaw", "0.1.0", {
-      isPrivate: true,
-      dependencies: { "@byokit/link": "0.3.1", "@byokit/relay": "0.1.3" },
-      devDependencies: { "@byokit/ui-core": "0.2.0" },
-    }),
     mk("herdr", "0.1.0", {
       isPrivate: true,
       dependencies: { "@byokit/link": "0.3.1", "@byokit/relay": "0.1.3" },
+      devDependencies: { "@byokit/ui-core": "0.2.0" },
     }),
   ];
 }
@@ -59,17 +55,15 @@ test("planCascade bumps published dependents, re-pins private ones", () => {
   const plan = planCascade(pkgs, new Map([["link", "0.3.2"]]), new Set(["link", "relay", "ui-core"]));
   assert.equal(plan.versions.get("link"), "0.3.2");
   assert.equal(plan.versions.get("relay"), "0.1.4");
-  assert.ok(!plan.versions.has("openclaw"), "private kit gets no bump");
   assert.ok(!plan.versions.has("herdr"), "private kit gets no bump");
   const relayPins = plan.pins.filter((p) => p.pkg === "relay");
   assert.deepEqual(relayPins, [{ pkg: "relay", dep: "link", from: "0.3.1", to: "0.3.2" }]);
-  assert.ok(plan.pins.some((p) => p.pkg === "openclaw" && p.dep === "link" && p.to === "0.3.2"));
-  assert.ok(plan.pins.some((p) => p.pkg === "openclaw" && p.dep === "relay" && p.to === "0.1.4"));
+  assert.ok(plan.pins.some((p) => p.pkg === "herdr" && p.dep === "link" && p.to === "0.3.2"));
   assert.ok(plan.pins.some((p) => p.pkg === "herdr" && p.dep === "relay" && p.to === "0.1.4"));
   const relayBullets = plan.bullets.get("relay") ?? [];
   assert.ok(relayBullets.includes("- Dependency update: pins @byokit/link 0.3.2."));
   assert.ok(relayBullets.some((l) => l.includes("(from @byokit/link 0.3.2)") && l.startsWith("- SECURITY:")));
-  const kitBullets = plan.bullets.get("openclaw") ?? [];
+  const kitBullets = plan.bullets.get("herdr") ?? [];
   assert.ok(kitBullets.includes("- Dependency update: pins @byokit/link 0.3.2."));
   assert.ok(kitBullets.every((l) => !l.includes("(from @byokit/")), "private kit gets Depends lines only");
 });
@@ -77,16 +71,15 @@ test("planCascade bumps published dependents, re-pins private ones", () => {
 test("planCascade re-pins a devDependency without a bump", () => {
   const pkgs = cascadeFixture();
   const plan = planCascade(pkgs, new Map([["ui-core", "0.2.1"]]), new Set(["link", "relay", "ui-core"]));
-  assert.ok(!plan.versions.has("openclaw"));
-  assert.ok(plan.pins.some((p) => p.pkg === "openclaw" && p.dep === "ui-core" && p.to === "0.2.1"));
-  assert.deepEqual(plan.bullets.get("openclaw"), ["- Dependency update: pins @byokit/ui-core 0.2.1."]);
+  assert.ok(!plan.versions.has("herdr"));
+  assert.ok(plan.pins.some((p) => p.pkg === "herdr" && p.dep === "ui-core" && p.to === "0.2.1"));
+  assert.deepEqual(plan.bullets.get("herdr"), ["- Dependency update: pins @byokit/ui-core 0.2.1."]);
 });
 
 test("topoOrder puts link before relay before the kits", () => {
   const pkgs = cascadeFixture();
   const order = topoOrder([...pkgs].reverse());
   assert.ok(order.indexOf("link") < order.indexOf("relay"));
-  assert.ok(order.indexOf("relay") < order.indexOf("openclaw"));
   assert.ok(order.indexOf("relay") < order.indexOf("herdr"));
 });
 
@@ -100,10 +93,10 @@ test("extractNotes returns SECURITY/FIX bullets of one version", () => {
 
 test("prepare places cascade dependency notes inside every released version", () => {
   const pkgs = cascadeFixture();
-  pkgs.find((p) => p.dir === "openclaw")!.isPrivate = false;
-  const plan = planCascade(pkgs, new Map([["link", "0.3.2"]]), new Set(["link", "relay", "openclaw"]));
+  pkgs.find((p) => p.dir === "herdr")!.isPrivate = false;
+  const plan = planCascade(pkgs, new Map([["link", "0.3.2"]]), new Set(["link", "relay", "herdr"]));
   const empty = "# Changelog\n\n## Unreleased\n\n## 0.1.0\n\n- Initial release.\n";
-  for (const dir of ["relay", "openclaw"]) {
+  for (const dir of ["relay", "herdr"]) {
     const version = plan.versions.get(dir)!;
     const text = prepareChangelog(empty, version, "2026-09-30", plan.bullets.get(dir) ?? []);
     const parsed = parseChangelog(text);
@@ -111,7 +104,7 @@ test("prepare places cascade dependency notes inside every released version", ()
     const released = parsed.versions.find((v) => v.version === version)!;
     assert.ok(released.bullets.some((b) => b.text === "Dependency update: pins @byokit/link 0.3.2."));
     assert.ok(released.bullets.some((b) => b.kind === "SECURITY"), `${dir}: inherited security notes ship too`);
-    if (dir === "openclaw") assert.ok(released.bullets.some((b) => b.text === "Dependency update: pins @byokit/relay 0.1.4."));
+    if (dir === "herdr") assert.ok(released.bullets.some((b) => b.text === "Dependency update: pins @byokit/relay 0.1.4."));
   }
 });
 

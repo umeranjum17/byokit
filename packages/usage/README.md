@@ -348,16 +348,15 @@ treat unknown as needing the person's decision, not as room.
 
 Pass a result with a `usage` field directly, or pass just its usage. For accounts'
 Messages result and decide's reported answer usage, the default provider format
-handles native `input_tokens`/`output_tokens` counts. For OpenClaw `RunEnd`, pass
-`usageFormat: 'openclaw'`: its `input` excludes `cacheRead`/`cacheWrite`, so the kit
+handles native `input_tokens`/`output_tokens` counts. For a Pi-shaped run result, pass
+`usageFormat: 'pi'`: its `input` excludes `cacheRead`/`cacheWrite`, so the kit
 adds those buckets once and preserves reported output and total. Reasoning is
 already part of output and never added again. Missing/inconsistent usage stays
 partial/unknown; engine cost estimates, raw answers and secrets are discarded.
-`normalizeTokens(provider, result, 'openclaw')` exposes the same pure conversion.
+`normalizeTokens(provider, result, 'pi')` exposes the same pure conversion.
 
 ```ts
 import { callLedger, memoryTokenLedgerStore, tokenLedger } from '@byokit/usage';
-import type { RunEnd } from '@byokit/openclaw';
 import type { AnthropicResult } from '@byokit/accounts';
 import type { Answer } from '@byokit/decide';
 
@@ -369,9 +368,9 @@ const context = {
   provider: 'anthropic', account: 'non-secret-account-id', model: 'selected-model',
   lane: 'host', route: 'anthropic-cli', runId: 'run-one',
 };
-declare const end: RunEnd; // Returned by the kit's existing run; no extra request.
+declare const end: { ok: boolean; usage?: unknown }; // A Pi-shaped run result; no extra request.
 if (end.ok) {
-  calls.record('member-one', { ...context, time: Date.now(), usage: end, usageFormat: 'openclaw' });
+  calls.record('member-one', { ...context, time: Date.now(), usage: end, usageFormat: 'pi' });
 }
 
 declare const answer: Answer;
@@ -392,7 +391,7 @@ const history = calls.runs('member-one', runStartedAt, Date.now() + 1);
 const allowance = limits.query('member-one', runStartedAt, Date.now() + 1);
 ```
 
-The host records either an OpenClaw aggregate result or its individual calls, never
+The host records either a run's aggregate result or its individual calls, never
 both. Decide can attach one invocation's usage to several answers; record it once,
 and skip `source: 'cache'` answers. String-only accounts/answerer results carry no
 counts and remain unknown; the ledger makes no recovery requests. Model, provider,

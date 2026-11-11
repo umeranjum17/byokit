@@ -30,7 +30,7 @@ the machine is on, and `words` is the one plain sentence to show. Start and stop
 `wake()` and `sleep()`; delete is `remove(ref.id)`.
 
 `machine()` decides where the app's host process runs; the app's one runtime kit
-(`@byokit/openclaw` or `@byokit/herdr`) runs inside that process exactly as it does at home.
+(`@byokit/herdr`) runs inside that process exactly as it does at home.
 Model sign-in happens on the machine, inside the aggregator — credentials are never copied from
 the person's computer. One person, one provider account, one machine per app install.
 

@@ -42,9 +42,9 @@ These close every design call. Builders do not reopen them; a reviewer who disag
 
 | # | Decision |
 |---|---|
-| D-1 | The name is `@byokit/cloud`, a capability word. Rejected: a provider's name (capability-kits D-B), `sandbox` (already means OpenClaw's agent sandbox), `cloud` and `hosted` (read as a service BYOKit runs), `host` (collides with link's `Host`), `remote` (vague). |
+| D-1 | The name is `@byokit/cloud`, a capability word. Rejected: a provider's name (capability-kits D-B), `cloud` and `hosted` (read as a service BYOKit runs), `host` (collides with link's `Host`), `remote` (vague). |
 | D-2 | Third-party adapters keep the provider's name: `boat()` is the Boat adapter; `sshVm()` describes the provider-independent SSH transport. Docs name Boat and fixtures use `boat.test`, mapped to loopback. The provider's label still comes from the app at run time. `sandboxApi()` remains a deprecated alias with the same signature; the persisted provider id remains `sandbox-api` for existing records and install behavior. No default provider or URL is added. |
-| D-3 | A capability kit, not a third aggregator. It sits beside `@byokit/openclaw` and `@byokit/herdr`: the app still picks one runtime kit, and that kit runs inside the app's host process on the machine exactly as it does at home. `@byokit/cloud` only decides where that process runs. It imports no other kit and no kit imports it. `@byokit/accounts` is untouched. |
+| D-3 | A capability kit, not an aggregator. It sits beside `@byokit/herdr`: the app's runtime kit runs inside the app's host process on the machine exactly as it does at home. `@byokit/cloud` only decides where that process runs. It imports no other kit and no kit imports it. `@byokit/accounts` is untouched. |
 | D-4 | Adapters behind one `Provider` type (4). **Boat**: create, sleep, wake, snapshot, fork, remove, exec, write and an HTTPS URL per port, over `fetch` with no vendor SDK. **SSH VM**: any rented Linux machine the person already created; exec, write, install and supervise only, through the `ssh` binary the app passes by absolute path. **Hetzner** (first slice, below): create, status and confirmed delete over the Hetzner Cloud API with the app's own token, portable as `hetznerApi()` (first boot, G8) and Node only with SSH as `hetzner()`; no sleep, wake or copies yet. Optional `Provider` methods an adapter cannot do are absent, and the UI hides that action. |
 | D-5 | Types in section 4 are frozen at M1. A change is a spec change first: stop and ask. The SSH-reach amendment (K-SSH-REACH: 4.5, 4.6, 7.3, 9; 2026-10-23) replaces the 2026-10-13 tailnet amendment: it adds the optional `Provider.sshAccess` and `SshTransport.forward` and the portable `sshResolve()`, changes `setup()`'s `address` and `securing` step and the pair receipt, and removes `joinTailnet`, `tailnet`, `Tailnet` and `TailnetStep`. It is built in 9.3's order; until step 4 ships, the released kit still has the tailnet join. The undo amendment (K-UNDO: 4.7, 5.10, 5.16, 5.17; 2026-10-23) adds `Snapshot.kind`, `Machine.undoPoint` and `undoUpdate`, changes `Machine.update`'s options, result and default (a copy first), and adds the error code `no-undo`. It is built in 5.17's order; S2, S3 and S4 are built; S4's live Boat proof passed on 2026-10-24. Copies saved on the machine while the app is closed are deferred until a decision on a key held on the machine (5.15). |
 | D-6 | Entries. `.` is portable (Node, Electron, React Native): everything 3.1's `index.ts` re-exports (types, `machine()`, `boat()` (and deprecated `sandboxApi()`), `claim()` and `revokeClaim()` (M8), `MachineError`, `estimate()`, the words helpers, M7's `wakeResolve()`, and G8's `hetznerApi()`, `installScript()` and `setupCommand()`); no `node:*` import. `./ssh` is Node only (`sshVm()`, `sshHostKey()` over the `ssh` binary, and K-SSH-REACH's `sshTransport()`, 7.3). Amended 2026-10-19 (K-PHONE-SSH): `.` also exports `sshVm()` and `sshHostKey()` taking the app's own `transport` and `pins` (7.3), so a React Native app reaches any SSH box with its own SSH module; `./ssh`'s two accept the same options and keep the `ssh` binary as the default. `./hetzner` is Node only (`hetzner()`, first slice below). `./idle` (M7: `idle()`, `stopSelf()`) runs on the machine inside the host process and is portable. `./testing` is Node only: the fake providers and the contract suite. No other entries. The Boat adapter does not run from a web page (15.1), so browsers and PWAs set up from the phone app or a desktop app. |
@@ -68,7 +68,7 @@ amended (kit-conventions Precedence).
 ```
 person's device: app UI ── @byokit/cloud (create, install, wake, cost, words) ── provider REST API | ssh
 the machine:     byokit-<app>.service → the app's host process (unchanged)
-                   ├─ its ONE runtime kit: @byokit/openclaw (bots) | @byokit/herdr (terminals)
+                   ├─ its runtime kit: @byokit/herdr (terminals)
                    ├─ encrypted app host on loopback, reached over SSH  ← phone / desktop app
                    └─ (M7) @byokit/cloud/idle
 ```
@@ -1070,7 +1070,7 @@ export type SshPins = { load(): Promise<string | null>; save(fingerprint: string
 ## 8. Installing and supervising the host process
 
 The app supplies its own host program and installer as a `HostRecipe`. The kit writes and owns exactly one systemd
-unit per app, because Herdr and OpenClaw supervise their engines only while the app's host process lives, and nothing
+unit per app, because Herdr supervises its engine only while the app's host process lives, and nothing
 else restarts that process. The kit adds no machine-level unit; 9.3's cleanup removes the `tailscaled` unit 0.2.x to 0.4.0 added.
 
 ### 8.1 Recipe checks (`src/recipe.ts`, pure; failures reject `bad-recipe`, message names the rule)
@@ -1387,7 +1387,7 @@ at `hoursOn: 730` is `{ perMonth: 20, floor: 20, currency: 'USD', basis: 'list',
 
 | Credential | Lives | Carried by |
 |---|---|---|
-| Model plan sign-in | On the machine, in the aggregator's state: OpenClaw's per-member auth profile at 0600, or the agent CLI login under Herdr's isolated home | `@byokit/openclaw` / `@byokit/herdr`, unchanged |
+| Model plan sign-in | On the machine, in the aggregator's state: the agent CLI login under Herdr's isolated home | `@byokit/herdr`, unchanged |
 | Per-use API key route | Same place, labelled as charged per use (`packages/accounts/src/words.json`); never offered by default | same |
 | Provider key (full) | The app's `MachineStore` on the setup device (phone secure store or desktop app store) | `@byokit/cloud` |
 | Provider wake key (M7) | The phone's secure store with `WHEN_UNLOCKED_THIS_DEVICE_ONLY` (`packages/accounts/README.md`), one per phone, scoped to read, resume and host on one machine id | `@byokit/cloud` |
@@ -1396,8 +1396,7 @@ at `hoursOn: 730` is `{ perMonth: 20, floor: 20, currency: 'USD', basis: 'list',
 
 ### 11.2 Rules
 
-- **Sign in on the machine, never copy from home.** OpenClaw's device-code route (`openai-device-code` in
-  `packages/openclaw/src/routes.json`) works headless; a browser-redirect route would land on the person's own
+- **Sign in on the machine, never copy from home.** A browser-redirect route would land on the person's own
   computer, so hosted apps offer device code or `paste()`. Herdr D11 forbids copying agent CLI logins, so the person
   signs in again inside the pane. Device-code sign-in from a datacenter address is proven in M6.
 - **Never use the provider's credential features:** no dashboard subscription connect, no agent credentials, no `env`
@@ -1420,8 +1419,7 @@ calls `provider.key?.()` on open. Minting the M7 wake key needs an admin-scoped 
 - `keepCopies: false`: nothing is stored at the provider, but a stop erases the disk with no backup, so the kit never
   sleeps such a machine (5.4).
 - Later option, not v1: seal the aggregator's state at rest with a key a paired device delivers on each boot
-  (`@byokit/seal` `sealBox`). It needs the engine to read credentials through an injected store, which the pinned
-  OpenClaw does not have.
+  (`@byokit/seal` `sealBox`).
 
 ### 11.5 Linking an account without pasting a key (G1)
 
@@ -1987,7 +1985,7 @@ BYOKit waits on it.
 
 ## 16. Consumer gaps G1-G11
 
-The first consuming app (a crew app running an OpenClaw-based host plus its own relay) wrote its consumer design
+The first consuming app (a crew app running its own host plus its own relay) wrote its consumer design
 against this kit and listed eleven gaps. Each one is either adopted here or left with the app, with the reason.
 
 | Gap | Ask | Decision | Where |

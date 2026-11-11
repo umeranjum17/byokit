@@ -10,18 +10,17 @@ export type Billing = 'subscription' | 'api' | 'local' | 'free' | 'unknown';
 export type Via = 'browser' | 'code' | 'paste' | 'key' | 'session' | 'setup_token' | 'cli' | 'plan_key' | 'cloud' | 'local' | 'endpoint';
 export type Readiness = 'ready' | 'needs_binary' | 'needs_plugin' | 'needs_host' | 'needs_client' | 'unsupported_platform' | 'no_upstream_flow';
 
-/** One route as any kit's `routes()` lists it, restated structurally (D3): `@byokit/accounts` and
- *  `@byokit/openclaw` route views fit as they are. Only these fields are read, so nothing else (a credential
+/** One route as any kit's `routes()` lists it, restated structurally (D3): `@byokit/accounts` route views fit as they are. Only these fields are read, so nothing else (a credential
  *  included) can reach the view. */
 export type ConnectRoute = {
-  /** openclaw's is optional; a row without one is keyed `<provider>:<via>`. */
+  /** Optional; a row without one is keyed `<provider>:<via>`. */
   id?: string; provider: string; name?: string; company?: string;
   via: Via; billing: Billing;
-  /** accounts: `'default' | 'explicit'`; openclaw: `offerPolicy` plus its legacy ready-only boolean `offer`. */
+  /** `'default' | 'explicit'`, or `offerPolicy` plus a ready-only boolean `offer`. */
   offer?: 'default' | 'explicit' | boolean; offerPolicy?: 'default' | 'explicit';
-  /** openclaw: `services` marks speech, search, media and other non-chat rows. */
+  /** `services` marks speech, search, media and other non-chat rows. */
   group?: 'models' | 'services';
-  upstream?: { surface: 'accounts' | 'openclaw' | 'herdr' };
+  upstream?: { surface: 'accounts' | 'herdr' };
   readiness: Readiness;
 };
 
@@ -32,7 +31,7 @@ export type ConnectDoes = 'signin' | 'key' | 'setup' | 'unavailable';
 
 export type ConnectRow = {
   /** Unique across kits: `<surface>/<id>`. */
-  key: string; id: string; provider: string; surface?: 'accounts' | 'openclaw' | 'herdr';
+  key: string; id: string; provider: string; surface?: 'accounts' | 'herdr';
   name: string; company: string; via: Via; billing: Billing; group: ConnectGroupId;
   /** Offered by default: a ready subscription row. Never true for any other billing. */
   offered: boolean; ready: boolean; readiness: Readiness; does: ConnectDoes;

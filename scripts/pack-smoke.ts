@@ -3,7 +3,6 @@
 // typechecks and runs. Run: npm run smoke:pack. Exits 1 on any failure.
 import { execFileSync, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { processStartTime, sha256 } from '../packages/openclaw/src/engine-patches.ts';
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,20 +13,6 @@ const root = join(here, "..");
 // the finally in main covers success and failure, this covers abort.
 const pendingTmp = new Set<string>();
 function discardTmp(dir: string): void {
-  for (const name of ['s', 'o', 'a', 'b', 'r1', 'r2']) {
-    const root = join(dir, name, 'openclaw');
-    if (!existsSync(join(root, 'gateway.pid'))) continue;
-    {
-    const identity = JSON.parse(readFileSync(join(root, 'gateway.identity'), 'utf8')) as { pid: number; startTime: string };
-    if (String(identity.pid) !== readFileSync(join(root, 'gateway.pid'), 'utf8')) throw new Error('ambiguous owned packed gateway');
-    try {
-      if (processStartTime(identity.pid) !== identity.startTime) throw new Error('packed gateway pid was reused');
-      process.kill(identity.pid, 'SIGTERM');
-      spawnSync(process.execPath, ['-e', 'setTimeout(() => {}, 2000)']);
-      if (processStartTime(identity.pid) === identity.startTime) process.kill(identity.pid, 'SIGKILL');
-    } catch (error) { if (!['ENOENT', 'ESRCH'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error; }
-    }
-  }
   const walk = (path: string) => {
     if (!lstatSync(path).isDirectory()) return;
     chmodSync(path, 0o700);
@@ -309,12 +294,10 @@ assert.equal(existsSync(dirname(fake.launches[0].profileDir)), false);
     }
     writeFileSync(join(appDir, "locked-seal.mjs"), `
 import assert from 'node:assert/strict';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileStore } from '@byokit/accounts';
 import { osKeyringSeal } from '@byokit/secrets/node';
-import { OpenClawKit, stateWords } from '@byokit/openclaw';
-import { fakeGateway } from '@byokit/openclaw/testing';
 const stateDir = join(process.cwd(), 'seal-state');
 mkdirSync(stateDir, { mode: 0o700 });
 const keys = new Map();
@@ -326,93 +309,20 @@ const seal = osKeyringSeal(o);
 const path = join(stateDir, 'private', 'accounts.bin');
 await fileStore(path, seal).modify('provider', async () => ({ type: 'api_key', key: 'packed-canary' }));
 const before = readFileSync(path);
-const engineRoot = join(stateDir, 'openclaw');
-mkdirSync(join(engineRoot, 'state'), { recursive: true });
-writeFileSync(join(engineRoot, 'state', 'auth.json'), 'packed-login');
-await new OpenClawKit({ stateDir, authSeal: seal, spawnEngine: false }).prepare();
-const engineFile = join(engineRoot, 'auth-store.sealed');
-const engineBefore = readFileSync(engineFile);
 locked = true;
-const fallback = osKeyringSeal(o);
-await assert.rejects(fileStore(path, fallback).read('provider'), e => e.code === 'keyring-locked');
-const kit = new OpenClawKit({ stateDir, authSeal: fallback, spawnEngine: false, transport: fakeGateway().factory });
-await kit.prepare(); await kit.start();
-assert.equal(kit.state.phase, 'locked');
-assert.match(stateWords(kit.state), /saved sign-in is locked/);
+await assert.rejects(fileStore(path, osKeyringSeal(o)).read('provider'), e => e.code === 'keyring-locked');
 assert.deepEqual(readFileSync(path), before);
-assert.deepEqual(readFileSync(engineFile), engineBefore);
 locked = false;
-await kit.start(); assert.equal(kit.state.phase, 'ready'); await kit.stop();
-const dual = osKeyringSeal({ ...o, dualWrap: true });
-await fileStore(path, dual).read('provider');
+await fileStore(path, osKeyringSeal({ ...o, dualWrap: true })).read('provider');
 assert.equal(readFileSync(path)[4], 3);
-const dualKit = new OpenClawKit({ stateDir, authSeal: dual, spawnEngine: false, transport: fakeGateway().factory });
-await dualKit.prepare();
 locked = true;
 assert.equal((await fileStore(path, osKeyringSeal({ ...o, dualWrap: true })).read('provider')).key, 'packed-canary');
-await dualKit.start(); assert.equal(dualKit.state.phase, 'ready'); await dualKit.stop();
-assert.equal(readFileSync(engineFile)[4], 3);
 `);
     try {
       sh("node", ["locked-seal.mjs"], appDir);
       pass("sealing [locked recovery and dual wrapping]");
     } catch (err) {
       fail("sealing [locked recovery and dual wrapping]", (err as Error).message);
-    }
-    // The packed kit must refuse a live orphan without failed-start cleanup consuming its guards/store.
-    writeFileSync(join(appDir, "openclaw-orphan.mjs"), `
-import assert from 'node:assert/strict';
-import { once } from 'node:events';
-import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { OpenClawKit, EngineAlreadyRunningError, stateWords } from '@byokit/openclaw';
-import { fakeGateway } from '@byokit/openclaw/testing';
-import { hostKeySeal } from '@byokit/secrets';
-const stateDir = join(process.cwd(), 'orphan-state');
-const root = join(stateDir, 'openclaw');
-const authSeal = hostKeySeal({ key: new Uint8Array(32).fill(9) });
-const kit = new OpenClawKit({ stateDir, authSeal, spawnEngine: false, transport: fakeGateway().factory });
-mkdirSync(join(root, 'state'), { recursive: true });
-writeFileSync(join(root, 'state', 'auth.json'), 'packed-login');
-await kit.prepare();
-const sealed = readFileSync(join(root, 'auth-store.sealed'));
-const deadHost = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' });
-await once(deadHost, 'exit');
-const gateway = spawn(process.execPath, ['-e', 'process.stdout.write("ready"); setInterval(() => {}, 1000)'], { stdio: ['ignore', 'pipe', 'ignore'] });
-await once(gateway.stdout, 'data');
-const pid = join(root, 'gateway.pid');
-const lock = join(root, 'auth-store.lock');
-mkdirSync(lock);
-writeFileSync(join(lock, 'pid'), String(deadHost.pid));
-writeFileSync(pid, String(gateway.pid));
-mkdirSync(join(root, 'state'));
-writeFileSync(join(root, 'state', 'auth.json'), 'packed-refreshed-login');
-try {
-  await assert.rejects(kit.start(), e => e instanceof EngineAlreadyRunningError && e.code === 'engine-already-running');
-  assert.equal(kit.state.why, 'engine-already-running');
-  assert.match(stateWords(kit.state), /saved sign-in is in use/);
-  await kit.stop();
-  assert.equal(readFileSync(pid, 'utf8'), String(gateway.pid));
-  assert.equal(readFileSync(join(lock, 'pid'), 'utf8'), String(deadHost.pid));
-  assert.deepEqual(readFileSync(join(root, 'auth-store.sealed')), sealed);
-  assert.equal(readFileSync(join(root, 'state', 'auth.json'), 'utf8'), 'packed-refreshed-login');
-} finally {
-  const exited = once(gateway, 'exit'); gateway.kill(); await exited;
-}
-await kit.start();
-assert.equal(kit.state.phase, 'ready');
-assert.equal(readFileSync(join(root, 'state', 'auth.json'), 'utf8'), 'packed-refreshed-login');
-assert.equal(existsSync(pid), false);
-await kit.stop();
-assert.equal(existsSync(lock), false);
-assert.equal(existsSync(join(root, 'state')), false);
-`);
-    try {
-      sh("node", ["openclaw-orphan.mjs"], appDir);
-      pass("@byokit/openclaw [orphan ownership and dead-pid recovery]");
-    } catch (err) {
-      fail("@byokit/openclaw [orphan ownership and dead-pid recovery]", (err as Error).message);
     }
     // Import every export subpath, default and browser conditions.
     const subpaths: { spec: string; browser: boolean }[] = [];
@@ -566,53 +476,9 @@ console.log('packed-realtime-child-ok');
   }
 }
 
-// Candidate-pack closure qualification, not public-consumer adoption: the current OpenClaw source and its
-// internal runtime dependency closure are exact local tarballs; external dependencies stay registry supplied.
-// No unrelated/private kits or a fake Gateway may stand in for this receipt.
-function realOpenClawPack(): void {
-  const dir = shortTmp('ocp-');
-  pendingTmp.add(dir);
-  const env = { ...process.env, HOME: join(dir, 'home'), npm_config_cache: join(dir, 'cache') };
-  const run = (command: string, args: string[], cwd: string, timeout = 600_000) => {
-    const result = spawnSync(command, args, { cwd, env: command === 'npm' ? { ...env, NODE_OPTIONS: '' } : env, encoding: 'utf8', timeout, maxBuffer: 4 * 1024 * 1024 });
-    if (result.status !== 0) throw new Error(`${command} ${args.join(' ')}: ${result.error ?? ''}\n${result.stdout}\n${result.stderr}`);
-    return result.stdout;
-  };
-  try {
-    mkdirSync(env.HOME, { mode: 0o700 });
-    const closure = new Set(['@byokit/openclaw']);
-    for (const name of closure) {
-      const manifest = JSON.parse(readFileSync(join(root, 'packages', name.slice('@byokit/'.length), 'package.json'), 'utf8'));
-      if (manifest.private) throw new Error(`private kit in OpenClaw runtime closure: ${name}`);
-      for (const dep of Object.keys(manifest.dependencies ?? {})) if (dep.startsWith('@byokit/')) closure.add(dep);
-    }
-    const packed = JSON.parse(run('npm', ['pack', ...[...closure].map(name => `./packages/${name.slice('@byokit/'.length)}`), '--pack-destination', dir, '--json'], root)) as PackEntry[];
-    if (packed.length !== closure.size) throw new Error('OpenClaw runtime closure was not packed');
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'openclaw-engine-pack', private: true, type: 'module' }));
-    run('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund', ...packed.map(entry => join(dir, entry.filename))], dir);
-    for (const entry of packed) {
-      const installed = join(dir, 'node_modules', entry.name);
-      if (JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8')).version !== entry.version) throw new Error(`wrong installed version: ${entry.name}`);
-      if (existsSync(join(installed, 'node_modules', '@byokit'))) throw new Error(`nested @byokit under ${entry.name}: a pin the tarballs do not satisfy`);
-      for (const file of entry.files) {
-        const bytes = execFileSync('tar', ['-xOf', join(dir, entry.filename), `package/${file.path}`]);
-        if (sha256(readFileSync(join(installed, file.path))) !== sha256(bytes)) throw new Error(`installed tar bytes differ: ${entry.name}/${file.path}`);
-      }
-    }
-    console.log(JSON.stringify({ candidatePacks: packed.map(entry => ({ name: entry.name, version: entry.version, filename: entry.filename, sha256: sha256(readFileSync(join(dir, entry.filename))) })), consumerDir: dir, dependencySource: 'exact candidate internal runtime closure; external registry pins unchanged', publicConsumerAdoption: false }));
-    writeFileSync(join(dir, 'qualify.mjs'), readFileSync(join(root, 'packages/openclaw/test/engine/packed-patches.fixture.mjs')));
-    console.log(run(process.execPath, ['qualify.mjs', join(root, 'packages/openclaw/scripts/engine-patches.ts'), join(root, 'packages/openclaw/scripts/workshop-patch.ts')], dir, 850_000));
-    if (process.argv.includes('--keep-openclaw-fixture')) {
-      pendingTmp.delete(dir);
-      console.log(JSON.stringify({ retainedOwnedFixture: dir, processes: 'stopped; immutable sets retained for read-only derivation' }));
-      return;
-    }
-  } finally { if (pendingTmp.delete(dir)) discardTmp(dir); }
-}
 try {
   if (process.argv[1] === fileURLToPath(import.meta.url)) {
-    if (process.argv.includes('--openclaw-engine')) realOpenClawPack();
-    else main();
+    main();
   }
 } catch (e) {
   console.error(`smoke:pack: ${(e as Error).message}`);

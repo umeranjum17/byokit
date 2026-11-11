@@ -62,7 +62,7 @@ export function logRecord(line: Buffer, format: HarnessLogFormat, context: LogCo
       if (!text(raw.id) || time(raw.timestamp) === undefined) return 'malformed';
       identity = [raw.id, raw.timestamp];
       provider = text(message.provider) ? message.provider : undefined;
-      usage = normalizeTokens(provider ?? '', message.usage, 'openclaw');
+      usage = normalizeTokens(provider ?? '', message.usage, 'pi');
     }
     if (stamp === undefined || usage.provenance === 'unknown') return 'malformed';
   }

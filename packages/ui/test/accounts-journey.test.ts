@@ -96,7 +96,7 @@ test('a person with two ChatGPT accounts sees one plain row each, the room left,
     assert.deepEqual([byId[personal].asOf!.text, byId[personal].asOf!.stale, byId[personal].low], ['Read 2 days ago (stale)', true, false]);
     assert.equal(JSON.stringify(rows).includes('@'), false, 'an email never reaches a row');
 
-    // An openclaw-sourced room carries no reading time: its resets show, and no age is made up.
+    // A room from a source without a reading time carries no reading time: its resets show, and no age is made up.
     const undated = accountRows(await accounts.list(1), (a) => rooms[a.id], now,
       (a) => windowsView({ provider: 'codex', windows: readings[a.id].windows }, now)).find((r) => r.id === work)!;
     assert.deepEqual(undated.windows!.map((w) => w.resetText), ['resets in 4d', 'resets in 3h']);
@@ -170,7 +170,7 @@ test('the accounts entry bundles for react-native with nothing from Node or Reac
 });
 
 // ---- The run picker and the Move target (WP10-S2) ----------------------------------------------------------
-// The picker and `bestMoveTarget` are proven against the shared parity table the accounts and openclaw choosers
+// The picker and `bestMoveTarget` are proven against the shared parity table the accounts choosers
 // already run: the built `@byokit/ui/accounts` and the built `@byokit/accounts` `resolveSelection` see the same
 // rows, and every row of the table that Auto can act on must agree.
 

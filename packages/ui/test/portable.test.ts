@@ -6,9 +6,7 @@ import assert from 'node:assert/strict';
 import { build } from 'esbuild';
 import type { DeviceLink } from '@byokit/link';
 import { herdrDevice } from '../../herdr/src/device.ts';
-import { openclawDevice } from '../../openclaw/src/device.ts';
-import { words as ocWords } from '../../openclaw/src/words.ts';
-import { approvalsStore, herdrStore, runStore, useApprovals, useBlocked, useHerdrTree, useRun } from '../src/index.ts';
+import { herdrStore, useBlocked, useHerdrTree } from '../src/index.ts';
 
 for (const condition of ['browser', 'react-native'] as const) {
   for (const entry of ['index', 'kits', 'phase', 'route', 'link', 'steps', 'connect']) {
@@ -27,13 +25,8 @@ for (const condition of ['browser', 'react-native'] as const) {
 }
 
 export const fits = (link: DeviceLink) => {
-  const oc = openclawDevice(link);
   const hd = herdrDevice(link);
-  runStore(oc);
-  approvalsStore(oc);
   herdrStore(hd);
-  useRun(oc, { words: ocWords, name: 'ChatGPT' });
-  useApprovals(oc);
   useHerdrTree(hd);
   useBlocked(hd);
 };

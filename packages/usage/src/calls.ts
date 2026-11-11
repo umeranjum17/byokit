@@ -40,8 +40,8 @@ export interface CallInput {
   time: number;
   /** Subscription by default; API key (billed per use) attribution is explicit. */
   billing?: 'subscription' | 'api';
-  /** OpenClaw reports input separately from cache reads/writes. */
-  usageFormat?: 'provider' | 'openclaw';
+  /** A Pi-shaped report lists input separately from cache reads/writes. */
+  usageFormat?: 'provider' | 'pi';
   /** Native provider usage/envelope, or normalized input/output/cachedInput/cacheWrite/total counts. */
   usage?: unknown;
   payer?: string;
@@ -90,11 +90,11 @@ function normalized(input?: number, output?: number, cachedInput?: number, cache
     provenance: input !== undefined && output !== undefined && derived !== undefined ? 'reported' : [input, output, cachedInput, cacheWrite, measured].some((v) => v !== undefined) ? 'partial' : 'unknown' };
 }
 /** Pure normalization of reported counts, never estimates from text or shared decision invocations. */
-export function normalizeTokens(provider: string, raw: unknown, format: 'provider' | 'openclaw' = 'provider'): NormalizedTokens {
+export function normalizeTokens(provider: string, raw: unknown, format: 'provider' | 'pi' = 'provider'): NormalizedTokens {
   const envelope = object(raw);
   const usage = object(envelope.usage ?? envelope.usageMetadata ?? raw);
   if (usage.provenance === 'unknown' || usage.provenance === 'estimated') return { provenance: 'unknown' };
-  if (format === 'openclaw') {
+  if (format === 'pi') {
     if (!['input', 'output', 'cacheRead', 'cacheWrite', 'total'].some((key) => count(usage[key]) !== undefined)) return { provenance: 'unknown' };
     const uncached = count(usage.input);
     const cached = count(usage.cacheRead) ?? (usage.cacheRead === undefined ? 0 : undefined);
@@ -160,7 +160,7 @@ export function callLedger(options: { store?: TokenLedgerStore; prices?: PriceTa
       if (!text(member) || !call || ![call.provider, call.account, call.model, call.runId].every(text) || !time(call.time)
         || call.billing !== undefined && !['subscription', 'api'].includes(call.billing) || call.payer !== undefined && !text(call.payer)
         || call.lane !== undefined && !text(call.lane) || call.route !== undefined && !text(call.route)
-        || call.usageFormat !== undefined && !['provider', 'openclaw'].includes(call.usageFormat)
+        || call.usageFormat !== undefined && !['provider', 'pi'].includes(call.usageFormat)
         || call.durationMs !== undefined && (typeof call.durationMs !== 'number' || !Number.isFinite(call.durationMs) || call.durationMs < 0)
         || call.state !== undefined && !['completed', 'cancelled', 'failed'].includes(call.state) || call.limits !== undefined && !Array.isArray(call.limits)) throw new TokenLedgerError('invalid');
       const billing = call.billing ?? 'subscription';

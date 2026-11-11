@@ -25,7 +25,7 @@ No screen exists for this SDK-only surface.
 ## Boundaries
 
 This proves host-side target selection and cancellation retention only. The portable phone
-start API is unchanged. It does not prove OpenClaw durable bindings, backend execution,
+start API is unchanged. It does not prove durable bindings, backend execution,
 helper delegation, principal duplication/mismatch, native logout, macOS keyring separation
 or simultaneous native runs. K1 index/sign-in integration and K2 agent-scoped engine routing
 must follow before a consumer can advertise native multi-account execution.

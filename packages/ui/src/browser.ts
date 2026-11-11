@@ -1,11 +1,10 @@
 // The browser sign-in sheet and live view as a person sees them: which sentence to show, which buttons to offer, and
-// the chip under the chat. Framework-free; typed structurally against `@byokit/openclaw`'s `NeedSignIn` and
-// `LiveViewState` (spec 5.17), so nothing here imports a kit. Sentences are the kit's word keys plus their values,
+// the chip under the chat. Framework-free; typed structurally, so nothing here imports a kit. Sentences are the kit's word keys plus their values,
 // for the kit's own `words` to say. Nothing here ever holds what the person types.
 import { retrying, store, type Store } from './follow.ts';
 import type { FollowOptions } from './approvals.ts';
 
-/** One sign-in request as the OpenClaw kit reports it (`NeedSignIn`). */
+/** One sign-in request as a kit reports it. */
 export type SignInRequest = {
   id: string;
   gen: number;

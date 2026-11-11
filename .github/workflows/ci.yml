@@ -183,6 +183,8 @@ jobs:
   # done-done gate: passes only when a judged-pass receipt is committed under
   # .done-done-receipts/ for this change (done-done gate --help). Reads git objects only,
   # so CI starts no journey, judge, model or key.
+  # The adapter selects receipts whose heads are PR commits, and filters a synthetic tree for the gate.
+  # Its parent is the checked-out merge commit; outside the receipt folder its tree is unchanged.
   # The gate judges a receipt against the commit CI checked out, so it is a pull-request check:
   # on a pull request that commit is the merge commit, whose second parent is the receipt's head,
   # so the head is an ancestor and the gate passes. A merge squashes that head away, so on a push
@@ -210,7 +212,12 @@ jobs:
       - if: needs.changes.outputs.receipt == 'true'
         run: npm install -g done-done-axi@0.6.0
       - if: needs.changes.outputs.receipt == 'true'
-        run: done-done gate
+        run: node --test scripts/ci-done-done.journey.ts
+      - if: needs.changes.outputs.receipt == 'true'
+        run: node scripts/ci-done-done.ts "$PR_BASE" "$PR_HEAD"
+        env:
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
 
   # Pack consumers get their own budget; the isolated suite above can use most of check's fifteen minutes.
   pack:
