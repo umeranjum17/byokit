@@ -1,1 +1,0 @@
-- Dependency update: pins react-native-zeroconf 0.17.6.

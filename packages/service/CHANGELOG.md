@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Dependency update: pins @byokit/cloud 0.6.2.
+
 ## 0.1.1 (2026-10-27)
 
 - FEATURE: `@byokit/service` (docs/service-kit.md A1 Linux half): `install({ name, bin, env })` writes one `byokit-<name>.service` per-user systemd unit through `@byokit/cloud/unit` and starts it with `systemctl --user enable --now`; `status({ name })` reads `running`, `stopped`, `not-installed` or `failed`; `uninstall({ name })` disables it and removes the file. No environment variable is read; a refused `loginctl enable-linger` rejects `linger` with the line to run, never escalating. Every platform but Linux and macOS rejects `unsupported` (`status` resolves `{ phase: 'unsupported' }`). Words: `service.*`.

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.1.7 (2026-11-12)
+
+- Dependency update: pins @byokit/accounts 0.35.0.
+- FIX: (from @byokit/accounts 0.35.0) Installed OpenCode logins are discovered by checking the default/XDG data store's existence only and can be launched with the person's HOME. Their status remains honestly unknown because OpenCode has no non-secret sign-in check.
+- FIX: (from @byokit/accounts 0.35.0) The computer engine now answers `getModel('ollama-pro', id)` (OpenAI-compatible, `https://ollama.com/v1`) like it does on phones, so a Pi consumer calls Ollama Pro with no local alias.
+- FIX: (from @byokit/accounts 0.35.0) Map Ollama Pro onto the existing OpenAI-compatible provider shape so Pi consumers can resolve and call its plan-key route without a project alias.
+
+- FEAT: `session.onChange(fn)` reports every move of the chat (turn started, step kept, tool started or ended, turn done,
+  failed or cut off) with the turn and the session status, and returns the way to stop. A `PhoneTool` with
+  `approval: { button, reason }` waits for the session's new `ask(approval)` before it runs: the tool reads `asking` and
+  the session `blocked` while it waits, a no reaches the model as declined, and the answer is kept so a turn cut off
+  while asking asks again and one cut off after the answer does not.
+
 ## 0.1.6 (2026-10-25)
 
 - Dependency update: pins @byokit/accounts 0.34.0.

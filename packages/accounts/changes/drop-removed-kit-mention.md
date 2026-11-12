@@ -1,1 +1,0 @@
-- Documentation: the accounts README and source comments no longer name a removed runtime kit.

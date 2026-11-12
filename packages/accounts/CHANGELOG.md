@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.35.0 (2026-11-12)
+
+- Documentation: the accounts README and source comments no longer name a removed runtime kit.
+- Dependency update: pins @anthropic-ai/sdk 1.3.0, @google/genai 2.31.0, @modelcontextprotocol/sdk 1.32.2 and openai 7.43.0; undici-types 8.12.3 (types only).
+- FIX: Installed OpenCode logins are discovered by checking the default/XDG data store's existence only and can be launched with the person's HOME. Their status remains honestly unknown because OpenCode has no non-secret sign-in check.
+- FIX: The computer engine now answers `getModel('ollama-pro', id)` (OpenAI-compatible, `https://ollama.com/v1`) like it does on phones, so a Pi consumer calls Ollama Pro with no local alias.
+- FIX: Map Ollama Pro onto the existing OpenAI-compatible provider shape so Pi consumers can resolve and call its plan-key route without a project alias.
+- BREAKING: Removing the OpenClaw kit (`@byokit/openclaw`) breaks apps that still depend on it: its source is gone and it gets no further releases or fixes (the last published version, 0.28.3, stays on npm as it is). Move such apps off it before upgrading; no shim or replacement is provided.
+
 ## 0.34.0 (2026-10-25)
 
 - Dependency update: pins @byokit/usage 0.10.1.
