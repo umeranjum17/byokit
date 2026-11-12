@@ -1,0 +1,54 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "e6599548bcddf755e2d5f51edde4318e32705ebc",
+  "tree": "cdc5510d2379e4907a65949366b750d268d50454",
+  "claim": "A consumer app can install the shipped accounts package, link an account with the offline stand-in, and receive an answer.",
+  "result": "pass",
+  "at": "2026-11-12T11:41:21.887Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261112T114056Z-e6599548-05477a/core-journey.txt",
+      "sha256": "83fc59f14a0b680fda297e17e6121064907e7b96534d4e0c3194151589c38be7"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261112T114056Z-e6599548-05477a",
+      "commit": "e6599548bcddf755e2d5f51edde4318e32705ebc",
+      "journey": "core",
+      "command": "node .agents/skills/done-done-verify-byokit/capture/core-journey.mjs",
+      "tool": "0.6.26",
+      "steps": {
+        "target": {
+          "version": "0.35.0"
+        },
+        "start": "a fresh consumer app with no package installed and no account linked",
+        "steps": [
+          "install the shipped @byokit/accounts package into the app",
+          "the app links a ChatGPT account by device code: it shows a code and the person approves it",
+          "the app reads the account status",
+          "the app asks the provider a question and prints the answer it gets back"
+        ],
+        "result": "the installed package answers: \"ChatGPT is connected.\" and the answer \"You said: Plan my day\""
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-fable-5-2",
+    "independence": "agent",
+    "author": {
+      "agent": "codex",
+      "model": "gpt-6.1-terra"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261112T114056Z-e6599548-05477a/core-journey.txt",
+        "sha256": "83fc59f14a0b680fda297e17e6121064907e7b96534d4e0c3194151589c38be7",
+        "verdict": "pass",
+        "seen": "I read all 13 lines of the single capture. Header: \"package under test: @byokit/accounts@0.35.0\", \"installed from: ...byokit-accounts-0.35.0.tgz (npm pack of packages/accounts)\", \"provider: the kit's own stand-in for OpenAI on 127.0.0.1 (no account, no key, no network)\", \"run: node consumer.mjs (exit 0)\". Output: \"sign-in: waiting code MOCK-10001\", \"status: ChatGPT is connected.\", \"streamed: You said: Plan my day\", \"answer: You said: Plan my day\". The last two lines (\"not offered: Error: AI account not offered here\", \"no account: ResponseError: ChatGPT isn't signed in yet.\") are labelled negative-path checks and the run exited 0, so they do not contradict the outcome. Install, link via offline stand-in, and answer are all shown."
+      }
+    ]
+  }
+}
