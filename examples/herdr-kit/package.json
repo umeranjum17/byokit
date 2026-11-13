@@ -14,12 +14,12 @@
     "test": "node --test e2e.test.ts"
   },
   "dependencies": {
-    "@byokit/herdr": "0.19.0",
+    "@byokit/herdr": "0.19.1",
     "@byokit/pair": "0.11.0",
-    "@byokit/discover": "0.8.7",
+    "@byokit/discover": "0.8.8",
     "@byokit/relay": "0.8.4",
     "@byokit/seal": "0.3.2",
-    "@byokit/ui": "1.1.0",
+    "@byokit/ui": "1.2.0",
     "@byokit/usage": "0.10.1"
   },
   "devDependencies": {

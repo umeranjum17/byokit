@@ -1,1 +1,0 @@
-- FIX: The computer engine now answers `getModel('ollama-pro', id)` (OpenAI-compatible, `https://ollama.com/v1`) like it does on phones, so a Pi consumer calls Ollama Pro with no local alias.

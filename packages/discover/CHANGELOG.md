@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.8.8 (2026-11-12)
+
+- Dependency update: pins @byokit/ui 1.2.0.
+
+- Dependency update: pins react-native-zeroconf 0.17.6.
+
 ## 0.8.7 (2026-10-25)
 
 - Dependency update: pins @byokit/ui 1.1.0.

@@ -1,1 +1,0 @@
-- BREAKING: `ConnectRoute.upstream.surface` and `ConnectRow.surface` no longer accept a removed runtime kit's name; the README and source comments no longer name it.

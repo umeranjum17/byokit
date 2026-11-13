@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.6.2 (2026-11-12)
+
+- Documentation: the cloud kit README no longer names a removed runtime kit.
+- BREAKING: Removing the OpenClaw kit (`@byokit/openclaw`) breaks apps that still depend on it: its source is gone and it gets no further releases or fixes (the last published version, 0.28.3, stays on npm as it is). Move such apps off it before upgrading; no shim or replacement is provided.
+
 ## 0.6.1 (2026-10-25)
 
 - DOCS: align npm descriptions, keywords and homepages with the BYOKit README.

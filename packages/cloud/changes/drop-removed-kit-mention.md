@@ -1,1 +1,0 @@
-- Documentation: the cloud kit README no longer names a removed runtime kit.

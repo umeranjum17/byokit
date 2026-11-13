@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.17.1 (2026-11-12)
+
+- Dependency update: pins @byokit/accounts 0.35.0.
+- FIX: (from @byokit/accounts 0.35.0) Installed OpenCode logins are discovered by checking the default/XDG data store's existence only and can be launched with the person's HOME. Their status remains honestly unknown because OpenCode has no non-secret sign-in check.
+- FIX: (from @byokit/accounts 0.35.0) The computer engine now answers `getModel('ollama-pro', id)` (OpenAI-compatible, `https://ollama.com/v1`) like it does on phones, so a Pi consumer calls Ollama Pro with no local alias.
+- FIX: (from @byokit/accounts 0.35.0) Map Ollama Pro onto the existing OpenAI-compatible provider shape so Pi consumers can resolve and call its plan-key route without a project alias.
+
 ## 0.17.0 (2026-10-30)
 
 - FIX: High-effort Claude thinking runs no longer die on a pinned output cap: the cap is the caller's choice, and the CLI decides when no output budget is supplied.
