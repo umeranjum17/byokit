@@ -1,0 +1,1 @@
+- FIX: an installed Claude account's status probe now keeps the person's `CLAUDE_CONFIG_DIR`. The launch environment filter used to strip it, so a Claude account pinned to its own config folder read as signed out. The billing and provider overrides are still removed.

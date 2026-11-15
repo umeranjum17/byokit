@@ -400,8 +400,9 @@ export function cliAccounts(options: CliOptions) {
   // git's own global files, so name the pool HOME's real one (`~/.gitconfig` wins where both exist) or none
   // at all: `git commit` keeps its identity, and an ambient folder cannot outlive the managed one. Paths only.
   function launch(r: Row): { set: Record<string, string>; unset: string[] } {
-    // The installed CLI runs as the person runs it: no folder variable, only the per-use billing overrides removed.
-    if (r.installed) return { set: {}, unset: [...shed[r.provider]] };
+    // The installed CLI runs as the person runs it: their own Claude folder variable passes through (the env
+    // filter would unset it, and a pinned account then reads signed out), only the per-use billing overrides removed.
+    if (r.installed) return { set: r.provider === 'claude' && env.CLAUDE_CONFIG_DIR ? { CLAUDE_CONFIG_DIR: env.CLAUDE_CONFIG_DIR } : {}, unset: [...shed[r.provider]] };
     // OpenCode keeps its sign-in store and database in the XDG roots (1.x auth.json, 2.x opencode.db): each account gets its own.
     if (r.provider === 'opencode') return { set: { [folderVar(r.provider)]: r.folder, XDG_DATA_HOME: join(r.folder, 'data'),
       XDG_STATE_HOME: join(r.folder, 'state'), XDG_CACHE_HOME: join(r.folder, 'cache') }, unset: [...shed.opencode] };
