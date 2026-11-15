@@ -553,6 +553,18 @@ test('installed CLIs signed in under the app HOME: listed, picked and launched w
   assert.deepEqual([absent.state, absent.why, absent.reason, absent.cause], ['unknown', 'unknown', 'unavailable', 'Claude on this computer could not start.']);
 });
 
+test('installed Claude status probe keeps the person\'s CLAUDE_CONFIG_DIR while the billing overrides stay unset', async () => {
+  const root = scratchDir('cli-installed-config-dir'); const claude = fake(join(root, 'bins'), 'claude');
+  const pinned = join(root, 'pinned-claude'); const home = join(root, 'home'); mkdirSync(home, { recursive: true });
+  const kit = cliAccounts({ stateDir: join(root, 'plans'), bins: { claude: claude.bin }, installed: true,
+    env: { HOME: home, PATH: '/unused', CLAUDE_CONFIG_DIR: pinned, ANTHROPIC_API_KEY: 'never-passed', CLAUDE_CODE_OAUTH_TOKEN: 'never-passed' } });
+  assert.equal((await kit.status('installed-claude')).state, 'ready');
+  const status = claude.calls().at(-1);
+  assert.deepEqual(status.argv, ['auth', 'status']);
+  assert.equal(status.env.CLAUDE_CONFIG_DIR, pinned);
+  for (const shed of ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN']) assert.equal(shed in status.env, false, shed);
+});
+
 test('managed OpenCode Go key route and folder launch remain separate from installed discovery', async () => {
   const root = scratchDir('managed-opencode-route'), bin = fake(join(root, 'bins'), 'opencode').bin;
   const values = new Map<string, string>();
