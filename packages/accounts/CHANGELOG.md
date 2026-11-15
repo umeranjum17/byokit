@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.35.1 (2026-11-15)
+
+- FIX: an installed Claude account's status probe now keeps the person's `CLAUDE_CONFIG_DIR`. The launch environment filter used to strip it, so a Claude account pinned to its own config folder read as signed out. The billing and provider overrides are still removed.
+
 ## 0.35.0 (2026-11-12)
 
 - Documentation: the accounts README and source comments no longer name a removed runtime kit.
