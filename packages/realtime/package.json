@@ -45,7 +45,7 @@
     "access": "public"
   },
   "dependencies": {
-    "ws": "8.22.0"
+    "ws": "8.22.2"
   },
   "peerDependencies": {
     "react-native-webrtc": "124.0.8"
