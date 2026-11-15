@@ -1,0 +1,58 @@
+{
+  "schema": 2,
+  "repo": "byokit",
+  "head": "6c67844e27aac24d41ad7ccfb16c525b13412dc6",
+  "tree": "600197d5bc1eb6bcafb78e229d0e529fc1af188c",
+  "claim": "The release commit publishes @byokit/accounts 0.35.1 with a FIX: changelog line for the installed Claude status probe, and that probe keeps the person's CLAUDE_CONFIG_DIR, so a Claude account pinned to its own config folder no longer reads signed out; the billing and provider overrides stay removed.",
+  "result": "pass",
+  "at": "2026-11-15T16:45:34.060Z",
+  "files": [
+    {
+      "path": "<evidence root>/20261115T163924Z-6c67844e-72e41b/claude-probe-journey.txt",
+      "sha256": "456727cca9e093246f729e32fff2c26afe14fa3f604eccb29a75290db8bbc5fb"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "20261115T163924Z-6c67844e-72e41b",
+      "commit": "6c67844e27aac24d41ad7ccfb16c525b13412dc6",
+      "journey": null,
+      "command": "python3 .verify-artifacts/byokit-receipt-934/capture.py",
+      "tool": "0.6.31",
+      "steps": {
+        "target": {
+          "version": "6c67844e27aac24d41ad7ccfb16c525b13412dc6"
+        },
+        "start": "An app uses an installed Claude account pinned to its own config folder; the fixture CLI records the status-probe environment.",
+        "steps": [
+          "Run the existing integration proof against the parent cli.ts in an isolated scratch copy; observe the missing CLAUDE_CONFIG_DIR assertion fail.",
+          "Run the same proof against release source; observe the probe keep CLAUDE_CONFIG_DIR and omit ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN.",
+          "Capture the published accounts version, FIX changelog line, consumed changelog fragment, and dependent cascade versions."
+        ],
+        "result": "The integration proof fails against the parent source and passes against the release source; release metadata is captured from the commit."
+      }
+    }
+  ],
+  "judge": {
+    "route": "claude-code",
+    "model": "claude-haiku-5-5",
+    "independence": "session-only",
+    "author": {
+      "agent": "claude",
+      "model": "claude-haiku-5-5"
+    },
+    "verdicts": [
+      {
+        "path": "<evidence root>/20261115T163924Z-6c67844e-72e41b/claude-probe-journey.txt",
+        "sha256": "456727cca9e093246f729e32fff2c26afe14fa3f604eccb29a75290db8bbc5fb",
+        "verdict": "pass"
+      }
+    ]
+  },
+  "suite": {
+    "command": "npm test",
+    "exit": 0,
+    "duration_ms": 343296,
+    "log": "<evidence root>/.done-done/suite/6c67844e27aac24d41ad7ccfb16c525b13412dc6.log"
+  }
+}
