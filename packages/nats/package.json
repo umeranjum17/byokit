@@ -12,8 +12,8 @@
   },
   "files": ["dist", "README.md", "LICENSE", "CHANGELOG.md"],
   "dependencies": {
-    "@nats-io/jetstream": "3.4.0",
-    "@nats-io/transport-node": "3.4.0"
+    "@nats-io/jetstream": "3.5.0",
+    "@nats-io/transport-node": "3.5.0"
   },
   "scripts": { "prepack": "tsc -b" },
   "publishConfig": { "access": "public" }
